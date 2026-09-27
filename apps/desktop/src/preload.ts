@@ -4,6 +4,8 @@ import type { ScopeBridge, Snapshot } from "./bridge.ts";
 const bridge: ScopeBridge = {
   settings: () => ipcRenderer.invoke("scope:settings"),
   saveSettings: (input) => ipcRenderer.invoke("scope:save-settings", input),
+  workspace: () => ipcRenderer.invoke("scope:workspace"),
+  saveWorkspace: (input) => ipcRenderer.invoke("scope:save-workspace", input),
   snapshot: () => ipcRenderer.invoke("scope:snapshot"),
   content: (id, revision) => ipcRenderer.invoke("scope:content", { id, revision }),
   download: (id, revision) => ipcRenderer.invoke("scope:download", { id, revision }),

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node src/main.ts",
+    "dev": "vp exec node src/main.ts",
     "build": "vp pack"
   },
   "dependencies": {

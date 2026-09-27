@@ -1,7 +1,9 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { Schema } from "effect";
-import { decode } from "@irudd-scope/protocol";
+import { Effect, ManagedRuntime, Schema } from "effect";
+import { SqliteClient } from "@effect/sql-sqlite-node";
+import { ArtifactId, decode } from "@irudd-scope/protocol";
+import { memoryCredentials, type CredentialStore, type Secrets } from "./credentials.ts";
 
 export const MODEL = "google/gemini-3.8-flash";
 export const ProviderSettings = Schema.Struct({
@@ -27,26 +29,26 @@ export type SettingsView = {
   model: typeof MODEL;
   hasApiKey: boolean;
   keyStorage: "keychain" | "session";
+  credentialError?: string;
 };
-type SecretName = "apiKey";
-export type SecretProtection = {
-  encrypt: (text: string) => Promise<Buffer>;
-  decrypt: (bytes: Buffer) => Promise<string>;
-};
-const LegacySettings = Schema.Struct({
-  version: Schema.Literal(1),
-  endpoint: Schema.String,
-  provider: Schema.Literal("openrouter"),
-  model: Schema.Literal(MODEL),
-  hubToken: Schema.optionalKey(Schema.String),
-  apiKey: Schema.optionalKey(Schema.String),
+export const Workspace = Schema.Struct({
+  tabs: Schema.Array(ArtifactId).check(Schema.isMaxLength(100)),
+  selected: Schema.NullOr(ArtifactId),
 });
+export type Workspace = typeof Workspace.Type;
 const SavedSettings = Schema.Struct({
   version: Schema.Literal(2),
   provider: Schema.Literal("openrouter"),
   model: Schema.Literal(MODEL),
+});
+const LegacySettings = Schema.Struct({
+  ...SavedSettings.fields,
+  version: Schema.Literals([1, 2]),
+  endpoint: Schema.optionalKey(Schema.String),
+  hubToken: Schema.optionalKey(Schema.String),
   apiKey: Schema.optionalKey(Schema.String),
 });
+const databaseRuntime = (filename: string) => ManagedRuntime.make(SqliteClient.layer({ filename }));
 
 export class SettingsStore {
   private saved: typeof SavedSettings.Type = {
@@ -54,31 +56,99 @@ export class SettingsStore {
     provider: "openrouter",
     model: MODEL,
   };
-  private readonly memory: Partial<Record<SecretName, string>> = {};
-  private readonly directory: string;
-  private readonly protection?: SecretProtection;
+  private runtime?: ReturnType<typeof databaseRuntime>;
+  private sql?: SqliteClient.SqliteClient;
+  private presence = { hasApiKey: false };
+  private credentialError?: string;
   private pending = Promise.resolve();
 
-  constructor(directory: string, protection?: SecretProtection) {
-    this.directory = directory;
-    this.protection = protection;
-  }
+  constructor(
+    private readonly directory: string,
+    private readonly credentials: CredentialStore = memoryCredentials(),
+    private readonly decodeLegacySecret?: (bytes: Buffer) => Promise<string>,
+  ) {}
 
   async load(): Promise<void> {
+    await mkdir(this.directory, { recursive: true, mode: 0o700 });
+    const filename = join(this.directory, "desktop.db");
+    this.runtime = databaseRuntime(filename);
     try {
-      const saved = decode(
-        Schema.Union([SavedSettings, LegacySettings]),
-        JSON.parse(await readFile(join(this.directory, "settings.json"), "utf8")),
+      const sql = (this.sql = await this.runtime.runPromise(SqliteClient.SqliteClient));
+      await chmod(filename, 0o600);
+      const [{ user_version: version }] = await this.run(
+        sql<{ user_version: number }>`PRAGMA user_version`,
       );
-      this.saved = {
-        version: 2,
-        provider: saved.provider,
-        model: saved.model,
-        ...(saved.apiKey ? { apiKey: saved.apiKey } : {}),
-      };
+      if (version > 2) throw new Error("The desktop database requires a newer Scope version.");
+      await this.run(
+        sql`CREATE TABLE IF NOT EXISTS preferences (
+          name TEXT PRIMARY KEY, document TEXT NOT NULL CHECK (json_valid(document))
+        ) STRICT`,
+      );
+      const [row] = await this.run(
+        sql<{ document: string }>`SELECT document FROM preferences WHERE name = 'settings'`,
+      );
+      let legacy: string | null = null;
+      if (row) {
+        const saved = decode(LegacySettings, JSON.parse(row.document));
+        this.saved = { version: 2, provider: saved.provider, model: saved.model };
+      } else {
+        legacy = await readFile(join(this.directory, "settings.json"), "utf8").catch(
+          (error: unknown) => {
+            if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+            throw error;
+          },
+        );
+        if (legacy !== null) {
+          const old = decode(LegacySettings, JSON.parse(legacy));
+          if (old.apiKey) {
+            if (this.credentials.kind !== "keychain" || !this.decodeLegacySecret)
+              throw new Error(
+                "Open this desktop profile on macOS to migrate its saved credentials to Keychain.",
+              );
+            const secrets = { ...(await this.credentials.read()) };
+            if (!secrets.apiKey)
+              secrets.apiKey = await this.decodeLegacySecret(Buffer.from(old.apiKey, "base64"));
+            await this.credentials.write(secrets);
+          }
+          this.saved = {
+            version: 2,
+            provider: old.provider,
+            model: old.model,
+          };
+        }
+      }
+      const document = JSON.stringify(this.saved);
+      await this.run(
+        sql.withTransaction(
+          Effect.gen(function* () {
+            yield* sql`INSERT INTO preferences(name, document) VALUES ('settings', ${document})
+              ON CONFLICT(name) DO UPDATE SET document = excluded.document`;
+            yield* sql`PRAGMA user_version = 2`;
+          }),
+        ),
+      );
+      if (legacy !== null) await unlink(join(this.directory, "settings.json"));
+      await this.refreshPresence();
     } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
-        throw new Error("Cannot read Scope settings. Restore or remove the local settings file.");
+      await this.runtime.dispose();
+      throw error;
+    }
+  }
+
+  private run<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
+    if (!this.runtime) throw new Error("Desktop preferences are not open.");
+    return this.runtime.runPromise(effect);
+  }
+
+  private async refreshPresence(): Promise<void> {
+    try {
+      const secrets = await this.credentials.read();
+      this.presence = {
+        hasApiKey: Boolean(secrets.apiKey),
+      };
+      this.credentialError = undefined;
+    } catch {
+      this.credentialError = "Key status is unavailable. Unlock macOS Keychain and try again.";
     }
   }
 
@@ -86,69 +156,74 @@ export class SettingsStore {
     return {
       provider: this.saved.provider,
       model: this.saved.model,
-      hasApiKey: Boolean(this.memory.apiKey || this.saved.apiKey),
-      keyStorage: this.protection ? "keychain" : "session",
+      ...this.presence,
+      keyStorage: this.credentials.kind,
+      ...(this.credentialError ? { credentialError: this.credentialError } : {}),
     };
   }
 
-  async secret(name: SecretName): Promise<string | undefined> {
-    if (this.memory[name]) return this.memory[name];
-    const ciphertext = this.saved[name];
-    if (!ciphertext) return undefined;
-    if (!this.protection)
-      throw new Error(
-        "This saved key requires macOS Keychain. Enter a temporary key for this session.",
-      );
-    try {
-      return await this.protection.decrypt(Buffer.from(ciphertext, "base64"));
-    } catch {
-      throw new Error(
-        "Cannot unlock the saved key. Allow Scope to access Keychain, or replace the key in Settings.",
-      );
-    }
+  async secret(name: keyof Secrets): Promise<string | undefined> {
+    return (await this.credentials.read())[name];
   }
 
-  update(value: SettingsUpdate): Promise<SettingsView> {
-    const task = this.pending.then(async () => {
-      const input = decodeSettingsUpdate(value);
-      const next = { ...this.saved };
-      const nextMemory = { ...this.memory };
-      if (input.removeApiKey && input.apiKey)
-        throw new Error("Choose either replacing or removing the key.");
-      if (input.removeApiKey) {
-        delete next.apiKey;
-        delete nextMemory.apiKey;
-      }
-      const secret = input.apiKey?.trim();
-      if (secret !== undefined) {
-        if (!secret || /[\r\n]/.test(secret)) throw new Error("Enter a key on one line.");
-        if (this.protection) {
-          try {
-            next.apiKey = (await this.protection.encrypt(secret)).toString("base64");
-          } catch {
-            throw new Error(
-              "Cannot save the key in secure storage. Allow Scope to access Keychain and try again.",
-            );
-          }
-          delete nextMemory.apiKey;
-        } else {
-          nextMemory.apiKey = secret;
-          delete next.apiKey;
-        }
-      }
-      await mkdir(this.directory, { recursive: true, mode: 0o700 });
-      const temporary = join(this.directory, "settings.tmp");
-      await writeFile(temporary, JSON.stringify(next), { mode: 0o600 });
-      await rename(temporary, join(this.directory, "settings.json"));
-      this.saved = next;
-      delete this.memory.apiKey;
-      Object.assign(this.memory, nextMemory);
-      return this.view();
-    });
+  private enqueue<A>(write: () => Promise<A>): Promise<A> {
+    const task = this.pending.then(write);
     this.pending = task.then(
       () => {},
       () => {},
     );
     return task;
+  }
+
+  update(value: SettingsUpdate): Promise<SettingsView> {
+    return this.enqueue(async () => {
+      const input = decodeSettingsUpdate(value);
+      const next = { ...this.saved };
+      if (input.removeApiKey && input.apiKey)
+        throw new Error("Choose either replacing or removing the key.");
+      if (input.apiKey !== undefined || input.removeApiKey) {
+        const secrets = { ...(await this.credentials.read()) };
+        if (input.removeApiKey) delete secrets.apiKey;
+        const secret = input.apiKey?.trim();
+        if (secret !== undefined) {
+          if (!secret || /[\r\n]/.test(secret)) throw new Error("Enter a key on one line.");
+          secrets.apiKey = secret;
+        }
+        await this.credentials.write(secrets);
+      }
+      await this.run(
+        this
+          .sql!`UPDATE preferences SET document = ${JSON.stringify(next)} WHERE name = 'settings'`,
+      );
+      this.saved = next;
+      await this.refreshPresence();
+      return this.view();
+    });
+  }
+
+  async workspace(): Promise<Workspace | null> {
+    const [row] = await this.run(
+      this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'workspace'`,
+    );
+    return row ? decode(Workspace, JSON.parse(row.document)) : null;
+  }
+
+  saveWorkspace(value: unknown): Promise<void> {
+    const workspace = decode(Workspace, value);
+    if (
+      new Set(workspace.tabs).size !== workspace.tabs.length ||
+      (workspace.selected !== null && !workspace.tabs.includes(workspace.selected))
+    )
+      throw new Error("Invalid workspace selection.");
+    return this.enqueue(async () => {
+      await this.run(this
+        .sql!`INSERT INTO preferences(name, document) VALUES ('workspace', ${JSON.stringify(workspace)})
+        ON CONFLICT(name) DO UPDATE SET document = excluded.document`);
+    });
+  }
+
+  async close(): Promise<void> {
+    await this.pending;
+    await this.runtime?.dispose();
   }
 }

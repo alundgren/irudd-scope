@@ -1,6 +1,7 @@
 import { expect, test } from "vite-plus/test";
 import { rm, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test("the diagram tool creates an editable Excalidraw artifact in desktop storage", async () => {
@@ -156,9 +157,15 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
     await page.getByRole("button", { name: "Save settings" }).click();
     await page.getByText("Settings saved.").waitFor();
     expect(await page.getByLabel("OpenRouter API key").inputValue()).toBe("");
-    expect(await readFile(join(settingsDirectory, "settings.json"), "utf8")).not.toContain(
-      "synthetic-desktop-api-key",
-    );
+    const database = new DatabaseSync(join(settingsDirectory, "desktop.db"), { readOnly: true });
+    try {
+      expect(JSON.stringify(database.prepare("SELECT * FROM preferences").all())).not.toContain(
+        "synthetic-desktop-api-key",
+      );
+    } finally {
+      database.close();
+    }
+    expect(await page.evaluate(() => localStorage.getItem("scope.workspace.v1"))).toBeNull();
     await page.getByRole("button", { name: "Remove key" }).click();
     await page.getByText("No key saved").waitFor();
     await page.getByRole("button", { name: "Done", exact: true }).click();

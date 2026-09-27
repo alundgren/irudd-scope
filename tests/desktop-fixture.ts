@@ -21,6 +21,7 @@ export async function desktopFixture() {
     SCOPE_DESKTOP_DATA_DIR: settingsDirectory,
     SCOPE_DATA_DIR: join(settingsDirectory, "artifacts"),
     SCOPE_PORT: "0",
+    SCOPE_SESSION_CREDENTIALS: "1",
   };
   // Electron-based development tools can pass their Node-only mode to children.
   delete env.ELECTRON_RUN_AS_NODE;

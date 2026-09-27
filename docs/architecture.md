@@ -8,8 +8,8 @@ flowchart LR
     Remote[Remote CLI] -->|private HTTPS| Desktop
     Remote -->|optional| Hub[VM hub]
     Hub -->|private HTTPS forwarding| Desktop
-    Desktop --> SQLite[SQLite metadata]
-    Desktop --> Files[Artifact content files]
+    Desktop --> SQLite[SQLite artifacts and preferences]
+    Desktop --> Keychain[macOS Keychain]
     Desktop -->|validated IPC| UI[Sandboxed React renderer]
     Desktop -->|model calls| Provider[OpenRouter]
 ```
@@ -18,7 +18,7 @@ flowchart LR
 
 `packages/protocol` owns artifact types, input validation, wire formats, limits, the local connection-file contract, and the shared HTTP client. It has no dependency on an application, filesystem, Electron, or model provider. Its README defines the public exchanges beside those contracts.
 
-`apps/desktop` owns durable artifact metadata, revisions, content files, the publishing API, the human workspace, local preferences, credentials, and model execution. Electron main opens SQLite and the loopback HTTP listener, and closes them when the app quits. The sandboxed React renderer uses a small preload API. Artifact renderers receive artifact data, never publishing tokens or provider credentials.
+`apps/desktop` owns durable artifact metadata, revisions, content, the publishing API, the human workspace, local preferences, credentials, and model execution. Electron main opens SQLite and the loopback HTTP listener, and closes them when the app quits. The sandboxed React renderer uses a small preload API. Artifact renderers receive artifact data, never publishing tokens or provider credentials.
 
 `packages/cli` owns file detection, explicit publication, and cheap optional provenance from hostname, cwd, Git, and supplied agent/session information. It discovers the local desktop through a private connection file and uses the protocol client. An explicit endpoint requires explicit credentials. The CLI does not inspect transcripts or launch agents.
 
@@ -36,9 +36,9 @@ Closing the last window quits Scope and stops publication. The connection file r
 
 ## Persistent data
 
-The desktop is authoritative for artifact content and metadata. SQLite and content files live in one local data directory. An artifact has a stable ID and an increasing revision. Create refuses an existing ID. Update requires the expected revision, so two writers cannot silently overwrite one another. Closing a desktop tab only changes local workspace preferences.
+The desktop is authoritative for artifact content and metadata. `scope.db` stores artifact metadata and binary content in the local artifact directory. `desktop.db` stores ordinary settings and workspace preferences in Electron's user data directory. Both use `@effect/sql-sqlite-node` with an owned Effect runtime. Provider credentials live outside SQLite, and the private discovery file holds the publishing endpoint and token. An artifact has a stable ID and an increasing revision. Create refuses an existing ID. Update requires the expected revision, so two writers cannot silently overwrite one another. Closing a desktop tab only changes local workspace preferences.
 
-Content files use SHA-256 names and are installed before SQLite references them. A failed metadata write can leave an unused blob, but never a row pointing at unfinished content. Metadata updates are atomic. The current artifact revision has no history browser. Future migrations must preserve IDs and existing records.
+Binary content uses SHA-256 IDs and is inserted before artifact metadata references it. A failed metadata write can leave an unused blob row, but never metadata pointing at unfinished content. Metadata updates and expected-revision checks run in one SQLite transaction. The current artifact revision has no history browser. Future migrations must preserve IDs and existing records.
 
 Optional provenance fields are absent when unknown. Missing information must not prevent publication. Session records and hook installation are not prerequisites for artifact records.
 
@@ -50,9 +50,9 @@ Agent HTML is untrusted. Preview it in a sandboxed iframe with no scripts, same-
 
 The preload API exposes named operations and validates IPC callers. It must not expose arbitrary filesystem access, shell execution, fetch, Electron objects, or secret-reading methods. The app blocks unexpected navigation, child windows, and permissions.
 
-Settings initially offers OpenRouter and `google/gemini-3.8-flash`. The trusted settings form can submit a new key once. Main encrypts it with Electron asynchronous `safeStorage`, clears the submitted value from the form, and returns only whether a key is stored. On macOS, Keychain protects the encryption key; the API key's ciphertext stays in the app's local data directory. Replacing and removing the key are supported. Stable code signing is needed for consistent Keychain access across Mac builds.
+Settings initially offers OpenRouter and `google/gemini-3.8-flash`. The trusted settings form can submit a new key once. Main stores it directly in macOS Keychain through `@napi-rs/keyring`, clears the submitted value from the form, and returns only whether a key is stored. It uses Electron asynchronous `safeStorage` only to migrate older encrypted settings. Keychain entries are isolated by desktop profile. Replacing and removing the key are supported. Stable code signing is needed for consistent Keychain access across Mac builds.
 
-Linux development must not persist a key through Electron's insecure fallback. A key may be used in memory for that process. Standard tests use synthetic responses and never need a real key. The local publishing token is also kept out of artifact renderers.
+Linux development and isolated sessions using `SCOPE_SESSION_CREDENTIALS=1` keep provider keys in memory for that process. Standard tests use synthetic responses and never need a real key. The local publishing token is also kept out of artifact renderers.
 
 Diagram generation accepts intent and a compact semantic scene and returns validated semantic drawing operations plus usage. `apps/desktop/src/diagram/contract.ts` owns `DiagramProvider`; `openrouter.ts` owns OpenRouter's wire format. The renderer translates validated operations into Excalidraw elements. Future local Codex and Claude CLI providers implement that same narrow task contract inside desktop main. They must not become a generic execution API. Provider choice is not part of the artifact transport.
 

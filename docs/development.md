@@ -1,6 +1,6 @@
 # Development
 
-Use Vite+ `1.0.0-rc.1`. Node `26.10.0` and pnpm `12.6.0` are pinned. Dependencies use stable or release-candidate versions, with exact versions in the workspace catalog and lockfile. Do not adopt beta, alpha, nightly, or canary releases without a specific decision.
+Use Vite+ `1.0.0-rc.1`. Node `26.10.0` and pnpm `12.6.0` are pinned. Use Vite+ for development commands, including `vp exec node` for Node scripts. Dependencies use stable or release-candidate versions, with exact versions in the workspace catalog and lockfile. Do not adopt beta, alpha, nightly, or canary releases without a specific decision.
 
 The stack is TypeScript, React, Vite+ with its bundled Vitest 5, Effect 4 RC, shadcn/ui, and Tailwind 4. Import test APIs from `vite-plus/test`. Add only UI components that the app uses. Electron main runs on Electron's bundled Node version, so its code must also work there.
 
@@ -17,7 +17,7 @@ Tests use temporary data directories and synthetic credentials. Prefer complete 
 
 After `vp install`, run `vp run desktop` to build and open Electron. Electron main starts the local publishing API and owns the SQLite database. No separate hub process or connection settings are needed. Electron's bundled Node runtime is independent of the Node version used by Vite+.
 
-On macOS the default artifact directory is `~/Library/Application Support/irudd-scope/artifacts`. It contains `scope.db` and the `blobs` directory. Provider settings remain in Electron's user data directory.
+On macOS the default artifact directory is `~/Library/Application Support/irudd-scope/artifacts`. It contains `scope.db`, which stores metadata and artifact bytes. Electron's user data directory contains `desktop.db` for provider settings and open tabs. Mac provider keys live directly in Keychain. The private discovery file is the exception to database storage because the CLI reads its endpoint and publishing token before contacting Scope.
 
 Scope creates `~/.config/irudd-scope/desktop.json` with mode `0600`. It contains a versioned local endpoint and bearer token. The CLI discovers these automatically. Keep this file private and outside Git. Quitting Scope leaves the connection file in place, but publication fails until the app is running again.
 
@@ -36,11 +36,11 @@ vp run scope list
 
 The built executable is `packages/cli/dist/main.mjs`. Its shebang runs Node; put a wrapper or symlink named `irudd-scope` on your PATH once the configured Node runtime is available. `vp run scope` is the equivalent checkout command.
 
-Settings contains the diagram provider, model, and API key. OpenRouter and Gemini 3.8 Flash are the initial choices. On macOS the provider key is encrypted through Keychain-backed secure storage. Linux development keeps it in memory. Existing version 1 settings retain the provider key and discard the obsolete hub fields when next saved.
+Settings contains the diagram provider, model, and API key. OpenRouter and Gemini 3.8 Flash are the initial choices. On macOS the provider key is stored directly in Keychain. Linux development keeps it in memory. Version 1 and version 2 JSON settings migrate into `desktop.db`; the provider key migrates through Electron secure storage into Keychain, and obsolete hub fields are discarded. Migration removes the JSON file only after saving the replacement. Existing browser tab preferences import into SQLite on first launch.
 
 Use Create diagram in the empty workspace or search. A generated diagram becomes a normal artifact stored on the Mac. Use the change field on its canvas for targeted edits, then Save. Model output is validated before application. A failed request does not change the canvas.
 
-For isolated development or tests, set `SCOPE_DESKTOP_DATA_DIR` for Electron preferences, `SCOPE_DATA_DIR` for artifact storage, and `SCOPE_CONNECTION_FILE` for discovery. The artifact directory defaults to `artifacts` under the selected Electron data directory. The desktop and CLI must use the same connection file. `SCOPE_PORT` selects the loopback port, default `43120`; `0` lets the OS choose a free port and records it in the connection file. Isolate both data and connection files when running multiple development instances.
+For isolated development or tests, set `SCOPE_DESKTOP_DATA_DIR` for Electron preferences, `SCOPE_DATA_DIR` for artifact storage, and `SCOPE_CONNECTION_FILE` for discovery. The artifact directory defaults to `artifacts` under the selected Electron data directory. The desktop and CLI must use the same connection file. `SCOPE_PORT` selects the loopback port, default `43120`; `0` lets the OS choose a free port and records it in the connection file. Isolate both data and connection files when running multiple development instances. Set `SCOPE_SESSION_CREDENTIALS=1` to keep provider keys in memory on a development Mac. Standard Electron tests use this option to avoid accessing native Keychain.
 
 ## Optional remote access
 
@@ -62,7 +62,7 @@ Use Tailscale Serve for private access to that loopback listener if needed. A ca
 
 ## Existing artifact data
 
-To reuse data from a previous hub installation, stop the old hub and Scope, then copy the complete artifact data directory to the Mac. Point `SCOPE_DATA_DIR` at that copy when opening Scope. The SQLite tables and content-file format are unchanged, so existing IDs and revisions are retained. Do not merge it into a nonempty library or run the old hub against the same directory. No data is copied automatically from a remote VM.
+To reuse data from a previous hub installation, stop the old hub and Scope, then copy the complete artifact data directory to the Mac. Point `SCOPE_DATA_DIR` at that copy when opening Scope. The desktop verifies legacy content files and imports them into SQLite in one transaction, retaining IDs and revisions. It removes the old content files after the transaction commits. Missing or corrupt content stops migration and retains the original database and files. Do not merge it into a nonempty library or run the old hub against the same directory. No data is copied automatically from a remote VM. Back up the complete directory before upgrading. Artifact schema version 2 requires the updated desktop; an older build cannot read its artifact bytes. Restore the backup before downgrading.
 
 ## Checks and current limits
 
@@ -74,4 +74,4 @@ Artifacts are durable. Unsaved canvas edits are local to the current desktop pro
 
 The desktop currently runs from a checkout. A signed Mac application bundle and its native Keychain acceptance check are still required before distributing releases. Linux tests do not establish that behavior. Local Codex/Claude providers, remote generation requests, session tools, and tool-size hooks are planned capabilities, not working settings.
 
-SQLite and blob storage need a backup policy before storing irreplaceable work. Quit Scope before copying its artifact data directory, or use SQLite's online backup API and copy the referenced blobs. Do not copy only `scope.db` while a running desktop may have committed data in its WAL file.
+Quit Scope before backing up `scope.db` and `desktop.db`, or use SQLite's online backup API for each database. Copying only a database file while Scope runs can omit committed data in its WAL file. Provider keys remain in macOS Keychain, outside these backups.

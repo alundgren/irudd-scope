@@ -16,6 +16,7 @@ import { Schema } from "effect";
 import { ArtifactId, DEFAULT_CONNECTION_FILE, Revision, decode } from "@irudd-scope/protocol";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { SettingsStore, decodeSettingsUpdate } from "./settings.ts";
+import { macCredentials, memoryCredentials } from "./credentials.ts";
 import type { ArtifactContent, Snapshot } from "./bridge.ts";
 import { DiagramRequest } from "./diagram/contract.ts";
 import { openRouterProvider } from "./diagram/openrouter.ts";
@@ -34,15 +35,11 @@ async function main() {
 
   const settings = new SettingsStore(
     app.getPath("userData"),
+    process.platform === "darwin" && process.env.SCOPE_SESSION_CREDENTIALS !== "1"
+      ? await macCredentials(app.getPath("userData"))
+      : memoryCredentials(),
     process.platform === "darwin"
-      ? {
-          encrypt: async (text) => {
-            if (!(await safeStorage.isAsyncEncryptionAvailable()))
-              throw new Error("Keychain unavailable.");
-            return safeStorage.encryptStringAsync(text);
-          },
-          decrypt: async (bytes) => (await safeStorage.decryptStringAsync(bytes)).result,
-        }
+      ? async (bytes) => (await safeStorage.decryptStringAsync(bytes)).result
       : undefined,
   );
   await settings.load();
@@ -50,6 +47,9 @@ async function main() {
     directory: process.env.SCOPE_DATA_DIR ?? join(app.getPath("userData"), "artifacts"),
     connectionFile: process.env.SCOPE_CONNECTION_FILE ?? join(homedir(), DEFAULT_CONNECTION_FILE),
     port: process.env.SCOPE_PORT ? Number(process.env.SCOPE_PORT) : undefined,
+  }).catch(async (error: unknown) => {
+    await settings.close();
+    throw error;
   });
   let current: Snapshot = { artifacts: [], connection: "connecting" };
   const client = new ScopeClient(artifacts.url, artifacts.token);
@@ -65,14 +65,13 @@ async function main() {
     closing = true;
     connection?.abort();
     drawing?.abort();
-    void artifacts
-      .close()
+    void Promise.all([artifacts.close(), settings.close()])
       .then(() => {
         closed = true;
         app.quit();
       })
       .catch(() => {
-        console.error("Scope could not close its artifact storage.");
+        console.error("Scope could not close its databases.");
         app.exit(1);
       });
   });
@@ -167,6 +166,8 @@ async function main() {
   }
 
   handle("scope:settings", () => settings.view());
+  handle("scope:workspace", () => settings.workspace());
+  handle("scope:save-workspace", (input) => settings.saveWorkspace(input));
   handle("scope:save-settings", (input) => settings.update(decodeSettingsUpdate(input)));
   handle("scope:snapshot", () => current);
   handle("scope:compose", async (input) => {
