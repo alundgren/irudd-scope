@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../renderer/components/ui/dialog.tsx";
-import { matchingSettings } from "../renderer/settings-view.tsx";
+import { matchingSettings } from "../renderer/settings-section.tsx";
 
 interface WorkspaceAction {
   id: string;
@@ -86,10 +86,12 @@ export function WorkspaceSearch({
   }
   const needle = query.trim().toLowerCase();
   const matches = artifacts
-    .filter((artifact) =>
-      `${artifact.title} ${artifact.kind} ${Object.values(artifact.source ?? {}).join(" ")}`
-        .toLowerCase()
-        .includes(needle),
+    .filter(
+      (artifact) =>
+        needle &&
+        `${artifact.title} ${artifact.kind} ${Object.values(artifact.source ?? {}).join(" ")}`
+          .toLowerCase()
+          .includes(needle),
     )
     .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const matchingActions = (entries: readonly WorkspaceAction[]) =>
@@ -172,9 +174,9 @@ export function WorkspaceSearch({
               </div>
             </section>
           )}
-          {(matches.length > 0 || !needle) && (
+          {matches.length > 0 && (
             <section className="search-section" aria-label="Artifact results">
-              <h2>{needle ? "Artifacts" : "Recent artifacts"}</h2>
+              <h2>Artifacts</h2>
               <div className="artifact-list">
                 {matches.map((artifact) => (
                   <button key={artifact.id} onClick={() => onOpenArtifact(artifact.id)}>
@@ -184,9 +186,6 @@ export function WorkspaceSearch({
                   </button>
                 ))}
               </div>
-              {!matches.length && (
-                <p className="secondary">Published artifacts will appear here.</p>
-              )}
             </section>
           )}
           {!hasResults && needle && (

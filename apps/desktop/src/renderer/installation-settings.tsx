@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AgentToolStatus, UpdateStatus } from "../installation-contract.ts";
 import { Button } from "./components/ui/button.tsx";
 import { SigningSettings } from "./signing-settings.tsx";
+import { SettingsSection } from "./settings-section.tsx";
 
 function useUpdates() {
   const [status, setStatus] = useState<UpdateStatus>();
@@ -108,15 +109,7 @@ function BuildProgress({
   );
 }
 
-export function InstallationSettings({
-  showUpdates,
-  showTools,
-  showSigning,
-}: {
-  showUpdates: boolean;
-  showTools: boolean;
-  showSigning: boolean;
-}) {
+export function InstallationSettings({ query }: { query: string }) {
   const updates = useUpdates();
   const [tools, setTools] = useState<AgentToolStatus>();
   const [error, setError] = useState("");
@@ -148,17 +141,12 @@ export function InstallationSettings({
         run(() => window.scope.restartToUpdate().finally(() => setRestarting(false)));
       }}
       onCancel={() => run(() => window.scope.cancelUpdate())}
-      onCheck={
-        updates?.operation === "signing" && showSigning
-          ? undefined
-          : () => run(() => window.scope.checkForUpdates())
-      }
+      onCheck={() => run(() => window.scope.checkForUpdates())}
     />
   );
   return (
     <>
-      <fieldset hidden={!showUpdates}>
-        <legend>App updates</legend>
+      <SettingsSection id="updates" query={query}>
         {updates?.phase === "unmanaged" && <p>{updates.message}</p>}
         {updates?.phase !== "unmanaged" && (
           <>
@@ -171,26 +159,11 @@ export function InstallationSettings({
                 Installed commit <code>{updates.currentCommit.slice(0, 8)}</code>
               </p>
             )}
-            {updates?.operation === "signing" && showSigning ? (
-              <p className="secondary">The certificate change is shown below.</p>
-            ) : (
-              progress
-            )}
+            {progress}
           </>
         )}
-      </fieldset>
-      <fieldset hidden={!showSigning}>
-        <legend>Signing certificate</legend>
-        <SigningSettings
-          status={updates}
-          disabled={updating || restarting || Boolean(tools?.busy)}
-          progress={
-            updates?.operation === "signing" || (updating && !showUpdates) ? progress : null
-          }
-        />
-      </fieldset>
-      <fieldset hidden={!showTools}>
-        <legend>Agent tools</legend>
+      </SettingsSection>
+      <SettingsSection id="tools" query={query}>
         {!tools?.available && (
           <p className="secondary">Use the installed Mac app to install agent tools.</p>
         )}
@@ -271,7 +244,14 @@ export function InstallationSettings({
             <pre>{tools.error}</pre>
           </details>
         )}
-      </fieldset>
+      </SettingsSection>
+      <SettingsSection id="signing" query={query}>
+        <SigningSettings
+          status={updates}
+          disabled={updating || restarting || Boolean(tools?.busy)}
+          progress={updates?.operation === "signing" || updating ? progress : null}
+        />
+      </SettingsSection>
       {error && <p role="alert">{error}</p>}
     </>
   );

@@ -22,8 +22,9 @@ test("the CLI commits artifacts while diagram generation is pending and the rend
     const page = await application.firstWindow();
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Diagram generation", exact: true }).click();
     await page.getByLabel("OpenRouter API key").fill("synthetic-pending-key");
-    await page.getByRole("button", { name: "Save settings" }).click();
+    await page.getByRole("button", { name: "Save key" }).click();
     await page.getByText("Settings saved.").waitFor();
     await page.getByRole("button", { name: "Done", exact: true }).click();
     await expect.poll(() => page.getByRole("dialog").count()).toBe(0);
@@ -79,9 +80,11 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     page.on("pageerror", (error) => errors.push(error.message));
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Diagram generation", exact: true }).click();
     await page.getByLabel("OpenRouter API key").fill("synthetic-diagram-key");
-    await page.getByRole("button", { name: "Save settings" }).click();
+    await page.getByRole("button", { name: "Save key" }).click();
     await page.getByText("Settings saved.").waitFor();
+    await page.getByRole("button", { name: "Appearance", exact: true }).click();
     await page.getByLabel("Appearance", { exact: true }).selectOption("dark");
     await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe("dark");
     await page.getByRole("button", { name: "Done", exact: true }).click();
@@ -232,13 +235,10 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
       database.close();
     }
     await page.getByRole("button", { name: "Dismiss error" }).click();
-    await page.getByRole("button", { name: `Close ${artifacts[0].title}`, exact: true }).click();
-    await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
-    const closedDraft = await page.evaluate((id) => window.scope.diagramDraft(id), artifacts[0].id);
-    expect(JSON.parse(closedDraft!.content).elements).toEqual(
+    const savedDraft = await page.evaluate((id) => window.scope.diagramDraft(id), artifacts[0].id);
+    expect(JSON.parse(savedDraft!.content).elements).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: "agent:api", x: 620 })]),
     );
-    await page.keyboard.press("ControlOrMeta+Shift+t");
     await page.getByText("Moved it again.", { exact: true }).waitFor();
     expect(await page.getByLabel("Change diagram", { exact: true }).inputValue()).toBe(
       "Keep this prompt through a failure",
@@ -370,6 +370,7 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
     );
     expect(await page.getByRole("heading", { name: "Actual report" }).isVisible()).toBe(true);
     await page.getByRole("button", { name: "Search and controls" }).click();
+    await page.getByLabel("Search artifacts", { exact: true }).fill("Hostile preview");
     await page.getByRole("button", { name: "Hostile preview html" }).click();
     const preview = page.frameLocator('iframe[title="Hostile preview"]');
     await preview.getByRole("heading", { name: "Isolated preview" }).waitFor();
@@ -395,8 +396,9 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     expect(await page.getByText("Hub connection", { exact: true }).count()).toBe(0);
     expect(await page.getByLabel("Hub token").count()).toBe(0);
+    await page.getByRole("button", { name: "Diagram generation", exact: true }).click();
     await page.getByLabel("OpenRouter API key").fill("synthetic-desktop-api-key");
-    await page.getByRole("button", { name: "Save settings" }).click();
+    await page.getByRole("button", { name: "Save key" }).click();
     await page.getByText("Settings saved.").waitFor();
     expect(await page.getByLabel("OpenRouter API key").inputValue()).toBe("");
     const database = new DatabaseSync(join(settingsDirectory, "desktop.db"), { readOnly: true });

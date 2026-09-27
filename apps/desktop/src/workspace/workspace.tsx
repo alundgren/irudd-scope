@@ -5,17 +5,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import {
-  Download,
-  Maximize2,
-  Minimize2,
-  Search,
-  Settings,
-  X,
-  Info,
-  RotateCcw,
-  Plus,
-} from "lucide-react";
+import { Download, Maximize2, Minimize2, Search, Settings, X, Info, Plus } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
 import {
   Dialog,
@@ -152,10 +142,6 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
     if (!tabs.length) setFocus(false);
     requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
   }
-  function reopen() {
-    const tab = workspace.closed.at(-1);
-    if (tab) activate(tab, true);
-  }
   function openSettings(filter = "") {
     setSettingsQuery(filter);
     setSettings(true);
@@ -200,9 +186,6 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
       ) {
         event.preventDefault();
         setFocus((value) => !value);
-      } else if (command && event.shiftKey && event.key.toLowerCase() === "t") {
-        event.preventDefault();
-        reopen();
       } else if (command && event.key.toLowerCase() === "w" && workspace.selected) {
         event.preventDefault();
         void close(workspace.selected);
@@ -459,18 +442,6 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
               setFocus(false);
             },
           })),
-          ...(workspace.closed.length
-            ? [
-                {
-                  id: "reopen",
-                  title: "Reopen closed tab",
-                  keywords: "restore undo",
-                  icon: RotateCcw,
-                  shortcut: "⌘⇧T",
-                  onSelect: reopen,
-                },
-              ]
-            : []),
         ]}
         currentTab={
           active && !creating
