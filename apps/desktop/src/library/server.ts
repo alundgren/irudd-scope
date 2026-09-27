@@ -110,16 +110,8 @@ export async function startArtifactServer(options: {
       return;
     }
     if (url.pathname === "/v1/maintenance/shrink" && request.method === "POST" && !url.search) {
-      const parts: Buffer[] = [];
-      let size = 0;
-      for await (const part of request) {
-        size += part.length;
-        if (size > 1024) throw new ScopeError(413, "Maintenance request exceeds the size limit.");
-        parts.push(part);
-      }
-      const input = validate(() =>
-        decode(ShrinkRequest, JSON.parse(Buffer.concat(parts).toString("utf8"))),
-      );
+      const body = await readJson(request, 1024, "Maintenance request exceeds the size limit.");
+      const input = validate(() => decode(ShrinkRequest, body));
       request.setTimeout(input.timeoutMs + 5000);
       const receipt = options.shrink
         ? await options.shrink(input.timeoutMs)
@@ -157,30 +149,32 @@ export async function startArtifactServer(options: {
     const match = /^\/v1\/artifacts\/([^/]+)(\/content|\/tab)?$/.exec(url.pathname);
     if (!match) throw new ScopeError(404, "Endpoint not found.");
     const id = validate(() => decode(ArtifactId, decodeURIComponent(match[1])));
-    if (request.method === "POST" && match[2] === "/tab" && !url.search) {
-      const parts: Buffer[] = [];
-      let size = 0;
-      for await (const part of request) {
-        size += part.length;
-        if (size > 1024) throw new ScopeError(413, "Tab request exceeds the size limit.");
-        parts.push(part);
-      }
-      const input = validate(() =>
-        decode(PublicationRequest, JSON.parse(Buffer.concat(parts).toString("utf8"))),
-      );
+    await handleArtifact(request, response, url, id, match[2]);
+  }
+
+  async function handleArtifact(
+    request: IncomingMessage,
+    response: ServerResponse,
+    url: URL,
+    id: string,
+    suffix: string | undefined,
+  ) {
+    if (request.method === "POST" && suffix === "/tab" && !url.search) {
+      const body = await readJson(request, 1024, "Tab request exceeds the size limit.");
+      const input = validate(() => decode(PublicationRequest, body));
       json(response, 201, { tabId: await store.reserve(id, input.expectedRevision) });
       return;
     }
-    if (request.method === "DELETE" && !match[2] && !url.search) {
+    if (request.method === "DELETE" && !suffix && !url.search) {
       const receipt = options.deleteArtifact
         ? await options.deleteArtifact(id)
         : { id, deleted: await store.removeArtifact(id) };
       json(response, 200, receipt);
       return;
     }
-    if (request.method === "GET" && match[2] !== "/tab") {
+    if (request.method === "GET" && suffix !== "/tab") {
       const artifact = await store.get(id);
-      if (!match[2]) {
+      if (!suffix) {
         json(response, 200, artifact);
         return;
       }
@@ -199,18 +193,9 @@ export async function startArtifactServer(options: {
       response.end(bytes);
       return;
     }
-    if (request.method === "PUT" && !match[2]) {
-      const parts: Buffer[] = [];
-      let size = 0;
-      for await (const part of request) {
-        size += part.length;
-        if (size > MAX_METADATA_BYTES)
-          throw new ScopeError(413, "Artifact metadata exceeds 16 KiB.");
-        parts.push(part);
-      }
-      const input = validate(() =>
-        decode(ArtifactWrite, JSON.parse(Buffer.concat(parts).toString("utf8"))),
-      );
+    if (request.method === "PUT" && !suffix) {
+      const body = await readJson(request, MAX_METADATA_BYTES, "Artifact metadata exceeds 16 KiB.");
+      const input = validate(() => decode(ArtifactWrite, body));
       const artifact = await store.put(id, input);
       json(response, input.expectedRevision === 0 ? 201 : 200, artifact);
       return;
@@ -255,4 +240,19 @@ function validate<T>(read: () => T): T {
   } catch {
     throw new ScopeError(400, "Invalid artifact metadata or ID.");
   }
+}
+
+async function readJson(
+  request: IncomingMessage,
+  limit: number,
+  tooLarge: string,
+): Promise<unknown> {
+  const parts: Buffer[] = [];
+  let size = 0;
+  for await (const part of request) {
+    size += part.length;
+    if (size > limit) throw new ScopeError(413, tooLarge);
+    parts.push(part);
+  }
+  return validate(() => JSON.parse(Buffer.concat(parts).toString("utf8")));
 }

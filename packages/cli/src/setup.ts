@@ -132,13 +132,24 @@ export async function printPairing() {
   );
 }
 
-export async function setup(options: {
+type SetupOptions = {
   yes?: boolean;
   httpsPort?: string;
   port?: string;
   noPair?: boolean;
-}) {
-  const root = installation();
+};
+const ServeStatus = Schema.Struct({
+  TCP: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
+  Web: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
+});
+const ServeWeb = Schema.Struct({
+  Handlers: Schema.Record(
+    Schema.String,
+    Schema.Struct({ Proxy: Schema.optionalKey(Schema.String) }),
+  ),
+});
+
+async function inspectSetupEnvironment(root: string) {
   if (process.platform !== "linux")
     throw new Error("Remote setup currently requires Linux with a systemd user service.");
   for (const path of [root, directory(), connectionFile(), serviceFile()])
@@ -158,12 +169,94 @@ export async function setup(options: {
   const hostname = status.Self.DNSName.replace(/\.$/, "");
   if (status.BackendState !== "Running" || !/^[a-z0-9.-]+\.ts\.net$/.test(hostname))
     throw new Error("Connect Tailscale with MagicDNS and HTTPS enabled, then retry setup.");
-  const serve = Schema.decodeUnknownSync(
-    Schema.Struct({
-      TCP: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
-      Web: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
-    }),
-  )(JSON.parse((await command("tailscale", ["serve", "status", "--json"])).stdout));
+  const serve = Schema.decodeUnknownSync(ServeStatus)(
+    JSON.parse((await command("tailscale", ["serve", "status", "--json"])).stdout),
+  );
+  return { hostname, serve };
+}
+
+function selectLocalPort(
+  requested: string | undefined,
+  configured: HubStatus | undefined,
+  serve: typeof ServeStatus.Type,
+) {
+  let port = Number(requested ?? configured?.port ?? DEFAULT_PORT);
+  if (requested || configured) return port;
+  const reserved = new Set<string>();
+  for (const value of Object.values(serve.Web ?? {})) {
+    const web = Schema.decodeUnknownSync(ServeWeb)(value);
+    for (const handler of Object.values(web.Handlers))
+      if (handler.Proxy) reserved.add(handler.Proxy);
+  }
+  while (reserved.has(`http://127.0.0.1:${port}`) && port < 65535) port++;
+  return port;
+}
+
+function selectSetupPorts(
+  options: SetupOptions,
+  configured: HubStatus | undefined,
+  hostname: string,
+  serve: typeof ServeStatus.Type,
+) {
+  const oldPort = configured?.endpoint ? new URL(configured.endpoint).port || "443" : undefined;
+  const port = selectLocalPort(options.port, configured, serve);
+  let httpsPort = Number(options.httpsPort ?? oldPort ?? 8450);
+  const explicitPort = Boolean(options.httpsPort || oldPort);
+  if (!explicitPort) while (serve.TCP?.[String(httpsPort)] && httpsPort < 65535) httpsPort++;
+  for (const value of [port, httpsPort])
+    if (!Number.isInteger(value) || value < 1 || value > 65535)
+      throw new Error("Ports must be whole numbers from 1 to 65535.");
+  const endpoint = `https://${hostname}:${httpsPort}`;
+  const target = `http://127.0.0.1:${port}`;
+  if (serve.TCP?.[String(httpsPort)]) {
+    const web = Schema.decodeUnknownSync(ServeWeb)(serve.Web?.[`${hostname}:${httpsPort}`]);
+    if (
+      Object.keys(web.Handlers).length !== 1 ||
+      web.Handlers["/"]?.Proxy !== target ||
+      configured?.endpoint !== endpoint
+    )
+      throw new Error("That Tailscale Serve port is already in use. Choose another --https-port.");
+  }
+  return { port, httpsPort, endpoint, target };
+}
+
+async function confirmSetup(yes: boolean | undefined) {
+  if (!yes) {
+    if (!process.stdin.isTTY)
+      throw new Error("Run setup in a terminal to confirm these changes, or pass --yes.");
+    const input = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      return /^y(?:es)?$/i.test((await input.question("Continue? [y/N] ")).trim());
+    } finally {
+      input.close();
+    }
+  }
+  return true;
+}
+
+async function waitForHub() {
+  let ready = false;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if (
+      await hubRequest("status").then(
+        () => true,
+        () => false,
+      )
+    ) {
+      ready = true;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (!ready)
+    throw new Error(
+      `The hub did not start. Inspect journalctl --user -u ${unitName}, then rerun setup.`,
+    );
+}
+
+export async function setup(options: SetupOptions) {
+  const root = installation();
+  const { hostname, serve } = await inspectSetupEnvironment(root);
   const configured = await access(join(directory(), "hub.db")).then(
     async () =>
       decode(
@@ -174,48 +267,12 @@ export async function setup(options: {
       ),
     () => undefined,
   );
-  const oldPort = configured?.endpoint ? new URL(configured.endpoint).port || "443" : undefined;
-  let port = Number(options.port ?? configured?.port ?? DEFAULT_PORT);
-  if (!options.port && !configured) {
-    const reserved = new Set<string>();
-    for (const value of Object.values(serve.Web ?? {})) {
-      const web = Schema.decodeUnknownSync(
-        Schema.Struct({
-          Handlers: Schema.Record(
-            Schema.String,
-            Schema.Struct({ Proxy: Schema.optionalKey(Schema.String) }),
-          ),
-        }),
-      )(value);
-      for (const handler of Object.values(web.Handlers))
-        if (handler.Proxy) reserved.add(handler.Proxy);
-    }
-    while (reserved.has(`http://127.0.0.1:${port}`) && port < 65535) port++;
-  }
-  let httpsPort = Number(options.httpsPort ?? oldPort ?? 8450);
-  const explicitPort = Boolean(options.httpsPort || oldPort);
-  if (!explicitPort) while (serve.TCP?.[String(httpsPort)] && httpsPort < 65535) httpsPort++;
-  for (const value of [port, httpsPort])
-    if (!Number.isInteger(value) || value < 1 || value > 65535)
-      throw new Error("Ports must be whole numbers from 1 to 65535.");
-  const endpoint = `https://${hostname}:${httpsPort}`;
-  const target = `http://127.0.0.1:${port}`;
-  if (serve.TCP?.[String(httpsPort)]) {
-    const web = Schema.decodeUnknownSync(
-      Schema.Struct({
-        Handlers: Schema.Record(
-          Schema.String,
-          Schema.Struct({ Proxy: Schema.optionalKey(Schema.String) }),
-        ),
-      }),
-    )(serve.Web?.[`${hostname}:${httpsPort}`]);
-    if (
-      Object.keys(web.Handlers).length !== 1 ||
-      web.Handlers["/"]?.Proxy !== target ||
-      configured?.endpoint !== endpoint
-    )
-      throw new Error("That Tailscale Serve port is already in use. Choose another --https-port.");
-  }
+  const { port, httpsPort, endpoint, target } = selectSetupPorts(
+    options,
+    configured,
+    hostname,
+    serve,
+  );
   const existingUnit = await fileText(serviceFile());
   if (existingUnit && !existingUnit.startsWith(unitMarker))
     throw new Error("An unmanaged hub service already exists. Move it aside before setup.");
@@ -225,16 +282,7 @@ export async function setup(options: {
   console.log(
     `Scope setup will run the hub as your user, install its skill for Codex and Claude Code, and publish ${endpoint} through Tailscale Serve.\nHub state: ${directory()}\nCLI discovery: ${connectionFile()}\nService: ${serviceFile()}\nExisting Serve routes will be preserved.`,
   );
-  if (!options.yes) {
-    if (!process.stdin.isTTY)
-      throw new Error("Run setup in a terminal to confirm these changes, or pass --yes.");
-    const input = createInterface({ input: process.stdin, output: process.stdout });
-    try {
-      if (!/^y(?:es)?$/i.test((await input.question("Continue? [y/N] ")).trim())) return;
-    } finally {
-      input.close();
-    }
-  }
+  if (!(await confirmSetup(options.yes))) return;
   await command(join(root, "runtime/node"), [
     join(root, "hub/main.mjs"),
     "configure",
@@ -255,27 +303,37 @@ export async function setup(options: {
   await command("systemctl", ["--user", "restart", unitName]);
   if (!serve.TCP?.[String(httpsPort)])
     await configureServe(["--bg", `--https=${httpsPort}`, target]);
-  let ready = false;
-  for (let attempt = 0; attempt < 20; attempt++) {
-    if (
-      await hubRequest("status").then(
-        () => true,
-        () => false,
-      )
-    ) {
-      ready = true;
-      break;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  if (!ready)
-    throw new Error(
-      `The hub did not start. Inspect journalctl --user -u ${unitName}, then rerun setup.`,
-    );
+  await waitForHub();
   console.log("Hub is running. Scope on your Mac will initiate the connection.");
   const current = await hubRequest("status");
   if (!options.noPair && !current.pairedMac) await printPairing();
   else if (current.pairedMac) console.log("The existing Mac pairing is unchanged.");
+}
+
+async function shrinkHub(timeoutMs: number, statusOnly: boolean) {
+  const signal = AbortSignal.timeout(timeoutMs);
+  const { endpoint, token } = decodeLocalConnection(
+    JSON.parse(await readFile(connectionFile(), { encoding: "utf8", signal })),
+  );
+  const response = await fetch(`${endpoint}/v1/hub/${statusOnly ? "maintenance" : "shrink"}`, {
+    method: statusOnly ? "GET" : "POST",
+    redirect: "error",
+    signal,
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    ...(statusOnly
+      ? {}
+      : {
+          body: JSON.stringify(
+            decode(ShrinkRequest, { timeoutMs: Math.min(timeoutMs, MAX_MAINTENANCE_TIMEOUT_MS) }),
+          ),
+        }),
+  });
+  const result = await readRemoteJson(response);
+  if (!response.ok) throw new Error(decode(Schema.Struct({ error: Schema.String }), result).error);
+  const receipt = statusOnly ? decode(MaintenanceStatus, result) : decode(ShrinkReceipt, result);
+  console.log(JSON.stringify(receipt, null, 2));
+  if (!statusOnly && receipt.databases.some((database) => database.status !== "completed"))
+    process.exitCode = 1;
 }
 
 export async function manageHub(
@@ -284,30 +342,7 @@ export async function manageHub(
   statusOnly = false,
 ) {
   if (action === "shrink") {
-    const signal = AbortSignal.timeout(timeoutMs);
-    const { endpoint, token } = decodeLocalConnection(
-      JSON.parse(await readFile(connectionFile(), { encoding: "utf8", signal })),
-    );
-    const response = await fetch(`${endpoint}/v1/hub/${statusOnly ? "maintenance" : "shrink"}`, {
-      method: statusOnly ? "GET" : "POST",
-      redirect: "error",
-      signal,
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      ...(statusOnly
-        ? {}
-        : {
-            body: JSON.stringify(
-              decode(ShrinkRequest, { timeoutMs: Math.min(timeoutMs, MAX_MAINTENANCE_TIMEOUT_MS) }),
-            ),
-          }),
-    });
-    const result = await readRemoteJson(response);
-    if (!response.ok)
-      throw new Error(decode(Schema.Struct({ error: Schema.String }), result).error);
-    const receipt = statusOnly ? decode(MaintenanceStatus, result) : decode(ShrinkReceipt, result);
-    console.log(JSON.stringify(receipt, null, 2));
-    if (!statusOnly && receipt.databases.some((database) => database.status !== "completed"))
-      process.exitCode = 1;
+    await shrinkHub(timeoutMs, statusOnly);
     return;
   }
   if (action === "status") {
@@ -325,31 +360,33 @@ export async function manageHub(
   if (!unit?.startsWith(unitMarker))
     throw new Error("No Scope-managed hub service is installed. Run irudd-scope setup.");
   if (action === "remove") {
-    const status = await hubRequest("status");
-    const url = new URL(status.endpoint!);
-    const serve = JSON.parse((await command("tailscale", ["serve", "status", "--json"])).stdout);
-    const connection = decodeLocalConnection(JSON.parse(await readFile(connectionFile(), "utf8")));
-    const handlers = serve.Web?.[url.host]?.Handlers;
-    if (
-      handlers &&
-      (Object.keys(handlers).length !== 1 || handlers["/"]?.Proxy !== connection.endpoint)
-    )
-      throw new Error(
-        "The hub's Serve route was changed by another tool. Remove that route manually before removing the hub.",
-      );
-    await hubRequest("unpair");
-    if (handlers) await configureServe([`--https=${url.port || "443"}`, "off"]);
-    await command("systemctl", ["--user", "disable", "--now", unitName]);
-    await unlink(serviceFile());
-    await command("systemctl", ["--user", "daemon-reload"]);
-    await unlink(connectionFile());
-    console.log(
-      "Hub service and its Serve route removed. The CLI, skill, and hub settings remain.",
-    );
+    await removeHub();
   } else {
     await command("systemctl", ["--user", action!, unitName]);
     console.log(
       action === "start" ? "Hub started." : "Hub stopped. Run irudd-scope hub start to resume.",
     );
   }
+}
+
+async function removeHub() {
+  const status = await hubRequest("status");
+  const url = new URL(status.endpoint!);
+  const serve = JSON.parse((await command("tailscale", ["serve", "status", "--json"])).stdout);
+  const connection = decodeLocalConnection(JSON.parse(await readFile(connectionFile(), "utf8")));
+  const handlers = serve.Web?.[url.host]?.Handlers;
+  if (
+    handlers &&
+    (Object.keys(handlers).length !== 1 || handlers["/"]?.Proxy !== connection.endpoint)
+  )
+    throw new Error(
+      "The hub's Serve route was changed by another tool. Remove that route manually before removing the hub.",
+    );
+  await hubRequest("unpair");
+  if (handlers) await configureServe([`--https=${url.port || "443"}`, "off"]);
+  await command("systemctl", ["--user", "disable", "--now", unitName]);
+  await unlink(serviceFile());
+  await command("systemctl", ["--user", "daemon-reload"]);
+  await unlink(connectionFile());
+  console.log("Hub service and its Serve route removed. The CLI, skill, and hub settings remain.");
 }

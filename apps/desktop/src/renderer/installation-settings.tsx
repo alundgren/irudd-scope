@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AgentToolStatus, UpdateStatus } from "../installation-contract.ts";
 import { Button } from "./components/ui/button.tsx";
+import { AgentToolSettings } from "./agent-tool-settings.tsx";
 import { SigningSettings } from "./signing-settings.tsx";
 import { SettingsSection } from "./settings-section.tsx";
 
@@ -63,19 +64,19 @@ function BuildProgress({
   onCancel: () => void;
   onCheck?: () => void;
 }) {
-  const busy = status?.phase === "checking" || status?.phase === "building";
-  const signing = status?.operation === "signing";
+  const { phase, operation, message, nextSigningCertificate, output } = status ?? {};
+  const busy = phase === "checking" || phase === "building";
+  const signing = operation === "signing";
   return (
     <>
-      <p role="status">{status?.message ?? "Reading update status…"}</p>
-      {signing && (status.phase === "building" || status.phase === "ready") && (
+      <p role="status">{message ?? "Reading update status…"}</p>
+      {signing && (phase === "building" || phase === "ready") && (
         <p className="secondary">
-          After restart:{" "}
-          {status.nextSigningCertificate?.name ?? "default signing without a certificate"}.
+          After restart: {nextSigningCertificate?.name ?? "default signing without a certificate"}.
         </p>
       )}
       <div className="installation-actions">
-        {status?.phase === "ready" ? (
+        {phase === "ready" ? (
           <Button type="button" disabled={disabled} onClick={onRestart}>
             {signing ? "Restart to apply" : "Restart to update"}
           </Button>
@@ -88,21 +89,21 @@ function BuildProgress({
           >
             {busy
               ? "Updating…"
-              : status?.phase === "error" && !signing
+              : phase === "error" && !signing
                 ? "Retry update"
                 : "Check for updates"}
           </Button>
         ) : null}
-        {(busy || (signing && status.phase === "ready")) && (
+        {(busy || (signing && phase === "ready")) && (
           <Button type="button" variant="ghost" disabled={disabled} onClick={onCancel}>
             {signing ? "Cancel change" : "Cancel update"}
           </Button>
         )}
       </div>
-      {status?.output && (
-        <details className="installation-output" open={status.phase === "error"}>
-          <summary>{status.phase === "error" ? "Error details" : "Build output"}</summary>
-          <pre>{status.output}</pre>
+      {output && (
+        <details className="installation-output" open={phase === "error"}>
+          <summary>{phase === "error" ? "Error details" : "Build output"}</summary>
+          <pre>{output}</pre>
         </details>
       )}
     </>
@@ -122,8 +123,10 @@ export function InstallationSettings({ query }: { query: string }) {
       .catch(() => setError("Could not read installation status. Close Settings and try again."));
     return unsubscribe;
   }, []);
-  const updating = updates?.phase === "checking" || updates?.phase === "building";
-  const disabled = !tools?.available || Boolean(tools.busy) || updating || restarting;
+  const phase = updates?.phase;
+  const toolsBusy = Boolean(tools?.busy);
+  const updating = phase === "checking" || phase === "building";
+  const disabled = !tools?.available || toolsBusy || updating || restarting;
   function run(action: () => Promise<unknown>) {
     setError("");
     void action().catch((cause: unknown) =>
@@ -135,7 +138,7 @@ export function InstallationSettings({ query }: { query: string }) {
   const progress = (
     <BuildProgress
       status={updates}
-      disabled={restarting || Boolean(tools?.busy)}
+      disabled={restarting || toolsBusy}
       onRestart={() => {
         setRestarting(true);
         run(() => window.scope.restartToUpdate().finally(() => setRestarting(false)));
@@ -147,8 +150,8 @@ export function InstallationSettings({ query }: { query: string }) {
   return (
     <>
       <SettingsSection id="updates" query={query}>
-        {updates?.phase === "unmanaged" && <p>{updates.message}</p>}
-        {updates?.phase !== "unmanaged" && (
+        {phase === "unmanaged" && <p>{updates?.message}</p>}
+        {phase !== "unmanaged" && (
           <>
             <p className="secondary">
               Scope checks main on startup and builds new commits on this Mac. Your work stays open
@@ -163,92 +166,11 @@ export function InstallationSettings({ query }: { query: string }) {
           </>
         )}
       </SettingsSection>
-      <SettingsSection id="tools" query={query}>
-        {!tools?.available && (
-          <p className="secondary">Use the installed Mac app to install agent tools.</p>
-        )}
-        <div className="installation-tool">
-          <div>
-            <h3>Scope CLI</h3>
-            <p className="secondary">
-              Publish artifacts with <code>irudd-scope</code>. The CLI updates with the app.
-            </p>
-          </div>
-          <div className="installation-actions">
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={disabled}
-              onClick={() => run(() => window.scope.installCli())}
-            >
-              {tools?.busy === "cli"
-                ? "Working…"
-                : tools?.cliInstalled
-                  ? "Repair CLI"
-                  : "Install CLI"}
-            </Button>
-            {tools?.cliInstalled && (
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={disabled}
-                onClick={() => run(() => window.scope.removeCli())}
-              >
-                Remove CLI
-              </Button>
-            )}
-          </div>
-          {tools?.cliInstalled && (
-            <p className="secondary installation-path">
-              Installed at <code>{tools.cliPath}</code>
-            </p>
-          )}
-        </div>
-        <div className="installation-tool">
-          <div>
-            <h3>Scope skill</h3>
-            <p className="secondary">
-              Install publishing instructions globally for Codex and Claude Code with npx skills.
-            </p>
-          </div>
-          <div className="installation-actions">
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={disabled}
-              onClick={() => run(() => window.scope.installSkill())}
-            >
-              {tools?.busy === "skill"
-                ? "Working…"
-                : tools?.skillInstalled
-                  ? "Update skill"
-                  : "Install skill"}
-            </Button>
-            {tools?.skillInstalled && (
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={disabled}
-                onClick={() => run(() => window.scope.removeSkill())}
-              >
-                Remove skill
-              </Button>
-            )}
-          </div>
-          {tools?.skillInstalled && <p className="secondary">Installed globally</p>}
-        </div>
-        {tools?.message && <p role="status">{tools.message}</p>}
-        {tools?.error && (
-          <details className="installation-output" open>
-            <summary role="alert">Installation failed. Try again.</summary>
-            <pre>{tools.error}</pre>
-          </details>
-        )}
-      </SettingsSection>
+      <AgentToolSettings query={query} tools={tools} disabled={disabled} run={run} />
       <SettingsSection id="signing" query={query}>
         <SigningSettings
           status={updates}
-          disabled={updating || restarting || Boolean(tools?.busy)}
+          disabled={updating || restarting || toolsBusy}
           progress={updates?.operation === "signing" || updating ? progress : null}
         />
       </SettingsSection>
