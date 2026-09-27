@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { SettingsUpdate, SettingsView } from "../settings.ts";
 import type { Appearance } from "./appearance.ts";
 import { Button } from "./components/ui/button.tsx";
@@ -6,42 +6,7 @@ import { Input } from "./components/ui/input.tsx";
 import { NativeSelect, NativeSelectOption } from "./components/ui/native-select.tsx";
 import { InstallationSettings } from "./installation-settings.tsx";
 import { RemoteSettings } from "./remote-settings.tsx";
-
-export const settingsSections = [
-  {
-    id: "remotes",
-    title: "Remotes",
-    terms: "hub pair pairing tailnet tailscale connection disconnect",
-  },
-  { id: "appearance", title: "Appearance", terms: "theme system light dark colors" },
-  {
-    id: "updates",
-    title: "App updates",
-    terms: "install installation version main commit build restart",
-  },
-  {
-    id: "signing",
-    title: "Signing certificate",
-    terms:
-      "keychain permission prompt nag identity name fingerprint connect certificate cert local sign",
-  },
-  {
-    id: "tools",
-    title: "Agent tools",
-    terms: "install installation cli command skill global codex claude npx",
-  },
-  {
-    id: "model",
-    title: "Diagram generation",
-    terms: "provider model openrouter gemini api key credentials",
-  },
-];
-export function matchingSettings(query: string) {
-  const words = query.trim().toLowerCase().split(/\s+/);
-  return settingsSections.filter((section) =>
-    words.every((word) => `${section.title} ${section.terms}`.toLowerCase().includes(word)),
-  );
-}
+import { matchingSettings, SettingsSection } from "./settings-section.tsx";
 
 export function SettingsViewPanel({
   onClose,
@@ -57,8 +22,8 @@ export function SettingsViewPanel({
   const [apiKey, setApiKey] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const searchInput = useRef<HTMLInputElement>(null);
   const matches = matchingSettings(query);
-  const visible = (id: string) => matches.some((section) => section.id === id);
   async function load() {
     setNotice("");
     try {
@@ -88,34 +53,42 @@ export function SettingsViewPanel({
   }
   function submit(event: FormEvent) {
     event.preventDefault();
-    void save(apiKey ? { apiKey } : {});
+    if (!busy && settings && apiKey.trim()) void save({ apiKey });
   }
   return (
     <>
-      <Input
-        type="search"
-        aria-label="Search settings"
-        placeholder="Search settings…"
-        value={query}
-        onChange={(event) => {
-          setQuery(event.target.value);
-          setNotice("");
-        }}
-        autoFocus
-      />
-      {matches.length === 0 && (
-        <div role="status">
-          <p>No settings match "{query}".</p>
-          <Button variant="ghost" onClick={() => setQuery("")}>
-            Clear search
-          </Button>
-        </div>
-      )}
-      <form onSubmit={submit} className="settings-form">
-        <fieldset hidden={!visible("appearance")}>
-          <legend>Appearance</legend>
-          <label>
-            Color scheme
+      <div className="settings-search">
+        <Input
+          ref={searchInput}
+          type="search"
+          aria-label="Search settings"
+          placeholder="Search settings…"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setNotice("");
+          }}
+          autoFocus
+        />
+      </div>
+      <div className="settings-sections">
+        {matches.length === 0 && (
+          <div className="settings-empty" role="status">
+            <p>No settings match "{query}".</p>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setQuery("");
+                searchInput.current?.focus();
+              }}
+            >
+              Clear search
+            </Button>
+          </div>
+        )}
+        <SettingsSection id="appearance" query={query}>
+          <label className="appearance-setting">
+            <span>Color scheme</span>
             <NativeSelect
               aria-label="Appearance"
               value={settings?.appearance ?? "system"}
@@ -128,9 +101,8 @@ export function SettingsViewPanel({
             </NativeSelect>
           </label>
           <p className="secondary">System follows your Mac's appearance.</p>
-        </fieldset>
-        <fieldset hidden={!visible("model")}>
-          <legend>Diagram generation</legend>
+        </SettingsSection>
+        <SettingsSection id="model" query={query}>
           <dl className="provider-details">
             <div>
               <dt>Provider</dt>
@@ -141,43 +113,49 @@ export function SettingsViewPanel({
               <dd>Gemini 3.8 Flash</dd>
             </div>
           </dl>
-          <label>
-            OpenRouter API key
-            <Input
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              placeholder={
-                settings?.credentialError
-                  ? "Key status unavailable"
-                  : settings?.hasApiKey
-                    ? "Key saved. Enter a replacement."
-                    : "Enter API key"
-              }
-            />
-          </label>
-          <div className="key-status">
-            <span>
+          <form onSubmit={submit} className="settings-key-form">
+            <label>
+              OpenRouter API key
+              <Input
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                disabled={busy || !settings}
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder={
+                  settings?.credentialError
+                    ? "Key status unavailable"
+                    : settings?.hasApiKey
+                      ? "Key saved. Enter a replacement."
+                      : "Enter API key"
+                }
+              />
+            </label>
+            <p className="secondary">
               {settings?.credentialError
                 ? "Key status unavailable"
                 : settings?.hasApiKey
                   ? "Key saved"
                   : "No key saved"}
-            </span>
-            {settings?.hasApiKey && (
-              <Button
-                type="button"
-                size="sm"
-                variant="destructive"
-                disabled={busy}
-                onClick={() => void save({ removeApiKey: true })}
-              >
-                Remove key
+            </p>
+            <div className="installation-actions">
+              <Button type="submit" disabled={busy || !settings || !apiKey.trim()}>
+                {busy ? "Saving…" : "Save key"}
               </Button>
-            )}
-          </div>
+              {settings?.hasApiKey && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  disabled={busy}
+                  onClick={() => void save({ removeApiKey: true })}
+                >
+                  Remove key
+                </Button>
+              )}
+            </div>
+          </form>
           {settings && (
             <p className="secondary">
               {settings.keyStorage === "keychain"
@@ -186,28 +164,23 @@ export function SettingsViewPanel({
             </p>
           )}
           {settings?.credentialError && <p role="alert">{settings.credentialError}</p>}
-        </fieldset>
-        <InstallationSettings
-          showUpdates={visible("updates")}
-          showTools={visible("tools")}
-          showSigning={visible("signing")}
-        />
-        <RemoteSettings visible={visible("remotes")} />
-        <div className="section-title">
-          <Button type="submit" hidden={!visible("model")} disabled={busy || !settings}>
-            {busy ? "Saving…" : "Save settings"}
-          </Button>
-          <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
-            Done
-          </Button>
+        </SettingsSection>
+        <RemoteSettings query={query} />
+        <InstallationSettings query={query} />
+      </div>
+      <div className="settings-footer">
+        <div>
+          {notice && <p role="status">{notice}</p>}
+          {!settings && notice && (
+            <Button type="button" variant="secondary" onClick={() => void load()}>
+              Retry
+            </Button>
+          )}
         </div>
-        {notice && <p role="status">{notice}</p>}
-        {!settings && notice && (
-          <Button type="button" variant="secondary" onClick={() => void load()}>
-            Retry
-          </Button>
-        )}
-      </form>
+        <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
+          Done
+        </Button>
+      </div>
     </>
   );
 }

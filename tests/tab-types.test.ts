@@ -130,7 +130,7 @@ async function checkContent(page: Page, example: (typeof examples)[number], focu
   }
 }
 
-test("the built CLI publishes every tab view through appearance, focus, close, migration and restart", async () => {
+test("the built CLI publishes every tab view through appearance, focus, migration and restart", async () => {
   const { directory, settingsDirectory, launch, cli } = await desktopFixture();
   let application = await launch();
   const failures: string[] = [];
@@ -154,6 +154,7 @@ test("the built CLI publishes every tab view through appearance, focus, close, m
         .getByRole("dialog", { name: "Search and controls", exact: true })
         .getByRole("button", { name: "Settings", exact: true })
         .click();
+      await page.getByRole("button", { name: "Appearance", exact: true }).click();
       await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
       await page.getByRole("button", { name: "Done", exact: true }).click();
       await page.setViewportSize(
@@ -196,16 +197,6 @@ test("the built CLI publishes every tab view through appearance, focus, close, m
         .getByRole("tab")
         .evaluateAll((tabs) => new Set(tabs.map((tab) => tab.getBoundingClientRect().y)).size),
     ).toBe(1);
-    for (const example of examples) {
-      const tab = page.getByRole("tab", { name: example.title, exact: true });
-      await tab.click();
-      const id = await tab.getAttribute("id");
-      await page.keyboard.press("ControlOrMeta+w");
-      await expect.poll(() => page.getByRole("tab").count()).toBe(examples.length - 1);
-      await page.keyboard.press("ControlOrMeta+Shift+t");
-      await checkContent(page, example);
-      expect(await tab.getAttribute("id")).toBe(id);
-    }
     await expect
       .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
       .toBe(examples.length);

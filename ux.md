@@ -56,13 +56,20 @@ leaving focus. Command-Shift-F toggles focus; Command-K opens the panel in
 either mode.
 
 Search opens with labeled icon controls for Settings, Fullscreen, creation
-tools, and reopening a closed tab. A tinted current-tab area shows the title
+tools. A tinted current-tab area shows the title
 and its Download, Artifact details, and Close tab actions. Unavailable actions
-are omitted. Workspace controls, current-tab actions, and recent artifacts
-have distinct areas; typing filters actions, artifacts, and specific settings.
+are omitted. Workspace controls and current-tab actions have distinct areas.
+Artifact results appear only after typing, alongside matching actions and
+specific settings. There is no closed-tab action or shortcut.
 The panel scrolls in short windows and stacks its controls in narrow windows.
-Settings opens with its search input focused and explains empty results.
-Appearance saves when changed.
+Settings opens with its search input focused and its sections collapsed.
+Each section has a short description and can be expanded with the mouse or
+keyboard. Search opens matching sections; clearing it returns to the compact
+overview. Fields keep unsaved input when collapsed or filtered out. The search
+field and Done button stay visible while the sections scroll. Empty results
+offer Clear search and return focus to the search field.
+Appearance saves when changed. The API key has its own Save key action inside
+Diagram generation.
 The diagram provider, model, and API key stay together. OpenRouter with Gemini
 3.8 Flash is the supported configuration. Saving a key clears the input;
 saved secrets are never displayed. Keychain errors remain visible while

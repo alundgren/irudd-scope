@@ -37,6 +37,7 @@ test("new CLI publications open visible tabs and preserve reading, closed tabs, 
 
     for (const appearance of ["light", "dark"] as const) {
       await page.keyboard.press("ControlOrMeta+,");
+      await page.getByRole("button", { name: "Appearance", exact: true }).click();
       await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
       await page.getByRole("button", { name: "Done", exact: true }).click();
       await page
@@ -65,6 +66,7 @@ test("new CLI publications open visible tabs and preserve reading, closed tabs, 
     await cli("update", "second", second, "--title", "Closed artifact update");
     await page.getByRole("img", { name: "New artifacts" }).waitFor();
     await page.getByRole("button", { name: "Search and controls" }).click();
+    await page.getByLabel("Search artifacts", { exact: true }).fill("Closed artifact update");
     await page.getByRole("button", { name: "Closed artifact update text", exact: true }).waitFor();
     await page.keyboard.press("Escape");
     await page.getByLabel("Search artifacts", { exact: true }).waitFor({ state: "hidden" });
@@ -271,20 +273,23 @@ test("the compact workspace preserves reading position, supports overflowing tab
     await expect.poll(() => navigation.getByRole("tab").count()).toBe(11);
     await searchTrigger.click();
     expect(await currentTab.getByText(titles[10], { exact: true }).isVisible()).toBe(true);
-    await controls.getByRole("button", { name: "Reopen closed tab", exact: true }).click();
+    expect(
+      await controls.getByRole("button", { name: "Reopen closed tab", exact: true }).count(),
+    ).toBe(0);
+    expect(await controls.getByRole("region", { name: "Artifact results" }).count()).toBe(0);
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("ControlOrMeta+Shift+t");
     await expect
       .poll(() => navigation.getByRole("tab", { selected: true }).textContent())
-      .toBe(titles[11]);
-    expect((await client.list()).length).toBe(12);
+      .toBe(titles[10]);
     expect(errors).toEqual([]);
-    await page.keyboard.press("ControlOrMeta+w");
-    await expect.poll(() => navigation.getByRole("tab").count()).toBe(11);
     await application.close();
     application = await launch();
     const reopened = await application.firstWindow();
     await reopened.getByRole("heading", { name: "Report 11", exact: true }).waitFor();
     await reopened.keyboard.press("ControlOrMeta+Shift+t");
-    await reopened.getByRole("heading", { name: "Report 12", exact: true }).waitFor();
+    expect(await reopened.getByRole("tab", { selected: true }).textContent()).toBe(titles[10]);
+    expect(await reopened.getByRole("tab").count()).toBe(11);
     expect(await reopened.locator("html").getAttribute("data-theme")).toBe("dark");
   } finally {
     await application.close();

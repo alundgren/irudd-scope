@@ -3,8 +3,9 @@ import type { RemoteStatus } from "../remote-contract.ts";
 import { Input } from "./components/ui/input.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { readPairingUrl } from "@irudd-scope/protocol/remote";
+import { SettingsSection } from "./settings-section.tsx";
 
-export function RemoteSettings({ visible }: { visible: boolean }) {
+export function RemoteSettings({ query }: { query: string }) {
   const [remotes, setRemotes] = useState<RemoteStatus[]>();
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -33,8 +34,7 @@ export function RemoteSettings({ visible }: { visible: boolean }) {
       .finally(() => setBusy(false));
   }
   return (
-    <fieldset hidden={!visible}>
-      <legend>Remotes</legend>
+    <SettingsSection id="remotes" query={query}>
       <p className="secondary">
         Run <code>irudd-scope setup</code> on the remote, then paste its pairing URL here.
       </p>
@@ -104,6 +104,6 @@ export function RemoteSettings({ visible }: { visible: boolean }) {
         Enabled remotes reconnect while Scope is open. Disconnect keeps a remote off until you
         connect it again. Removal revokes its pairing.
       </p>
-    </fieldset>
+    </SettingsSection>
   );
 }
