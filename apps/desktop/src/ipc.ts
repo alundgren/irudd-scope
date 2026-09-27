@@ -12,6 +12,7 @@ import type { AgentTools } from "./agent-tools.ts";
 import type { AppUpdates } from "./updates.ts";
 import type { Remotes } from "./remotes.ts";
 import { RemoteId } from "@irudd-scope/protocol/remote";
+import { openKeychainAccess } from "./signing.ts";
 
 export function registerDesktopIpc({
   window,
@@ -72,6 +73,18 @@ export function registerDesktopIpc({
   });
   handle("scope:cancel-update", () => updates.cancel());
   handle("scope:restart-to-update", () => onRestartToUpdate());
+  handle("scope:signing-certificate", () => updates.signingCertificate());
+  handle("scope:open-keychain-access", () => openKeychainAccess());
+  function changeSigningCertificate(reference: string | null) {
+    if (agentTools.isBusy()) throw new Error("Wait for the agent tools installation to finish.");
+    void updates.setSigningCertificate(reference);
+  }
+  handle("scope:connect-signing-certificate", (input) =>
+    changeSigningCertificate(
+      decode(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)), input),
+    ),
+  );
+  handle("scope:disconnect-signing-certificate", () => changeSigningCertificate(null));
   handle("scope:agent-tools", () => agentTools.snapshot());
   function installTool(action: () => unknown) {
     if (["checking", "building"].includes(updates.snapshot().phase))

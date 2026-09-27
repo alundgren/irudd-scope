@@ -14,6 +14,7 @@ test("the standalone installer and CLI setup preserve existing Serve routes and 
   const bin = join(directory, "bin");
   const userDirectory = join(directory, "user");
   const pidFile = join(directory, "hub.pid");
+  const hubLog = join(directory, "hub.log");
   const serveFile = join(directory, "serve.json");
   const local = createServer();
   await new Promise<void>((done) => local.listen(0, "127.0.0.1", done));
@@ -70,14 +71,49 @@ else {
     `
 const fs = require('node:fs');
 const {spawn} = require('node:child_process');
+const {once} = require('node:events');
+const {setTimeout: delay} = require('node:timers/promises');
 const args=process.argv.slice(2), file=${JSON.stringify(pidFile)};
-if(args.includes('stop') || args.includes('restart') || args.includes('--now')) {
- if(fs.existsSync(file)) {try{process.kill(Number(fs.readFileSync(file,'utf8')),'SIGTERM');}catch{} fs.unlinkSync(file);}
+function running(pid) {
+ try {
+  process.kill(pid, 0);
+  if(process.platform === 'linux') {
+   const status = fs.readFileSync('/proc/'+pid+'/stat', 'utf8');
+   // An orphan can remain a zombie after it releases its resources.
+   if(status.slice(status.lastIndexOf(')') + 2).startsWith('Z')) return false;
+  }
+  return true;
+ } catch(error) {
+  if(error.code === 'ESRCH' || error.code === 'ENOENT') return false;
+  throw error;
+ }
 }
-if(args.includes('start') || args.includes('restart')) {
- const child=spawn(${JSON.stringify(join(root, "current/runtime/node"))},[${JSON.stringify(join(root, "current/hub/main.mjs"))},'run'],{env:process.env,detached:true,stdio:'ignore'});
- fs.writeFileSync(file,String(child.pid));child.unref();
-}`,
+async function main() {
+ if(args.includes('stop') || args.includes('restart') || args.includes('--now')) {
+  if(fs.existsSync(file)) {
+   const pid = Number(fs.readFileSync(file,'utf8'));
+   try { process.kill(pid, 'SIGTERM'); } catch(error) { if(error.code !== 'ESRCH') throw error; }
+   // systemctl waits for stop completion before starting a replacement.
+   const deadline = Date.now() + 5000;
+   while(running(pid)) {
+    if(Date.now() >= deadline) {
+     process.kill(pid, 'SIGKILL');
+     throw new Error('The synthetic hub did not stop within five seconds.');
+    }
+    await delay(20);
+   }
+   fs.unlinkSync(file);
+  }
+ }
+ if(args.includes('start') || args.includes('restart')) {
+  const output = fs.openSync(${JSON.stringify(hubLog)}, 'a', 0o600);
+  const child=spawn(${JSON.stringify(join(root, "current/runtime/node"))},[${JSON.stringify(join(root, "current/hub/main.mjs"))},'run'],{env:process.env,detached:true,stdio:['ignore',output,output]});
+  fs.closeSync(output);
+  await once(child, 'spawn');
+  fs.writeFileSync(file,String(child.pid));child.unref();
+ }
+}
+main().catch(error => {console.error(error);process.exitCode = 1;});`,
   );
   const cli = (...args: string[]) => exec(join(bin, "irudd-scope"), args, { env, timeout: 30_000 });
   try {
@@ -135,13 +171,20 @@ if(args.includes('start') || args.includes('restart')) {
       code: "ENOENT",
     });
     expect((await cli("--help")).stdout).toContain("irudd-scope add");
+  } catch (error) {
+    const output = await readFile(hubLog, "utf8").catch(() => "No hub output was captured.");
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\nHub output:\n${output}`,
+      { cause: error },
+    );
   } finally {
-    const pid = await readFile(pidFile, "utf8").catch(() => undefined);
-    if (pid) {
-      try {
-        process.kill(Number(pid), "SIGTERM");
-      } catch {}
+    try {
+      await exec(join(bin, "systemctl"), ["--user", "stop", "irudd-scope-hub.service"], {
+        env,
+        timeout: 10_000,
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
     }
-    await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);

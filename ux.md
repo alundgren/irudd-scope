@@ -75,6 +75,15 @@ artifact. Restart uses the normal save-before-quit flow. Build failures keep
 the current app available and show details with Retry; pending builds offer
 Cancel. Checkout launches explain that automatic updates require installation.
 
+Signing certificate is a searchable Settings section. It offers optional local
+signing to reduce repeated Keychain prompts, with certificate creation
+instructions and a button to open Keychain Access. Users connect an existing
+certificate by name or fingerprint. Scope builds a copy and offers Restart to
+apply; the current app keeps working until then. The connected certificate is
+visible and can be replaced or disconnected. Certificate creation and private
+key approval stay in macOS. Disconnecting never removes a certificate from
+Keychain. Failed and canceled builds leave the current identity in use.
+
 Agent tools provides separate CLI and global skill installation actions with
 pending, installed, and failure states. The CLI follows the active app build.
 The skill action uses npx skills for Codex and Claude Code. Each installed

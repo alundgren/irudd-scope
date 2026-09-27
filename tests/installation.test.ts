@@ -19,17 +19,19 @@ import { AgentTools } from "../apps/desktop/src/agent-tools.ts";
 import { AppUpdates } from "../apps/desktop/src/updates.ts";
 import {
   activateBuild,
+  installationBuildDirectory,
   pointToBuild,
   pruneBuilds,
   readInstallation,
   type Installation,
 } from "../apps/desktop/src/installation-files.ts";
 import { runInstallationCommand } from "../apps/desktop/src/installation-process.ts";
+import { selectSigningCertificate } from "../apps/desktop/src/signing.ts";
 
 const exec = promisify(execFile);
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
-async function fixture() {
+async function fixture(signingIdentity?: string) {
   const directory = await mkdtemp(join(tmpdir(), "scope installation-"));
   const root = join(directory, "install");
   const home = join(directory, "home");
@@ -60,19 +62,22 @@ async function fixture() {
   const initial = await commit();
   await exec("git", ["clone", remote, join(root, "source")]);
   const vp = join(directory, "vp");
-  const installation: Installation = { root, vp, commit: initial };
+  const installation: Installation = {
+    root,
+    vp,
+    commit: initial,
+    ...(signingIdentity ? { signingIdentity } : {}),
+  };
   const application = join(home, "Applications/Scope.app");
-  async function bundle(sha: string) {
-    const build = join(root, "builds", sha);
+  async function bundle(sha: string, signer = signingIdentity) {
+    const metadata = { ...installation, commit: sha, signingIdentity: signer };
+    const build = installationBuildDirectory(metadata);
     const app = join(build, "Scope.app/Contents/Resources/app");
     const executable = join(build, "Scope.app/Contents/MacOS/Scope");
     await mkdir(join(app, "bin"), { recursive: true });
     await mkdir(join(app, "cli"));
     await mkdir(join(build, "Scope.app/Contents/MacOS"));
-    await writeFile(
-      join(app, "package.json"),
-      JSON.stringify({ scopeInstallation: { ...installation, commit: sha } }),
-    );
+    await writeFile(join(app, "package.json"), JSON.stringify({ scopeInstallation: metadata }));
     await writeFile(executable, `#!/bin/sh\nexec ${quote(process.execPath)} "$@"\n`, {
       mode: 0o755,
     });
@@ -316,6 +321,128 @@ test("an unavailable Git remote and cancellation leave the current app usable", 
   }
 });
 
+test("updates reuse the selected signing identity and reject a change of signer", async () => {
+  const signingIdentity = "A".repeat(40);
+  const f = await fixture(signingIdentity);
+  const installer = join(f.directory, "prepare.sh");
+  const observed = join(f.directory, "signer");
+  const updates = new AppUpdates(f.installation, installer, () => {});
+  try {
+    const next = await f.commit();
+    const second = await f.bundle(next);
+    await pointToBuild(f.root, "prepared", second);
+    await writeFile(installer, `printf '%s' "$SCOPE_SIGNING_IDENTITY" > ${quote(observed)}\n`);
+    const manifest = join(second, "Scope.app/Contents/Resources/app/package.json");
+    const original = await readFile(manifest, "utf8");
+    await writeFile(
+      manifest,
+      JSON.stringify({
+        scopeInstallation: { ...f.installation, commit: next, signingIdentity: "B".repeat(40) },
+      }),
+    );
+    await updates.check();
+    expect(await readFile(observed, "utf8")).toBe(signingIdentity);
+    expect(updates.snapshot()).toMatchObject({
+      phase: "error",
+      output: expect.stringContaining("different signing identity"),
+    });
+    expect(await installedCommit(f.application)).toBe(f.initial);
+    await writeFile(manifest, original);
+    await updates.check();
+    expect(updates.snapshot().phase).toBe("ready");
+    await updates.activate();
+    expect(await readInstallation(join(f.application, "Contents/Resources/app"))).toMatchObject({
+      commit: next,
+      signingIdentity,
+    });
+    await pruneBuilds({ ...f.installation, commit: next });
+    expect(await installedCommit(join(f.first, "Scope.app"))).toBe(f.initial);
+  } finally {
+    await updates.cancel();
+    await rm(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("connecting a certificate rebuilds the current commit and keeps the current app until restart", async () => {
+  const f = await fixture();
+  const fingerprint = "A".repeat(40);
+  const name = "Scope Local Signing";
+  const installer = join(f.directory, "prepare.sh");
+  const observed = join(f.directory, "signer");
+  const findCertificate = async (reference: string) => {
+    if (reference !== name && reference !== fingerprint) throw new Error("Certificate not found.");
+    return { name, fingerprint };
+  };
+  const updates = new AppUpdates(f.installation, installer, () => {}, findCertificate);
+  let restarted: AppUpdates | undefined;
+  try {
+    await updates.setSigningCertificate("Missing certificate");
+    expect(updates.snapshot()).toMatchObject({ phase: "error", output: "Certificate not found." });
+    expect(await readlink(join(f.root, "current"))).toBe(f.first);
+    const signed = await f.bundle(f.initial, fingerprint);
+    await pointToBuild(f.root, "prepared", signed);
+    await writeFile(installer, `printf '%s' "$SCOPE_SIGNING_IDENTITY" > ${quote(observed)}\n`);
+    await updates.setSigningCertificate(name);
+    expect(await readFile(observed, "utf8")).toBe(fingerprint);
+    expect(updates.snapshot()).toMatchObject({
+      phase: "ready",
+      operation: "signing",
+      currentCommit: f.initial,
+      nextCommit: f.initial,
+      nextSigningCertificate: { name, fingerprint },
+    });
+    expect(await readlink(join(f.root, "current"))).toBe(f.first);
+    await updates.cancel();
+    await expect(updates.activate()).rejects.toThrow("No update is ready");
+    await updates.setSigningCertificate(name);
+    await updates.activate();
+    const installed = await readInstallation(join(f.application, "Contents/Resources/app"));
+    expect(installed).toMatchObject({ commit: f.initial, signingIdentity: fingerprint });
+    restarted = new AppUpdates(installed, installer, () => {}, findCertificate);
+    expect(await restarted.signingCertificate()).toEqual({ name, fingerprint });
+    expect(restarted.snapshot().currentSigningIdentity).toBe(fingerprint);
+
+    const next = await f.commit();
+    await pointToBuild(f.root, "prepared", await f.bundle(next, fingerprint));
+    await restarted.check();
+    expect(await readFile(observed, "utf8")).toBe(fingerprint);
+    expect(restarted.snapshot()).toMatchObject({ phase: "ready", nextCommit: next });
+    // Disconnecting also applies to an update that is already prepared.
+    const unsigned = await f.bundle(next);
+    await pointToBuild(f.root, "prepared", unsigned);
+    await restarted.setSigningCertificate(null);
+    expect(await readFile(observed, "utf8")).toBe("-");
+    await restarted.activate();
+    const disconnected = await readInstallation(join(f.application, "Contents/Resources/app"));
+    expect(disconnected.commit).toBe(next);
+    expect(disconnected.signingIdentity).toBeUndefined();
+    await pruneBuilds(disconnected);
+    expect((await readdir(join(f.root, "builds"))).sort()).toEqual(
+      [`${f.initial}-${fingerprint}`, next].sort(),
+    );
+  } finally {
+    await updates.cancel();
+    await restarted?.cancel();
+    await rm(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("certificate lookup accepts self-signed identities, deduplicates fingerprints, and rejects ambiguous names", () => {
+  const first = "A".repeat(40);
+  const second = "B".repeat(40);
+  const output = `Matching identities\n  1) ${first} "Scope Local Signing" (CSSMERR_TP_NOT_TRUSTED)\nValid identities only\n  1) ${first} "Scope Local Signing"\n`;
+  expect(selectSigningCertificate(output, " Scope Local Signing ")).toEqual({
+    name: "Scope Local Signing",
+    fingerprint: first,
+  });
+  expect(selectSigningCertificate(output, first.toLowerCase()).fingerprint).toBe(first);
+  expect(() => selectSigningCertificate(output, "Scope")).toThrow("No code-signing certificate");
+  expect(() => selectSigningCertificate(output, " ")).toThrow("Enter the certificate name");
+  const duplicate = `${output}  2) ${second} "Scope Local Signing"\n`;
+  expect(() => selectSigningCertificate(duplicate, "Scope Local Signing")).toThrow("More than one");
+  expect(selectSigningCertificate(duplicate, second).fingerprint).toBe(second);
+});
+
 test("old build cleanup keeps the running, previous and prepared apps", async () => {
   const f = await fixture();
   try {
@@ -420,6 +547,7 @@ else { try { execFileSync(${JSON.stringify(git)}, args.map(arg => arg === ${JSON
     );
     const fail = join(f.directory, "fail-build");
     const activation = resolve("tools/activate-installation.ts");
+    const signing = resolve("tools/installation-signing.ts");
     await writeFile(
       f.vp,
       `#!${process.execPath}
@@ -435,10 +563,12 @@ async function main() {
     fs.mkdirSync(path.join(app, 'Resources/app'), {recursive:true});
     fs.writeFileSync(path.join(app, 'MacOS/Scope'), '#!/bin/sh\\nexit 0\\n', {mode:0o755});
     const commit = require('node:child_process').execFileSync(${JSON.stringify(git)}, ['rev-parse','HEAD'], {encoding:'utf8'}).trim();
-    fs.writeFileSync(path.join(app, 'Resources/app/package.json'), JSON.stringify({scopeInstallation:{root:process.env.SCOPE_INSTALL_ROOT, vp:process.env.SCOPE_VP, commit}}));
+    const signingIdentity = process.env.SCOPE_SIGNING_IDENTITY === '-' ? undefined : process.env.SCOPE_SIGNING_IDENTITY;
+    fs.writeFileSync(path.join(app, 'Resources/app/package.json'), JSON.stringify({scopeInstallation:{root:process.env.SCOPE_INSTALL_ROOT, vp:process.env.SCOPE_VP, commit, signingIdentity}}));
   }
   if (args[0] === 'exec') {
-    require('node:child_process').execFileSync(process.execPath, [${JSON.stringify(activation)}, ...args.slice(3)], {stdio:'inherit'});
+    const script = args[2] === 'tools/installation-signing.ts' ? ${JSON.stringify(signing)} : ${JSON.stringify(activation)};
+    require('node:child_process').execFileSync(process.execPath, [script, ...args.slice(3)], {stdio:'inherit'});
   }
 }
 main().catch(error => {console.error(error.message); process.exitCode = 1;});
@@ -452,6 +582,7 @@ main().catch(error => {console.error(error.message); process.exitCode = 1;});
       SCOPE_INSTALL_ROOT: f.root,
       SCOPE_APPLICATIONS_DIR: applications,
       SCOPE_VP: f.vp,
+      SCOPE_SIGNING_IDENTITY: undefined,
     };
     const install = (...args: string[]) =>
       exec("/bin/bash", [resolve("install.sh"), ...args], { env });
@@ -467,21 +598,50 @@ main().catch(error => {console.error(error.message); process.exitCode = 1;});
     expect((await lstat(application)).isDirectory()).toBe(true);
     expect(await installedCommit(application)).toBe(f.initial);
     await install();
+    await expect(
+      exec("/bin/bash", [resolve("install.sh")], {
+        env: { ...env, SCOPE_SIGNING_IDENTITY: "missing certificate name" },
+      }),
+    ).rejects.toMatchObject({ stderr: expect.stringContaining("certificate fingerprint") });
+    expect(await installedCommit(application)).toBe(f.initial);
+    const signingIdentity = "A".repeat(40);
+    await exec("/bin/bash", [resolve("install.sh")], {
+      env: { ...env, SCOPE_SIGNING_IDENTITY: signingIdentity.toLowerCase() },
+    });
+    const signedFirst = join(f.root, "builds", `${f.initial}-${signingIdentity}`);
+    expect(await readlink(join(f.root, "current"))).toBe(signedFirst);
+    expect(
+      await readInstallation(join(f.first, "Scope.app/Contents/Resources/app")),
+    ).not.toHaveProperty("signingIdentity");
+    await install();
+    expect(await readInstallation(join(application, "Contents/Resources/app"))).toHaveProperty(
+      "signingIdentity",
+      signingIdentity,
+    );
     const next = await f.commit();
     await writeFile(fail, "");
     await expect(install("--prepare", next)).rejects.toMatchObject({
       stderr: expect.stringContaining("Synthetic build failed"),
     });
-    expect(await readlink(join(f.root, "current"))).toBe(f.first);
+    expect(await readlink(join(f.root, "current"))).toBe(signedFirst);
     expect(await installedCommit(application)).toBe(f.initial);
     await rm(fail);
     await install("--prepare", next);
-    expect(await readlink(join(f.root, "prepared"))).toBe(join(f.root, "builds", next));
-    expect(await readlink(join(f.root, "current"))).toBe(f.first);
+    expect(await readlink(join(f.root, "prepared"))).toBe(
+      join(f.root, "builds", `${next}-${signingIdentity}`),
+    );
+    expect(await readlink(join(f.root, "current"))).toBe(signedFirst);
     expect(await installedCommit(application)).toBe(f.initial);
     await install();
     expect(await installedCommit(application)).toBe(next);
-    expect(await readlink(join(f.root, "previous"))).toBe(f.first);
+    expect(await readlink(join(f.root, "previous"))).toBe(signedFirst);
+    await exec("/bin/bash", [resolve("install.sh")], {
+      env: { ...env, SCOPE_SIGNING_IDENTITY: "-" },
+    });
+    expect(await readInstallation(join(application, "Contents/Resources/app"))).not.toHaveProperty(
+      "signingIdentity",
+    );
+    expect(await readlink(join(f.root, "current"))).toBe(join(f.root, "builds", next));
     const edited = join(f.root, "source/README.md");
     await writeFile(edited, "Keep my local changes");
     await expect(install()).rejects.toMatchObject({

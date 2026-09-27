@@ -153,33 +153,37 @@ The root [installer](../install.sh) runs on macOS with Apple's command line
 tools. It clones `main`, installs frozen dependencies through Vite+, builds
 the workspace, and packages the desktop on that Mac. Vite+ supplies the
 pinned Node and package manager. Packaging includes the CLI and native Keychain
-module, uses local ad-hoc signing, and checks that the packaged CLI, SQLite,
+module, defaults to local ad-hoc signing, and checks that the packaged CLI, SQLite,
 and native module can run. It needs no Apple developer certificate. This is
 a local build, not an Apple-notarized distribution or a GitHub release build.
 
 The installer defaults to these locations:
 
-| Location                                            | Purpose                                           |
-| --------------------------------------------------- | ------------------------------------------------- |
-| `~/.local/share/irudd-scope/source`                 | Scope's managed Git clone and build dependencies. |
-| `~/.local/share/irudd-scope/builds/<sha>/Scope.app` | Complete app for one commit.                      |
-| `~/.local/share/irudd-scope/current`                | Link to the active build.                         |
-| `~/.local/share/irudd-scope/previous`               | Previous active build retained for recovery.      |
-| `~/.local/share/irudd-scope/prepared`               | Most recently prepared build.                     |
-| `~/.local/share/irudd-scope/application`            | Link recording the installed app's location.      |
-| `~/Applications/Scope.app`                          | Complete app bundle for Finder and Spotlight.     |
-| `~/.local/bin/irudd-scope`                          | Optional CLI link installed from Settings.        |
+| Location                                              | Purpose                                           |
+| ----------------------------------------------------- | ------------------------------------------------- |
+| `~/.local/share/irudd-scope/source`                   | Scope's managed Git clone and build dependencies. |
+| `~/.local/share/irudd-scope/builds/<build>/Scope.app` | Complete app for one commit and signing identity. |
+| `~/.local/share/irudd-scope/current`                  | Link to the active build.                         |
+| `~/.local/share/irudd-scope/previous`                 | Previous active build retained for recovery.      |
+| `~/.local/share/irudd-scope/prepared`                 | Most recently prepared build.                     |
+| `~/.local/share/irudd-scope/application`              | Link recording the installed app's location.      |
+| `~/Applications/Scope.app`                            | Complete app bundle for Finder and Spotlight.     |
+| `~/.local/bin/irudd-scope`                            | Optional CLI link installed from Settings.        |
 
 `SCOPE_INSTALL_ROOT` and `SCOPE_APPLICATIONS_DIR` select other installation
 and application directories. Both should be absolute paths writable by the
 current user. Keep the application directory outside the installation root.
 Updates reuse the application location recorded during installation.
 `SCOPE_VP` selects an existing absolute Vite+ executable path.
-The build records the installation root, Vite+ path, and commit in the app
-bundle so Finder launches can update without a terminal's PATH.
+The build records the installation root, Vite+ path, commit, and optional
+signing certificate fingerprint in the app bundle so Finder launches can
+update without a terminal's PATH. Ad-hoc build directory names are commit
+SHAs. Certificate-signed builds append `-<fingerprint>` to the SHA. Changing
+signers can therefore package the same commit without changing a running build.
 
 Every installed-app startup checks `origin`'s `main` SHA. Unchanged commits
-need no dependency installation or build. A changed commit builds in a separate
+need no dependency installation or build unless you change the signing identity.
+A changed commit builds in a separate
 directory while the current app stays usable. Restart to update flushes
 workspace and draft writes before replacing the Applications bundle and
 relaunching it. The replacement is copied in full before the installed app
@@ -225,6 +229,71 @@ and delete `~/Applications/Scope.app` and its installation directory.
 The artifact library, preferences, Keychain entry, and discovery file live
 separately and remain intact. See [storage](storage.md) before restoring an
 older app, since its database support may differ.
+
+### Optional local signing
+
+Scope works without a signing certificate. Its default ad-hoc signature can
+change with each build, so macOS may ask again before letting an updated app
+read saved Keychain credentials. Reusing a code-signing certificate gives
+local builds a stable identity. This does not notarize the app or provide
+Developer ID signing for distribution. See [Apple's code-signing guidance](https://developer.apple.com/library/archive/technotes/tn2206/_index.html).
+
+Open **Settings → Signing certificate**. **How to create a certificate** has
+these instructions and an **Open Keychain Access** button. Create the
+certificate once on each Mac:
+
+1. Open **Keychain Access** and select **login** in the left sidebar.
+2. In the Mac menu bar at the top of the screen, choose **Keychain Access →
+   Certificate Assistant → Create a Certificate…** Certificate Assistant is
+   a menu item, not a separate app or a control inside the window.
+3. Name it **Scope Local Signing**, select **Self Signed Root** as the
+   identity type and **Code Signing** as the certificate type, then create
+   it in the login keychain. Keep the certificate and its private key there
+   for future builds. [Apple's certificate creation instructions](https://support.apple.com/guide/keychain-access/kyca8916/mac).
+4. Return to Scope, paste **Scope Local Signing** in **Certificate name or
+   fingerprint**, and click **Connect certificate**.
+5. Scope prepares a signed copy. Click **Restart to apply** when ready.
+
+Scope resolves the exact certificate name to its fingerprint. If several
+certificates have the same name, paste the certificate's SHA-1 fingerprint
+from Keychain Access instead. A missing certificate leaves the current app
+in place and shows an error in Settings.
+
+Connecting rebuilds the current commit, or the update already prepared for
+restart. The running app keeps its existing identity until you restart.
+Build progress includes cancellation and error details. **Disconnect
+certificate** prepares a copy with default ad-hoc signing; it does not delete
+anything from Keychain. You can cancel a prepared certificate change before
+restarting.
+
+For a terminal installation, run `security find-identity -p codesigning`
+and copy the 40-character hexadecimal fingerprint beside the certificate's
+name. Pass it to the installer, replacing the placeholder below:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/alundgren/irudd-scope/main/install.sh |
+  SCOPE_SIGNING_IDENTITY='YOUR_40_CHARACTER_CERTIFICATE_FINGERPRINT' bash
+```
+
+The installer also accepts `SCOPE_SIGNING_IDENTITY` when run from a local
+checkout. It stores only the fingerprint in the app's installation metadata;
+the private key stays in Keychain. Later installer runs reuse the selected
+identity when the variable is omitted. Automatic updates use the identity
+recorded in the running app. Opting in works even when that commit was already
+installed with ad-hoc signing.
+
+macOS may ask for permission to use the certificate's private key during
+signing and to read Scope's saved credentials when the newly signed app first
+opens. Approving the new app's credential access should carry across later
+builds signed with the same certificate. It does not unlock a locked keychain
+or override other access restrictions.
+
+A missing or unusable signing identity fails the build and leaves the current
+app installed. Restore access to the certificate and retry; Scope does not
+silently change signers. To explicitly return to ad-hoc signing, run the
+installer with `SCOPE_SIGNING_IDENTITY=-`. This may bring back repeated Keychain
+prompts. Certificate-signed build copies follow the same cleanup policy as
+other builds.
 
 ## Isolated development
 

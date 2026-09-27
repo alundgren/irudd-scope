@@ -53,14 +53,19 @@ operations declared in `bridge.ts` and exposed by `preload.ts`.
 `renderer-security.ts` serves the application and restricts renderer access.
 
 `updates.ts` owns the installed app's startup Git check, local build process,
-and prepared update. `agent-tools.ts` installs and removes the local CLI and
+prepared update, and certificate changes that take effect on restart.
+`signing.ts` resolves certificate names to fingerprints through macOS Keychain
+and opens Keychain Access for setup. `agent-tools.ts` installs and removes the local CLI and
 global publishing skill through named IPC operations. `installation-process.ts`
 owns cancellation of their child processes. `installation-files.ts` validates
 bundle metadata, replaces the installed app bundle, and manages links to
 complete app builds and the Applications location. These files contain
 installed program code, not artifact or preference storage. The root
 `install.sh` maintains a private clone and calls `tools/package-desktop.ts` to
-make a Mac app. No app imports build-tool code at runtime.
+make a Mac app. An optional signing certificate fingerprint is recorded in
+the bundle's installation metadata and reused for updates. Build directories
+distinguish commits and signing identities; signing private keys stay in
+Keychain. No app imports build-tool code at runtime.
 
 `desktop-store.ts` persists settings, workspace preferences, and diagram
 drafts. Their contracts live in `settings.ts`, `workspace/contract.ts`, and

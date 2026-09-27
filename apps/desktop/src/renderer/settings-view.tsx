@@ -20,6 +20,12 @@ export const settingsSections = [
     terms: "install installation version main commit build restart",
   },
   {
+    id: "signing",
+    title: "Signing certificate",
+    terms:
+      "keychain permission prompt nag identity name fingerprint connect certificate cert local sign",
+  },
+  {
     id: "tools",
     title: "Agent tools",
     terms: "install installation cli command skill global codex claude npx",
@@ -181,7 +187,11 @@ export function SettingsViewPanel({
           )}
           {settings?.credentialError && <p role="alert">{settings.credentialError}</p>}
         </fieldset>
-        <InstallationSettings showUpdates={visible("updates")} showTools={visible("tools")} />
+        <InstallationSettings
+          showUpdates={visible("updates")}
+          showTools={visible("tools")}
+          showSigning={visible("signing")}
+        />
         <RemoteSettings visible={visible("remotes")} />
         <div className="section-title">
           <Button type="submit" hidden={!visible("model")} disabled={busy || !settings}>
