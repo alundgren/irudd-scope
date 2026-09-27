@@ -6,6 +6,8 @@ A private workspace where coding agents leave things for a human to inspect. An 
 
 The repository is public. Artifact data and credentials stay private. Remote access belongs on a private tailnet.
 
+SQLite stores artifact contents, metadata, ordinary settings, and workspace preferences. Mac provider credentials live directly in Keychain. The private discovery file holds the CLI publishing token. Artifacts stay on the Mac; publishing requires Scope to be running.
+
 ## Development
 
 Install Vite+ `1.0.0-rc.1`, then run:

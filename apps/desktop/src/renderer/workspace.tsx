@@ -9,8 +9,9 @@ import { SettingsViewPanel } from "./settings-view.tsx";
 import { ArtifactView } from "./artifact-view.tsx";
 import { CreateDiagram } from "./create-diagram.tsx";
 
-type Workspace = { tabs: string[]; selected: string | null };
-function restore(): Workspace {
+import type { Workspace } from "../settings.ts";
+
+function legacyWorkspace(): Workspace {
   try {
     const value: unknown = JSON.parse(localStorage.getItem("scope.workspace.v1") ?? "null");
     if (
@@ -32,7 +33,9 @@ function restore(): Workspace {
 
 export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot>({ artifacts: [], connection: "connecting" });
-  const [workspace, setWorkspace] = useState(restore);
+  const [workspace, setWorkspace] = useState<Workspace>({ tabs: [], selected: null });
+  const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [settings, setSettings] = useState(false);
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState(false);
@@ -51,12 +54,35 @@ export function App() {
     return unsubscribe;
   }, []);
   useEffect(() => {
-    try {
-      localStorage.setItem("scope.workspace.v1", JSON.stringify(workspace));
-    } catch {
-      /* Workspace preferences are optional. */
-    }
-  }, [workspace]);
+    let active = true;
+    void (async () => {
+      const saved = await window.scope.workspace();
+      const initial = saved ?? legacyWorkspace();
+      if (saved === null) await window.scope.saveWorkspace(initial);
+      try {
+        localStorage.removeItem("scope.workspace.v1");
+      } catch {
+        /* Legacy storage may be unavailable. */
+      }
+      if (active) {
+        setWorkspace(initial);
+        setWorkspaceLoaded(true);
+      }
+    })()
+      .catch(() => {
+        if (active) setError("Could not load saved tabs. Your artifacts remain on this Mac.");
+      })
+      .finally(() => {
+        if (active) setWorkspaceReady(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!workspaceReady || !workspaceLoaded) return;
+    void window.scope.saveWorkspace(workspace).catch(() => setError("Could not save open tabs."));
+  }, [workspace, workspaceReady, workspaceLoaded]);
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
       if (event.key === "Escape") setFocus(false);
@@ -96,6 +122,7 @@ export function App() {
       setError(failure instanceof Error ? failure.message : "Download failed.");
     }
   }
+  if (!workspaceReady) return <p role="status">Opening workspace…</p>;
   return (
     <main className={`workspace${focus ? " focus-mode" : ""}`}>
       {!focus && (

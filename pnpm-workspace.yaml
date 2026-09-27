@@ -8,6 +8,8 @@ catalog:
   vite: npm:@voidzero-dev/vite-plus-core@1.0.0-rc.1
   typescript: 7.0.2
   effect: 4.0.0-rc.117
+  "@effect/sql-sqlite-node": 4.0.0-rc.117
+  "@napi-rs/keyring": 2.1.0
   electron: 44.4.5
   react: 19.3.0
   react-dom: 19.3.0

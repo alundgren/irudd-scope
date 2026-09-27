@@ -5,12 +5,12 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "ready": "vp run build && vp check && node tools/test.ts",
-    "test": "node tools/test.ts",
+    "ready": "vp run build && vp check && vp run test",
+    "test": "vp exec node tools/test.ts",
     "build": "vp run -r build",
     "hub": "vp run hub#dev",
     "desktop": "vp run desktop#dev",
-    "scope": "node packages/cli/src/main.ts"
+    "scope": "vp exec node packages/cli/src/main.ts"
   },
   "devDependencies": {
     "@irudd-scope/protocol": "workspace:*",
