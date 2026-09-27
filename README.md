@@ -15,10 +15,11 @@ curl -fsSL https://raw.githubusercontent.com/alundgren/irudd-scope/main/install.
 ```
 
 The installer keeps its own clone in `~/.local/share/irudd-scope`, installs
-Vite+ if needed, and builds Scope locally. It adds `Scope.app` to
-`~/Applications` and opens it. Apple's command line tools are required. If
-they are missing, run `xcode-select --install`, finish that installation, and
-run the Scope installer again.
+Vite+ if needed, and builds Scope locally. It installs a complete `Scope.app`
+in `~/Applications` for Finder and Spotlight, then opens it. Re-running the
+installer replaces an older managed app symlink automatically. Apple's command
+line tools are required. If they are missing, run `xcode-select --install`,
+finish that installation, and run the Scope installer again.
 
 On startup, Scope checks the latest SHA on `main`. A new commit builds in the
 background. Choose **Restart to update** when ready. Failed builds leave the

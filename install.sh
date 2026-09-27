@@ -75,20 +75,12 @@ scope_install() (
     return 0
   fi
   local applications="${SCOPE_APPLICATIONS_DIR:-$HOME/Applications}"
-  local app_link="$applications/Scope.app"
+  local application="$applications/Scope.app"
   case "$applications" in /*) ;; *) echo "SCOPE_APPLICATIONS_DIR must be an absolute path." >&2; return 1 ;; esac
-  mkdir -p "$applications"
-  if [ -e "$app_link" ] || [ -L "$app_link" ]; then
-    [ -L "$app_link" ] && [ "$(readlink "$app_link")" = "$root/current/Scope.app" ] || {
-      echo "$app_link already exists and is not managed by this installer. Move it aside and retry." >&2; return 1;
-    }
-  else
-    ln -s "$root/current/Scope.app" "$app_link"
-  fi
-  "$vp" exec node tools/activate-installation.ts "$root" "$build" activate
-  echo "Installed $app_link"
+  "$vp" exec node tools/activate-installation.ts "$root" "$build" activate "$application"
+  echo "Installed $application"
   echo "If Scope is already open, quit and reopen it to use this build."
-  open "$app_link"
+  open "$application"
 )
 
 scope_install "$@"

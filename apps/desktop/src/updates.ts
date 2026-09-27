@@ -111,8 +111,8 @@ export class AppUpdates {
   async activate(): Promise<string> {
     if (!this.installation || !this.prepared || this.value.phase !== "ready")
       throw new Error("No update is ready.");
-    await activateBuild(this.installation.root, this.prepared);
-    return join(this.prepared, "Scope.app/Contents/MacOS/Scope");
+    const application = await activateBuild(this.installation.root, this.prepared);
+    return join(application, "Contents/MacOS/Scope");
   }
 
   async cancel() {

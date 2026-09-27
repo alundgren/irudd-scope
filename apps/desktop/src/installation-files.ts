@@ -1,7 +1,23 @@
 import { randomUUID } from "node:crypto";
-import { access, lstat, readFile, readlink, readdir, rename, rm, symlink } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import {
+  access,
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  symlink,
+} from "node:fs/promises";
 import { constants } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { promisify } from "node:util";
 import { Schema } from "effect";
 import { decode } from "@irudd-scope/protocol";
 
@@ -25,40 +41,158 @@ export async function pointToBuild(
   name: "current" | "previous" | "prepared",
   build: string,
 ) {
+  validateBuild(root, build);
+  await pointToInstallationPath(root, name, build);
+}
+
+function validateBuild(root: string, build: string) {
   if (dirname(build) !== join(root, "builds") || !/^[0-9a-f]{40}$/.test(build.split("/").at(-1)!))
     throw new Error("The prepared app is outside Scope's build directory.");
+}
+
+async function readInstallationLink(root: string, name: string) {
   const target = join(root, name);
   const existing = await lstat(target).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT") throw error;
   });
   if (existing && !existing.isSymbolicLink())
     throw new Error(`${target} is not a Scope installation link. Move it aside and retry.`);
+  return existing ? readlink(target) : undefined;
+}
+
+async function pointToInstallationPath(root: string, name: string, path: string | undefined) {
+  await readInstallationLink(root, name);
+  const target = join(root, name);
+  if (path === undefined) {
+    await rm(target, { force: true });
+    return;
+  }
   const temporary = join(root, `.${name}-${randomUUID()}`);
   try {
-    await symlink(build, temporary);
+    await symlink(path, temporary);
     await rename(temporary, target);
   } finally {
     await rm(temporary, { force: true });
   }
 }
 
-export async function activateBuild(root: string, build: string) {
-  await access(join(build, "Scope.app/Contents/MacOS/Scope"), constants.X_OK);
-  const previous = await readlink(join(root, "current")).catch((error: NodeJS.ErrnoException) => {
-    if (error.code !== "ENOENT") throw error;
+export async function activateBuild(root: string, build: string, application?: string) {
+  validateBuild(root, build);
+  const bundle = join(build, "Scope.app");
+  await access(join(bundle, "Contents/MacOS/Scope"), constants.X_OK);
+  const metadata = await readInstallation(join(bundle, "Contents/Resources/app"));
+  if (metadata.root !== root || join(root, "builds", metadata.commit) !== build)
+    throw new Error("The prepared update has a different commit or installation directory.");
+
+  const lock = join(root, ".activation-lock");
+  await mkdir(lock).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "EEXIST")
+      throw new Error("Another Scope activation may be running. Wait for it to finish and retry.");
+    throw error;
   });
-  if (previous && previous !== build) await pointToBuild(root, "previous", previous);
-  await pointToBuild(root, "current", build);
+  let staging: string | undefined;
+  let cleanup = true;
+  try {
+    const current = await readInstallationLink(root, "current");
+    const previous = await readInstallationLink(root, "previous");
+    const recordedApplication = await readInstallationLink(root, "application");
+    application ??= recordedApplication ?? join(homedir(), "Applications/Scope.app");
+    if (!isAbsolute(application)) throw new Error("Scope's application path must be absolute.");
+    await mkdir(dirname(application), { recursive: true });
+    const parent = await realpath(dirname(application));
+    const installationRoot = await realpath(root);
+    if (parent === installationRoot || parent.startsWith(`${installationRoot}${sep}`))
+      throw new Error("Install Scope.app outside its build and installation directories.");
+    const existing = await lstat(application).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+    const managed =
+      !existing ||
+      (existing.isSymbolicLink()
+        ? (await readlink(application)) === join(root, "current/Scope.app")
+        : existing.isDirectory() &&
+          (await readInstallation(join(application, "Contents/Resources/app")).then(
+            (value) => value.root === root,
+            () => false,
+          )));
+    if (!managed)
+      throw new Error(
+        `${application} already exists and is not managed by this installer. Move it aside and retry.`,
+      );
+
+    staging = await mkdtemp(join(parent, ".scope-install-"));
+    const replacement = join(staging, "Scope.app");
+    const backup = join(staging, "previous.app");
+    // Electron frameworks use relative links that must remain inside the copied bundle.
+    await cp(bundle, replacement, {
+      recursive: true,
+      verbatimSymlinks: true,
+      mode: constants.COPYFILE_FICLONE,
+    });
+    const changedLinks: [string, string | undefined][] = [];
+    let moved = false;
+    let installed = false;
+    cleanup = false;
+    try {
+      if (existing) {
+        await rename(application, backup);
+        moved = true;
+      }
+      await rename(replacement, application);
+      installed = true;
+      const links: [string, string | undefined, string][] = [
+        ["current", current, build],
+        ["application", recordedApplication, application],
+      ];
+      if (current && current !== build) links.unshift(["previous", previous, current]);
+      for (const [name, before, after] of links) {
+        await pointToInstallationPath(root, name, after);
+        changedLinks.push([name, before]);
+      }
+      cleanup = true;
+    } catch (error) {
+      try {
+        for (const [name, before] of changedLinks.reverse())
+          await pointToInstallationPath(root, name, before);
+        if (installed) await rm(application, { recursive: true, force: true });
+        if (moved) await rename(backup, application);
+        cleanup = true;
+      } catch (restoreError) {
+        throw new AggregateError(
+          [error, restoreError],
+          `Could not restore Scope. Its previous app is at ${backup}.`,
+        );
+      }
+      throw error;
+    }
+    if (process.platform === "darwin")
+      await promisify(execFile)("/usr/bin/mdimport", [application], { timeout: 10_000 }).catch(
+        () => {
+          console.error("Scope was installed, but Spotlight could not refresh its index yet.");
+        },
+      );
+    return application;
+  } finally {
+    try {
+      if (staging && cleanup)
+        await rm(staging, { recursive: true, force: true }).catch(() => {
+          console.error(`Could not remove the temporary installation directory ${staging}.`);
+        });
+    } finally {
+      await rm(lock, { recursive: true, force: true });
+    }
+  }
 }
 
 export async function pruneBuilds(installation: Installation) {
-  if (
-    await access(join(installation.root, ".install-lock")).then(
-      () => true,
-      () => false,
+  for (const name of [".install-lock", ".activation-lock"])
+    if (
+      await access(join(installation.root, name)).then(
+        () => true,
+        () => false,
+      )
     )
-  )
-    return;
+      return;
   const keep = new Set([join(installation.root, "builds", installation.commit)]);
   for (const name of ["current", "previous", "prepared"]) {
     const target = await readlink(join(installation.root, name)).catch(() => undefined);
