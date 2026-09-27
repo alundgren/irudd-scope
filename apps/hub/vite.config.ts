@@ -7,5 +7,9 @@ export default defineConfig({
     target: "node26",
     platform: "node",
     outDir: "dist",
+    outExtensions: () => ({ js: ".mjs" }),
+    deps: {
+      alwaysBundle: ["@irudd-scope/protocol", "@irudd-scope/protocol/**", "effect", "effect/**"],
+    },
   },
 });

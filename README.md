@@ -6,7 +6,7 @@ A private workspace where coding agents leave things for a human to inspect. An 
 
 The repository is public. Artifact data and credentials stay private. Remote access belongs on a private tailnet.
 
-SQLite stores artifact contents, metadata, ordinary settings, and workspace preferences. Mac provider credentials live directly in Keychain. The private discovery file holds the CLI publishing token. Artifacts stay on the Mac; publishing requires Scope to be running.
+SQLite stores artifact contents, metadata, ordinary settings, and workspace preferences. Mac provider and remote connection credentials live directly in Keychain. The private discovery file holds the CLI publishing token. Artifacts stay on the Mac; publishing requires Scope to be running.
 
 ## Install on macOS
 
@@ -32,6 +32,29 @@ Node/npm. Open a new terminal after installing the CLI.
 
 See [installation and recovery](docs/development.md#installed-app) for paths,
 build requirements, and removal.
+
+## Install on a remote
+
+On a Linux remote already connected to your tailnet:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/alundgren/irudd-scope/main/install-cli.sh | bash
+```
+
+Open a new login shell and run `irudd-scope setup`. Review the installation
+paths and private endpoint, then confirm. Setup installs the hub as a systemd
+user service, installs the Scope skill for Codex and Claude Code, and configures
+Tailscale Serve on an unused HTTPS port. Existing Serve routes stay intact.
+
+Paste the printed pairing URL into **Scope → Settings → Remotes** on the Mac.
+The link expires after ten minutes and can be used once. Scope keeps the
+connection credential in Keychain and opens all connections to the remote.
+The remote does not need permission to initiate connections to the Mac.
+
+Run `irudd-scope pair` for a fresh link. Each hub pairs with one Mac. A Mac
+can connect to several hubs independently. Disconnect and removal are in
+Settings; service commands and prerequisites are in
+[remote access](docs/development.md#remote-access).
 
 ## Development
 

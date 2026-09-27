@@ -226,6 +226,75 @@ The desktop and its CLI must use the same discovery file.
 
 ## Remote access
 
+Install the standalone CLI on the remote with the root `install-cli.sh`. It
+builds only the CLI and hub packages, copies the managed Node runtime into
+the installation, and links `~/.local/bin/irudd-scope`. It does not install
+the desktop. Linux and macOS can install the CLI; managed hub setup currently
+requires Linux, a working systemd user service manager, and user lingering.
+Tailscale must already be installed and connected, with permission to configure
+Serve. Setup reports missing prerequisites before changing the service.
+
+```sh
+irudd-scope setup
+irudd-scope pair
+irudd-scope hub status
+```
+
+Setup shows the paths and private endpoint before confirmation. `--yes`
+accepts that plan for unattended use, and `--no-pair` suppresses generating a
+pairing link. `--port` chooses the loopback listener; `--https-port` chooses
+the private Serve port. By default setup finds an unused HTTPS port starting
+at 8450 and avoids loopback ports already targeted by other Serve routes.
+It reuses saved ports on later runs, preserves existing routes, and refuses
+an occupied explicit port. Remove a configured hub before changing its ports.
+If user lingering is disabled, enable it with `loginctl enable-linger USER`
+and retry. If Serve needs HTTPS enabled or additional permission, follow its
+reported setup instructions and rerun `irudd-scope setup`.
+
+Setup installs the bundled publishing skill in `~/.agents/skills/irudd-scope`
+and links it for Claude Code. These links follow the standalone CLI's current
+build. Existing unrelated skills or CLI commands are never replaced. Use
+`irudd-scope skill install` or `irudd-scope skill remove` independently.
+
+Paste the pairing URL into Settings → Remotes in Scope. The secret is in the
+URL fragment. Links expire after ten minutes; generating another invalidates
+the previous link. A successful pairing exchanges it for a connection token
+stored in Mac Keychain. The hub stores credential hashes in SQLite. Each hub
+pairs with one Mac. Use `irudd-scope hub unpair` before pairing another Mac.
+
+The Mac opens all relay connections through the remote's Tailscale Serve
+endpoint. The hub only binds to loopback. A tailnet rule permitting Mac-to-remote
+HTTPS is sufficient; remote-to-Mac initiation is unnecessary. CLI publication
+uses its private local discovery file without endpoint flags. The hub streams
+active requests and keeps no offline queue. Scope must be open on an awake Mac.
+
+Enabled remotes reconnect automatically while Scope runs. Disconnect remains
+off until Connect is selected. Remove remote revokes the hub credential;
+if the hub is unreachable, reconnect it and retry removal. `irudd-scope hub
+stop` and `start` control the user service. `hub remove` revokes access and
+removes only its service and Serve route, preserving the CLI, skill, and
+settings. It requires the hub to be running. Logs are available through
+`journalctl --user -u irudd-scope-hub.service`.
+
+Re-run the standalone installer to update its payload, then run setup to
+restart the hub with the new version. Completed builds live in
+`~/.local/share/irudd-scope-cli/builds`; `current` and `previous` select builds.
+`SCOPE_CLI_INSTALL_ROOT`, `SCOPE_CLI_BIN_DIR`, and `SCOPE_VP` override installer
+paths. `SCOPE_CLI_SOURCE` builds an existing absolute checkout without fetching
+or changing it. `SCOPE_HUB_DATA_DIR` and `SCOPE_CONNECTION_FILE` select private
+hub state and discovery locations. `SCOPE_SETUP_HOME` selects a separate home
+directory for skill and user-service installation during isolated verification.
+
+To remove the CLI after removing the hub, delete its managed link and installation
+directory. Remove the skill first if it should not remain. The shared PATH entry
+in the shell profile remains. Hub data locations and recovery are in
+[storage](storage.md).
+
+### Direct HTTPS access
+
+Direct desktop access and the original forwarding mode remain available when
+your tailnet permits callers to initiate connections to the Mac.
+
 Expose the Mac's loopback API through Tailscale Serve on an unused private
 HTTPS port, preserving existing routes:
 

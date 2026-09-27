@@ -1,6 +1,6 @@
 # Working in irudd-scope
 
-Scope lets coding agents publish artifacts for a human to inspect in a Mac desktop app. The desktop owns persistent artifacts. Publishing requires Scope to be running on an awake Mac. The optional hub only forwards requests and fails when the desktop is unavailable. Scope does not run coding sessions or orchestrate agents.
+Scope lets coding agents publish artifacts for a human to inspect in a Mac desktop app. The desktop owns persistent artifacts. Publishing requires Scope to be running on an awake Mac. The optional hub forwards requests through a connection opened by the Mac and fails when the desktop is unavailable. It persists only hub configuration and pairing credentials. Scope does not run coding sessions or orchestrate agents.
 
 ## Work in the relevant area
 

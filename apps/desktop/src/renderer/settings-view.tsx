@@ -5,8 +5,14 @@ import { Button } from "./components/ui/button.tsx";
 import { Input } from "./components/ui/input.tsx";
 import { NativeSelect, NativeSelectOption } from "./components/ui/native-select.tsx";
 import { InstallationSettings } from "./installation-settings.tsx";
+import { RemoteSettings } from "./remote-settings.tsx";
 
 export const settingsSections = [
+  {
+    id: "remotes",
+    title: "Remotes",
+    terms: "hub pair pairing tailnet tailscale connection disconnect",
+  },
   { id: "appearance", title: "Appearance", terms: "theme system light dark colors" },
   {
     id: "updates",
@@ -176,6 +182,7 @@ export function SettingsViewPanel({
           {settings?.credentialError && <p role="alert">{settings.credentialError}</p>}
         </fieldset>
         <InstallationSettings showUpdates={visible("updates")} showTools={visible("tools")} />
+        <RemoteSettings visible={visible("remotes")} />
         <div className="section-title">
           <Button type="submit" hidden={!visible("model")} disabled={busy || !settings}>
             {busy ? "Saving…" : "Save settings"}

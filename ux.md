@@ -80,6 +80,18 @@ pending, installed, and failure states. The CLI follows the active app build.
 The skill action uses npx skills for Codex and Claude Code. Each installed
 tool has a removal action, and failed installation leaves a useful retry.
 
+Remotes is a searchable Settings section. Installation happens on the remote
+through the standalone CLI. The Mac pairs by accepting a pasted URL, shows
+the destination before pairing, and clears the input after saving its credential.
+Stored credentials are never displayed. Each hub pairs with one Mac; a Mac can
+keep several independent remote records.
+
+Enabled remotes connect when Scope starts and reconnect after a lost connection.
+Disconnect persists until Connect is chosen. Remove remote revokes access on
+the hub; when the hub is unreachable, Scope keeps a disconnected record with
+a retryable error. Pairing and connection errors leave the workspace usable.
+Publishing needs an awake Mac with Scope open. Offline work is not queued.
+
 Create diagram is available in the empty workspace and search panel.
 An existing diagram has an Ask agent conversation, closed by default.
 It sits beside the canvas at desktop widths and overlays it in a narrow

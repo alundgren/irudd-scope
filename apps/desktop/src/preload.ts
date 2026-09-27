@@ -1,8 +1,21 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { ScopeBridge, ArtifactLibrarySnapshot } from "./bridge.ts";
 import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
+import type { RemoteStatus } from "./remote-contract.ts";
 
 const bridge: ScopeBridge = {
+  remotes: () => ipcRenderer.invoke("scope:remotes"),
+  pairRemote: (url) => ipcRenderer.invoke("scope:pair-remote", url),
+  setRemoteEnabled: (id, enabled) =>
+    ipcRenderer.invoke("scope:set-remote-enabled", { id, enabled }),
+  removeRemote: (id) => ipcRenderer.invoke("scope:remove-remote", id),
+  onRemotesChange: (listener) => {
+    const receive = (_event: unknown, status: RemoteStatus[]) => listener(status);
+    ipcRenderer.on("scope:remotes-changed", receive);
+    return () => {
+      ipcRenderer.removeListener("scope:remotes-changed", receive);
+    };
+  },
   updates: () => ipcRenderer.invoke("scope:updates"),
   checkForUpdates: () => ipcRenderer.invoke("scope:check-for-updates"),
   cancelUpdate: () => ipcRenderer.invoke("scope:cancel-update"),

@@ -10,6 +10,8 @@ import { registerMainPlugins } from "./plugins/registry.main.ts";
 import { TabEventEnvelope } from "./plugins/events.ts";
 import type { AgentTools } from "./agent-tools.ts";
 import type { AppUpdates } from "./updates.ts";
+import type { Remotes } from "./remotes.ts";
+import { RemoteId } from "@irudd-scope/protocol/remote";
 
 export function registerDesktopIpc({
   window,
@@ -19,6 +21,7 @@ export function registerDesktopIpc({
   onCloseReady,
   updates,
   agentTools,
+  remotes,
   onRestartToUpdate,
 }: {
   window: BrowserWindow;
@@ -28,6 +31,7 @@ export function registerDesktopIpc({
   onCloseReady: (saved: boolean) => void;
   updates: AppUpdates;
   agentTools: AgentTools;
+  remotes: Remotes;
   onRestartToUpdate: () => Promise<void>;
 }) {
   const eventListeners = new Set<(event: TabEventEnvelope) => void | Promise<void>>();
@@ -52,6 +56,15 @@ export function registerDesktopIpc({
   }
 
   const plugins = registerMainPlugins({ handle, store, client });
+  handle("scope:remotes", () => remotes.snapshot());
+  handle("scope:pair-remote", (input) =>
+    remotes.pair(decode(Schema.String.check(Schema.isMaxLength(4096)), input)),
+  );
+  handle("scope:set-remote-enabled", (input) => {
+    const { id, enabled } = decode(Schema.Struct({ id: RemoteId, enabled: Schema.Boolean }), input);
+    return remotes.setEnabled(id, enabled);
+  });
+  handle("scope:remove-remote", (input) => remotes.remove(decode(RemoteId, input)));
   handle("scope:updates", () => updates.snapshot());
   handle("scope:check-for-updates", () => {
     if (agentTools.isBusy()) throw new Error("Wait for the agent tools installation to finish.");

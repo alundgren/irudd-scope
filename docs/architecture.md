@@ -8,8 +8,10 @@ running Scope. A failed publication is not queued or replayed.
 flowchart LR
     CLI[packages/cli] -->|loopback HTTP| Desktop[apps/desktop: Electron main]
     Remote[Remote CLI] -->|private HTTPS| Desktop
-    Remote -->|optional private HTTPS| Hub[apps/hub]
-    Hub -->|forward requests| Desktop
+    Remote -->|loopback HTTP| Hub[apps/hub]
+    Desktop -->|opens private HTTPS relay| Hub
+    Hub -->|requests on existing relay| Desktop
+    Hub --> HubSettings[hub.db: configuration and credential hashes]
     Desktop --> Artifacts[scope.db: artifacts and bytes]
     Desktop --> Preferences[desktop.db: settings and workspace]
     Desktop --> Keychain[macOS Keychain]
@@ -118,10 +120,25 @@ listener's work. New tabs load current state through library or plugin queries.
 `packages/cli` detects file kinds, gathers inexpensive provenance, and publishes
 through the protocol client. It does not read transcripts or launch agents.
 
-`apps/hub` authenticates and forwards requests and event streams. It owns no
-database, content directory, queue, or provider credentials. An unreachable
-desktop produces a 503 response before response headers are sent. A failure
-during streaming closes the response.
+`apps/hub` authenticates and forwards requests and event streams. `state.ts`
+owns hub configuration, pairing expiry, and credential hashes in `hub.db`.
+`paired-server.ts` retains only bounded active requests in memory. It owns no
+artifacts, retry queue, or provider credentials. A disconnected desktop
+produces a 503 response before headers are sent. A failure during streaming
+closes the response.
+
+The Mac's `remotes.ts` opens an authenticated HTTPS event connection to each
+enabled hub. When a local CLI request arrives at a hub, the Mac opens the
+request-body and response transfers. Every connection starts at the Mac, so
+remote hosts need no inbound route to it. Shared relay and pairing contracts
+live in `packages/protocol/src/remote.ts`. The Mac only forwards validated
+artifact API requests to its own publishing listener.
+
+`packages/cli/src/setup.ts` installs the user service, bundled skill, and a
+dedicated Tailscale Serve route. It invokes the installed hub executable to
+configure hub-owned state. `install-cli.sh` and `tools/package-cli.ts` install
+the standalone CLI with its runtime and hub payload. They do not install the
+desktop or operate another machine over SSH.
 
 Dependencies point from each app and CLI toward the protocol. Apps do not
 import one another's source. Keep responsibilities together until splitting
@@ -133,9 +150,16 @@ docs together when terminology changes.
 
 Opening Scope starts the loopback API and writes its endpoint and bearer token
 to a private discovery file. Local CLI calls discover them automatically.
-Explicit endpoints require explicit credentials. Remote callers use private
-HTTPS to reach the desktop directly or through the hub. Both listeners bind
-to loopback and require the desktop publishing token for artifact requests.
+Explicit endpoints require explicit credentials. Remote callers use their
+local hub discovery file, or a private HTTPS endpoint with explicit credentials.
+Both listeners bind to loopback. Paired hubs have separate local publishing
+and desktop connection credentials. One-time pairing exchanges a short-lived
+secret for a connection credential stored in Mac Keychain; hub SQLite retains
+only its hash. Desktop SQLite stores remote names, endpoints, and enabled state.
+
+The original direct-forwarding hub mode remains available with `SCOPE_ENDPOINT`
+and `SCOPE_TOKEN`. It requires the hub to reach the desktop and uses its
+publishing token. It does not participate in pairing.
 
 Closing the last window quits Scope and stops publication. The connection
 file remains, so its presence does not establish that the desktop is running.

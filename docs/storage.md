@@ -4,12 +4,14 @@ Electron main owns Scope's persistent data. Defaults below apply on macOS.
 Use the [development environment variables](development.md#isolated-development)
 to select separate directories for development.
 
-| Data                | Location                                                       | Contents                                                                 |
-| ------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Published metadata and binary content.                                   |
-| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, open and closed tabs, and diagram drafts. |
-| Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                |
-| CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.           |
+| Data                | Location                                                       | Contents                                                                                             |
+| ------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Published metadata and binary content.                                                               |
+| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, open and closed tabs, and diagram drafts.                             |
+| Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                            |
+| Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                        |
+| CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                       |
+| Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, private endpoint, local listener configuration, credential hashes, and pairing expiry. |
 
 Scope creates database directories with mode `0700` and database files with
 mode `0600`. Treat the whole profile and discovery file as private. Explicit
@@ -23,6 +25,20 @@ Failed writes keep the working canvas available with a retry action.
 
 ## Backup and restore
 
+Remote records share `desktop.db` with other preferences. Their tokens never
+enter SQLite. Removing a remote revokes the credential on the hub before
+removing the Mac's saved record and Keychain token. If the hub is unavailable,
+the record stays disconnected so removal can be retried. Linux desktop
+development keeps connection tokens in memory; after restart, re-pair using
+`irudd-scope hub unpair` and `irudd-scope pair` on the remote.
+
+The hub uses the same private discovery format as local desktop publishing,
+with its own publishing token. Do not share one discovery file between a hub
+and a desktop on the same host. Set `SCOPE_CONNECTION_FILE` to separate paths.
+Hub state contains no artifact bytes. Back up its database and discovery file
+together if you need to retain pairings. Installation builds and skill files
+contain program code and live separately from this state.
+
 Quit Scope before copying `scope.db` and `desktop.db`, or use SQLite's online
 backup API for each database. Copying only a database file while Scope runs
 can omit committed data in its WAL file. Restore both databases with Scope
@@ -35,7 +51,8 @@ token. The library and preferences remain intact.
 
 ## Supported data imports
 
-Scope reads artifact schema version 2 and desktop schema version 4. It rejects
+Scope reads artifact schema version 2, desktop schema version 5, and hub schema
+version 1. It rejects
 newer schema versions. Back up the complete data directories before an upgrade
 when you need the option to return to an older desktop.
 

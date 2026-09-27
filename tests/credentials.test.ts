@@ -55,6 +55,43 @@ test("native access errors remain errors and retain their cause", async () => {
   await expect(credentials.write({})).rejects.toMatchObject({ cause });
 });
 
+test("obsolete hub credentials do not prevent reading existing provider credentials", async () => {
+  const credentials = keychainCredentials(
+    keychainEntry(JSON.stringify({ apiKey: "synthetic-provider-key", hubToken: "obsolete-token" })),
+  );
+  expect(await credentials.read()).toEqual({ apiKey: "synthetic-provider-key" });
+});
+
+test("Keychain retains remote credentials across store instances and provider key changes", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "scope-remote-credentials-"));
+  const entry = keychainEntry(null);
+  const id = "11111111-1111-4111-8111-111111111111";
+  const token = "synthetic-remote-connection-token-for-tests";
+  const first = new DesktopStore(directory, keychainCredentials(entry));
+  const second = new DesktopStore(directory, keychainCredentials(entry));
+  try {
+    await first.load();
+    await first.saveRemote(
+      { id, name: "Test remote", endpoint: "https://remote.example.test", enabled: true },
+      token,
+    );
+    await first.saveSettings({ apiKey: "synthetic-provider-key" });
+    await first.close();
+    await second.load();
+    expect(await second.remoteToken(id)).toBe(token);
+    expect(await second.remotes()).toEqual([
+      { id, name: "Test remote", endpoint: "https://remote.example.test", enabled: true },
+    ]);
+    await second.saveSettings({ removeApiKey: true });
+    expect(await second.remoteToken(id)).toBe(token);
+    await second.removeRemote(id);
+    expect(await keychainCredentials(entry).read()).toEqual({});
+  } finally {
+    await second.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test.for(['{"apiKey":"synthetic-key"', '{"apiKey":42}', "null"])(
   "invalid stored credentials do not claim Keychain is locked or reveal the value: %s",
   async (value) => {
