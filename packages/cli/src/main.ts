@@ -17,12 +17,17 @@ import {
   decodeLocalConnection,
 } from "@irudd-scope/protocol";
 import { ScopeClient } from "@irudd-scope/protocol/client";
+import { setup, manageHub, installSkill, printPairing } from "./setup.ts";
 
 const help = `irudd-scope add FILE [--title TITLE] [--id ID]
 irudd-scope text TEXT [--title TITLE] [--id ID] [--kind text|markdown]
 irudd-scope update ID FILE [--title TITLE]
 irudd-scope list
 irudd-scope get ID
+irudd-scope setup [--yes] [--https-port PORT] [--port PORT] [--no-pair]
+irudd-scope pair
+irudd-scope hub start|stop|status|unpair|remove
+irudd-scope skill install|remove
 
 Options: --endpoint URL, --token-file PATH, --agent NAME, --session-id ID, --timeout-ms MS
 The command timeout defaults to 10000 ms. Increase it for slow remote uploads.
@@ -127,6 +132,10 @@ async function main() {
       agent: { type: "string" },
       "session-id": { type: "string" },
       "timeout-ms": { type: "string" },
+      yes: { type: "boolean" },
+      "https-port": { type: "string" },
+      port: { type: "string" },
+      "no-pair": { type: "boolean" },
     },
   });
   if (values.help || !positionals.length) {
@@ -134,6 +143,29 @@ async function main() {
     return;
   }
   const [command, argument, replacement] = positionals;
+  if (command === "setup") {
+    await setup({
+      yes: values.yes,
+      httpsPort: values["https-port"],
+      port: values.port,
+      noPair: values["no-pair"],
+    });
+    return;
+  }
+  if (command === "pair") {
+    await printPairing();
+    return;
+  }
+  if (command === "hub") {
+    await manageHub(argument);
+    return;
+  }
+  if (command === "skill") {
+    if (argument !== "install" && argument !== "remove")
+      throw new Error("Use irudd-scope skill install or remove.");
+    await installSkill(argument === "remove");
+    return;
+  }
   if (!["add", "text", "update", "list", "get"].includes(command))
     throw new Error(`Unknown command.\n${help}`);
   const timeoutMs = parseTimeout(values["timeout-ms"]);

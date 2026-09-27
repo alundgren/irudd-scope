@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Effect, ManagedRuntime, Schema } from "effect";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { ArtifactId, decode } from "@irudd-scope/protocol";
-import { memoryCredentials, type CredentialStore, type Secrets } from "./credentials.ts";
+import { memoryCredentials, type CredentialStore } from "./credentials.ts";
 import { DiagramDraft } from "./plugins/diagram/draft.ts";
 
 import {
@@ -15,6 +15,8 @@ import {
 import { decodeWorkspace, importWorkspace, type Workspace } from "./workspace/contract.ts";
 import { validateTabState } from "./plugins/registry.ts";
 import { DIAGRAM_MODEL, DIAGRAM_PROVIDER } from "./plugins/diagram/provider-settings.ts";
+import { Remote, Remotes } from "./remote-contract.ts";
+import { RemoteToken } from "@irudd-scope/protocol/remote";
 
 const SavedSettings = Schema.Struct({
   version: Schema.Literal(2),
@@ -59,7 +61,7 @@ export class DesktopStore {
       const [{ user_version: version }] = await this.run(
         sql<{ user_version: number }>`PRAGMA user_version`,
       );
-      if (version > 4) throw new Error("The desktop database requires a newer Scope version.");
+      if (version > 5) throw new Error("The desktop database requires a newer Scope version.");
       await this.run(
         sql`CREATE TABLE IF NOT EXISTS preferences (
           name TEXT PRIMARY KEY, document TEXT NOT NULL CHECK (json_valid(document))
@@ -121,7 +123,7 @@ export class DesktopStore {
               const migrated = importWorkspace(JSON.parse(workspace.document));
               yield* sql`UPDATE preferences SET document = ${JSON.stringify(migrated)} WHERE name = 'workspace'`;
             }
-            yield* sql`PRAGMA user_version = 4`;
+            yield* sql`PRAGMA user_version = 5`;
           }),
         ),
       );
@@ -161,7 +163,7 @@ export class DesktopStore {
     };
   }
 
-  async secret(name: keyof Secrets): Promise<string | undefined> {
+  async secret(name: "apiKey"): Promise<string | undefined> {
     return (await this.credentials.read())[name];
   }
 
@@ -198,6 +200,59 @@ export class DesktopStore {
       this.saved = next;
       await this.refreshPresence();
       return this.settings();
+    });
+  }
+
+  async remotes(): Promise<Remote[]> {
+    await this.pending;
+    const [row] = await this.run(
+      this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'remotes'`,
+    );
+    return row ? [...decode(Remotes, JSON.parse(row.document))] : [];
+  }
+
+  async remoteToken(id: string): Promise<string | undefined> {
+    await this.pending;
+    return (await this.credentials.read()).remoteTokens?.[id];
+  }
+
+  saveRemote(value: Remote, token?: string): Promise<void> {
+    const remote = decode(Remote, value);
+    if (token !== undefined) decode(RemoteToken, token);
+    return this.enqueue(async () => {
+      const [row] = await this.run(
+        this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'remotes'`,
+      );
+      const remotes = row ? [...decode(Remotes, JSON.parse(row.document))] : [];
+      if (token !== undefined) {
+        const secrets = await this.credentials.read();
+        await this.credentials.write({
+          ...secrets,
+          remoteTokens: { ...secrets.remoteTokens, [remote.id]: token },
+        });
+      }
+      const next = [...remotes.filter((item) => item.id !== remote.id), remote];
+      await this.run(
+        this
+          .sql!`INSERT INTO preferences(name, document) VALUES ('remotes', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+      );
+    });
+  }
+
+  removeRemote(id: string): Promise<void> {
+    return this.enqueue(async () => {
+      const [row] = await this.run(
+        this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'remotes'`,
+      );
+      const remotes = row ? [...decode(Remotes, JSON.parse(row.document))] : [];
+      const secrets = await this.credentials.read();
+      const remoteTokens = { ...secrets.remoteTokens };
+      delete remoteTokens[id];
+      await this.credentials.write({ ...secrets, remoteTokens });
+      await this.run(
+        this
+          .sql!`UPDATE preferences SET document = ${JSON.stringify(remotes.filter((item) => item.id !== id))} WHERE name = 'remotes'`,
+      );
     });
   }
 

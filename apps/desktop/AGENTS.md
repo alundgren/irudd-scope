@@ -12,6 +12,7 @@ before changing these responsibilities.
 - `src/plugins/` owns built-in tab implementations and their explicit registrations.
   Each plugin keeps its UI, contracts, and main handlers together.
 - `src/credentials.ts` owns Keychain and process-memory credential access.
+- `src/remotes.ts` owns pairing, Mac-initiated relay connections, and cancellation.
 - `src/bridge.ts`, `src/preload.ts`, and `src/ipc.ts` expose named desktop operations
   and validate callers. Plugin main entries register their own operations.
 - `src/renderer-security.ts` owns renderer content serving and access restrictions.

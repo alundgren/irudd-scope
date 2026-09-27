@@ -4,6 +4,7 @@ import { decode } from "@irudd-scope/protocol";
 
 const Secrets = Schema.Struct({
   apiKey: Schema.optionalKey(Schema.String),
+  remoteTokens: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
 const LegacySecrets = Schema.Struct({
   ...Secrets.fields,
@@ -20,9 +21,9 @@ export function memoryCredentials(): CredentialStore {
   let secrets: Secrets = {};
   return {
     kind: "session",
-    read: async () => ({ ...secrets }),
+    read: async () => structuredClone(secrets),
     write: async (next) => {
-      secrets = { ...next };
+      secrets = structuredClone(next);
     },
   };
 }
@@ -53,14 +54,18 @@ export function keychainCredentials(entry: KeychainEntry): CredentialStore {
       if (value === null || value === undefined) return {};
       try {
         const secrets = decode(LegacySecrets, JSON.parse(value));
-        return secrets.apiKey === undefined ? {} : { apiKey: secrets.apiKey };
+        return {
+          ...(secrets.apiKey === undefined ? {} : { apiKey: secrets.apiKey }),
+          ...(secrets.remoteTokens === undefined ? {} : { remoteTokens: secrets.remoteTokens }),
+        };
       } catch {
         throw new Error("Scope's saved Keychain entry has an invalid format.");
       }
     },
     write: async (secrets) => {
       try {
-        if (secrets.apiKey) await entry.setPassword(JSON.stringify(decode(Secrets, secrets)));
+        if (secrets.apiKey || Object.keys(secrets.remoteTokens ?? {}).length)
+          await entry.setPassword(JSON.stringify(decode(Secrets, secrets)));
         else await entry.deleteCredential();
       } catch (cause) {
         throw new Error("Could not update Scope credentials in macOS Keychain.", { cause });

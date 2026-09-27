@@ -24,3 +24,25 @@ Update requires the revision last read. A 409 means reload and decide whether to
 Limits are 32 MiB per artifact, 16 KiB metadata, four simultaneous uploads, and eight event streams. SSE disconnects clients that cannot consume data; reconnect and list artifacts to recover. The stream does not promise event replay. It never replaces the persistent artifact list.
 
 Known kinds include text, Markdown, HTML, image, file, and Excalidraw. The transport accepts bounded kind names; the desktop displays an unfamiliar kind as a downloadable file. Image preview accepts PNG, JPEG, WebP, GIF, and AVIF. Renderers must treat content as untrusted regardless of the declared kind.
+
+## Paired hubs
+
+`src/remote.ts` defines the pairing URL, receipt, and validated relay events.
+A local CLI uses the same artifact API and discovery format with its hub's
+publishing credential. That credential cannot open the desktop relay, and a
+desktop connection token cannot call the local publishing or management APIs.
+
+The Mac posts a one-time pairing secret to `/v1/pair` and receives the hub ID,
+name, and connection credential. It then opens `/v1/relay/events`, a newline
+delimited JSON stream of `ready`, `request`, and `cancel` events. On each
+request it retrieves the body at `/v1/relay/requests/:id/body` when needed and
+streams the response to `/v1/relay/requests/:id/response`. The response status
+uses the `scope-response-status` header. Only artifact paths and GET, POST,
+or PUT are accepted; the Mac supplies its own local publishing token.
+
+The hub permits sixteen active requests, bounded request bodies, and one
+connected Mac. Event heartbeats keep the connection active. Disconnecting
+cancels every transfer and returns 503 where headers have not been sent.
+No request survives reconnection. The local management endpoints generate
+pairing links, report status, and revoke access. Removing a paired remote
+uses authenticated `DELETE /v1/relay/disconnect` to revoke its credential.

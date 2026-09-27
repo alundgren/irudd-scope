@@ -13,6 +13,7 @@ import { configureRendererSecurity, restrictRendererNavigation } from "./rendere
 import { readInstallation } from "./installation-files.ts";
 import { AppUpdates } from "./updates.ts";
 import { AgentTools } from "./agent-tools.ts";
+import { Remotes } from "./remotes.ts";
 
 app.setName("irudd-scope");
 if (process.env.SCOPE_DESKTOP_DATA_DIR)
@@ -62,6 +63,10 @@ async function main() {
     },
   });
   const client = new ScopeClient(artifacts.url, artifacts.token);
+  const remotes = new Remotes(store, artifacts, (status) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:remotes-changed", status);
+  });
+  await remotes.start();
   const installation =
     app.isPackaged && process.platform === "darwin"
       ? await readInstallation(app.getAppPath()).catch(() => undefined)
@@ -84,6 +89,7 @@ async function main() {
     onCloseReady: (saved) => closeReady?.(saved),
     updates,
     agentTools,
+    remotes,
     onRestartToUpdate: async () => {
       if (updates.snapshot().phase !== "ready") throw new Error("No update is ready.");
       if (agentTools.isBusy()) throw new Error("Wait for the agent tools installation to finish.");
@@ -136,6 +142,7 @@ async function main() {
     await Promise.all([updates.cancel(), agentTools.cancel()]);
     desktopIpc.dispose();
     library.close();
+    await remotes.close();
     await Promise.all([artifacts.close(), store.close()]);
     closed = true;
     app.quit();

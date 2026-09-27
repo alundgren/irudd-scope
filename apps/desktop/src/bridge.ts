@@ -4,6 +4,7 @@ import type { Workspace } from "./workspace/contract.ts";
 import type { DiagramRequest, DiagramResult } from "./plugins/diagram/contract.ts";
 import type { DiagramDraft } from "./plugins/diagram/draft.ts";
 import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
+import type { RemoteStatus } from "./remote-contract.ts";
 
 export type ArtifactLibrarySnapshot = {
   artifacts: Artifact[];
@@ -14,6 +15,11 @@ export type ArtifactContent = { artifact: Artifact; bytes: Uint8Array };
 import type { TabEventEnvelope } from "./plugins/events.ts";
 
 export type ScopeBridge = {
+  remotes: () => Promise<RemoteStatus[]>;
+  pairRemote: (url: string) => Promise<void>;
+  setRemoteEnabled: (id: string, enabled: boolean) => Promise<void>;
+  removeRemote: (id: string) => Promise<void>;
+  onRemotesChange: (listener: (status: RemoteStatus[]) => void) => () => void;
   updates: () => Promise<UpdateStatus>;
   checkForUpdates: () => Promise<void>;
   cancelUpdate: () => Promise<void>;
