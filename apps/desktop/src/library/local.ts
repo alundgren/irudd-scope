@@ -8,6 +8,10 @@ export async function startLocalArtifacts(options: {
   directory: string;
   connectionFile: string;
   port?: number;
+  initialize?: Parameters<typeof startArtifactServer>[0]["initialize"];
+  shrink?: Parameters<typeof startArtifactServer>[0]["shrink"];
+  maintenanceStatus?: Parameters<typeof startArtifactServer>[0]["maintenanceStatus"];
+  deleteArtifact?: Parameters<typeof startArtifactServer>[0]["deleteArtifact"];
 }) {
   let token: string;
   try {

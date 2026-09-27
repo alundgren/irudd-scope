@@ -1,10 +1,10 @@
 # Workspace host
 
 `contract.ts` owns tabs, groups, and saved workspace validation. A tab UUID is
-independent of its content ID. Every open or closed tab references a saved
+independent of its content ID. Every open tab references a saved
 group UUID; the owner reference does not depend on an open tab.
 
-`use-workspace.ts` owns opening, selection, close/reopen, groups, and state
+`use-workspace.ts` owns opening, selection, closing, groups, and state
 updates. `workspace.tsx` composes navigation, library search, and registered
 plugin tools. `tab-host.tsx` mounts registered views and contains tab errors.
 Keep views mounted through tab switches, focus, and dialogs.
@@ -14,9 +14,10 @@ to host subscribers. Derive membership from the workspace, clean up closed
 tab subscriptions, and isolate listener failures. The main-process bridge
 validates the saved sender and group. Events are not persisted or replayed.
 
-`persistence.ts` flushes pending writes before a tab or window closes. Failed
-writes keep the tab open with retry. Preserve IDs, order, selection, and
-closed records in migrations. Keep unavailable plugin records intact.
+`persistence.ts` flushes pending writes before the window closes. Closing an
+individual tab deletes its content and state atomically. Failed deletion keeps
+the tab visible for retry. Late saves only update existing tabs. Preserve open
+IDs, order, selection, groups, and unavailable plugin records in migrations.
 
 Read the [UX skill](../../../../.agents/skills/ux-guidance/SKILL.md) for UI
 changes. Test workspace behavior through real Electron, including keyboard

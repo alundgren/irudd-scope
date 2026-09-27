@@ -12,8 +12,8 @@ flowchart LR
     Desktop -->|opens private HTTPS relay| Hub
     Hub -->|requests on existing relay| Desktop
     Hub --> HubSettings[hub.db: configuration and credential hashes]
-    Desktop --> Artifacts[scope.db: artifacts and bytes]
-    Desktop --> Preferences[desktop.db: settings and workspace]
+    Desktop --> Artifacts[scope.db: tabs, artifacts, drafts, and bytes]
+    Desktop --> Preferences[desktop.db: settings and workspace layout]
     Desktop --> Keychain[macOS Keychain]
     Desktop <-->|validated IPC| UI[Workspace host and built-in tab plugins]
     Desktop -->|diagram requests| Provider[OpenRouter]
@@ -32,12 +32,12 @@ formats are compatibility contracts.
 | Blob              | Immutable bytes identified by SHA-256, stored in SQLite.                                                | `apps/desktop/src/library/store.ts`.                                                                      |
 | Source            | Optional publication provenance, such as host, repository, or agent. Unknown values stay absent.        | Protocol contract; `packages/cli` collects available values.                                              |
 | Artifact library  | Published artifact metadata and the desktop's connection status.                                        | `apps/desktop/src/library/library.ts`; `library/use-library.ts` tracks unread updates.                    |
-| Workspace         | Open and closed tab records, group membership, and selected tab ID. Closing preserves content.          | `apps/desktop/src/workspace/contract.ts` defines the contract; `workspace/use-workspace.ts` manages tabs. |
+| Workspace         | Open and queued tab records, group membership, and selected tab ID. Closing deletes tab content.        | `apps/desktop/src/workspace/contract.ts` defines the contract; `workspace/use-workspace.ts` manages tabs. |
 | Settings          | Appearance, provider configuration, and credential presence.                                            | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.               |
 | Semantic scene    | Diagram nodes, text, connections, and groups with stable IDs.                                           | `apps/desktop/src/plugins/diagram/contract.ts` and `scene.ts`.                                            |
 | Diagram operation | A validated change to a semantic scene, such as moving a node or adding a connection.                   | `apps/desktop/src/plugins/diagram/contract.ts`; `scene.ts` applies operations.                            |
 | Canvas            | The editable Excalidraw document and its view state.                                                    | `apps/desktop/src/plugins/diagram/canvas.ts` converts scenes; `plugins/diagram/view.tsx` owns editing.    |
-| Diagram draft     | Unpublished canvas, conversation, prompt, panel state, and view position based on an artifact revision. | `apps/desktop/src/plugins/diagram/draft.ts` defines the contract; `desktop-store.ts` stores drafts.       |
+| Diagram draft     | Unpublished canvas, conversation, prompt, panel state, and view position based on an artifact revision. | `apps/desktop/src/plugins/diagram/draft.ts` defines the contract; `library/store.ts` stores drafts.       |
 | Diagram provider  | Generates validated diagram operations from an intent and semantic scene.                               | `apps/desktop/src/plugins/diagram/contract.ts`; `openrouter.ts` owns the external API format.             |
 | Publishing token  | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                          | Desktop discovery file; CLI and optional hub use it.                                                      |
 
@@ -53,17 +53,25 @@ operations declared in `bridge.ts` and exposed by `preload.ts`.
 `renderer-security.ts` serves the application and restricts renderer access.
 
 `updates.ts` owns the installed app's startup Git check, local build process,
-and prepared update. `agent-tools.ts` installs and removes the local CLI and
+prepared update, and certificate changes that take effect on restart.
+`signing.ts` resolves certificate names to fingerprints through macOS Keychain
+and opens Keychain Access for setup. `agent-tools.ts` installs and removes the local CLI and
 global publishing skill through named IPC operations. `installation-process.ts`
 owns cancellation of their child processes. `installation-files.ts` validates
 bundle metadata, replaces the installed app bundle, and manages links to
 complete app builds and the Applications location. These files contain
 installed program code, not artifact or preference storage. The root
 `install.sh` maintains a private clone and calls `tools/package-desktop.ts` to
-make a Mac app. No app imports build-tool code at runtime.
+make a Mac app. An optional signing certificate fingerprint is recorded in
+the bundle's installation metadata and reused for updates. Build directories
+distinguish commits and signing identities; signing private keys stay in
+Keychain. No app imports build-tool code at runtime.
 
-`desktop-store.ts` persists settings, workspace preferences, and diagram
-drafts. Their contracts live in `settings.ts`, `workspace/contract.ts`, and
+`desktop-store.ts` persists settings, workspace groups, and selection.
+`library/store.ts` persists tabs, artifact metadata, content references, bytes,
+and diagram drafts in `scope.db`. `lifecycle.ts` coordinates opening, closing,
+and legacy imports. A saved tab owns its content and draft through foreign
+keys. Closing deletes all dependent rows in the same SQLite transaction. Their contracts live in `settings.ts`, `workspace/contract.ts`, and
 `plugins/diagram/draft.ts`, without filesystem or database dependencies. Provider
 configuration lives in `plugins/diagram/provider-settings.ts`; provider requests do
 not depend on desktop storage.
@@ -84,7 +92,7 @@ are independent of tab lifetimes. The current desktop opens publications in
 one local workspace group. Group indicators and agent-facing group selection
 are not exposed. `source.sessionId` remains publication provenance.
 
-`workspace/` owns navigation, selection, close/reopen, saved records, and event
+`workspace/` owns navigation, selection, closing, saved records, and event
 routing. `workspace/tab-host.tsx` supplies `TabContext` and keeps inactive tabs
 mounted. Its error boundary contains a failed view. Unknown plugin types and
 unsupported saved state remain stored and display an unavailable view.
@@ -167,22 +175,37 @@ file remains, so its presence does not establish that the desktop is running.
 A lost response can leave the caller uncertain whether a write committed.
 Read the current artifact before retrying an uncertain update.
 
-The artifact store inserts bytes before publishing their metadata. The
-expected-revision check and metadata write share a SQLite transaction.
-Competing writes cannot silently overwrite one another. Failed publication
-can leave an unused blob row. The API returns only the current revision;
-there is no artifact deletion or history browser, and unused bytes remain
-in the database.
+Publication first commits a queued tab. Content uploads reference that tab;
+metadata publication requires both the tab and its uploaded content. Shared
+bytes have a reference for each owning tab. The revision check and metadata
+write share a SQLite transaction. A small revision counter prevents an old
+update from matching an artifact recreated under the same ID.
 
-SSE announces changes. Desktop main lists artifacts on connection and
-reconnection, then merges those records with notifications. The database
-retains artifacts across missed events and process restarts.
+Closing an individual tab and deleting an artifact use the same tab-owned
+deletion. Foreign keys remove metadata, content references, and drafts in one
+transaction. Shared bytes survive until their last tab reference disappears.
+Queued uploads expire after fifteen minutes without publication; successful
+overflow publications stay in the library. Startup and maintenance reclaim
+expired staging references. There is no deletion log or retained closed history.
 
-Diagram drafts and workspace preferences live in `desktop.db`. Draft writes
-do not publish an artifact revision. Save does. Closing a tab retains its
-draft and conversation. On shutdown, main asks the renderer to flush pending
-writes before closing SQLite. If flushing fails, the user can keep Scope open
-or explicitly quit without those changes.
+The store serializes publication and deletion commits with their SSE notifications,
+so a delayed close response cannot announce a deletion after explicit recreation.
+Desktop main replaces its list on
+reconnection and applies events received during the refresh. Deleted content
+leaves the cache and cancels pending loads. Saving a tab or draft updates an
+existing tab only, so a late callback cannot recreate a deleted tab.
+
+On shutdown, main asks the renderer to flush pending writes for tabs left open.
+If flushing fails, the user can keep Scope open or explicitly quit without
+those changes. Workspace layout remains in `desktop.db`; tab records and drafts
+remain in `scope.db`.
+
+`packages/sqlite` runs SQLite shrinking in a separate process and schedules it
+for each database independently. Desktop and hub use it with the shared
+maintenance contracts in `packages/protocol`. It owns no application records.
+Manual desktop shrinking covers both desktop databases; hub management shrinks
+only its local `hub.db`. [Storage](storage.md) defines the interval, threshold,
+staging expiry, and recovery limits.
 
 See [storage and recovery](storage.md) for locations, backup, and supported
 imports. Persisted contract changes must preserve existing data or define a

@@ -51,7 +51,8 @@ affected loading, empty, error, and conflict states. Check keyboard navigation,
 visible focus, and reduced motion when changing controls or animations.
 
 For workspace or editor changes, check position and drafts after focus,
-Settings, tab switches, closing and reopening, and appearance changes.
+Settings, tab switches, application restart, and appearance changes. Closing a
+tab must remove its content, draft, and search result.
 Exercise generation and cancellation with synthetic responses. Keep screenshots
 and measurements in review evidence so this document remains current guidance.
 

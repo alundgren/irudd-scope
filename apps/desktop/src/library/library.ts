@@ -1,3 +1,4 @@
+import type { Artifact } from "@irudd-scope/protocol";
 import type { ScopeClient } from "@irudd-scope/protocol/client";
 import type { ArtifactContent, ArtifactLibrarySnapshot } from "../bridge.ts";
 
@@ -5,6 +6,8 @@ export class ArtifactLibrary {
   private current: ArtifactLibrarySnapshot = { artifacts: [], connection: "connecting" };
   private connection?: AbortController;
   private cache = new Map<string, ArtifactContent>();
+  private loads = new Map<AbortController, string>();
+  private refresh = 0;
 
   constructor(
     private readonly client: ScopeClient,
@@ -19,13 +22,33 @@ export class ArtifactLibrary {
     const key = `${id}@${revision}`;
     const existing = this.cache.get(key);
     if (existing) return existing;
-    const artifact = await this.client.get(id);
-    if (artifact.revision !== revision)
-      throw new Error("This artifact changed. Open the latest version.");
-    const result = { artifact, bytes: await this.client.content(id, revision) };
-    this.cache.set(key, result);
-    while (this.cache.size > 4) this.cache.delete(this.cache.keys().next().value!);
-    return result;
+    const active = new AbortController();
+    this.loads.set(active, id);
+    try {
+      const artifact = await this.client.get(id, active.signal);
+      if (artifact.revision !== revision)
+        throw new Error("This artifact changed. Open the latest version.");
+      const result = { artifact, bytes: await this.client.content(id, revision, active.signal) };
+      active.signal.throwIfAborted();
+      this.cache.set(key, result);
+      while (this.cache.size > 4) this.cache.delete(this.cache.keys().next().value!);
+      return result;
+    } finally {
+      this.loads.delete(active);
+    }
+  }
+
+  private invalidate(id: string): void {
+    for (const [key, value] of this.cache) if (value.artifact.id === id) this.cache.delete(key);
+    for (const [active, loading] of this.loads) if (loading === id) active.abort();
+  }
+
+  remove(id: string): void {
+    this.invalidate(id);
+    this.update({
+      ...this.current,
+      artifacts: this.current.artifacts.filter((item) => item.id !== id),
+    });
   }
 
   private update(snapshot: ArtifactLibrarySnapshot): void {
@@ -41,17 +64,24 @@ export class ArtifactLibrary {
     let delay = 1000;
     while (!active.signal.aborted) {
       try {
+        let changes: Map<string, Artifact | null> | undefined;
         await this.client.watch((event) => {
           if (active.signal.aborted) return;
           if (event.type === "ready") {
+            const refresh = ++this.refresh;
+            changes = new Map();
             void this.client
-              .list()
+              .list(active.signal)
               .then((artifacts) => {
-                if (active.signal.aborted) return;
+                if (active.signal.aborted || refresh !== this.refresh) return;
                 const merged = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
-                for (const artifact of this.current.artifacts)
-                  if ((merged.get(artifact.id)?.revision ?? 0) < artifact.revision)
-                    merged.set(artifact.id, artifact);
+                for (const [id, value] of changes ?? []) {
+                  if (value) merged.set(id, value);
+                  else merged.delete(id);
+                }
+                changes = undefined;
+                for (const item of this.current.artifacts)
+                  if (!merged.has(item.id)) this.invalidate(item.id);
                 this.update({ artifacts: [...merged.values()], connection: "connected" });
                 delay = 1000;
               })
@@ -63,7 +93,12 @@ export class ArtifactLibrary {
                     error: "Could not refresh the artifact list.",
                   });
               });
+          } else if (event.type === "deleted") {
+            changes?.set(event.id, null);
+            this.remove(event.id);
           } else {
+            changes?.set(event.artifact.id, event.artifact);
+            this.invalidate(event.artifact.id);
             const artifacts = new Map(
               this.current.artifacts.map((artifact) => [artifact.id, artifact]),
             );
@@ -96,5 +131,9 @@ export class ArtifactLibrary {
 
   close(): void {
     this.connection?.abort();
+    this.refresh++;
+    for (const active of this.loads.keys()) active.abort();
+    this.loads.clear();
+    this.cache.clear();
   }
 }

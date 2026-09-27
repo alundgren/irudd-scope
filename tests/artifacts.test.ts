@@ -70,7 +70,9 @@ async function delayedArtifactServer(options: {
       };
       if (request.method === "GET" && path === "/v1/artifacts/slow-update") {
         send(current, options.getDelay);
-      } else if (request.method === "POST" && path === "/v1/blobs") {
+      } else if (request.method === "POST" && path.endsWith("/tab")) {
+        send({ tabId: "e13387ae-ae2e-4f15-8632-e00916600a13" });
+      } else if (request.method === "POST" && path.endsWith("/blobs")) {
         send({ blob: "b".repeat(64) }, options.uploadDelay);
       } else if (request.method === "PUT" && path === "/v1/artifacts/slow-update") {
         updateReceived = true;
@@ -191,9 +193,14 @@ test("authentication, invalid metadata, and oversized content fail without creat
       })
     ).status,
   ).toBe(400);
+  const reservation = await fetch(`${server.url}/v1/artifacts/oversized/tab`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ expectedRevision: 0 }),
+  }).then((response) => response.json());
   expect(
     (
-      await fetch(`${server.url}/v1/blobs`, {
+      await fetch(`${server.url}/v1/tabs/${reservation.tabId}/blobs`, {
         method: "POST",
         headers,
         body: new Uint8Array(MAX_CONTENT_BYTES + 1),
@@ -404,6 +411,7 @@ test("slow optional Git provenance is killed within its budget without blocking 
   await writeFile(
     gitPath,
     "#!/bin/sh\n" +
+      'if [ "$1" = "--fixture-ready" ]; then exit 0; fi\n' +
       'printf "%s\\n" "$$" >> "$SCOPE_TEST_GIT_PIDS"\n' +
       'exec "$SCOPE_TEST_NODE" -e \'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)\'\n',
   );
@@ -417,6 +425,8 @@ test("slow optional Git provenance is killed within its budget without blocking 
     SCOPE_TEST_GIT_PIDS: pidFile,
     SCOPE_TEST_NODE: process.execPath,
   };
+  // Finish first-execution setup before measuring the command's Git budget.
+  await exec(gitPath, ["--fixture-ready"], { env, timeout: 10_000 });
   const started = performance.now();
   const { stdout } = await runCli(["text", "Publishes without Git", "--id", "slow-git"], env);
   expect(JSON.parse(stdout)).toMatchObject({ id: "slow-git", revision: 1 });

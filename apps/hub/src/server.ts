@@ -1,6 +1,8 @@
 import { createServer, request as httpRequest, type ClientRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { timingSafeEqual } from "node:crypto";
+import { artifactRequest, maintenanceRequest } from "@irudd-scope/protocol/remote";
+import { MAX_MAINTENANCE_TIMEOUT_MS } from "@irudd-scope/protocol/maintenance";
 import { DEFAULT_PORT, validateEndpoint } from "@irudd-scope/protocol";
 
 export async function startHub(options: { endpoint: string; token: string; port?: number }) {
@@ -43,7 +45,11 @@ export async function startHub(options: { endpoint: string; token: string; port?
         json(400, "Invalid request URL.");
         return;
       }
-      if (!url.pathname.startsWith("/v1/")) {
+      if (["/v1/hub/shrink", "/v1/hub/maintenance"].includes(url.pathname)) {
+        json(409, "This forwarding hub is stateless and has no hub database to shrink.");
+        return;
+      }
+      if (!artifactRequest(request.method ?? "", request.url ?? "")) {
         json(404, "Endpoint not found.");
         return;
       }
@@ -69,7 +75,10 @@ export async function startHub(options: { endpoint: string; token: string; port?
       active.add(upstream);
       upstream.on("close", () => active.delete(upstream));
       upstream.on("error", unavailable);
-      upstream.setTimeout(30_000, () => upstream.destroy(new Error("Desktop request timed out.")));
+      upstream.setTimeout(
+        maintenanceRequest(request.url ?? "") ? MAX_MAINTENANCE_TIMEOUT_MS + 5000 : 30_000,
+        () => upstream.destroy(new Error("Desktop request timed out.")),
+      );
       response.on("close", () => upstream.destroy());
       request.on("error", () => upstream.destroy());
       request.pipe(upstream);

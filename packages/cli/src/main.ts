@@ -16,6 +16,7 @@ import {
   decode,
   decodeLocalConnection,
 } from "@irudd-scope/protocol";
+import { MAX_MAINTENANCE_TIMEOUT_MS } from "@irudd-scope/protocol/maintenance";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { setup, manageHub, installSkill, printPairing } from "./setup.ts";
 
@@ -24,13 +25,16 @@ irudd-scope text TEXT [--title TITLE] [--id ID] [--kind text|markdown]
 irudd-scope update ID FILE [--title TITLE]
 irudd-scope list
 irudd-scope get ID
+irudd-scope delete ID
+irudd-scope shrink [--status]
 irudd-scope setup [--yes] [--https-port PORT] [--port PORT] [--no-pair]
 irudd-scope pair
 irudd-scope hub start|stop|status|unpair|remove
+irudd-scope hub shrink [--status]
 irudd-scope skill install|remove
 
 Options: --endpoint URL, --token-file PATH, --agent NAME, --session-id ID, --timeout-ms MS
-The command timeout defaults to 10000 ms. Increase it for slow remote uploads.
+The command timeout defaults to 10000 ms. Use --timeout-ms 120000 for shrinking or slow uploads.
 Open Scope on this Mac to publish locally without connection setup.
 Environment: SCOPE_CONNECTION_FILE, or SCOPE_ENDPOINT with SCOPE_TOKEN_FILE or SCOPE_TOKEN
 Output is JSON. Updates read the current revision and reject concurrent changes.
@@ -123,6 +127,7 @@ async function main() {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
+      status: { type: "boolean" },
       help: { type: "boolean", short: "h" },
       title: { type: "string" },
       id: { type: "string" },
@@ -157,7 +162,7 @@ async function main() {
     return;
   }
   if (command === "hub") {
-    await manageHub(argument);
+    await manageHub(argument, parseTimeout(values["timeout-ms"]), values.status);
     return;
   }
   if (command === "skill") {
@@ -166,14 +171,15 @@ async function main() {
     await installSkill(argument === "remove");
     return;
   }
-  if (!["add", "text", "update", "list", "get"].includes(command))
+  if (!["add", "text", "update", "list", "get", "delete", "shrink"].includes(command))
     throw new Error(`Unknown command.\n${help}`);
   const timeoutMs = parseTimeout(values["timeout-ms"]);
-  if (command !== "list" && !argument)
+  if (!["list", "shrink"].includes(command) && !argument)
     throw new Error("This command needs a file, text, or artifact ID. Use --help.");
   if (command === "update" && !replacement)
     throw new Error("Update needs an artifact ID and a replacement file.");
-  if ((command === "get" || command === "update") && argument) decode(ArtifactId, argument);
+  if ((command === "get" || command === "update" || command === "delete") && argument)
+    decode(ArtifactId, argument);
   if ((command === "add" || command === "text") && values.id) decode(ArtifactId, values.id);
   if (command === "text" && values.kind && !["text", "markdown"].includes(values.kind))
     throw new Error("Text accepts --kind text or markdown.");
@@ -209,6 +215,24 @@ async function main() {
       }
     }
     const client = new ScopeClient(endpoint, token, { signal });
+    if (command === "delete") {
+      console.log(JSON.stringify(await client.delete(argument!), null, 2));
+      return;
+    }
+    if (command === "shrink") {
+      const receipt = values.status
+        ? await client.maintenanceStatus()
+        : await client.shrink(
+            Math.max(
+              1,
+              Math.min(MAX_MAINTENANCE_TIMEOUT_MS, Math.floor(commandDeadline - performance.now())),
+            ),
+          );
+      console.log(JSON.stringify(receipt, null, 2));
+      if (!values.status && receipt.databases.some((database) => database.status !== "completed"))
+        process.exitCode = 1;
+      return;
+    }
     if (command === "list") {
       console.log(JSON.stringify(await client.list(), null, 2));
       return;

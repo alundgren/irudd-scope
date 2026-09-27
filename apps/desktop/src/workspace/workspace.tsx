@@ -5,17 +5,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import {
-  Download,
-  Maximize2,
-  Minimize2,
-  Search,
-  Settings,
-  X,
-  Info,
-  RotateCcw,
-  Plus,
-} from "lucide-react";
+import { Download, Maximize2, Minimize2, Search, Settings, X, Info, Plus } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
 import {
   Dialog,
@@ -58,11 +48,18 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
     updateTab,
     updateState,
   } = useWorkspace(setError);
+  const receivingArrivals = useRef(false);
+  useEffect(() => {
+    if (!workspace.tabs.length) setFocus(false);
+  }, [workspace.tabs.length]);
   const tabButtons = useRef(new Map<string, HTMLButtonElement>());
   const controlsButton = useRef<HTMLButtonElement>(null);
   const artifacts = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const active = workspace.tabs.find((tab) => tab.id === workspace.selected);
   const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
+  useEffect(() => {
+    if (activeArtifact) markRead(activeArtifact.id);
+  }, [activeArtifact?.id, activeArtifact?.revision]);
   const [events] = useState(
     () => new TabEventRouter(() => setError("A tab could not handle an event.")),
   );
@@ -78,17 +75,18 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
     [events, workspaceSave.flush],
   );
   useEffect(() => {
-    for (const tab of [...workspace.tabs, ...workspace.closed]) {
+    for (const tab of workspace.tabs) {
       const artifact = artifacts.get(tabArtifactId(tab) ?? "");
       if (!artifact) continue;
       const type = pluginForArtifact(artifact).type;
       if (tab.type !== type || tab.title !== artifact.title)
         updateTab(tab.id, { type, title: artifact.title });
     }
-  }, [snapshot.artifacts, workspace.tabs, workspace.closed]);
+  }, [snapshot.artifacts, workspace.tabs]);
   useEffect(() => {
-    if (!workspaceReady || creating || !arrivals.length) return;
-    const existing = new Set([...workspace.tabs, ...workspace.closed].map(tabArtifactId));
+    if (!workspaceReady || creating || !arrivals.length || receivingArrivals.current) return;
+    receivingArrivals.current = true;
+    const existing = new Set(workspace.tabs.map(tabArtifactId));
     const tabs = arrivals.flatMap((id) => {
       const artifact = artifacts.get(id);
       if (!artifact || existing.has(id)) return [];
@@ -103,10 +101,15 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
         },
       ];
     });
-    const selected = addTabs(tabs);
-    const selectedArtifact = tabs.find((tab) => tab.id === selected);
-    if (selectedArtifact) markRead(tabArtifactId(selectedArtifact)!);
-    acknowledgeArrivals(arrivals);
+    void addTabs(tabs)
+      .then((selected) => {
+        const selectedArtifact = tabs.find((tab) => tab.id === selected);
+        if (selectedArtifact) markRead(tabArtifactId(selectedArtifact)!);
+        acknowledgeArrivals(arrivals);
+      })
+      .finally(() => {
+        receivingArrivals.current = false;
+      });
   }, [arrivals, snapshot.artifacts, workspace, workspaceReady, creating]);
   useEffect(() => {
     tabButtons.current
@@ -114,8 +117,8 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [workspace.selected, workspace.tabs, focus]);
 
-  function activate(tab: Tab, keyboard = false) {
-    if (!openTab(tab)) return;
+  async function activate(tab: Tab, keyboard = false) {
+    if (!(await openTab(tab))) return;
     const artifactId = tabArtifactId(tab);
     if (artifactId) markRead(artifactId);
     setSearch(false);
@@ -124,16 +127,14 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
   }
   function select(id: string, keyboard = false) {
     const tab = workspace.tabs.find((entry) => entry.id === id);
-    if (tab) activate(tab, keyboard);
+    if (tab) void activate(tab, keyboard);
   }
   function open(id: string) {
     const artifact = artifacts.get(id);
     if (!artifact) return;
     const plugin = pluginForArtifact(artifact);
-    const existing = [...workspace.tabs, ...workspace.closed].find(
-      (tab) => tabArtifactId(tab) === id,
-    );
-    activate(
+    const existing = workspace.tabs.find((tab) => tabArtifactId(tab) === id);
+    void activate(
       existing ?? {
         id: crypto.randomUUID(),
         groupId: workspace.groups[0].id,
@@ -151,10 +152,6 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
       workspace.selected === id ? (tabs[Math.max(0, index - 1)]?.id ?? null) : workspace.selected;
     if (!tabs.length) setFocus(false);
     requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
-  }
-  function reopen() {
-    const tab = workspace.closed.at(-1);
-    if (tab) activate(tab, true);
   }
   function openSettings(filter = "") {
     setSettingsQuery(filter);
@@ -200,9 +197,6 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
       ) {
         event.preventDefault();
         setFocus((value) => !value);
-      } else if (command && event.shiftKey && event.key.toLowerCase() === "t") {
-        event.preventDefault();
-        reopen();
       } else if (command && event.key.toLowerCase() === "w" && workspace.selected) {
         event.preventDefault();
         void close(workspace.selected);
@@ -318,7 +312,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
       )}
       {workspaceSave.error && (
         <div className="error-bar" role="alert">
-          Could not save open and closed tabs.
+          Could not save open tabs.
           <Button size="sm" onClick={() => void workspaceSave.flush().catch(() => {})}>
             Retry
           </Button>
@@ -376,7 +370,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
                 onClose={() => setCreating(null)}
                 onCreated={({ artifact, ...tab }) => {
                   if (artifact) recordPublication(artifact);
-                  activate({
+                  void activate({
                     ...tab,
                     id: crypto.randomUUID(),
                     groupId: active?.groupId ?? workspace.groups[0].id,
@@ -459,18 +453,6 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
               setFocus(false);
             },
           })),
-          ...(workspace.closed.length
-            ? [
-                {
-                  id: "reopen",
-                  title: "Reopen closed tab",
-                  keywords: "restore undo",
-                  icon: RotateCcw,
-                  shortcut: "⌘⇧T",
-                  onSelect: reopen,
-                },
-              ]
-            : []),
         ]}
         currentTab={
           active && !creating
@@ -501,7 +483,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
                   {
                     id: "close",
                     title: "Close tab",
-                    keywords: "hide dismiss",
+                    keywords: "delete remove",
                     icon: X,
                     shortcut: "⌘W",
                     onSelect: () => {

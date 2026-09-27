@@ -1,9 +1,18 @@
-import { app, BrowserWindow, dialog, nativeTheme, protocol, safeStorage } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  nativeTheme,
+  protocol,
+  safeStorage,
+  powerMonitor,
+} from "electron";
 import { homedir } from "node:os";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_CONNECTION_FILE } from "@irudd-scope/protocol";
 import { ScopeClient } from "@irudd-scope/protocol/client";
+import { DesktopLifecycle } from "./lifecycle.ts";
 import { DesktopStore } from "./desktop-store.ts";
 import { macCredentials, memoryCredentials } from "./credentials.ts";
 import { startLocalArtifacts } from "./library/local.ts";
@@ -37,13 +46,29 @@ async function main() {
   );
   await store.load();
   nativeTheme.themeSource = store.settings().appearance;
+  let lifecycle: DesktopLifecycle;
   const artifacts = await startLocalArtifacts({
+    initialize: async (artifacts) => {
+      lifecycle = new DesktopLifecycle(artifacts, store);
+      await lifecycle.recover();
+    },
+    deleteArtifact: (id) => lifecycle.deleteArtifact(id),
+    shrink: (timeoutMs) => lifecycle.shrink(timeoutMs),
+    maintenanceStatus: () =>
+      [lifecycle.artifacts.maintenance.latest(), store.maintenance.latest()].filter(
+        (value) => value !== null,
+      ),
     directory: process.env.SCOPE_DATA_DIR ?? join(app.getPath("userData"), "artifacts"),
     connectionFile: process.env.SCOPE_CONNECTION_FILE ?? join(homedir(), DEFAULT_CONNECTION_FILE),
     port: process.env.SCOPE_PORT ? Number(process.env.SCOPE_PORT) : undefined,
   }).catch(async (error: unknown) => {
     await store.close();
     throw error;
+  });
+  store.maintenance.start();
+  powerMonitor.on("resume", () => {
+    void store.maintenance.check();
+    void artifacts.store.maintenance.check();
   });
   const window = new BrowserWindow({
     width: 1280,
@@ -86,6 +111,7 @@ async function main() {
     store,
     library,
     client,
+    lifecycle: lifecycle!,
     onCloseReady: (saved) => closeReady?.(saved),
     updates,
     agentTools,
@@ -96,6 +122,10 @@ async function main() {
       await close(true);
     },
   });
+  lifecycle!.onRemoved = (ids) => desktopIpc.cancelTabs(ids);
+  lifecycle!.onClosed = (ids) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:tabs-closed", ids);
+  };
   let closing = false;
   let closed = false;
   async function close(restart = false) {

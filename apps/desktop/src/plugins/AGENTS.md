@@ -18,7 +18,8 @@ handlers. Add entries to `registry.ts`, `registry.renderer.ts`, and, when needed
   through desktop persistence, with validation and a migration when it changes.
 - Read the [UX skill](../../../../.agents/skills/ux-guidance/SKILL.md) for UI
   changes. Reuse `../renderer/components/ui/` and `../renderer/tokens.css`.
-  Preserve mounted views during navigation, and flush edits before close.
+  Preserve mounted views during navigation, and flush edits before quitting.
+  Closing a tab discards its edits and cancels pending work.
 
 Test a plugin through real Electron with synthetic content. Shared lifecycle,
 group isolation, and storage behavior also have focused tests in `tests/`.

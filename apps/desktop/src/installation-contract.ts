@@ -1,9 +1,17 @@
+export type SigningCertificate = {
+  name: string;
+  fingerprint: string;
+};
+
 export type UpdateStatus = {
   phase: "unmanaged" | "idle" | "checking" | "building" | "ready" | "error";
   message: string;
   currentCommit?: string;
   nextCommit?: string;
   output?: string;
+  operation?: "update" | "signing";
+  currentSigningIdentity?: string;
+  nextSigningCertificate?: SigningCertificate;
 };
 
 export type AgentToolStatus = {

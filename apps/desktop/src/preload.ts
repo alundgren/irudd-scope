@@ -20,6 +20,11 @@ const bridge: ScopeBridge = {
   checkForUpdates: () => ipcRenderer.invoke("scope:check-for-updates"),
   cancelUpdate: () => ipcRenderer.invoke("scope:cancel-update"),
   restartToUpdate: () => ipcRenderer.invoke("scope:restart-to-update"),
+  signingCertificate: () => ipcRenderer.invoke("scope:signing-certificate"),
+  connectSigningCertificate: (name) =>
+    ipcRenderer.invoke("scope:connect-signing-certificate", name),
+  disconnectSigningCertificate: () => ipcRenderer.invoke("scope:disconnect-signing-certificate"),
+  openKeychainAccess: () => ipcRenderer.invoke("scope:open-keychain-access"),
   onUpdatesChange: (listener) => {
     const receive = (_event: unknown, status: UpdateStatus) => listener(status);
     ipcRenderer.on("scope:updates-changed", receive);
@@ -42,6 +47,15 @@ const bridge: ScopeBridge = {
   publishTabEvent: (event) => ipcRenderer.invoke("scope:publish-tab-event", event),
   settings: () => ipcRenderer.invoke("scope:settings"),
   saveSettings: (input) => ipcRenderer.invoke("scope:save-settings", input),
+  openTab: (tab) => ipcRenderer.invoke("scope:open-tab", tab),
+  closeTab: (id) => ipcRenderer.invoke("scope:close-tab", id),
+  onTabsClosed: (listener) => {
+    const receive = (_event: unknown, ids: string[]) => listener(ids);
+    ipcRenderer.on("scope:tabs-closed", receive);
+    return () => {
+      ipcRenderer.removeListener("scope:tabs-closed", receive);
+    };
+  },
   workspace: () => ipcRenderer.invoke("scope:workspace"),
   saveWorkspace: (input) => ipcRenderer.invoke("scope:save-workspace", input),
   diagramDraft: (id) => ipcRenderer.invoke("scope:diagram-draft", id),
@@ -61,7 +75,8 @@ const bridge: ScopeBridge = {
   artifactLibrary: () => ipcRenderer.invoke("scope:artifact-library"),
   content: (id, revision) => ipcRenderer.invoke("scope:content", { id, revision }),
   download: (id, revision) => ipcRenderer.invoke("scope:download", { id, revision }),
-  generateDiagram: (request) => ipcRenderer.invoke("scope:generate-diagram", request),
+  generateDiagram: (request, tabId) =>
+    ipcRenderer.invoke("scope:generate-diagram", { request, ...(tabId ? { tabId } : {}) }),
   cancelDiagramGeneration: () => ipcRenderer.invoke("scope:cancel-diagram-generation"),
   saveDiagram: (input) => ipcRenderer.invoke("scope:save-diagram", input),
   onArtifactLibraryChange: (listener) => {

@@ -36,13 +36,15 @@ Tabs show the artifact title, scroll in one row, and indicate unread updates.
 Selection has both a tinted background and a solid marker. New publications
 open in tabs. The first arrival selects itself when no artifact is open;
 later arrivals keep the current selection and appear unread. Arrivals wait
-while a creation tool is open. Startup restores saved tabs without opening
-older library items. Revisions update unread indicators without reopening
-closed tabs or changing selection. At the 100-tab limit, further arrivals
+while a creation tool is open. Startup restores saved open tabs and opens queued publications when capacity
+allows. Revisions update unread indicators without changing selection. At the 100-tab limit, further arrivals
 remain available through search and the desktop asks the user to close a tab.
-Closing a tab preserves the artifact and its diagram draft; reopening finds
-the same artifact. SQLite
-retains open and closed tab records, selection, and group membership. Each
+Closing a tab permanently deletes its artifact, draft, conversation, and tab
+state. Normal close controls and Command-W perform deletion directly. There is
+no closed history or reopen action. A failed deletion keeps the tab visible
+with an error so the same close action can be retried. Quitting Scope, closing
+the last window, updating, and restarting preserve tabs left open. SQLite
+retains open and queued tabs, selection, and group membership. Each
 tab has its own UUID and belongs to a group with an owner reference. Group
 membership has no visual indicator. The desktop opens published items in its
 local workspace group. File views and the diagram editor are built-in plugins;
@@ -56,13 +58,20 @@ leaving focus. Command-Shift-F toggles focus; Command-K opens the panel in
 either mode.
 
 Search opens with labeled icon controls for Settings, Fullscreen, creation
-tools, and reopening a closed tab. A tinted current-tab area shows the title
+tools. A tinted current-tab area shows the title
 and its Download, Artifact details, and Close tab actions. Unavailable actions
-are omitted. Workspace controls, current-tab actions, and recent artifacts
-have distinct areas; typing filters actions, artifacts, and specific settings.
+are omitted. Workspace controls and current-tab actions have distinct areas.
+Artifact results appear only after typing, alongside matching actions and
+specific settings. There is no closed-tab action or shortcut.
 The panel scrolls in short windows and stacks its controls in narrow windows.
-Settings opens with its search input focused and explains empty results.
-Appearance saves when changed.
+Settings opens with its search input focused and its sections collapsed.
+Each section has a short description and can be expanded with the mouse or
+keyboard. Search opens matching sections; clearing it returns to the compact
+overview. Fields keep unsaved input when collapsed or filtered out. The search
+field and Done button stay visible while the sections scroll. Empty results
+offer Clear search and return focus to the search field.
+Appearance saves when changed. The API key has its own Save key action inside
+Diagram generation.
 The diagram provider, model, and API key stay together. OpenRouter with Gemini
 3.8 Flash is the supported configuration. Saving a key clears the input;
 saved secrets are never displayed. Keychain errors remain visible while
@@ -74,6 +83,15 @@ A prepared update offers Restart to update without taking over the current
 artifact. Restart uses the normal save-before-quit flow. Build failures keep
 the current app available and show details with Retry; pending builds offer
 Cancel. Checkout launches explain that automatic updates require installation.
+
+Signing certificate is a searchable Settings section. It offers optional local
+signing to reduce repeated Keychain prompts, with certificate creation
+instructions and a button to open Keychain Access. Users connect an existing
+certificate by name or fingerprint. Scope builds a copy and offers Restart to
+apply; the current app keeps working until then. The connected certificate is
+visible and can be replaced or disconnected. Certificate creation and private
+key approval stay in macOS. Disconnecting never removes a certificate from
+Keychain. Failed and canceled builds leave the current identity in use.
 
 Agent tools provides separate CLI and global skill installation actions with
 pending, installed, and failure states. The CLI follows the active app build.
@@ -99,7 +117,7 @@ window. Enter sends, Shift+Enter adds a line, and a pending request offers
 Cancel. Save explicitly publishes changes.
 
 SQLite retains the conversation, unsent prompt, working canvas, and zoom and
-pan across restarts and closed tabs. Incoming revisions preserve unsaved
+pan across restarts for tabs that remain open. Incoming revisions preserve unsaved
 edits and offer loading the latest content or saving a copy. Failed draft
 writes retain the canvas and offer Retry. Scope provides diagram conversation,
 not general chat or agent orchestration.

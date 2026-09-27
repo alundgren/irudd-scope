@@ -484,17 +484,95 @@ h2 {
   }
 }
 [data-slot="dialog-content"].settings-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   width: 640px;
+  height: min(620px, calc(100vh - 32px));
   max-width: calc(100vw - 32px);
-  padding: var(--scope-space-6);
+  padding: 0;
+  overflow: hidden;
+}
+.settings-dialog > [data-slot="dialog-header"] {
+  padding: var(--scope-space-6) var(--scope-space-6) var(--scope-space-4);
+  flex: 0 0 auto;
+}
+.settings-search {
+  padding: 0 var(--scope-space-6) var(--scope-space-4);
+  flex: 0 0 auto;
+}
+.settings-sections {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--scope-space-6);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scope-outline) var(--scope-panel);
+}
+.settings-section {
+  border-top: 1px solid var(--scope-line);
+}
+.settings-section-toggle {
+  width: 100%;
+  height: auto;
+  justify-content: space-between;
+  gap: var(--scope-space-4);
+  padding: var(--scope-space-3);
+  text-align: left;
+  white-space: normal;
+}
+.settings-section-heading {
+  display: grid;
+  gap: var(--scope-space-1);
+  font-weight: var(--scope-weight-strong);
+}
+.settings-section-heading .secondary {
+  font-weight: var(--scope-weight-regular);
+}
+.settings-section-toggle > svg {
+  color: var(--scope-muted);
+  transform: rotate(-90deg);
+}
+.settings-section-toggle[aria-expanded="true"] > svg {
+  transform: none;
+}
+.settings-section-content.settings-form {
+  gap: var(--scope-space-3);
+  padding: var(--scope-space-4) var(--scope-space-3) var(--scope-space-6);
+}
+.settings-key-form {
+  display: grid;
+  gap: var(--scope-space-3);
+}
+.settings-section-content .appearance-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.settings-footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--scope-space-4);
+  padding: var(--scope-space-4) var(--scope-space-6);
+  border-top: 1px solid var(--scope-line);
+}
+.settings-footer > div {
+  display: grid;
+  gap: var(--scope-space-2);
+  font-size: var(--scope-text-detail);
+}
+.settings-empty {
+  padding-block: var(--scope-space-4);
 }
 .settings-panel {
   max-width: 650px;
   padding: var(--scope-space-8);
   margin: auto;
 }
-.section-title,
-.key-status {
+.section-title {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -503,15 +581,6 @@ h2 {
 .settings-form {
   display: grid;
   gap: var(--scope-space-6);
-}
-.settings-form fieldset {
-  display: grid;
-  gap: var(--scope-space-3);
-  min-width: 0;
-}
-.settings-form legend {
-  font-weight: var(--scope-weight-strong);
-  margin-bottom: var(--scope-space-3);
 }
 .settings-form label {
   display: grid;
@@ -535,9 +604,6 @@ h2 {
 }
 .settings-panel .settings-form {
   margin-top: var(--scope-space-6);
-}
-.key-status {
-  font-size: var(--scope-text-detail);
 }
 .installation-actions {
   display: flex;
@@ -564,6 +630,16 @@ h2 {
 }
 .installation-output summary {
   cursor: pointer;
+}
+.signing-instructions summary {
+  cursor: pointer;
+}
+.signing-instructions ol {
+  display: grid;
+  gap: var(--scope-space-3);
+  list-style: decimal;
+  padding-left: var(--scope-space-6);
+  margin: var(--scope-space-3) 0;
 }
 .connection-notice,
 .error-bar {

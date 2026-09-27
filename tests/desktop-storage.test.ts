@@ -1,3 +1,5 @@
+import { ArtifactStore } from "../apps/desktop/src/library/store.ts";
+import { DesktopLifecycle } from "../apps/desktop/src/lifecycle.ts";
 import { importWorkspace } from "../apps/desktop/src/workspace/contract.ts";
 import { expect, test } from "vite-plus/test";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -25,50 +27,58 @@ function documents(directory: string): string {
   }
 }
 
-test("diagram working data survives closing every tab and reopening the SQLite store", async () => {
+test("tab-owned drafts and plugin state survive restart, then close deletes them and ignores late saves", async () => {
   const directory = await mkdtemp(join(tmpdir(), "scope-drafts-"));
   const store = new DesktopStore(directory);
-  const reopened = new DesktopStore(directory);
+  let artifacts = await ArtifactStore.open(join(directory, "artifacts"));
   const draft: DiagramDraft = {
     version: 1,
     content: JSON.stringify({ type: "excalidraw", elements: [], files: {} }),
-    revision: 4,
+    revision: 1,
     dirty: true,
-    messages: [
-      { role: "user", text: "Move the API" },
-      { role: "assistant", text: "Moved it." },
-    ],
-    intent: "Keep this unfinished prompt",
+    messages: [{ role: "user", text: "Move the API" }],
+    intent: "Unsent prompt",
     chatOpen: true,
     viewport: { zoom: 0.75, scrollX: 120, scrollY: -50 },
   };
   try {
     await store.load();
-    expect(await store.diagramDraft("architecture")).toBeNull();
-    await store.saveDiagramDraft("architecture", draft);
-    const workspace = importWorkspace({ tabs: [], selected: null, closed: ["architecture"] });
-    await store.saveWorkspace(workspace);
-    expect(() =>
-      store.saveDiagramDraft("architecture", {
-        ...draft,
-        viewport: { ...draft.viewport, zoom: -1 },
-      }),
-    ).toThrow();
-    expect(() =>
-      store.saveWorkspace({
-        tabs: ["architecture"],
-        selected: "architecture",
-        closed: ["architecture"],
-      }),
-    ).toThrow();
-    await store.close();
-    await reopened.load();
-    expect(await reopened.diagramDraft("architecture")).toEqual(draft);
-    expect(await reopened.workspace()).toEqual(workspace);
-    expect(await readdir(directory)).not.toContain("settings.json");
+    let lifecycle = new DesktopLifecycle(artifacts, store);
+    await lifecycle.recover();
+    const workspace = await lifecycle.workspace();
+    const tab = await lifecycle.openTab({
+      id: crypto.randomUUID(),
+      groupId: workspace.groups[0].id,
+      type: "future-tool",
+      title: "Future tool",
+      state: { version: 5, data: { prompt: "Keep me" } },
+    });
+    await lifecycle.saveWorkspace({ ...workspace, tabs: [tab], selected: tab.id });
+    await artifacts.saveDiagramDraft(tab.id, draft);
+    await expect(
+      artifacts.saveDiagramDraft(tab.id, { ...draft, viewport: { ...draft.viewport, zoom: -1 } }),
+    ).rejects.toThrow();
+    await artifacts.close();
+    artifacts = await ArtifactStore.open(join(directory, "artifacts"));
+    lifecycle = new DesktopLifecycle(artifacts, store);
+    await lifecycle.recover();
+    expect((await lifecycle.workspace()).tabs).toEqual([tab]);
+    expect(await artifacts.diagramDraft(tab.id)).toEqual(draft);
+    await lifecycle.closeTab(tab.id);
+    await lifecycle.saveWorkspace({ ...workspace, tabs: [tab], selected: tab.id });
+    await artifacts.saveDiagramDraft(tab.id, draft);
+    expect((await lifecycle.workspace()).tabs).toEqual([]);
+    expect(await artifacts.diagramDraft(tab.id)).toBeNull();
+    const db = new DatabaseSync(join(directory, "artifacts/scope.db"));
+    try {
+      expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+      expect(db.prepare("SELECT count(*) AS n FROM tab_drafts").get()?.n).toBe(0);
+    } finally {
+      db.close();
+    }
   } finally {
+    await artifacts.close();
     await store.close();
-    await reopened.close();
     await rm(directory, { recursive: true, force: true });
   }
 });
@@ -86,7 +96,7 @@ test("ordinary settings and tabs reopen from SQLite while credentials stay exclu
       appearance: "dark",
     });
     const workspace = importWorkspace({ tabs: ["architecture", "review"], selected: "review" });
-    await store.saveWorkspace(workspace);
+    await store.saveLayout({ groups: workspace.groups, selected: workspace.selected });
     expect(view).toMatchObject({ hasApiKey: true, keyStorage: "keychain" });
     expect(JSON.stringify(view)).not.toContain(secret);
     expect(view).not.toHaveProperty("endpoint");
@@ -98,7 +108,10 @@ test("ordinary settings and tabs reopen from SQLite while credentials stay exclu
     reopened = new DesktopStore(directory, credentials);
     await reopened.load();
     expect(reopened.settings().appearance).toBe("dark");
-    expect(await reopened.workspace()).toEqual(workspace);
+    expect(await reopened.layout()).toEqual({
+      groups: workspace.groups,
+      selected: workspace.selected,
+    });
     expect(await reopened.secret("apiKey")).toBe(secret);
     await reopened.saveSettings({ apiKey: "replacement-secret" });
     expect(await reopened.secret("apiKey")).toBe("replacement-secret");
@@ -233,8 +246,8 @@ test("existing SQLite preferences retain tabs and provider credentials while dis
   try {
     await credentials.write({ apiKey: "existing-provider-key" });
     await store.load();
-    const migrated = await store.workspace();
-    expect(migrated?.version).toBe(2);
+    const migrated = await store.legacyWorkspace();
+    expect(migrated?.version).toBe(3);
     expect(migrated?.tabs.map((tab) => tab.state.data.artifactId)).toEqual(workspace.tabs);
     expect(migrated?.selected).toBe(migrated?.tabs[0].id);
     expect(store.settings().appearance).toBe("system");
@@ -277,55 +290,99 @@ test("a failed credential migration retains the JSON settings for a successful r
   }
 });
 
-test("version 3 tabs migrate once, retaining order, selection, closed tabs and stable group identity", async () => {
+test("legacy open tabs migrate with stable IDs while closed-only artifacts and drafts are removed", async () => {
   const directory = await mkdtemp(join(tmpdir(), "scope-tab-migration-"));
+  const artifacts = await ArtifactStore.open(join(directory, "artifacts"));
+  const metadata = {
+    title: "Example",
+    kind: "text",
+    mediaType: "text/plain",
+    fileName: "example.txt",
+    expectedRevision: 0,
+  };
+  for (const id of ["first", "diagram", "closed", "overflow"]) {
+    const tabId = await artifacts.reserve(id, 0);
+    const blob = await artifacts.upload(
+      tabId,
+      (async function* () {
+        yield Buffer.from("Shared bytes");
+      })(),
+    );
+    await artifacts.put(id, { ...metadata, tabId, blob });
+  }
   const db = new DatabaseSync(join(directory, "desktop.db"));
   db.exec(
-    "CREATE TABLE preferences(name TEXT PRIMARY KEY, document TEXT NOT NULL) STRICT; PRAGMA user_version = 3;",
+    "CREATE TABLE preferences(name TEXT PRIMARY KEY, document TEXT NOT NULL) STRICT; CREATE TABLE diagram_drafts(artifact_id TEXT PRIMARY KEY, document TEXT NOT NULL) STRICT; PRAGMA user_version = 3;",
   );
+  const oldWorkspace = importWorkspace({ tabs: ["first", "diagram"], selected: "diagram" });
   db.prepare("INSERT INTO preferences VALUES ('workspace', ?)").run(
     JSON.stringify({
-      tabs: ["first", "diagram"],
-      selected: "diagram",
-      closed: ["closed"],
+      ...oldWorkspace,
+      version: 2,
+      closed: ["first", "closed"].map((artifactId) => ({
+        ...oldWorkspace.tabs[0],
+        id: crypto.randomUUID(),
+        state: { version: 1, data: { artifactId } },
+      })),
     }),
+  );
+  const legacyDraft: DiagramDraft = {
+    version: 1,
+    content: JSON.stringify({ type: "excalidraw", elements: [], files: {} }),
+    revision: 1,
+    dirty: true,
+    messages: [{ role: "user", text: "Keep the conversation" }],
+    intent: "Unsent draft",
+    chatOpen: true,
+    viewport: { zoom: 1, scrollX: 0, scrollY: 0 },
+  };
+  for (const id of ["diagram", "closed", "overflow"])
+    db.prepare("INSERT INTO diagram_drafts VALUES (?, ?)").run(id, JSON.stringify(legacyDraft));
+  db.prepare("INSERT INTO preferences VALUES ('unrelated-plugin', ?)").run(
+    JSON.stringify({ keep: true }),
   );
   db.close();
   const store = new DesktopStore(directory);
-  const reopened = new DesktopStore(directory);
   try {
     await store.load();
-    const workspace = (await store.workspace())!;
-    expect(workspace.tabs.map((tab) => tab.state.data.artifactId)).toEqual(["first", "diagram"]);
+    const before = (await store.legacyWorkspace())!;
+    const lifecycle = new DesktopLifecycle(artifacts, store);
+    await lifecycle.recover();
+    const workspace = await lifecycle.workspace();
+    expect(workspace.tabs).toEqual(before.tabs);
     expect(workspace.selected).toBe(workspace.tabs[1].id);
-    expect(workspace.closed[0].state.data.artifactId).toBe("closed");
-    expect(workspace.groups).toHaveLength(1);
-    expect(workspace.tabs.every((tab) => tab.groupId === workspace.groups[0].id)).toBe(true);
-    const unknown = {
-      ...workspace.closed[0],
-      type: "future-tool",
-      state: { version: 5, data: { prompt: "Keep me" } },
-    };
-    await store.saveWorkspace({ ...workspace, closed: [unknown] });
+    expect(workspace.groups).toEqual(before.groups);
+    expect((await artifacts.list()).items.map((item) => item.id)).toEqual([
+      "diagram",
+      "first",
+      "overflow",
+    ]);
+    await expect(artifacts.get("closed")).rejects.toMatchObject({ status: 404 });
+    const owners = await artifacts.tabs();
+    for (const artifactId of ["diagram", "overflow"])
+      expect(
+        await artifacts.diagramDraft(owners.find((tab) => tab.artifact_id === artifactId)!.id),
+      ).toEqual(legacyDraft);
+    expect(owners.some((tab) => tab.artifact_id === "closed")).toBe(false);
+    expect(await store.legacyWorkspace()).toBeNull();
+    await lifecycle.recover();
+    expect(await lifecycle.workspace()).toEqual(workspace);
+    expect(documents(directory)).toContain("unrelated-plugin");
     expect(() =>
-      store.saveWorkspace({
+      lifecycle.saveWorkspace({
         ...workspace,
         tabs: [{ ...workspace.tabs[0], groupId: crypto.randomUUID() }],
       }),
     ).toThrow();
-    expect(() => store.saveWorkspace({ ...workspace, closed: [workspace.tabs[0]] })).toThrow();
     expect(() =>
-      store.saveWorkspace({
+      lifecycle.saveWorkspace({
         ...workspace,
         tabs: [{ ...workspace.tabs[0], state: { version: 1, data: { wrong: true } } }],
       }),
     ).toThrow();
-    await store.close();
-    await reopened.load();
-    expect(await reopened.workspace()).toEqual({ ...workspace, closed: [unknown] });
   } finally {
     await store.close();
-    await reopened.close();
+    await artifacts.close();
     await rm(directory, { recursive: true, force: true });
   }
 });

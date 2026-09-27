@@ -1,9 +1,9 @@
 import type { Artifact } from "@irudd-scope/protocol";
 import type { SettingsUpdate, SettingsView } from "./settings.ts";
-import type { Workspace } from "./workspace/contract.ts";
+import type { Tab, Workspace } from "./workspace/contract.ts";
 import type { DiagramRequest, DiagramResult } from "./plugins/diagram/contract.ts";
 import type { DiagramDraft } from "./plugins/diagram/draft.ts";
-import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
+import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 
 export type ArtifactLibrarySnapshot = {
@@ -24,6 +24,10 @@ export type ScopeBridge = {
   checkForUpdates: () => Promise<void>;
   cancelUpdate: () => Promise<void>;
   restartToUpdate: () => Promise<void>;
+  signingCertificate: () => Promise<SigningCertificate | undefined>;
+  connectSigningCertificate: (name: string) => Promise<void>;
+  disconnectSigningCertificate: () => Promise<void>;
+  openKeychainAccess: () => Promise<void>;
   onUpdatesChange: (listener: (status: UpdateStatus) => void) => () => void;
   agentTools: () => Promise<AgentToolStatus>;
   installCli: () => Promise<AgentToolStatus>;
@@ -34,6 +38,9 @@ export type ScopeBridge = {
   publishTabEvent: (event: TabEventEnvelope) => Promise<void>;
   settings: () => Promise<SettingsView>;
   saveSettings: (input: SettingsUpdate) => Promise<SettingsView>;
+  openTab: (tab: Tab) => Promise<Tab>;
+  closeTab: (id: string) => Promise<void>;
+  onTabsClosed: (listener: (ids: string[]) => void) => () => void;
   workspace: () => Promise<Workspace | null>;
   saveWorkspace: (input: Workspace) => Promise<void>;
   diagramDraft: (id: string) => Promise<DiagramDraft | null>;
@@ -42,7 +49,7 @@ export type ScopeBridge = {
   artifactLibrary: () => Promise<ArtifactLibrarySnapshot>;
   content: (id: string, revision: number) => Promise<ArtifactContent>;
   download: (id: string, revision: number) => Promise<boolean>;
-  generateDiagram: (request: DiagramRequest) => Promise<DiagramResult>;
+  generateDiagram: (request: DiagramRequest, tabId?: string) => Promise<DiagramResult>;
   cancelDiagramGeneration: () => Promise<void>;
   saveDiagram: (input: {
     id: string;

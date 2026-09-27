@@ -7,11 +7,14 @@ import type { DesktopStore } from "./desktop-store.ts";
 import type { ArtifactLibrary } from "./library/library.ts";
 import { decodeSettingsUpdate } from "./settings.ts";
 import { registerMainPlugins } from "./plugins/registry.main.ts";
+import type { DesktopLifecycle } from "./lifecycle.ts";
+import { Uuid } from "./workspace/contract.ts";
 import { TabEventEnvelope } from "./plugins/events.ts";
 import type { AgentTools } from "./agent-tools.ts";
 import type { AppUpdates } from "./updates.ts";
 import type { Remotes } from "./remotes.ts";
 import { RemoteId } from "@irudd-scope/protocol/remote";
+import { openKeychainAccess } from "./signing.ts";
 
 export function registerDesktopIpc({
   window,
@@ -19,11 +22,13 @@ export function registerDesktopIpc({
   library,
   client,
   onCloseReady,
+  lifecycle,
   updates,
   agentTools,
   remotes,
   onRestartToUpdate,
 }: {
+  lifecycle: DesktopLifecycle;
   window: BrowserWindow;
   store: DesktopStore;
   library: ArtifactLibrary;
@@ -55,7 +60,13 @@ export function registerDesktopIpc({
     });
   }
 
-  const plugins = registerMainPlugins({ handle, store, client });
+  const plugins = registerMainPlugins({
+    handle,
+    store,
+    client,
+    artifacts: lifecycle.artifacts,
+    workspace: () => lifecycle.workspace(),
+  });
   handle("scope:remotes", () => remotes.snapshot());
   handle("scope:pair-remote", (input) =>
     remotes.pair(decode(Schema.String.check(Schema.isMaxLength(4096)), input)),
@@ -72,6 +83,18 @@ export function registerDesktopIpc({
   });
   handle("scope:cancel-update", () => updates.cancel());
   handle("scope:restart-to-update", () => onRestartToUpdate());
+  handle("scope:signing-certificate", () => updates.signingCertificate());
+  handle("scope:open-keychain-access", () => openKeychainAccess());
+  function changeSigningCertificate(reference: string | null) {
+    if (agentTools.isBusy()) throw new Error("Wait for the agent tools installation to finish.");
+    void updates.setSigningCertificate(reference);
+  }
+  handle("scope:connect-signing-certificate", (input) =>
+    changeSigningCertificate(
+      decode(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)), input),
+    ),
+  );
+  handle("scope:disconnect-signing-certificate", () => changeSigningCertificate(null));
   handle("scope:agent-tools", () => agentTools.snapshot());
   function installTool(action: () => unknown) {
     if (["checking", "building"].includes(updates.snapshot().phase))
@@ -84,7 +107,7 @@ export function registerDesktopIpc({
   handle("scope:remove-skill", () => installTool(() => agentTools.removeSkill()));
   handle("scope:publish-tab-event", async (input) => {
     const envelope = decode(TabEventEnvelope, input);
-    const workspace = await store.workspace();
+    const workspace = await lifecycle.workspace();
     if (
       !workspace?.tabs.some((tab) => tab.id === envelope.tabId && tab.groupId === envelope.groupId)
     )
@@ -100,8 +123,12 @@ export function registerDesktopIpc({
     }
   });
   handle("scope:settings", () => store.settings());
-  handle("scope:workspace", () => store.workspace());
-  handle("scope:save-workspace", (input) => store.saveWorkspace(input));
+  handle("scope:open-tab", (input) => lifecycle.openTab(input));
+  handle("scope:close-tab", async (input) => {
+    await lifecycle.closeTab(decode(Uuid, input));
+  });
+  handle("scope:workspace", () => lifecycle.workspace());
+  handle("scope:save-workspace", (input) => lifecycle.saveWorkspace(input));
   handle("scope:close-ready", (input) => onCloseReady(decode(Schema.Boolean, input)));
   handle("scope:save-settings", async (input) => {
     const result = await store.saveSettings(decodeSettingsUpdate(input));
@@ -128,6 +155,7 @@ export function registerDesktopIpc({
 
   return {
     cancelPending: () => plugins.cancelPending(),
+    cancelTabs: (ids: string[]) => plugins.cancelTabs(ids),
     dispose: () => {
       plugins.cancelPending();
       eventListeners.clear();

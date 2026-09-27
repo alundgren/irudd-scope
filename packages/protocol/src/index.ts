@@ -67,7 +67,16 @@ const Fields = {
   ),
   source: Schema.optionalKey(Source),
 };
-export const ArtifactWrite = Schema.Struct({ ...Fields, expectedRevision: Revision });
+export const PublicationTabId = Schema.String.check(
+  Schema.isPattern(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
+);
+export const PublicationRequest = Schema.Struct({ expectedRevision: Revision });
+export const PublicationReceipt = Schema.Struct({ tabId: PublicationTabId });
+export const ArtifactWrite = Schema.Struct({
+  ...Fields,
+  expectedRevision: Revision,
+  tabId: PublicationTabId,
+});
 export type ArtifactWrite = typeof ArtifactWrite.Type;
 export const Artifact = Schema.Struct({
   ...Fields,
@@ -83,9 +92,12 @@ export const ArtifactPage = Schema.Struct({
   next: Schema.NullOr(ArtifactId),
 });
 export const BlobReceipt = Schema.Struct({ blob: BlobId });
+export const DeleteReceipt = Schema.Struct({ id: ArtifactId, deleted: Schema.Boolean });
+export type DeleteReceipt = typeof DeleteReceipt.Type;
 export const LiveEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("ready") }),
   Schema.Struct({ type: Schema.Literal("artifact"), artifact: Artifact }),
+  Schema.Struct({ type: Schema.Literal("deleted"), id: ArtifactId }),
 ]);
 export type LiveEvent = typeof LiveEvent.Type;
 

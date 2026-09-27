@@ -6,7 +6,8 @@ before changing these responsibilities.
 
 - `src/main.ts` owns startup, the window, and shutdown after pending saves finish.
 - `src/library/` owns `scope.db`, HTTP publication, discovery, and library updates.
-- `src/desktop-store.ts` owns `desktop.db`, including settings, workspace, and diagram drafts.
+- `src/lifecycle.ts` coordinates tab creation, closing, and legacy imports. Tab records, content references, metadata, and drafts share `scope.db` with foreign keys and cascading deletion.
+- `src/desktop-store.ts` owns `desktop.db`, including settings, workspace groups, and selection.
 - `src/settings.ts` defines desktop settings; `src/workspace/contract.ts` defines tabs and groups.
 - `src/workspace/` owns navigation, tab lifecycle, event routing, and saved workspace updates.
 - `src/plugins/` owns built-in tab implementations and their explicit registrations.

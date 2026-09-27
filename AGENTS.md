@@ -11,13 +11,14 @@ only what differs from its parents.
 
 | Area                          | Responsibility                                                       |
 | ----------------------------- | -------------------------------------------------------------------- |
-| `apps/desktop/src/library/`   | Artifact HTTP API, discovery, and SQLite content storage.            |
+| `apps/desktop/src/library/`   | Artifact HTTP API, discovery, and SQLite tab content storage.        |
 | `apps/desktop/src/plugins/`   | Built-in tab views, state contracts, and main-process handlers.      |
 | `apps/desktop/src/workspace/` | Tab lifecycle, groups, event routing, and workspace navigation.      |
 | `apps/desktop/src/renderer/`  | Renderer startup, shared controls, settings, and design tokens.      |
 | `apps/desktop/src/`           | Electron lifecycle, named IPC, desktop preferences, and credentials. |
 | `apps/hub/`                   | Optional authenticated forwarding to the desktop.                    |
 | `packages/cli/`               | File detection, provenance, and publication commands.                |
+| `packages/sqlite/`            | SQLite shrinking and maintenance scheduling.                         |
 | `packages/protocol/`          | Shared validated artifact contracts and HTTP client.                 |
 | `tests/`                      | User journeys, integration tests, and synthetic fixtures.            |
 | `tools/`                      | Development commands and test process setup.                         |

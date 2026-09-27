@@ -1,6 +1,11 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 const saves = new Set<() => Promise<void>>();
+const tabSaves = new Map<string, Set<() => void>>();
+export function discardTabSaves(id: string): void {
+  for (const discard of tabSaves.get(id) ?? []) discard();
+  tabSaves.delete(id);
+}
 
 export function beforeClose(save: () => Promise<void>): () => void {
   saves.add(save);
@@ -15,23 +20,29 @@ export async function flushWorkspace(): Promise<void> {
     throw new Error("Could not save the workspace.");
 }
 
-export function useAutosave<T>(getValue: () => T | undefined, save: (value: T) => Promise<void>) {
+export function useAutosave<T>(
+  getValue: () => T | undefined,
+  save: (value: T) => Promise<void>,
+  tabId?: string,
+) {
   const current = useRef({ getValue, save });
   current.current = { getValue, save };
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = useRef(Promise.resolve());
   const saved = useRef<string | undefined>(undefined);
   const mounted = useRef(true);
+  const discarded = useRef(false);
   const [error, setError] = useState(false);
   const flush = useCallback(() => {
     clearTimeout(timer.current);
     timer.current = undefined;
+    if (discarded.current) return pending.current;
     const value = current.current.getValue();
     if (value === undefined) return pending.current;
     const document = JSON.stringify(value);
     const write = current.current.save;
     const task = pending.current.then(async () => {
-      if (document === saved.current) return;
+      if (discarded.current || document === saved.current) return;
       await write(value);
       saved.current = document;
     });
@@ -52,11 +63,25 @@ export function useAutosave<T>(getValue: () => T | undefined, save: (value: T) =
       timer.current = setTimeout(() => {
         void flush().catch(() => {});
       }, 250);
-  }, [flush]);
+  }, [flush, tabId]);
   useLayoutEffect(() => {
     mounted.current = true;
     saves.add(flush);
+    const discard = () => {
+      discarded.current = true;
+      clearTimeout(timer.current);
+      saves.delete(flush);
+    };
+    if (tabId) {
+      const entries = tabSaves.get(tabId) ?? new Set();
+      entries.add(discard);
+      tabSaves.set(tabId, entries);
+    }
     return () => {
+      if (tabId) {
+        tabSaves.get(tabId)?.delete(discard);
+        if (!tabSaves.get(tabId)?.size) tabSaves.delete(tabId);
+      }
       mounted.current = false;
       // Capture before Excalidraw clears its scene on unmount. Keep the write in the close barrier.
       void flush().then(
@@ -66,6 +91,6 @@ export function useAutosave<T>(getValue: () => T | undefined, save: (value: T) =
         () => {},
       );
     };
-  }, [flush]);
+  }, [flush, tabId]);
   return { schedule, flush, error };
 }

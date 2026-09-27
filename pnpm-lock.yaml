@@ -280,6 +280,9 @@ importers:
       '@irudd-scope/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@irudd-scope/sqlite':
+        specifier: workspace:*
+        version: link:../../packages/sqlite
       '@napi-rs/keyring':
         specifier: 'catalog:'
         version: 2.1.0
@@ -335,6 +338,9 @@ importers:
       '@irudd-scope/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@irudd-scope/sqlite':
+        specifier: workspace:*
+        version: link:../../packages/sqlite
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.117
@@ -353,6 +359,12 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.117
+
+  packages/sqlite:
+    dependencies:
+      '@irudd-scope/protocol':
+        specifier: workspace:*
+        version: link:../protocol
 
 packages:
 

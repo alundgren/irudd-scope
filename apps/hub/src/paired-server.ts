@@ -3,7 +3,17 @@ import { randomUUID } from "node:crypto";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { decode, MAX_CONTENT_BYTES, MAX_METADATA_BYTES } from "@irudd-scope/protocol";
-import { artifactRequest, PairRequest, type RelayEvent } from "@irudd-scope/protocol/remote";
+import {
+  ShrinkRequest,
+  ShrinkReceipt,
+  MAX_MAINTENANCE_TIMEOUT_MS,
+} from "@irudd-scope/protocol/maintenance";
+import {
+  artifactRequest,
+  maintenanceRequest,
+  PairRequest,
+  type RelayEvent,
+} from "@irudd-scope/protocol/remote";
 import type { HubState } from "./state.ts";
 
 type Pending = {
@@ -110,6 +120,33 @@ export async function startPairedHub(state: HubState, port = state.configuration
         json(response, 401, { error: "Local hub credentials are required." });
         return;
       }
+      if (url.pathname === "/v1/hub/maintenance" && request.method === "GET" && !url.search) {
+        json(response, 200, {
+          target: "hub",
+          databases: [state.maintenance.latest()].filter(Boolean),
+        });
+        return;
+      }
+      if (url.pathname === "/v1/hub/shrink" && request.method === "POST" && !url.search) {
+        const parts: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of request) {
+          size += chunk.length;
+          if (size > 1024) throw new Error("Maintenance request too large.");
+          parts.push(chunk);
+        }
+        const input = decode(ShrinkRequest, JSON.parse(Buffer.concat(parts).toString()));
+        request.setTimeout(input.timeoutMs + 5000);
+        json(
+          response,
+          200,
+          decode(ShrinkReceipt, {
+            target: "hub",
+            databases: [await state.maintenance.run(true, input.timeoutMs)],
+          }),
+        );
+        return;
+      }
       if (url.pathname === "/v1/hub/status" && request.method === "GET") {
         json(response, 200, { ...state.status(), connected: Boolean(desktop) });
         return;
@@ -175,7 +212,7 @@ export async function startPairedHub(state: HubState, port = state.configuration
         response.flushHeaders();
         await pipeline(
           item.request,
-          bounded(item.request.method === "POST" ? MAX_CONTENT_BYTES : MAX_METADATA_BYTES),
+          bounded(item.request.url?.endsWith("/blobs") ? MAX_CONTENT_BYTES : MAX_METADATA_BYTES),
           response,
           { signal: item.controller.signal },
         ).catch(() =>
@@ -236,6 +273,10 @@ export async function startPairedHub(state: HubState, port = state.configuration
       json(response, 413, { error: "Artifact exceeds the 32 MiB limit." });
       return;
     }
+    const timeoutMs = maintenanceRequest(request.url ?? "")
+      ? MAX_MAINTENANCE_TIMEOUT_MS + 5000
+      : 30_000;
+    request.setTimeout(timeoutMs);
     const id = randomUUID();
     const item: Pending = {
       request,
@@ -245,7 +286,7 @@ export async function startPairedHub(state: HubState, port = state.configuration
       controller: new AbortController(),
       timer: setTimeout(
         () => finish(id, "The Mac did not respond in time. Check the artifact before retrying."),
-        30_000,
+        timeoutMs,
       ),
     };
     pending.set(id, item);
@@ -256,7 +297,7 @@ export async function startPairedHub(state: HubState, port = state.configuration
     send({
       type: "request",
       id,
-      method: request.method as "GET" | "POST" | "PUT",
+      method: request.method as "GET" | "POST" | "PUT" | "DELETE",
       path: request.url!,
       ...(request.headers["content-type"] ? { contentType: request.headers["content-type"] } : {}),
     });
@@ -270,9 +311,11 @@ export async function startPairedHub(state: HubState, port = state.configuration
   });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("The hub has no TCP address.");
+  state.maintenance.start();
   return {
     url: `http://127.0.0.1:${address.port}`,
     close: async () => {
+      await state.maintenance.close();
       disconnect();
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) =>

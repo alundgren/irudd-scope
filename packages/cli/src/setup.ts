@@ -15,6 +15,12 @@ import { homedir, userInfo } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Schema } from "effect";
+import {
+  ShrinkReceipt,
+  ShrinkRequest,
+  MaintenanceStatus,
+  MAX_MAINTENANCE_TIMEOUT_MS,
+} from "@irudd-scope/protocol/maintenance";
 import { HubStatus, readRemoteJson, readPairingUrl } from "@irudd-scope/protocol/remote";
 import {
   decode,
@@ -272,7 +278,38 @@ export async function setup(options: {
   else if (current.pairedMac) console.log("The existing Mac pairing is unchanged.");
 }
 
-export async function manageHub(action: string | undefined) {
+export async function manageHub(
+  action: string | undefined,
+  timeoutMs = 10_000,
+  statusOnly = false,
+) {
+  if (action === "shrink") {
+    const signal = AbortSignal.timeout(timeoutMs);
+    const { endpoint, token } = decodeLocalConnection(
+      JSON.parse(await readFile(connectionFile(), { encoding: "utf8", signal })),
+    );
+    const response = await fetch(`${endpoint}/v1/hub/${statusOnly ? "maintenance" : "shrink"}`, {
+      method: statusOnly ? "GET" : "POST",
+      redirect: "error",
+      signal,
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      ...(statusOnly
+        ? {}
+        : {
+            body: JSON.stringify(
+              decode(ShrinkRequest, { timeoutMs: Math.min(timeoutMs, MAX_MAINTENANCE_TIMEOUT_MS) }),
+            ),
+          }),
+    });
+    const result = await readRemoteJson(response);
+    if (!response.ok)
+      throw new Error(decode(Schema.Struct({ error: Schema.String }), result).error);
+    const receipt = statusOnly ? decode(MaintenanceStatus, result) : decode(ShrinkReceipt, result);
+    console.log(JSON.stringify(receipt, null, 2));
+    if (!statusOnly && receipt.databases.some((database) => database.status !== "completed"))
+      process.exitCode = 1;
+    return;
+  }
   if (action === "status") {
     console.log(JSON.stringify(await hubRequest("status"), null, 2));
     return;
@@ -283,7 +320,7 @@ export async function manageHub(action: string | undefined) {
     return;
   }
   if (!["start", "stop", "remove"].includes(action ?? ""))
-    throw new Error("Use irudd-scope hub start, stop, status, unpair, or remove.");
+    throw new Error("Use irudd-scope hub start, stop, status, unpair, remove, or shrink.");
   const unit = await fileText(serviceFile());
   if (!unit?.startsWith(unitMarker))
     throw new Error("No Scope-managed hub service is installed. Run irudd-scope setup.");
