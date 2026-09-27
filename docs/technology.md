@@ -34,7 +34,7 @@ Electron is the largest resource tradeoff. It buys a consistent environment for 
 
 Effect is present for actual contract validation. The project does not wrap every function in an Effect service or copy a large framework architecture. The hub is small enough for direct HTTP handlers and explicit storage ownership. A framework should reduce demonstrated repetition before it becomes a dependency.
 
-The SQLite and filesystem combination fits one user and one authoritative VM. Closing the Mac cannot lose published artifacts. The desktop's OpenRouter key is independent of those artifacts; a different model provider does not require a new storage protocol.
+The SQLite and filesystem combination fits one user and one authoritative storage process. Published artifacts survive process restarts. The desktop's OpenRouter key is independent of those artifacts; a different model provider does not require a new storage protocol.
 
 The current stable Excalidraw release is older than the rest of the selected stack. Its React peer warnings and large lazy-loaded chunks are upstream costs, not a reason to select prerelease snapshots or rewrite the canvas during this slice.
 

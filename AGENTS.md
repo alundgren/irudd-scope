@@ -1,6 +1,6 @@
 # Working in irudd-scope
 
-Scope lets coding agents publish artifacts for a human to inspect in a Mac desktop app. The VM hub owns persistent artifacts. Agent observation is optional. Scope does not run coding sessions or orchestrate agents.
+Scope lets coding agents publish artifacts for a human to inspect in a Mac desktop app. The current hub owns persistent artifacts. Publishing is only required while the Mac is awake. Agent observation is optional. Scope does not run coding sessions or orchestrate agents.
 
 Read [architecture](docs/architecture.md) before changing ownership or dependencies, [development](docs/development.md) before running or validating code, and [ux.md](ux.md) before changing an interaction. The [visual prototype brief](docs/visual-prototype-brief.md) describes the intended desktop experience.
 

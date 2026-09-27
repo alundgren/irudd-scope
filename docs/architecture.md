@@ -1,6 +1,6 @@
 # Architecture
 
-Scope stores artifacts from coding agents and shows them to a human. Publishing must work while the Mac sleeps. AI generation runs only while the Mac and desktop app are open.
+Scope stores artifacts from coding agents and shows them to a human. Publishing while the Mac sleeps is not required. AI generation runs only while the Mac and desktop app are open.
 
 ```text
 Mac or VM                                        Ubuntu VM
