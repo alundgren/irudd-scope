@@ -2,6 +2,8 @@
 
 Use Vite+ `1.0.0-rc.1`. Node `26.10.0` and pnpm `12.6.0` are pinned. Dependencies use stable or release-candidate versions, with exact versions in the workspace catalog and lockfile. Do not adopt beta, alpha, nightly, or canary releases without a specific decision.
 
+Vite+ is the development entry point, including inside package scripts. Use `vp exec node` for Node scripts, `vp exec` for installed binaries, `vp dlx` for one-off tools, and `vp install` or `vp add` for dependencies. Do not run direct `node`, `npm`, `npx`, or `pnpm` commands for those tasks. The CLI's Node shebang, a deployed service's pinned runtime, and test subprocesses using the active runtime remain valid. They do not select another development toolchain.
+
 The stack is TypeScript, React, Vite+ with its bundled Vitest 5, Effect 4 RC, shadcn/ui, and Tailwind 4. Import test APIs from `vite-plus/test`. Add only UI components that the app uses. Electron main runs on Electron's bundled Node version, so its code must also work there.
 
 ```sh
@@ -58,7 +60,7 @@ tailscale serve --bg --https=8450 http://127.0.0.1:43120
 
 Set `SCOPE_ENDPOINT=https://your-vm.your-tailnet.ts.net:8450` for the Mac CLI and provide the same token through `SCOPE_TOKEN_FILE`. Copy that file privately through your existing SSH connection. The Mac CLI requires the same checkout and `vp install`; it does not need the Electron app open to publish files.
 
-In Electron, open Settings and enter the hub URL and token. Select OpenRouter and Gemini 3.8 Flash, then enter the model API key. On macOS these credentials are encrypted through Keychain-backed secure storage. On Linux they stay only in memory; `SCOPE_ENDPOINT` and `SCOPE_TOKEN` can also configure a development launch. `SCOPE_DESKTOP_DATA_DIR` selects an isolated Electron data directory for tests or experiments.
+In Electron, open Settings and enter the hub URL and token. Select OpenRouter and Gemini 3.8 Flash, then enter the model API key. On macOS the credentials live directly in Keychain. Ordinary settings and tab preferences live in `desktop.db`. On Linux credentials stay only in memory; `SCOPE_ENDPOINT` and `SCOPE_TOKEN` can also configure a development launch. `SCOPE_DESKTOP_DATA_DIR` selects an isolated Electron data directory and Keychain profile for tests or experiments.
 
 Use Create diagram in the empty workspace or search. A generated diagram becomes a normal artifact in the hub. Use the change field on its canvas for targeted edits, then Save. Model output is validated before application. A failed request does not change the canvas.
 
@@ -72,4 +74,6 @@ Artifacts are durable. Unsaved canvas edits are local to the current desktop pro
 
 The desktop currently runs from a checkout. A signed Mac application bundle and its native Keychain acceptance check are still required before distributing releases. Linux tests do not establish that behavior. Local Codex/Claude providers, remote generation requests, session tools, and tool-size hooks are planned capabilities, not working settings.
 
-SQLite and blob storage need a backup policy before storing irreplaceable work. Stop the hub before copying its data directory, or use SQLite's online backup API and copy the referenced blobs. Do not copy only `scope.db` while a running hub may have committed data in its WAL file.
+All artifact metadata and bytes live in `scope.db`. Stop the hub before copying its data directory, or use SQLite's online backup API. Do not copy only the main database file while a running hub may have committed data in its WAL file. The desktop uses a separate `desktop.db` for ordinary local preferences; its backup does not contain Keychain credentials.
+
+Before upgrading a legacy installation, stop it and back up the complete old data directory. Startup imports and verifies legacy artifact files, commits schema version 2, and removes the imported blob directory. On verification failure it retains the original files and database version. A successful migration requires the new hub version; an old binary will refuse schema version 2. Legacy desktop settings and tabs migrate on first open. Saved Mac credentials require Keychain access during that migration.

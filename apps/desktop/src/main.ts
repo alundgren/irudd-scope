@@ -16,6 +16,7 @@ import { Schema } from "effect";
 import { ArtifactId, Revision, decode } from "@irudd-scope/protocol";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { SettingsStore, decodeSettingsUpdate } from "./settings.ts";
+import { macCredentials, memoryCredentials } from "./credentials.ts";
 import type { ArtifactContent, Snapshot } from "./bridge.ts";
 import { DiagramRequest } from "./diagram/contract.ts";
 import { openRouterProvider } from "./diagram/openrouter.ts";
@@ -32,14 +33,10 @@ async function main() {
   const settings = new SettingsStore(
     app.getPath("userData"),
     process.platform === "darwin"
-      ? {
-          encrypt: async (text) => {
-            if (!(await safeStorage.isAsyncEncryptionAvailable()))
-              throw new Error("Keychain unavailable.");
-            return safeStorage.encryptStringAsync(text);
-          },
-          decrypt: async (bytes) => (await safeStorage.decryptStringAsync(bytes)).result,
-        }
+      ? await macCredentials(app.getPath("userData"))
+      : memoryCredentials(),
+    process.platform === "darwin"
+      ? async (bytes) => (await safeStorage.decryptStringAsync(bytes)).result
       : undefined,
   );
   await settings.load({ endpoint: process.env.SCOPE_ENDPOINT, hubToken: process.env.SCOPE_TOKEN });
@@ -134,6 +131,8 @@ async function main() {
   }
 
   handle("scope:settings", () => settings.view());
+  handle("scope:workspace", () => settings.workspace());
+  handle("scope:save-workspace", (input) => settings.saveWorkspace(input));
   handle("scope:save-settings", async (input) => {
     const before = settings.view();
     const update = decodeSettingsUpdate(input);
@@ -300,9 +299,24 @@ async function main() {
   }
   createWindow();
   void connect();
-  app.on("before-quit", () => {
+  let closing = false;
+  let closed = false;
+  app.on("before-quit", (event) => {
+    if (closed) return;
+    event.preventDefault();
+    if (closing) return;
+    closing = true;
     connection?.abort();
     drawing?.abort();
+    void settings
+      .close()
+      .catch(() => {
+        console.error("Could not close the desktop database cleanly.");
+      })
+      .finally(() => {
+        closed = true;
+        app.quit();
+      });
   });
   app.on("window-all-closed", () => {
     app.quit();
@@ -310,6 +324,8 @@ async function main() {
 }
 
 void main().catch(() => {
-  console.error("Scope could not start. Check the local settings file and desktop permissions.");
+  console.error(
+    "Scope could not start. Check the desktop database, Keychain access, and app permissions.",
+  );
   app.quit();
 });

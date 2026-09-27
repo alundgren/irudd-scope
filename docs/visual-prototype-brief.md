@@ -4,7 +4,7 @@ Create interactive visual prototypes for the main desktop screen and tab navigat
 
 ## Product
 
-Coding agents leave artifacts for one human to inspect. Codex and Claude run on a Mac and Ubuntu VM. Their CLI publishes to a persistent VM hub. The human opens Scope on the Mac to inspect, interact with, download, or edit an artifact. Scope does not run coding sessions and has no agent chat.
+Coding agents leave artifacts for one human to inspect. Codex and Claude run on a Mac and Ubuntu VM. Their CLI publishes to a persistent VM hub. The human opens Scope on the Mac to inspect, interact with, download, or edit an artifact. Scope does not run coding sessions. A diagram can have its own conversation with the configured drawing agent.
 
 The central item is an artifact with a stable identity. Tabs are views of artifacts. Artifacts can update in place, and closing a tab must not delete the artifact. Supported content includes Markdown or text, an image, a static HTML preview, a downloadable file, and an editable Excalidraw diagram.
 
@@ -28,15 +28,18 @@ Use realistic titles and data, such as `Architecture`, `Checkout layout`, `Retry
 - Receive a new artifact while reading another. Indicate the arrival without changing selection.
 - Update an existing artifact in place. Show a small change indication. Show how an edited diagram handles an incoming update without silently discarding work.
 - Enter and exit focus mode, preserving position.
+- Open a diagram's Ask agent panel from the right, send follow-up changes, cancel a pending reply, and close it to recover canvas space. Show Gemini 3.8 Flash as the current drawing model. Preserve the conversation, draft, and canvas position across tab changes and focus mode. This conversation belongs to that diagram, with no permanent workspace chat pane. Use clearly identified mock replies without a model connection.
 - Show an empty workspace with a useful publication example and no required hook setup.
 - Show the hub offline and reconnecting while existing content remains inspectable.
 - Show an image, Markdown, HTML preview, file download, and diagram at useful sizes. Static HTML is isolated and cannot access app APIs. Do not make arbitrary web-app hosting part of the concept.
 
 ## Settings
 
+Put Search and Settings directly in the workspace menu. Open Settings with its search field focused and prominent above the controls. Filter by setting names and useful related terms. Include empty results and a clear-search action. Global search should also find individual settings, such as the model or API key, and open the matching controls. Avoid a deep category tree.
+
 Include a settings view with a provider selector. The only enabled provider is OpenRouter. Its model selector initially contains only Gemini 3.8 Flash, with API ID `google/gemini-3.8-flash` available in a secondary detail if useful.
 
-Include a masked key-entry field and saved, replace, remove, and failure states. The saved key is protected using macOS Keychain through Electron secure storage. Display only saved status, never reveal a stored key. Use fake data in prototypes. Model calls run on the Mac only while Scope is open, which is intended behavior.
+Include a masked key-entry field and saved, replace, remove, and failure states. Credentials are stored directly in macOS Keychain by Electron main. Ordinary settings live in SQLite. Display only saved status, never reveal a stored key. Use fake data in prototypes. Model calls run on the Mac only while Scope is open, which is intended behavior.
 
 Leave conceptual room for local Codex and Claude CLI providers later, without cluttering the first version with disabled settings or suggesting those integrations work already. Hub connection settings are separate from model credentials.
 
@@ -44,4 +47,4 @@ Leave conceptual room for local Codex and Claude CLI providers later, without cl
 
 Provide runnable interactive prototypes, a small navigation between the alternatives, screenshots at laptop and large-window sizes, and a short recommendation explaining the space and interaction tradeoffs. Document the chosen tokens and important keyboard behavior. Include a test checklist for the states above. Keep mock data clearly separate from app integration.
 
-Do not add a backend, database, authentication system, chat, orchestration, model abstraction framework, or final production Electron packaging. Do not publish a public preview. A private tailnet preview can be set up when requested.
+Do not add a backend, database, authentication system, general coding-agent chat, orchestration, model abstraction framework, or final production Electron packaging. Diagram chat is a mock interaction within its artifact. Do not publish a public preview. A private tailnet preview can be set up when requested.

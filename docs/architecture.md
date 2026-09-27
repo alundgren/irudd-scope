@@ -10,8 +10,7 @@ Codex / Claude / human
         v
 packages/cli ---- HTTPS over tailnet -----------> apps/hub
         |         or VM loopback                    |
-        |                                           +--> SQLite metadata
-        |                                           +--> filesystem blobs
+        |                                           +--> SQLite metadata and artifact bytes
         |
         |                          artifact reads, writes, SSE
         |                                           |
@@ -37,7 +36,7 @@ Planned optional additions:
 
 `packages/protocol` owns artifact types, input validation, wire formats, limits, and the shared HTTP client. It has no dependency on an application, filesystem, Electron, or a model provider. Its README defines the public commands and exchanges beside those contracts.
 
-`apps/hub` owns durable artifact metadata, revisions, content files, authentication, and live notifications. The hub listens on loopback. Tailscale Serve provides private HTTPS. SQLite and blobs live in one configured data directory. The hub never receives an OpenRouter API key.
+`apps/hub` owns durable artifact metadata, revisions, content, authentication, and live notifications. The hub listens on loopback. Tailscale Serve provides private HTTPS. One SQLite database contains artifact metadata and binary content. The hub never receives an OpenRouter API key.
 
 `packages/cli` owns file detection, explicit publication, and cheap optional provenance from hostname, cwd, Git, and supplied agent/session information. It uses the protocol client. It does not inspect transcripts or launch agents.
 
@@ -49,7 +48,13 @@ Dependencies point from each app and CLI to `packages/protocol`. No app imports 
 
 The hub is authoritative for artifact content and metadata. An artifact has a stable ID and an increasing revision. Create refuses an existing ID. Update requires the expected revision, so two writers cannot silently overwrite one another. Closing a desktop tab only changes local workspace preferences.
 
-Content files use SHA-256 names and are installed before SQLite references them. A failed metadata write can leave an unused blob, but never a row pointing at unfinished content. Metadata updates are atomic. The first version keeps the current artifact revision without a history browser. Future migrations must preserve IDs and existing records.
+The hub's `scope.db` stores metadata and a BLOB table keyed by SHA-256. Uploads insert complete content before metadata references it. A failed metadata write can leave an unused database row, but never an artifact pointing at unfinished content. Revision checks and metadata writes share a transaction. The first version keeps the current artifact revision without a history browser.
+
+The Mac's `desktop.db` stores ordinary settings and open-tab preferences as readable data. Credentials live directly in macOS Keychain. Neither database stores credential plaintext or ciphertext. Linux development keeps credentials only in memory. Artifact content remains authoritative on the hub; the desktop's current content cache is in memory.
+
+Both applications use `@effect/sql-sqlite-node` with an owned Effect runtime that closes the database on shutdown. It uses Node's synchronous SQLite driver, so database calls can still block the event loop. Uploads are bounded to 32 MiB and four concurrent requests. SQLite is the default for all new Scope persistence. Explicit user imports and downloads use files, and Electron still manages its own caches.
+
+Hub schema version 2 imports the legacy blob directory, verifies content hashes and referenced sizes, and commits the new schema before removing imported files. A failed verification leaves the previous database version and source files intact. Desktop startup migrates ordinary JSON settings into SQLite and saved credentials into Keychain. The renderer transfers existing tab preferences once through validated IPC and then clears its legacy localStorage entry. Existing artifact IDs and revisions remain unchanged.
 
 Optional provenance fields are absent when unknown. Missing information must not prevent publication. Session records and hook installation are not prerequisites for artifact records.
 
@@ -61,7 +66,7 @@ Agent HTML is untrusted. Preview it in a sandboxed iframe with no scripts, same-
 
 The preload API exposes named operations and validates IPC callers. It must not expose arbitrary filesystem access, shell execution, fetch, Electron objects, or secret-reading methods. The app blocks unexpected navigation, child windows, and permissions.
 
-Settings initially offers OpenRouter and `google/gemini-3.8-flash`. The trusted settings form can submit a new key once. Main encrypts it with Electron asynchronous `safeStorage`, clears the submitted value from the form, and returns only whether a key is stored. On macOS, Keychain protects the encryption key; the API key's ciphertext stays in the app's local data directory. Replacing and removing the key are supported. Stable code signing is needed for consistent Keychain access across Mac builds.
+Settings initially offers OpenRouter and `google/gemini-3.8-flash`. The trusted settings form can submit a new key once. Main stores credentials directly in Keychain through `@napi-rs/keyring`, clears the submitted value from the form, and returns only saved status. One Keychain entry belongs to each desktop profile, under service `alundgren.irudd-scope`. Replacing and removing a key are supported. `safeStorage` is used only to decode legacy credentials during migration. Stable code signing and native Mac acceptance checks are required before release.
 
 Linux development must not persist a key through Electron's insecure fallback. A key may be used in memory for that process. Standard tests use synthetic responses and never need a real key. Hub credentials are also kept out of artifact renderers.
 

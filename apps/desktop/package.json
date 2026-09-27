@@ -6,14 +6,16 @@
   "main": "dist/main.mjs",
   "scripts": {
     "build": "vp pack && vp build",
-    "dev": "vp run build && electron .",
+    "dev": "vp run build && vp exec electron .",
     "preview": "vp dev --host 127.0.0.1"
   },
   "dependencies": {
     "@base-ui/react": "catalog:",
+    "@effect/sql-sqlite-node": "catalog:",
     "@excalidraw/excalidraw": "catalog:",
     "@fontsource-variable/geist": "catalog:",
     "@irudd-scope/protocol": "workspace:*",
+    "@napi-rs/keyring": "catalog:",
     "class-variance-authority": "catalog:",
     "cn": "catalog:",
     "effect": "catalog:",

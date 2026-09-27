@@ -4,6 +4,8 @@ A private workspace where coding agents leave things for a human to inspect. A p
 
 The repository is public. The running hub belongs on a private tailnet.
 
+SQLite stores artifact contents, metadata, ordinary settings, and workspace preferences. Mac credentials live directly in Keychain. The hub remains the source of truth for artifacts while the Mac is asleep.
+
 ## Development
 
 Install Vite+ `1.0.0-rc.1`, then run:

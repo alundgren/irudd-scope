@@ -102,7 +102,13 @@ export function SettingsViewPanel({ onClose }: { onClose: () => void }) {
           />
         </label>
         <div className="key-status">
-          <span>{settings?.hasApiKey ? "Key saved" : "No key saved"}</span>
+          <span>
+            {settings?.credentialError
+              ? "Key status unavailable"
+              : settings?.hasApiKey
+                ? "Key saved"
+                : "No key saved"}
+          </span>
           {settings?.hasApiKey && (
             <Button
               type="button"
@@ -117,9 +123,10 @@ export function SettingsViewPanel({ onClose }: { onClose: () => void }) {
         </div>
         <p className="secondary">
           {settings?.keyStorage === "keychain"
-            ? "Keys are protected by macOS Keychain. AI runs on this Mac while Scope is open."
+            ? "Keys are stored in macOS Keychain. AI runs on this Mac while Scope is open."
             : "Linux development uses keys only for this session. They are not saved to disk."}
         </p>
+        {settings?.credentialError && <p role="status">{settings.credentialError}</p>}
         <Button type="submit" disabled={busy || !settings}>
           {busy ? "Saving…" : "Save settings"}
         </Button>

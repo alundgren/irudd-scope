@@ -1,7 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { pipeline } from "node:stream/promises";
 import {
   ArtifactId,
   ArtifactWrite,
@@ -17,7 +15,7 @@ import { ArtifactStore } from "./store.ts";
 export async function startHub(options: { directory: string; token: string; port?: number }) {
   if (options.token.length < 24 || /[\r\n]/.test(options.token))
     throw new Error("Use a hub token with at least 24 characters and no newlines.");
-  const store = new ArtifactStore(options.directory);
+  const store = await ArtifactStore.open(options.directory);
   const streams = new Set<ServerResponse>();
   let uploads = 0;
   const sendEvent = (response: ServerResponse, event: LiveEvent) => {
@@ -97,14 +95,14 @@ export async function startHub(options: { directory: string; token: string; port
     if (request.method === "GET" && url.pathname === "/v1/artifacts") {
       const after = url.searchParams.get("after");
       if (after) validate(() => decode(ArtifactId, after));
-      json(response, 200, store.list(after ?? ""));
+      json(response, 200, await store.list(after ?? ""));
       return;
     }
     const match = /^\/v1\/artifacts\/([^/]+)(\/content)?$/.exec(url.pathname);
     if (!match) throw new ScopeError(404, "Endpoint not found.");
     const id = validate(() => decode(ArtifactId, decodeURIComponent(match[1])));
     if (request.method === "GET") {
-      const artifact = store.get(id);
+      const artifact = await store.get(id);
       if (!match[2]) {
         json(response, 200, artifact);
         return;
@@ -112,6 +110,7 @@ export async function startHub(options: { directory: string; token: string; port
       const revision = url.searchParams.get("revision");
       if (revision && Number(revision) !== artifact.revision)
         throw new ScopeError(409, "Artifact changed. Reload it to read the current content.");
+      const bytes = await store.content(artifact.blob);
       response.writeHead(200, {
         "Content-Type": "application/octet-stream",
         "Content-Length": artifact.size,
@@ -120,7 +119,7 @@ export async function startHub(options: { directory: string; token: string; port
         "Cache-Control": "no-store",
         "Content-Security-Policy": "default-src 'none'; sandbox",
       });
-      await pipeline(createReadStream(store.blobPath(artifact.blob)), response);
+      response.end(bytes);
       return;
     }
     if (request.method === "PUT" && !match[2]) {
@@ -149,8 +148,8 @@ export async function startHub(options: { directory: string; token: string; port
       server.off("error", reject);
       resolve();
     });
-  }).catch((error: unknown) => {
-    store.close();
+  }).catch(async (error: unknown) => {
+    await store.close();
     throw error;
   });
   const address = server.address();
@@ -163,7 +162,7 @@ export async function startHub(options: { directory: string; token: string; port
         server.close((error) => (error ? reject(error) : resolve()));
         server.closeAllConnections();
       });
-      store.close();
+      await store.close();
     },
   };
 }
