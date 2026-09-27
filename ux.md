@@ -2,9 +2,9 @@
 
 Scope is a Mac workspace for inspecting artifacts left by coding agents and
 editing diagrams. The selected artifact gets the window. One compact strip
-contains the workspace menu, open tabs, search, and focus. Secondary actions
-appear on demand. Prose has a reading width; images, HTML, and diagrams use
-the available area.
+contains open tabs and a search button on the right. Search opens a roomy
+control panel so secondary actions take no permanent tab space. Prose has a
+reading width; images, HTML, and diagrams use the available area.
 
 ## Appearance and controls
 
@@ -48,13 +48,21 @@ membership has no visual indicator. The desktop opens published items in its
 local workspace group. File views and the diagram editor are built-in plugins;
 existing image, Markdown, HTML, text, and download views remain together.
 
-Focus keeps the selected artifact mounted, hides workspace controls and
-diagram chat, and leaves an exit at the top center. It preserves scroll, zoom,
-and conversation. Excalidraw uses zen mode. Escape closes an active dialog or
-editor interaction before leaving focus.
+Fullscreen in the search panel enters Scope's focus mode. It keeps the selected
+artifact mounted, hides workspace controls and diagram chat, and leaves an
+exit at the top center. It preserves scroll, zoom, and conversation. Excalidraw
+uses zen mode. Escape closes an active dialog or editor interaction before
+leaving focus. Command-Shift-F toggles focus; Command-K opens the panel in
+either mode.
 
-Search finds artifacts, tools, and specific settings. Settings opens with its
-search input focused and explains empty results. Appearance saves when changed.
+Search opens with labeled icon controls for Settings, Fullscreen, creation
+tools, and reopening a closed tab. A tinted current-tab area shows the title
+and its Download, Artifact details, and Close tab actions. Unavailable actions
+are omitted. Workspace controls, current-tab actions, and recent artifacts
+have distinct areas; typing filters actions, artifacts, and specific settings.
+The panel scrolls in short windows and stacks its controls in narrow windows.
+Settings opens with its search input focused and explains empty results.
+Appearance saves when changed.
 The diagram provider, model, and API key stay together. OpenRouter with Gemini
 3.8 Flash is the supported configuration. Saving a key clears the input;
 saved secrets are never displayed. Keychain errors remain visible while
@@ -72,8 +80,8 @@ pending, installed, and failure states. The CLI follows the active app build.
 The skill action uses npx skills for Codex and Claude Code. Each installed
 tool has a removal action, and failed installation leaves a useful retry.
 
-Create diagram is available in the empty workspace, search, and workspace
-menu. An existing diagram has an Ask agent conversation, closed by default.
+Create diagram is available in the empty workspace and search panel.
+An existing diagram has an Ask agent conversation, closed by default.
 It sits beside the canvas at desktop widths and overlays it in a narrow
 window. Enter sends, Shift+Enter adds a line, and a pending request offers
 Cancel. Save explicitly publishes changes.

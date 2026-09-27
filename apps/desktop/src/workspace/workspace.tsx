@@ -13,7 +13,7 @@ import {
   Settings,
   X,
   Info,
-  Menu,
+  RotateCcw,
   Plus,
 } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
@@ -39,7 +39,6 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
   const { theme, setAppearance } = useAppearance(initialAppearance);
   const [settings, setSettings] = useState(false);
   const [settingsQuery, setSettingsQuery] = useState("");
-  const [menu, setMenu] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
   const Creation = pluginTools.find((tool) => tool.id === creating)?.View;
   const [search, setSearch] = useState(false);
@@ -60,6 +59,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
     updateState,
   } = useWorkspace(setError);
   const tabButtons = useRef(new Map<string, HTMLButtonElement>());
+  const controlsButton = useRef<HTMLButtonElement>(null);
   const artifacts = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const active = workspace.tabs.find((tab) => tab.id === workspace.selected);
   const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
@@ -159,17 +159,18 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
   function openSettings(filter = "") {
     setSettingsQuery(filter);
     setSettings(true);
-    setMenu(false);
+    setDetails(false);
     setSearch(false);
   }
   function openSearch() {
+    setSettings(false);
+    setDetails(false);
     setQuery("");
     setSearch(true);
-    setMenu(false);
   }
   async function download() {
     if (!activeArtifact) return;
-    setMenu(false);
+    setSearch(false);
     try {
       await window.scope.download(activeArtifact.id, activeArtifact.revision);
     } catch (failure) {
@@ -186,11 +187,17 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
       } else if (command && event.key === ",") {
         event.preventDefault();
         openSettings();
-      } else if (menu || search || settings || details) return;
+      } else if (search || settings || details) return;
       else if (event.key === "Escape" && focus) {
         event.preventDefault();
         setFocus(false);
-      } else if (command && event.shiftKey && event.key.toLowerCase() === "f" && active) {
+      } else if (
+        command &&
+        event.shiftKey &&
+        event.key.toLowerCase() === "f" &&
+        active &&
+        !creating
+      ) {
         event.preventDefault();
         setFocus((value) => !value);
       } else if (command && event.shiftKey && event.key.toLowerCase() === "t") {
@@ -225,15 +232,6 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
     <main className={`workspace${focus ? " focus-mode" : ""}`}>
       {!focus && (
         <header className="workspace-bar">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Workspace menu"
-            title="Workspace menu"
-            onClick={() => setMenu(true)}
-          >
-            <Menu />
-          </Button>
           <nav className="tabs" aria-label="Open artifacts">
             <div
               className="contents"
@@ -291,24 +289,17 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
             variant="ghost"
             size="icon"
             className="search-trigger"
-            aria-label="Find artifacts and tools"
-            title="Find artifacts · ⌘K"
+            ref={controlsButton}
+            aria-label="Search and controls"
+            title="Search and controls · ⌘K"
+            aria-haspopup="dialog"
+            aria-expanded={search}
             onClick={openSearch}
           >
             <Search />
             {[...unread].some((id) => !workspace.tabs.some((tab) => tabArtifactId(tab) === id)) && (
               <span className="unread-dot" aria-label="New artifacts" role="img" />
             )}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Focus artifact"
-            title="Focus artifact · ⌘⇧F"
-            disabled={!active || Boolean(creating)}
-            onClick={() => setFocus(true)}
-          >
-            <Maximize2 />
           </Button>
         </header>
       )}
@@ -317,6 +308,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
           variant="secondary"
           size="sm"
           className="exit-focus"
+          ref={controlsButton}
           aria-label="Exit focus mode"
           title="Exit focus · Escape"
           onClick={() => setFocus(false)}
@@ -422,60 +414,6 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
           </div>
         )}
       </div>
-      <Dialog open={menu} onOpenChange={setMenu}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Workspace</DialogTitle>
-          </DialogHeader>
-          <div className="menu-actions">
-            <button onClick={openSearch}>
-              <span>Search artifacts and tools</span>
-              <kbd>⌘ K</kbd>
-            </button>
-            <button onClick={() => openSettings()}>
-              <span>Settings</span>
-              <Settings size={16} />
-            </button>
-            {pluginTools.map((tool) => (
-              <button
-                key={tool.id}
-                onClick={() => {
-                  setCreating(tool.id);
-                  setMenu(false);
-                  setFocus(false);
-                }}
-              >
-                {tool.title}
-                <Plus size={16} />
-              </button>
-            ))}
-            <hr />
-            <button
-              disabled={!activeArtifact}
-              onClick={() => {
-                setDetails(true);
-                setMenu(false);
-              }}
-            >
-              Artifact details
-              <Info size={16} />
-            </button>
-            <button disabled={!activeArtifact} onClick={() => void download()}>
-              Download
-              <Download size={16} />
-            </button>
-            <button
-              disabled={!workspace.closed?.length}
-              onClick={() => {
-                reopen();
-                setMenu(false);
-              }}
-            >
-              Reopen closed tab<kbd>⌘ ⇧ T</kbd>
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
       <WorkspaceSearch
         open={search}
         onOpenChange={setSearch}
@@ -484,15 +422,100 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
         artifacts={snapshot.artifacts}
         onOpenArtifact={open}
         onOpenSettings={openSettings}
-        tools={pluginTools}
-        onOpenTool={(id) => {
-          setCreating(id);
-          setSearch(false);
-          setFocus(false);
-        }}
+        finalFocus={settings || details ? false : controlsButton}
+        actions={[
+          {
+            id: "settings",
+            title: "Settings",
+            keywords: "preferences",
+            icon: Settings,
+            shortcut: "⌘,",
+            onSelect: () => openSettings(),
+          },
+          ...(active && !creating
+            ? [
+                {
+                  id: "fullscreen",
+                  title: focus ? "Exit fullscreen" : "Fullscreen",
+                  keywords: "full screen focus expand",
+                  icon: focus ? Minimize2 : Maximize2,
+                  shortcut: "⌘⇧F",
+                  pressed: focus,
+                  onSelect: () => {
+                    setFocus((value) => !value);
+                    setSearch(false);
+                  },
+                },
+              ]
+            : []),
+          ...pluginTools.map((tool) => ({
+            id: tool.id,
+            title: tool.title,
+            keywords: tool.keywords,
+            icon: Plus,
+            onSelect: () => {
+              setCreating(tool.id);
+              setSearch(false);
+              setFocus(false);
+            },
+          })),
+          ...(workspace.closed.length
+            ? [
+                {
+                  id: "reopen",
+                  title: "Reopen closed tab",
+                  keywords: "restore undo",
+                  icon: RotateCcw,
+                  shortcut: "⌘⇧T",
+                  onSelect: reopen,
+                },
+              ]
+            : []),
+        ]}
+        currentTab={
+          active && !creating
+            ? {
+                title: activeArtifact?.title ?? active.title,
+                actions: [
+                  ...(activeArtifact
+                    ? [
+                        {
+                          id: "download",
+                          title: "Download",
+                          keywords: "export save file",
+                          icon: Download,
+                          onSelect: () => void download(),
+                        },
+                        {
+                          id: "details",
+                          title: "Artifact details",
+                          keywords: "info source revision",
+                          icon: Info,
+                          onSelect: () => {
+                            setDetails(true);
+                            setSearch(false);
+                          },
+                        },
+                      ]
+                    : []),
+                  {
+                    id: "close",
+                    title: "Close tab",
+                    keywords: "hide dismiss",
+                    icon: X,
+                    shortcut: "⌘W",
+                    onSelect: () => {
+                      setSearch(false);
+                      void close(active.id);
+                    },
+                  },
+                ],
+              }
+            : undefined
+        }
       />
       <Dialog open={settings} onOpenChange={setSettings}>
-        <DialogContent className="settings-dialog">
+        <DialogContent className="settings-dialog" finalFocus={search ? false : controlsButton}>
           <DialogHeader>
             <DialogTitle>Settings</DialogTitle>
           </DialogHeader>
@@ -505,7 +528,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
         </DialogContent>
       </Dialog>
       <Dialog open={details} onOpenChange={setDetails}>
-        <DialogContent>
+        <DialogContent finalFocus={search ? false : controlsButton}>
           <DialogHeader>
             <DialogTitle>{activeArtifact?.title ?? "Artifact"}</DialogTitle>
           </DialogHeader>

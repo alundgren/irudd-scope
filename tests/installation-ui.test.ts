@@ -16,7 +16,7 @@ test("Settings finds agent tools and shows update progress, retry, and restart w
       "install-review",
     );
     await page.getByText("Keep this artifact open", { exact: true }).waitFor();
-    await page.getByRole("button", { name: "Find artifacts and tools" }).click();
+    await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByLabel("Search artifacts", { exact: true }).fill("cli");
     await page.getByRole("button", { name: "Agent tools Setting" }).click();
     expect(await page.getByRole("button", { name: "Install CLI", exact: true }).isDisabled()).toBe(
@@ -72,7 +72,7 @@ test("Settings finds agent tools and shows update progress, retry, and restart w
         return failed;
       });
     });
-    await page.getByRole("button", { name: "Workspace menu" }).click();
+    await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByLabel("Search settings").fill("agent");
     await page.getByRole("button", { name: "Install CLI", exact: true }).click();

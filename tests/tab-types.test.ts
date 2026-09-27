@@ -149,9 +149,9 @@ test("the built CLI publishes every tab view through appearance, focus, close, m
       });
     }
     for (const appearance of ["light", "dark"] as const) {
-      await page.getByRole("button", { name: "Workspace menu", exact: true }).click();
+      await page.getByRole("button", { name: "Search and controls", exact: true }).click();
       await page
-        .getByRole("dialog", { name: "Workspace", exact: true })
+        .getByRole("dialog", { name: "Search and controls", exact: true })
         .getByRole("button", { name: "Settings", exact: true })
         .click();
       await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
@@ -160,7 +160,7 @@ test("the built CLI publishes every tab view through appearance, focus, close, m
         appearance === "light" ? { width: 1280, height: 820 } : { width: 700, height: 620 },
       );
       for (const example of examples) {
-        await page.getByRole("button", { name: "Find artifacts and tools" }).click();
+        await page.getByRole("button", { name: "Search and controls" }).click();
         await page.getByLabel("Search artifacts", { exact: true }).fill(example.title);
         await page
           .getByRole("button", { name: `${example.title} ${example.kind}`, exact: true })
@@ -171,14 +171,15 @@ test("the built CLI publishes every tab view through appearance, focus, close, m
           await application.evaluate(({ dialog }, filePath) => {
             dialog.showSaveDialog = async () => ({ canceled: false, filePath });
           }, destination);
-          await page.getByRole("button", { name: "Workspace menu", exact: true }).click();
+          await page.getByRole("button", { name: "Search and controls", exact: true }).click();
           await page.getByRole("button", { name: "Download", exact: true }).click();
           await expect.poll(async () => [...(await readFile(destination))]).toEqual([0, 1, 2, 3]);
         }
         const pane = await page
           .getByRole("tabpanel", { name: example.title, exact: true })
           .elementHandle();
-        await page.getByRole("button", { name: "Focus artifact" }).click();
+        await page.getByRole("button", { name: "Search and controls" }).click();
+        await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
         await checkContent(page, example, true);
         await page.getByRole("button", { name: "Exit focus mode" }).click();
         expect(await pane!.evaluate((element) => element.isConnected)).toBe(true);
