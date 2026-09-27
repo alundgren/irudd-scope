@@ -29,6 +29,8 @@ protocol.registerSchemesAsPrivileged([
 ]);
 async function main() {
   await app.whenReady();
+  const icon = fileURLToPath(new URL("../resources/icon.png", import.meta.url));
+  app.dock?.setIcon(icon);
 
   const settings = new SettingsStore(
     app.getPath("userData"),
@@ -300,6 +302,7 @@ async function main() {
       minWidth: 640,
       minHeight: 480,
       title: "Scope",
+      icon,
       backgroundColor: "#ffffff",
       webPreferences: {
         preload: fileURLToPath(new URL("./preload.cjs", import.meta.url)),
