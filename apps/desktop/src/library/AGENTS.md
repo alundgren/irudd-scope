@@ -4,8 +4,10 @@ Main owns HTTP publication, discovery, `scope.db`, and library refreshes.
 Public artifact contracts stay in `packages/protocol`; preserve their names,
 HTTP routes, and on-disk data locations when reorganizing desktop code.
 
-`store.ts` stores metadata and immutable bytes in SQLite. Validate content
-before publication and keep revision checks with the metadata transaction.
+`store.ts` persists a tab before accepting its content or metadata. Tab records,
+content references, metadata, and drafts live in `scope.db`. Foreign keys and
+cascading deletion keep tab-owned rows together. Validate content before
+publication and keep revision checks with the metadata transaction.
 `library.ts` refreshes published metadata and caches content by revision.
 
 `use-library.ts` and `content-view.tsx` are renderer helpers for subscriptions,

@@ -13,6 +13,7 @@
     "@effect/sql-sqlite-node": "catalog:",
     "@excalidraw/excalidraw": "catalog:",
     "@irudd-scope/protocol": "workspace:*",
+    "@irudd-scope/sqlite": "workspace:*",
     "@napi-rs/keyring": "catalog:",
     "class-variance-authority": "catalog:",
     "cn": "catalog:",

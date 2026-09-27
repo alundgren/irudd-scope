@@ -1,25 +1,39 @@
 import { hostname } from "node:os";
 import { Schema } from "effect";
 import { ArtifactId, Revision, decode } from "@irudd-scope/protocol";
+import { Uuid } from "../../workspace/contract.ts";
 import { DiagramRequest } from "./contract.ts";
 import { DiagramDraft } from "./draft.ts";
 import { openRouterProvider } from "./openrouter.ts";
 import type { MainPluginContext } from "../main-api.ts";
 
-export function registerDiagramIpc({ handle, store, client }: MainPluginContext) {
+export function registerDiagramIpc({
+  handle,
+  store,
+  client,
+  artifacts,
+  workspace,
+}: MainPluginContext) {
   let generation: AbortController | undefined;
-  handle("scope:diagram-draft", (input) => store.diagramDraft(input));
-  const SaveDraft = Schema.Struct({ id: ArtifactId, draft: DiagramDraft });
+  let generationTab: string | undefined;
+  handle("scope:diagram-draft", (input) => artifacts.diagramDraft(decode(Uuid, input)));
+  const SaveDraft = Schema.Struct({ id: Uuid, draft: DiagramDraft });
   handle("scope:save-diagram-draft", (input) => {
     const { id, draft } = decode(SaveDraft, input);
-    return store.saveDiagramDraft(id, draft);
+    return artifacts.saveDiagramDraft(id, draft);
   });
   handle("scope:generate-diagram", async (input) => {
     if (generation) throw new Error("A diagram request is already running.");
-    const request = decode(DiagramRequest, input);
+    const { request, tabId } = decode(
+      Schema.Struct({ request: DiagramRequest, tabId: Schema.optionalKey(Uuid) }),
+      input,
+    );
+    generationTab = tabId;
     const active = new AbortController();
     generation = active;
     try {
+      if (tabId && !(await workspace())?.tabs.some((tab) => tab.id === tabId))
+        throw new Error("This tab is closed.");
       const key = await store.secret("apiKey");
       if (!key) throw new Error("Add an OpenRouter key in Settings first.");
       return await openRouterProvider(key).generateDiagram(request, active.signal);
@@ -66,5 +80,10 @@ export function registerDiagramIpc({ handle, store, client }: MainPluginContext)
     );
   });
 
-  return { cancelPending: cancelDiagramGeneration };
+  return {
+    cancelPending: cancelDiagramGeneration,
+    cancelTabs: (ids: string[]) => {
+      if (generationTab && ids.includes(generationTab)) cancelDiagramGeneration();
+    },
+  };
 }

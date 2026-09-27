@@ -16,7 +16,7 @@ class TabErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
     if (this.state.failed)
       return (
         <p role="alert" className="empty-state">
-          Could not open this tab. Its saved data is still available. Close and reopen it to retry.
+          Could not open this tab. Its saved data is still available. Restart Scope to retry.
         </p>
       );
     return this.props.children;

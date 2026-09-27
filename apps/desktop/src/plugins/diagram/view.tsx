@@ -78,13 +78,14 @@ export function DiagramView({
         viewport: { zoom: state.zoom.value, scrollX: state.scrollX, scrollY: state.scrollY },
       };
     },
-    (draft) => window.scope.saveDiagramDraft(item.artifact.id, draft),
+    (draft) => window.scope.saveDiagramDraft(context.tabId, draft),
+    context.tabId,
   );
   useEffect(() => {
     let active = true;
     setRestoreError(false);
     void window.scope
-      .diagramDraft(item.artifact.id)
+      .diagramDraft(context.tabId)
       .then((draft) => {
         if (!active) return;
         setIntent(draft?.intent ?? "");
@@ -225,7 +226,10 @@ export function DiagramView({
     const originalVersion = getSceneVersion(original);
     try {
       const before = readSemanticScene(original);
-      const result = await window.scope.generateDiagram({ intent: prompt, scene: before });
+      const result = await window.scope.generateDiagram(
+        { intent: prompt, scene: before },
+        context.tabId,
+      );
       if (current.canceled) throw new Error("Request canceled. The canvas is unchanged.");
       if (getSceneVersion(api.getSceneElements()) !== originalVersion)
         throw new Error(

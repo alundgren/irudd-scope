@@ -2,7 +2,6 @@ import { expect, test } from "vite-plus/test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { DatabaseSync } from "node:sqlite";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 const imageBytes = Buffer.from(
@@ -130,8 +129,8 @@ async function checkContent(page: Page, example: (typeof examples)[number], focu
   }
 }
 
-test("the built CLI publishes every tab view through appearance, focus, migration and restart", async () => {
-  const { directory, settingsDirectory, launch, cli } = await desktopFixture();
+test("the built CLI publishes every tab view through appearance, focus, restart, and permanent close", async () => {
+  const { directory, launch, cli, connect } = await desktopFixture();
   let application = await launch();
   const failures: string[] = [];
   try {
@@ -240,25 +239,22 @@ test("the built CLI publishes every tab view through appearance, focus, migratio
       await page.getByRole("tab", { name: example.title, exact: true }).click();
       await checkContent(page, example);
     }
+    const client = await connect();
+    for (const [index, example] of examples.entries()) {
+      const tab = page.getByRole("tab", { name: example.title, exact: true });
+      await tab.click();
+      const id = (await tab.getAttribute("id"))!.slice(4);
+      await page.keyboard.press("ControlOrMeta+w");
+      await expect.poll(() => page.getByRole("tab").count()).toBe(examples.length - index - 1);
+      await expect(client.get(example.id)).rejects.toMatchObject({ status: 404 });
+      expect(await page.evaluate((tabId) => window.scope.diagramDraft(tabId), id)).toBeNull();
+    }
+    expect(await client.list()).toEqual([]);
     await application.close();
-    const db = new DatabaseSync(join(settingsDirectory, "desktop.db"));
-    db.prepare("UPDATE preferences SET document = ? WHERE name = 'workspace'").run(
-      JSON.stringify({
-        tabs: examples.map((example) => example.id),
-        selected: "drawing",
-        closed: [],
-      }),
-    );
-    db.exec("PRAGMA user_version = 3");
-    db.close();
     application = await launch();
     page = await application.firstWindow();
-    page.on("pageerror", (error) => failures.push(error.message));
-    await checkContent(page, examples[5]);
-    for (const example of examples) {
-      await page.getByRole("tab", { name: example.title, exact: true }).click();
-      await checkContent(page, example);
-    }
+    await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+    expect(await page.getByRole("tab").count()).toBe(0);
     expect(failures).toEqual([]);
   } finally {
     await application.close();

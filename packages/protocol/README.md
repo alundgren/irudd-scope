@@ -10,16 +10,52 @@ The optional hub forwards the same requests and responses without storing artifa
 
 The API uses a bearer token on every `/v1` request. It has no browser CORS access. Content responses are downloads; desktop rendering applies its own isolation. HTTP is allowed only on loopback. Remote clients use HTTPS, normally Tailscale Serve.
 
-| Request                                       | Result                                            |
-| --------------------------------------------- | ------------------------------------------------- |
-| `POST /v1/blobs`, raw bytes                   | `{ blob }`, a SHA-256 ID                          |
-| `PUT /v1/artifacts/:id`, `ArtifactWrite` JSON | Current `Artifact`; `expectedRevision: 0` creates |
-| `GET /v1/artifacts?after=:id`                 | `{ items, next }`, ID-ordered pages of 100        |
-| `GET /v1/artifacts/:id`                       | Current `Artifact`                                |
-| `GET /v1/artifacts/:id/content?revision=N`    | Content, or 409 if the revision changed           |
-| `GET /v1/events`                              | SSE `ready` and `artifact` events                 |
+| Request                                              | Result                                                                        |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `POST /v1/artifacts/:id/tab`, `{ expectedRevision }` | Persisted queued tab receipt `{ tabId }`                                      |
+| `POST /v1/tabs/:tabId/blobs`, raw bytes              | Tab-owned content receipt `{ blob }`                                          |
+| `PUT /v1/artifacts/:id`, `ArtifactWrite` JSON        | Current `Artifact`; requires `tabId`, uploaded `blob`, and `expectedRevision` |
+| `GET /v1/artifacts?after=:id`                        | `{ items, next }`, ID-ordered pages of 100                                    |
+| `GET /v1/artifacts/:id`                              | Current `Artifact`                                                            |
+| `GET /v1/artifacts/:id/content?revision=N`           | Content, or 409 if the revision changed                                       |
+| `DELETE /v1/artifacts/:id`                           | `{ id, deleted }`; already absent returns `deleted: false` with success       |
+| `GET /v1/events`                                     | SSE `ready`, `artifact`, and `deleted` events                                 |
+| `POST /v1/maintenance/shrink`, `{ timeoutMs }`       | `ShrinkReceipt` for both desktop databases                                    |
+| `GET /v1/maintenance/status`                         | Latest available desktop maintenance receipts                                 |
 
-Update requires the revision last read. A 409 means reload and decide whether to apply the update again. The client wraps content upload and metadata publication into one operation. Failed publication can leave an unused blob row in the desktop's SQLite database. The API returns only the current revision and provides no deletion operation. Storage details and recovery belong to the [desktop](../../docs/storage.md).
+Publication commits the tab first, then uploads content, then publishes metadata.
+`expectedRevision: 0` creates an artifact; updates require the revision last read.
+A closed tab cannot accept metadata or content, even if a caller retained its ID.
+A 409 means reload and decide whether the update should still be applied. A new
+explicit create can reuse a deleted artifact ID, with a revision greater than
+those issued before deletion. Revisions are not necessarily consecutive across
+creation and deletion. The client performs all three publication requests.
+
+This protocol requires updated publishers and relays. The former ownerless
+`POST /v1/blobs` route is no longer supported. CLI command syntax is unchanged.
+Failed uploads and updates retain only tab-owned staging references, expiring
+fifteen minutes after upload. Queued tabs without published metadata expire
+when their staging references expire. Successful overflow publications retain
+their queued tab. The desktop's [storage documentation](../../docs/storage.md)
+defines imports, deletion, and cleanup timing.
+
+A deletion event is `{ "type": "deleted", "id": "ARTIFACT_ID" }`. Clients remove
+that artifact and its cached content. A reconnect replaces the local list with
+the authoritative list, applying events received during the refresh. A delayed
+list or content response must not restore an artifact deleted in the meantime.
+
+`src/maintenance.ts` defines bounded request and receipt schemas. Manual shrink
+bypasses size and interval gates, but obeys locking and disk-space checks.
+Receipts contain a target and one entry per database, with before/after main-file,
+WAL, and allocated bytes, duration, status, last-success time, and reasons or
+staged bytes still deferred. Manual callers must treat deferred and failed
+entries as unsuccessful work, even though the HTTP response contains a receipt.
+No receipt contains tokens, raw stored documents, or database paths.
+
+Maintenance supports a supplied deadline up to 600,000 ms, independently of
+ordinary upload timeouts. A disconnected caller can read maintenance status;
+there is no automatic replay. The service continues accepted maintenance up to
+its deadline. `irudd-scope shrink --status` reads the desktop result.
 
 Limits are 32 MiB per artifact, 16 KiB metadata, four simultaneous uploads, and eight event streams. SSE disconnects clients that cannot consume data; reconnect and list artifacts to recover. The stream does not promise event replay. It never replaces the persistent artifact list.
 
@@ -37,8 +73,8 @@ name, and connection credential. It then opens `/v1/relay/events`, a newline
 delimited JSON stream of `ready`, `request`, and `cancel` events. On each
 request it retrieves the body at `/v1/relay/requests/:id/body` when needed and
 streams the response to `/v1/relay/requests/:id/response`. The response status
-uses the `scope-response-status` header. Only artifact paths and GET, POST,
-or PUT are accepted; the Mac supplies its own local publishing token.
+uses the `scope-response-status` header. Only the listed artifact and desktop maintenance paths with GET, POST,
+PUT, or DELETE are accepted; the Mac supplies its own local publishing token.
 
 The hub permits sixteen active requests, bounded request bodies, and one
 connected Mac. Event heartbeats keep the connection active. Disconnecting
@@ -46,3 +82,10 @@ cancels every transfer and returns 503 where headers have not been sent.
 No request survives reconnection. The local management endpoints generate
 pairing links, report status, and revoke access. Removing a paired remote
 uses authenticated `DELETE /v1/relay/disconnect` to revoke its credential.
+
+Local management `POST /v1/hub/shrink` accepts the same `{ timeoutMs }` request
+and returns a hub receipt. `GET /v1/hub/maintenance` reads the latest hub result.
+Both require the local publishing credential. They work without a connected
+Mac and are excluded from the desktop relay allowlist. The stateless forwarding
+mode reports that it has no hub database. `irudd-scope hub shrink --status`
+reads the local hub result.

@@ -5,11 +5,12 @@ import {
   importWorkspace,
   type Tab,
   type TabGroup,
+  tabArtifactId,
   type TabState,
   type Workspace,
 } from "./contract.ts";
 import { validateTabState } from "../plugins/registry.ts";
-import { flushWorkspace, useAutosave } from "./persistence.ts";
+import { discardTabSaves, flushWorkspace, useAutosave } from "./persistence.ts";
 
 function legacyWorkspace(): Workspace {
   try {
@@ -26,6 +27,7 @@ export function useWorkspace(onError: (message: string) => void) {
   const current = useRef(workspace);
   const [ready, setReady] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const opening = useRef(Promise.resolve());
   const save = useAutosave(
     () => (loaded ? current.current : undefined),
     (value) => window.scope.saveWorkspace(value),
@@ -35,6 +37,23 @@ export function useWorkspace(onError: (message: string) => void) {
     setWorkspace(next);
   }
   useEffect(() => window.scope.onBeforeClose(flushWorkspace), []);
+  useEffect(
+    () =>
+      window.scope.onTabsClosed((ids) => {
+        for (const id of ids) discardTabSaves(id);
+        const previous = current.current;
+        const tabs = previous.tabs.filter((tab) => !ids.includes(tab.id));
+        replace({
+          ...previous,
+          tabs,
+          selected: tabs.some((tab) => tab.id === previous.selected)
+            ? previous.selected
+            : (tabs[Math.max(0, previous.tabs.findIndex((tab) => tab.id === previous.selected) - 1)]
+                ?.id ?? null),
+        });
+      }),
+    [],
+  );
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -78,62 +97,69 @@ export function useWorkspace(onError: (message: string) => void) {
     return group;
   }
 
-  function openTab(tab: Tab): boolean {
-    const previous = current.current;
-    if (!previous.tabs.some((entry) => entry.id === tab.id) && previous.tabs.length >= 100) {
-      onError("Close a tab before opening another. Your artifacts stay in the library.");
-      return false;
-    }
-    const existing = [...previous.tabs, ...previous.closed].find((entry) => entry.id === tab.id);
-    const entry = existing ?? tab;
-    replace(
-      decodeWorkspace({
-        ...previous,
-        tabs: previous.tabs.some((item) => item.id === entry.id)
-          ? previous.tabs
-          : [...previous.tabs, entry],
-        selected: entry.id,
-        closed: previous.closed.filter((item) => item.id !== entry.id),
-      }),
+  function openTab(tab: Tab): Promise<boolean> {
+    return queueOpen([tab], true).then(() =>
+      current.current.tabs.some(
+        (entry) =>
+          entry.id === tab.id ||
+          Boolean(tabArtifactId(tab) && tabArtifactId(entry) === tabArtifactId(tab)),
+      ),
     );
-    return true;
   }
 
-  function addTabs(tabs: readonly Tab[]): string | null {
-    const previous = current.current;
-    const existing = new Set([...previous.tabs, ...previous.closed].map((tab) => tab.id));
-    const added = tabs.filter((tab) => !existing.has(tab.id));
-    const available = 100 - previous.tabs.length;
-    if (added.length > available)
-      onError("Close a tab before opening another. Your artifacts stay in the library.");
-    const next = [...previous.tabs, ...added.slice(0, available)];
-    const selected = previous.selected ?? next[0]?.id ?? null;
-    if (next.length !== previous.tabs.length)
-      replace(decodeWorkspace({ ...previous, tabs: next, selected }));
-    return selected;
+  function addTabs(tabs: readonly Tab[]): Promise<string | null> {
+    return queueOpen(tabs, false);
+  }
+
+  function queueOpen(tabs: readonly Tab[], select: boolean): Promise<string | null> {
+    const task = opening.current.then(async () => {
+      for (const tab of tabs) {
+        const previous = current.current;
+        const artifactId = tabArtifactId(tab);
+        const existing = previous.tabs.find(
+          (entry) => entry.id === tab.id || (artifactId && tabArtifactId(entry) === artifactId),
+        );
+        if (existing) {
+          if (select) replace({ ...previous, selected: existing.id });
+          continue;
+        }
+        if (previous.tabs.length >= 100) {
+          onError("Close a tab before opening another. Your artifacts stay in the library.");
+          break;
+        }
+        try {
+          const opened = await window.scope.openTab(tab);
+          const latest = current.current;
+          if (!latest.tabs.some((entry) => entry.id === opened.id))
+            replace(
+              decodeWorkspace({
+                ...latest,
+                tabs: [...latest.tabs, opened],
+                selected: select ? opened.id : (latest.selected ?? opened.id),
+              }),
+            );
+        } catch (error) {
+          onError(error instanceof Error ? error.message : "Could not open this tab.");
+        }
+      }
+      return current.current.selected;
+    });
+    opening.current = task.then(
+      () => {},
+      () => {},
+    );
+    return task;
   }
 
   async function closeTab(id: string): Promise<boolean> {
     try {
-      await flushWorkspace();
+      await save.flush();
+      await window.scope.closeTab(id);
+      return true;
     } catch {
-      onError("Could not save this tab. Keep it open and try closing it again.");
+      onError("Could not close this tab. Try closing it again.");
       return false;
     }
-    const previous = current.current;
-    const tab = previous.tabs.find((entry) => entry.id === id);
-    if (!tab) return true;
-    const remaining = previous.tabs.filter((entry) => entry.id !== id);
-    replace({
-      ...previous,
-      tabs: remaining,
-      selected:
-        previous.selected === id
-          ? (remaining[Math.max(0, previous.tabs.indexOf(tab) - 1)]?.id ?? null)
-          : previous.selected,
-      closed: [...previous.closed, tab],
-    });
-    return true;
   }
 
   function updateTab(id: string, patch: Partial<Pick<Tab, "state" | "type" | "title">>): void {
@@ -148,7 +174,6 @@ export function useWorkspace(onError: (message: string) => void) {
       decodeWorkspace({
         ...previous,
         tabs: previous.tabs.map(update),
-        closed: previous.closed.map(update),
       }),
     );
   }

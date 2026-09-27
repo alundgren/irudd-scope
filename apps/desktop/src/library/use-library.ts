@@ -15,14 +15,14 @@ export function useArtifactLibrary(onError: (message: string) => void) {
     let active = true;
     const receive = (next: ArtifactLibrarySnapshot) => {
       if (!active) return;
-      if (revisions.current) {
-        const added = next.artifacts.filter((artifact) => !revisions.current!.has(artifact.id));
+      if (next.connection === "connected") {
+        const added = next.artifacts.filter((artifact) => !revisions.current?.has(artifact.id));
         if (added.length)
           setArrivals((previous) => [
             ...new Set([...previous, ...added.map((artifact) => artifact.id)]),
           ]);
         const changed = next.artifacts.filter(
-          (artifact) => revisions.current!.get(artifact.id) !== artifact.revision,
+          (artifact) => revisions.current?.get(artifact.id) !== artifact.revision,
         );
         if (changed.length)
           setUnread(
@@ -33,12 +33,23 @@ export function useArtifactLibrary(onError: (message: string) => void) {
         revisions.current = new Map(
           next.artifacts.map((artifact) => [artifact.id, artifact.revision]),
         );
+      if (next.connection === "connected") {
+        const ids = new Set(next.artifacts.map((artifact) => artifact.id));
+        setUnread((previous) => new Set([...previous].filter((id) => ids.has(id))));
+        setArrivals((previous) => previous.filter((id) => ids.has(id)));
+      }
       setSnapshot(next);
     };
-    const unsubscribe = window.scope.onArtifactLibraryChange(receive);
+    let received = false;
+    const unsubscribe = window.scope.onArtifactLibraryChange((next) => {
+      received = true;
+      receive(next);
+    });
     void window.scope
       .artifactLibrary()
-      .then(receive)
+      .then((next) => {
+        if (!received) receive(next);
+      })
       .catch(() => {
         if (active) onError("Could not read the artifact library.");
       });
@@ -57,12 +68,8 @@ export function useArtifactLibrary(onError: (message: string) => void) {
   }
 
   function recordPublication(artifact: Artifact): void {
-    revisions.current?.set(artifact.id, artifact.revision);
     acknowledgeArrivals([artifact.id]);
-    setSnapshot((previous) => ({
-      ...previous,
-      artifacts: [...previous.artifacts.filter((entry) => entry.id !== artifact.id), artifact],
-    }));
+    markRead(artifact.id);
   }
 
   function acknowledgeArrivals(ids: readonly string[]): void {
