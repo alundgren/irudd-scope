@@ -76,6 +76,21 @@ or live OpenRouter behavior. Validate those separately on their real platform
 when changing the relevant integration. Keep validation results and screenshots
 in review evidence, outside durable documentation.
 
+For local performance measurements after building, run:
+
+```sh
+vp exec node tools/benchmark.ts --output /tmp/scope-benchmark.json
+vp exec node tools/benchmark.ts --gpu --output /tmp/scope-benchmark-gpu.json
+```
+
+The benchmark uses synthetic content and an isolated desktop profile. It measures
+built CLI calls, rendering, Electron CPU time, and process memory for all six
+viewers, large files, many tabs, and restart. The default disables GPU acceleration
+to match the test fixture; `--gpu` uses the app's normal graphics settings. Run
+without concurrent builds or tests. Reports contain raw samples and measurement
+definitions. Process memory sums RSS and can count shared pages more than once.
+The benchmark is separate from `ready` and needs no provider key.
+
 ## Run locally
 
 `vp run desktop` builds and opens Electron. Main starts the local publishing
@@ -99,8 +114,20 @@ vp run scope get architecture
 `get` returns metadata. Use Download in the desktop to save content. The built
 CLI is `packages/cli/dist/main.mjs`; its Node shebang is the runtime entry
 point. A wrapper or symlink named `irudd-scope` can put it on PATH when the
-configured Node runtime is available. `vp run scope` invokes the source in
-the checkout. `vp run scope --help` lists options.
+configured Node runtime is available. For repeated agent calls, use that executable
+or `./packages/cli/dist/main.mjs` directly. `vp run scope` invokes the source in
+the checkout. Pass `--help` to the chosen command for options. The
+[CLI skill](../.agents/skills/irudd-scope/SKILL.md) describes publication and recovery.
+
+Publication returns a JSON record after storage commits. Rendering and diagram
+generation in the desktop run independently of that receipt. The CLI publishes
+finished files; it does not start model requests. Optional Git provenance has a
+short time limit and stays absent if it cannot be collected.
+
+CLI requests share a 10-second deadline, including uploads and response bodies.
+Use `--timeout-ms 60000` for a slow remote transfer. If a command times out after
+publication starts, check its artifact ID with `get` before retrying, since the
+write may have committed without a receipt.
 
 Scope writes its local endpoint and publishing token to a private discovery
 file. The CLI reads it automatically. See [storage](storage.md) for file

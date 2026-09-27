@@ -1,9 +1,12 @@
 import { afterEach, expect, test } from "vite-plus/test";
 import { execFile } from "node:child_process";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { promisify } from "node:util";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import { startArtifactServer } from "../apps/desktop/src/library/server.ts";
 import { startLocalArtifacts } from "../apps/desktop/src/library/local.ts";
 import { startHub } from "../apps/hub/src/server.ts";
@@ -24,10 +27,87 @@ async function fixture() {
   const client = new ScopeClient(server.url, token);
   const cli = (...args: string[]) =>
     exec(process.execPath, [resolve("packages/cli/dist/main.mjs"), ...args], {
-      env: { ...process.env, SCOPE_ENDPOINT: server.url, SCOPE_TOKEN: token },
+      env: {
+        ...process.env,
+        SCOPE_ENDPOINT: server.url,
+        SCOPE_TOKEN: token,
+        SCOPE_TOKEN_FILE: undefined,
+      },
       maxBuffer: 2 * 1024 * 1024,
     });
   return { directory, server, client, cli };
+}
+
+async function delayedArtifactServer(options: {
+  getDelay?: number;
+  uploadDelay?: number;
+  updateDelay?: number;
+  hangUpdateResponse?: boolean;
+}) {
+  const current = {
+    id: "slow-update",
+    title: "Before",
+    kind: "text",
+    blob: "a".repeat(64),
+    fileName: "note.txt",
+    mediaType: "text/plain",
+    revision: 1,
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+    size: 6,
+  };
+  let updateReceived = false;
+  const server = createServer((request, response) => {
+    const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+    request.resume();
+    request.on("end", () => {
+      const send = (value: unknown, delay = 0) => {
+        setTimeout(() => {
+          if (response.destroyed) return;
+          response.writeHead(200, { "Content-Type": "application/json" });
+          response.end(JSON.stringify(value));
+        }, delay);
+      };
+      if (request.method === "GET" && path === "/v1/artifacts/slow-update") {
+        send(current, options.getDelay);
+      } else if (request.method === "POST" && path === "/v1/blobs") {
+        send({ blob: "b".repeat(64) }, options.uploadDelay);
+      } else if (request.method === "PUT" && path === "/v1/artifacts/slow-update") {
+        updateReceived = true;
+        const finish = () => {
+          if (response.destroyed) return;
+          response.writeHead(200, { "Content-Type": "application/json" });
+          if (options.hangUpdateResponse) response.flushHeaders();
+          else response.end(JSON.stringify({ ...current, revision: 2 }));
+        };
+        setTimeout(finish, options.updateDelay ?? 0);
+      } else {
+        response.writeHead(404);
+        response.end();
+      }
+    });
+  });
+  await new Promise<void>((resolveListen, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolveListen);
+  });
+  const address = server.address() as AddressInfo;
+  cleanup.push(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolveClose, reject) =>
+      server.close((error) => (error ? reject(error) : resolveClose())),
+    );
+  });
+  return { url: `http://127.0.0.1:${address.port}`, updateWasReceived: () => updateReceived };
+}
+
+function runCli(args: string[], env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()) {
+  return exec(process.execPath, [resolve("packages/cli/dist/main.mjs"), ...args], {
+    cwd,
+    env,
+    maxBuffer: 2 * 1024 * 1024,
+    timeout: 10_000,
+  });
 }
 
 test("the real CLI publishes every supported kind, updates a stable ID, and data survives a storage restart", async () => {
@@ -225,4 +305,204 @@ test("a failed local listener leaves the existing discovery file and library usa
   ).rejects.toMatchObject({ code: "EADDRINUSE" });
   expect(await readFile(connectionFile, "utf8")).toBe(connection);
   expect(new TextDecoder().decode(await client.content("original"))).toBe("Original library");
+});
+
+test("invalid CLI options fail before reading connection settings", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "scope-cli-args-"));
+  cleanup.push(() => rm(directory, { recursive: true, force: true }));
+  const env = {
+    ...process.env,
+    SCOPE_CONNECTION_FILE: join(directory, "missing.json"),
+    SCOPE_ENDPOINT: undefined,
+    SCOPE_TOKEN: undefined,
+    SCOPE_TOKEN_FILE: undefined,
+  };
+  await expect(runCli(["text", "hello", "--kind", "html"], env)).rejects.toMatchObject({
+    code: 1,
+    stderr: expect.stringContaining("Text accepts --kind text or markdown"),
+  });
+  await expect(runCli(["list", "--timeout-ms", "0"], env)).rejects.toMatchObject({
+    code: 1,
+    stderr: expect.stringContaining("--timeout-ms must be a whole number"),
+  });
+});
+
+test("the CLI deadline aborts while reading the publication response body", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "scope-cli-body-"));
+  cleanup.push(() => rm(directory, { recursive: true, force: true }));
+  const replacement = join(directory, "replacement.txt");
+  await writeFile(replacement, "Replacement content");
+  const server = await delayedArtifactServer({ hangUpdateResponse: true });
+  const env = {
+    ...process.env,
+    SCOPE_ENDPOINT: server.url,
+    SCOPE_TOKEN: token,
+    SCOPE_TOKEN_FILE: undefined,
+  };
+  await expect(
+    runCli(["update", "slow-update", replacement, "--timeout-ms", "1200"], env),
+  ).rejects.toMatchObject({
+    code: 1,
+    stderr: expect.stringContaining(
+      "Scope command timed out after 1200 ms. Artifact slow-update may have been published; read it before retrying.",
+    ),
+  });
+  expect(server.updateWasReceived()).toBe(true);
+});
+
+test("the CLI timeout bounds an update across its read, upload, and publication requests", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "scope-cli-budget-"));
+  cleanup.push(() => rm(directory, { recursive: true, force: true }));
+  const replacement = join(directory, "replacement.txt");
+  await writeFile(replacement, "Replacement content");
+  const gitDirectory = join(directory, "git");
+  await mkdir(gitDirectory);
+  const fastGit = join(gitDirectory, "git");
+  await writeFile(fastGit, "#!/bin/sh\nexit 1\n");
+  await chmod(fastGit, 0o755);
+  const server = await delayedArtifactServer({
+    getDelay: 600,
+    uploadDelay: 600,
+    updateDelay: 600,
+  });
+  const env = {
+    ...process.env,
+    PATH: `${gitDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+    SCOPE_ENDPOINT: server.url,
+    SCOPE_TOKEN: token,
+    SCOPE_TOKEN_FILE: undefined,
+  };
+  await expect(
+    runCli(["update", "slow-update", replacement, "--timeout-ms", "1700"], env),
+  ).rejects.toMatchObject({
+    code: 1,
+    stderr: expect.stringContaining("Scope command timed out after 1700 ms."),
+  });
+  expect(server.updateWasReceived()).toBe(true);
+});
+
+test("slow optional Git provenance is killed within its budget without blocking publication", async () => {
+  const { directory, server } = await fixture();
+  const gitDirectory = join(directory, "slow-git");
+  await mkdir(gitDirectory);
+  const gitPath = join(gitDirectory, "git");
+  const pidFile = join(directory, "git-pids.txt");
+  cleanup.push(async () => {
+    let pids: number[] = [];
+    try {
+      pids = (await readFile(pidFile, "utf8")).trim().split("\n").map(Number);
+    } catch {}
+    for (const pid of pids) {
+      if (!Number.isSafeInteger(pid) || pid < 1) continue;
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      }
+    }
+  });
+  await writeFile(
+    gitPath,
+    "#!/bin/sh\n" +
+      'printf "%s\\n" "$$" >> "$SCOPE_TEST_GIT_PIDS"\n' +
+      'exec "$SCOPE_TEST_NODE" -e \'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)\'\n',
+  );
+  await chmod(gitPath, 0o755);
+  const env = {
+    ...process.env,
+    PATH: `${gitDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+    SCOPE_ENDPOINT: server.url,
+    SCOPE_TOKEN: token,
+    SCOPE_TOKEN_FILE: undefined,
+    SCOPE_TEST_GIT_PIDS: pidFile,
+    SCOPE_TEST_NODE: process.execPath,
+  };
+  const started = performance.now();
+  const { stdout } = await runCli(["text", "Publishes without Git", "--id", "slow-git"], env);
+  expect(JSON.parse(stdout)).toMatchObject({ id: "slow-git", revision: 1 });
+  expect(performance.now() - started).toBeLessThan(3_000);
+  const pids = (await readFile(pidFile, "utf8")).trim().split("\n").map(Number);
+  expect(pids.length).toBeGreaterThan(0);
+  for (const pid of pids) {
+    let alive = true;
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") alive = false;
+      else throw error;
+    }
+    expect(alive).toBe(false);
+  }
+});
+
+test("Git provenance preserves unborn and detached branches and omits Git fields outside a repository", async () => {
+  const { directory, server, client } = await fixture();
+  const unborn = join(directory, "unborn");
+  const detached = join(directory, "detached");
+  const noGit = join(directory, "no-git");
+  await Promise.all([mkdir(unborn), mkdir(detached), mkdir(noGit)]);
+  const [unbornPath, detachedPath, noGitPath] = await Promise.all([
+    realpath(unborn),
+    realpath(detached),
+    realpath(noGit),
+  ]);
+  await exec("git", ["init", unborn], {});
+  await exec("git", ["-C", detached, "init"], {});
+  await writeFile(join(detached, "seed.txt"), "seed");
+  await exec("git", ["-C", detached, "add", "seed.txt"], {});
+  await exec(
+    "git",
+    [
+      "-C",
+      detached,
+      "-c",
+      "user.name=Scope Test",
+      "-c",
+      "user.email=scope@example.invalid",
+      "-c",
+      "commit.gpgSign=false",
+      "-c",
+      `core.hooksPath=${join(directory, "empty-hooks")}`,
+      "commit",
+      "-m",
+      "initial",
+    ],
+    {},
+  );
+  await exec("git", ["-C", detached, "checkout", "--detach"], {});
+  const { stdout: unbornBranch } = await exec(
+    "git",
+    ["-C", unborn, "branch", "--show-current"],
+    {},
+  );
+  expect(unbornBranch.trim()).not.toBe("");
+  const env = {
+    ...process.env,
+    SCOPE_ENDPOINT: server.url,
+    SCOPE_TOKEN: token,
+    SCOPE_TOKEN_FILE: undefined,
+  };
+  await runCli(["text", "Unborn branch", "--id", "unborn-git"], env, unbornPath);
+  await runCli(["text", "Detached HEAD", "--id", "detached-git"], env, detachedPath);
+  await runCli(["text", "No Git", "--id", "no-git"], env, noGitPath);
+
+  const unbornSource = (await client.get("unborn-git")).source;
+  expect(unbornSource).toMatchObject({
+    cwd: unbornPath,
+    repo: unbornPath,
+    worktree: unbornPath,
+    branch: unbornBranch.trim(),
+  });
+  const detachedSource = (await client.get("detached-git")).source;
+  expect(detachedSource).toMatchObject({
+    cwd: detachedPath,
+    repo: detachedPath,
+    worktree: detachedPath,
+  });
+  expect(detachedSource).not.toHaveProperty("branch");
+  const noGitSource = (await client.get("no-git")).source;
+  expect(noGitSource).toMatchObject({ cwd: noGitPath });
+  expect(noGitSource).not.toHaveProperty("repo");
+  expect(noGitSource).not.toHaveProperty("branch");
+  expect(noGitSource).not.toHaveProperty("worktree");
 });

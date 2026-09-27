@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 
 export const MAX_CONTENT_BYTES = 32 * 1024 * 1024;
 export const MAX_METADATA_BYTES = 16 * 1024;

@@ -1,6 +1,6 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { memo, useEffect, useState, type ComponentType } from "react";
 import ReactMarkdown from "react-markdown";
-import type { ArtifactKind } from "@irudd-scope/protocol";
+import type { Artifact, ArtifactKind } from "@irudd-scope/protocol";
 import type { ArtifactContent } from "../../bridge.ts";
 
 import type { Theme } from "../../renderer/appearance.ts";
@@ -53,11 +53,11 @@ function ImageView({ item }: RendererProps) {
     </div>
   );
 }
-function FileView({ item }: RendererProps) {
+export function FileView({ artifact }: { artifact: Artifact }) {
   return (
     <div className="file-preview">
-      <h1>{item.artifact.fileName}</h1>
-      <p>{(item.artifact.size / 1024).toFixed(1)} KiB</p>
+      <h1>{artifact.fileName}</h1>
+      <p>{(artifact.size / 1024).toFixed(1)} KiB</p>
       <p>Use Download to save this file.</p>
     </div>
   );
@@ -67,12 +67,12 @@ const renderers: Record<ArtifactKind, ComponentType<RendererProps>> = {
   markdown: MarkdownView,
   html: HtmlView,
   image: ImageView,
-  file: FileView,
 };
 
-export function FileViews(props: RendererProps) {
+export const FileViews = memo(function FileViews(props: RendererProps) {
   const Renderer = Object.hasOwn(renderers, props.item.artifact.kind)
     ? renderers[props.item.artifact.kind]
-    : FileView;
+    : undefined;
+  if (!Renderer) return <FileView artifact={props.item.artifact} />;
   return <Renderer {...props} />;
-}
+});

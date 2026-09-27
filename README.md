@@ -26,6 +26,9 @@ shared tab host with persistent groups and events limited to each group.
 The app runs from a checkout; this repo does not
 provide an application installer.
 
+The [Scope CLI skill](.agents/skills/irudd-scope/SKILL.md) guides agents through
+publishing artifacts, updating existing IDs, and handling uncertain results.
+
 See [development and launch commands](docs/development.md),
 [architecture and ownership](docs/architecture.md),
 [storage and recovery](docs/storage.md), [protocol](packages/protocol/README.md),

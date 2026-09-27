@@ -4,6 +4,57 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { desktopFixture } from "./desktop-fixture.ts";
 
+test("the CLI commits artifacts while diagram generation is pending and the renderer is paused", async () => {
+  const { directory, launch, connect, cli } = await desktopFixture();
+  const application = await launch();
+  try {
+    await application.evaluate(() => {
+      const original = globalThis.fetch;
+      globalThis.fetch = async (url, init) => {
+        if (url !== "https://openrouter.ai/api/v1/chat/completions") return original(url, init);
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("Canceled")), {
+            once: true,
+          });
+        });
+      };
+    });
+    const page = await application.firstWindow();
+    await page.getByRole("button", { name: "Workspace menu" }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByLabel("OpenRouter API key").fill("synthetic-pending-key");
+    await page.getByRole("button", { name: "Save settings" }).click();
+    await page.getByText("Settings saved.").waitFor();
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page.getByRole("button", { name: "Create diagram", exact: true }).click();
+    await page.getByLabel("What should the diagram show?").fill("A request that stays pending.");
+    await page.getByRole("button", { name: "Create diagram", exact: true }).click();
+    await page.getByRole("button", { name: "Cancel", exact: true }).waitFor();
+
+    const debuggerSession = await page.context().newCDPSession(page);
+    await debuggerSession.send("Debugger.enable");
+    await debuggerSession.send("Debugger.pause");
+    try {
+      const receipt = await cli("text", "Published during rendering", "--id", "independent");
+      expect(JSON.parse(receipt.stdout)).toMatchObject({ id: "independent", revision: 1 });
+      const client = await connect();
+      expect(new TextDecoder().decode(await client.content("independent"))).toBe(
+        "Published during rendering",
+      );
+    } finally {
+      await debuggerSession.send("Debugger.resume");
+      await debuggerSession.detach();
+    }
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page.getByRole("button", { name: "Note text", exact: true }).click();
+    await page.getByText("Published during rendering", { exact: true }).waitFor();
+  } finally {
+    await application.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test("the diagram tool creates an editable Excalidraw artifact in desktop storage", async () => {
   const { directory, settingsDirectory, launch, connect } = await desktopFixture();
   let application = await launch();
