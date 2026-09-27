@@ -1,5 +1,5 @@
 import { expect, test } from "vite-plus/test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
@@ -29,11 +29,27 @@ test("saved keys round-trip only through the secret protector and never appear i
     expect(view).toMatchObject({ hasApiKey: true, keyStorage: "keychain" });
     expect(JSON.stringify(view)).not.toContain(secret);
     expect(await readFile(join(directory, "settings.json"), "utf8")).not.toContain(secret);
+    const saved = JSON.parse(await readFile(join(directory, "settings.json"), "utf8"));
+    await writeFile(
+      join(directory, "settings.json"),
+      JSON.stringify({
+        ...saved,
+        version: 1,
+        endpoint: "https://old-hub.invalid",
+        hubToken: "legacy-encrypted-token",
+      }),
+    );
     const reopened = new SettingsStore(directory, protection);
     await reopened.load();
     expect(await reopened.secret("apiKey")).toBe(secret);
+    expect(reopened.view()).not.toHaveProperty("endpoint");
+    expect(reopened.view()).not.toHaveProperty("hasHubToken");
     await reopened.update({ apiKey: "replacement-secret" });
     expect(await reopened.secret("apiKey")).toBe("replacement-secret");
+    const migrated = JSON.parse(await readFile(join(directory, "settings.json"), "utf8"));
+    expect(migrated.version).toBe(2);
+    expect(migrated).not.toHaveProperty("endpoint");
+    expect(migrated).not.toHaveProperty("hubToken");
     await reopened.update({ removeApiKey: true });
     expect(await reopened.secret("apiKey")).toBeUndefined();
   } finally {
@@ -48,14 +64,13 @@ test("Linux development credentials disappear when the process store is recreate
     await settings.load();
     await settings.update({
       apiKey: "temporary-secret",
-      hubToken: "temporary-hub-token-at-least-24",
     });
     expect(await settings.secret("apiKey")).toBe("temporary-secret");
     const saved = await readFile(join(directory, "settings.json"), "utf8");
     expect(saved).not.toContain("temporary");
     const reopened = new SettingsStore(directory);
     await reopened.load();
-    expect(reopened.view()).toMatchObject({ hasApiKey: false, hasHubToken: false });
+    expect(reopened.view()).toMatchObject({ hasApiKey: false });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

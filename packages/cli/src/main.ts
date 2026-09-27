@@ -2,15 +2,17 @@
 import { parseArgs, promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
-import { basename, dirname, extname } from "node:path";
-import { hostname } from "node:os";
+import { basename, dirname, extname, join } from "node:path";
+import { homedir, hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 import {
   ArtifactKind,
+  DEFAULT_CONNECTION_FILE,
   DEFAULT_PORT,
   MAX_CONTENT_BYTES,
   Source,
   decode,
+  decodeLocalConnection,
 } from "@irudd-scope/protocol";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 
@@ -21,8 +23,10 @@ irudd-scope list
 irudd-scope get ID
 
 Options: --endpoint URL, --token-file PATH, --agent NAME, --session-id ID
-Environment: SCOPE_ENDPOINT, SCOPE_TOKEN_FILE or SCOPE_TOKEN
+Open Scope on this Mac to publish locally without connection setup.
+Environment: SCOPE_CONNECTION_FILE, or SCOPE_ENDPOINT with SCOPE_TOKEN_FILE or SCOPE_TOKEN
 Output is JSON. Updates read the current revision and reject concurrent changes.
+Unavailable desktops return an error. Requests are not queued or replayed.
 `;
 
 const exec = promisify(execFile);
@@ -105,13 +109,26 @@ async function main() {
   if (!["add", "text", "update", "list", "get"].includes(command))
     throw new Error(`Unknown command.\n${help}`);
   const tokenFile = values["token-file"] ?? process.env.SCOPE_TOKEN_FILE;
-  const token = tokenFile
-    ? (await readFile(tokenFile, "utf8")).trim()
-    : (process.env.SCOPE_TOKEN ?? "");
-  const client = new ScopeClient(
-    values.endpoint ?? process.env.SCOPE_ENDPOINT ?? `http://127.0.0.1:${DEFAULT_PORT}`,
-    token,
-  );
+  let endpoint = values.endpoint ?? process.env.SCOPE_ENDPOINT;
+  let token = process.env.SCOPE_TOKEN;
+  if (endpoint !== undefined || tokenFile !== undefined || token !== undefined) {
+    if (tokenFile !== undefined) token = (await readFile(tokenFile, "utf8")).trim();
+    if (!token)
+      throw new Error("An explicit endpoint needs --token-file, SCOPE_TOKEN_FILE, or SCOPE_TOKEN.");
+    endpoint ??= `http://127.0.0.1:${DEFAULT_PORT}`;
+  } else {
+    const file = process.env.SCOPE_CONNECTION_FILE ?? join(homedir(), DEFAULT_CONNECTION_FILE);
+    try {
+      ({ endpoint, token } = decodeLocalConnection(JSON.parse(await readFile(file, "utf8"))));
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT")
+        throw new Error("Open Scope on this Mac before publishing. Requests are not queued.");
+      throw new Error(
+        "Cannot read the local Scope connection file. Check its path and permissions.",
+      );
+    }
+  }
+  const client = new ScopeClient(endpoint, token);
   if (command === "list") {
     console.log(JSON.stringify(await client.list(), null, 2));
     return;

@@ -1,28 +1,12 @@
 import { expect, test } from "vite-plus/test";
-import { _electron as electron } from "@playwright/test";
-import { createRequire } from "node:module";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import { tmpdir } from "node:os";
-import { startHub } from "../apps/hub/src/server.ts";
-import { ScopeClient } from "@irudd-scope/protocol/client";
+import { rm, readFile, stat } from "node:fs/promises";
+import { join } from "node:path";
+import { desktopFixture } from "./desktop-fixture.ts";
 
-const require = createRequire(new URL("../apps/desktop/package.json", import.meta.url));
-test("the diagram tool creates an editable Excalidraw artifact through the desktop provider and hub", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "scope-drawing-"));
-  const token = "synthetic-drawing-test-hub-token";
-  const hub = await startHub({ directory: join(directory, "hub"), token, port: 0 });
-  const client = new ScopeClient(hub.url, token);
-  const application = await electron.launch({
-    executablePath: require("electron") as string,
-    args: [resolve("apps/desktop"), "--disable-gpu"],
-    env: {
-      ...process.env,
-      SCOPE_ENDPOINT: hub.url,
-      SCOPE_TOKEN: token,
-      SCOPE_DESKTOP_DATA_DIR: join(directory, "desktop"),
-    },
-  });
+test("the diagram tool creates an editable Excalidraw artifact in desktop storage", async () => {
+  const { directory, launch, connect } = await desktopFixture();
+  const application = await launch();
+  const client = await connect();
   try {
     const result = await readFile(
       new URL("./fixtures/diagram-response.json", import.meta.url),
@@ -93,46 +77,36 @@ test("the diagram tool creates an editable Excalidraw artifact through the deskt
     await page.screenshot({ path: join(directory, "diagram.png") });
   } finally {
     await application.close();
-    await hub.close();
     await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);
 
 test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps development keys out of files", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "scope-desktop-"));
-  const token = "synthetic-desktop-test-hub-token";
-  const hub = await startHub({ directory: join(directory, "hub"), token, port: 0 });
-  const client = new ScopeClient(hub.url, token);
-  const settingsDirectory = join(directory, "desktop");
-  const launch = () =>
-    electron.launch({
-      executablePath: require("electron") as string,
-      args: [resolve("apps/desktop"), "--disable-gpu"],
-      env: {
-        ...process.env,
-        SCOPE_ENDPOINT: hub.url,
-        SCOPE_TOKEN: token,
-        SCOPE_DESKTOP_DATA_DIR: settingsDirectory,
-      },
-    });
+  const { directory, settingsDirectory, connectionFile, launch, connect, cli } =
+    await desktopFixture();
   let application: Awaited<ReturnType<typeof launch>> | undefined;
   try {
+    await expect(cli("list")).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining("Open Scope on this Mac"),
+    });
     application = await launch();
     const page = await application.firstWindow();
+    const client = await connect();
     const failures: string[] = [];
     page.on("pageerror", (error) => failures.push(error.message));
     await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
-    await client.publish(
+    await cli(
+      "text",
+      "# Actual report\nPersist me.",
+      "--title",
+      "Review",
+      "--id",
       "review",
-      {
-        title: "Review",
-        kind: "markdown",
-        mediaType: "text/markdown",
-        fileName: "review.md",
-        expectedRevision: 0,
-      },
-      new TextEncoder().encode("# Actual report\nPersist me."),
+      "--kind",
+      "markdown",
     );
+    expect((await stat(connectionFile)).mode & 0o777).toBe(0o600);
     await page.getByRole("button", { name: "Review markdown" }).click();
     await page.getByRole("heading", { name: "Actual report" }).waitFor();
     await page.getByRole("button", { name: "Focus artifact" }).click();
@@ -176,6 +150,8 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
       }),
     ).toBe(false);
     await page.getByRole("button", { name: "Settings", exact: true }).click();
+    expect(await page.getByText("Hub connection", { exact: true }).count()).toBe(0);
+    expect(await page.getByLabel("Hub token").count()).toBe(0);
     await page.getByLabel("OpenRouter API key").fill("synthetic-desktop-api-key");
     await page.getByRole("button", { name: "Save settings" }).click();
     await page.getByText("Settings saved.").waitFor();
@@ -188,7 +164,24 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
     await page.getByRole("button", { name: "Done", exact: true }).click();
     expect(failures).toEqual([]);
     await application.close();
+    application = undefined;
+    await expect(cli("text", "Offline publication", "--id", "not-queued")).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining("Cannot reach Scope"),
+    });
+    expect(
+      (await readFile(join(settingsDirectory, "artifacts", "scope.db"))).subarray(0, 15).toString(),
+    ).toBe("SQLite format 3");
     application = await launch();
+    const restored = await connect();
+    expect((await restored.list()).map((artifact) => artifact.id).sort()).toEqual([
+      "hostile",
+      "review",
+    ]);
+    expect(JSON.parse((await cli("get", "review")).stdout)).toMatchObject({
+      id: "review",
+      revision: 1,
+    });
     const reopened = await application.firstWindow();
     await reopened
       .frameLocator('iframe[title="Hostile preview"]')
@@ -199,7 +192,6 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
     );
   } finally {
     await application?.close();
-    await hub.close();
     await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);

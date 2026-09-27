@@ -77,7 +77,7 @@ export function CreateDiagram({
             maxLength={16_000}
             rows={8}
             onChange={(event) => setIntent(event.target.value)}
-            placeholder="A browser talks to an API. The API uses Postgres."
+            placeholder="A customer places an order. The kitchen prepares it for delivery."
           />
         </label>
         <p className="secondary">

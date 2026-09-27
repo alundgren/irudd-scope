@@ -6,7 +6,7 @@ Closing a tab does not delete its artifact. Search can reopen artifacts and opti
 
 Focus mode hides workspace controls except a small visible exit control. Escape exits focus mode without losing selection, zoom, or scroll. Optional session tabs are added manually through the same discoverable navigation as tools. Observation and hooks are never required to use artifacts.
 
-Settings keeps provider, model, and credentials together. Initially the provider list contains OpenRouter and the model list contains Gemini 3.8 Flash. Show whether a key is saved, plus replace and remove actions. Never display a saved secret again. Explain temporary key storage in Linux development only when relevant. Future local Codex/Claude provider choices are not enabled until implemented.
+Local artifact storage starts with the app and requires no connection setup. Settings keeps the diagram provider, model, and credentials together. Initially the provider list contains OpenRouter and the model list contains Gemini 3.8 Flash. Show whether a key is saved, plus replace and remove actions. Never display a saved secret again. Explain temporary key storage in Linux development only when relevant. Future local Codex/Claude provider choices are not enabled until implemented.
 
 English UI. Keyboard navigation, visible focus, labels for icon controls, and readable contrast are part of normal implementation. Design for a Mac laptop and an external monitor, including long artifact titles and more tabs than fit.
 
@@ -14,4 +14,4 @@ The house visual style does not apply. The [prototype brief](docs/visual-prototy
 
 The app icon uses the Breath of fresh air design: two charcoal open window panels, a blue breeze, and a blue circle on a pale sky-blue tile. Rounded strokes keep it consistent with the Excalidraw canvas. The Mac Dock and README use the same artwork on light and dark backgrounds. The compact version omits the circle and thickens the strokes for small sizes. [Icon assets and export instructions](apps/desktop/resources/README.md) live with the desktop app.
 
-Create diagram is an explicit tool found from the empty workspace or search. An existing canvas has one change field, a cancel action during generation, and an explicit Save action. This is not agent chat. An incoming revision preserves unsaved diagram edits and offers loading the latest content or saving a separate copy. Unsaved drafts survive changing tabs during the current process; Save publishes them to the hub.
+Create diagram is an explicit tool found from the empty workspace or search. An existing canvas has one change field, a cancel action during generation, and an explicit Save action. This is not agent chat. An incoming revision preserves unsaved diagram edits and offers loading the latest content or saving a separate copy. Unsaved drafts survive changing tabs during the current process; Save writes them to the artifact store on the Mac.

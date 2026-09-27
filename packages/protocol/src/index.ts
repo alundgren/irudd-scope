@@ -3,6 +3,33 @@ import { Schema } from "effect";
 export const MAX_CONTENT_BYTES = 32 * 1024 * 1024;
 export const MAX_METADATA_BYTES = 16 * 1024;
 export const DEFAULT_PORT = 43120;
+export const DEFAULT_CONNECTION_FILE = ".config/irudd-scope/desktop.json";
+
+export const LocalConnection = Schema.Struct({
+  version: Schema.Literal(1),
+  endpoint: Schema.String.check(Schema.isMaxLength(2048)),
+  token: Schema.String.check(
+    Schema.isMinLength(24),
+    Schema.isMaxLength(2048),
+    Schema.isPattern(/^[a-zA-Z0-9_-]+$/),
+  ),
+});
+export type LocalConnection = typeof LocalConnection.Type;
+
+export function decodeLocalConnection(input: unknown): LocalConnection {
+  try {
+    const connection = decode(LocalConnection, input);
+    const endpoint = validateEndpoint(connection.endpoint);
+    const url = new URL(endpoint);
+    if (url.protocol !== "http:" || url.hostname !== "127.0.0.1")
+      throw new Error("Expected a local endpoint.");
+    return { ...connection, endpoint };
+  } catch {
+    throw new Error(
+      "Invalid local Scope connection file. Restore it or remove it with Scope closed.",
+    );
+  }
+}
 
 export const ArtifactId = Schema.String.check(
   Schema.isPattern(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/),
@@ -108,6 +135,6 @@ export function validateEndpoint(endpoint: string): string {
   ) {
     throw new Error("Use HTTPS, or HTTP on loopback, without URL credentials or query parameters.");
   }
-  if (url.pathname !== "/") throw new Error("Use the hub origin without a path.");
+  if (url.pathname !== "/") throw new Error("Use the Scope origin without a path.");
   return url.origin;
 }

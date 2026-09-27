@@ -25,7 +25,7 @@ function restore(): Workspace {
     )
       return { tabs: value.tabs, selected: value.selected };
   } catch {
-    /* An unavailable local workspace must not block the hub's artifacts. */
+    /* Unavailable workspace preferences must not block saved artifacts. */
   }
   return { tabs: [], selected: null };
 }
@@ -142,7 +142,7 @@ export function App() {
           <span
             className={`connection ${snapshot.connection}`}
             title={snapshot.error ?? snapshot.connection}
-            aria-label={`Hub ${snapshot.connection}`}
+            aria-label={`Local storage ${snapshot.connection}`}
           />
           {active && !settings && (
             <>
@@ -247,9 +247,6 @@ export function App() {
               </div>
             ) : (
               <code>irudd-scope add report.html --title "Review"</code>
-            )}
-            {snapshot.connection === "offline" && (
-              <Button onClick={() => setSettings(true)}>Connection settings</Button>
             )}
           </section>
         )}

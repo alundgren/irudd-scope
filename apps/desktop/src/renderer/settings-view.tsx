@@ -6,8 +6,6 @@ import { NativeSelect, NativeSelectOption } from "./components/ui/native-select.
 
 export function SettingsViewPanel({ onClose }: { onClose: () => void }) {
   const [settings, setSettings] = useState<SettingsView>();
-  const [endpoint, setEndpoint] = useState("");
-  const [hubToken, setHubToken] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -16,7 +14,6 @@ export function SettingsViewPanel({ onClose }: { onClose: () => void }) {
       .settings()
       .then((value) => {
         setSettings(value);
-        setEndpoint(value.endpoint);
       })
       .catch(() => setNotice("Could not load settings."));
   }, []);
@@ -25,7 +22,6 @@ export function SettingsViewPanel({ onClose }: { onClose: () => void }) {
     setNotice("");
     try {
       setSettings(await window.scope.saveSettings(input));
-      setHubToken("");
       setApiKey("");
       setNotice("Settings saved.");
     } catch (error) {
@@ -37,8 +33,6 @@ export function SettingsViewPanel({ onClose }: { onClose: () => void }) {
   function submit(event: FormEvent) {
     event.preventDefault();
     void save({
-      endpoint,
-      ...(hubToken ? { hubToken } : {}),
       ...(apiKey ? { apiKey } : {}),
       provider: "openrouter",
       model: "google/gemini-3.8-flash",
@@ -53,28 +47,6 @@ export function SettingsViewPanel({ onClose }: { onClose: () => void }) {
         </Button>
       </div>
       <form onSubmit={submit} className="settings-form">
-        <h2>Hub connection</h2>
-        <label>
-          Address
-          <Input
-            value={endpoint}
-            onChange={(event) => setEndpoint(event.target.value)}
-            placeholder="https://your-vm.ts.net"
-            required
-          />
-        </label>
-        <label>
-          Hub token
-          <Input
-            type="password"
-            autoComplete="off"
-            value={hubToken}
-            onChange={(event) => setHubToken(event.target.value)}
-            placeholder={
-              settings?.hasHubToken ? "Token saved. Enter a replacement." : "Enter hub token"
-            }
-          />
-        </label>
         <h2>Diagram generation</h2>
         <label>
           Provider

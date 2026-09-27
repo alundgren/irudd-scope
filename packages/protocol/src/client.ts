@@ -28,13 +28,19 @@ export class ScopeClient {
       redirect: "error",
       signal: init.signal ?? AbortSignal.timeout(30_000),
       headers,
+    }).catch((error: unknown) => {
+      if (init.signal?.aborted) throw error;
+      throw new Error(
+        `Cannot reach Scope at ${this.endpoint}. Open Scope on the Mac and retry. Requests are not queued.`,
+        { cause: error },
+      );
     });
     if (!response.ok) {
       const body: unknown = await response.json().catch(() => null);
       const message =
         body && typeof body === "object" && "error" in body && typeof body.error === "string"
           ? body.error
-          : `Hub returned ${response.status}.`;
+          : `Scope returned ${response.status}.`;
       throw new ScopeError(response.status, message);
     }
     return response;
@@ -49,7 +55,7 @@ export class ScopeClient {
       );
       const page = decode(ArtifactPage, await response.json());
       artifacts.push(...page.items);
-      if (page.next && page.next === next) throw new Error("Hub returned a repeated page.");
+      if (page.next && page.next === next) throw new Error("Scope returned a repeated page.");
       next = page.next;
     } while (next);
     return artifacts;
@@ -90,7 +96,7 @@ export class ScopeClient {
     if (size > MAX_CONTENT_BYTES) throw new Error("Artifact exceeds the content limit.");
     const chunks: Uint8Array[] = [];
     let total = 0;
-    if (!response.body) throw new Error("Hub returned no content.");
+    if (!response.body) throw new Error("Scope returned no content.");
     for await (const chunk of response.body) {
       total += chunk.byteLength;
       if (total > MAX_CONTENT_BYTES) throw new Error("Artifact exceeds the content limit.");
@@ -107,7 +113,7 @@ export class ScopeClient {
 
   async watch(onEvent: (event: LiveEvent) => void, signal: AbortSignal): Promise<void> {
     const response = await this.request("/v1/events", { signal });
-    if (!response.body) throw new Error("Hub returned no event stream.");
+    if (!response.body) throw new Error("Scope returned no event stream.");
     const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
     let pending = "";
     try {
@@ -115,7 +121,7 @@ export class ScopeClient {
         const { value, done } = await reader.read();
         if (done) break;
         pending += value;
-        if (pending.length > 64 * 1024) throw new Error("Hub event exceeds the size limit.");
+        if (pending.length > 64 * 1024) throw new Error("Scope event exceeds the size limit.");
         let boundary: number;
         while ((boundary = pending.indexOf("\n\n")) !== -1) {
           const frame = pending.slice(0, boundary);
@@ -127,6 +133,6 @@ export class ScopeClient {
     } finally {
       await reader.cancel().catch(() => {});
     }
-    if (!signal.aborted) throw new Error("Hub disconnected.");
+    if (!signal.aborted) throw new Error("Scope disconnected.");
   }
 }
