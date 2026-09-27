@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.vite/
+.env
+.env.*
+!.env.example
+*.local
+*.log
+test-results/
+playwright-report/
+.DS_Store
+.scope-dev/

@@ -1,0 +1,35 @@
+{
+  "name": "desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.mjs",
+  "scripts": {
+    "build": "vp pack && vp build",
+    "dev": "vp run build && electron .",
+    "preview": "vp dev --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@base-ui/react": "catalog:",
+    "@excalidraw/excalidraw": "catalog:",
+    "@fontsource-variable/geist": "catalog:",
+    "@irudd-scope/protocol": "workspace:*",
+    "class-variance-authority": "catalog:",
+    "cn": "catalog:",
+    "effect": "catalog:",
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-markdown": "catalog:",
+    "tw-animate-css": "catalog:"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "electron": "catalog:",
+    "shadcn": "catalog:",
+    "tailwindcss": "catalog:"
+  }
+}

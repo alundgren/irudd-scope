@@ -1,0 +1,37 @@
+{
+  "name": "irudd-scope",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "ready": "vp run build && vp check && node tools/test.ts",
+    "test": "node tools/test.ts",
+    "build": "vp run -r build",
+    "hub": "vp run hub#dev",
+    "desktop": "vp run desktop#dev",
+    "scope": "node packages/cli/src/main.ts"
+  },
+  "devDependencies": {
+    "@irudd-scope/protocol": "workspace:*",
+    "@playwright/test": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.6.0",
+      "onFail": "download"
+    },
+    "runtime": {
+      "name": "node",
+      "version": "26.10.0",
+      "onFail": "download"
+    }
+  },
+  "engines": {
+    "node": ">=26.10.0"
+  }
+}

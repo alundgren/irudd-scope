@@ -1,0 +1,14 @@
+{
+  "name": "hub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node src/main.ts",
+    "build": "vp pack"
+  },
+  "dependencies": {
+    "@irudd-scope/protocol": "workspace:*",
+    "effect": "catalog:"
+  }
+}

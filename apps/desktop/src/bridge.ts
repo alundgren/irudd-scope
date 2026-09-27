@@ -1,0 +1,32 @@
+import type { Artifact } from "@irudd-scope/protocol";
+import type { SettingsUpdate, SettingsView } from "./settings.ts";
+import type { DiagramRequest, DrawingResult } from "./diagram/contract.ts";
+
+export type Snapshot = {
+  artifacts: Artifact[];
+  connection: "connected" | "connecting" | "offline";
+  error?: string;
+};
+export type ArtifactContent = { artifact: Artifact; bytes: Uint8Array };
+export type ScopeBridge = {
+  settings: () => Promise<SettingsView>;
+  saveSettings: (input: SettingsUpdate) => Promise<SettingsView>;
+  snapshot: () => Promise<Snapshot>;
+  content: (id: string, revision: number) => Promise<ArtifactContent>;
+  download: (id: string, revision: number) => Promise<boolean>;
+  compose: (request: DiagramRequest) => Promise<DrawingResult>;
+  cancelDrawing: () => Promise<void>;
+  saveDiagram: (input: {
+    id: string;
+    title: string;
+    expectedRevision: number;
+    content: string;
+  }) => Promise<Artifact>;
+  onSnapshot: (listener: (snapshot: Snapshot) => void) => () => void;
+};
+
+declare global {
+  interface Window {
+    scope: ScopeBridge;
+  }
+}

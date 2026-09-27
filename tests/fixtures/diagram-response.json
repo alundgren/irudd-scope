@@ -1,0 +1,33 @@
+{
+  "message": "Created a browser and API diagram.",
+  "operations": [
+    {
+      "type": "createNode",
+      "id": "browser",
+      "kind": "rectangle",
+      "label": "Browser",
+      "x": 100,
+      "y": 180,
+      "width": null,
+      "height": null
+    },
+    {
+      "type": "createNode",
+      "id": "api",
+      "kind": "rectangle",
+      "label": "API",
+      "x": 420,
+      "y": 180,
+      "width": null,
+      "height": null
+    },
+    {
+      "type": "connect",
+      "id": "browser-api",
+      "from": "browser",
+      "to": "api",
+      "label": null,
+      "style": null
+    }
+  ]
+}

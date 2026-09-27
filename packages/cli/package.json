@@ -1,0 +1,16 @@
+{
+  "name": "@irudd-scope/cli",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "irudd-scope": "dist/main.mjs"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "vp pack"
+  },
+  "dependencies": {
+    "@irudd-scope/protocol": "workspace:*",
+    "effect": "catalog:"
+  }
+}
