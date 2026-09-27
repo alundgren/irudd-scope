@@ -368,6 +368,32 @@ h2 {
 .key-status {
   font-size: var(--scope-text-detail);
 }
+.installation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--scope-space-2);
+}
+.installation-tool {
+  display: grid;
+  gap: var(--scope-space-3);
+}
+.installation-tool + .installation-tool {
+  margin-top: var(--scope-space-3);
+}
+.installation-path,
+.installation-output pre {
+  overflow-wrap: anywhere;
+}
+.installation-output pre {
+  max-height: 12em;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: var(--scope-text-detail);
+  margin-top: var(--scope-space-2);
+}
+.installation-output summary {
+  cursor: pointer;
+}
 .connection-notice,
 .error-bar {
   display: flex;

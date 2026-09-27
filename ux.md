@@ -54,6 +54,18 @@ The diagram provider, model, and API key stay together. OpenRouter with Gemini
 saved secrets are never displayed. Keychain errors remain visible while
 Settings stays usable.
 
+App updates and Agent tools are searchable Settings sections. Installed apps
+check `main` when opened and build changed commits locally in the background.
+A prepared update offers Restart to update without taking over the current
+artifact. Restart uses the normal save-before-quit flow. Build failures keep
+the current app available and show details with Retry; pending builds offer
+Cancel. Checkout launches explain that automatic updates require installation.
+
+Agent tools provides separate CLI and global skill installation actions with
+pending, installed, and failure states. The CLI follows the active app build.
+The skill action uses npx skills for Codex and Claude Code. Each installed
+tool has a removal action, and failed installation leaves a useful retry.
+
 Create diagram is available in the empty workspace, search, and workspace
 menu. An existing diagram has an Ask agent conversation, closed by default.
 It sits beside the canvas at desktop widths and overlays it in a narrow

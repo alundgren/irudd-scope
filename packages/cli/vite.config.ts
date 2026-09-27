@@ -4,7 +4,7 @@ export default defineConfig({
   pack: {
     entry: ["src/main.ts"],
     format: ["esm"],
-    target: "node26",
+    target: "node24",
     platform: "node",
     outDir: "dist",
     outExtensions: () => ({ js: ".mjs" }),

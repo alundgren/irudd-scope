@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from "../renderer/components/ui/dialog.tsx";
 import { SettingsViewPanel } from "../renderer/settings-view.tsx";
+import { UpdateNotice } from "../renderer/installation-settings.tsx";
 import { useAppearance, type Appearance } from "../renderer/appearance.ts";
 import { useArtifactLibrary } from "../library/use-library.ts";
 import { useWorkspace } from "./use-workspace.ts";
@@ -326,6 +327,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
             "Reconnecting to the artifact library. Open content remains available."}
         </div>
       )}
+      {!focus && <UpdateNotice />}
       <div className="workspace-content">
         {workspace.tabs.map((tab) => {
           const { id } = tab;

@@ -111,10 +111,10 @@ vp run scope list
 vp run scope get architecture
 ```
 
-`get` returns metadata. Use Download in the desktop to save content. The built
-CLI is `packages/cli/dist/main.mjs`; its Node shebang is the runtime entry
-point. A wrapper or symlink named `irudd-scope` can put it on PATH when the
-configured Node runtime is available. For repeated agent calls, use that executable
+`get` returns metadata. Use Download in the desktop to save content. Install
+the CLI from the installed app's Settings to use `irudd-scope` on PATH.
+The checkout's built CLI is `packages/cli/dist/main.mjs`; its Node shebang
+requires the configured Node runtime. For repeated agent calls, use that executable
 or `./packages/cli/dist/main.mjs` directly. `vp run scope` invokes the source in
 the checkout. Pass `--help` to the chosen command for options. The
 [CLI skill](../.agents/skills/irudd-scope/SKILL.md) describes publication and recovery.
@@ -146,7 +146,69 @@ canvas; Save publishes the edits. HTML previews permit inline styles and
 embedded data images, with scripts and external resources blocked. Markdown
 omits raw HTML and renders link labels and image descriptions as text.
 
-Scope runs from a checkout. There is no signed Mac bundle or release workflow.
+## Installed app
+
+The root [installer](../install.sh) runs on macOS with Apple's command line
+tools. It clones `main`, installs frozen dependencies through Vite+, builds
+the workspace, and packages the desktop on that Mac. Vite+ supplies the
+pinned Node and package manager. Packaging includes the CLI and native Keychain
+module, uses local ad-hoc signing, and checks that the packaged CLI, SQLite,
+and native module can run. It needs no Apple developer certificate. This is
+a local build, not an Apple-notarized distribution or a GitHub release build.
+
+The installer defaults to these locations:
+
+| Location                                            | Purpose                                           |
+| --------------------------------------------------- | ------------------------------------------------- |
+| `~/.local/share/irudd-scope/source`                 | Scope's managed Git clone and build dependencies. |
+| `~/.local/share/irudd-scope/builds/<sha>/Scope.app` | Complete app for one commit.                      |
+| `~/.local/share/irudd-scope/current`                | Link to the active build.                         |
+| `~/.local/share/irudd-scope/previous`               | Previous active build retained for recovery.      |
+| `~/.local/share/irudd-scope/prepared`               | Most recently prepared build.                     |
+| `~/Applications/Scope.app`                          | Link to the active app.                           |
+| `~/.local/bin/irudd-scope`                          | Optional CLI link installed from Settings.        |
+
+`SCOPE_INSTALL_ROOT` and `SCOPE_APPLICATIONS_DIR` select other installation
+and application directories. Both should be absolute paths writable by the
+current user. `SCOPE_VP` selects an existing absolute Vite+ executable path.
+The build records the installation root, Vite+ path, and commit in the app
+bundle so Finder launches can update without a terminal's PATH.
+
+Every installed-app startup checks `origin`'s `main` SHA. Unchanged commits
+need no dependency installation or build. A changed commit builds in a separate
+directory while the current app stays usable. Restart to update flushes
+workspace and draft writes before selecting the prepared app and relaunching.
+If saving fails, Keep open leaves the current version active. Settings shows
+build output, cancellation, and retry. Update preparation has a 20-minute
+deadline; an interrupted build can be retried. Quitting stops build processes.
+Old builds are removed on startup, retaining the running, previous, and
+prepared versions. Development launches never auto-update.
+
+Keep personal changes in a separate checkout. The installer refuses to
+overwrite edits in its managed clone or replace an unrelated `Scope.app`.
+A failed fetch or build leaves the active app in place. If a process was
+forcibly killed and no installation is still running, remove the
+`.install-lock` directory under the installation root before retrying.
+Re-running the installer reuses a completed build for the same commit.
+
+The CLI install button creates its link and adds `~/.local/bin` to the login
+profile for zsh or bash. It preserves existing commands at that path. Open a
+new terminal to pick up PATH changes. Other shells need `~/.local/bin` added
+to PATH manually. The launcher uses Electron's bundled Node runtime; no
+separate Node installation is needed to publish.
+
+The skill button uses Vite+ to run the [skills CLI](https://skills.sh/docs/cli)
+with `npx`, installing only `irudd-scope` from this repository globally for
+Codex and Claude Code. Update skill repeats that scoped installation. Skills
+do not update automatically with the app. Installation needs network access;
+errors remain visible with a retry through the same button.
+
+Use Remove CLI and Remove skill in Settings to undo those installations.
+The shared PATH entry stays in the shell profile. To remove the app, quit it
+and delete its link in `~/Applications` and its installation directory.
+The artifact library, preferences, Keychain entry, and discovery file live
+separately and remain intact. See [storage](storage.md) before restoring an
+older app, since its database support may differ.
 
 ## Isolated development
 

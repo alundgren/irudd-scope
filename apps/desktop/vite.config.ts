@@ -38,7 +38,7 @@ export default defineConfig({
       format: "esm",
       target: "node24",
       platform: "node",
-      deps: { neverBundle: ["electron", "@napi-rs/keyring"] },
+      deps: { alwaysBundle: [/.*/], neverBundle: ["electron", "@napi-rs/keyring"] },
       outExtensions: () => ({ js: ".mjs" }),
     },
     {

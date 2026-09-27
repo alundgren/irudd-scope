@@ -9,6 +9,7 @@ tree. Runtime and package manager versions belong in [package.json](../package.j
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | Development   | Vite+ manages installs, builds, Vitest, formatting, lint, and type checks.                                                                 | Vite+ and Effect use pinned release candidates.                                                                                                |
 | Desktop       | Electron hosts React and Excalidraw on macOS and Linux.                                                                                    | Chromium adds download size and memory use. Main uses Electron's bundled Node runtime.                                                         |
+| Installation  | Git and Vite+ build a managed local clone; `@electron/packager` creates the Mac app.                                                       | Installation needs Apple's command line tools and disk space for dependencies and retained app builds. New main commits build locally.         |
 | Contracts     | Effect Schema validates external input and derives TypeScript types.                                                                       | Callers must decode input at the receiving boundary; TypeScript alone cannot validate it.                                                      |
 | Storage       | SQLite through `@effect/sql-sqlite-node` in Electron main. Each store owns its Effect runtime and transactions.                            | One writer per database; content reads allocate up to the artifact size limit.                                                                 |
 | Credentials   | `@napi-rs/keyring` accesses macOS Keychain from main.                                                                                      | Native packaging and Keychain access require Mac validation. Linux development uses process memory.                                            |
@@ -21,5 +22,5 @@ tree. Runtime and package manager versions belong in [package.json](../package.j
 | Validation    | Vite+'s Vitest and Playwright controlling real Electron.                                                                                   | Linux needs Electron's shared libraries and a display or Xvfb. Synthetic responses do not establish live provider or native Keychain behavior. |
 
 See [architecture](architecture.md) for ownership and [development](development.md)
-for commands. Scope runs from a checkout; the repository has no application
-packaging or release workflow.
+for commands. Installed apps build their updates locally. Development launches
+run from a checkout; there is no GitHub release build workflow.
