@@ -5,15 +5,21 @@ publishing API, and provider calls. Read [architecture](../../docs/architecture.
 before changing these responsibilities.
 
 - `src/main.ts` owns startup, the window, and shutdown after pending saves finish.
-- `src/artifacts/` owns `scope.db`, HTTP publication, discovery, and library updates.
+- `src/library/` owns `scope.db`, HTTP publication, discovery, and library updates.
 - `src/desktop-store.ts` owns `desktop.db`, including settings, workspace, and diagram drafts.
-- `src/settings.ts` and `src/workspace.ts` define desktop preference contracts.
+- `src/settings.ts` defines desktop settings; `src/workspace/contract.ts` defines tabs and groups.
+- `src/workspace/` owns navigation, tab lifecycle, event routing, and saved workspace updates.
+- `src/plugins/` owns built-in tab implementations and their explicit registrations.
+  Each plugin keeps its UI, contracts, and main handlers together.
 - `src/credentials.ts` owns Keychain and process-memory credential access.
-- `src/diagram/` owns semantic operations, provider calls, and canvas conversion.
-- `src/diagram/provider-settings.ts` owns the configured provider and model.
-- `src/bridge.ts`, `src/preload.ts`, and `src/ipc.ts` define, expose, and handle named desktop operations.
+- `src/bridge.ts`, `src/preload.ts`, and `src/ipc.ts` expose named desktop operations
+  and validate callers. Plugin main entries register their own operations.
 - `src/renderer-security.ts` owns renderer content serving and access restrictions.
-- `src/renderer/` owns UI. Read its local instructions before UI work.
+- `src/renderer/` owns startup, shared UI controls, settings, and theme tokens.
+
+Read the local instructions in the workspace, plugin, library, or renderer
+area before changing it. Renderer files can live beside their plugin's main
+files, but may import only renderer code and process-independent contracts.
 
 Validate IPC input and callers in main. Keep credentials out of renderer
 reads. Preserve cancellation and resource cleanup when changing lifecycle

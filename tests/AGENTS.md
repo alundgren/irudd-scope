@@ -8,7 +8,9 @@ forwarding. `artifact-storage.test.ts` covers the artifact database.
 `desktop-storage.test.ts` and `credentials.test.ts` cover preferences, drafts,
 and credential failures.
 `diagram.test.ts` covers provider responses. `desktop.test.ts` and
-`workspace.test.ts` exercise real Electron through `desktop-fixture.ts`.
+`workspace.test.ts` and `tab-types.test.ts` exercise real Electron through
+`desktop-fixture.ts`. `tab-events.test.ts` checks group routing and subscription
+cleanup through the tab event API.
 
 Use the fixture for isolated profiles, discovery, and ports. Keep live
 provider calls and native Keychain access out of standard tests. Close

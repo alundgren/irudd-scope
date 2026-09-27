@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { keychainCredentials } from "../apps/desktop/src/credentials.ts";
 import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
-import { DIAGRAM_MODEL } from "../apps/desktop/src/diagram/provider-settings.ts";
+import { DIAGRAM_MODEL } from "../apps/desktop/src/plugins/diagram/provider-settings.ts";
 
 function keychainEntry(initial: string | null | undefined) {
   let value = initial;

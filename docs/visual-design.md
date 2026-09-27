@@ -10,7 +10,8 @@ Run it with the [development commands](development.md) and synthetic artifacts.
 typography, spacing, radii, control dimensions, focus, and motion for both
 appearances. Do not copy values into palette tables or individual components.
 [style.css](../apps/desktop/src/renderer/style.css) maps those values to Tailwind
-and shadcn roles and owns desktop layout. Component-specific dimensions can
+and shadcn roles and owns desktop layout. Tailwind scans the complete desktop
+source directory, including workspace and plugin views. Component-specific dimensions can
 stay with their layout; repeated visual values belong in the tokens.
 
 | Tokens                                                                           | Use                                                                               |

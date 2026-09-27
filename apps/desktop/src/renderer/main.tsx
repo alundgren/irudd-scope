@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./workspace.tsx";
+import { App } from "../workspace/workspace.tsx";
 import "./style.css";
 import type {} from "../bridge.ts";
 

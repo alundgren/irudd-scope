@@ -1,8 +1,8 @@
 import { expect, test } from "vite-plus/test";
 import { readFile } from "node:fs/promises";
-import { openRouterProvider } from "../apps/desktop/src/diagram/openrouter.ts";
-import { emptyScene } from "../apps/desktop/src/diagram/contract.ts";
-import { applyOperations } from "../apps/desktop/src/diagram/scene.ts";
+import { openRouterProvider } from "../apps/desktop/src/plugins/diagram/openrouter.ts";
+import { emptyScene } from "../apps/desktop/src/plugins/diagram/contract.ts";
+import { applyOperations } from "../apps/desktop/src/plugins/diagram/scene.ts";
 
 const fixture = await readFile(
   new URL("./fixtures/diagram-response.json", import.meta.url),

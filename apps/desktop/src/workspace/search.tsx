@@ -1,8 +1,13 @@
 import { useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
-import { Input } from "./components/ui/input.tsx";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
-import { matchingSettings } from "./settings-view.tsx";
+import { Input } from "../renderer/components/ui/input.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../renderer/components/ui/dialog.tsx";
+import { matchingSettings } from "../renderer/settings-view.tsx";
 
 export function WorkspaceSearch({
   open,
@@ -11,7 +16,8 @@ export function WorkspaceSearch({
   setQuery,
   artifacts,
   onOpenArtifact,
-  onCreateDiagram,
+  tools,
+  onOpenTool,
   onOpenSettings,
 }: {
   open: boolean;
@@ -20,7 +26,8 @@ export function WorkspaceSearch({
   setQuery: (query: string) => void;
   artifacts: readonly Artifact[];
   onOpenArtifact: (id: string) => void;
-  onCreateDiagram: () => void;
+  tools: readonly { id: string; title: string; keywords: string }[];
+  onOpenTool: (id: string) => void;
   onOpenSettings: (filter?: string) => void;
 }) {
   const results = useRef<HTMLDivElement>(null);
@@ -48,7 +55,7 @@ export function WorkspaceSearch({
     )
     .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const settingMatches = needle ? matchingSettings(needle) : [];
-  const showCreate = "create diagram drawing".includes(needle);
+  const toolMatches = tools.filter((tool) => tool.keywords.includes(needle));
   const showSettings = "settings preferences".includes(needle);
 
   return (
@@ -71,12 +78,12 @@ export function WorkspaceSearch({
               <small>{artifact.kind}</small>
             </button>
           ))}
-          {showCreate && (
-            <button onClick={onCreateDiagram}>
-              <span>Create diagram</span>
+          {toolMatches.map((tool) => (
+            <button key={tool.id} onClick={() => onOpenTool(tool.id)}>
+              <span>{tool.title}</span>
               <small>Tool</small>
             </button>
-          )}
+          ))}
           {showSettings && (
             <button onClick={() => onOpenSettings()}>
               <span>Settings</span>
@@ -89,7 +96,7 @@ export function WorkspaceSearch({
               <small>Setting</small>
             </button>
           ))}
-          {!matches.length && !showCreate && !showSettings && !settingMatches.length && (
+          {!matches.length && !toolMatches.length && !showSettings && !settingMatches.length && (
             <p role="status">No matches. Try another title, tool, or setting.</p>
           )}
         </div>

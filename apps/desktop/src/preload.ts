@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { ScopeBridge, ArtifactLibrarySnapshot } from "./bridge.ts";
 
 const bridge: ScopeBridge = {
+  publishTabEvent: (event) => ipcRenderer.invoke("scope:publish-tab-event", event),
   settings: () => ipcRenderer.invoke("scope:settings"),
   saveSettings: (input) => ipcRenderer.invoke("scope:save-settings", input),
   workspace: () => ipcRenderer.invoke("scope:workspace"),

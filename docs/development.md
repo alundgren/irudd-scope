@@ -26,7 +26,10 @@ does not rewrite source or the lockfile. Do not install validation hooks.
 Vite+ owns formatting, lint, and TypeScript checks through
 [vite.config.ts](../vite.config.ts). Formatting uses Oxfmt defaults. Lint uses
 Oxlint's defaults plus the rule requiring Vite+ imports, with type-aware lint
-and type checking enabled. Non-semantic style choices belong to these tools.
+and type checking enabled. Plugin import restrictions are generated from the
+built-in plugin directories. Plugins use shared APIs and event contracts;
+only the registries compose their implementations. Non-semantic style choices
+belong to these tools.
 Apply corrections explicitly with `vp check --fix`, inspect the diff, then
 run `vp run ready` again. Naming, ownership, and documentation accuracy remain
 review responsibilities.

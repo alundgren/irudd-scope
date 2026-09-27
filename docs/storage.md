@@ -35,7 +35,7 @@ token. The library and preferences remain intact.
 
 ## Supported data imports
 
-Scope reads artifact schema version 2 and desktop schema version 3. It rejects
+Scope reads artifact schema version 2 and desktop schema version 4. It rejects
 newer schema versions. Back up the complete data directories before an upgrade
 when you need the option to return to an older desktop.
 
@@ -52,7 +52,12 @@ keys require macOS secure storage and migrate directly to Keychain. The JSON
 file is removed only after the replacement is saved. A failed credential
 import retains it for retry. Obsolete connection settings are discarded.
 Saved browser tab preferences import once into SQLite and are then removed
-from browser storage.
+from browser storage. Existing artifact-ID tab lists migrate to workspace
+version 2 with stable tab and group UUIDs. Open order, selection, closed tabs,
+and artifact-keyed diagram drafts are retained. File references acquire their
+registered viewer type when the library loads. Groups and versioned plugin
+state live in the saved workspace document. Unknown plugin types retain their
+records and display an unavailable view.
 
 These import paths support existing data. New writes use the stores listed
 above. Restore the complete backup before using a desktop that cannot read

@@ -13,7 +13,7 @@ flowchart LR
     Desktop --> Artifacts[scope.db: artifacts and bytes]
     Desktop --> Preferences[desktop.db: settings and workspace]
     Desktop --> Keychain[macOS Keychain]
-    Desktop <-->|validated IPC| UI[apps/desktop/src/renderer]
+    Desktop <-->|validated IPC| UI[Workspace host and built-in tab plugins]
     Desktop -->|diagram requests| Provider[OpenRouter]
 ```
 
@@ -23,21 +23,21 @@ Use the same names in code, documentation, diagrams, issues, and reviews.
 Folders name the work they own. Names in saved records, commands, and wire
 formats are compatibility contracts.
 
-| Name              | Meaning                                                                                                 | Owner                                                                                                      |
-| ----------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Artifact          | Latest published metadata and content for one stable ID.                                                | `packages/protocol/src/index.ts` defines the contract; `apps/desktop/src/artifacts/` stores and serves it. |
-| Revision          | Increasing integer for an artifact; writers supply the revision they read.                              | Artifact protocol and desktop artifact store.                                                              |
-| Blob              | Immutable bytes identified by SHA-256, stored in SQLite.                                                | `apps/desktop/src/artifacts/store.ts`.                                                                     |
-| Source            | Optional publication provenance, such as host, repository, or agent. Unknown values stay absent.        | Protocol contract; `packages/cli` collects available values.                                               |
-| Artifact library  | Published artifact metadata and the desktop's connection status.                                        | `apps/desktop/src/artifacts/library.ts`; `renderer/use-artifact-library.ts` tracks unread updates.         |
-| Workspace         | Open and closed tabs and the selected artifact. Closing a tab preserves the artifact.                   | `apps/desktop/src/workspace.ts` defines the contract; `renderer/use-workspace.ts` manages tabs.            |
-| Settings          | Appearance, provider configuration, and credential presence.                                            | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.                |
-| Semantic scene    | Diagram nodes, text, connections, and groups with stable IDs.                                           | `apps/desktop/src/diagram/contract.ts` and `scene.ts`.                                                     |
-| Diagram operation | A validated change to a semantic scene, such as moving a node or adding a connection.                   | `apps/desktop/src/diagram/contract.ts`; `scene.ts` applies operations.                                     |
-| Canvas            | The editable Excalidraw document and its view state.                                                    | `apps/desktop/src/diagram/canvas.ts` converts scenes; `renderer/diagram-view.tsx` owns editing.            |
-| Diagram draft     | Unpublished canvas, conversation, prompt, panel state, and view position based on an artifact revision. | `apps/desktop/src/diagram/draft.ts` defines the contract; `desktop-store.ts` stores drafts.                |
-| Diagram provider  | Generates validated diagram operations from an intent and semantic scene.                               | `apps/desktop/src/diagram/contract.ts`; `openrouter.ts` owns the external API format.                      |
-| Publishing token  | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                          | Desktop discovery file; CLI and optional hub use it.                                                       |
+| Name              | Meaning                                                                                                 | Owner                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Artifact          | Latest published metadata and content for one stable ID.                                                | `packages/protocol/src/index.ts` defines the contract; `apps/desktop/src/library/` stores and serves it.  |
+| Revision          | Increasing integer for an artifact; writers supply the revision they read.                              | Artifact protocol and desktop artifact store.                                                             |
+| Blob              | Immutable bytes identified by SHA-256, stored in SQLite.                                                | `apps/desktop/src/library/store.ts`.                                                                      |
+| Source            | Optional publication provenance, such as host, repository, or agent. Unknown values stay absent.        | Protocol contract; `packages/cli` collects available values.                                              |
+| Artifact library  | Published artifact metadata and the desktop's connection status.                                        | `apps/desktop/src/library/library.ts`; `library/use-library.ts` tracks unread updates.                    |
+| Workspace         | Open and closed tab records, group membership, and selected tab ID. Closing preserves content.          | `apps/desktop/src/workspace/contract.ts` defines the contract; `workspace/use-workspace.ts` manages tabs. |
+| Settings          | Appearance, provider configuration, and credential presence.                                            | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.               |
+| Semantic scene    | Diagram nodes, text, connections, and groups with stable IDs.                                           | `apps/desktop/src/plugins/diagram/contract.ts` and `scene.ts`.                                            |
+| Diagram operation | A validated change to a semantic scene, such as moving a node or adding a connection.                   | `apps/desktop/src/plugins/diagram/contract.ts`; `scene.ts` applies operations.                            |
+| Canvas            | The editable Excalidraw document and its view state.                                                    | `apps/desktop/src/plugins/diagram/canvas.ts` converts scenes; `plugins/diagram/view.tsx` owns editing.    |
+| Diagram draft     | Unpublished canvas, conversation, prompt, panel state, and view position based on an artifact revision. | `apps/desktop/src/plugins/diagram/draft.ts` defines the contract; `desktop-store.ts` stores drafts.       |
+| Diagram provider  | Generates validated diagram operations from an intent and semantic scene.                               | `apps/desktop/src/plugins/diagram/contract.ts`; `openrouter.ts` owns the external API format.             |
+| Publishing token  | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                          | Desktop discovery file; CLI and optional hub use it.                                                      |
 
 `packages/protocol` owns shared schemas, wire formats, limits, the discovery
 contract, and the HTTP client. It imports no app, filesystem, Electron, or
@@ -51,18 +51,60 @@ operations declared in `bridge.ts` and exposed by `preload.ts`.
 `renderer-security.ts` serves the application and restricts renderer access.
 
 `desktop-store.ts` persists settings, workspace preferences, and diagram
-drafts. Their contracts live in `settings.ts`, `workspace.ts`, and
-`diagram/draft.ts`, without filesystem or database dependencies. Provider
-configuration lives in `diagram/provider-settings.ts`; provider requests do
+drafts. Their contracts live in `settings.ts`, `workspace/contract.ts`, and
+`plugins/diagram/draft.ts`, without filesystem or database dependencies. Provider
+configuration lives in `plugins/diagram/provider-settings.ts`; provider requests do
 not depend on desktop storage.
 
-`artifacts/library.ts` watches publication events, refreshes metadata on
+`library/library.ts` watches publication events, refreshes metadata on
 connection, and caches content by revision. The sandboxed React renderer
-receives an `ArtifactLibrarySnapshot`. `renderer/use-artifact-library.ts`
-tracks unread updates, `renderer/use-workspace.ts` restores and saves tabs,
-and `renderer/workspace-search.tsx` presents search results. The workspace
-component owns layout, dialogs, and shortcuts. `diagram/` owns semantic scenes
-and their conversion to Excalidraw; `renderer/diagram-view.tsx` owns editing.
+receives an `ArtifactLibrarySnapshot`. `library/use-library.ts`
+tracks unread updates, `workspace/use-workspace.ts` restores and saves tabs,
+and `workspace/search.tsx` presents search results. The workspace
+component owns layout, dialogs, and shortcuts. `plugins/diagram/` owns semantic scenes
+and their conversion to Excalidraw; `plugins/diagram/view.tsx` owns editing.
+
+## Tabs, plugins, and groups
+
+A tab has a UUID, group UUID, plugin type, title, and versioned JSON state.
+Groups have their own UUID and an owner reference with a kind and ID. Owners
+are independent of tab lifetimes. The current desktop opens publications in
+one local workspace group. Group indicators and agent-facing group selection
+are not exposed. `source.sessionId` remains publication provenance.
+
+`workspace/` owns navigation, selection, close/reopen, saved records, and event
+routing. `workspace/tab-host.tsx` supplies `TabContext` and keeps inactive tabs
+mounted. Its error boundary contains a failed view. Unknown plugin types and
+unsupported saved state remain stored and display an unavailable view.
+
+Each directory under `plugins/` owns one built-in implementation. `file/`
+keeps the existing image, Markdown, HTML, text, and download fallback views
+together. `diagram/` owns the editor, creation tool, semantic operations,
+canvas conversion, provider calls, and draft contracts. A plugin can render
+content without referencing a library item. Publication support and creation
+tools are optional registrations. These are trusted modules in one renderer.
+Untrusted published HTML retains its separate iframe restrictions.
+
+`plugins/registry.ts` registers process-independent saved-state validators.
+`registry.renderer.ts` registers views and tools; `registry.main.ts` registers
+main handlers. Main validates callers before invoking those handlers. Plugins
+use shared contracts and host operations. Lint rejects imports between plugin
+implementations and imports of registries from inside a plugin.
+
+`plugins/events.ts` defines validated domain events. A tab emits through its
+context, and the router attaches its tab and group IDs. Other open tabs in
+the same group receive matching subscriptions; the sender receives no echo.
+Host subscribers can observe all groups. Subscription cleanup and membership
+checks prevent delivery to closed tabs. Listener failures do not stop other
+listeners. Event payloads are neither persisted nor replayed.
+
+The renderer saves current membership before forwarding an event through
+named IPC. Main validates the envelope against saved open tabs before invoking
+its `onTabEvent` subscribers. Saving documents and other operations that need
+a result use named async operations. Event delivery does not acknowledge a
+listener's work. New tabs load current state through library or plugin queries.
+
+## CLI and forwarding
 
 `packages/cli` detects file kinds, gathers inexpensive provenance, and publishes
 through the protocol client. It does not read transcripts or launch agents.
@@ -123,7 +165,7 @@ HTML runs in an iframe with scripts, same-origin access, forms, popups,
 nested frames, and external resources blocked. Markdown omits raw HTML and
 replaces links and images with text. Downloads use a save dialog in main.
 
-OpenRouter is the diagram provider, using the model in `diagram/provider-settings.ts`. The
+OpenRouter is the diagram provider, using the model in `plugins/diagram/provider-settings.ts`. The
 settings form submits a new key to main and clears the input after saving.
 Main stores the key in a profile-specific macOS Keychain entry and returns
 only presence or an access error. Linux and isolated development sessions

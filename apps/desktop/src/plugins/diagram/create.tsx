@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
-import { emptyScene } from "../diagram/contract.ts";
-import { Button } from "./components/ui/button.tsx";
-import { Input } from "./components/ui/input.tsx";
-import { Textarea } from "./components/ui/textarea.tsx";
+import { emptyScene } from "./contract.ts";
+import { Button } from "../../renderer/components/ui/button.tsx";
+import { Input } from "../../renderer/components/ui/input.tsx";
+import { Textarea } from "../../renderer/components/ui/textarea.tsx";
 
 export function CreateDiagram({
   onCreated,
@@ -31,8 +31,8 @@ export function CreateDiagram({
       const result = await window.scope.generateDiagram({ intent, scene: emptyScene() });
       if (!active.current) return;
       const [{ applyOperations }, { renderScene }, { serializeAsJSON }] = await Promise.all([
-        import("../diagram/scene.ts"),
-        import("../diagram/canvas.ts"),
+        import("./scene.ts"),
+        import("./canvas.ts"),
         import("@excalidraw/excalidraw"),
       ]);
       const elements = renderScene(applyOperations(emptyScene(), result.operations));

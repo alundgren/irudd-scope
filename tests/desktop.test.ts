@@ -34,6 +34,9 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     await page.getByLabel("Appearance", { exact: true }).selectOption("dark");
     await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe("dark");
     await page.getByRole("button", { name: "Done", exact: true }).click();
+    await expect
+      .poll(() => page.locator('[data-slot="dialog-content"]').count(), { timeout: 5000 })
+      .toBe(0);
     await page.getByRole("button", { name: "Create diagram", exact: true }).click();
     await page.getByLabel("What should the diagram show?").fill("A browser talks to an API.");
     await page.getByRole("button", { name: "Create diagram", exact: true }).click();
