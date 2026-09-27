@@ -1,6 +1,7 @@
 import type { Artifact } from "@irudd-scope/protocol";
 import type { SettingsUpdate, SettingsView, Workspace } from "./settings.ts";
 import type { DiagramRequest, DrawingResult } from "./diagram/contract.ts";
+import type { DiagramDraft } from "./diagram/draft.ts";
 
 export type Snapshot = {
   artifacts: Artifact[];
@@ -13,6 +14,9 @@ export type ScopeBridge = {
   saveSettings: (input: SettingsUpdate) => Promise<SettingsView>;
   workspace: () => Promise<Workspace | null>;
   saveWorkspace: (input: Workspace) => Promise<void>;
+  diagramDraft: (id: string) => Promise<DiagramDraft | null>;
+  saveDiagramDraft: (id: string, draft: DiagramDraft) => Promise<void>;
+  onBeforeClose: (listener: () => Promise<void>) => () => void;
   snapshot: () => Promise<Snapshot>;
   content: (id: string, revision: number) => Promise<ArtifactContent>;
   download: (id: string, revision: number) => Promise<boolean>;

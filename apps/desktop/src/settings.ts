@@ -4,13 +4,17 @@ import { Effect, ManagedRuntime, Schema } from "effect";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { ArtifactId, decode } from "@irudd-scope/protocol";
 import { memoryCredentials, type CredentialStore, type Secrets } from "./credentials.ts";
+import { DiagramDraft } from "./diagram/draft.ts";
 
 export const MODEL = "google/gemini-3.8-flash";
+export const Appearance = Schema.Literals(["system", "light", "dark"]);
+export type Appearance = typeof Appearance.Type;
 export const ProviderSettings = Schema.Struct({
   provider: Schema.Literal("openrouter"),
   model: Schema.Literal(MODEL),
 });
 export const SettingsUpdate = Schema.Struct({
+  appearance: Schema.optionalKey(Appearance),
   apiKey: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096))),
   removeApiKey: Schema.optionalKey(Schema.Boolean),
   provider: Schema.optionalKey(Schema.Literal("openrouter")),
@@ -25,6 +29,7 @@ export function decodeSettingsUpdate(value: unknown): SettingsUpdate {
   }
 }
 export type SettingsView = {
+  appearance: Appearance;
   provider: "openrouter";
   model: typeof MODEL;
   hasApiKey: boolean;
@@ -34,10 +39,12 @@ export type SettingsView = {
 export const Workspace = Schema.Struct({
   tabs: Schema.Array(ArtifactId).check(Schema.isMaxLength(100)),
   selected: Schema.NullOr(ArtifactId),
+  closed: Schema.optionalKey(Schema.Array(ArtifactId)),
 });
 export type Workspace = typeof Workspace.Type;
 const SavedSettings = Schema.Struct({
   version: Schema.Literal(2),
+  appearance: Schema.optionalKey(Appearance),
   provider: Schema.Literal("openrouter"),
   model: Schema.Literal(MODEL),
 });
@@ -78,7 +85,7 @@ export class SettingsStore {
       const [{ user_version: version }] = await this.run(
         sql<{ user_version: number }>`PRAGMA user_version`,
       );
-      if (version > 2) throw new Error("The desktop database requires a newer Scope version.");
+      if (version > 3) throw new Error("The desktop database requires a newer Scope version.");
       await this.run(
         sql`CREATE TABLE IF NOT EXISTS preferences (
           name TEXT PRIMARY KEY, document TEXT NOT NULL CHECK (json_valid(document))
@@ -90,7 +97,12 @@ export class SettingsStore {
       let legacy: string | null = null;
       if (row) {
         const saved = decode(LegacySettings, JSON.parse(row.document));
-        this.saved = { version: 2, provider: saved.provider, model: saved.model };
+        this.saved = {
+          version: 2,
+          provider: saved.provider,
+          model: saved.model,
+          appearance: saved.appearance ?? "system",
+        };
       } else {
         legacy = await readFile(join(this.directory, "settings.json"), "utf8").catch(
           (error: unknown) => {
@@ -114,6 +126,7 @@ export class SettingsStore {
             version: 2,
             provider: old.provider,
             model: old.model,
+            appearance: old.appearance ?? "system",
           };
         }
       }
@@ -123,7 +136,11 @@ export class SettingsStore {
           Effect.gen(function* () {
             yield* sql`INSERT INTO preferences(name, document) VALUES ('settings', ${document})
               ON CONFLICT(name) DO UPDATE SET document = excluded.document`;
-            yield* sql`PRAGMA user_version = 2`;
+            yield* sql`CREATE TABLE IF NOT EXISTS diagram_drafts (
+              artifact_id TEXT PRIMARY KEY,
+              document TEXT NOT NULL CHECK (json_valid(document))
+            ) STRICT`;
+            yield* sql`PRAGMA user_version = 3`;
           }),
         ),
       );
@@ -154,6 +171,7 @@ export class SettingsStore {
 
   view(): SettingsView {
     return {
+      appearance: this.saved.appearance ?? "system",
       provider: this.saved.provider,
       model: this.saved.model,
       ...this.presence,
@@ -179,6 +197,7 @@ export class SettingsStore {
     return this.enqueue(async () => {
       const input = decodeSettingsUpdate(value);
       const next = { ...this.saved };
+      if (input.appearance !== undefined) next.appearance = input.appearance;
       if (input.removeApiKey && input.apiKey)
         throw new Error("Choose either replacing or removing the key.");
       if (input.apiKey !== undefined || input.removeApiKey) {
@@ -202,6 +221,7 @@ export class SettingsStore {
   }
 
   async workspace(): Promise<Workspace | null> {
+    await this.pending;
     const [row] = await this.run(
       this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'workspace'`,
     );
@@ -212,6 +232,8 @@ export class SettingsStore {
     const workspace = decode(Workspace, value);
     if (
       new Set(workspace.tabs).size !== workspace.tabs.length ||
+      new Set(workspace.closed ?? []).size !== (workspace.closed?.length ?? 0) ||
+      workspace.closed?.some((id) => workspace.tabs.includes(id)) ||
       (workspace.selected !== null && !workspace.tabs.includes(workspace.selected))
     )
       throw new Error("Invalid workspace selection.");
@@ -219,6 +241,27 @@ export class SettingsStore {
       await this.run(this
         .sql!`INSERT INTO preferences(name, document) VALUES ('workspace', ${JSON.stringify(workspace)})
         ON CONFLICT(name) DO UPDATE SET document = excluded.document`);
+    });
+  }
+
+  async diagramDraft(value: unknown): Promise<DiagramDraft | null> {
+    const id = decode(ArtifactId, value);
+    await this.pending;
+    const [row] = await this.run(
+      this.sql!<{
+        document: string;
+      }>`SELECT document FROM diagram_drafts WHERE artifact_id = ${id}`,
+    );
+    return row ? decode(DiagramDraft, JSON.parse(row.document)) : null;
+  }
+
+  saveDiagramDraft(artifactId: unknown, value: unknown): Promise<void> {
+    const id = decode(ArtifactId, artifactId);
+    const draft = decode(DiagramDraft, value);
+    return this.enqueue(async () => {
+      await this.run(this
+        .sql!`INSERT INTO diagram_drafts(artifact_id, document) VALUES (${id}, ${JSON.stringify(draft)})
+        ON CONFLICT(artifact_id) DO UPDATE SET document = excluded.document`);
     });
   }
 

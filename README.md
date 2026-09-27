@@ -19,6 +19,6 @@ vp run ready
 
 The project pins Node and pnpm through Vite+. Linux supports development and testing. macOS is the desktop deployment target.
 
-See [development and launch commands](docs/development.md), [architecture](docs/architecture.md), [protocol](packages/protocol/README.md), [technology choices and alternatives](docs/technology.md), and [UI decisions](ux.md). The [visual prototype brief](docs/visual-prototype-brief.md) is a self-contained task for a design agent.
+See [development and launch commands](docs/development.md), [architecture](docs/architecture.md), [protocol](packages/protocol/README.md), [technology choices and alternatives](docs/technology.md), and [UI decisions](ux.md). The [visual reference](docs/excalidraw-style-study.md) shows the selected design. Use the repo [UX guidance skill](.agents/skills/ux-guidance/SKILL.md) for UI work.
 
 MIT licensed.

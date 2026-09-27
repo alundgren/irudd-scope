@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { SettingsStore, MODEL } from "../apps/desktop/src/settings.ts";
+import type { DiagramDraft } from "../apps/desktop/src/diagram/draft.ts";
 import {
   memoryCredentials,
   type CredentialStore,
@@ -22,6 +23,57 @@ function documents(directory: string): string {
   }
 }
 
+test("diagram working data survives closing every tab and reopening the SQLite store", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "scope-drafts-"));
+  const store = new SettingsStore(directory);
+  const reopened = new SettingsStore(directory);
+  const draft: DiagramDraft = {
+    version: 1,
+    content: JSON.stringify({ type: "excalidraw", elements: [], files: {} }),
+    revision: 4,
+    dirty: true,
+    messages: [
+      { role: "user", text: "Move the API" },
+      { role: "assistant", text: "Moved it." },
+    ],
+    intent: "Keep this unfinished prompt",
+    chatOpen: true,
+    viewport: { zoom: 0.75, scrollX: 120, scrollY: -50 },
+  };
+  try {
+    await store.load();
+    expect(await store.diagramDraft("architecture")).toBeNull();
+    await store.saveDiagramDraft("architecture", draft);
+    await store.saveWorkspace({ tabs: [], selected: null, closed: ["architecture"] });
+    expect(() =>
+      store.saveDiagramDraft("architecture", {
+        ...draft,
+        viewport: { ...draft.viewport, zoom: -1 },
+      }),
+    ).toThrow();
+    expect(() =>
+      store.saveWorkspace({
+        tabs: ["architecture"],
+        selected: "architecture",
+        closed: ["architecture"],
+      }),
+    ).toThrow();
+    await store.close();
+    await reopened.load();
+    expect(await reopened.diagramDraft("architecture")).toEqual(draft);
+    expect(await reopened.workspace()).toEqual({
+      tabs: [],
+      selected: null,
+      closed: ["architecture"],
+    });
+    expect(await readdir(directory)).not.toContain("settings.json");
+  } finally {
+    await store.close();
+    await reopened.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("ordinary settings and tabs reopen from SQLite while credentials stay exclusively in the credential store", async () => {
   const directory = await mkdtemp(join(tmpdir(), "scope-settings-"));
   const credentials = fakeKeychain();
@@ -32,6 +84,7 @@ test("ordinary settings and tabs reopen from SQLite while credentials stay exclu
     const secret = "synthetic-provider-secret";
     const view = await settings.update({
       apiKey: secret,
+      appearance: "dark",
     });
     await settings.saveWorkspace({ tabs: ["architecture", "review"], selected: "review" });
     expect(view).toMatchObject({ hasApiKey: true, keyStorage: "keychain" });
@@ -44,6 +97,7 @@ test("ordinary settings and tabs reopen from SQLite while credentials stay exclu
     await settings.close();
     reopened = new SettingsStore(directory, credentials);
     await reopened.load();
+    expect(reopened.view().appearance).toBe("dark");
     expect(await reopened.workspace()).toEqual({
       tabs: ["architecture", "review"],
       selected: "review",
@@ -178,6 +232,7 @@ test("existing SQLite preferences retain tabs and provider credentials while dis
     await credentials.write({ apiKey: "existing-provider-key" });
     await settings.load();
     expect(await settings.workspace()).toEqual(workspace);
+    expect(settings.view().appearance).toBe("system");
     expect(await settings.secret("apiKey")).toBe("existing-provider-key");
     expect(documents(directory)).not.toContain("endpoint");
     expect(settings.view()).not.toHaveProperty("hasHubToken");

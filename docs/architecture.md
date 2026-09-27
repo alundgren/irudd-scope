@@ -44,6 +44,8 @@ Optional provenance fields are absent when unknown. Missing information must not
 
 SSE announces changes. Clients reconcile the current artifact list on connection and reconnection. Stored artifacts survive a missed event and a desktop restart. The stream is a notification channel, not the durable archive.
 
+Desktop preferences and diagram working data live in `desktop.db`. Each diagram draft retains its base artifact revision, working canvas, conversation, unsent prompt, panel state, and zoom and pan. Saving publishes an artifact revision; automatic draft writes do not publish. The renderer flushes pending workspace writes before the main process closes SQLite. Closing a tab retains the draft and conversation for reopening. Automatic cleanup of closed tabs is future work.
+
 ## Desktop security and providers
 
 Agent HTML is untrusted. Preview it in a sandboxed iframe with no scripts, same-origin permission, forms, popups, parent access, or external network access. Do not load it as a privileged Electron page. Downloads use an explicit save dialog in main.
@@ -56,10 +58,10 @@ Linux development and isolated sessions using `SCOPE_SESSION_CREDENTIALS=1` keep
 
 Diagram generation accepts intent and a compact semantic scene and returns validated semantic drawing operations plus usage. `apps/desktop/src/diagram/contract.ts` owns `DiagramProvider`; `openrouter.ts` owns OpenRouter's wire format. The renderer translates validated operations into Excalidraw elements. Future local Codex and Claude CLI providers implement that same narrow task contract inside desktop main. They must not become a generic execution API. Provider choice is not part of the artifact transport.
 
-The Create diagram tool and an existing diagram's change field invoke this provider. Generation is explicit, with one request at a time and a cancel action. The desktop does not accept remote generation jobs. Agents can publish a finished `.excalidraw` file immediately; a CLI command that delegates generation to the open Mac app is later work.
+The Create diagram tool and an existing diagram's optional conversation invoke this provider. Generation is explicit, with one request at a time and a cancel action. The desktop does not accept remote generation jobs. Agents can publish a finished `.excalidraw` file immediately; a CLI command that delegates generation to the open Mac app is later work.
 
 ## Delivery boundaries
 
 The current implementation supports text/Markdown, image, static HTML, file, and Excalidraw publication through CLI and desktop, including stable updates, SSE, persistence, and provider settings. The optional hub forwards the same API. Editable Excalidraw and the explicit diagram tool use validated semantic operations and a canvas adapter. Optional provider-neutral observation of tool-call sizes and session analysis are planned. Retain raw provider details where normalization would lose information.
 
-No MCP, agent orchestration, remote commands, accounts, public ingestion, collaboration server, transcript archive, or plugin system is needed for this implementation. The visual design is described separately in the prototype brief.
+No MCP, agent orchestration, remote commands, accounts, public ingestion, collaboration server, transcript archive, or plugin system is needed for this implementation. The selected desktop design and shared token ownership are described in [UI decisions](../ux.md).

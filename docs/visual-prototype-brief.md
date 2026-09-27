@@ -1,50 +1,17 @@
-# Visual prototype brief for irudd-scope
+# Visual prototype coverage
 
-Create interactive visual prototypes for the main desktop screen and tab navigation of `irudd-scope`. This is a design exploration. The working application contains a CLI, Electron storage and rendering, and an optional forwarding hub. Use synthetic local data and mock actions. Do not connect a backend, use real keys, call models, install hooks, or launch agents.
+The compact design in the [visual reference](excalidraw-style-study.md) is selected. Extend the [existing specimen](mockups/appearance-study.html) using the [repo UX guidance](../.agents/skills/ux-guidance/SKILL.md) and shared desktop tokens.
 
-## Product
+Use synthetic local data and mock actions. Keep the specimen independent of credentials, model calls, hooks, and backend services. It demonstrates appearance and interaction; the desktop remains the implementation to validate. Preserve the bundled resource notices.
 
-Coding agents leave artifacts for one human to inspect. Codex and Claude run on a Mac and Ubuntu VM. The CLI publishes into the desktop app on the Mac. The app owns SQLite databases for artifacts, settings, and workspace preferences. Publishing requires Scope to be running on an awake Mac. An optional remote hub forwards requests and fails when the desktop is unavailable. The human opens Scope on the Mac to inspect, interact with, download, or edit an artifact. Scope does not run coding sessions. A diagram can have its own conversation with the configured drawing agent.
+When extending a flow, demonstrate the states it needs:
 
-The central item is an artifact with a stable identity. Tabs are views of artifacts. Artifacts can update in place, and closing a tab must not delete the artifact. Supported content includes Markdown or text, an image, a static HTML preview, a downloadable file, and an editable Excalidraw diagram.
+- Open, switch, close, and reopen artifacts, including twelve tabs, long titles, and a narrow window.
+- Search artifacts, tools, and specific settings. Show empty results and a keyboard path.
+- Receive a new artifact or revision without changing selection. Protect unsaved diagram edits with a visible conflict choice.
+- Enter and exit focus without losing position or drafts. Keep the exit clear of editor controls.
+- Open and close diagram conversation, submit and cancel, and preserve it across navigation.
+- Add, replace, remove, and fail to save a fake key. Never send or persist the entered value.
+- Show empty and unavailable-library states with useful actions, plus Markdown, images, isolated HTML, files, and editable diagrams at useful sizes.
 
-Session observation is optional and less prominent. Leave room for manually adding a session tab and finding a session-analysis tool through search. Future Codex and Claude adapters observe tool-call sizes. No hooks or sessions are required for ordinary use.
-
-## Main design problem
-
-Give the selected content as much space as possible. Explore two or three meaningfully different ways to navigate artifacts and optional tool tabs. Compare behavior and space use, not just colors. Do not build a dashboard of cards or reserve a wide permanent sidebar.
-
-Include a focus mode where content uses the whole window except a tiny visible way back. Support Escape. Exiting must preserve the active artifact and its scroll or zoom. Keep the exit usable without covering important diagram controls.
-
-The app is Mac-first. Browser prototypes on Linux are fine. Work with React, TypeScript, Vite+ `1.0.0-rc.1`, shadcn/ui and Tailwind 4 where practical. Use current stable or RC dependencies, not beta/nightly builds. The house visual style does not apply. Choose a visual language for this product and record actual color, typography, spacing, and focus tokens.
-
-## Content and interactions to demonstrate
-
-Use realistic titles and data, such as `Architecture`, `Checkout layout`, `Retry-loop finding`, `Benchmark results`, `build.zip`, and `Background processing`. Provenance may include Claude or Codex, a host, repository, branch, and age. Show it on demand without permanently shrinking the artifact. Missing provenance is valid.
-
-- Open, switch, close, and reopen an artifact. Closing a view and deleting content are different actions.
-- Search artifacts and tools. Include optional session inspection and session analysis in tool results, without making them a default landing page.
-- Handle twelve or more tabs, long titles, and a narrow desktop window. Include a sensible keyboard path.
-- Receive a new artifact while reading another. Indicate the arrival without changing selection.
-- Update an existing artifact in place. Show a small change indication. Show how an edited diagram handles an incoming update without silently discarding work.
-- Enter and exit focus mode, preserving position.
-- Open a diagram's Ask agent panel from the right, send follow-up changes, cancel a pending reply, and close it to recover canvas space. Preserve its conversation, draft, and canvas position across tab changes and focus mode. Use clearly identified mock replies without a model connection.
-- Show an empty workspace with a useful publication example and no required hook setup.
-- Show local storage starting and a recoverable read error while already loaded content remains inspectable.
-- Show an image, Markdown, HTML preview, file download, and diagram at useful sizes. Static HTML is isolated and cannot access app APIs. Do not make arbitrary web-app hosting part of the concept.
-
-## Settings
-
-Put Search and Settings directly in the workspace menu. Open Settings with its search field focused above the controls. Filter by setting names and related terms. Include empty results and a clear-search action. Global search should also find individual settings and open the matching controls.
-
-Include a settings view with a provider selector. The only enabled provider is OpenRouter. Its model selector initially contains only Gemini 3.8 Flash, with API ID `google/gemini-3.8-flash` available in a secondary detail if useful.
-
-Include a masked key-entry field and saved, replace, remove, and failure states. The provider key is stored directly in macOS Keychain by Electron main. Ordinary settings live in SQLite. Display only saved status, never reveal a stored key. Use fake data in prototypes. Model calls run on the Mac only while Scope is open, which is intended behavior.
-
-Leave conceptual room for local Codex and Claude CLI providers later, without cluttering the first version with disabled settings or suggesting those integrations work already. Local use has no hub URL or token form. Remote forwarding is optional and configured outside the desktop UI.
-
-## Deliverables
-
-Provide runnable interactive prototypes, a small navigation between the alternatives, screenshots at laptop and large-window sizes, and a short recommendation explaining the space and interaction tradeoffs. Document the chosen tokens and important keyboard behavior. Include a test checklist for the states above. Keep mock data clearly separate from app integration.
-
-Do not add a backend, database, authentication system, general coding-agent chat, orchestration, model abstraction framework, or final production Electron packaging. Diagram chat is a mock interaction within its artifact. Do not publish a public preview. A private tailnet preview can be set up when requested.
+Keep mock labels consistent with [architecture](architecture.md): the desktop owns artifacts and publication requires Scope to be running on an awake Mac. Optional session tools and future providers must not look implemented in the live app.

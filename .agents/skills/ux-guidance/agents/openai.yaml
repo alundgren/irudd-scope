@@ -1,0 +1,4 @@
+interface:
+  display_name: "Scope UX guidance"
+  short_description: "Design and review Scope's desktop interface"
+  default_prompt: "Use $ux-guidance to implement this Scope UI change using the selected design and shared tokens."

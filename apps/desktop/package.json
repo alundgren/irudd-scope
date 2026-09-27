@@ -13,7 +13,6 @@
     "@base-ui/react": "catalog:",
     "@effect/sql-sqlite-node": "catalog:",
     "@excalidraw/excalidraw": "catalog:",
-    "@fontsource-variable/geist": "catalog:",
     "@irudd-scope/protocol": "workspace:*",
     "@napi-rs/keyring": "catalog:",
     "class-variance-authority": "catalog:",

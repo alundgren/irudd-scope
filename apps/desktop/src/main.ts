@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  nativeTheme,
   protocol,
   safeStorage,
   session,
@@ -19,6 +20,7 @@ import { SettingsStore, decodeSettingsUpdate } from "./settings.ts";
 import { macCredentials, memoryCredentials } from "./credentials.ts";
 import type { ArtifactContent, Snapshot } from "./bridge.ts";
 import { DiagramRequest } from "./diagram/contract.ts";
+import { DiagramDraft } from "./diagram/draft.ts";
 import { openRouterProvider } from "./diagram/openrouter.ts";
 import { startLocalArtifacts } from "./artifacts/local.ts";
 
@@ -43,6 +45,7 @@ async function main() {
       : undefined,
   );
   await settings.load();
+  nativeTheme.themeSource = settings.view().appearance;
   const artifacts = await startLocalArtifacts({
     directory: process.env.SCOPE_DATA_DIR ?? join(app.getPath("userData"), "artifacts"),
     connectionFile: process.env.SCOPE_CONNECTION_FILE ?? join(homedir(), DEFAULT_CONNECTION_FILE),
@@ -58,23 +61,53 @@ async function main() {
   let window: BrowserWindow | undefined;
   let closing = false;
   let closed = false;
-  app.on("before-quit", (event) => {
+  let closeReady: ((saved: boolean) => void) | undefined;
+  async function close() {
+    if (closing || closed) return;
+    closing = true;
+    drawing?.abort();
+    if (window && !window.isDestroyed()) {
+      const saved = await new Promise<boolean>((done) => {
+        const timer = setTimeout(() => {
+          closeReady = undefined;
+          done(false);
+        }, 10_000);
+        closeReady = (value) => {
+          clearTimeout(timer);
+          closeReady = undefined;
+          done(value);
+        };
+        window!.webContents.send("scope:before-close");
+      });
+      if (!saved) {
+        const answer = await dialog.showMessageBox(window, {
+          type: "warning",
+          message: "Scope could not save the workspace.",
+          detail: "Keep the window open to retry, or quit without the latest changes.",
+          buttons: ["Keep open", "Quit without saving"],
+          defaultId: 0,
+          cancelId: 0,
+        });
+        if (answer.response === 0) {
+          closing = false;
+          return;
+        }
+      }
+    }
+    connection?.abort();
+    await Promise.all([artifacts.close(), settings.close()]);
+    closed = true;
+    app.quit();
+  }
+  function requestClose(event: { preventDefault: () => void }) {
     if (closed) return;
     event.preventDefault();
-    if (closing) return;
-    closing = true;
-    connection?.abort();
-    drawing?.abort();
-    void Promise.all([artifacts.close(), settings.close()])
-      .then(() => {
-        closed = true;
-        app.quit();
-      })
-      .catch(() => {
-        console.error("Scope could not close its databases.");
-        app.exit(1);
-      });
-  });
+    void close().catch(() => {
+      console.error("Scope could not close its databases.");
+      app.exit(1);
+    });
+  }
+  app.on("before-quit", requestClose);
   app.on("second-instance", () => {
     if (!window || window.isDestroyed()) return;
     if (window.isMinimized()) window.restore();
@@ -168,7 +201,20 @@ async function main() {
   handle("scope:settings", () => settings.view());
   handle("scope:workspace", () => settings.workspace());
   handle("scope:save-workspace", (input) => settings.saveWorkspace(input));
-  handle("scope:save-settings", (input) => settings.update(decodeSettingsUpdate(input)));
+  handle("scope:diagram-draft", (input) => settings.diagramDraft(input));
+  const SaveDraft = Schema.Struct({ id: ArtifactId, draft: DiagramDraft });
+  handle("scope:save-diagram-draft", (input) => {
+    const { id, draft } = decode(SaveDraft, input);
+    return settings.saveDiagramDraft(id, draft);
+  });
+  handle("scope:close-ready", (input) => {
+    closeReady?.(decode(Schema.Boolean, input));
+  });
+  handle("scope:save-settings", async (input) => {
+    const result = await settings.update(decodeSettingsUpdate(input));
+    nativeTheme.themeSource = result.appearance;
+    return result;
+  });
   handle("scope:snapshot", () => current);
   handle("scope:compose", async (input) => {
     if (drawing) throw new Error("A diagram request is already running.");
@@ -304,7 +350,7 @@ async function main() {
       minHeight: 480,
       title: "Scope",
       icon,
-      backgroundColor: "#ffffff",
+      show: false,
       webPreferences: {
         preload: fileURLToPath(new URL("./preload.cjs", import.meta.url)),
         sandbox: true,
@@ -315,8 +361,10 @@ async function main() {
       },
     });
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    window.on("close", requestClose);
     window.webContents.on("will-navigate", (event) => event.preventDefault());
     window.webContents.on("will-attach-webview", (event) => event.preventDefault());
+    window.once("ready-to-show", () => window?.show());
     void window.loadURL("scope://app/index.html");
   }
   createWindow();
