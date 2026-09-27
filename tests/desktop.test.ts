@@ -229,7 +229,10 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
         1,
       );
       database.exec("DROP TRIGGER fail_draft; DROP TRIGGER fail_close");
-      await page.getByRole("button", { name: "Retry", exact: true }).click();
+      // Autosave can recover before the retry button receives a pointer click.
+      await page.getByRole("button", { name: "Retry", exact: true }).evaluateAll((buttons) => {
+        for (const button of buttons) (button as HTMLButtonElement).click();
+      });
       await page
         .getByText("Could not save this draft on your Mac. Keep Scope open and retry.")
         .waitFor({ state: "hidden" });
@@ -238,6 +241,7 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     }
     await page.getByRole("button", { name: "Dismiss error" }).click();
     const currentDraft = await page.evaluate((id) => window.scope.diagramDraft(id), tabId);
+    expect(currentDraft?.intent).toBe("Keep this prompt through a failure");
     expect(JSON.parse(currentDraft!.content).elements).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: "agent:api", x: 620 })]),
     );
