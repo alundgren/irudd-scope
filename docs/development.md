@@ -18,10 +18,20 @@ manifests, catalog, and lockfile together through Vite+.
 
 ## Validation and tests
 
-`vp run ready` builds the CLI, hub, and desktop, runs `vp check`, then runs the
-tests. [CI](../.github/workflows/check.yml) uses that same command. It must pass
-before completion and every push, including documentation changes. Validation
-does not rewrite source or the lockfile. Do not install validation hooks.
+`vp run ready` builds the CLI, hub, and desktop, runs `vp run check`, then runs
+the tests. The check script verifies formatting, lint, and types with compact
+lint diagnostics. [CI](../.github/workflows/check.yml) uses that same command. It must pass
+on the finished changes before completion and every push, including the first
+push and documentation changes. Further edits require another successful run
+before completion or pushing. CI after a push does not replace this local check.
+Validation does not rewrite source or the lockfile. Do not install validation hooks.
+
+Keep successful tests quiet. The minimal reporter prints totals without listing
+passing tests and shows console logs only for failures. The display runner also
+holds Xvfb diagnostics unless the run fails. For detailed investigation, use
+`vp run test --reporter=verbose --silent=false`.
+Preserve failed exit codes and useful failure diagnostics. Keep successful
+validation output brief and distinguish meaningful advisories from failed checks.
 
 Vite+ owns formatting, lint, and TypeScript checks through
 [vite.config.ts](../vite.config.ts). Formatting uses Oxfmt defaults. Lint uses
@@ -34,17 +44,43 @@ Apply corrections explicitly with `vp check --fix`, inspect the diff, then
 run `vp run ready` again. Naming, ownership, and documentation accuracy remain
 review responsibilities.
 
+Oxlint warns when cyclomatic complexity exceeds 10, a JavaScript or TypeScript
+file exceeds 500 lines, or a function exceeds 150 lines. Line counts exclude
+blank and comment-only lines. These are review prompts and never fail the
+standard checks. Required lint errors, type errors, and formatting failures
+still fail. Keep the advisories visible and separate from failures; do not add
+`--quiet`, `--deny-warnings`, or a warning limit to the standard check.
+
+Simplify when it improves understanding. Keep related code together when
+splitting would add indirection. Generated code, state machines, and complete
+test scenarios can justify a warning. Explain material retained complexity in
+the PR's Evidence section. Do not split code or suppress findings just to lower
+a count. The thresholds belong in `vite.config.ts`.
+
+Use `vp run check` for compact output, `vp lint --format=unix` for lint and type
+diagnostics, or `vp check` when source context helps investigate a finding.
+
 Tests import from `vite-plus/test`. Prefer tests in this order:
 
-1. User outcomes through the built CLI and real Electron.
-2. Integration tests for storage, forwarding, provider responses, and failures.
-3. Pure unit tests where isolated rules need focused evidence.
+1. Complete outcomes through actual entry points: the built CLI, real Electron
+   flows, or a library's public API.
+2. Integration or component tests for collaborating parts and useful failures.
+3. Unit tests for isolated logic where that is the useful place to verify it.
 
-Derive expected results from intended behavior and contracts. Verify what
+Derive expected results from requirements, domain facts, and intended contracts. Verify what
 users can observe, such as content after restart or preserved edits after a
-conflict. Avoid assertions about private helper calls, file lists, incidental
-ordering, or today's output alone. Do not duplicate every assertion at each
-level. Test counts and coverage percentages are not goals.
+conflict. Regression tests protect those contracts, not private helper calls,
+source layout, incidental ordering, or today's output alone. A harmless refactor
+should not require widespread test rewrites. Files, ordering, and command arguments
+are valid assertions when the requirement depends on them, such as preserving
+unrelated installations or selecting only the requested skill and agents.
+
+Use real collaborating components where practical and isolate external systems
+for repeatable standard checks. A UI test with replaced IPC handlers establishes
+renderer behavior; it does not prove the real installation or update flow.
+Add focused tests when they catch meaningful failures or improve diagnosis.
+Do not duplicate every assertion at each level. Test counts and coverage
+percentages are not goals.
 
 Keep tests and small synthetic fixtures in `tests/`, where publication tests
 can exercise multiple owners. Name tests for the responsibility they verify.
@@ -53,6 +89,10 @@ and synthetic provider responses. Standard tests need no credentials, live
 models, or production data. Cleanup must close processes and databases and
 remove temporary data. Do not add application tests for prose-only edits;
 inspect changed text, links, and formatting instead.
+
+Choose additional evidence for the change's claims, such as the benchmark below
+for performance work. State what the evidence establishes and its limits in the
+PR. Passing standard checks does not replace the requested behavior.
 
 Linux Electron tests need a display and shared libraries. On Ubuntu install
 `xvfb libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2t64`. The test
@@ -64,7 +104,7 @@ After building, use focused checks while investigating a change:
 
 ```sh
 vp run build
-vp check
+vp run check
 vp run test tests/desktop.test.ts
 vp run test tests/artifacts.test.ts
 ```

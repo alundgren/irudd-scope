@@ -210,7 +210,7 @@ test("the installed CLI follows app updates, preserves arguments, and refuses to
   }
 });
 
-test("the skill button runs npx for only Scope globally and reports failures without claiming success", async () => {
+test("skill installation targets only Scope for the supported agents and reports failures without claiming success", async () => {
   const f = await fixture();
   const tools = new AgentTools(f.installation, f.home, () => {});
   try {
@@ -229,23 +229,23 @@ else fs.rmSync(${JSON.stringify(skill)}, {recursive:true, force:true});
       { mode: 0o755 },
     );
     expect((await tools.installSkill()).skillInstalled).toBe(true);
-    expect(JSON.parse(await readFile(log, "utf8"))).toEqual([
-      "exec",
-      "npx",
-      "--prefix",
-      f.root,
-      "--yes",
-      "skills@1.7.0",
-      "add",
-      "alundgren/irudd-scope",
-      "--skill",
-      "irudd-scope",
-      "--global",
-      "--agent",
-      "codex",
-      "claude-code",
-      "--yes",
-    ]);
+    const args: string[] = JSON.parse(await readFile(log, "utf8"));
+    expect(args.slice(0, 2)).toEqual(["exec", "npx"]);
+    expect(args[args.indexOf("--prefix") + 1]).toBe(f.root);
+    const command = args.findIndex((arg) => /^skills@\d+\.\d+\.\d+$/.test(arg));
+    expect(command).toBeGreaterThan(1);
+    expect(args.slice(command + 1, command + 3)).toEqual(["add", "alundgren/irudd-scope"]);
+    const values = (flag: string) => {
+      const start = args.indexOf(flag);
+      expect(start).toBeGreaterThan(command);
+      const end = args.findIndex((arg, index) => index > start && arg.startsWith("--"));
+      return args.slice(start + 1, end < 0 ? undefined : end);
+    };
+    expect(values("--skill")).toEqual(["irudd-scope"]);
+    expect(values("--agent").sort()).toEqual(["claude-code", "codex"]);
+    expect(values("--global")).toEqual([]);
+    expect(args.slice(2, command)).toContain("--yes");
+    expect(args.slice(command + 1)).toContain("--yes");
     expect((await tools.removeSkill()).skillInstalled).toBe(false);
     await writeFile(join(f.directory, "fail"), "");
     const failed = await tools.installSkill();

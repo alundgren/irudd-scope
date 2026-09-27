@@ -1,10 +1,12 @@
 import { expect, test } from "vite-plus/test";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { once } from "node:events";
 import { promisify } from "node:util";
 import { mkdir, mkdtemp, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
 
 const exec = promisify(execFile);
 
@@ -13,7 +15,6 @@ test("the standalone installer and CLI setup preserve existing Serve routes and 
   const root = join(directory, "installation");
   const bin = join(directory, "bin");
   const userDirectory = join(directory, "user");
-  const pidFile = join(directory, "hub.pid");
   const serveFile = join(directory, "serve.json");
   const local = createServer();
   await new Promise<void>((done) => local.listen(0, "127.0.0.1", done));
@@ -41,6 +42,36 @@ test("the standalone installer and CLI setup preserve existing Serve routes and 
     SCOPE_TOKEN: undefined,
     SCOPE_TOKEN_FILE: undefined,
   };
+  let hub: ReturnType<typeof spawn> | undefined;
+  let hubDiagnostics = "";
+  const stopHub = async () => {
+    if (hub && hub.exitCode === null && hub.signalCode === null) {
+      const closed = once(hub, "close");
+      hub.kill();
+      await closed;
+    }
+    hub = undefined;
+  };
+  // systemctl waits for the previous process to exit before starting its replacement.
+  const services = createHttpServer(async (request, response) => {
+    try {
+      const args: string[] = JSON.parse(decodeURIComponent(request.url!.slice(1)));
+      if (args.includes("stop") || args.includes("restart") || args.includes("--now"))
+        await stopHub();
+      if (args.includes("start") || args.includes("restart")) {
+        hub = spawn(join(root, "current/bin/irudd-scope-hub"), [], {
+          env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        for (const stream of [hub.stdout, hub.stderr])
+          stream!.on("data", (chunk: Buffer) => (hubDiagnostics += chunk.toString()));
+        await once(hub, "spawn");
+      }
+      response.end();
+    } catch (error) {
+      response.writeHead(500).end(String(error));
+    }
+  });
   const mock = async (name: string, source: string) =>
     writeFile(join(bin, name), `#!${process.execPath}\n${source}`, { mode: 0o755 });
   await mock(
@@ -65,22 +96,18 @@ else {
  fs.writeFileSync(file,JSON.stringify(config));
 }`,
   );
-  await mock(
-    "systemctl",
-    `
-const fs = require('node:fs');
-const {spawn} = require('node:child_process');
-const args=process.argv.slice(2), file=${JSON.stringify(pidFile)};
-if(args.includes('stop') || args.includes('restart') || args.includes('--now')) {
- if(fs.existsSync(file)) {try{process.kill(Number(fs.readFileSync(file,'utf8')),'SIGTERM');}catch{} fs.unlinkSync(file);}
-}
-if(args.includes('start') || args.includes('restart')) {
- const child=spawn(${JSON.stringify(join(root, "current/runtime/node"))},[${JSON.stringify(join(root, "current/hub/main.mjs"))},'run'],{env:process.env,detached:true,stdio:'ignore'});
- fs.writeFileSync(file,String(child.pid));child.unref();
-}`,
-  );
   const cli = (...args: string[]) => exec(join(bin, "irudd-scope"), args, { env, timeout: 30_000 });
   try {
+    services.listen(0, "127.0.0.1");
+    await once(services, "listening");
+    const servicePort = (services.address() as { port: number }).port;
+    await mock(
+      "systemctl",
+      `
+fetch('http://127.0.0.1:${servicePort}/'+encodeURIComponent(JSON.stringify(process.argv.slice(2))))
+ .then(async response => {if(!response.ok) throw new Error(await response.text());})
+ .catch(error => {console.error(error);process.exitCode=1;});`,
+    );
     await exec("bash", [resolve("install-cli.sh")], { env, timeout: 60_000 });
     expect((await cli("--help")).stdout).toContain("irudd-scope setup");
     if (process.platform !== "linux") {
@@ -135,13 +162,12 @@ if(args.includes('start') || args.includes('restart')) {
       code: "ENOENT",
     });
     expect((await cli("--help")).stdout).toContain("irudd-scope add");
+  } catch (error) {
+    console.error(hubDiagnostics);
+    throw error;
   } finally {
-    const pid = await readFile(pidFile, "utf8").catch(() => undefined);
-    if (pid) {
-      try {
-        process.kill(Number(pid), "SIGTERM");
-      } catch {}
-    }
+    await stopHub();
+    await new Promise<void>((done) => services.close(() => done()));
     await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);

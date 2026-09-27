@@ -11,8 +11,13 @@ export default defineConfig({
   fmt: {},
   lint: {
     jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
-    rules: { "vite-plus/prefer-vite-plus-imports": "error" },
-    options: { typeAware: true, typeCheck: true },
+    rules: {
+      "vite-plus/prefer-vite-plus-imports": "error",
+      complexity: ["warn", { max: 10 }],
+      "max-lines": ["warn", { max: 500, skipBlankLines: true, skipComments: true }],
+      "max-lines-per-function": ["warn", { max: 150, skipBlankLines: true, skipComments: true }],
+    },
+    options: { typeAware: true, typeCheck: true, denyWarnings: false },
     overrides: plugins.map((plugin) => ({
       files: [`apps/desktop/src/plugins/${plugin}/**`],
       rules: {
@@ -37,6 +42,10 @@ export default defineConfig({
       },
     })),
   },
-  test: { include: ["tests/**/*.test.ts"], testTimeout: 30_000 },
+  test: {
+    include: ["tests/**/*.test.ts"],
+    testTimeout: 30_000,
+    reporters: ["minimal"],
+  },
   run: { cache: false },
 });

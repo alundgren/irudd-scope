@@ -15,6 +15,14 @@ test("Settings finds agent tools and shows update progress, retry, and restart w
       "--id",
       "install-review",
     );
+    await page.getByRole("button", { name: "Search and controls" }).click();
+    await page
+      .getByRole("dialog", { name: "Search and controls", exact: true })
+      .getByRole("button", {
+        name: "Review with a long title that stays open during installation text",
+        exact: true,
+      })
+      .click();
     await page.getByText("Keep this artifact open", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByLabel("Search artifacts", { exact: true }).fill("cli");
