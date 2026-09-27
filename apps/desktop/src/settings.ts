@@ -165,7 +165,7 @@ export class SettingsStore {
       };
       this.credentialError = undefined;
     } catch {
-      this.credentialError = "Key status is unavailable. Unlock macOS Keychain and try again.";
+      this.credentialError = "Key status is unavailable. Save settings to request access again.";
     }
   }
 

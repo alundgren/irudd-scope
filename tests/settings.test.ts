@@ -198,6 +198,11 @@ test("a locked or failing Keychain remains visible and cannot silently remove a 
     expect(view.hasApiKey).toBe(true);
     expect(secrets.apiKey).toBe("existing-provider-key");
     await expect(settings.secret("apiKey")).rejects.toThrow("Keychain locked");
+    locked = false;
+    const retried = await settings.update({});
+    expect(retried.credentialError).toBeUndefined();
+    expect(retried.hasApiKey).toBe(true);
+    expect(await settings.secret("apiKey")).toBe("existing-provider-key");
   } finally {
     await settings.close();
     await rm(directory, { recursive: true, force: true });

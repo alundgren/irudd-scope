@@ -30,29 +30,40 @@ export function memoryCredentials(): CredentialStore {
 export async function macCredentials(directory: string): Promise<CredentialStore> {
   const { AsyncEntry } = await import("@napi-rs/keyring");
   const profile = createHash("sha256").update(directory).digest("hex");
-  const entry = new AsyncEntry("alundgren.irudd-scope", profile);
+  return keychainCredentials(new AsyncEntry("alundgren.irudd-scope", profile));
+}
+
+type KeychainEntry = {
+  getPassword: () => Promise<string | null | undefined>;
+  setPassword: (value: string) => Promise<void>;
+  deleteCredential: () => Promise<boolean>;
+};
+
+export function keychainCredentials(entry: KeychainEntry): CredentialStore {
   return {
     kind: "keychain",
     read: async () => {
+      let value: string | null | undefined;
       try {
-        const value = await entry.getPassword();
-        if (value === undefined) return {};
+        value = await entry.getPassword();
+      } catch (cause) {
+        throw new Error("Could not read Scope credentials from macOS Keychain.", { cause });
+      }
+      // The native binding returns null for a missing entry; its async types declare undefined.
+      if (value === null || value === undefined) return {};
+      try {
         const secrets = decode(LegacySecrets, JSON.parse(value));
         return secrets.apiKey === undefined ? {} : { apiKey: secrets.apiKey };
       } catch {
-        throw new Error(
-          "Cannot read Scope credentials. Unlock macOS Keychain and allow Scope access.",
-        );
+        throw new Error("Scope's saved Keychain entry has an invalid format.");
       }
     },
     write: async (secrets) => {
       try {
         if (secrets.apiKey) await entry.setPassword(JSON.stringify(decode(Secrets, secrets)));
         else await entry.deleteCredential();
-      } catch {
-        throw new Error(
-          "Cannot update Scope credentials in macOS Keychain. Unlock it and try again.",
-        );
+      } catch (cause) {
+        throw new Error("Could not update Scope credentials in macOS Keychain.", { cause });
       }
     },
   };
