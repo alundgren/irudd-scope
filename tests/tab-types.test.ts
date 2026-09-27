@@ -154,7 +154,11 @@ test("every existing tab view works in Electron through appearance, focus, close
       );
     }
     for (const appearance of ["light", "dark"] as const) {
-      await page.keyboard.press("ControlOrMeta+,");
+      await page.getByRole("button", { name: "Workspace menu", exact: true }).click();
+      await page
+        .getByRole("dialog", { name: "Workspace", exact: true })
+        .getByRole("button", { name: "Settings", exact: true })
+        .click();
       await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
       await page.getByRole("button", { name: "Done", exact: true }).click();
       await page.setViewportSize(
