@@ -166,31 +166,46 @@ The installer defaults to these locations:
 | `~/.local/share/irudd-scope/current`                | Link to the active build.                         |
 | `~/.local/share/irudd-scope/previous`               | Previous active build retained for recovery.      |
 | `~/.local/share/irudd-scope/prepared`               | Most recently prepared build.                     |
-| `~/Applications/Scope.app`                          | Link to the active app.                           |
+| `~/.local/share/irudd-scope/application`            | Link recording the installed app's location.      |
+| `~/Applications/Scope.app`                          | Complete app bundle for Finder and Spotlight.     |
 | `~/.local/bin/irudd-scope`                          | Optional CLI link installed from Settings.        |
 
 `SCOPE_INSTALL_ROOT` and `SCOPE_APPLICATIONS_DIR` select other installation
 and application directories. Both should be absolute paths writable by the
-current user. `SCOPE_VP` selects an existing absolute Vite+ executable path.
+current user. Keep the application directory outside the installation root.
+Updates reuse the application location recorded during installation.
+`SCOPE_VP` selects an existing absolute Vite+ executable path.
 The build records the installation root, Vite+ path, and commit in the app
 bundle so Finder launches can update without a terminal's PATH.
 
 Every installed-app startup checks `origin`'s `main` SHA. Unchanged commits
 need no dependency installation or build. A changed commit builds in a separate
 directory while the current app stays usable. Restart to update flushes
-workspace and draft writes before selecting the prepared app and relaunching.
+workspace and draft writes before replacing the Applications bundle and
+relaunching it. The replacement is copied in full before the installed app
+is moved, and activation errors restore the previous app and build links.
 If saving fails, Keep open leaves the current version active. Settings shows
 build output, cancellation, and retry. Update preparation has a 20-minute
 deadline; an interrupted build can be retried. Quitting stops build processes.
 Old builds are removed on startup, retaining the running, previous, and
-prepared versions. Development launches never auto-update.
+prepared versions. This retains one previous version for recovery, not a
+history of every update. The Applications bundle uses a copy-on-write clone
+where the filesystem supports it. Temporary replacement copies are removed
+after activation. Development launches never auto-update.
 
 Keep personal changes in a separate checkout. The installer refuses to
 overwrite edits in its managed clone or replace an unrelated `Scope.app`.
 A failed fetch or build leaves the active app in place. If a process was
 forcibly killed and no installation is still running, remove the
 `.install-lock` directory under the installation root before retrying.
+The same applies to `.activation-lock` if a bundle replacement was forcibly
+interrupted. If automatic restoration fails, the error reports where the
+previous app was retained for recovery.
 Re-running the installer reuses a completed build for the same commit.
+It also replaces the older managed `~/Applications/Scope.app` symlink with
+a complete bundle. Activation asks Spotlight to index the installed app;
+search results may take a moment to refresh. Indexing failure does not undo
+an otherwise successful installation.
 
 The CLI install button creates its link and adds `~/.local/bin` to the login
 profile for zsh or bash. It preserves existing commands at that path. Open a
@@ -206,7 +221,7 @@ errors remain visible with a retry through the same button.
 
 Use Remove CLI and Remove skill in Settings to undo those installations.
 The shared PATH entry stays in the shell profile. To remove the app, quit it
-and delete its link in `~/Applications` and its installation directory.
+and delete `~/Applications/Scope.app` and its installation directory.
 The artifact library, preferences, Keychain entry, and discovery file live
 separately and remain intact. See [storage](storage.md) before restoring an
 older app, since its database support may differ.

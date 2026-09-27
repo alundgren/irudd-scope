@@ -1,6 +1,17 @@
 import { expect, test } from "vite-plus/test";
 import { execFile } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -10,6 +21,7 @@ import {
   activateBuild,
   pointToBuild,
   pruneBuilds,
+  readInstallation,
   type Installation,
 } from "../apps/desktop/src/installation-files.ts";
 import { runInstallationCommand } from "../apps/desktop/src/installation-process.ts";
@@ -49,6 +61,7 @@ async function fixture() {
   await exec("git", ["clone", remote, join(root, "source")]);
   const vp = join(directory, "vp");
   const installation: Installation = { root, vp, commit: initial };
+  const application = join(home, "Applications/Scope.app");
   async function bundle(sha: string) {
     const build = join(root, "builds", sha);
     const app = join(build, "Scope.app/Contents/Resources/app");
@@ -68,12 +81,110 @@ async function fixture() {
       `console.log(${JSON.stringify(sha)}, ...process.argv.slice(2));`,
     );
     await cp(resolve("tools/irudd-scope.sh"), join(app, "bin/irudd-scope"));
+    await symlink("cli/main.mjs", join(app, "linked-cli.mjs"));
     return build;
   }
   const first = await bundle(initial);
-  await activateBuild(root, first);
-  return { directory, root, home, remote, vp, initial, first, installation, commit, bundle };
+  await activateBuild(root, first, application);
+  return {
+    directory,
+    root,
+    home,
+    remote,
+    vp,
+    initial,
+    first,
+    installation,
+    application,
+    commit,
+    bundle,
+  };
 }
+
+async function installedCommit(application: string) {
+  return (await readInstallation(join(application, "Contents/Resources/app"))).commit;
+}
+
+test("activation installs a complete app, remembers its location, and supports rollback", async () => {
+  const f = await fixture();
+  try {
+    expect((await lstat(f.application)).isDirectory()).toBe(true);
+    expect(await installedCommit(f.application)).toBe(f.initial);
+    expect(await readlink(join(f.application, "Contents/Resources/app/linked-cli.mjs"))).toBe(
+      "cli/main.mjs",
+    );
+    const next = await f.commit();
+    const second = await f.bundle(next);
+    await activateBuild(f.root, second);
+    expect(await installedCommit(f.application)).toBe(next);
+    expect(await readlink(join(f.root, "previous"))).toBe(f.first);
+    expect(await installedCommit(join(f.first, "Scope.app"))).toBe(f.initial);
+    await activateBuild(f.root, await readlink(join(f.root, "previous")));
+    expect(await installedCommit(f.application)).toBe(f.initial);
+    expect(await readlink(join(f.root, "current"))).toBe(f.first);
+    expect(await readlink(join(f.root, "previous"))).toBe(second);
+  } finally {
+    await rm(f.directory, { recursive: true, force: true });
+  }
+});
+
+test.each(["directory", "symlink"])(
+  "a failed bundle copy preserves the installed %s and active build",
+  async (kind) => {
+    const f = await fixture();
+    try {
+      if (kind === "symlink") {
+        await rm(f.application, { recursive: true });
+        await symlink(join(f.root, "current/Scope.app"), f.application);
+      }
+      const second = await f.bundle(await f.commit());
+      await exec("mkfifo", [join(second, "Scope.app/uncopyable")]);
+      await expect(activateBuild(f.root, second)).rejects.toThrow();
+      expect(await installedCommit(f.application)).toBe(f.initial);
+      expect(await readlink(join(f.root, "current"))).toBe(f.first);
+      expect((await lstat(f.application)).isSymbolicLink()).toBe(kind === "symlink");
+      await rm(join(second, "Scope.app/uncopyable"));
+      await activateBuild(f.root, second);
+      expect((await lstat(f.application)).isDirectory()).toBe(true);
+    } finally {
+      await rm(f.directory, { recursive: true, force: true });
+    }
+  },
+);
+
+test.each(["directory", "symlink", "other installation"])(
+  "activation preserves an unrelated app %s",
+  async (kind) => {
+    const f = await fixture();
+    try {
+      await rm(f.application, { recursive: true });
+      const unrelated = join(f.directory, "Unrelated.app");
+      await mkdir(unrelated);
+      await writeFile(join(unrelated, "keep.txt"), "Keep this app");
+      if (kind === "symlink") await symlink(unrelated, f.application);
+      else {
+        await cp(unrelated, f.application, { recursive: true });
+        if (kind === "other installation") {
+          const resources = join(f.application, "Contents/Resources/app");
+          await mkdir(resources, { recursive: true });
+          await writeFile(
+            join(resources, "package.json"),
+            JSON.stringify({
+              scopeInstallation: { ...f.installation, root: join(f.directory, "other") },
+            }),
+          );
+        }
+      }
+      await expect(activateBuild(f.root, await f.bundle(await f.commit()))).rejects.toThrow(
+        "not managed",
+      );
+      expect(await readFile(join(f.application, "keep.txt"), "utf8")).toBe("Keep this app");
+      expect(await readlink(join(f.root, "current"))).toBe(f.first);
+    } finally {
+      await rm(f.directory, { recursive: true, force: true });
+    }
+  },
+);
 
 test("the installed CLI follows app updates, preserves arguments, and refuses to overwrite another command", async () => {
   const f = await fixture();
@@ -166,7 +277,10 @@ test("startup checks skip unchanged main, preserve the running app on build fail
     await Promise.all([updates.check(), updates.check()]);
     expect(updates.snapshot()).toMatchObject({ phase: "ready", nextCommit: next });
     expect(await readlink(join(f.root, "current"))).toBe(f.first);
-    expect(await updates.activate()).toBe(join(second, "Scope.app/Contents/MacOS/Scope"));
+    expect(await installedCommit(f.application)).toBe(f.initial);
+    expect(await updates.activate()).toBe(join(f.application, "Contents/MacOS/Scope"));
+    expect((await lstat(f.application)).isDirectory()).toBe(true);
+    expect(await installedCommit(f.application)).toBe(next);
     expect(await readlink(join(f.root, "current"))).toBe(second);
     expect(await readlink(join(f.root, "previous"))).toBe(f.first);
     expect(phases).toContain("checking");
@@ -223,6 +337,27 @@ test("old build cleanup keeps the running, previous and prepared apps", async ()
   }
 });
 
+test("repeated updates keep one previous build and remove temporary app copies", async () => {
+  const f = await fixture();
+  try {
+    let previous = f.initial;
+    for (let update = 0; update < 4; update++) {
+      const next = await f.commit();
+      const build = await f.bundle(next);
+      await pointToBuild(f.root, "prepared", build);
+      await activateBuild(f.root, build);
+      const restarted = new AppUpdates({ ...f.installation, commit: next }, "unused", () => {});
+      await restarted.prune();
+      expect((await readdir(join(f.root, "builds"))).sort()).toEqual([previous, next].sort());
+      expect(await installedCommit(f.application)).toBe(next);
+      expect(await readdir(join(f.home, "Applications"))).toEqual(["Scope.app"]);
+      previous = next;
+    }
+  } finally {
+    await rm(f.directory, { recursive: true, force: true });
+  }
+});
+
 test("canceling an installation stops child processes as well as the shell", async () => {
   const directory = await mkdtemp(join(tmpdir(), "scope-cancel-"));
   const controller = new AbortController();
@@ -258,6 +393,8 @@ test("the bash installer installs once, stages updates separately, and preserves
   const f = await fixture();
   try {
     await rm(join(f.root, "current"));
+    await rm(join(f.root, "application"));
+    await rm(f.application, { recursive: true });
     await rm(join(f.root, "builds"), { recursive: true });
     const bin = join(f.directory, "commands");
     await mkdir(bin);
@@ -282,7 +419,7 @@ else { try { execFileSync(${JSON.stringify(git)}, args.map(arg => arg === ${JSON
       { mode: 0o755 },
     );
     const fail = join(f.directory, "fail-build");
-    const helpers = new URL("../apps/desktop/src/installation-files.ts", import.meta.url).href;
+    const activation = resolve("tools/activate-installation.ts");
     await writeFile(
       f.vp,
       `#!${process.execPath}
@@ -301,9 +438,7 @@ async function main() {
     fs.writeFileSync(path.join(app, 'Resources/app/package.json'), JSON.stringify({scopeInstallation:{root:process.env.SCOPE_INSTALL_ROOT, vp:process.env.SCOPE_VP, commit}}));
   }
   if (args[0] === 'exec') {
-    const {pointToBuild, activateBuild} = await import(${JSON.stringify(helpers)});
-    if (args[5] === 'prepare') await pointToBuild(args[3], 'prepared', args[4]);
-    else await activateBuild(args[3], args[4]);
+    require('node:child_process').execFileSync(process.execPath, [${JSON.stringify(activation)}, ...args.slice(3)], {stdio:'inherit'});
   }
 }
 main().catch(error => {console.error(error.message); process.exitCode = 1;});
@@ -321,9 +456,16 @@ main().catch(error => {console.error(error.message); process.exitCode = 1;});
     const install = (...args: string[]) =>
       exec("/bin/bash", [resolve("install.sh"), ...args], { env });
     await install();
-    expect(await readlink(join(applications, "Scope.app"))).toBe(join(f.root, "current/Scope.app"));
+    const application = join(applications, "Scope.app");
+    expect((await lstat(application)).isDirectory()).toBe(true);
+    expect(await installedCommit(application)).toBe(f.initial);
     expect(await readFile(opened, "utf8")).toBe(join(applications, "Scope.app"));
     expect(await readlink(join(f.root, "current"))).toBe(f.first);
+    await rm(application, { recursive: true });
+    await symlink(join(f.root, "current/Scope.app"), application);
+    await install();
+    expect((await lstat(application)).isDirectory()).toBe(true);
+    expect(await installedCommit(application)).toBe(f.initial);
     await install();
     const next = await f.commit();
     await writeFile(fail, "");
@@ -331,10 +473,15 @@ main().catch(error => {console.error(error.message); process.exitCode = 1;});
       stderr: expect.stringContaining("Synthetic build failed"),
     });
     expect(await readlink(join(f.root, "current"))).toBe(f.first);
+    expect(await installedCommit(application)).toBe(f.initial);
     await rm(fail);
     await install("--prepare", next);
     expect(await readlink(join(f.root, "prepared"))).toBe(join(f.root, "builds", next));
     expect(await readlink(join(f.root, "current"))).toBe(f.first);
+    expect(await installedCommit(application)).toBe(f.initial);
+    await install();
+    expect(await installedCommit(application)).toBe(next);
+    expect(await readlink(join(f.root, "previous"))).toBe(f.first);
     const edited = join(f.root, "source/README.md");
     await writeFile(edited, "Keep my local changes");
     await expect(install()).rejects.toMatchObject({

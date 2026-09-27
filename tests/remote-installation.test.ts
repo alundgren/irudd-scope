@@ -83,6 +83,14 @@ if(args.includes('start') || args.includes('restart')) {
   try {
     await exec("bash", [resolve("install-cli.sh")], { env, timeout: 60_000 });
     expect((await cli("--help")).stdout).toContain("irudd-scope setup");
+    if (process.platform !== "linux") {
+      await expect(
+        cli("setup", "--yes", "--no-pair", "--port", String(port)),
+      ).rejects.toMatchObject({
+        stderr: expect.stringContaining("requires Linux with a systemd user service"),
+      });
+      return;
+    }
     await expect(cli("setup", "--port", String(port))).rejects.toMatchObject({
       stderr: expect.stringContaining("--yes"),
     });

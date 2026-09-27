@@ -56,7 +56,8 @@ operations declared in `bridge.ts` and exposed by `preload.ts`.
 and prepared update. `agent-tools.ts` installs and removes the local CLI and
 global publishing skill through named IPC operations. `installation-process.ts`
 owns cancellation of their child processes. `installation-files.ts` validates
-bundle metadata and manages links to complete app builds. These files contain
+bundle metadata, replaces the installed app bundle, and manages links to
+complete app builds and the Applications location. These files contain
 installed program code, not artifact or preference storage. The root
 `install.sh` maintains a private clone and calls `tools/package-desktop.ts` to
 make a Mac app. No app imports build-tool code at runtime.
