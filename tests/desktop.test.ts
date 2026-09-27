@@ -20,7 +20,7 @@ test("the CLI commits artifacts while diagram generation is pending and the rend
       };
     });
     const page = await application.firstWindow();
-    await page.getByRole("button", { name: "Workspace menu" }).click();
+    await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByLabel("OpenRouter API key").fill("synthetic-pending-key");
     await page.getByRole("button", { name: "Save settings" }).click();
@@ -77,7 +77,7 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     let page = await application.firstWindow();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.getByRole("button", { name: "Workspace menu" }).click();
+    await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByLabel("OpenRouter API key").fill("synthetic-diagram-key");
     await page.getByRole("button", { name: "Save settings" }).click();
@@ -138,7 +138,8 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
       "Keep this draft",
     );
     const canvas = await page.locator(".excalidraw canvas").first().elementHandle();
-    await page.getByRole("button", { name: "Focus artifact" }).click();
+    await page.getByRole("button", { name: "Search and controls" }).click();
+    await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
     expect(await page.getByRole("complementary", { name: "Diagram agent" }).isVisible()).toBe(
       false,
     );
@@ -349,7 +350,8 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
     );
     expect((await stat(connectionFile)).mode & 0o777).toBe(0o600);
     await page.getByRole("heading", { name: "Actual report" }).waitFor();
-    await page.getByRole("button", { name: "Focus artifact" }).click();
+    await page.getByRole("button", { name: "Search and controls" }).click();
+    await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
     expect(await page.getByRole("navigation", { name: "Open artifacts" }).count()).toBe(0);
     await page.keyboard.press("Escape");
     expect(await page.getByRole("heading", { name: "Actual report" }).isVisible()).toBe(true);
@@ -367,7 +369,7 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
       ),
     );
     expect(await page.getByRole("heading", { name: "Actual report" }).isVisible()).toBe(true);
-    await page.getByRole("button", { name: "Find artifacts and tools" }).click();
+    await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Hostile preview html" }).click();
     const preview = page.frameLocator('iframe[title="Hostile preview"]');
     await preview.getByRole("heading", { name: "Isolated preview" }).waitFor();
@@ -389,7 +391,7 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
         }
       }),
     ).toBe(false);
-    await page.getByRole("button", { name: "Workspace menu" }).click();
+    await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     expect(await page.getByText("Hub connection", { exact: true }).count()).toBe(0);
     expect(await page.getByLabel("Hub token").count()).toBe(0);

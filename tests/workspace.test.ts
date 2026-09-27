@@ -64,7 +64,7 @@ test("new CLI publications open visible tabs and preserve reading, closed tabs, 
     await writeFile(second, "The closed artifact received an update.");
     await cli("update", "second", second, "--title", "Closed artifact update");
     await page.getByRole("img", { name: "New artifacts" }).waitFor();
-    await page.getByRole("button", { name: "Find artifacts and tools" }).click();
+    await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Closed artifact update text", exact: true }).waitFor();
     await page.keyboard.press("Escape");
     await page.getByLabel("Search artifacts", { exact: true }).waitFor({ state: "hidden" });
@@ -133,6 +133,33 @@ test("the compact workspace preserves reading position, supports overflowing tab
     const client = await connect();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    const searchTrigger = page.getByRole("button", { name: "Search and controls", exact: true });
+    await searchTrigger.click();
+    const controls = page.getByRole("dialog", { name: "Search and controls", exact: true });
+    const searchInput = controls.getByLabel("Search artifacts", { exact: true });
+    await expect
+      .poll(() => searchInput.evaluate((element) => element === document.activeElement))
+      .toBe(true);
+    expect(await controls.getByRole("button", { name: "Settings", exact: true }).isVisible()).toBe(
+      true,
+    );
+    expect(await controls.getByRole("button", { name: "Fullscreen", exact: true }).count()).toBe(0);
+    expect(await controls.getByRole("button", { name: "Download", exact: true }).count()).toBe(0);
+    expect(
+      await controls.getByRole("button", { name: "Reopen closed tab", exact: true }).count(),
+    ).toBe(0);
+    expect(await controls.getByRole("region", { name: "Current tab" }).count()).toBe(0);
+    await searchInput.fill("download");
+    await controls.getByText("No matches. Try another title, action, or setting.").waitFor();
+    await controls.getByRole("button", { name: "Clear search", exact: true }).click();
+    await page.keyboard.press("ArrowUp");
+    await expect
+      .poll(() => page.evaluate(() => document.activeElement?.textContent))
+      .toBe("Create diagram");
+    await page.keyboard.press("Escape");
+    await expect
+      .poll(() => searchTrigger.evaluate((element) => element === document.activeElement))
+      .toBe(true);
     const titles = Array.from(
       { length: 12 },
       (_, index) => `Report ${index + 1}: a long artifact title for a narrow window`,
@@ -151,7 +178,7 @@ test("the compact workspace preserves reading position, supports overflowing tab
           `# Report ${index + 1}\n\n${"A paragraph that leaves enough room to test reading position.\n\n".repeat(60)}`,
         ),
       );
-      await page.getByRole("button", { name: "Find artifacts and tools" }).click();
+      await page.getByRole("button", { name: "Search and controls" }).click();
       await page.getByLabel("Search artifacts", { exact: true }).fill(titles[index]);
       await page.getByRole("button", { name: `${titles[index]} markdown`, exact: true }).waitFor();
       await page.keyboard.press("Enter");
@@ -183,7 +210,25 @@ test("the compact workspace preserves reading position, supports overflowing tab
     });
     const scroll = await pane.evaluate((element) => element.scrollTop);
     const article = await pane.locator("article").elementHandle();
-    await page.getByRole("button", { name: "Focus artifact" }).click();
+    await page.getByRole("button", { name: "Search and controls" }).click();
+    const currentTab = controls.getByRole("region", { name: "Current tab" });
+    expect(await currentTab.getByText(titles[11], { exact: true }).isVisible()).toBe(true);
+    await currentTab.getByRole("button", { name: "Artifact details", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: titles[11], exact: true })
+      .getByText("report-11", { exact: true })
+      .waitFor();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("ControlOrMeta+k");
+    await searchInput.fill("full screen");
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Exit focus mode" }).waitFor();
+    await page.keyboard.press("ControlOrMeta+k");
+    expect(
+      await controls.getByRole("button", { name: "Exit fullscreen", pressed: true }).isVisible(),
+    ).toBe(true);
+    await page.keyboard.press("Escape");
+    expect(await page.getByRole("button", { name: "Exit focus mode" }).isVisible()).toBe(true);
     await page.keyboard.press("ControlOrMeta+,");
     await page.getByLabel("Search settings").waitFor();
     await page.keyboard.press("Escape");
@@ -192,7 +237,7 @@ test("the compact workspace preserves reading position, supports overflowing tab
     expect(await pane.evaluate((element) => element.scrollTop)).toBe(scroll);
     expect(await article!.evaluate((element) => element.isConnected)).toBe(true);
 
-    await page.getByRole("button", { name: "Find artifacts and tools" }).click();
+    await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByLabel("Search artifacts", { exact: true }).fill("theme");
     await page.getByRole("button", { name: "Appearance Setting", exact: true }).click();
     expect(await page.getByLabel("Search settings").inputValue()).toBe("theme");
@@ -221,9 +266,12 @@ test("the compact workspace preserves reading position, supports overflowing tab
     );
     await page.getByRole("img", { name: "Updated artifact" }).first().waitFor();
     expect(await navigation.getByRole("tab", { selected: true }).textContent()).toBe(titles[11]);
-    await page.keyboard.press("ControlOrMeta+w");
+    await searchTrigger.click();
+    await currentTab.getByRole("button", { name: "Close tab", exact: true }).click();
     await expect.poll(() => navigation.getByRole("tab").count()).toBe(11);
-    await page.keyboard.press("ControlOrMeta+Shift+t");
+    await searchTrigger.click();
+    expect(await currentTab.getByText(titles[10], { exact: true }).isVisible()).toBe(true);
+    await controls.getByRole("button", { name: "Reopen closed tab", exact: true }).click();
     await expect
       .poll(() => navigation.getByRole("tab", { selected: true }).textContent())
       .toBe(titles[11]);

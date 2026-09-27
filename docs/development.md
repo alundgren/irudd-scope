@@ -134,13 +134,14 @@ file. The CLI reads it automatically. See [storage](storage.md) for file
 locations, backup, and import behavior. Quitting Scope leaves the discovery
 file in place but stops publication.
 
-Open Settings from the workspace menu or Command-comma. Search finds
-appearance and diagram generation settings. Appearance follows System unless
-Light or Dark is selected. Diagram generation uses OpenRouter and Gemini 3.8
+Open Settings from the search panel or Command-comma. The search button and
+Command-K open workspace controls, current-tab actions, and artifact search.
+Search also finds appearance and diagram generation settings. Appearance follows
+System unless Light or Dark is selected. Diagram generation uses OpenRouter and Gemini 3.8
 Flash. Add, replace, or remove its key in Settings. On macOS keys live in
 Keychain; Linux development keeps them in memory.
 
-Use Create diagram in the empty workspace, search, or workspace menu. A
+Use Create diagram in the empty workspace or search panel. A
 generated diagram becomes an editable artifact. Ask agent edits its current
 canvas; Save publishes the edits. HTML previews permit inline styles and
 embedded data images, with scripts and external resources blocked. Markdown

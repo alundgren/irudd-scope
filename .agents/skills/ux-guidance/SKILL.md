@@ -15,7 +15,9 @@ house UX principles still apply. These relative paths start at this directory.
 
 Reserve the compact strip for workspace navigation. Keep artifact titles in
 tabs. Let diagrams, images, and HTML use the window; constrain reading width
-for prose. Put secondary actions in the workspace menu or artifact controls.
+for prose. Put secondary actions in the search panel or artifact controls.
+Keep workspace controls, current-tab actions, and artifact results visually
+distinct. Omit unavailable panel actions.
 
 Keep the selected tab visible when titles overflow. New publications open in
 tabs, selecting the first arrival only when no artifact is open. Later arrivals
