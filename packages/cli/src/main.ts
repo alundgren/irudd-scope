@@ -123,8 +123,8 @@ function parseTimeout(value: string | undefined): number {
   return timeout;
 }
 
-async function main() {
-  const { values, positionals } = parseArgs({
+function parseOptions() {
+  return parseArgs({
     allowPositionals: true,
     options: {
       status: { type: "boolean" },
@@ -143,6 +143,123 @@ async function main() {
       "no-pair": { type: "boolean" },
     },
   });
+}
+
+type Options = ReturnType<typeof parseOptions>["values"];
+
+function validateArtifactCommand(
+  command: string,
+  argument: string | undefined,
+  replacement: string | undefined,
+  values: Options,
+) {
+  if (!["add", "text", "update", "list", "get", "delete", "shrink"].includes(command))
+    throw new Error(`Unknown command.\n${help}`);
+  const timeoutMs = parseTimeout(values["timeout-ms"]);
+  if (!["list", "shrink"].includes(command) && !argument)
+    throw new Error("This command needs a file, text, or artifact ID. Use --help.");
+  if (command === "update" && !replacement)
+    throw new Error("Update needs an artifact ID and a replacement file.");
+  if (["get", "update", "delete"].includes(command)) decode(ArtifactId, argument);
+  if (["add", "text"].includes(command) && values.id) decode(ArtifactId, values.id);
+  if (command === "text" && values.kind && !["text", "markdown"].includes(values.kind))
+    throw new Error("Text accepts --kind text or markdown.");
+  return timeoutMs;
+}
+
+async function connect(values: Options, signal: AbortSignal) {
+  const tokenFile = values["token-file"] ?? process.env.SCOPE_TOKEN_FILE;
+  let endpoint = values.endpoint ?? process.env.SCOPE_ENDPOINT;
+  let token = process.env.SCOPE_TOKEN;
+  if (endpoint !== undefined || tokenFile !== undefined || token !== undefined) {
+    if (tokenFile !== undefined)
+      token = (await readFile(tokenFile, { encoding: "utf8", signal })).trim();
+    if (!token)
+      throw new Error("An explicit endpoint needs --token-file, SCOPE_TOKEN_FILE, or SCOPE_TOKEN.");
+    endpoint ??= `http://127.0.0.1:${DEFAULT_PORT}`;
+  } else {
+    ({ endpoint, token } = await localConnection(signal));
+  }
+  return new ScopeClient(endpoint, token, { signal });
+}
+
+async function localConnection(signal: AbortSignal) {
+  const connectionFile =
+    process.env.SCOPE_CONNECTION_FILE ?? join(homedir(), DEFAULT_CONNECTION_FILE);
+  try {
+    return decodeLocalConnection(
+      JSON.parse(await readFile(connectionFile, { encoding: "utf8", signal })),
+    );
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      throw new Error("Open Scope on this Mac before publishing. Requests are not queued.");
+    throw new Error("Cannot read the local Scope connection file. Check its path and permissions.");
+  }
+}
+
+async function publicationContent(
+  command: string,
+  argument: string,
+  replacement: string | undefined,
+  kindOption: string | undefined,
+) {
+  let file: string | undefined;
+  let kind: ArtifactKind;
+  let mediaType: string;
+  let fileName: string;
+  if (command === "text") {
+    kind = kindOption === "markdown" ? "markdown" : "text";
+    mediaType = kind === "markdown" ? "text/markdown" : "text/plain";
+    fileName = kind === "markdown" ? "note.md" : "note.txt";
+  } else {
+    file = command === "update" ? replacement! : argument!;
+    const info = await stat(file);
+    if (!info.isFile() || info.size > MAX_CONTENT_BYTES)
+      throw new Error("Choose a file no larger than 32 MiB.");
+    ({ kind, mediaType } = detect(file));
+    fileName = basename(file);
+  }
+
+  return { file, kind, mediaType, fileName };
+}
+
+async function preparePublication(
+  client: ScopeClient,
+  positionals: string[],
+  values: Options,
+  signal: AbortSignal,
+  deadline: number,
+) {
+  const [command, argument, replacement] = positionals;
+  const { file, kind, mediaType, fileName } = await publicationContent(
+    command,
+    argument!,
+    replacement,
+    values.kind,
+  );
+
+  const [current, source, content] = await Promise.all([
+    command === "update" ? client.get(argument!) : Promise.resolve(undefined),
+    provenance(values.agent, values["session-id"], deadline),
+    file ? readFile(file, { signal }) : Promise.resolve(new TextEncoder().encode(argument!)),
+  ]);
+  const id = current?.id ?? values.id ?? randomUUID();
+  return {
+    id,
+    input: {
+      title: values.title ?? current?.title ?? (command === "text" ? "Note" : fileName),
+      kind,
+      mediaType,
+      fileName,
+      source,
+      expectedRevision: current?.revision ?? 0,
+    },
+    content,
+  };
+}
+
+async function main() {
+  const { values, positionals } = parseOptions();
   if (values.help || !positionals.length) {
     process.stdout.write(help);
     return;
@@ -171,50 +288,13 @@ async function main() {
     await installSkill(argument === "remove");
     return;
   }
-  if (!["add", "text", "update", "list", "get", "delete", "shrink"].includes(command))
-    throw new Error(`Unknown command.\n${help}`);
-  const timeoutMs = parseTimeout(values["timeout-ms"]);
-  if (!["list", "shrink"].includes(command) && !argument)
-    throw new Error("This command needs a file, text, or artifact ID. Use --help.");
-  if (command === "update" && !replacement)
-    throw new Error("Update needs an artifact ID and a replacement file.");
-  if ((command === "get" || command === "update" || command === "delete") && argument)
-    decode(ArtifactId, argument);
-  if ((command === "add" || command === "text") && values.id) decode(ArtifactId, values.id);
-  if (command === "text" && values.kind && !["text", "markdown"].includes(values.kind))
-    throw new Error("Text accepts --kind text or markdown.");
+  const timeoutMs = validateArtifactCommand(command, argument, replacement, values);
 
   const signal = AbortSignal.timeout(timeoutMs);
   const commandDeadline = performance.now() + timeoutMs;
   let publicationId: string | undefined;
   try {
-    const tokenFile = values["token-file"] ?? process.env.SCOPE_TOKEN_FILE;
-    let endpoint = values.endpoint ?? process.env.SCOPE_ENDPOINT;
-    let token = process.env.SCOPE_TOKEN;
-    if (endpoint !== undefined || tokenFile !== undefined || token !== undefined) {
-      if (tokenFile !== undefined)
-        token = (await readFile(tokenFile, { encoding: "utf8", signal })).trim();
-      if (!token)
-        throw new Error(
-          "An explicit endpoint needs --token-file, SCOPE_TOKEN_FILE, or SCOPE_TOKEN.",
-        );
-      endpoint ??= `http://127.0.0.1:${DEFAULT_PORT}`;
-    } else {
-      const connectionFile =
-        process.env.SCOPE_CONNECTION_FILE ?? join(homedir(), DEFAULT_CONNECTION_FILE);
-      try {
-        ({ endpoint, token } = decodeLocalConnection(
-          JSON.parse(await readFile(connectionFile, { encoding: "utf8", signal })),
-        ));
-      } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT")
-          throw new Error("Open Scope on this Mac before publishing. Requests are not queued.");
-        throw new Error(
-          "Cannot read the local Scope connection file. Check its path and permissions.",
-        );
-      }
-    }
-    const client = new ScopeClient(endpoint, token, { signal });
+    const client = await connect(values, signal);
     if (command === "delete") {
       console.log(JSON.stringify(await client.delete(argument!), null, 2));
       return;
@@ -242,42 +322,15 @@ async function main() {
       return;
     }
 
-    let file: string | undefined;
-    let kind: ArtifactKind;
-    let mediaType: string;
-    let fileName: string;
-    if (command === "text") {
-      kind = values.kind === "markdown" ? "markdown" : "text";
-      mediaType = kind === "markdown" ? "text/markdown" : "text/plain";
-      fileName = kind === "markdown" ? "note.md" : "note.txt";
-    } else {
-      file = command === "update" ? replacement! : argument!;
-      const info = await stat(file);
-      if (!info.isFile() || info.size > MAX_CONTENT_BYTES)
-        throw new Error("Choose a file no larger than 32 MiB.");
-      ({ kind, mediaType } = detect(file));
-      fileName = basename(file);
-    }
-
-    const [current, source, content] = await Promise.all([
-      command === "update" ? client.get(argument!) : Promise.resolve(undefined),
-      provenance(values.agent, values["session-id"], commandDeadline),
-      file ? readFile(file, { signal }) : Promise.resolve(new TextEncoder().encode(argument!)),
-    ]);
-    const id = current?.id ?? values.id ?? randomUUID();
-    publicationId = id;
-    const artifact = await client.publish(
-      id,
-      {
-        title: values.title ?? current?.title ?? (command === "text" ? "Note" : fileName),
-        kind,
-        mediaType,
-        fileName,
-        source,
-        expectedRevision: current?.revision ?? 0,
-      },
-      content,
+    const publication = await preparePublication(
+      client,
+      positionals,
+      values,
+      signal,
+      commandDeadline,
     );
+    publicationId = publication.id;
+    const artifact = await client.publish(publication.id, publication.input, publication.content);
     console.log(JSON.stringify(artifact, null, 2));
   } catch (error) {
     if (!signal.aborted) throw error;

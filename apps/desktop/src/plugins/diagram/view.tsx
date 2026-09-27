@@ -6,7 +6,7 @@ import type { ArtifactContent } from "../../bridge.ts";
 import { readSemanticScene, updateCanvasElements } from "./canvas.ts";
 import { applyOperations } from "./scene.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
-import { Textarea } from "../../renderer/components/ui/textarea.tsx";
+import { DiagramChat } from "./chat.tsx";
 import { MessageSquare, X } from "lucide-react";
 import type { Theme } from "../../renderer/appearance.ts";
 import type { DiagramDraft } from "./draft.ts";
@@ -50,14 +50,6 @@ export function DiagramView({
   const conversation = useRef({ intent, messages, chatOpen });
   conversation.current = { intent, messages, chatOpen };
   const request = useRef<{ canceled: boolean } | null>(null);
-  const history = useRef<HTMLDivElement>(null);
-  const composer = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    if (history.current) history.current.scrollTop = history.current.scrollHeight;
-  }, [messages, chatOpen, focus]);
-  useEffect(() => {
-    if (chatOpen && !focus) composer.current?.focus({ preventScroll: true });
-  }, [chatOpen, focus]);
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
   const readyRef = useRef(false);
@@ -394,91 +386,18 @@ export function DiagramView({
             }}
           />
         </div>
-        <aside className="diagram-chat" aria-label="Diagram agent" hidden={!chatOpen || focus}>
-          <div className="chat-heading">
-            <div>
-              <h2>Diagram agent</h2>
-              <p className="secondary">Gemini 3.8 Flash · OpenRouter</p>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Close diagram chat"
-              title="Close diagram chat"
-              onClick={() => setChatOpen(false)}
-            >
-              <X />
-            </Button>
-          </div>
-          <div
-            className="chat-history"
-            role="log"
-            aria-label="Diagram conversation"
-            aria-live="polite"
-            ref={history}
-          >
-            {!messages.length && (
-              <p className="secondary">
-                Describe a change to this diagram. You can edit the result on the canvas, then Save
-                to publish.
-              </p>
-            )}
-            {messages.map((message, index) => (
-              <div
-                className={`chat-message${message.role === "user" ? " from-user" : ""}`}
-                key={index}
-              >
-                <strong>{message.role === "user" ? "You" : "Diagram agent"}</strong>
-                <p>{message.text}</p>
-                {message.details && <p className="secondary">{message.details}</p>}
-              </div>
-            ))}
-            {busy === "generation" && (
-              <p role="status" className="secondary">
-                Updating diagram…
-              </p>
-            )}
-          </div>
-          <form
-            className="chat-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void change();
-            }}
-          >
-            <Textarea
-              ref={composer}
-              aria-label="Change diagram"
-              placeholder="Describe a change…"
-              value={intent}
-              maxLength={16000}
-              disabled={busy === "generation"}
-              onChange={(event) => setIntent(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                  event.preventDefault();
-                  void change();
-                }
-              }}
-            />
-            <div className="chat-actions">
-              <span className="secondary">Shift + Enter for a new line</span>
-              {busy === "generation" ? (
-                <Button type="button" size="sm" variant="secondary" onClick={() => void cancel()}>
-                  Cancel
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={busy !== null || !ready || !intent.trim()}
-                >
-                  Send
-                </Button>
-              )}
-            </div>
-          </form>
-        </aside>
+        <DiagramChat
+          open={chatOpen}
+          focus={focus}
+          messages={messages}
+          intent={intent}
+          busy={busy}
+          ready={ready}
+          onClose={() => setChatOpen(false)}
+          onIntentChange={setIntent}
+          onSend={() => void change()}
+          onCancel={() => void cancel()}
+        />
       </div>
     </div>
   );

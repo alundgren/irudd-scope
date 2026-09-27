@@ -1,10 +1,12 @@
 import { expect, test } from "vite-plus/test";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { once } from "node:events";
 import { promisify } from "node:util";
 import { mkdir, mkdtemp, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
 
 const exec = promisify(execFile);
 
@@ -13,8 +15,6 @@ test("the standalone installer and CLI setup preserve existing Serve routes and 
   const root = join(directory, "installation");
   const bin = join(directory, "bin");
   const userDirectory = join(directory, "user");
-  const pidFile = join(directory, "hub.pid");
-  const hubLog = join(directory, "hub.log");
   const serveFile = join(directory, "serve.json");
   const local = createServer();
   await new Promise<void>((done) => local.listen(0, "127.0.0.1", done));
@@ -42,6 +42,36 @@ test("the standalone installer and CLI setup preserve existing Serve routes and 
     SCOPE_TOKEN: undefined,
     SCOPE_TOKEN_FILE: undefined,
   };
+  let hub: ReturnType<typeof spawn> | undefined;
+  let hubDiagnostics = "";
+  const stopHub = async () => {
+    if (hub && hub.exitCode === null && hub.signalCode === null) {
+      const closed = once(hub, "close");
+      hub.kill();
+      await closed;
+    }
+    hub = undefined;
+  };
+  // systemctl waits for the previous process to exit before starting its replacement.
+  const services = createHttpServer(async (request, response) => {
+    try {
+      const args: string[] = JSON.parse(decodeURIComponent(request.url!.slice(1)));
+      if (args.includes("stop") || args.includes("restart") || args.includes("--now"))
+        await stopHub();
+      if (args.includes("start") || args.includes("restart")) {
+        hub = spawn(join(root, "current/bin/irudd-scope-hub"), [], {
+          env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        for (const stream of [hub.stdout, hub.stderr])
+          stream!.on("data", (chunk: Buffer) => (hubDiagnostics += chunk.toString()));
+        await once(hub, "spawn");
+      }
+      response.end();
+    } catch (error) {
+      response.writeHead(500).end(String(error));
+    }
+  });
   const mock = async (name: string, source: string) =>
     writeFile(join(bin, name), `#!${process.execPath}\n${source}`, { mode: 0o755 });
   await mock(
@@ -66,57 +96,18 @@ else {
  fs.writeFileSync(file,JSON.stringify(config));
 }`,
   );
-  await mock(
-    "systemctl",
-    `
-const fs = require('node:fs');
-const {spawn} = require('node:child_process');
-const {once} = require('node:events');
-const {setTimeout: delay} = require('node:timers/promises');
-const args=process.argv.slice(2), file=${JSON.stringify(pidFile)};
-function running(pid) {
- try {
-  process.kill(pid, 0);
-  if(process.platform === 'linux') {
-   const status = fs.readFileSync('/proc/'+pid+'/stat', 'utf8');
-   // An orphan can remain a zombie after it releases its resources.
-   if(status.slice(status.lastIndexOf(')') + 2).startsWith('Z')) return false;
-  }
-  return true;
- } catch(error) {
-  if(error.code === 'ESRCH' || error.code === 'ENOENT') return false;
-  throw error;
- }
-}
-async function main() {
- if(args.includes('stop') || args.includes('restart') || args.includes('--now')) {
-  if(fs.existsSync(file)) {
-   const pid = Number(fs.readFileSync(file,'utf8'));
-   try { process.kill(pid, 'SIGTERM'); } catch(error) { if(error.code !== 'ESRCH') throw error; }
-   // systemctl waits for stop completion before starting a replacement.
-   const deadline = Date.now() + 5000;
-   while(running(pid)) {
-    if(Date.now() >= deadline) {
-     process.kill(pid, 'SIGKILL');
-     throw new Error('The synthetic hub did not stop within five seconds.');
-    }
-    await delay(20);
-   }
-   fs.unlinkSync(file);
-  }
- }
- if(args.includes('start') || args.includes('restart')) {
-  const output = fs.openSync(${JSON.stringify(hubLog)}, 'a', 0o600);
-  const child=spawn(${JSON.stringify(join(root, "current/runtime/node"))},[${JSON.stringify(join(root, "current/hub/main.mjs"))},'run'],{env:process.env,detached:true,stdio:['ignore',output,output]});
-  fs.closeSync(output);
-  await once(child, 'spawn');
-  fs.writeFileSync(file,String(child.pid));child.unref();
- }
-}
-main().catch(error => {console.error(error);process.exitCode = 1;});`,
-  );
   const cli = (...args: string[]) => exec(join(bin, "irudd-scope"), args, { env, timeout: 30_000 });
   try {
+    services.listen(0, "127.0.0.1");
+    await once(services, "listening");
+    const servicePort = (services.address() as { port: number }).port;
+    await mock(
+      "systemctl",
+      `
+fetch('http://127.0.0.1:${servicePort}/'+encodeURIComponent(JSON.stringify(process.argv.slice(2))))
+ .then(async response => {if(!response.ok) throw new Error(await response.text());})
+ .catch(error => {console.error(error);process.exitCode=1;});`,
+    );
     await exec("bash", [resolve("install-cli.sh")], { env, timeout: 60_000 });
     expect((await cli("--help")).stdout).toContain("irudd-scope setup");
     if (process.platform !== "linux") {
@@ -172,19 +163,11 @@ main().catch(error => {console.error(error);process.exitCode = 1;});`,
     });
     expect((await cli("--help")).stdout).toContain("irudd-scope add");
   } catch (error) {
-    const output = await readFile(hubLog, "utf8").catch(() => "No hub output was captured.");
-    throw new Error(
-      `${error instanceof Error ? error.message : String(error)}\nHub output:\n${output}`,
-      { cause: error },
-    );
+    console.error(hubDiagnostics);
+    throw error;
   } finally {
-    try {
-      await exec(join(bin, "systemctl"), ["--user", "stop", "irudd-scope-hub.service"], {
-        env,
-        timeout: 10_000,
-      });
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
+    await stopHub();
+    await new Promise<void>((done) => services.close(() => done()));
+    await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);

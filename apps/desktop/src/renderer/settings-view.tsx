@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SettingsUpdate, SettingsView } from "../settings.ts";
 import type { Appearance } from "./appearance.ts";
 import { Button } from "./components/ui/button.tsx";
@@ -6,6 +6,7 @@ import { Input } from "./components/ui/input.tsx";
 import { NativeSelect, NativeSelectOption } from "./components/ui/native-select.tsx";
 import { InstallationSettings } from "./installation-settings.tsx";
 import { RemoteSettings } from "./remote-settings.tsx";
+import { ModelSettings } from "./model-settings.tsx";
 import { matchingSettings, SettingsSection } from "./settings-section.tsx";
 
 export function SettingsViewPanel({
@@ -50,10 +51,6 @@ export function SettingsViewPanel({
     } finally {
       setBusy(false);
     }
-  }
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!busy && settings && apiKey.trim()) void save({ apiKey });
   }
   return (
     <>
@@ -103,67 +100,13 @@ export function SettingsViewPanel({
           <p className="secondary">System follows your Mac's appearance.</p>
         </SettingsSection>
         <SettingsSection id="model" query={query}>
-          <dl className="provider-details">
-            <div>
-              <dt>Provider</dt>
-              <dd>OpenRouter</dd>
-            </div>
-            <div>
-              <dt>Model</dt>
-              <dd>Gemini 3.8 Flash</dd>
-            </div>
-          </dl>
-          <form onSubmit={submit} className="settings-key-form">
-            <label>
-              OpenRouter API key
-              <Input
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                disabled={busy || !settings}
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                placeholder={
-                  settings?.credentialError
-                    ? "Key status unavailable"
-                    : settings?.hasApiKey
-                      ? "Key saved. Enter a replacement."
-                      : "Enter API key"
-                }
-              />
-            </label>
-            <p className="secondary">
-              {settings?.credentialError
-                ? "Key status unavailable"
-                : settings?.hasApiKey
-                  ? "Key saved"
-                  : "No key saved"}
-            </p>
-            <div className="installation-actions">
-              <Button type="submit" disabled={busy || !settings || !apiKey.trim()}>
-                {busy ? "Saving…" : "Save key"}
-              </Button>
-              {settings?.hasApiKey && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="destructive"
-                  disabled={busy}
-                  onClick={() => void save({ removeApiKey: true })}
-                >
-                  Remove key
-                </Button>
-              )}
-            </div>
-          </form>
-          {settings && (
-            <p className="secondary">
-              {settings.keyStorage === "keychain"
-                ? "Keys are stored in macOS Keychain. Diagram requests go to OpenRouter while Scope is open."
-                : "This development session keeps keys in memory. They are not saved to disk."}
-            </p>
-          )}
-          {settings?.credentialError && <p role="alert">{settings.credentialError}</p>}
+          <ModelSettings
+            settings={settings}
+            busy={busy}
+            apiKey={apiKey}
+            onApiKeyChange={setApiKey}
+            onSave={save}
+          />
         </SettingsSection>
         <RemoteSettings query={query} />
         <InstallationSettings query={query} />

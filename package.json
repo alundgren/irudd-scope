@@ -5,7 +5,8 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "ready": "vp run build && vp check && vp run test",
+    "ready": "vp run build && vp run check && vp run test",
+    "check": "vp fmt --check && vp lint --format=unix",
     "test": "vp exec node tools/test.ts",
     "build": "vp run -r build",
     "package:desktop": "vp exec node tools/package-desktop.ts",
