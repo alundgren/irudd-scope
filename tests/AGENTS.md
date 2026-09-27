@@ -4,8 +4,9 @@ Read [development](../docs/development.md#validation-and-tests) before running
 or adding tests. Use `vite-plus/test`, real entry points, and synthetic data.
 
 `artifacts.test.ts` covers CLI publication, discovery, the HTTP API, and hub
-forwarding. `storage.test.ts` covers the artifact database. `settings.test.ts`
-and `credentials.test.ts` cover preferences, drafts, and credential failures.
+forwarding. `artifact-storage.test.ts` covers the artifact database.
+`desktop-storage.test.ts` and `credentials.test.ts` cover preferences, drafts,
+and credential failures.
 `diagram.test.ts` covers provider responses. `desktop.test.ts` and
 `workspace.test.ts` exercise real Electron through `desktop-fixture.ts`.
 

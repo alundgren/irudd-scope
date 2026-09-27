@@ -1,4 +1,4 @@
-import { parseScene, type DrawingOperation, type SemanticScene } from "./contract.ts";
+import { parseScene, type DiagramOperation, type SemanticScene } from "./contract.ts";
 
 export function sceneObjects(scene: SemanticScene) {
   return [...scene.nodes, ...scene.texts, ...scene.connections, ...scene.groups];
@@ -51,7 +51,7 @@ export function groupBounds(scene: SemanticScene, ids: string[]) {
 
 export function applyOperations(
   current: SemanticScene,
-  operations: readonly DrawingOperation[],
+  operations: readonly DiagramOperation[],
 ): SemanticScene {
   const scene = structuredClone(current);
   validateScene(scene);

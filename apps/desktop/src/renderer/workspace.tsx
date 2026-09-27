@@ -10,44 +10,18 @@ import {
   Menu,
   Plus,
 } from "lucide-react";
-import type { Snapshot } from "../bridge.ts";
 import { Button } from "./components/ui/button.tsx";
-import { Input } from "./components/ui/input.tsx";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
-import { SettingsViewPanel, matchingSettings } from "./settings-view.tsx";
+import { SettingsViewPanel } from "./settings-view.tsx";
 import { ArtifactView } from "./artifact-view.tsx";
 import { CreateDiagram } from "./create-diagram.tsx";
 import { useAppearance, type Appearance } from "./appearance.ts";
-import { flushWorkspace, useAutosave } from "./persistence.ts";
-
-import type { Workspace } from "../settings.ts";
-
-function legacyWorkspace(): Workspace {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem("scope.workspace.v1") ?? "null");
-    if (
-      value &&
-      typeof value === "object" &&
-      "tabs" in value &&
-      Array.isArray(value.tabs) &&
-      value.tabs.length <= 100 &&
-      value.tabs.every((id) => typeof id === "string") &&
-      "selected" in value &&
-      (typeof value.selected === "string" || value.selected === null)
-    )
-      return { tabs: value.tabs, selected: value.selected };
-  } catch {
-    /* Saved tabs are optional. */
-  }
-  return { tabs: [], selected: null };
-}
+import { useArtifactLibrary } from "./use-artifact-library.ts";
+import { useWorkspace } from "./use-workspace.ts";
+import { WorkspaceSearch } from "./workspace-search.tsx";
 
 export function App({ initialAppearance }: { initialAppearance: Appearance }) {
   const { theme, setAppearance } = useAppearance(initialAppearance);
-  const [snapshot, setSnapshot] = useState<Snapshot>({ artifacts: [], connection: "connecting" });
-  const [workspace, setWorkspace] = useState<Workspace>({ tabs: [], selected: null });
-  const [workspaceReady, setWorkspaceReady] = useState(false);
-  const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [settings, setSettings] = useState(false);
   const [settingsQuery, setSettingsQuery] = useState("");
   const [menu, setMenu] = useState(false);
@@ -57,73 +31,17 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
   const [focus, setFocus] = useState(false);
   const [details, setDetails] = useState(false);
   const [error, setError] = useState("");
-  const [unread, setUnread] = useState<Set<string>>(new Set());
-  const revisions = useRef<Map<string, number> | null>(null);
+  const { snapshot, unread, markRead, recordPublication } = useArtifactLibrary(setError);
+  const {
+    workspace,
+    ready: workspaceReady,
+    save: workspaceSave,
+    openTab,
+    closeTab,
+  } = useWorkspace(setError);
   const tabButtons = useRef(new Map<string, HTMLButtonElement>());
-  const results = useRef<HTMLDivElement>(null);
   const artifacts = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const active = workspace.selected ? artifacts.get(workspace.selected) : undefined;
-  const workspaceSave = useAutosave(
-    () => (workspaceLoaded ? workspace : undefined),
-    (value) => window.scope.saveWorkspace(value),
-  );
-
-  useEffect(() => window.scope.onBeforeClose(flushWorkspace), []);
-
-  useEffect(() => {
-    const receive = (next: Snapshot) => {
-      if (revisions.current) {
-        const changed = next.artifacts.filter(
-          (artifact) => revisions.current!.get(artifact.id) !== artifact.revision,
-        );
-        if (changed.length)
-          setUnread(
-            (previous) => new Set([...previous, ...changed.map((artifact) => artifact.id)]),
-          );
-      }
-      if (next.connection === "connected")
-        revisions.current = new Map(
-          next.artifacts.map((artifact) => [artifact.id, artifact.revision]),
-        );
-      setSnapshot(next);
-    };
-    const unsubscribe = window.scope.onSnapshot(receive);
-    void window.scope
-      .snapshot()
-      .then(receive)
-      .catch(() => setError("Could not read the artifact library."));
-    return unsubscribe;
-  }, []);
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      const saved = await window.scope.workspace();
-      const initial = saved ?? legacyWorkspace();
-      if (saved === null) await window.scope.saveWorkspace(initial);
-      try {
-        localStorage.removeItem("scope.workspace.v1");
-      } catch {
-        /* Legacy storage may be unavailable. */
-      }
-      if (active) {
-        setWorkspace(initial);
-        setWorkspaceLoaded(true);
-      }
-    })()
-      .catch(() => {
-        if (active) setError("Could not load saved tabs. Your artifacts remain on this Mac.");
-      })
-      .finally(() => {
-        if (active) setWorkspaceReady(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-  useEffect(() => {
-    if (!workspaceReady || !workspaceLoaded) return;
-    workspaceSave.schedule();
-  }, [workspace, workspaceReady, workspaceLoaded]);
   useEffect(() => {
     tabButtons.current
       .get(workspace.selected ?? "")
@@ -131,47 +49,18 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
   }, [workspace.selected, workspace.tabs, focus]);
 
   function open(id: string, keyboard = false) {
-    if (!workspace.tabs.includes(id) && workspace.tabs.length >= 100) {
-      setError("Close a tab before opening another. Your artifacts stay in the library.");
-      return;
-    }
-    setWorkspace((previous) => ({
-      tabs: previous.tabs.includes(id) ? previous.tabs : [...previous.tabs, id],
-      selected: id,
-      closed: previous.closed?.filter((entry) => entry !== id) ?? [],
-    }));
-    setUnread((previous) => {
-      const next = new Set(previous);
-      next.delete(id);
-      return next;
-    });
+    if (!openTab(id)) return;
+    markRead(id);
     setSearch(false);
     setCreating(false);
     if (keyboard) requestAnimationFrame(() => tabButtons.current.get(id)?.focus());
   }
   async function close(id: string) {
-    try {
-      await flushWorkspace();
-    } catch {
-      setError("Could not save this tab. Keep it open and try closing it again.");
-      return;
-    }
+    if (!(await closeTab(id))) return;
     const index = workspace.tabs.indexOf(id);
     const tabs = workspace.tabs.filter((tab) => tab !== id);
     const selected =
       workspace.selected === id ? (tabs[Math.max(0, index - 1)] ?? null) : workspace.selected;
-    setWorkspace((previous) => {
-      if (!previous.tabs.includes(id)) return previous;
-      const remaining = previous.tabs.filter((tab) => tab !== id);
-      return {
-        tabs: remaining,
-        selected:
-          previous.selected === id
-            ? (remaining[Math.max(0, previous.tabs.indexOf(id) - 1)] ?? null)
-            : previous.selected,
-        closed: [...(previous.closed ?? []).filter((entry) => entry !== id), id],
-      };
-    });
     if (!tabs.length) setFocus(false);
     requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
   }
@@ -244,33 +133,6 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
     event.preventDefault();
     open(workspace.tabs[target], true);
   }
-  function navigateResults(event: ReactKeyboardEvent) {
-    const buttons = Array.from(results.current?.querySelectorAll("button") ?? []);
-    if (!buttons.length) return;
-    const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      buttons[
-        (index + (event.key === "ArrowDown" ? 1 : buttons.length - 1) + buttons.length) %
-          buttons.length
-      ]?.focus();
-    } else if (event.key === "Enter" && index < 0) {
-      event.preventDefault();
-      buttons[0]?.click();
-    }
-  }
-  const needle = query.trim().toLowerCase();
-  const matches = snapshot.artifacts
-    .filter((artifact) =>
-      `${artifact.title} ${artifact.kind} ${Object.values(artifact.source ?? {}).join(" ")}`
-        .toLowerCase()
-        .includes(needle),
-    )
-    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  const settingMatches = needle ? matchingSettings(needle) : [];
-  const showCreate = "create diagram drawing".includes(needle);
-  const showSettings = "settings preferences".includes(needle);
-
   if (!workspaceReady) return <p role="status">Opening workspace…</p>;
   return (
     <main className={`workspace${focus ? " focus-mode" : ""}`}>
@@ -431,14 +293,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
             <CreateDiagram
               onClose={() => setCreating(false)}
               onCreated={(artifact) => {
-                revisions.current?.set(artifact.id, artifact.revision);
-                setSnapshot((value) => ({
-                  ...value,
-                  artifacts: [
-                    ...value.artifacts.filter((entry) => entry.id !== artifact.id),
-                    artifact,
-                  ],
-                }));
+                recordPublication(artifact);
                 open(artifact.id);
               }}
             />
@@ -521,55 +376,20 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
           </div>
         </DialogContent>
       </Dialog>
-      <Dialog open={search} onOpenChange={setSearch}>
-        <DialogContent className="search-dialog" onKeyDown={navigateResults}>
-          <DialogHeader>
-            <DialogTitle>Find artifacts and tools</DialogTitle>
-          </DialogHeader>
-          <Input
-            aria-label="Search artifacts"
-            placeholder="Search artifacts, tools, and settings…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            autoFocus
-          />
-          <div className="artifact-list" ref={results}>
-            {matches.map((artifact) => (
-              <button key={artifact.id} onClick={() => open(artifact.id)}>
-                <span>{artifact.title}</span>
-                <small>{artifact.kind}</small>
-              </button>
-            ))}
-            {showCreate && (
-              <button
-                onClick={() => {
-                  setCreating(true);
-                  setSearch(false);
-                  setFocus(false);
-                }}
-              >
-                <span>Create diagram</span>
-                <small>Tool</small>
-              </button>
-            )}
-            {showSettings && (
-              <button onClick={() => openSettings()}>
-                <span>Settings</span>
-                <small>Tool</small>
-              </button>
-            )}
-            {settingMatches.map((section) => (
-              <button key={section.id} onClick={() => openSettings(query)}>
-                <span>{section.title}</span>
-                <small>Setting</small>
-              </button>
-            ))}
-            {!matches.length && !showCreate && !showSettings && !settingMatches.length && (
-              <p role="status">No matches. Try another title, tool, or setting.</p>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <WorkspaceSearch
+        open={search}
+        onOpenChange={setSearch}
+        query={query}
+        setQuery={setQuery}
+        artifacts={snapshot.artifacts}
+        onOpenArtifact={open}
+        onOpenSettings={openSettings}
+        onCreateDiagram={() => {
+          setCreating(true);
+          setSearch(false);
+          setFocus(false);
+        }}
+      />
       <Dialog open={settings} onOpenChange={setSettings}>
         <DialogContent className="settings-dialog">
           <DialogHeader>

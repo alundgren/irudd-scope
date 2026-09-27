@@ -3,7 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { keychainCredentials } from "../apps/desktop/src/credentials.ts";
-import { MODEL, SettingsStore } from "../apps/desktop/src/settings.ts";
+import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
+import { DIAGRAM_MODEL } from "../apps/desktop/src/diagram/provider-settings.ts";
 
 function keychainEntry(initial: string | null | undefined) {
   let value = initial;
@@ -68,26 +69,26 @@ test.for(['{"apiKey":"synthetic-key"', '{"apiKey":42}', "null"])(
 test("legacy settings migrate when the native Keychain entry does not exist yet", async () => {
   const directory = await mkdtemp(join(tmpdir(), "scope-native-credential-migration-"));
   const credentials = keychainCredentials(keychainEntry(null));
-  const settings = new SettingsStore(directory, credentials, async () => "synthetic-migrated-key");
+  const store = new DesktopStore(directory, credentials, async () => "synthetic-migrated-key");
   try {
     await writeFile(
       join(directory, "settings.json"),
       JSON.stringify({
         version: 2,
         provider: "openrouter",
-        model: MODEL,
+        model: DIAGRAM_MODEL,
         apiKey: Buffer.from("synthetic-encrypted-key").toString("base64"),
       }),
     );
-    await settings.load();
-    expect(settings.view()).toMatchObject({ hasApiKey: true, keyStorage: "keychain" });
-    expect(settings.view().credentialError).toBeUndefined();
+    await store.load();
+    expect(store.settings()).toMatchObject({ hasApiKey: true, keyStorage: "keychain" });
+    expect(store.settings().credentialError).toBeUndefined();
     expect(await credentials.read()).toEqual({ apiKey: "synthetic-migrated-key" });
     await expect(readFile(join(directory, "settings.json"))).rejects.toMatchObject({
       code: "ENOENT",
     });
   } finally {
-    await settings.close();
+    await store.close();
     await rm(directory, { recursive: true, force: true });
   }
 });

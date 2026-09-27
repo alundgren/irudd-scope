@@ -12,7 +12,7 @@ import type { DiagramDraft } from "../diagram/draft.ts";
 import { useAutosave } from "./persistence.ts";
 import "@excalidraw/excalidraw/index.css";
 
-function drawingSettings(state: Partial<AppState>) {
+function canvasSettings(state: Partial<AppState>) {
   return JSON.stringify([
     state.viewBackgroundColor,
     state.gridSize,
@@ -120,7 +120,7 @@ export function DiagramView({
         null,
       );
       version.current = changed ? -1 : getSceneVersion(data.elements);
-      savedSettings.current = drawingSettings(data.appState ?? {});
+      savedSettings.current = canvasSettings(data.appState ?? {});
       loaded.current = nextRevision;
       setRevision(nextRevision);
       markDirty(changed);
@@ -163,7 +163,7 @@ export function DiagramView({
     return () => {
       if (request.current) {
         request.current.canceled = true;
-        void window.scope.cancelDrawing().catch(() => {});
+        void window.scope.cancelDiagramGeneration().catch(() => {});
       }
     };
   }, [api, item.artifact.id]);
@@ -175,7 +175,7 @@ export function DiagramView({
     if (!api) return;
     setBusy("saving");
     const savedVersion = getSceneVersion(api.getSceneElements());
-    const nextSettings = drawingSettings(api.getAppState());
+    const nextSettings = canvasSettings(api.getAppState());
     try {
       const saved = await window.scope.saveDiagram({
         id: copy ? crypto.randomUUID() : item.artifact.id,
@@ -195,7 +195,7 @@ export function DiagramView({
         savedSettings.current = nextSettings;
         markDirty(
           getSceneVersion(api.getSceneElements()) !== savedVersion ||
-            drawingSettings(api.getAppState()) !== nextSettings,
+            canvasSettings(api.getAppState()) !== nextSettings,
         );
         draftSave.schedule();
       }
@@ -217,7 +217,7 @@ export function DiagramView({
     const originalVersion = getSceneVersion(original);
     try {
       const before = readSemanticScene(original);
-      const result = await window.scope.compose({ intent: prompt, scene: before });
+      const result = await window.scope.generateDiagram({ intent: prompt, scene: before });
       if (current.canceled) throw new Error("Request canceled. The canvas is unchanged.");
       if (getSceneVersion(api.getSceneElements()) !== originalVersion)
         throw new Error(
@@ -262,7 +262,7 @@ export function DiagramView({
     if (!request.current) return;
     request.current.canceled = true;
     try {
-      await window.scope.cancelDrawing();
+      await window.scope.cancelDiagramGeneration();
     } catch {
       setNotice("Could not reach the provider to cancel. Its result will not change the canvas.");
     }
@@ -375,7 +375,7 @@ export function DiagramView({
               if (readyRef.current) {
                 markDirty(
                   getSceneVersion(elements) !== version.current ||
-                    drawingSettings(appState) !== savedSettings.current,
+                    canvasSettings(appState) !== savedSettings.current,
                 );
                 draftSave.schedule();
               }

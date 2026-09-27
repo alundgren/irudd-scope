@@ -67,7 +67,7 @@ vp run test tests/artifacts.test.ts
 ```
 
 The test runner supplies the display environment for Electron. A test that
-does not use Electron can also run directly with `vp test run tests/storage.test.ts`.
+does not use Electron can also run directly with `vp test run tests/artifact-storage.test.ts`.
 Passing Linux tests does not establish Mac signing, native Keychain access,
 or live OpenRouter behavior. Validate those separately on their real platform
 when changing the relevant integration. Keep validation results and screenshots
