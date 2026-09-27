@@ -19,8 +19,8 @@ The API uses a bearer token on every `/v1` request. It has no browser CORS acces
 | `GET /v1/artifacts/:id/content?revision=N`    | Content, or 409 if the revision changed           |
 | `GET /v1/events`                              | SSE `ready` and `artifact` events                 |
 
-Update requires the revision last read. A 409 means reload and decide whether to apply the update again. The client wraps content upload and metadata publication into one operation. Failed publication can leave an unused content file. Automatic cleanup and history retention are future storage work.
+Update requires the revision last read. A 409 means reload and decide whether to apply the update again. The client wraps content upload and metadata publication into one operation. Failed publication can leave an unused blob row in the desktop's SQLite database. The API returns only the current revision and provides no deletion operation. Storage details and recovery belong to the [desktop](../../docs/storage.md).
 
 Limits are 32 MiB per artifact, 16 KiB metadata, four simultaneous uploads, and eight event streams. SSE disconnects clients that cannot consume data; reconnect and list artifacts to recover. The stream does not promise event replay. It never replaces the persistent artifact list.
 
-Known kinds include text, Markdown, HTML, image, file, and Excalidraw. The transport accepts bounded kind names so a later renderer can add a kind without replacing the API. Older clients display an unfamiliar kind as a downloadable file. Image preview accepts common raster formats. Renderers must treat content as untrusted regardless of the declared kind.
+Known kinds include text, Markdown, HTML, image, file, and Excalidraw. The transport accepts bounded kind names; the desktop displays an unfamiliar kind as a downloadable file. Image preview accepts PNG, JPEG, WebP, GIF, and AVIF. Renderers must treat content as untrusted regardless of the declared kind.

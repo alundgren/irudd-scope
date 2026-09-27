@@ -13,7 +13,8 @@
   --popover: var(--scope-panel);
   --popover-foreground: var(--scope-text);
   --primary: var(--scope-accent);
-  --primary-foreground: var(--scope-canvas);
+  --primary-hover: var(--scope-accent-hover);
+  --primary-foreground: var(--scope-on-accent);
   --secondary: var(--scope-selected);
   --secondary-foreground: var(--scope-text);
   --muted: var(--scope-strip);
@@ -32,6 +33,7 @@
 
 @theme inline {
   --spacing: var(--scope-space-1);
+  --default-transition-duration: var(--scope-motion);
   --font-weight-normal: var(--scope-weight-regular);
   --font-weight-medium: var(--scope-weight-medium);
   --font-weight-semibold: var(--scope-weight-strong);
@@ -42,6 +44,8 @@
   --text-sm--line-height: var(--scope-leading-ui);
   --text-xs: var(--scope-text-detail);
   --text-xs--line-height: var(--scope-leading-detail);
+  --text-base: var(--scope-text-reading);
+  --text-base--line-height: var(--scope-leading-reading);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -54,6 +58,7 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -230,8 +235,8 @@ svg.lucide {
   align-self: start;
 }
 h1 {
-  font-size: 24px;
-  line-height: 32px;
+  font-size: var(--scope-text-title);
+  line-height: var(--scope-leading-title);
   font-weight: var(--scope-weight-strong);
 }
 h2 {
@@ -276,7 +281,8 @@ h2 {
   color: var(--scope-muted);
   white-space: nowrap;
 }
-.artifact-list > button:hover small {
+.artifact-list > button:hover small,
+.menu-actions > button:hover kbd {
   color: var(--scope-text);
 }
 .menu-actions {
@@ -295,6 +301,8 @@ h2 {
   border: 1px solid var(--scope-line);
   max-height: calc(100vh - 32px);
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scope-outline) var(--scope-panel);
 }
 [data-slot="dialog-header"] {
   padding-right: var(--scope-space-8);
@@ -336,6 +344,19 @@ h2 {
 .settings-form label {
   display: grid;
   gap: var(--scope-space-2);
+}
+.provider-details {
+  display: grid;
+  gap: var(--scope-space-2);
+}
+.provider-details > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--scope-space-2);
+}
+.provider-details dt {
+  width: 5em;
+  color: var(--scope-muted);
 }
 .settings-form > button {
   justify-self: start;

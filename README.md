@@ -10,15 +10,25 @@ SQLite stores artifact contents, metadata, ordinary settings, and workspace pref
 
 ## Development
 
-Install Vite+ `1.0.0-rc.1`, then run:
+Install the Vite+ version in the [workspace catalog](pnpm-workspace.yaml), then run:
 
 ```sh
-vp install
+vp install --frozen-lockfile
 vp run ready
 ```
 
 The project pins Node and pnpm through Vite+. Linux supports development and testing. macOS is the desktop deployment target.
 
-See [development and launch commands](docs/development.md), [architecture](docs/architecture.md), [protocol](packages/protocol/README.md), [technology choices and alternatives](docs/technology.md), and [UI decisions](ux.md). The [visual reference](docs/excalidraw-style-study.md) shows the selected design. Use the repo [UX guidance skill](.agents/skills/ux-guidance/SKILL.md) for UI work.
+Scope displays text, Markdown, raster images, static HTML, downloadable files,
+and editable Excalidraw diagrams. Diagram generation uses an OpenRouter key
+configured in the desktop. The app runs from a checkout; this repo does not
+provide an application installer.
+
+See [development and launch commands](docs/development.md),
+[architecture and ownership](docs/architecture.md),
+[storage and recovery](docs/storage.md), [protocol](packages/protocol/README.md),
+[technology](docs/technology.md), and [UI decisions](ux.md).
+[Visual design](docs/visual-design.md) describes the desktop's shared tokens
+and controls. Contributor instructions start in [AGENTS.md](AGENTS.md).
 
 MIT licensed.

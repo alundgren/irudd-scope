@@ -7,7 +7,7 @@ const coordinate = Schema.Finite.check(Schema.isBetween({ minimum: -10_000, maxi
 const size = Schema.Finite.check(Schema.isBetween({ minimum: 1, maximum: 3000 }));
 const kind = Schema.Literals(["rectangle", "ellipse", "diamond"]);
 const style = Schema.Literals(["solid", "dashed"]);
-export const OperationSchema = Schema.Union([
+export const DiagramOperation = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("createNode"),
     id,
@@ -47,9 +47,9 @@ export const OperationSchema = Schema.Union([
     ids: Schema.Array(id).check(Schema.isMinLength(1), Schema.isMaxLength(100)),
   }),
 ]);
-export const DrawingResponse = Schema.Struct({
+export const DiagramResponse = Schema.Struct({
   message: Schema.String.check(Schema.isMaxLength(2000)),
-  operations: Schema.Array(OperationSchema).check(Schema.isMaxLength(100)),
+  operations: Schema.Array(DiagramOperation).check(Schema.isMaxLength(100)),
 });
 export const SceneSchema = Schema.Struct({
   nodes: Schema.Array(
@@ -77,7 +77,7 @@ type Mutable<T> = T extends readonly (infer Item)[]
     : T;
 export type SemanticScene = Mutable<typeof SceneSchema.Type>;
 export type SceneNode = SemanticScene["nodes"][number];
-export type DrawingOperation = typeof OperationSchema.Type;
+export type DiagramOperation = typeof DiagramOperation.Type;
 export function parseScene(input: unknown): SemanticScene {
   return structuredClone(decode(SceneSchema, input)) as SemanticScene;
 }
@@ -89,7 +89,7 @@ export const DiagramRequest = Schema.Struct({
   scene: SceneSchema,
 });
 export type DiagramRequest = typeof DiagramRequest.Type;
-export type DrawingResult = typeof DrawingResponse.Type & {
+export type DiagramResult = typeof DiagramResponse.Type & {
   metrics: {
     model: string;
     durationMs: number;
@@ -99,5 +99,5 @@ export type DrawingResult = typeof DrawingResponse.Type & {
   };
 };
 export interface DiagramProvider {
-  compose: (request: DiagramRequest, signal: AbortSignal) => Promise<DrawingResult>;
+  generateDiagram: (request: DiagramRequest, signal: AbortSignal) => Promise<DiagramResult>;
 }

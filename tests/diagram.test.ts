@@ -18,7 +18,7 @@ test("the provider requests the selected model with a strict schema and validate
       usage: { prompt_tokens: 123, completion_tokens: 45, cost: 0.001 },
     });
   });
-  const result = await provider.compose(
+  const result = await provider.generateDiagram(
     { intent: "Draw a browser talking to an API.", scene: emptyScene() },
     new AbortController().signal,
   );
@@ -66,7 +66,7 @@ test("malformed or unresolved operations fail without returning a usable respons
     }),
   );
   await expect(
-    provider.compose(
+    provider.generateDiagram(
       { intent: "Draw something.", scene: emptyScene() },
       new AbortController().signal,
     ),

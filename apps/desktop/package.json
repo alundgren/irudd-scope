@@ -6,8 +6,7 @@
   "main": "dist/main.mjs",
   "scripts": {
     "build": "vp pack && vp build",
-    "dev": "vp run build && vp exec electron .",
-    "preview": "vp dev --host 127.0.0.1"
+    "dev": "vp run build && vp exec electron ."
   },
   "dependencies": {
     "@base-ui/react": "catalog:",

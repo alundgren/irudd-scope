@@ -105,20 +105,16 @@ export function SettingsViewPanel({
         </fieldset>
         <fieldset hidden={!visible("model")}>
           <legend>Diagram generation</legend>
-          <label>
-            Provider
-            <NativeSelect aria-label="Provider" defaultValue="openrouter">
-              <NativeSelectOption value="openrouter">OpenRouter</NativeSelectOption>
-            </NativeSelect>
-          </label>
-          <label>
-            Model
-            <NativeSelect aria-label="Model" defaultValue="google/gemini-3.8-flash">
-              <NativeSelectOption value="google/gemini-3.8-flash">
-                Gemini 3.8 Flash
-              </NativeSelectOption>
-            </NativeSelect>
-          </label>
+          <dl className="provider-details">
+            <div>
+              <dt>Provider</dt>
+              <dd>OpenRouter</dd>
+            </div>
+            <div>
+              <dt>Model</dt>
+              <dd>Gemini 3.8 Flash</dd>
+            </div>
+          </dl>
           <label>
             OpenRouter API key
             <Input

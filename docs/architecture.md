@@ -1,67 +1,138 @@
 # Architecture
 
-Scope stores artifacts from coding agents and shows them to a human. The Mac desktop owns the artifact library. Publishing requires the Mac to be awake and Scope to be running. Unavailable desktops return an error. Publication is not queued, retried automatically, or replayed later.
+Scope stores artifacts from coding agents and displays them in a Mac desktop
+workspace. The desktop owns the library. Publishing requires an awake Mac
+running Scope. A failed publication is not queued or replayed.
 
 ```mermaid
 flowchart LR
-    CLI[Local CLI] -->|loopback HTTP| Desktop[Electron main]
+    CLI[packages/cli] -->|loopback HTTP| Desktop[apps/desktop: Electron main]
     Remote[Remote CLI] -->|private HTTPS| Desktop
-    Remote -->|optional| Hub[VM hub]
-    Hub -->|private HTTPS forwarding| Desktop
-    Desktop --> SQLite[SQLite artifacts and preferences]
+    Remote -->|optional private HTTPS| Hub[apps/hub]
+    Hub -->|forward requests| Desktop
+    Desktop --> Artifacts[scope.db: artifacts and bytes]
+    Desktop --> Preferences[desktop.db: settings and workspace]
     Desktop --> Keychain[macOS Keychain]
-    Desktop -->|validated IPC| UI[Sandboxed React renderer]
-    Desktop -->|model calls| Provider[OpenRouter]
+    Desktop <-->|validated IPC| UI[apps/desktop/src/renderer]
+    Desktop -->|diagram requests| Provider[OpenRouter]
 ```
 
-## Ownership
+## Names and ownership
 
-`packages/protocol` owns artifact types, input validation, wire formats, limits, the local connection-file contract, and the shared HTTP client. It has no dependency on an application, filesystem, Electron, or model provider. Its README defines the public exchanges beside those contracts.
+Use the same names in code, documentation, diagrams, issues, and reviews.
+Folders name the work they own. Names in saved records, commands, and wire
+formats are compatibility contracts.
 
-`apps/desktop` owns durable artifact metadata, revisions, content, the publishing API, the human workspace, local preferences, credentials, and model execution. Electron main opens SQLite and the loopback HTTP listener, and closes them when the app quits. The sandboxed React renderer uses a small preload API. Artifact renderers receive artifact data, never publishing tokens or provider credentials.
+| Name              | Meaning                                                                                                 | Owner                                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Artifact          | Latest published metadata and content for one stable ID.                                                | `packages/protocol/src/index.ts` defines the contract; `apps/desktop/src/artifacts/` stores and serves it. |
+| Revision          | Increasing integer for an artifact; writers supply the revision they read.                              | Artifact protocol and desktop artifact store.                                                              |
+| Blob              | Immutable bytes identified by SHA-256, stored in SQLite.                                                | `apps/desktop/src/artifacts/store.ts`.                                                                     |
+| Source            | Optional publication provenance, such as host, repository, or agent. Unknown values stay absent.        | Protocol contract; `packages/cli` collects available values.                                               |
+| Artifact library  | Published artifact metadata and the desktop's connection status.                                        | `apps/desktop/src/artifacts/library.ts`; `renderer/use-artifact-library.ts` tracks unread updates.         |
+| Workspace         | Open and closed tabs and the selected artifact. Closing a tab preserves the artifact.                   | `apps/desktop/src/workspace.ts` defines the contract; `renderer/use-workspace.ts` manages tabs.            |
+| Settings          | Appearance, provider configuration, and credential presence.                                            | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.                |
+| Semantic scene    | Diagram nodes, text, connections, and groups with stable IDs.                                           | `apps/desktop/src/diagram/contract.ts` and `scene.ts`.                                                     |
+| Diagram operation | A validated change to a semantic scene, such as moving a node or adding a connection.                   | `apps/desktop/src/diagram/contract.ts`; `scene.ts` applies operations.                                     |
+| Canvas            | The editable Excalidraw document and its view state.                                                    | `apps/desktop/src/diagram/canvas.ts` converts scenes; `renderer/diagram-view.tsx` owns editing.            |
+| Diagram draft     | Unpublished canvas, conversation, prompt, panel state, and view position based on an artifact revision. | `apps/desktop/src/diagram/draft.ts` defines the contract; `desktop-store.ts` stores drafts.                |
+| Diagram provider  | Generates validated diagram operations from an intent and semantic scene.                               | `apps/desktop/src/diagram/contract.ts`; `openrouter.ts` owns the external API format.                      |
+| Publishing token  | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                          | Desktop discovery file; CLI and optional hub use it.                                                       |
 
-`packages/cli` owns file detection, explicit publication, and cheap optional provenance from hostname, cwd, Git, and supplied agent/session information. It discovers the local desktop through a private connection file and uses the protocol client. An explicit endpoint requires explicit credentials. The CLI does not inspect transcripts or launch agents.
+`packages/protocol` owns shared schemas, wire formats, limits, the discovery
+contract, and the HTTP client. It imports no app, filesystem, Electron, or
+provider code. [Its README](../packages/protocol/README.md) documents the API.
 
-`apps/hub` is an optional forwarding service. It authenticates requests and streams them to the configured desktop endpoint. It owns no artifact database or content files. If the desktop cannot be reached, the hub returns 503. It never receives an OpenRouter API key. Durable remote buffering and replay are future work.
+`apps/desktop` owns persistence, the loopback publishing listener, provider
+calls, and the human workspace. Its main process owns database connections,
+native APIs, and credentials. `main.ts` starts these resources and closes them
+after pending saves finish. `ipc.ts` validates callers and handles the named
+operations declared in `bridge.ts` and exposed by `preload.ts`.
+`renderer-security.ts` serves the application and restricts renderer access.
 
-Dependencies point from each app and CLI to `packages/protocol`. No app imports another app's internal source. Artifact storage stays in desktop, its only owner. Provider and renderer code also stays in desktop until a second real consumer justifies moving it.
+`desktop-store.ts` persists settings, workspace preferences, and diagram
+drafts. Their contracts live in `settings.ts`, `workspace.ts`, and
+`diagram/draft.ts`, without filesystem or database dependencies. Provider
+configuration lives in `diagram/provider-settings.ts`; provider requests do
+not depend on desktop storage.
 
-## Local and remote publication
+`artifacts/library.ts` watches publication events, refreshes metadata on
+connection, and caches content by revision. The sandboxed React renderer
+receives an `ArtifactLibrarySnapshot`. `renderer/use-artifact-library.ts`
+tracks unread updates, `renderer/use-workspace.ts` restores and saves tabs,
+and `renderer/workspace-search.tsx` presents search results. The workspace
+component owns layout, dialogs, and shortcuts. `diagram/` owns semantic scenes
+and their conversion to Excalidraw; `renderer/diagram-view.tsx` owns editing.
 
-Opening Scope starts its publishing API on loopback and writes the endpoint and a generated bearer token to a connection file readable only by the current user. The CLI reads this file for local use. The token remains stable across app restarts. Local use requires no VM, tailnet, or connection form.
+`packages/cli` detects file kinds, gathers inexpensive provenance, and publishes
+through the protocol client. It does not read transcripts or launch agents.
 
-Remote callers use private HTTPS to reach the Mac, normally through Tailscale Serve. They may publish directly or through the optional hub. Both paths require the desktop's publishing token. The desktop and hub bind only to loopback; neither belongs on a public listener or funnel.
+`apps/hub` authenticates and forwards requests and event streams. It owns no
+database, content directory, queue, or provider credentials. An unreachable
+desktop produces a 503 response before response headers are sent. A failure
+during streaming closes the response.
 
-Closing the last window quits Scope and stops publication. The connection file remains available for the next launch, but it does not represent a running app. A connection failure produces an error and no background retry. A lost response may leave the caller uncertain whether a write committed; read the current artifact before retrying.
+Dependencies point from each app and CLI toward the protocol. Apps do not
+import one another's source. Keep responsibilities together until splitting
+them solves a concrete problem. Do not add generic service or adapter layers
+just to apply an architectural pattern. Rename callers, tests, and current
+docs together when terminology changes.
 
-## Persistent data
+## Publication and persistence
 
-The desktop is authoritative for artifact content and metadata. `scope.db` stores artifact metadata and binary content in the local artifact directory. `desktop.db` stores ordinary settings and workspace preferences in Electron's user data directory. Both use `@effect/sql-sqlite-node` with an owned Effect runtime. Provider credentials live outside SQLite, and the private discovery file holds the publishing endpoint and token. An artifact has a stable ID and an increasing revision. Create refuses an existing ID. Update requires the expected revision, so two writers cannot silently overwrite one another. Closing a desktop tab only changes local workspace preferences.
+Opening Scope starts the loopback API and writes its endpoint and bearer token
+to a private discovery file. Local CLI calls discover them automatically.
+Explicit endpoints require explicit credentials. Remote callers use private
+HTTPS to reach the desktop directly or through the hub. Both listeners bind
+to loopback and require the desktop publishing token for artifact requests.
 
-Binary content uses SHA-256 IDs and is inserted before artifact metadata references it. A failed metadata write can leave an unused blob row, but never metadata pointing at unfinished content. Metadata updates and expected-revision checks run in one SQLite transaction. The current artifact revision has no history browser. Future migrations must preserve IDs and existing records.
+Closing the last window quits Scope and stops publication. The connection
+file remains, so its presence does not establish that the desktop is running.
+A lost response can leave the caller uncertain whether a write committed.
+Read the current artifact before retrying an uncertain update.
 
-Optional provenance fields are absent when unknown. Missing information must not prevent publication. Session records and hook installation are not prerequisites for artifact records.
+The artifact store inserts bytes before publishing their metadata. The
+expected-revision check and metadata write share a SQLite transaction.
+Competing writes cannot silently overwrite one another. Failed publication
+can leave an unused blob row. The API returns only the current revision;
+there is no artifact deletion or history browser, and unused bytes remain
+in the database.
 
-SSE announces changes. Clients reconcile the current artifact list on connection and reconnection. Stored artifacts survive a missed event and a desktop restart. The stream is a notification channel, not the durable archive.
+SSE announces changes. Desktop main lists artifacts on connection and
+reconnection, then merges those records with notifications. The database
+retains artifacts across missed events and process restarts.
 
-Desktop preferences and diagram working data live in `desktop.db`. Each diagram draft retains its base artifact revision, working canvas, conversation, unsent prompt, panel state, and zoom and pan. Saving publishes an artifact revision; automatic draft writes do not publish. The renderer flushes pending workspace writes before the main process closes SQLite. Closing a tab retains the draft and conversation for reopening. Automatic cleanup of closed tabs is future work.
+Diagram drafts and workspace preferences live in `desktop.db`. Draft writes
+do not publish an artifact revision. Save does. Closing a tab retains its
+draft and conversation. On shutdown, main asks the renderer to flush pending
+writes before closing SQLite. If flushing fails, the user can keep Scope open
+or explicitly quit without those changes.
 
-## Desktop security and providers
+See [storage and recovery](storage.md) for locations, backup, and supported
+imports. Persisted contract changes must preserve existing data or define a
+migration before implementation.
 
-Agent HTML is untrusted. Preview it in a sandboxed iframe with no scripts, same-origin permission, forms, popups, parent access, or external network access. Do not load it as a privileged Electron page. Downloads use an explicit save dialog in main.
+## Desktop security and generation
 
-The preload API exposes named operations and validates IPC callers. It must not expose arbitrary filesystem access, shell execution, fetch, Electron objects, or secret-reading methods. The app blocks unexpected navigation, child windows, and permissions.
+The renderer has no Node integration. Main validates IPC callers and inputs,
+blocks unexpected navigation and child windows, and denies permissions.
+The preload exposes no arbitrary filesystem, shell, fetch, or secret-reading
+operations. Artifact rendering receives content and metadata, not credentials.
 
-Settings initially offers OpenRouter and `google/gemini-3.8-flash`. The trusted settings form can submit a new key once. Main stores it directly in macOS Keychain through `@napi-rs/keyring`, clears the submitted value from the form, and returns only whether a key is stored. It uses Electron asynchronous `safeStorage` only to migrate older encrypted settings. Keychain entries are isolated by desktop profile. Replacing and removing the key are supported. Stable code signing is needed for consistent Keychain access across Mac builds.
+HTML runs in an iframe with scripts, same-origin access, forms, popups,
+nested frames, and external resources blocked. Markdown omits raw HTML and
+replaces links and images with text. Downloads use a save dialog in main.
 
-Linux development and isolated sessions using `SCOPE_SESSION_CREDENTIALS=1` keep provider keys in memory for that process. Standard tests use synthetic responses and never need a real key. The local publishing token is also kept out of artifact renderers.
+OpenRouter is the diagram provider, using the model in `diagram/provider-settings.ts`. The
+settings form submits a new key to main and clears the input after saving.
+Main stores the key in a profile-specific macOS Keychain entry and returns
+only presence or an access error. Linux and isolated development sessions
+keep keys in memory. Provider keys never enter SQLite, the hub, or artifact
+content.
 
-Diagram generation accepts intent and a compact semantic scene and returns validated semantic drawing operations plus usage. `apps/desktop/src/diagram/contract.ts` owns `DiagramProvider`; `openrouter.ts` owns OpenRouter's wire format. The renderer translates validated operations into Excalidraw elements. Future local Codex and Claude CLI providers implement that same narrow task contract inside desktop main. They must not become a generic execution API. Provider choice is not part of the artifact transport.
-
-The Create diagram tool and an existing diagram's optional conversation invoke this provider. Generation is explicit, with one request at a time and a cancel action. The desktop does not accept remote generation jobs. Agents can publish a finished `.excalidraw` file immediately; a CLI command that delegates generation to the open Mac app is later work.
-
-## Delivery boundaries
-
-The current implementation supports text/Markdown, image, static HTML, file, and Excalidraw publication through CLI and desktop, including stable updates, SSE, persistence, and provider settings. The optional hub forwards the same API. Editable Excalidraw and the explicit diagram tool use validated semantic operations and a canvas adapter. Optional provider-neutral observation of tool-call sizes and session analysis are planned. Retain raw provider details where normalization would lose information.
-
-No MCP, agent orchestration, remote commands, accounts, public ingestion, collaboration server, transcript archive, or plugin system is needed for this implementation. The selected desktop design and shared token ownership are described in [UI decisions](../ux.md).
+Create diagram and Ask agent invoke the provider explicitly, one request
+at a time, with cancellation. The provider returns validated semantic
+operations and usage. The renderer applies those operations to Excalidraw.
+Concurrent edits and new artifact revisions retain the working canvas and
+offer recovery choices. The HTTP API accepts finished artifacts, not
+generation jobs. Scope does not run or coordinate coding sessions.

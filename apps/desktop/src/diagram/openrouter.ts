@@ -1,10 +1,10 @@
 import { Schema } from "effect";
 import { decode } from "@irudd-scope/protocol";
-import { MODEL } from "../settings.ts";
-import { DiagramRequest, DrawingResponse, parseScene, type DiagramProvider } from "./contract.ts";
+import { DIAGRAM_MODEL } from "./provider-settings.ts";
+import { DiagramRequest, DiagramResponse, parseScene, type DiagramProvider } from "./contract.ts";
 import { applyOperations } from "./scene.ts";
 
-const prompt = `You compose clear, compact diagrams using semantic drawing operations.
+const prompt = `You compose clear, compact diagrams using semantic diagram operations.
 Prioritize hierarchy, alignment, spacing, concise labels and few crossing lines.
 Use stable IDs and targeted edits. Coordinates are top-left; X increases right, Y down.
 Node kinds: rectangle, ellipse, diamond. Null width/height means 180 by 80.
@@ -16,7 +16,7 @@ Preserve all requested relationships. Use two connections for bidirectional rela
 Draw the diagram; keep the message brief.`;
 
 // Google rejects some value constraints. Keep those checks in the local decoder.
-const localSchema = Schema.toJsonSchemaDocument(DrawingResponse, {
+const localSchema = Schema.toJsonSchemaDocument(DiagramResponse, {
   onExcessProperty: "error",
 }).schema;
 const schema: unknown = JSON.parse(
@@ -33,7 +33,7 @@ const numberOrNull = (value: unknown) =>
 
 export function openRouterProvider(key: string, fetcher: typeof fetch = fetch): DiagramProvider {
   return {
-    compose: async (input, signal) => {
+    generateDiagram: async (input, signal) => {
       const request = decode(DiagramRequest, input);
       const started = performance.now();
       let response: Response;
@@ -48,7 +48,7 @@ export function openRouterProvider(key: string, fetcher: typeof fetch = fetch): 
             "X-Title": "irudd-scope",
           },
           body: JSON.stringify({
-            model: MODEL,
+            model: DIAGRAM_MODEL,
             messages: [
               { role: "system", content: prompt },
               {
@@ -93,15 +93,15 @@ export function openRouterProvider(key: string, fetcher: typeof fetch = fetch): 
         ),
         usage: Schema.optional(Schema.Unknown),
       });
-      let content: typeof DrawingResponse.Type;
+      let content: typeof DiagramResponse.Type;
       let usage: Record<string, unknown> = {};
       try {
         const data = Schema.decodeUnknownSync(Envelope)(payload);
         if (data.choices[0]?.finish_reason === "length") throw new Error("Truncated output.");
         const output = data.choices[0]?.message.content;
         if (!output || output.length > 256 * 1024)
-          throw new Error("Missing or oversized drawing response.");
-        content = decode(DrawingResponse, JSON.parse(output));
+          throw new Error("Missing or oversized diagram response.");
+        content = decode(DiagramResponse, JSON.parse(output));
         applyOperations(parseScene(request.scene), content.operations);
         if (data.usage && typeof data.usage === "object")
           usage = data.usage as Record<string, unknown>;
@@ -111,7 +111,7 @@ export function openRouterProvider(key: string, fetcher: typeof fetch = fetch): 
       return {
         ...content,
         metrics: {
-          model: MODEL,
+          model: DIAGRAM_MODEL,
           durationMs: Math.round(performance.now() - started),
           inputTokens: numberOrNull(usage.prompt_tokens),
           outputTokens: numberOrNull(usage.completion_tokens),

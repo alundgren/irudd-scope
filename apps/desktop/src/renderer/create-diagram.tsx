@@ -28,7 +28,7 @@ export function CreateDiagram({
     setError("");
     setBusy(true);
     try {
-      const result = await window.scope.compose({ intent, scene: emptyScene() });
+      const result = await window.scope.generateDiagram({ intent, scene: emptyScene() });
       if (!active.current) return;
       const [{ applyOperations }, { renderScene }, { serializeAsJSON }] = await Promise.all([
         import("../diagram/scene.ts"),
@@ -85,10 +85,14 @@ export function CreateDiagram({
         </p>
         <div className="section-title">
           <Button type="submit" disabled={busy}>
-            {busy ? "Drawing…" : "Create diagram"}
+            {busy ? "Generating…" : "Create diagram"}
           </Button>
           {busy && (
-            <Button type="button" variant="ghost" onClick={() => void window.scope.cancelDrawing()}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => void window.scope.cancelDiagramGeneration()}
+            >
               Cancel
             </Button>
           )}
