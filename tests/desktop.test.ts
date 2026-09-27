@@ -26,6 +26,7 @@ test("the CLI commits artifacts while diagram generation is pending and the rend
     await page.getByRole("button", { name: "Save settings" }).click();
     await page.getByText("Settings saved.").waitFor();
     await page.getByRole("button", { name: "Done", exact: true }).click();
+    await expect.poll(() => page.getByRole("dialog").count()).toBe(0);
     await page.getByRole("button", { name: "Create diagram", exact: true }).click();
     await page.getByLabel("What should the diagram show?").fill("A request that stays pending.");
     await page.getByRole("button", { name: "Create diagram", exact: true }).click();
@@ -47,7 +48,6 @@ test("the CLI commits artifacts while diagram generation is pending and the rend
     }
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.getByRole("button", { name: "Done", exact: true }).click();
-    await page.getByRole("button", { name: "Note text", exact: true }).click();
     await page.getByText("Published during rendering", { exact: true }).waitFor();
   } finally {
     await application.close();
@@ -348,7 +348,6 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
       "markdown",
     );
     expect((await stat(connectionFile)).mode & 0o777).toBe(0o600);
-    await page.getByRole("button", { name: "Review markdown" }).click();
     await page.getByRole("heading", { name: "Actual report" }).waitFor();
     await page.getByRole("button", { name: "Focus artifact" }).click();
     expect(await page.getByRole("navigation", { name: "Open artifacts" }).count()).toBe(0);

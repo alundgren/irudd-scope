@@ -17,9 +17,11 @@ Reserve the compact strip for workspace navigation. Keep artifact titles in
 tabs. Let diagrams, images, and HTML use the window; constrain reading width
 for prose. Put secondary actions in the workspace menu or artifact controls.
 
-Keep the selected tab visible when titles overflow. Arrivals and background
-updates indicate change without selecting themselves. Closing a tab preserves
-its artifact and draft. Focus keeps the artifact mounted, preserves position,
+Keep the selected tab visible when titles overflow. New publications open in
+tabs, selecting the first arrival only when no artifact is open. Later arrivals
+and background updates keep the current selection and indicate unread content.
+Startup restores saved tabs; revisions leave closed tabs closed. Closing a tab
+preserves its artifact and draft. Focus keeps the artifact mounted, preserves position,
 hides chat, and exposes a small exit clear of editor controls. Escape dismisses
 the current dialog or editor interaction before leaving focus.
 

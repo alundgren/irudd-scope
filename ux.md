@@ -33,9 +33,15 @@ live with the desktop.
 ## Workspace behavior
 
 Tabs show the artifact title, scroll in one row, and indicate unread updates.
-Selection has both a tinted background and a solid marker. New artifacts and
-background revisions do not select themselves. Closing a tab preserves the
-artifact and its diagram draft; reopening finds the same artifact. SQLite
+Selection has both a tinted background and a solid marker. New publications
+open in tabs. The first arrival selects itself when no artifact is open;
+later arrivals keep the current selection and appear unread. Arrivals wait
+while a creation tool is open. Startup restores saved tabs without opening
+older library items. Revisions update unread indicators without reopening
+closed tabs or changing selection. At the 100-tab limit, further arrivals
+remain available through search and the desktop asks the user to close a tab.
+Closing a tab preserves the artifact and its diagram draft; reopening finds
+the same artifact. SQLite
 retains open and closed tab records, selection, and group membership. Each
 tab has its own UUID and belongs to a group with an owner reference. Group
 membership has no visual indicator. The desktop opens published items in its

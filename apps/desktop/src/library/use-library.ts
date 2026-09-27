@@ -8,6 +8,7 @@ export function useArtifactLibrary(onError: (message: string) => void) {
     connection: "connecting",
   });
   const [unread, setUnread] = useState<Set<string>>(new Set());
+  const [arrivals, setArrivals] = useState<string[]>([]);
   const revisions = useRef<Map<string, number> | null>(null);
 
   useEffect(() => {
@@ -15,6 +16,11 @@ export function useArtifactLibrary(onError: (message: string) => void) {
     const receive = (next: ArtifactLibrarySnapshot) => {
       if (!active) return;
       if (revisions.current) {
+        const added = next.artifacts.filter((artifact) => !revisions.current!.has(artifact.id));
+        if (added.length)
+          setArrivals((previous) => [
+            ...new Set([...previous, ...added.map((artifact) => artifact.id)]),
+          ]);
         const changed = next.artifacts.filter(
           (artifact) => revisions.current!.get(artifact.id) !== artifact.revision,
         );
@@ -52,11 +58,16 @@ export function useArtifactLibrary(onError: (message: string) => void) {
 
   function recordPublication(artifact: Artifact): void {
     revisions.current?.set(artifact.id, artifact.revision);
+    acknowledgeArrivals([artifact.id]);
     setSnapshot((previous) => ({
       ...previous,
       artifacts: [...previous.artifacts.filter((entry) => entry.id !== artifact.id), artifact],
     }));
   }
 
-  return { snapshot, unread, markRead, recordPublication };
+  function acknowledgeArrivals(ids: readonly string[]): void {
+    setArrivals((previous) => previous.filter((id) => !ids.includes(id)));
+  }
+
+  return { snapshot, unread, arrivals, acknowledgeArrivals, markRead, recordPublication };
 }
