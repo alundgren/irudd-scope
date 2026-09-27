@@ -3,7 +3,7 @@ import type { SettingsUpdate, SettingsView } from "./settings.ts";
 import type { Workspace } from "./workspace/contract.ts";
 import type { DiagramRequest, DiagramResult } from "./plugins/diagram/contract.ts";
 import type { DiagramDraft } from "./plugins/diagram/draft.ts";
-import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
+import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 
 export type ArtifactLibrarySnapshot = {
@@ -24,6 +24,10 @@ export type ScopeBridge = {
   checkForUpdates: () => Promise<void>;
   cancelUpdate: () => Promise<void>;
   restartToUpdate: () => Promise<void>;
+  signingCertificate: () => Promise<SigningCertificate | undefined>;
+  connectSigningCertificate: (name: string) => Promise<void>;
+  disconnectSigningCertificate: () => Promise<void>;
+  openKeychainAccess: () => Promise<void>;
   onUpdatesChange: (listener: (status: UpdateStatus) => void) => () => void;
   agentTools: () => Promise<AgentToolStatus>;
   installCli: () => Promise<AgentToolStatus>;

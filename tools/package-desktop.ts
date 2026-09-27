@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { readSigningIdentity } from "../apps/desktop/src/installation-files.ts";
 
 const exec = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
@@ -21,6 +22,10 @@ if (process.platform !== "darwin" || !output || !installRoot || !vp || !isAbsolu
   );
 }
 const commit = (await exec("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
+const signingIdentity = await readSigningIdentity(
+  resolve(installRoot),
+  process.env.SCOPE_SIGNING_IDENTITY,
+);
 const temporary = await mkdtemp(join(tmpdir(), "scope-package-"));
 try {
   const source = join(temporary, "source");
@@ -34,7 +39,7 @@ try {
       version: manifest.version,
       type: "module",
       main: "dist/main.mjs",
-      scopeInstallation: { root: resolve(installRoot), vp, commit },
+      scopeInstallation: { root: resolve(installRoot), vp, commit, signingIdentity },
     }),
   );
   await cp(join(desktop, "dist"), join(source, "dist"), { recursive: true });
@@ -55,17 +60,18 @@ try {
     name: "Scope",
     appBundleId: "alundgren.irudd-scope",
     appCategoryType: "public.app-category.developer-tools",
-    icon: join(desktop, "resources/icon.icns"),
+    extraResource: [join(desktop, "resources/icon.icns")],
+    extendInfo: { CFBundleIconFile: "icon.icns" },
     platform: "darwin",
     arch: process.arch as "arm64" | "x64",
     electronVersion: require("electron/package.json").version,
     prune: false,
     asar: false,
     osxSign: {
-      identity: "-",
+      identity: signingIdentity ?? "-",
       identityValidation: false,
       continueOnError: false,
-      // Local builds have no Apple team identity for hardened library validation.
+      // A local certificate need not have an Apple team identity for library validation.
       optionsForFile: () => ({ hardenedRuntime: false, timestamp: "none" }),
     },
   });

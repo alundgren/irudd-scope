@@ -565,6 +565,16 @@ h2 {
 .installation-output summary {
   cursor: pointer;
 }
+.signing-instructions summary {
+  cursor: pointer;
+}
+.signing-instructions ol {
+  display: grid;
+  gap: var(--scope-space-3);
+  list-style: decimal;
+  padding-left: var(--scope-space-6);
+  margin: var(--scope-space-3) 0;
+}
 .connection-notice,
 .error-bar {
   display: flex;

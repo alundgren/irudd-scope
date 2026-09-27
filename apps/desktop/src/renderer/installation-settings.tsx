@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AgentToolStatus, UpdateStatus } from "../installation-contract.ts";
 import { Button } from "./components/ui/button.tsx";
+import { SigningSettings } from "./signing-settings.tsx";
 
 function useUpdates() {
   const [status, setStatus] = useState<UpdateStatus>();
@@ -27,7 +28,7 @@ export function UpdateNotice() {
   if (status?.phase !== "ready") return null;
   return (
     <div className="connection-notice" role="status">
-      <span>{error || "A Scope update is ready."}</span>
+      <span>{error || status.message}</span>
       <Button
         size="sm"
         variant="secondary"
@@ -42,18 +43,79 @@ export function UpdateNotice() {
             .finally(() => setBusy(false));
         }}
       >
-        Restart to update
+        {status.operation === "signing" ? "Restart to apply" : "Restart to update"}
       </Button>
     </div>
+  );
+}
+
+function BuildProgress({
+  status,
+  disabled,
+  onRestart,
+  onCancel,
+  onCheck,
+}: {
+  status: UpdateStatus | undefined;
+  disabled: boolean;
+  onRestart: () => void;
+  onCancel: () => void;
+  onCheck?: () => void;
+}) {
+  const busy = status?.phase === "checking" || status?.phase === "building";
+  const signing = status?.operation === "signing";
+  return (
+    <>
+      <p role="status">{status?.message ?? "Reading update status…"}</p>
+      {signing && (status.phase === "building" || status.phase === "ready") && (
+        <p className="secondary">
+          After restart:{" "}
+          {status.nextSigningCertificate?.name ?? "default signing without a certificate"}.
+        </p>
+      )}
+      <div className="installation-actions">
+        {status?.phase === "ready" ? (
+          <Button type="button" disabled={disabled} onClick={onRestart}>
+            {signing ? "Restart to apply" : "Restart to update"}
+          </Button>
+        ) : onCheck ? (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={disabled || !status || busy}
+            onClick={onCheck}
+          >
+            {busy
+              ? "Updating…"
+              : status?.phase === "error" && !signing
+                ? "Retry update"
+                : "Check for updates"}
+          </Button>
+        ) : null}
+        {(busy || (signing && status.phase === "ready")) && (
+          <Button type="button" variant="ghost" disabled={disabled} onClick={onCancel}>
+            {signing ? "Cancel change" : "Cancel update"}
+          </Button>
+        )}
+      </div>
+      {status?.output && (
+        <details className="installation-output" open={status.phase === "error"}>
+          <summary>{status.phase === "error" ? "Error details" : "Build output"}</summary>
+          <pre>{status.output}</pre>
+        </details>
+      )}
+    </>
   );
 }
 
 export function InstallationSettings({
   showUpdates,
   showTools,
+  showSigning,
 }: {
   showUpdates: boolean;
   showTools: boolean;
+  showSigning: boolean;
 }) {
   const updates = useUpdates();
   const [tools, setTools] = useState<AgentToolStatus>();
@@ -77,11 +139,27 @@ export function InstallationSettings({
       ),
     );
   }
+  const progress = (
+    <BuildProgress
+      status={updates}
+      disabled={restarting || Boolean(tools?.busy)}
+      onRestart={() => {
+        setRestarting(true);
+        run(() => window.scope.restartToUpdate().finally(() => setRestarting(false)));
+      }}
+      onCancel={() => run(() => window.scope.cancelUpdate())}
+      onCheck={
+        updates?.operation === "signing" && showSigning
+          ? undefined
+          : () => run(() => window.scope.checkForUpdates())
+      }
+    />
+  );
   return (
     <>
       <fieldset hidden={!showUpdates}>
         <legend>App updates</legend>
-        <p role="status">{updates?.message ?? "Reading update status…"}</p>
+        {updates?.phase === "unmanaged" && <p>{updates.message}</p>}
         {updates?.phase !== "unmanaged" && (
           <>
             <p className="secondary">
@@ -93,50 +171,23 @@ export function InstallationSettings({
                 Installed commit <code>{updates.currentCommit.slice(0, 8)}</code>
               </p>
             )}
-            <div className="installation-actions">
-              {updates?.phase === "ready" ? (
-                <Button
-                  type="button"
-                  disabled={restarting || Boolean(tools?.busy)}
-                  onClick={() => {
-                    setRestarting(true);
-                    run(() => window.scope.restartToUpdate().finally(() => setRestarting(false)));
-                  }}
-                >
-                  Restart to update
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={!updates || updating || Boolean(tools?.busy)}
-                  onClick={() => run(() => window.scope.checkForUpdates())}
-                >
-                  {updating
-                    ? "Updating…"
-                    : updates?.phase === "error"
-                      ? "Retry update"
-                      : "Check for updates"}
-                </Button>
-              )}
-              {updating && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => run(() => window.scope.cancelUpdate())}
-                >
-                  Cancel update
-                </Button>
-              )}
-            </div>
-            {updates?.output && (
-              <details className="installation-output">
-                <summary>{updates.phase === "error" ? "Error details" : "Build output"}</summary>
-                <pre>{updates.output}</pre>
-              </details>
+            {updates?.operation === "signing" && showSigning ? (
+              <p className="secondary">The certificate change is shown below.</p>
+            ) : (
+              progress
             )}
           </>
         )}
+      </fieldset>
+      <fieldset hidden={!showSigning}>
+        <legend>Signing certificate</legend>
+        <SigningSettings
+          status={updates}
+          disabled={updating || restarting || Boolean(tools?.busy)}
+          progress={
+            updates?.operation === "signing" || (updating && !showUpdates) ? progress : null
+          }
+        />
       </fieldset>
       <fieldset hidden={!showTools}>
         <legend>Agent tools</legend>

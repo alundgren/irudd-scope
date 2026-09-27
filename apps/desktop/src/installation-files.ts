@@ -16,15 +16,18 @@ import {
 } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { Schema } from "effect";
 import { decode } from "@irudd-scope/protocol";
 
+const SigningIdentity = Schema.String.check(Schema.isPattern(/^[0-9A-F]{40}$/));
+const buildName = /^[0-9a-f]{40}(?:-[0-9A-F]{40})?$/;
 const Installation = Schema.Struct({
   root: Schema.String,
   vp: Schema.String,
   commit: Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)),
+  signingIdentity: Schema.optionalKey(SigningIdentity),
 });
 export type Installation = typeof Installation.Type;
 
@@ -34,6 +37,35 @@ export async function readInstallation(appDirectory: string): Promise<Installati
   if (!isAbsolute(installation.root) || !isAbsolute(installation.vp))
     throw new Error("Scope's installation paths are invalid. Run the installer again.");
   return installation;
+}
+
+export async function readSigningIdentity(
+  root: string,
+  requested?: string,
+): Promise<string | undefined> {
+  if (requested === undefined) {
+    const current = await readInstallation(
+      join(root, "current/Scope.app/Contents/Resources/app"),
+    ).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+    if (current && current.root !== root)
+      throw new Error("The current app belongs to another installation directory.");
+    return current?.signingIdentity;
+  }
+  if (requested === "-") return undefined;
+  try {
+    return decode(SigningIdentity, requested.trim().toUpperCase());
+  } catch {
+    throw new Error(
+      "SCOPE_SIGNING_IDENTITY must be a 40-character certificate fingerprint or '-' for ad-hoc signing.",
+    );
+  }
+}
+
+export function installationBuildDirectory(installation: Installation) {
+  const suffix = installation.signingIdentity ? `-${installation.signingIdentity}` : "";
+  return join(installation.root, "builds", `${installation.commit}${suffix}`);
 }
 
 export async function pointToBuild(
@@ -46,7 +78,7 @@ export async function pointToBuild(
 }
 
 function validateBuild(root: string, build: string) {
-  if (dirname(build) !== join(root, "builds") || !/^[0-9a-f]{40}$/.test(build.split("/").at(-1)!))
+  if (dirname(build) !== join(root, "builds") || !buildName.test(basename(build)))
     throw new Error("The prepared app is outside Scope's build directory.");
 }
 
@@ -81,8 +113,10 @@ export async function activateBuild(root: string, build: string, application?: s
   const bundle = join(build, "Scope.app");
   await access(join(bundle, "Contents/MacOS/Scope"), constants.X_OK);
   const metadata = await readInstallation(join(bundle, "Contents/Resources/app"));
-  if (metadata.root !== root || join(root, "builds", metadata.commit) !== build)
-    throw new Error("The prepared update has a different commit or installation directory.");
+  if (metadata.root !== root || installationBuildDirectory(metadata) !== build)
+    throw new Error(
+      "The prepared update has a different commit, signing identity, or installation directory.",
+    );
 
   const lock = join(root, ".activation-lock");
   await mkdir(lock).catch((error: NodeJS.ErrnoException) => {
@@ -193,7 +227,7 @@ export async function pruneBuilds(installation: Installation) {
       )
     )
       return;
-  const keep = new Set([join(installation.root, "builds", installation.commit)]);
+  const keep = new Set([installationBuildDirectory(installation)]);
   for (const name of ["current", "previous", "prepared"]) {
     const target = await readlink(join(installation.root, name)).catch(() => undefined);
     if (target) keep.add(resolve(installation.root, target));
@@ -201,7 +235,7 @@ export async function pruneBuilds(installation: Installation) {
   const builds = join(installation.root, "builds");
   for (const entry of await readdir(builds, { withFileTypes: true })) {
     const directory = join(builds, entry.name);
-    if (entry.isDirectory() && /^[0-9a-f]{40}$/.test(entry.name) && !keep.has(directory))
+    if (entry.isDirectory() && buildName.test(entry.name) && !keep.has(directory))
       await rm(directory, { recursive: true });
   }
 }

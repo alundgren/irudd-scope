@@ -20,6 +20,11 @@ const bridge: ScopeBridge = {
   checkForUpdates: () => ipcRenderer.invoke("scope:check-for-updates"),
   cancelUpdate: () => ipcRenderer.invoke("scope:cancel-update"),
   restartToUpdate: () => ipcRenderer.invoke("scope:restart-to-update"),
+  signingCertificate: () => ipcRenderer.invoke("scope:signing-certificate"),
+  connectSigningCertificate: (name) =>
+    ipcRenderer.invoke("scope:connect-signing-certificate", name),
+  disconnectSigningCertificate: () => ipcRenderer.invoke("scope:disconnect-signing-certificate"),
+  openKeychainAccess: () => ipcRenderer.invoke("scope:open-keychain-access"),
   onUpdatesChange: (listener) => {
     const receive = (_event: unknown, status: UpdateStatus) => listener(status);
     ipcRenderer.on("scope:updates-changed", receive);

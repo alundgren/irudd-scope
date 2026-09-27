@@ -58,14 +58,18 @@ scope_install() (
   cd "$source"
   echo "Installing build dependencies…"
   "$vp" install --frozen-lockfile
+  local signing_identity
+  signing_identity="$("$vp" exec node tools/installation-signing.ts "$root")"
+  export SCOPE_SIGNING_IDENTITY="$signing_identity"
   local build="$root/builds/$commit"
+  if [ "$signing_identity" != - ]; then build="$build-$signing_identity"; fi
   if [ ! -d "$build/Scope.app" ]; then
     echo "Building Scope…"
     "$vp" run build
     mkdir -p "$root/builds"
     staging="$(mktemp -d "$root/builds/.preparing.XXXXXX")"
     "$vp" run package:desktop -- "$staging"
-    # Every commit gets its own directory so a running app never loses its files.
+    # Each commit and signer gets its own directory so a running app keeps its files.
     mv "$staging" "$build"
     staging=""
   fi

@@ -21,6 +21,8 @@ installer replaces an older managed app symlink automatically. Apple's command
 line tools are required. If they are missing, run `xcode-select --install`,
 finish that installation, and run the Scope installer again.
 
+To reduce repeated Keychain prompts after updates, see [optional local signing](docs/development.md#optional-local-signing).
+
 On startup, Scope checks the latest SHA on `main`. A new commit builds in the
 background. Choose **Restart to update** when ready. Failed builds leave the
 current app usable. Settings includes update status, build output, Cancel,
