@@ -1,7 +1,31 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { ScopeBridge, ArtifactLibrarySnapshot } from "./bridge.ts";
+import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
 
 const bridge: ScopeBridge = {
+  updates: () => ipcRenderer.invoke("scope:updates"),
+  checkForUpdates: () => ipcRenderer.invoke("scope:check-for-updates"),
+  cancelUpdate: () => ipcRenderer.invoke("scope:cancel-update"),
+  restartToUpdate: () => ipcRenderer.invoke("scope:restart-to-update"),
+  onUpdatesChange: (listener) => {
+    const receive = (_event: unknown, status: UpdateStatus) => listener(status);
+    ipcRenderer.on("scope:updates-changed", receive);
+    return () => {
+      ipcRenderer.removeListener("scope:updates-changed", receive);
+    };
+  },
+  agentTools: () => ipcRenderer.invoke("scope:agent-tools"),
+  installCli: () => ipcRenderer.invoke("scope:install-cli"),
+  removeCli: () => ipcRenderer.invoke("scope:remove-cli"),
+  installSkill: () => ipcRenderer.invoke("scope:install-skill"),
+  removeSkill: () => ipcRenderer.invoke("scope:remove-skill"),
+  onAgentToolsChange: (listener) => {
+    const receive = (_event: unknown, status: AgentToolStatus) => listener(status);
+    ipcRenderer.on("scope:agent-tools-changed", receive);
+    return () => {
+      ipcRenderer.removeListener("scope:agent-tools-changed", receive);
+    };
+  },
   publishTabEvent: (event) => ipcRenderer.invoke("scope:publish-tab-event", event),
   settings: () => ipcRenderer.invoke("scope:settings"),
   saveSettings: (input) => ipcRenderer.invoke("scope:save-settings", input),

@@ -28,6 +28,7 @@ catalog:
   react-markdown: 10.1.0
   "@excalidraw/excalidraw": 0.18.1
   cn: 0.4.0
+  "@electron/packager": 20.3.0
 
 overrides:
   vite@*: "catalog:"

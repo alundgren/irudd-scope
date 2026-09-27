@@ -8,11 +8,13 @@
     "ready": "vp run build && vp check && vp run test",
     "test": "vp exec node tools/test.ts",
     "build": "vp run -r build",
+    "package:desktop": "vp exec node tools/package-desktop.ts",
     "hub": "vp run hub#dev",
     "desktop": "vp run desktop#dev",
     "scope": "vp exec node packages/cli/src/main.ts"
   },
   "devDependencies": {
+    "@electron/packager": "catalog:",
     "@irudd-scope/protocol": "workspace:*",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",

@@ -10,6 +10,9 @@ import { startLocalArtifacts } from "./library/local.ts";
 import { ArtifactLibrary } from "./library/library.ts";
 import { registerDesktopIpc } from "./ipc.ts";
 import { configureRendererSecurity, restrictRendererNavigation } from "./renderer-security.ts";
+import { readInstallation } from "./installation-files.ts";
+import { AppUpdates } from "./updates.ts";
+import { AgentTools } from "./agent-tools.ts";
 
 app.setName("irudd-scope");
 if (process.env.SCOPE_DESKTOP_DATA_DIR)
@@ -59,6 +62,16 @@ async function main() {
     },
   });
   const client = new ScopeClient(artifacts.url, artifacts.token);
+  const installation =
+    app.isPackaged && process.platform === "darwin"
+      ? await readInstallation(app.getAppPath()).catch(() => undefined)
+      : undefined;
+  const updates = new AppUpdates(installation, join(app.getAppPath(), "install.sh"), (status) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:updates-changed", status);
+  });
+  const agentTools = new AgentTools(installation, homedir(), (status) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:agent-tools-changed", status);
+  });
   const library = new ArtifactLibrary(client, (snapshot) => {
     if (!window.isDestroyed()) window.webContents.send("scope:artifact-library-changed", snapshot);
   });
@@ -69,10 +82,17 @@ async function main() {
     library,
     client,
     onCloseReady: (saved) => closeReady?.(saved),
+    updates,
+    agentTools,
+    onRestartToUpdate: async () => {
+      if (updates.snapshot().phase !== "ready") throw new Error("No update is ready.");
+      if (agentTools.isBusy()) throw new Error("Wait for the agent tools installation to finish.");
+      await close(true);
+    },
   });
   let closing = false;
   let closed = false;
-  async function close() {
+  async function close(restart = false) {
     if (closing || closed) return;
     closing = true;
     desktopIpc.cancelPending();
@@ -104,6 +124,16 @@ async function main() {
         }
       }
     }
+    if (restart) {
+      try {
+        const executable = await updates.activate();
+        app.relaunch({ execPath: executable, args: [] });
+      } catch (error) {
+        closing = false;
+        throw error;
+      }
+    }
+    await Promise.all([updates.cancel(), agentTools.cancel()]);
     desktopIpc.dispose();
     library.close();
     await Promise.all([artifacts.close(), store.close()]);
@@ -131,6 +161,10 @@ async function main() {
   window.once("ready-to-show", () => window.show());
   void window.loadURL("scope://app/index.html");
   void library.connect();
+  void updates
+    .prune()
+    .catch(() => console.error("Could not remove old Scope builds."))
+    .then(() => updates.check());
   app.on("window-all-closed", () => app.quit());
 }
 

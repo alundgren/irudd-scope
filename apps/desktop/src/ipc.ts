@@ -8,6 +8,8 @@ import type { ArtifactLibrary } from "./library/library.ts";
 import { decodeSettingsUpdate } from "./settings.ts";
 import { registerMainPlugins } from "./plugins/registry.main.ts";
 import { TabEventEnvelope } from "./plugins/events.ts";
+import type { AgentTools } from "./agent-tools.ts";
+import type { AppUpdates } from "./updates.ts";
 
 export function registerDesktopIpc({
   window,
@@ -15,12 +17,18 @@ export function registerDesktopIpc({
   library,
   client,
   onCloseReady,
+  updates,
+  agentTools,
+  onRestartToUpdate,
 }: {
   window: BrowserWindow;
   store: DesktopStore;
   library: ArtifactLibrary;
   client: ScopeClient;
   onCloseReady: (saved: boolean) => void;
+  updates: AppUpdates;
+  agentTools: AgentTools;
+  onRestartToUpdate: () => Promise<void>;
 }) {
   const eventListeners = new Set<(event: TabEventEnvelope) => void | Promise<void>>();
 
@@ -44,6 +52,23 @@ export function registerDesktopIpc({
   }
 
   const plugins = registerMainPlugins({ handle, store, client });
+  handle("scope:updates", () => updates.snapshot());
+  handle("scope:check-for-updates", () => {
+    if (agentTools.isBusy()) throw new Error("Wait for the agent tools installation to finish.");
+    void updates.check();
+  });
+  handle("scope:cancel-update", () => updates.cancel());
+  handle("scope:restart-to-update", () => onRestartToUpdate());
+  handle("scope:agent-tools", () => agentTools.snapshot());
+  function installTool(action: () => unknown) {
+    if (["checking", "building"].includes(updates.snapshot().phase))
+      throw new Error("Wait for the app update to finish, or cancel it first.");
+    return action();
+  }
+  handle("scope:install-cli", () => installTool(() => agentTools.installCli()));
+  handle("scope:remove-cli", () => installTool(() => agentTools.removeCli()));
+  handle("scope:install-skill", () => installTool(() => agentTools.installSkill()));
+  handle("scope:remove-skill", () => installTool(() => agentTools.removeSkill()));
   handle("scope:publish-tab-event", async (input) => {
     const envelope = decode(TabEventEnvelope, input);
     const workspace = await store.workspace();

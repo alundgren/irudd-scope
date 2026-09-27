@@ -4,9 +4,20 @@ import type { Appearance } from "./appearance.ts";
 import { Button } from "./components/ui/button.tsx";
 import { Input } from "./components/ui/input.tsx";
 import { NativeSelect, NativeSelectOption } from "./components/ui/native-select.tsx";
+import { InstallationSettings } from "./installation-settings.tsx";
 
 export const settingsSections = [
   { id: "appearance", title: "Appearance", terms: "theme system light dark colors" },
+  {
+    id: "updates",
+    title: "App updates",
+    terms: "install installation version main commit build restart",
+  },
+  {
+    id: "tools",
+    title: "Agent tools",
+    terms: "install installation cli command skill global codex claude npx",
+  },
   {
     id: "model",
     title: "Diagram generation",
@@ -74,7 +85,10 @@ export function SettingsViewPanel({
         aria-label="Search settings"
         placeholder="Search settings…"
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setNotice("");
+        }}
         autoFocus
       />
       {matches.length === 0 && (
@@ -161,8 +175,9 @@ export function SettingsViewPanel({
           )}
           {settings?.credentialError && <p role="alert">{settings.credentialError}</p>}
         </fieldset>
+        <InstallationSettings showUpdates={visible("updates")} showTools={visible("tools")} />
         <div className="section-title">
-          <Button type="submit" disabled={busy || !settings}>
+          <Button type="submit" hidden={!visible("model")} disabled={busy || !settings}>
             {busy ? "Saving…" : "Save settings"}
           </Button>
           <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>

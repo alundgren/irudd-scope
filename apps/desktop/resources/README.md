@@ -8,7 +8,7 @@ The Scope icon is an open window with a blue breeze on a pale sky-blue tile. The
 | `icon-small.png` | 1024px compact master without the circle, for 16px and 32px icons.                                                                         |
 | `icon.icns`      | Mac icon archive with standard and Retina representations from 16px through 1024px. The two smallest logical sizes use the compact master. |
 
-The current desktop launch sets its Mac icon through [Electron's Dock API](https://www.electronjs.org/docs/latest/api/dock#dockseticonimage-macos). The `.icns` file contains the Mac icon representations; the checkout launch uses `icon.png`. There is no application bundle configuration in this repository.
+The desktop launch sets its Mac icon through [Electron's Dock API](https://www.electronjs.org/docs/latest/api/dock#dockseticonimage-macos). The local [packaging command](../../../tools/package-desktop.ts) includes `icon.icns` in `Scope.app`; checkout launches use `icon.png`.
 
 ## Export the Mac archive
 

@@ -3,6 +3,7 @@ import type { SettingsUpdate, SettingsView } from "./settings.ts";
 import type { Workspace } from "./workspace/contract.ts";
 import type { DiagramRequest, DiagramResult } from "./plugins/diagram/contract.ts";
 import type { DiagramDraft } from "./plugins/diagram/draft.ts";
+import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
 
 export type ArtifactLibrarySnapshot = {
   artifacts: Artifact[];
@@ -13,6 +14,17 @@ export type ArtifactContent = { artifact: Artifact; bytes: Uint8Array };
 import type { TabEventEnvelope } from "./plugins/events.ts";
 
 export type ScopeBridge = {
+  updates: () => Promise<UpdateStatus>;
+  checkForUpdates: () => Promise<void>;
+  cancelUpdate: () => Promise<void>;
+  restartToUpdate: () => Promise<void>;
+  onUpdatesChange: (listener: (status: UpdateStatus) => void) => () => void;
+  agentTools: () => Promise<AgentToolStatus>;
+  installCli: () => Promise<AgentToolStatus>;
+  removeCli: () => Promise<AgentToolStatus>;
+  installSkill: () => Promise<AgentToolStatus>;
+  removeSkill: () => Promise<AgentToolStatus>;
+  onAgentToolsChange: (listener: (status: AgentToolStatus) => void) => () => void;
   publishTabEvent: (event: TabEventEnvelope) => Promise<void>;
   settings: () => Promise<SettingsView>;
   saveSettings: (input: SettingsUpdate) => Promise<SettingsView>;
