@@ -1,3 +1,5 @@
+<img src="apps/desktop/resources/icon.png" alt="Scope, an open window with a blue breeze" width="96" height="96" />
+
 # irudd-scope
 
 A private workspace where coding agents leave things for a human to inspect. A persistent hub stores artifacts on a VM, and an Electron app displays them on a Mac. Codex and Claude can publish through the same CLI.
