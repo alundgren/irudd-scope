@@ -1,9 +1,19 @@
+import { readRemoteJson } from "./remote.ts";
+import {
+  ShrinkRequest,
+  ShrinkReceipt,
+  MaintenanceStatus,
+  MAINTENANCE_TIMEOUT_MS,
+} from "./maintenance.ts";
 import {
   Artifact,
   ArtifactId,
   ArtifactPage,
   ArtifactWrite,
   BlobReceipt,
+  DeleteReceipt,
+  PublicationReceipt,
+  PublicationRequest,
   LiveEvent,
   MAX_CONTENT_BYTES,
   ScopeError,
@@ -56,12 +66,13 @@ export class ScopeClient {
     return response;
   }
 
-  async list(): Promise<Artifact[]> {
+  async list(signal?: AbortSignal): Promise<Artifact[]> {
     const artifacts: Artifact[] = [];
     let next: string | null = null;
     do {
       const response = await this.request(
         `/v1/artifacts${next ? `?after=${encodeURIComponent(next)}` : ""}`,
+        { signal },
       );
       const page = decode(ArtifactPage, await response.json());
       artifacts.push(...page.items);
@@ -71,20 +82,52 @@ export class ScopeClient {
     return artifacts;
   }
 
-  async get(id: string): Promise<Artifact> {
-    const response = await this.request(`/v1/artifacts/${decode(ArtifactId, id)}`);
+  async get(id: string, signal?: AbortSignal): Promise<Artifact> {
+    const response = await this.request(`/v1/artifacts/${decode(ArtifactId, id)}`, { signal });
     return decode(Artifact, await response.json());
+  }
+
+  async delete(id: string): Promise<DeleteReceipt> {
+    const response = await this.request(`/v1/artifacts/${decode(ArtifactId, id)}`, {
+      method: "DELETE",
+    });
+    return decode(DeleteReceipt, await response.json());
+  }
+
+  async shrink(timeoutMs = MAINTENANCE_TIMEOUT_MS): Promise<ShrinkReceipt> {
+    const response = await this.request("/v1/maintenance/shrink", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(decode(ShrinkRequest, { timeoutMs })),
+      signal: AbortSignal.timeout(timeoutMs + 5000),
+    });
+    return decode(ShrinkReceipt, await readRemoteJson(response));
+  }
+
+  async maintenanceStatus(): Promise<MaintenanceStatus> {
+    return decode(
+      MaintenanceStatus,
+      await readRemoteJson(await this.request("/v1/maintenance/status")),
+    );
   }
 
   async publish(
     id: string,
-    metadata: Omit<ArtifactWrite, "blob">,
+    metadata: Omit<ArtifactWrite, "blob" | "tabId">,
     content: Uint8Array,
   ): Promise<Artifact> {
     decode(ArtifactId, id);
     if (content.byteLength > MAX_CONTENT_BYTES)
       throw new Error("Artifact exceeds the 32 MiB limit.");
-    const upload = await this.request("/v1/blobs", {
+    const reservation = await this.request(`/v1/artifacts/${id}/tab`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        decode(PublicationRequest, { expectedRevision: metadata.expectedRevision }),
+      ),
+    });
+    const { tabId } = decode(PublicationReceipt, await reservation.json());
+    const upload = await this.request(`/v1/tabs/${tabId}/blobs`, {
       method: "POST",
       headers: { "Content-Type": "application/octet-stream" },
       body: new Blob([new Uint8Array(content)]),
@@ -93,14 +136,15 @@ export class ScopeClient {
     const response = await this.request(`/v1/artifacts/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(decode(ArtifactWrite, { ...metadata, blob })),
+      body: JSON.stringify(decode(ArtifactWrite, { ...metadata, blob, tabId })),
     });
     return decode(Artifact, await response.json());
   }
 
-  async content(id: string, revision?: number): Promise<Uint8Array> {
+  async content(id: string, revision?: number, signal?: AbortSignal): Promise<Uint8Array> {
     const response = await this.request(
       `/v1/artifacts/${decode(ArtifactId, id)}/content${revision === undefined ? "" : `?revision=${revision}`}`,
+      { signal },
     );
     const size = Number(response.headers.get("content-length"));
     if (size > MAX_CONTENT_BYTES) throw new Error("Artifact exceeds the content limit.");

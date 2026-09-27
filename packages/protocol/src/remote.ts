@@ -38,7 +38,7 @@ export async function readRemoteJson(response: Response): Promise<unknown> {
 export const RelayRequest = Schema.Struct({
   type: Schema.Literal("request"),
   id: RemoteId,
-  method: Schema.Literals(["GET", "POST", "PUT"]),
+  method: Schema.Literals(["GET", "POST", "PUT", "DELETE"]),
   path: Schema.String.check(Schema.isMaxLength(2048)),
   contentType: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(256))),
 });
@@ -50,15 +50,23 @@ export const RelayEvent = Schema.Union([
 ]);
 export type RelayEvent = typeof RelayEvent.Type;
 
+export function maintenanceRequest(path: string): boolean {
+  return path === "/v1/maintenance/shrink";
+}
+
 export function artifactRequest(method: string, path: string): boolean {
   if (path.length > 2048 || !path.startsWith("/v1/") || /[\r\n#]/.test(path)) return false;
   const url = new URL(path, "http://127.0.0.1");
   if (method === "GET" && ["/v1/events", "/v1/artifacts"].includes(url.pathname)) return true;
-  if (method === "POST" && url.pathname === "/v1/blobs" && !url.search) return true;
+  if (method === "GET" && path === "/v1/maintenance/status") return true;
+  if (method === "POST" && maintenanceRequest(path)) return true;
+  if (method === "POST" && /^\/v1\/tabs\/[0-9a-f-]{36}\/blobs$/.test(path)) return true;
+  if (method === "POST" && /^\/v1\/artifacts\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}\/tab$/.test(path))
+    return true;
   return (
-    /^(?:GET|PUT)$/.test(method) &&
+    /^(?:GET|PUT|DELETE)$/.test(method) &&
     /^\/v1\/artifacts\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}(?:\/content)?$/.test(url.pathname) &&
-    !(method === "PUT" && (url.search || url.pathname.endsWith("/content")))
+    !(method !== "GET" && (url.search || url.pathname.endsWith("/content")))
   );
 }
 

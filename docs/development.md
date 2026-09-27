@@ -374,6 +374,21 @@ directory. Remove the skill first if it should not remain. The shared PATH entry
 in the shell profile remains. Hub data locations and recovery are in
 [storage](storage.md).
 
+### Deletion and database maintenance
+
+Closing a tab deletes its content. Quitting the app preserves tabs left open.
+The CLI offers `delete ID`, `shrink`, and `hub shrink`. Use `--timeout-ms 120000`
+for maintenance and `--status` on either shrink command to inspect its latest
+receipt. Desktop shrinking through a hub still targets the Mac's two databases;
+hub shrinking targets only the local hub. [Storage](storage.md) documents the
+24-hour interval, 100 MB threshold, staging expiry, and schema upgrades.
+
+Publication clients now persist a queued tab before sending content or metadata.
+Update the desktop, CLI, and hub together. The ordinary CLI publication command
+syntax is unchanged. Synthetic lifecycle tests include forced process termination;
+maintenance tests use isolated databases and injected clocks, without operating
+an installed profile.
+
 ### Direct HTTPS access
 
 Direct desktop access and the original forwarding mode remain available when

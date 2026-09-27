@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 
-test("new CLI publications open visible tabs and preserve reading, closed tabs, and saved selection", async () => {
+test("new CLI publications open visible tabs and preserve reading and saved selection while closing deletes content", async () => {
   const { directory, launch, cli } = await desktopFixture();
   let application = await launch();
   try {
@@ -62,22 +62,22 @@ test("new CLI publications open visible tabs and preserve reading, closed tabs, 
     await page.keyboard.press("ControlOrMeta+w");
     await expect.poll(() => page.getByRole("tab").count()).toBe(1);
     expect(await pane.evaluate((element) => element.scrollTop)).toBe(scroll);
-    await writeFile(second, "The closed artifact received an update.");
-    await cli("update", "second", second, "--title", "Closed artifact update");
-    await page.getByRole("img", { name: "New artifacts" }).waitFor();
+    await expect(cli("get", "second")).rejects.toThrow("Artifact not found");
+    await expect(cli("update", "second", second)).rejects.toThrow("Artifact not found");
     await page.getByRole("button", { name: "Search and controls" }).click();
-    await page.getByLabel("Search artifacts", { exact: true }).fill("Closed artifact update");
-    await page.getByRole("button", { name: "Closed artifact update text", exact: true }).waitFor();
+    expect(await page.getByRole("button", { name: "Reopen closed tab", exact: true }).count()).toBe(
+      0,
+    );
+    await page.getByLabel("Search artifacts", { exact: true }).fill(title);
+    expect(await page.getByRole("button", { name: `${title} text`, exact: true }).count()).toBe(0);
     await page.keyboard.press("Escape");
-    await page.getByLabel("Search artifacts", { exact: true }).waitFor({ state: "hidden" });
-    expect(await page.getByRole("tab").count()).toBe(1);
     await page.keyboard.press("ControlOrMeta+w");
     await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+    expect(JSON.parse((await cli("list")).stdout)).toEqual([]);
     await application.close();
-
     application = await launch();
     page = await application.firstWindow();
-    await page.getByRole("button", { name: "Closed artifact update text", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
     expect(await page.getByRole("tab").count()).toBe(0);
     const third = join(directory, "third.md");
     await writeFile(third, "# Publication after restart");
@@ -283,6 +283,8 @@ test("the compact workspace preserves reading position, supports overflowing tab
       .poll(() => navigation.getByRole("tab", { selected: true }).textContent())
       .toBe(titles[10]);
     expect(errors).toEqual([]);
+    expect((await client.list()).length).toBe(11);
+    await expect(client.get("report-11")).rejects.toMatchObject({ status: 404 });
     await application.close();
     application = await launch();
     const reopened = await application.firstWindow();
@@ -290,7 +292,46 @@ test("the compact workspace preserves reading position, supports overflowing tab
     await reopened.keyboard.press("ControlOrMeta+Shift+t");
     expect(await reopened.getByRole("tab", { selected: true }).textContent()).toBe(titles[10]);
     expect(await reopened.getByRole("tab").count()).toBe(11);
+    expect(await reopened.getByRole("heading", { name: "Report 12", exact: true }).count()).toBe(0);
     expect(await reopened.locator("html").getAttribute("data-theme")).toBe("dark");
+  } finally {
+    await application.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("overflow publications retain queued tabs without evicting any of the hundred open tabs", async () => {
+  const { directory, launch, connect } = await desktopFixture();
+  const application = await launch();
+  try {
+    const page = await application.firstWindow();
+    const client = await connect();
+    for (let index = 0; index < 101; index++) {
+      await client.publish(
+        `overflow-${String(index).padStart(3, "0")}`,
+        {
+          title: `Overflow ${index}`,
+          kind: "text",
+          mediaType: "text/plain",
+          fileName: "note.txt",
+          expectedRevision: 0,
+        },
+        new TextEncoder().encode(`Synthetic ${index}`),
+      );
+    }
+    await expect.poll(() => page.getByRole("tab").count()).toBe(100);
+    expect(await client.list()).toHaveLength(101);
+    expect(await page.getByRole("tab", { selected: true }).textContent()).toBe("Overflow 0");
+    const workspace = await page.evaluate(() => window.scope.workspace());
+    expect(workspace?.tabs).toHaveLength(100);
+    await client.delete("overflow-100");
+    expect(await page.getByRole("tab").count()).toBe(100);
+    await client.delete("overflow-000");
+    await expect.poll(() => page.getByRole("tab").count()).toBe(99);
+    expect(await client.list()).toHaveLength(99);
+    for (const artifact of await client.list()) await client.delete(artifact.id);
+    await expect.poll(() => page.getByRole("tab").count()).toBe(0);
+    expect(await client.list()).toEqual([]);
   } finally {
     await application.close();
     await rm(directory, { recursive: true, force: true });

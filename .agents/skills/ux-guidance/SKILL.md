@@ -22,8 +22,9 @@ distinct. Omit unavailable panel actions.
 Keep the selected tab visible when titles overflow. New publications open in
 tabs, selecting the first arrival only when no artifact is open. Later arrivals
 and background updates keep the current selection and indicate unread content.
-Startup restores saved tabs; revisions leave closed tabs closed. Closing a tab
-preserves its artifact and draft. Focus keeps the artifact mounted, preserves position,
+Startup restores saved open tabs and opens queued publications when capacity
+allows. Closing a tab permanently deletes its artifact and draft. Quitting Scope
+preserves tabs left open. Focus keeps the artifact mounted, preserves position,
 hides chat, and exposes a small exit clear of editor controls. Escape dismisses
 the current dialog or editor interaction before leaving focus.
 
@@ -44,7 +45,7 @@ replacement or removal, never the secret itself.
 
 Diagram conversation opens on request beside the canvas or over it in a narrow
 window. Keep conversation, draft, and view position across closing the panel,
-focus, navigation, and restart. Persist through named desktop SQLite operations.
+focus, navigation, and restart with the tab still open. Persist through named desktop SQLite operations.
 Save publishes the edited artifact; draft writes do not. Enter sends,
 Shift+Enter adds a line, and pending requests offer Cancel.
 

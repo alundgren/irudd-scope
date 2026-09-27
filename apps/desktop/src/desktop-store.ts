@@ -1,10 +1,10 @@
+import { DatabaseMaintenance } from "@irudd-scope/sqlite";
 import { chmod, mkdir, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect, ManagedRuntime, Schema } from "effect";
 import { SqliteClient } from "@effect/sql-sqlite-node";
-import { ArtifactId, decode } from "@irudd-scope/protocol";
+import { decode } from "@irudd-scope/protocol";
 import { memoryCredentials, type CredentialStore } from "./credentials.ts";
-import { DiagramDraft } from "./plugins/diagram/draft.ts";
 
 import {
   Appearance,
@@ -12,8 +12,13 @@ import {
   type SettingsUpdate,
   type SettingsView,
 } from "./settings.ts";
-import { decodeWorkspace, importWorkspace, type Workspace } from "./workspace/contract.ts";
-import { validateTabState } from "./plugins/registry.ts";
+import {
+  Uuid,
+  TabGroup,
+  importWorkspace,
+  importedClosedArtifacts,
+  type Workspace,
+} from "./workspace/contract.ts";
 import { DIAGRAM_MODEL, DIAGRAM_PROVIDER } from "./plugins/diagram/provider-settings.ts";
 import { Remote, Remotes } from "./remote-contract.ts";
 import { RemoteToken } from "@irudd-scope/protocol/remote";
@@ -34,6 +39,7 @@ const LegacySettings = Schema.Struct({
 const databaseRuntime = (filename: string) => ManagedRuntime.make(SqliteClient.layer({ filename }));
 
 export class DesktopStore {
+  maintenance!: DatabaseMaintenance;
   private saved: typeof SavedSettings.Type = {
     version: 2,
     provider: DIAGRAM_PROVIDER,
@@ -44,12 +50,15 @@ export class DesktopStore {
   private presence = { hasApiKey: false };
   private credentialError?: string;
   private pending = Promise.resolve();
+  readonly filename: string;
 
   constructor(
     private readonly directory: string,
     private readonly credentials: CredentialStore = memoryCredentials(),
     private readonly decodeLegacySecret?: (bytes: Buffer) => Promise<string>,
-  ) {}
+  ) {
+    this.filename = join(directory, "desktop.db");
+  }
 
   async load(): Promise<void> {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
@@ -58,10 +67,11 @@ export class DesktopStore {
     try {
       const sql = (this.sql = await this.runtime.runPromise(SqliteClient.SqliteClient));
       await chmod(filename, 0o600);
+      await this.run(sql`PRAGMA busy_timeout = 50`);
       const [{ user_version: version }] = await this.run(
         sql<{ user_version: number }>`PRAGMA user_version`,
       );
-      if (version > 5) throw new Error("The desktop database requires a newer Scope version.");
+      if (version > 6) throw new Error("The desktop database requires a newer Scope version.");
       await this.run(
         sql`CREATE TABLE IF NOT EXISTS preferences (
           name TEXT PRIMARY KEY, document TEXT NOT NULL CHECK (json_valid(document))
@@ -120,22 +130,34 @@ export class DesktopStore {
               document: string;
             }>`SELECT document FROM preferences WHERE name = 'workspace'`;
             if (workspace) {
-              const migrated = importWorkspace(JSON.parse(workspace.document));
-              yield* sql`UPDATE preferences SET document = ${JSON.stringify(migrated)} WHERE name = 'workspace'`;
+              const value = JSON.parse(workspace.document);
+              if (!("version" in value)) {
+                const imported = importWorkspace(value);
+                const closed = importedClosedArtifacts(value).map((artifactId) => ({
+                  id: crypto.randomUUID(),
+                  groupId: imported.groups[0].id,
+                  type: "file",
+                  title: artifactId,
+                  state: { version: 1, data: { artifactId } },
+                }));
+                yield* sql`UPDATE preferences SET document = ${JSON.stringify({ ...imported, version: 2, closed })} WHERE name = 'workspace'`;
+              }
             }
-            yield* sql`PRAGMA user_version = 5`;
+            yield* sql`PRAGMA user_version = 6`;
           }),
         ),
       );
       if (legacy !== null) await unlink(join(this.directory, "settings.json"));
       await this.refreshPresence();
+      this.maintenance = new DatabaseMaintenance(filename, "desktop.db");
     } catch (error) {
       await this.runtime.dispose();
       throw error;
     }
   }
 
-  private run<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
+  private async run<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
+    await this.maintenance?.idle();
     if (!this.runtime) throw new Error("Desktop preferences are not open.");
     return this.runtime.runPromise(effect);
   }
@@ -256,46 +278,67 @@ export class DesktopStore {
     });
   }
 
-  async workspace(): Promise<Workspace | null> {
+  async legacyWorkspace(): Promise<Workspace | null> {
     await this.pending;
     const [row] = await this.run(
       this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'workspace'`,
     );
-    return row ? decodeWorkspace(JSON.parse(row.document)) : null;
+    return row ? importWorkspace(JSON.parse(row.document)) : null;
   }
 
-  saveWorkspace(value: unknown): Promise<void> {
-    const workspace = decodeWorkspace(value);
-    for (const tab of [...workspace.tabs, ...workspace.closed]) validateTabState(tab, true);
-    return this.enqueue(async () => {
-      await this.run(this
-        .sql!`INSERT INTO preferences(name, document) VALUES ('workspace', ${JSON.stringify(workspace)})
-        ON CONFLICT(name) DO UPDATE SET document = excluded.document`);
-    });
+  async closedArtifacts(): Promise<string[]> {
+    const [row] = await this.run(
+      this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'workspace'`,
+    );
+    return row ? importedClosedArtifacts(JSON.parse(row.document)) : [];
   }
 
-  async diagramDraft(value: unknown): Promise<DiagramDraft | null> {
-    const id = decode(ArtifactId, value);
+  async legacyDrafts(): Promise<readonly { artifact_id: string; document: string }[]> {
+    return this.run(
+      this.sql!<{ artifact_id: string; document: string }>`SELECT * FROM diagram_drafts`,
+    );
+  }
+
+  async layout(): Promise<Pick<Workspace, "groups" | "selected"> | null> {
     await this.pending;
     const [row] = await this.run(
       this.sql!<{
         document: string;
-      }>`SELECT document FROM diagram_drafts WHERE artifact_id = ${id}`,
+      }>`SELECT document FROM preferences WHERE name = 'workspace_layout'`,
     );
-    return row ? decode(DiagramDraft, JSON.parse(row.document)) : null;
+    return row
+      ? decode(
+          Schema.Struct({ groups: Schema.Array(TabGroup), selected: Schema.NullOr(Uuid) }),
+          JSON.parse(row.document),
+        )
+      : null;
   }
 
-  saveDiagramDraft(artifactId: unknown, value: unknown): Promise<void> {
-    const id = decode(ArtifactId, artifactId);
-    const draft = decode(DiagramDraft, value);
+  saveLayout(layout: Pick<Workspace, "groups" | "selected">): Promise<void> {
     return this.enqueue(async () => {
-      await this.run(this
-        .sql!`INSERT INTO diagram_drafts(artifact_id, document) VALUES (${id}, ${JSON.stringify(draft)})
-        ON CONFLICT(artifact_id) DO UPDATE SET document = excluded.document`);
+      await this.run(
+        this
+          .sql!`INSERT INTO preferences(name, document) VALUES ('workspace_layout', ${JSON.stringify(layout)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+      );
+    });
+  }
+
+  finishTabImport(): Promise<void> {
+    return this.enqueue(async () => {
+      const sql = this.sql!;
+      await this.run(
+        sql.withTransaction(
+          Effect.gen(function* () {
+            yield* sql`DELETE FROM preferences WHERE name = 'workspace'`;
+            yield* sql`DELETE FROM diagram_drafts`;
+          }),
+        ),
+      );
     });
   }
 
   async close(): Promise<void> {
+    await this.maintenance?.close();
     await this.pending;
     await this.runtime?.dispose();
   }

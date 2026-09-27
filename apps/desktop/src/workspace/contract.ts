@@ -24,29 +24,27 @@ export const Tab = Schema.Struct({
 });
 export type Tab = typeof Tab.Type;
 export const Workspace = Schema.Struct({
-  version: Schema.Literal(2),
+  version: Schema.Literal(3),
   groups: Schema.Array(TabGroup),
   tabs: Schema.Array(Tab).check(Schema.isMaxLength(100)),
   selected: Schema.NullOr(Uuid),
-  closed: Schema.Array(Tab),
 });
 export type Workspace = typeof Workspace.Type;
 
 export function emptyWorkspace(): Workspace {
   const id = crypto.randomUUID();
   return {
-    version: 2,
+    version: 3,
     groups: [{ id, owner: { kind: "workspace", id } }],
     tabs: [],
     selected: null,
-    closed: [],
   };
 }
 
 export function decodeWorkspace(value: unknown): Workspace {
   const workspace = decode(Workspace, value);
   const groups = new Set(workspace.groups.map((group) => group.id));
-  const tabs = [...workspace.tabs, ...workspace.closed];
+  const tabs = workspace.tabs;
   if (
     !groups.size ||
     groups.size !== workspace.groups.length ||
@@ -65,7 +63,15 @@ const LegacyWorkspace = Schema.Struct({
 });
 
 export function importWorkspace(value: unknown): Workspace {
-  if (value && typeof value === "object" && "version" in value) return decodeWorkspace(value);
+  if (value && typeof value === "object" && "version" in value) {
+    if (value.version === 3) return decodeWorkspace(value);
+    const old = decode(
+      Schema.Struct({ ...Workspace.fields, version: Schema.Literal(2), closed: Schema.Array(Tab) }),
+      value,
+    );
+    const { closed: _closed, ...workspace } = old;
+    return decodeWorkspace({ ...workspace, version: 3 });
+  }
   const old = decode(LegacyWorkspace, value);
   const workspace = emptyWorkspace();
   const makeTab = (artifactId: string): Tab => ({
@@ -86,7 +92,23 @@ export function importWorkspace(value: unknown): Workspace {
   return decodeWorkspace({
     ...workspace,
     tabs,
-    closed: (old.closed ?? []).map(makeTab),
     selected: tabs.find((tab) => tab.state.data.artifactId === old.selected)?.id ?? null,
   });
+}
+
+export function importedClosedArtifacts(value: unknown): string[] {
+  if (!value || typeof value !== "object" || !("closed" in value) || !Array.isArray(value.closed))
+    return [];
+  return value.closed.flatMap((entry: unknown) => {
+    if (typeof entry === "string") return [decode(ArtifactId, entry)];
+    const tab = decode(Tab, entry);
+    const id = tabArtifactId(tab);
+    return id ? [id] : [];
+  });
+}
+
+export function tabArtifactId(tab: Tab): string | undefined {
+  if (!["file", "diagram"].includes(tab.type)) return undefined;
+  const id = tab.state.data.artifactId;
+  return typeof id === "string" ? decode(ArtifactId, id) : undefined;
 }

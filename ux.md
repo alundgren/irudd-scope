@@ -36,13 +36,15 @@ Tabs show the artifact title, scroll in one row, and indicate unread updates.
 Selection has both a tinted background and a solid marker. New publications
 open in tabs. The first arrival selects itself when no artifact is open;
 later arrivals keep the current selection and appear unread. Arrivals wait
-while a creation tool is open. Startup restores saved tabs without opening
-older library items. Revisions update unread indicators without reopening
-closed tabs or changing selection. At the 100-tab limit, further arrivals
+while a creation tool is open. Startup restores saved open tabs and opens queued publications when capacity
+allows. Revisions update unread indicators without changing selection. At the 100-tab limit, further arrivals
 remain available through search and the desktop asks the user to close a tab.
-Closing a tab preserves the artifact and its diagram draft; reopening finds
-the same artifact. SQLite
-retains open and closed tab records, selection, and group membership. Each
+Closing a tab permanently deletes its artifact, draft, conversation, and tab
+state. Normal close controls and Command-W perform deletion directly. There is
+no closed history or reopen action. A failed deletion keeps the tab visible
+with an error so the same close action can be retried. Quitting Scope, closing
+the last window, updating, and restarting preserve tabs left open. SQLite
+retains open and queued tabs, selection, and group membership. Each
 tab has its own UUID and belongs to a group with an owner reference. Group
 membership has no visual indicator. The desktop opens published items in its
 local workspace group. File views and the diagram editor are built-in plugins;
@@ -115,7 +117,7 @@ window. Enter sends, Shift+Enter adds a line, and a pending request offers
 Cancel. Save explicitly publishes changes.
 
 SQLite retains the conversation, unsent prompt, working canvas, and zoom and
-pan across restarts and closed tabs. Incoming revisions preserve unsaved
+pan across restarts for tabs that remain open. Incoming revisions preserve unsaved
 edits and offer loading the latest content or saving a copy. Failed draft
 writes retain the canvas and offer Retry. Scope provides diagram conversation,
 not general chat or agent orchestration.

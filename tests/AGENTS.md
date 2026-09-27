@@ -4,7 +4,9 @@ Read [development](../docs/development.md#validation-and-tests) before running
 or adding tests. Use `vite-plus/test`, real entry points, and synthetic data.
 
 `artifacts.test.ts` covers CLI publication, discovery, the HTTP API, and hub
-forwarding. `artifact-storage.test.ts` covers the artifact database.
+forwarding. `artifact-storage.test.ts` covers the artifact database. `lifecycle.test.ts`
+checks tab ownership, publication races, cache convergence, and process crashes.
+`maintenance.test.ts` checks scheduling, interruption, and disk reclamation.
 `desktop-storage.test.ts` and `credentials.test.ts` cover preferences, drafts,
 and credential failures.
 `diagram.test.ts` covers provider responses. `desktop.test.ts` and

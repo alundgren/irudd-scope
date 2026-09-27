@@ -3,6 +3,8 @@ import { timingSafeEqual } from "node:crypto";
 import {
   ArtifactId,
   ArtifactWrite,
+  PublicationRequest,
+  PublicationTabId,
   DEFAULT_PORT,
   LiveEvent,
   MAX_CONTENT_BYTES,
@@ -10,21 +12,41 @@ import {
   ScopeError,
   decode,
 } from "@irudd-scope/protocol";
+import {
+  ShrinkRequest,
+  ShrinkReceipt,
+  type DatabaseShrink,
+} from "@irudd-scope/protocol/maintenance";
 import { ArtifactStore } from "./store.ts";
 
 export async function startArtifactServer(options: {
   directory: string;
   token: string;
   port?: number;
+  initialize?: (store: ArtifactStore) => Promise<void>;
+  shrink?: (timeoutMs: number) => Promise<ShrinkReceipt>;
+  maintenanceStatus?: () => DatabaseShrink[];
+  deleteArtifact?: (id: string) => Promise<{ id: string; deleted: boolean }>;
 }) {
   if (options.token.length < 24 || /[\r\n]/.test(options.token))
     throw new Error("Use a publishing token with at least 24 characters and no newlines.");
   const store = await ArtifactStore.open(options.directory);
+  try {
+    await options.initialize?.(store);
+    await store.reclaim();
+  } catch (error) {
+    await store.close();
+    throw error;
+  }
   const streams = new Set<ServerResponse>();
   const pending = new Set<Promise<void>>();
   let uploads = 0;
   const sendEvent = (response: ServerResponse, event: LiveEvent) => {
     if (!response.write(`data: ${JSON.stringify(event)}\n\n`)) response.destroy();
+  };
+  store.onChanged = (value) => {
+    const event = decode(LiveEvent, value);
+    for (const stream of streams) sendEvent(stream, event);
   };
   const json = (response: ServerResponse, status: number, body: unknown) => {
     response.writeHead(status, {
@@ -87,13 +109,40 @@ export async function startArtifactServer(options: {
       });
       return;
     }
-    if (request.method === "POST" && url.pathname === "/v1/blobs") {
+    if (url.pathname === "/v1/maintenance/shrink" && request.method === "POST" && !url.search) {
+      const parts: Buffer[] = [];
+      let size = 0;
+      for await (const part of request) {
+        size += part.length;
+        if (size > 1024) throw new ScopeError(413, "Maintenance request exceeds the size limit.");
+        parts.push(part);
+      }
+      const input = validate(() =>
+        decode(ShrinkRequest, JSON.parse(Buffer.concat(parts).toString("utf8"))),
+      );
+      request.setTimeout(input.timeoutMs + 5000);
+      const receipt = options.shrink
+        ? await options.shrink(input.timeoutMs)
+        : { target: "desktop", databases: [await store.maintenance.run(true, input.timeoutMs)] };
+      json(response, 200, decode(ShrinkReceipt, receipt));
+      return;
+    }
+    if (url.pathname === "/v1/maintenance/status" && request.method === "GET" && !url.search) {
+      json(response, 200, {
+        target: "desktop",
+        databases: options.maintenanceStatus?.() ?? [store.maintenance.latest()].filter(Boolean),
+      });
+      return;
+    }
+    const upload = /^\/v1\/tabs\/([^/]+)\/blobs$/.exec(url.pathname);
+    if (request.method === "POST" && upload && !url.search) {
+      const tabId = validate(() => decode(PublicationTabId, upload[1]));
       if (Number(request.headers["content-length"]) > MAX_CONTENT_BYTES)
         throw new ScopeError(413, "Artifact exceeds the 32 MiB limit.");
       if (uploads >= 4) throw new ScopeError(503, "Scope is busy uploading artifacts. Try again.");
       uploads++;
       try {
-        json(response, 201, { blob: await store.upload(request) });
+        json(response, 201, { blob: await store.upload(tabId, request) });
       } finally {
         uploads--;
       }
@@ -105,10 +154,31 @@ export async function startArtifactServer(options: {
       json(response, 200, await store.list(after ?? ""));
       return;
     }
-    const match = /^\/v1\/artifacts\/([^/]+)(\/content)?$/.exec(url.pathname);
+    const match = /^\/v1\/artifacts\/([^/]+)(\/content|\/tab)?$/.exec(url.pathname);
     if (!match) throw new ScopeError(404, "Endpoint not found.");
     const id = validate(() => decode(ArtifactId, decodeURIComponent(match[1])));
-    if (request.method === "GET") {
+    if (request.method === "POST" && match[2] === "/tab" && !url.search) {
+      const parts: Buffer[] = [];
+      let size = 0;
+      for await (const part of request) {
+        size += part.length;
+        if (size > 1024) throw new ScopeError(413, "Tab request exceeds the size limit.");
+        parts.push(part);
+      }
+      const input = validate(() =>
+        decode(PublicationRequest, JSON.parse(Buffer.concat(parts).toString("utf8"))),
+      );
+      json(response, 201, { tabId: await store.reserve(id, input.expectedRevision) });
+      return;
+    }
+    if (request.method === "DELETE" && !match[2] && !url.search) {
+      const receipt = options.deleteArtifact
+        ? await options.deleteArtifact(id)
+        : { id, deleted: await store.removeArtifact(id) };
+      json(response, 200, receipt);
+      return;
+    }
+    if (request.method === "GET" && match[2] !== "/tab") {
       const artifact = await store.get(id);
       if (!match[2]) {
         json(response, 200, artifact);
@@ -142,7 +212,6 @@ export async function startArtifactServer(options: {
         decode(ArtifactWrite, JSON.parse(Buffer.concat(parts).toString("utf8"))),
       );
       const artifact = await store.put(id, input);
-      for (const stream of streams) sendEvent(stream, { type: "artifact", artifact });
       json(response, input.expectedRevision === 0 ? 201 : 200, artifact);
       return;
     }
@@ -161,8 +230,10 @@ export async function startArtifactServer(options: {
   });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Scope has no TCP address.");
+  store.maintenance.start();
   let closing: Promise<void> | undefined;
   return {
+    store,
     url: `http://127.0.0.1:${address.port}`,
     close: () =>
       (closing ??= (async () => {
@@ -171,6 +242,7 @@ export async function startArtifactServer(options: {
           server.close((error) => (error ? reject(error) : resolve()));
           server.closeAllConnections();
         });
+        await store.maintenance.close();
         await Promise.allSettled(pending);
         await store.close();
       })()),

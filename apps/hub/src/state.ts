@@ -1,3 +1,4 @@
+import { DatabaseMaintenance } from "@irudd-scope/sqlite";
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -19,22 +20,25 @@ const hash = (value: string) => createHash("sha256").update(value).digest("hex")
 const secret = () => randomBytes(32).toString("base64url");
 
 export class HubState {
-  private constructor(private readonly database: DatabaseSync) {}
+  private constructor(
+    private readonly database: DatabaseSync,
+    readonly maintenance: DatabaseMaintenance,
+  ) {}
 
   static async open(directory: string) {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const filename = join(directory, "hub.db");
     const database = new DatabaseSync(filename);
     await chmod(filename, 0o600);
-    database.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
+    database.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 50;");
     const version = database.prepare("PRAGMA user_version").get()!.user_version;
-    if (version !== 0 && version !== 1) {
+    if (version !== 0 && version !== 1 && version !== 2) {
       database.close();
       throw new Error("The hub database requires a newer Scope version.");
     }
     database.exec(`CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
-      PRAGMA user_version = 1;`);
-    return new HubState(database);
+      PRAGMA user_version = 2;`);
+    return new HubState(database, new DatabaseMaintenance(filename, "hub.db"));
   }
 
   private get(name: string): string | undefined {

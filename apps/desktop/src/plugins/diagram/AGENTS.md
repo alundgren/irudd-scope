@@ -6,8 +6,9 @@ provider, publication, and draft IPC operations. `provider-settings.ts` owns
 the configured model. `contract.ts`, `scene.ts`, and `canvas.ts` own validated
 semantic operations and Excalidraw conversion.
 
-Drafts remain keyed by artifact ID in `desktop.db`. Preserve canvas, conversation,
-unsent prompt, and viewport through close and restart. Publishing a revision
+Drafts are keyed by tab UUID in `scope.db` and require an existing tab. Preserve
+canvas, conversation, unsent prompt, and viewport while a tab remains open and
+through application restart. Closing the tab deletes all of that state. Publishing a revision
 is separate from saving a draft. Incoming revisions and failed writes must
 retain local edits. Cancel pending work on unmount and desktop shutdown.
 
