@@ -1,8 +1,8 @@
 # irudd-scope
 
-A private workspace where coding agents leave things for a human to inspect. A persistent hub stores artifacts on a VM, and an Electron app displays them on a Mac. Codex and Claude can publish through the same CLI.
+A private workspace where coding agents leave things for a human to inspect. An Electron app stores and displays artifacts on the Mac. Local publishing works while Scope is open, without a VM. An optional hub forwards remote requests and fails when the Mac is unavailable. Codex and Claude can publish through the same CLI.
 
-The repository is public. The running hub belongs on a private tailnet.
+The repository is public. Artifact data and credentials stay private. Remote access belongs on a private tailnet.
 
 ## Development
 

@@ -9,16 +9,17 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import { readFile, writeFile } from "node:fs/promises";
-import { hostname } from "node:os";
-import { resolve, extname } from "node:path";
+import { homedir, hostname } from "node:os";
+import { resolve, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Schema } from "effect";
-import { ArtifactId, Revision, decode } from "@irudd-scope/protocol";
+import { ArtifactId, DEFAULT_CONNECTION_FILE, Revision, decode } from "@irudd-scope/protocol";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { SettingsStore, decodeSettingsUpdate } from "./settings.ts";
 import type { ArtifactContent, Snapshot } from "./bridge.ts";
 import { DiagramRequest } from "./diagram/contract.ts";
 import { openRouterProvider } from "./diagram/openrouter.ts";
+import { startLocalArtifacts } from "./artifacts/local.ts";
 
 app.setName("irudd-scope");
 if (process.env.SCOPE_DESKTOP_DATA_DIR)
@@ -42,12 +43,43 @@ async function main() {
         }
       : undefined,
   );
-  await settings.load({ endpoint: process.env.SCOPE_ENDPOINT, hubToken: process.env.SCOPE_TOKEN });
+  await settings.load();
+  const artifacts = await startLocalArtifacts({
+    directory: process.env.SCOPE_DATA_DIR ?? join(app.getPath("userData"), "artifacts"),
+    connectionFile: process.env.SCOPE_CONNECTION_FILE ?? join(homedir(), DEFAULT_CONNECTION_FILE),
+    port: process.env.SCOPE_PORT ? Number(process.env.SCOPE_PORT) : undefined,
+  });
   let current: Snapshot = { artifacts: [], connection: "connecting" };
-  let client: ScopeClient | undefined;
+  const client = new ScopeClient(artifacts.url, artifacts.token);
   let connection: AbortController | undefined;
   let drawing: AbortController | undefined;
   let window: BrowserWindow | undefined;
+  let closing = false;
+  let closed = false;
+  app.on("before-quit", (event) => {
+    if (closed) return;
+    event.preventDefault();
+    if (closing) return;
+    closing = true;
+    connection?.abort();
+    drawing?.abort();
+    void artifacts
+      .close()
+      .then(() => {
+        closed = true;
+        app.quit();
+      })
+      .catch(() => {
+        console.error("Scope could not close its artifact storage.");
+        app.exit(1);
+      });
+  });
+  app.on("second-instance", () => {
+    if (!window || window.isDestroyed()) return;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  });
   const cache = new Map<string, ArtifactContent>();
   const root = fileURLToPath(new URL("./renderer/", import.meta.url));
   const csp =
@@ -123,7 +155,6 @@ async function main() {
     const key = `${id}@${revision}`;
     const existing = cache.get(key);
     if (existing) return existing;
-    if (!client) throw new Error("Connect to the hub in Settings.");
     const artifact = await client.get(id);
     if (artifact.revision !== revision)
       throw new Error("This artifact changed. Open the latest version.");
@@ -134,17 +165,7 @@ async function main() {
   }
 
   handle("scope:settings", () => settings.view());
-  handle("scope:save-settings", async (input) => {
-    const before = settings.view();
-    const update = decodeSettingsUpdate(input);
-    const result = await settings.update(update);
-    if (before.endpoint !== result.endpoint || update.hubToken) {
-      cache.clear();
-      current = { artifacts: [], connection: "connecting" };
-      void connect();
-    }
-    return result;
-  });
+  handle("scope:save-settings", (input) => settings.update(decodeSettingsUpdate(input)));
   handle("scope:snapshot", () => current);
   handle("scope:compose", async (input) => {
     if (drawing) throw new Error("A diagram request is already running.");
@@ -181,7 +202,6 @@ async function main() {
       document.elements.length > 10_000
     )
       throw new Error("Invalid Excalidraw document.");
-    if (!client) throw new Error("Connect to the hub before saving a diagram.");
     const previous = input.expectedRevision ? await client.get(input.id) : undefined;
     return client.publish(
       input.id,
@@ -217,14 +237,10 @@ async function main() {
     let delay = 1000;
     while (!active.signal.aborted) {
       try {
-        const token = await settings.secret("hubToken");
-        if (!token) throw new Error("Add the hub address and token in Settings.");
-        const nextClient = new ScopeClient(settings.view().endpoint, token);
-        client = nextClient;
-        await nextClient.watch((event) => {
+        await client.watch((event) => {
           if (active.signal.aborted) return;
           if (event.type === "ready") {
-            void nextClient
+            void client
               .list()
               .then((artifacts) => {
                 if (active.signal.aborted) return;
@@ -258,7 +274,8 @@ async function main() {
         current = {
           ...current,
           connection: "offline",
-          error: error instanceof Error ? error.message : "Cannot connect to the hub.",
+          error:
+            error instanceof Error ? error.message : "Cannot connect to local artifact storage.",
         };
         notify();
       }
@@ -300,16 +317,18 @@ async function main() {
   }
   createWindow();
   void connect();
-  app.on("before-quit", () => {
-    connection?.abort();
-    drawing?.abort();
-  });
   app.on("window-all-closed", () => {
     app.quit();
   });
 }
 
-void main().catch(() => {
-  console.error("Scope could not start. Check the local settings file and desktop permissions.");
+if (!app.requestSingleInstanceLock()) {
   app.quit();
-});
+} else {
+  void main().catch((error: unknown) => {
+    console.error(
+      `Scope could not start: ${error instanceof Error ? error.message : "Check desktop permissions."}`,
+    );
+    app.quit();
+  });
+}

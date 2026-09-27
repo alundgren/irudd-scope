@@ -1,10 +1,10 @@
 # Visual prototype brief for irudd-scope
 
-Create interactive visual prototypes for the main desktop screen and tab navigation of `irudd-scope`. This is a design exploration. A separate implementation is building the hub, CLI, and Electron integration. Use synthetic local data and mock actions. Do not connect a backend, use real keys, call models, install hooks, or launch agents.
+Create interactive visual prototypes for the main desktop screen and tab navigation of `irudd-scope`. This is a design exploration. The working application contains a CLI, Electron storage and rendering, and an optional forwarding hub. Use synthetic local data and mock actions. Do not connect a backend, use real keys, call models, install hooks, or launch agents.
 
 ## Product
 
-Coding agents leave artifacts for one human to inspect. Codex and Claude run on a Mac and Ubuntu VM. The current implementation publishes through a persistent hub. Publishing is only required while the Mac is awake. The human opens Scope on the Mac to inspect, interact with, download, or edit an artifact. Scope does not run coding sessions and has no agent chat.
+Coding agents leave artifacts for one human to inspect. Codex and Claude run on a Mac and Ubuntu VM. The CLI publishes into the desktop app on the Mac. The app owns the SQLite database and artifact files. Publishing requires Scope to be running on an awake Mac. An optional remote hub forwards requests and fails when the desktop is unavailable. The human opens Scope on the Mac to inspect, interact with, download, or edit an artifact. Scope does not run coding sessions and has no agent chat.
 
 The central item is an artifact with a stable identity. Tabs are views of artifacts. Artifacts can update in place, and closing a tab must not delete the artifact. Supported content includes Markdown or text, an image, a static HTML preview, a downloadable file, and an editable Excalidraw diagram.
 
@@ -29,7 +29,7 @@ Use realistic titles and data, such as `Architecture`, `Checkout layout`, `Retry
 - Update an existing artifact in place. Show a small change indication. Show how an edited diagram handles an incoming update without silently discarding work.
 - Enter and exit focus mode, preserving position.
 - Show an empty workspace with a useful publication example and no required hook setup.
-- Show the hub offline and reconnecting while existing content remains inspectable.
+- Show local storage starting and a recoverable read error while already loaded content remains inspectable.
 - Show an image, Markdown, HTML preview, file download, and diagram at useful sizes. Static HTML is isolated and cannot access app APIs. Do not make arbitrary web-app hosting part of the concept.
 
 ## Settings
@@ -38,7 +38,7 @@ Include a settings view with a provider selector. The only enabled provider is O
 
 Include a masked key-entry field and saved, replace, remove, and failure states. The saved key is protected using macOS Keychain through Electron secure storage. Display only saved status, never reveal a stored key. Use fake data in prototypes. Model calls run on the Mac only while Scope is open, which is intended behavior.
 
-Leave conceptual room for local Codex and Claude CLI providers later, without cluttering the first version with disabled settings or suggesting those integrations work already. Hub connection settings are separate from model credentials.
+Leave conceptual room for local Codex and Claude CLI providers later, without cluttering the first version with disabled settings or suggesting those integrations work already. Local use has no hub URL or token form. Remote forwarding is optional and configured outside the desktop UI.
 
 ## Deliverables
 

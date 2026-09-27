@@ -26,7 +26,7 @@ export class ArtifactStore {
     const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
     if (version.user_version > 1) {
       this.db.close();
-      throw new Error("The hub database requires a newer Scope version.");
+      throw new Error("The artifact database requires a newer Scope version.");
     }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS artifacts (

@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Schema } from "effect";
-import { decode, validateEndpoint } from "@irudd-scope/protocol";
+import { decode } from "@irudd-scope/protocol";
 
 export const MODEL = "google/gemini-3.8-flash";
 export const ProviderSettings = Schema.Struct({
@@ -9,10 +9,6 @@ export const ProviderSettings = Schema.Struct({
   model: Schema.Literal(MODEL),
 });
 export const SettingsUpdate = Schema.Struct({
-  endpoint: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(2048))),
-  hubToken: Schema.optionalKey(
-    Schema.String.check(Schema.isMinLength(24), Schema.isMaxLength(2048)),
-  ),
   apiKey: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096))),
   removeApiKey: Schema.optionalKey(Schema.Boolean),
   provider: Schema.optionalKey(Schema.Literal("openrouter")),
@@ -23,23 +19,21 @@ export function decodeSettingsUpdate(value: unknown): SettingsUpdate {
   try {
     return decode(SettingsUpdate, value);
   } catch {
-    throw new Error("Invalid settings. Check the address and key fields.");
+    throw new Error("Invalid settings. Check the provider and key fields.");
   }
 }
 export type SettingsView = {
-  endpoint: string;
   provider: "openrouter";
   model: typeof MODEL;
-  hasHubToken: boolean;
   hasApiKey: boolean;
   keyStorage: "keychain" | "session";
 };
-type SecretName = "hubToken" | "apiKey";
+type SecretName = "apiKey";
 export type SecretProtection = {
   encrypt: (text: string) => Promise<Buffer>;
   decrypt: (bytes: Buffer) => Promise<string>;
 };
-const SavedSettings = Schema.Struct({
+const LegacySettings = Schema.Struct({
   version: Schema.Literal(1),
   endpoint: Schema.String,
   provider: Schema.Literal("openrouter"),
@@ -47,11 +41,16 @@ const SavedSettings = Schema.Struct({
   hubToken: Schema.optionalKey(Schema.String),
   apiKey: Schema.optionalKey(Schema.String),
 });
+const SavedSettings = Schema.Struct({
+  version: Schema.Literal(2),
+  provider: Schema.Literal("openrouter"),
+  model: Schema.Literal(MODEL),
+  apiKey: Schema.optionalKey(Schema.String),
+});
 
 export class SettingsStore {
   private saved: typeof SavedSettings.Type = {
-    version: 1,
-    endpoint: "http://127.0.0.1:43120",
+    version: 2,
     provider: "openrouter",
     model: MODEL,
   };
@@ -65,27 +64,28 @@ export class SettingsStore {
     this.protection = protection;
   }
 
-  async load(initial: { endpoint?: string; hubToken?: string } = {}): Promise<void> {
+  async load(): Promise<void> {
     try {
-      this.saved = decode(
-        SavedSettings,
+      const saved = decode(
+        Schema.Union([SavedSettings, LegacySettings]),
         JSON.parse(await readFile(join(this.directory, "settings.json"), "utf8")),
       );
+      this.saved = {
+        version: 2,
+        provider: saved.provider,
+        model: saved.model,
+        ...(saved.apiKey ? { apiKey: saved.apiKey } : {}),
+      };
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
         throw new Error("Cannot read Scope settings. Restore or remove the local settings file.");
     }
-    if (initial.endpoint)
-      this.saved = { ...this.saved, endpoint: validateEndpoint(initial.endpoint) };
-    if (initial.hubToken) this.memory.hubToken = initial.hubToken;
   }
 
   view(): SettingsView {
     return {
-      endpoint: this.saved.endpoint,
       provider: this.saved.provider,
       model: this.saved.model,
-      hasHubToken: Boolean(this.memory.hubToken || this.saved.hubToken),
       hasApiKey: Boolean(this.memory.apiKey || this.saved.apiKey),
       keyStorage: this.protection ? "keychain" : "session",
     };
@@ -111,32 +111,29 @@ export class SettingsStore {
   update(value: SettingsUpdate): Promise<SettingsView> {
     const task = this.pending.then(async () => {
       const input = decodeSettingsUpdate(value);
-      let next = { ...this.saved };
+      const next = { ...this.saved };
       const nextMemory = { ...this.memory };
-      if (input.endpoint !== undefined) next.endpoint = validateEndpoint(input.endpoint);
       if (input.removeApiKey && input.apiKey)
         throw new Error("Choose either replacing or removing the key.");
       if (input.removeApiKey) {
         delete next.apiKey;
         delete nextMemory.apiKey;
       }
-      for (const name of ["hubToken", "apiKey"] as const) {
-        const secret = input[name]?.trim();
-        if (secret !== undefined) {
-          if (!secret || /[\r\n]/.test(secret)) throw new Error("Enter a key on one line.");
-          if (this.protection) {
-            try {
-              next[name] = (await this.protection.encrypt(secret)).toString("base64");
-            } catch {
-              throw new Error(
-                "Cannot save the key in secure storage. Allow Scope to access Keychain and try again.",
-              );
-            }
-            delete nextMemory[name];
-          } else {
-            nextMemory[name] = secret;
-            delete next[name];
+      const secret = input.apiKey?.trim();
+      if (secret !== undefined) {
+        if (!secret || /[\r\n]/.test(secret)) throw new Error("Enter a key on one line.");
+        if (this.protection) {
+          try {
+            next.apiKey = (await this.protection.encrypt(secret)).toString("base64");
+          } catch {
+            throw new Error(
+              "Cannot save the key in secure storage. Allow Scope to access Keychain and try again.",
+            );
           }
+          delete nextMemory.apiKey;
+        } else {
+          nextMemory.apiKey = secret;
+          delete next.apiKey;
         }
       }
       await mkdir(this.directory, { recursive: true, mode: 0o700 });
@@ -145,7 +142,6 @@ export class SettingsStore {
       await rename(temporary, join(this.directory, "settings.json"));
       this.saved = next;
       delete this.memory.apiKey;
-      delete this.memory.hubToken;
       Object.assign(this.memory, nextMemory);
       return this.view();
     });
