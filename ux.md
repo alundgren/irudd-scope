@@ -1,21 +1,67 @@
 # UI decisions
 
-Scope is a Mac workspace for inspecting artifacts left by coding agents. The selected design is the compact Excalidraw-inspired interface in the [visual reference](docs/excalidraw-style-study.md) and [interactive specimen](docs/mockups/appearance-study.html).
+Scope is a Mac workspace for inspecting artifacts left by coding agents and
+editing diagrams. The selected artifact gets the window. One compact strip
+contains the workspace menu, open tabs, search, and focus. Secondary actions
+appear on demand. Prose has a reading width; images, HTML, and diagrams use
+the available area.
 
-Use cool neutral backgrounds, violet selection and focus, small rounded controls, system typography, and light or dark appearance. This fits the embedded editor and Mac appearance conventions. The house principles of task focus, reversible actions, plain wording, and keyboard access apply. Scope's palette and system typography are intentional product choices.
+## Appearance and controls
 
-The repo's [UX guidance skill](.agents/skills/ux-guidance/SKILL.md) governs UI implementation and review. [tokens.css](apps/desktop/src/renderer/tokens.css) defines the actual values and is imported by both desktop styles and the specimen. [style.css](apps/desktop/src/renderer/style.css) owns layout and the mapping to shadcn roles. The reference documents explain decisions without maintaining another palette.
+Scope uses Excalidraw-inspired cool neutrals, violet selection and focus,
+rounded controls, and system typography. This keeps the workspace consistent
+with its embedded editor and Mac appearance. It deliberately differs from
+the house warm palette and IBM Plex fonts. The white light canvas, dark
+neutral canvas, and higher text contrast follow that editor treatment.
+Control text is smaller than reading text so the tab strip leaves room for
+artifacts. Actual values belong to [tokens.css](apps/desktop/src/renderer/tokens.css).
 
-A single compact tab strip leaves the rest of the window for content. Search and the workspace menu expose tools, settings, provenance, and downloads on demand. Closing a tab preserves its artifact. New arrivals and background updates never steal selection. Tabs indicate unread updates and remain scrollable when titles overflow.
+System, Light, and Dark are supported because Scope sits alongside other Mac
+apps and follows native appearance. Excalidraw follows the selected appearance;
+artifact data, images, and isolated HTML keep their authored content. The
+appearance picker uses a styled native select to retain desktop keyboard and
+platform behavior. Provider and model are plain text because each has one
+supported value.
 
-Focus mode keeps the artifact mounted, hides workspace controls, and leaves a small exit at the top center. It preserves selection, scroll, zoom, and diagram conversation. Excalidraw uses zen mode. Escape closes the active dialog or editor interaction before exiting focus.
+[Visual design](docs/visual-design.md) describes token roles and controls.
+The [repo UX skill](.agents/skills/ux-guidance/SKILL.md) guides implementation
+and review against the running desktop. The app icon is an open window with
+a blue breeze on a pale sky-blue tile. Its compact artwork omits the circle
+and uses thicker strokes. [Assets and export instructions](apps/desktop/resources/README.md)
+live with the desktop.
 
-Settings opens with search focused. Global search finds specific settings too. Appearance offers System, Light, and Dark, initially System. Excalidraw follows the same appearance while images and isolated HTML retain their authored content. Provider, model, and credentials stay together. Saved secrets are never displayed. OpenRouter and Gemini 3.8 Flash are the enabled choices; other providers appear only when implemented.
+## Workspace behavior
 
-Create diagram is an explicit tool in the empty workspace, search, and workspace menu. An existing diagram has an optional Ask agent conversation, closed by default. It sits beside the canvas or overlays it in a narrow window. Generation has a cancel action; Save publishes changes. SQLite preserves the conversation, unsent prompt, working canvas, and zoom and pan across restarts and closed tabs. Closing a tab retains that data. Incoming revisions preserve unsaved edits and offer loading the latest content or saving a separate copy.
+Tabs show the artifact title, scroll in one row, and indicate unread updates.
+Selection has both a tinted background and a solid marker. New artifacts and
+background revisions do not select themselves. Closing a tab preserves the
+artifact and its diagram draft; reopening finds the same artifact. SQLite
+retains the open and closed tab lists.
 
-Ordinary settings and the open and closed tab lists also live in SQLite. Provider credentials live directly in macOS Keychain. If Keychain access fails, show an unavailable status and a recovery message while keeping Settings usable. Show failed draft writes with a retry action and preserve the working canvas.
+Focus keeps the selected artifact mounted, hides workspace controls and
+diagram chat, and leaves an exit at the top center. It preserves scroll, zoom,
+and conversation. Excalidraw uses zen mode. Escape closes an active dialog or
+editor interaction before leaving focus.
 
-The app icon uses the Breath of fresh air design: two charcoal open window panels, a blue breeze, and a blue circle on a pale sky-blue tile. Rounded strokes keep it consistent with the Excalidraw canvas. The Mac Dock and README use the same artwork on light and dark backgrounds. The compact version omits the circle and thickens the strokes for small sizes. [Icon assets and export instructions](apps/desktop/resources/README.md) live with the desktop app.
+Search finds artifacts, tools, and specific settings. Settings opens with its
+search input focused and explains empty results. Appearance saves when changed.
+The diagram provider, model, and API key stay together. OpenRouter with Gemini
+3.8 Flash is the supported configuration. Saving a key clears the input;
+saved secrets are never displayed. Keychain errors remain visible while
+Settings stays usable.
 
-English UI, keyboard navigation, visible focus, labeled icon controls, and readable contrast are normal implementation requirements. Design for a Mac laptop and an external monitor, including long titles and more tabs than fit. Scope has no agent orchestration or general chat. Optional session tools remain future work.
+Create diagram is available in the empty workspace, search, and workspace
+menu. An existing diagram has an Ask agent conversation, closed by default.
+It sits beside the canvas at desktop widths and overlays it in a narrow
+window. Enter sends, Shift+Enter adds a line, and a pending request offers
+Cancel. Save explicitly publishes changes.
+
+SQLite retains the conversation, unsent prompt, working canvas, and zoom and
+pan across restarts and closed tabs. Incoming revisions preserve unsaved
+edits and offer loading the latest content or saving a copy. Failed draft
+writes retain the canvas and offer Retry. Scope provides diagram conversation,
+not general chat or agent orchestration.
+
+English text, keyboard navigation, visible focus, labeled icon controls, and
+readable contrast apply throughout the workspace. Check long titles and more
+tabs than fit on a Mac laptop or external monitor.

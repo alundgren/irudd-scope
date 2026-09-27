@@ -30,7 +30,7 @@ async function fixture() {
   return { directory, server, client, cli };
 }
 
-test("the real CLI publishes every initial kind, updates a stable ID, and data survives a storage restart", async () => {
+test("the real CLI publishes every supported kind, updates a stable ID, and data survives a storage restart", async () => {
   const { directory, server, client, cli } = await fixture();
   await cli("text", "A finding", "--title", "Review", "--id", "review");
   const samples = [

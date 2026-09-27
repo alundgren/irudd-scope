@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { createRequire } from "node:module";
 import type { Readable } from "node:stream";
+
+// Resolve Electron once so parallel test workers cannot race its lazy installation.
+createRequire(new URL("../apps/desktop/package.json", import.meta.url))("electron");
 
 let displayServer: ReturnType<typeof spawn> | undefined;
 try {
