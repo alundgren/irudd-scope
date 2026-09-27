@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { decode } from "@irudd-scope/protocol";
-import { DIAGRAM_MODEL, DIAGRAM_PROVIDER } from "./diagram/provider-settings.ts";
+import { DIAGRAM_MODEL, DIAGRAM_PROVIDER } from "./plugins/diagram/provider-settings.ts";
 
 export const Appearance = Schema.Literals(["system", "light", "dark"]);
 export type Appearance = typeof Appearance.Type;

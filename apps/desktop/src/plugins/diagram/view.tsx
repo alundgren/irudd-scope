@@ -1,15 +1,16 @@
+import type { TabContext } from "../api.ts";
 import { useEffect, useRef, useState } from "react";
 import { Excalidraw, getSceneVersion, loadFromBlob, serializeAsJSON } from "@excalidraw/excalidraw";
 import type { AppState, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import type { ArtifactContent } from "../bridge.ts";
-import { readSemanticScene, updateCanvasElements } from "../diagram/canvas.ts";
-import { applyOperations } from "../diagram/scene.ts";
-import { Button } from "./components/ui/button.tsx";
-import { Textarea } from "./components/ui/textarea.tsx";
+import type { ArtifactContent } from "../../bridge.ts";
+import { readSemanticScene, updateCanvasElements } from "./canvas.ts";
+import { applyOperations } from "./scene.ts";
+import { Button } from "../../renderer/components/ui/button.tsx";
+import { Textarea } from "../../renderer/components/ui/textarea.tsx";
 import { MessageSquare, X } from "lucide-react";
-import type { Theme } from "./appearance.ts";
-import type { DiagramDraft } from "../diagram/draft.ts";
-import { useAutosave } from "./persistence.ts";
+import type { Theme } from "../../renderer/appearance.ts";
+import type { DiagramDraft } from "./draft.ts";
+import { useAutosave } from "../../workspace/persistence.ts";
 import "@excalidraw/excalidraw/index.css";
 
 function canvasSettings(state: Partial<AppState>) {
@@ -23,10 +24,12 @@ function canvasSettings(state: Partial<AppState>) {
 
 export function DiagramView({
   item,
+  context,
   theme,
   focus,
 }: {
   item: ArtifactContent;
+  context: TabContext;
   theme: Theme;
   focus: boolean;
 }) {
@@ -187,6 +190,11 @@ export function DiagramView({
           api.getFiles(),
           "local",
         ),
+      });
+      context.events.emit({
+        type: "resource.saved",
+        resource: { kind: "artifact", id: saved.id },
+        revision: saved.revision,
       });
       if (!copy) {
         loaded.current = saved.revision;

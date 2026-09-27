@@ -21,7 +21,9 @@ The project pins Node and pnpm through Vite+. Linux supports development and tes
 
 Scope displays text, Markdown, raster images, static HTML, downloadable files,
 and editable Excalidraw diagrams. Diagram generation uses an OpenRouter key
-configured in the desktop. The app runs from a checkout; this repo does not
+configured in the desktop. Built-in file and diagram plugins run inside a
+shared tab host with persistent groups and events limited to each group.
+The app runs from a checkout; this repo does not
 provide an application installer.
 
 See [development and launch commands](docs/development.md),

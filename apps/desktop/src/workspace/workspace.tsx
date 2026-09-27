@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import {
   Download,
   Maximize2,
@@ -10,22 +16,31 @@ import {
   Menu,
   Plus,
 } from "lucide-react";
-import { Button } from "./components/ui/button.tsx";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./components/ui/dialog.tsx";
-import { SettingsViewPanel } from "./settings-view.tsx";
-import { ArtifactView } from "./artifact-view.tsx";
-import { CreateDiagram } from "./create-diagram.tsx";
-import { useAppearance, type Appearance } from "./appearance.ts";
-import { useArtifactLibrary } from "./use-artifact-library.ts";
+import { Button } from "../renderer/components/ui/button.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../renderer/components/ui/dialog.tsx";
+import { SettingsViewPanel } from "../renderer/settings-view.tsx";
+import { useAppearance, type Appearance } from "../renderer/appearance.ts";
+import { useArtifactLibrary } from "../library/use-library.ts";
 import { useWorkspace } from "./use-workspace.ts";
-import { WorkspaceSearch } from "./workspace-search.tsx";
+import { WorkspaceSearch } from "./search.tsx";
+
+import type { Tab } from "./contract.ts";
+import { TabHost } from "./tab-host.tsx";
+import { TabEventRouter } from "./events.ts";
+import { pluginTools, pluginForArtifact, tabArtifactId } from "../plugins/registry.renderer.ts";
 
 export function App({ initialAppearance }: { initialAppearance: Appearance }) {
   const { theme, setAppearance } = useAppearance(initialAppearance);
   const [settings, setSettings] = useState(false);
   const [settingsQuery, setSettingsQuery] = useState("");
   const [menu, setMenu] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<string | null>(null);
+  const Creation = pluginTools.find((tool) => tool.id === creating)?.View;
   const [search, setSearch] = useState(false);
   const [query, setQuery] = useState("");
   const [focus, setFocus] = useState(false);
@@ -38,36 +53,83 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
     save: workspaceSave,
     openTab,
     closeTab,
+    updateTab,
+    updateState,
   } = useWorkspace(setError);
   const tabButtons = useRef(new Map<string, HTMLButtonElement>());
   const artifacts = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
-  const active = workspace.selected ? artifacts.get(workspace.selected) : undefined;
+  const active = workspace.tabs.find((tab) => tab.id === workspace.selected);
+  const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
+  const [events] = useState(
+    () => new TabEventRouter(() => setError("A tab could not handle an event.")),
+  );
+  events.update(workspace.tabs);
+  useEffect(
+    () =>
+      events.subscribe((envelope) => {
+        void workspaceSave
+          .flush()
+          .then(() => window.scope.publishTabEvent(envelope))
+          .catch(() => setError("Could not deliver a tab event to the desktop."));
+      }),
+    [events, workspaceSave.flush],
+  );
+  useEffect(() => {
+    for (const tab of [...workspace.tabs, ...workspace.closed]) {
+      const artifact = artifacts.get(tabArtifactId(tab) ?? "");
+      if (!artifact) continue;
+      const type = pluginForArtifact(artifact).type;
+      if (tab.type !== type || tab.title !== artifact.title)
+        updateTab(tab.id, { type, title: artifact.title });
+    }
+  }, [snapshot.artifacts, workspace.tabs, workspace.closed]);
   useEffect(() => {
     tabButtons.current
       .get(workspace.selected ?? "")
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [workspace.selected, workspace.tabs, focus]);
 
-  function open(id: string, keyboard = false) {
-    if (!openTab(id)) return;
-    markRead(id);
+  function activate(tab: Tab, keyboard = false) {
+    if (!openTab(tab)) return;
+    const artifactId = tabArtifactId(tab);
+    if (artifactId) markRead(artifactId);
     setSearch(false);
-    setCreating(false);
-    if (keyboard) requestAnimationFrame(() => tabButtons.current.get(id)?.focus());
+    setCreating(null);
+    if (keyboard) requestAnimationFrame(() => tabButtons.current.get(tab.id)?.focus());
+  }
+  function select(id: string, keyboard = false) {
+    const tab = workspace.tabs.find((entry) => entry.id === id);
+    if (tab) activate(tab, keyboard);
+  }
+  function open(id: string) {
+    const artifact = artifacts.get(id);
+    if (!artifact) return;
+    const plugin = pluginForArtifact(artifact);
+    const existing = [...workspace.tabs, ...workspace.closed].find(
+      (tab) => tabArtifactId(tab) === id,
+    );
+    activate(
+      existing ?? {
+        id: crypto.randomUUID(),
+        groupId: workspace.groups[0].id,
+        type: plugin.type,
+        title: artifact.title,
+        state: plugin.publication!.state(artifact),
+      },
+    );
   }
   async function close(id: string) {
     if (!(await closeTab(id))) return;
-    const index = workspace.tabs.indexOf(id);
-    const tabs = workspace.tabs.filter((tab) => tab !== id);
+    const index = workspace.tabs.findIndex((tab) => tab.id === id);
+    const tabs = workspace.tabs.filter((tab) => tab.id !== id);
     const selected =
-      workspace.selected === id ? (tabs[Math.max(0, index - 1)] ?? null) : workspace.selected;
+      workspace.selected === id ? (tabs[Math.max(0, index - 1)]?.id ?? null) : workspace.selected;
     if (!tabs.length) setFocus(false);
     requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
   }
   function reopen() {
-    const id = workspace.closed?.at(-1);
-    if (!id) return;
-    open(id, true);
+    const tab = workspace.closed.at(-1);
+    if (tab) activate(tab, true);
   }
   function openSettings(filter = "") {
     setSettingsQuery(filter);
@@ -81,10 +143,10 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
     setMenu(false);
   }
   async function download() {
-    if (!active) return;
+    if (!activeArtifact) return;
     setMenu(false);
     try {
-      await window.scope.download(active.id, active.revision);
+      await window.scope.download(activeArtifact.id, activeArtifact.revision);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Download failed.");
     }
@@ -118,7 +180,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
     return () => window.removeEventListener("keydown", keyboard);
   });
   function navigateTabs(event: ReactKeyboardEvent) {
-    const index = workspace.tabs.indexOf(workspace.selected ?? "");
+    const index = workspace.tabs.findIndex((tab) => tab.id === workspace.selected);
     const target =
       event.key === "ArrowRight"
         ? (index + 1) % workspace.tabs.length
@@ -131,7 +193,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
               : undefined;
     if (target === undefined) return;
     event.preventDefault();
-    open(workspace.tabs[target], true);
+    select(workspace.tabs[target].id, true);
   }
   if (!workspaceReady) return <p role="status">Opening workspace…</p>;
   return (
@@ -154,8 +216,10 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
               aria-label="Artifacts"
               onKeyDown={navigateTabs}
             >
-              {workspace.tabs.map((id) => {
-                const artifact = artifacts.get(id);
+              {workspace.tabs.map((tab) => {
+                const { id } = tab;
+                const artifactId = tabArtifactId(tab);
+                const artifact = artifacts.get(artifactId ?? "");
                 const selected = id === workspace.selected && !creating;
                 return (
                   <div className={`artifact-tab${selected ? " selected" : ""}`} key={id}>
@@ -170,12 +234,12 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
                       aria-selected={selected}
                       aria-controls={`pane-${id}`}
                       tabIndex={id === workspace.selected ? 0 : -1}
-                      title={artifact?.title ?? id}
-                      onClick={() => open(id)}
+                      title={artifact?.title ?? tab.title}
+                      onClick={() => select(id)}
                     >
-                      {artifact?.title ?? id}
+                      {artifact?.title ?? tab.title}
                     </button>
-                    {unread.has(id) && (
+                    {artifactId && unread.has(artifactId) && (
                       <span
                         className="unread-dot"
                         role="img"
@@ -187,7 +251,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
                       variant="ghost"
                       size="icon-xs"
                       className="tab-close"
-                      aria-label={`Close ${artifact?.title ?? id}`}
+                      aria-label={`Close ${artifact?.title ?? tab.title}`}
                       title="Close tab"
                       onClick={() => close(id)}
                     >
@@ -207,7 +271,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
             onClick={openSearch}
           >
             <Search />
-            {[...unread].some((id) => !workspace.tabs.includes(id)) && (
+            {[...unread].some((id) => !workspace.tabs.some((tab) => tabArtifactId(tab) === id)) && (
               <span className="unread-dot" aria-label="New artifacts" role="img" />
             )}
           </Button>
@@ -216,7 +280,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
             size="icon"
             aria-label="Focus artifact"
             title="Focus artifact · ⌘⇧F"
-            disabled={!active || creating}
+            disabled={!active || Boolean(creating)}
             onClick={() => setFocus(true)}
           >
             <Maximize2 />
@@ -263,40 +327,45 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
         </div>
       )}
       <div className="workspace-content">
-        {workspace.tabs.map((id) => {
-          const artifact = artifacts.get(id);
+        {workspace.tabs.map((tab) => {
+          const { id } = tab;
+          const artifact = artifacts.get(tabArtifactId(tab) ?? "");
           return (
             <div
               className="artifact-pane"
               role="tabpanel"
               id={`pane-${id}`}
-              aria-labelledby={`tab-${id}`}
+              aria-labelledby={focus ? undefined : `tab-${id}`}
+              aria-label={artifact?.title ?? tab.title}
               key={id}
-              hidden={id !== workspace.selected || creating}
+              hidden={id !== workspace.selected || Boolean(creating)}
             >
-              {artifact ? (
-                <ArtifactView
-                  artifact={artifact}
-                  theme={theme}
-                  focus={focus && id === workspace.selected}
-                />
-              ) : (
-                <p className="empty-state" role="status">
-                  Loading artifact…
-                </p>
-              )}
+              <TabHost
+                tab={tab}
+                artifact={artifact}
+                router={events}
+                updateState={updateState}
+                theme={theme}
+                focus={focus && id === workspace.selected}
+              />
             </div>
           );
         })}
-        {creating && (
+        {Creation && (
           <div className="artifact-pane">
-            <CreateDiagram
-              onClose={() => setCreating(false)}
-              onCreated={(artifact) => {
-                recordPublication(artifact);
-                open(artifact.id);
-              }}
-            />
+            <Suspense fallback={<p role="status">Opening tool…</p>}>
+              <Creation
+                onClose={() => setCreating(null)}
+                onCreated={({ artifact, ...tab }) => {
+                  if (artifact) recordPublication(artifact);
+                  activate({
+                    ...tab,
+                    id: crypto.randomUUID(),
+                    groupId: active?.groupId ?? workspace.groups[0].id,
+                  });
+                }}
+              />
+            </Suspense>
           </div>
         )}
         {!workspace.selected && !creating && (
@@ -304,9 +373,11 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
             <section className="empty-state">
               <h1>Things your agents leave for you</h1>
               <p>Open an artifact to inspect it.</p>
-              <Button variant="secondary" onClick={() => setCreating(true)}>
-                <Plus /> Create diagram
-              </Button>
+              {pluginTools.map((tool) => (
+                <Button key={tool.id} variant="secondary" onClick={() => setCreating(tool.id)}>
+                  <Plus /> {tool.title}
+                </Button>
+              ))}
               {snapshot.artifacts.length ? (
                 <div className="artifact-list">
                   {snapshot.artifacts
@@ -339,19 +410,22 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
               <span>Settings</span>
               <Settings size={16} />
             </button>
-            <button
-              onClick={() => {
-                setCreating(true);
-                setMenu(false);
-                setFocus(false);
-              }}
-            >
-              Create diagram
-              <Plus size={16} />
-            </button>
+            {pluginTools.map((tool) => (
+              <button
+                key={tool.id}
+                onClick={() => {
+                  setCreating(tool.id);
+                  setMenu(false);
+                  setFocus(false);
+                }}
+              >
+                {tool.title}
+                <Plus size={16} />
+              </button>
+            ))}
             <hr />
             <button
-              disabled={!active}
+              disabled={!activeArtifact}
               onClick={() => {
                 setDetails(true);
                 setMenu(false);
@@ -360,7 +434,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
               Artifact details
               <Info size={16} />
             </button>
-            <button disabled={!active} onClick={() => void download()}>
+            <button disabled={!activeArtifact} onClick={() => void download()}>
               Download
               <Download size={16} />
             </button>
@@ -384,8 +458,9 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
         artifacts={snapshot.artifacts}
         onOpenArtifact={open}
         onOpenSettings={openSettings}
-        onCreateDiagram={() => {
-          setCreating(true);
+        tools={pluginTools}
+        onOpenTool={(id) => {
+          setCreating(id);
           setSearch(false);
           setFocus(false);
         }}
@@ -406,19 +481,19 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
       <Dialog open={details} onOpenChange={setDetails}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{active?.title ?? "Artifact"}</DialogTitle>
+            <DialogTitle>{activeArtifact?.title ?? "Artifact"}</DialogTitle>
           </DialogHeader>
-          {active && (
+          {activeArtifact && (
             <dl className="artifact-details">
               <dt>Kind</dt>
-              <dd>{active.kind}</dd>
+              <dd>{activeArtifact.kind}</dd>
               <dt>ID</dt>
-              <dd>{active.id}</dd>
+              <dd>{activeArtifact.id}</dd>
               <dt>Revision</dt>
-              <dd>{active.revision}</dd>
+              <dd>{activeArtifact.revision}</dd>
               <dt>Updated</dt>
-              <dd>{new Date(active.updatedAt).toLocaleString()}</dd>
-              {Object.entries(active.source ?? {}).map(([name, value]) => (
+              <dd>{new Date(activeArtifact.updatedAt).toLocaleString()}</dd>
+              {Object.entries(activeArtifact.source ?? {}).map(([name, value]) => (
                 <div key={name}>
                   <dt>{name}</dt>
                   <dd>{value}</dd>

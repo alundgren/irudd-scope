@@ -36,7 +36,11 @@ Tabs show the artifact title, scroll in one row, and indicate unread updates.
 Selection has both a tinted background and a solid marker. New artifacts and
 background revisions do not select themselves. Closing a tab preserves the
 artifact and its diagram draft; reopening finds the same artifact. SQLite
-retains the open and closed tab lists.
+retains open and closed tab records, selection, and group membership. Each
+tab has its own UUID and belongs to a group with an owner reference. Group
+membership has no visual indicator. The desktop opens published items in its
+local workspace group. File views and the diagram editor are built-in plugins;
+existing image, Markdown, HTML, text, and download views remain together.
 
 Focus keeps the selected artifact mounted, hides workspace controls and
 diagram chat, and leaves an exit at the top center. It preserves scroll, zoom,

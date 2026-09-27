@@ -6,8 +6,8 @@ import { DEFAULT_CONNECTION_FILE } from "@irudd-scope/protocol";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { DesktopStore } from "./desktop-store.ts";
 import { macCredentials, memoryCredentials } from "./credentials.ts";
-import { startLocalArtifacts } from "./artifacts/local.ts";
-import { ArtifactLibrary } from "./artifacts/library.ts";
+import { startLocalArtifacts } from "./library/local.ts";
+import { ArtifactLibrary } from "./library/library.ts";
 import { registerDesktopIpc } from "./ipc.ts";
 import { configureRendererSecurity, restrictRendererNavigation } from "./renderer-security.ts";
 
@@ -63,7 +63,7 @@ async function main() {
     if (!window.isDestroyed()) window.webContents.send("scope:artifact-library-changed", snapshot);
   });
   let closeReady: ((saved: boolean) => void) | undefined;
-  const { cancelDiagramGeneration } = registerDesktopIpc({
+  const desktopIpc = registerDesktopIpc({
     window,
     store,
     library,
@@ -75,7 +75,7 @@ async function main() {
   async function close() {
     if (closing || closed) return;
     closing = true;
-    cancelDiagramGeneration();
+    desktopIpc.cancelPending();
     if (!window.isDestroyed()) {
       const saved = await new Promise<boolean>((done) => {
         const timer = setTimeout(() => {
@@ -104,6 +104,7 @@ async function main() {
         }
       }
     }
+    desktopIpc.dispose();
     library.close();
     await Promise.all([artifacts.close(), store.close()]);
     closed = true;
@@ -124,7 +125,7 @@ async function main() {
     window.show();
     window.focus();
   });
-  configureRendererSecurity(fileURLToPath(new URL("./renderer/", import.meta.url)));
+  configureRendererSecurity(fileURLToPath(new URL("./renderer", import.meta.url)));
   restrictRendererNavigation(window.webContents);
   window.on("close", requestClose);
   window.once("ready-to-show", () => window.show());

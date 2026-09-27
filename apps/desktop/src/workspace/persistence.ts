@@ -2,6 +2,13 @@ import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 const saves = new Set<() => Promise<void>>();
 
+export function beforeClose(save: () => Promise<void>): () => void {
+  saves.add(save);
+  return () => {
+    saves.delete(save);
+  };
+}
+
 export async function flushWorkspace(): Promise<void> {
   const results = await Promise.allSettled([...saves].map((save) => save()));
   if (results.some((result) => result.status === "rejected"))

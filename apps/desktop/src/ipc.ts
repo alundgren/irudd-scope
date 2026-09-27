@@ -1,15 +1,13 @@
 import { dialog, ipcMain, nativeTheme, type BrowserWindow } from "electron";
 import { writeFile } from "node:fs/promises";
-import { hostname } from "node:os";
 import { Schema } from "effect";
 import { ArtifactId, Revision, decode } from "@irudd-scope/protocol";
 import type { ScopeClient } from "@irudd-scope/protocol/client";
 import type { DesktopStore } from "./desktop-store.ts";
-import type { ArtifactLibrary } from "./artifacts/library.ts";
+import type { ArtifactLibrary } from "./library/library.ts";
 import { decodeSettingsUpdate } from "./settings.ts";
-import { DiagramRequest } from "./diagram/contract.ts";
-import { DiagramDraft } from "./diagram/draft.ts";
-import { openRouterProvider } from "./diagram/openrouter.ts";
+import { registerMainPlugins } from "./plugins/registry.main.ts";
+import { TabEventEnvelope } from "./plugins/events.ts";
 
 export function registerDesktopIpc({
   window,
@@ -24,7 +22,7 @@ export function registerDesktopIpc({
   client: ScopeClient;
   onCloseReady: (saved: boolean) => void;
 }) {
-  let generation: AbortController | undefined;
+  const eventListeners = new Set<(event: TabEventEnvelope) => void | Promise<void>>();
 
   function handle(channel: string, action: (input: unknown) => unknown) {
     ipcMain.handle(channel, async (event, input: unknown) => {
@@ -45,15 +43,27 @@ export function registerDesktopIpc({
     });
   }
 
+  const plugins = registerMainPlugins({ handle, store, client });
+  handle("scope:publish-tab-event", async (input) => {
+    const envelope = decode(TabEventEnvelope, input);
+    const workspace = await store.workspace();
+    if (
+      !workspace?.tabs.some((tab) => tab.id === envelope.tabId && tab.groupId === envelope.groupId)
+    )
+      throw new Error("The event sender is not an open tab in this group.");
+    for (const listener of eventListeners) {
+      try {
+        void Promise.resolve(listener(structuredClone(envelope))).catch(() => {
+          console.error("A desktop tab event handler failed.");
+        });
+      } catch {
+        console.error("A desktop tab event handler failed.");
+      }
+    }
+  });
   handle("scope:settings", () => store.settings());
   handle("scope:workspace", () => store.workspace());
   handle("scope:save-workspace", (input) => store.saveWorkspace(input));
-  handle("scope:diagram-draft", (input) => store.diagramDraft(input));
-  const SaveDraft = Schema.Struct({ id: ArtifactId, draft: DiagramDraft });
-  handle("scope:save-diagram-draft", (input) => {
-    const { id, draft } = decode(SaveDraft, input);
-    return store.saveDiagramDraft(id, draft);
-  });
   handle("scope:close-ready", (input) => onCloseReady(decode(Schema.Boolean, input)));
   handle("scope:save-settings", async (input) => {
     const result = await store.saveSettings(decodeSettingsUpdate(input));
@@ -61,58 +71,6 @@ export function registerDesktopIpc({
     return result;
   });
   handle("scope:artifact-library", () => library.snapshot());
-  handle("scope:generate-diagram", async (input) => {
-    if (generation) throw new Error("A diagram request is already running.");
-    const request = decode(DiagramRequest, input);
-    const active = new AbortController();
-    generation = active;
-    try {
-      const key = await store.secret("apiKey");
-      if (!key) throw new Error("Add an OpenRouter key in Settings first.");
-      return await openRouterProvider(key).generateDiagram(request, active.signal);
-    } finally {
-      if (generation === active) generation = undefined;
-    }
-  });
-  function cancelDiagramGeneration(): void {
-    generation?.abort();
-  }
-  handle("scope:cancel-diagram-generation", cancelDiagramGeneration);
-
-  const SaveDiagram = Schema.Struct({
-    id: ArtifactId,
-    title: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(160)),
-    expectedRevision: Revision,
-    content: Schema.String.check(Schema.isMaxLength(32 * 1024 * 1024)),
-  });
-  handle("scope:save-diagram", async (value) => {
-    const input = decode(SaveDiagram, value);
-    const document: unknown = JSON.parse(input.content);
-    if (
-      !document ||
-      typeof document !== "object" ||
-      !("type" in document) ||
-      document.type !== "excalidraw" ||
-      !("elements" in document) ||
-      !Array.isArray(document.elements) ||
-      document.elements.length > 10_000
-    )
-      throw new Error("Invalid Excalidraw document.");
-    const previous = input.expectedRevision ? await client.get(input.id) : undefined;
-    return client.publish(
-      input.id,
-      {
-        title: input.title,
-        kind: "excalidraw",
-        mediaType: "application/vnd.excalidraw+json",
-        fileName: `${input.id}.excalidraw`,
-        expectedRevision: input.expectedRevision,
-        source: previous?.source ?? { host: hostname(), agent: "scope" },
-      },
-      new TextEncoder().encode(input.content),
-    );
-  });
-
   const ContentRequest = Schema.Struct({ id: ArtifactId, revision: Revision });
   async function content(input: unknown) {
     const { id, revision } = decode(ContentRequest, input);
@@ -130,5 +88,17 @@ export function registerDesktopIpc({
     return true;
   });
 
-  return { cancelDiagramGeneration };
+  return {
+    cancelPending: () => plugins.cancelPending(),
+    dispose: () => {
+      plugins.cancelPending();
+      eventListeners.clear();
+    },
+    onTabEvent: (listener: (event: TabEventEnvelope) => void | Promise<void>) => {
+      eventListeners.add(listener);
+      return () => {
+        eventListeners.delete(listener);
+      };
+    },
+  };
 }

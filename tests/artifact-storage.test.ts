@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startArtifactServer } from "../apps/desktop/src/artifacts/server.ts";
+import { startArtifactServer } from "../apps/desktop/src/library/server.ts";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 
 const token = "synthetic-storage-migration-token";

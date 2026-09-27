@@ -1,3 +1,4 @@
+import { PublishedTabState } from "../../library/tab-state.ts";
 import { Schema } from "effect";
 import { decode } from "@irudd-scope/protocol";
 
@@ -101,3 +102,5 @@ export type DiagramResult = typeof DiagramResponse.Type & {
 export interface DiagramProvider {
   generateDiagram: (request: DiagramRequest, signal: AbortSignal) => Promise<DiagramResult>;
 }
+
+export const diagramTabContract = { type: "diagram", version: 1, state: PublishedTabState };

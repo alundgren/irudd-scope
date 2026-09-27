@@ -1,11 +1,12 @@
+import { importWorkspace } from "../apps/desktop/src/workspace/contract.ts";
 import { expect, test } from "vite-plus/test";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
-import { DIAGRAM_MODEL } from "../apps/desktop/src/diagram/provider-settings.ts";
-import type { DiagramDraft } from "../apps/desktop/src/diagram/draft.ts";
+import { DIAGRAM_MODEL } from "../apps/desktop/src/plugins/diagram/provider-settings.ts";
+import type { DiagramDraft } from "../apps/desktop/src/plugins/diagram/draft.ts";
 import {
   memoryCredentials,
   type CredentialStore,
@@ -45,7 +46,8 @@ test("diagram working data survives closing every tab and reopening the SQLite s
     await store.load();
     expect(await store.diagramDraft("architecture")).toBeNull();
     await store.saveDiagramDraft("architecture", draft);
-    await store.saveWorkspace({ tabs: [], selected: null, closed: ["architecture"] });
+    const workspace = importWorkspace({ tabs: [], selected: null, closed: ["architecture"] });
+    await store.saveWorkspace(workspace);
     expect(() =>
       store.saveDiagramDraft("architecture", {
         ...draft,
@@ -62,11 +64,7 @@ test("diagram working data survives closing every tab and reopening the SQLite s
     await store.close();
     await reopened.load();
     expect(await reopened.diagramDraft("architecture")).toEqual(draft);
-    expect(await reopened.workspace()).toEqual({
-      tabs: [],
-      selected: null,
-      closed: ["architecture"],
-    });
+    expect(await reopened.workspace()).toEqual(workspace);
     expect(await readdir(directory)).not.toContain("settings.json");
   } finally {
     await store.close();
@@ -87,7 +85,8 @@ test("ordinary settings and tabs reopen from SQLite while credentials stay exclu
       apiKey: secret,
       appearance: "dark",
     });
-    await store.saveWorkspace({ tabs: ["architecture", "review"], selected: "review" });
+    const workspace = importWorkspace({ tabs: ["architecture", "review"], selected: "review" });
+    await store.saveWorkspace(workspace);
     expect(view).toMatchObject({ hasApiKey: true, keyStorage: "keychain" });
     expect(JSON.stringify(view)).not.toContain(secret);
     expect(view).not.toHaveProperty("endpoint");
@@ -99,10 +98,7 @@ test("ordinary settings and tabs reopen from SQLite while credentials stay exclu
     reopened = new DesktopStore(directory, credentials);
     await reopened.load();
     expect(reopened.settings().appearance).toBe("dark");
-    expect(await reopened.workspace()).toEqual({
-      tabs: ["architecture", "review"],
-      selected: "review",
-    });
+    expect(await reopened.workspace()).toEqual(workspace);
     expect(await reopened.secret("apiKey")).toBe(secret);
     await reopened.saveSettings({ apiKey: "replacement-secret" });
     expect(await reopened.secret("apiKey")).toBe("replacement-secret");
@@ -237,7 +233,10 @@ test("existing SQLite preferences retain tabs and provider credentials while dis
   try {
     await credentials.write({ apiKey: "existing-provider-key" });
     await store.load();
-    expect(await store.workspace()).toEqual(workspace);
+    const migrated = await store.workspace();
+    expect(migrated?.version).toBe(2);
+    expect(migrated?.tabs.map((tab) => tab.state.data.artifactId)).toEqual(workspace.tabs);
+    expect(migrated?.selected).toBe(migrated?.tabs[0].id);
     expect(store.settings().appearance).toBe("system");
     expect(await store.secret("apiKey")).toBe("existing-provider-key");
     expect(documents(directory)).not.toContain("endpoint");
@@ -274,6 +273,59 @@ test("a failed credential migration retains the JSON settings for a successful r
   } finally {
     await failed.close();
     await retry.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("version 3 tabs migrate once, retaining order, selection, closed tabs and stable group identity", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "scope-tab-migration-"));
+  const db = new DatabaseSync(join(directory, "desktop.db"));
+  db.exec(
+    "CREATE TABLE preferences(name TEXT PRIMARY KEY, document TEXT NOT NULL) STRICT; PRAGMA user_version = 3;",
+  );
+  db.prepare("INSERT INTO preferences VALUES ('workspace', ?)").run(
+    JSON.stringify({
+      tabs: ["first", "diagram"],
+      selected: "diagram",
+      closed: ["closed"],
+    }),
+  );
+  db.close();
+  const store = new DesktopStore(directory);
+  const reopened = new DesktopStore(directory);
+  try {
+    await store.load();
+    const workspace = (await store.workspace())!;
+    expect(workspace.tabs.map((tab) => tab.state.data.artifactId)).toEqual(["first", "diagram"]);
+    expect(workspace.selected).toBe(workspace.tabs[1].id);
+    expect(workspace.closed[0].state.data.artifactId).toBe("closed");
+    expect(workspace.groups).toHaveLength(1);
+    expect(workspace.tabs.every((tab) => tab.groupId === workspace.groups[0].id)).toBe(true);
+    const unknown = {
+      ...workspace.closed[0],
+      type: "future-tool",
+      state: { version: 5, data: { prompt: "Keep me" } },
+    };
+    await store.saveWorkspace({ ...workspace, closed: [unknown] });
+    expect(() =>
+      store.saveWorkspace({
+        ...workspace,
+        tabs: [{ ...workspace.tabs[0], groupId: crypto.randomUUID() }],
+      }),
+    ).toThrow();
+    expect(() => store.saveWorkspace({ ...workspace, closed: [workspace.tabs[0]] })).toThrow();
+    expect(() =>
+      store.saveWorkspace({
+        ...workspace,
+        tabs: [{ ...workspace.tabs[0], state: { version: 1, data: { wrong: true } } }],
+      }),
+    ).toThrow();
+    await store.close();
+    await reopened.load();
+    expect(await reopened.workspace()).toEqual({ ...workspace, closed: [unknown] });
+  } finally {
+    await store.close();
+    await reopened.close();
     await rm(directory, { recursive: true, force: true });
   }
 });

@@ -4,7 +4,7 @@ import { Effect, ManagedRuntime, Schema } from "effect";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { ArtifactId, decode } from "@irudd-scope/protocol";
 import { memoryCredentials, type CredentialStore, type Secrets } from "./credentials.ts";
-import { DiagramDraft } from "./diagram/draft.ts";
+import { DiagramDraft } from "./plugins/diagram/draft.ts";
 
 import {
   Appearance,
@@ -12,8 +12,9 @@ import {
   type SettingsUpdate,
   type SettingsView,
 } from "./settings.ts";
-import { Workspace } from "./workspace.ts";
-import { DIAGRAM_MODEL, DIAGRAM_PROVIDER } from "./diagram/provider-settings.ts";
+import { decodeWorkspace, importWorkspace, type Workspace } from "./workspace/contract.ts";
+import { validateTabState } from "./plugins/registry.ts";
+import { DIAGRAM_MODEL, DIAGRAM_PROVIDER } from "./plugins/diagram/provider-settings.ts";
 
 const SavedSettings = Schema.Struct({
   version: Schema.Literal(2),
@@ -58,7 +59,7 @@ export class DesktopStore {
       const [{ user_version: version }] = await this.run(
         sql<{ user_version: number }>`PRAGMA user_version`,
       );
-      if (version > 3) throw new Error("The desktop database requires a newer Scope version.");
+      if (version > 4) throw new Error("The desktop database requires a newer Scope version.");
       await this.run(
         sql`CREATE TABLE IF NOT EXISTS preferences (
           name TEXT PRIMARY KEY, document TEXT NOT NULL CHECK (json_valid(document))
@@ -113,7 +114,14 @@ export class DesktopStore {
               artifact_id TEXT PRIMARY KEY,
               document TEXT NOT NULL CHECK (json_valid(document))
             ) STRICT`;
-            yield* sql`PRAGMA user_version = 3`;
+            const [workspace] = yield* sql<{
+              document: string;
+            }>`SELECT document FROM preferences WHERE name = 'workspace'`;
+            if (workspace) {
+              const migrated = importWorkspace(JSON.parse(workspace.document));
+              yield* sql`UPDATE preferences SET document = ${JSON.stringify(migrated)} WHERE name = 'workspace'`;
+            }
+            yield* sql`PRAGMA user_version = 4`;
           }),
         ),
       );
@@ -198,18 +206,12 @@ export class DesktopStore {
     const [row] = await this.run(
       this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'workspace'`,
     );
-    return row ? decode(Workspace, JSON.parse(row.document)) : null;
+    return row ? decodeWorkspace(JSON.parse(row.document)) : null;
   }
 
   saveWorkspace(value: unknown): Promise<void> {
-    const workspace = decode(Workspace, value);
-    if (
-      new Set(workspace.tabs).size !== workspace.tabs.length ||
-      new Set(workspace.closed ?? []).size !== (workspace.closed?.length ?? 0) ||
-      workspace.closed?.some((id) => workspace.tabs.includes(id)) ||
-      (workspace.selected !== null && !workspace.tabs.includes(workspace.selected))
-    )
-      throw new Error("Invalid workspace selection.");
+    const workspace = decodeWorkspace(value);
+    for (const tab of [...workspace.tabs, ...workspace.closed]) validateTabState(tab, true);
     return this.enqueue(async () => {
       await this.run(this
         .sql!`INSERT INTO preferences(name, document) VALUES ('workspace', ${JSON.stringify(workspace)})

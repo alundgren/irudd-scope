@@ -1,8 +1,8 @@
 import type { Artifact } from "@irudd-scope/protocol";
 import type { SettingsUpdate, SettingsView } from "./settings.ts";
-import type { Workspace } from "./workspace.ts";
-import type { DiagramRequest, DiagramResult } from "./diagram/contract.ts";
-import type { DiagramDraft } from "./diagram/draft.ts";
+import type { Workspace } from "./workspace/contract.ts";
+import type { DiagramRequest, DiagramResult } from "./plugins/diagram/contract.ts";
+import type { DiagramDraft } from "./plugins/diagram/draft.ts";
 
 export type ArtifactLibrarySnapshot = {
   artifacts: Artifact[];
@@ -10,7 +10,10 @@ export type ArtifactLibrarySnapshot = {
   error?: string;
 };
 export type ArtifactContent = { artifact: Artifact; bytes: Uint8Array };
+import type { TabEventEnvelope } from "./plugins/events.ts";
+
 export type ScopeBridge = {
+  publishTabEvent: (event: TabEventEnvelope) => Promise<void>;
   settings: () => Promise<SettingsView>;
   saveSettings: (input: SettingsUpdate) => Promise<SettingsView>;
   workspace: () => Promise<Workspace | null>;
