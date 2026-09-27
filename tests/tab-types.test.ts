@@ -1,5 +1,5 @@
 import { expect, test } from "vite-plus/test";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { DatabaseSync } from "node:sqlite";
@@ -130,28 +130,23 @@ async function checkContent(page: Page, example: (typeof examples)[number], focu
   }
 }
 
-test("every existing tab view works in Electron through appearance, focus, close, migration and restart", async () => {
-  const { directory, settingsDirectory, launch, connect } = await desktopFixture();
+test("the built CLI publishes every tab view through appearance, focus, close, migration and restart", async () => {
+  const { directory, settingsDirectory, launch, cli } = await desktopFixture();
   let application = await launch();
   const failures: string[] = [];
   try {
     let page = await application.firstWindow();
     page.on("pageerror", (error) => failures.push(error.message));
-    const client = await connect();
     for (const example of examples) {
-      await client.publish(
-        example.id,
-        {
-          title: example.title,
-          kind: example.kind,
-          mediaType: example.mediaType,
-          fileName: example.fileName,
-          expectedRevision: 0,
-        },
-        typeof example.content === "string"
-          ? new TextEncoder().encode(example.content)
-          : example.content,
-      );
+      const file = join(directory, example.fileName);
+      await writeFile(file, example.content);
+      const receipt = await cli("add", file, "--id", example.id, "--title", example.title);
+      expect(JSON.parse(receipt.stdout)).toMatchObject({
+        id: example.id,
+        kind: example.kind,
+        mediaType: example.mediaType,
+        revision: 1,
+      });
     }
     for (const appearance of ["light", "dark"] as const) {
       await page.getByRole("button", { name: "Workspace menu", exact: true }).click();
@@ -171,6 +166,15 @@ test("every existing tab view works in Electron through appearance, focus, close
           .getByRole("button", { name: `${example.title} ${example.kind}`, exact: true })
           .click();
         await checkContent(page, example);
+        if (example.kind === "file" && appearance === "light") {
+          const destination = join(directory, "downloaded.bin");
+          await application.evaluate(({ dialog }, filePath) => {
+            dialog.showSaveDialog = async () => ({ canceled: false, filePath });
+          }, destination);
+          await page.getByRole("button", { name: "Workspace menu", exact: true }).click();
+          await page.getByRole("button", { name: "Download", exact: true }).click();
+          await expect.poll(async () => [...(await readFile(destination))]).toEqual([0, 1, 2, 3]);
+        }
         const pane = await page
           .getByRole("tabpanel", { name: example.title, exact: true })
           .elementHandle();

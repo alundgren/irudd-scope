@@ -5,7 +5,9 @@ import { readFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { homedir, hostname } from "node:os";
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import {
+  ArtifactId,
   ArtifactKind,
   DEFAULT_CONNECTION_FILE,
   DEFAULT_PORT,
@@ -22,29 +24,46 @@ irudd-scope update ID FILE [--title TITLE]
 irudd-scope list
 irudd-scope get ID
 
-Options: --endpoint URL, --token-file PATH, --agent NAME, --session-id ID
+Options: --endpoint URL, --token-file PATH, --agent NAME, --session-id ID, --timeout-ms MS
+The command timeout defaults to 10000 ms. Increase it for slow remote uploads.
 Open Scope on this Mac to publish locally without connection setup.
 Environment: SCOPE_CONNECTION_FILE, or SCOPE_ENDPOINT with SCOPE_TOKEN_FILE or SCOPE_TOKEN
 Output is JSON. Updates read the current revision and reject concurrent changes.
 Unavailable desktops return an error. Requests are not queued or replayed.
 `;
 
+const DEFAULT_TIMEOUT_MS = 10_000;
+const MAX_TIMEOUT_MS = 2_147_483_647;
+const PROVENANCE_TIMEOUT_MS = 250;
 const exec = promisify(execFile);
-async function provenance(agent?: string, sessionId?: string): Promise<Source> {
-  const git = async (...args: string[]) => {
-    try {
-      return (
-        (await exec("git", args, { timeout: 1500, maxBuffer: 4096 })).stdout.trim() || undefined
-      );
-    } catch {
-      return undefined;
-    }
-  };
-  const [commonDirectory, branch, worktree] = await Promise.all([
-    git("rev-parse", "--path-format=absolute", "--git-common-dir"),
-    git("branch", "--show-current"),
-    git("rev-parse", "--show-toplevel"),
+
+async function git(args: string[], deadline: number): Promise<string | undefined> {
+  const remaining = deadline - performance.now();
+  if (remaining <= 0) return undefined;
+  const timeout = Math.ceil(remaining);
+  try {
+    const { stdout } = await exec("git", args, {
+      timeout,
+      killSignal: "SIGKILL",
+      maxBuffer: 4096,
+    });
+    return stdout.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function provenance(
+  agent: string | undefined,
+  sessionId: string | undefined,
+  commandDeadline: number,
+): Promise<Source> {
+  const deadline = Math.min(commandDeadline, performance.now() + PROVENANCE_TIMEOUT_MS);
+  const [directories, branch] = await Promise.all([
+    git(["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"], deadline),
+    git(["branch", "--show-current"], deadline),
   ]);
+  const [commonDirectory, worktree] = directories?.split("\n") ?? [];
   const repo =
     commonDirectory && basename(commonDirectory) === ".git"
       ? dirname(commonDirectory)
@@ -87,6 +106,14 @@ function detect(file: string): { kind: ArtifactKind; mediaType: string } {
   return { kind, mediaType };
 }
 
+function parseTimeout(value: string | undefined): number {
+  if (value === undefined) return DEFAULT_TIMEOUT_MS;
+  const timeout = Number(value);
+  if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > MAX_TIMEOUT_MS)
+    throw new Error(`--timeout-ms must be a whole number from 1 to ${MAX_TIMEOUT_MS}.`);
+  return timeout;
+}
+
 async function main() {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -99,6 +126,7 @@ async function main() {
       "token-file": { type: "string" },
       agent: { type: "string" },
       "session-id": { type: "string" },
+      "timeout-ms": { type: "string" },
     },
   });
   if (values.help || !positionals.length) {
@@ -108,72 +136,100 @@ async function main() {
   const [command, argument, replacement] = positionals;
   if (!["add", "text", "update", "list", "get"].includes(command))
     throw new Error(`Unknown command.\n${help}`);
-  const tokenFile = values["token-file"] ?? process.env.SCOPE_TOKEN_FILE;
-  let endpoint = values.endpoint ?? process.env.SCOPE_ENDPOINT;
-  let token = process.env.SCOPE_TOKEN;
-  if (endpoint !== undefined || tokenFile !== undefined || token !== undefined) {
-    if (tokenFile !== undefined) token = (await readFile(tokenFile, "utf8")).trim();
-    if (!token)
-      throw new Error("An explicit endpoint needs --token-file, SCOPE_TOKEN_FILE, or SCOPE_TOKEN.");
-    endpoint ??= `http://127.0.0.1:${DEFAULT_PORT}`;
-  } else {
-    const file = process.env.SCOPE_CONNECTION_FILE ?? join(homedir(), DEFAULT_CONNECTION_FILE);
-    try {
-      ({ endpoint, token } = decodeLocalConnection(JSON.parse(await readFile(file, "utf8"))));
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT")
-        throw new Error("Open Scope on this Mac before publishing. Requests are not queued.");
-      throw new Error(
-        "Cannot read the local Scope connection file. Check its path and permissions.",
-      );
+  const timeoutMs = parseTimeout(values["timeout-ms"]);
+  if (command !== "list" && !argument)
+    throw new Error("This command needs a file, text, or artifact ID. Use --help.");
+  if (command === "update" && !replacement)
+    throw new Error("Update needs an artifact ID and a replacement file.");
+  if ((command === "get" || command === "update") && argument) decode(ArtifactId, argument);
+  if ((command === "add" || command === "text") && values.id) decode(ArtifactId, values.id);
+  if (command === "text" && values.kind && !["text", "markdown"].includes(values.kind))
+    throw new Error("Text accepts --kind text or markdown.");
+
+  const signal = AbortSignal.timeout(timeoutMs);
+  const commandDeadline = performance.now() + timeoutMs;
+  let publicationId: string | undefined;
+  try {
+    const tokenFile = values["token-file"] ?? process.env.SCOPE_TOKEN_FILE;
+    let endpoint = values.endpoint ?? process.env.SCOPE_ENDPOINT;
+    let token = process.env.SCOPE_TOKEN;
+    if (endpoint !== undefined || tokenFile !== undefined || token !== undefined) {
+      if (tokenFile !== undefined)
+        token = (await readFile(tokenFile, { encoding: "utf8", signal })).trim();
+      if (!token)
+        throw new Error(
+          "An explicit endpoint needs --token-file, SCOPE_TOKEN_FILE, or SCOPE_TOKEN.",
+        );
+      endpoint ??= `http://127.0.0.1:${DEFAULT_PORT}`;
+    } else {
+      const connectionFile =
+        process.env.SCOPE_CONNECTION_FILE ?? join(homedir(), DEFAULT_CONNECTION_FILE);
+      try {
+        ({ endpoint, token } = decodeLocalConnection(
+          JSON.parse(await readFile(connectionFile, { encoding: "utf8", signal })),
+        ));
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT")
+          throw new Error("Open Scope on this Mac before publishing. Requests are not queued.");
+        throw new Error(
+          "Cannot read the local Scope connection file. Check its path and permissions.",
+        );
+      }
     }
+    const client = new ScopeClient(endpoint, token, { signal });
+    if (command === "list") {
+      console.log(JSON.stringify(await client.list(), null, 2));
+      return;
+    }
+    if (command === "get") {
+      console.log(JSON.stringify(await client.get(argument!), null, 2));
+      return;
+    }
+
+    let file: string | undefined;
+    let kind: ArtifactKind;
+    let mediaType: string;
+    let fileName: string;
+    if (command === "text") {
+      kind = values.kind === "markdown" ? "markdown" : "text";
+      mediaType = kind === "markdown" ? "text/markdown" : "text/plain";
+      fileName = kind === "markdown" ? "note.md" : "note.txt";
+    } else {
+      file = command === "update" ? replacement! : argument!;
+      const info = await stat(file);
+      if (!info.isFile() || info.size > MAX_CONTENT_BYTES)
+        throw new Error("Choose a file no larger than 32 MiB.");
+      ({ kind, mediaType } = detect(file));
+      fileName = basename(file);
+    }
+
+    const [current, source, content] = await Promise.all([
+      command === "update" ? client.get(argument!) : Promise.resolve(undefined),
+      provenance(values.agent, values["session-id"], commandDeadline),
+      file ? readFile(file, { signal }) : Promise.resolve(new TextEncoder().encode(argument!)),
+    ]);
+    const id = current?.id ?? values.id ?? randomUUID();
+    publicationId = id;
+    const artifact = await client.publish(
+      id,
+      {
+        title: values.title ?? current?.title ?? (command === "text" ? "Note" : fileName),
+        kind,
+        mediaType,
+        fileName,
+        source,
+        expectedRevision: current?.revision ?? 0,
+      },
+      content,
+    );
+    console.log(JSON.stringify(artifact, null, 2));
+  } catch (error) {
+    if (!signal.aborted) throw error;
+    const outcome = publicationId
+      ? ` Artifact ${publicationId} may have been published; read it before retrying.`
+      : "";
+    throw new Error(`Scope command timed out after ${timeoutMs} ms.${outcome}`, { cause: error });
   }
-  const client = new ScopeClient(endpoint, token);
-  if (command === "list") {
-    console.log(JSON.stringify(await client.list(), null, 2));
-    return;
-  }
-  if (!argument) throw new Error("This command needs a file, text, or artifact ID. Use --help.");
-  if (command === "get") {
-    console.log(JSON.stringify(await client.get(argument), null, 2));
-    return;
-  }
-  const current = command === "update" ? await client.get(argument) : undefined;
-  const source = await provenance(values.agent, values["session-id"]);
-  let content: Uint8Array;
-  let kind: ArtifactKind;
-  let mediaType: string;
-  let fileName: string;
-  if (command === "text") {
-    if (values.kind && !["text", "markdown"].includes(values.kind))
-      throw new Error("Text accepts --kind text or markdown.");
-    kind = values.kind === "markdown" ? "markdown" : "text";
-    mediaType = kind === "markdown" ? "text/markdown" : "text/plain";
-    fileName = kind === "markdown" ? "note.md" : "note.txt";
-    content = new TextEncoder().encode(argument);
-  } else {
-    const file = current ? replacement : argument;
-    if (!file) throw new Error("Update needs an artifact ID and a replacement file.");
-    const info = await stat(file);
-    if (!info.isFile() || info.size > MAX_CONTENT_BYTES)
-      throw new Error("Choose a file no larger than 32 MiB.");
-    content = await readFile(file);
-    ({ kind, mediaType } = detect(file));
-    fileName = basename(file);
-  }
-  const artifact = await client.publish(
-    current?.id ?? values.id ?? randomUUID(),
-    {
-      title: values.title ?? current?.title ?? (command === "text" ? "Note" : fileName),
-      kind,
-      mediaType,
-      fileName,
-      source,
-      expectedRevision: current?.revision ?? 0,
-    },
-    content,
-  );
-  console.log(JSON.stringify(artifact, null, 2));
 }
 
 await main().catch((error: unknown) => {

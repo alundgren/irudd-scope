@@ -14,8 +14,10 @@ import {
 export class ScopeClient {
   readonly endpoint: string;
   private readonly token: string;
-  constructor(endpoint: string, token: string) {
+  private readonly signal?: AbortSignal;
+  constructor(endpoint: string, token: string, options: { signal?: AbortSignal } = {}) {
     this.token = token;
+    this.signal = options.signal;
     this.endpoint = validateEndpoint(endpoint);
     if (!token || /[\r\n]/.test(token)) throw new Error("A bearer token is required.");
   }
@@ -23,20 +25,28 @@ export class ScopeClient {
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${this.token}`);
+    const signal = this.signal
+      ? init.signal
+        ? AbortSignal.any([this.signal, init.signal])
+        : this.signal
+      : (init.signal ?? AbortSignal.timeout(30_000));
     const response = await fetch(`${this.endpoint}${path}`, {
       ...init,
       redirect: "error",
-      signal: init.signal ?? AbortSignal.timeout(30_000),
+      signal,
       headers,
     }).catch((error: unknown) => {
-      if (init.signal?.aborted) throw error;
+      if (this.signal?.aborted || init.signal?.aborted) throw error;
       throw new Error(
         `Cannot reach Scope at ${this.endpoint}. Open Scope on the Mac and retry. Requests are not queued.`,
         { cause: error },
       );
     });
     if (!response.ok) {
-      const body: unknown = await response.json().catch(() => null);
+      const body: unknown = await response.json().catch((error: unknown) => {
+        if (signal.aborted) throw error;
+        return null;
+      });
       const message =
         body && typeof body === "object" && "error" in body && typeof body.error === "string"
           ? body.error

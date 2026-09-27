@@ -11,7 +11,7 @@ import { ScopeClient } from "@irudd-scope/protocol/client";
 const require = createRequire(new URL("../apps/desktop/package.json", import.meta.url));
 const exec = promisify(execFile);
 
-export async function desktopFixture() {
+export async function desktopFixture(options: { disableGpu?: boolean } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "scope-desktop-"));
   const settingsDirectory = join(directory, "desktop");
   const connectionFile = join(directory, "connection.json");
@@ -31,13 +31,18 @@ export async function desktopFixture() {
   const launch = async () => {
     const application = await electron.launch({
       executablePath: require("electron") as string,
-      args: [resolve("apps/desktop"), "--disable-gpu"],
+      args: [resolve("apps/desktop"), ...((options.disableGpu ?? true) ? ["--disable-gpu"] : [])],
       env: Object.fromEntries(
         Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
       ),
     });
-    await application.firstWindow();
-    return application;
+    try {
+      await application.firstWindow();
+      return application;
+    } catch (error) {
+      await application.close().catch(() => {});
+      throw error;
+    }
   };
   const connect = async () => {
     const { endpoint, token } = decodeLocalConnection(
@@ -49,6 +54,7 @@ export async function desktopFixture() {
     exec(process.execPath, [resolve("packages/cli/dist/main.mjs"), ...args], {
       env,
       maxBuffer: 2 * 1024 * 1024,
+      timeout: 15_000,
     });
   return { directory, settingsDirectory, connectionFile, launch, connect, cli };
 }
