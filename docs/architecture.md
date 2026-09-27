@@ -67,6 +67,22 @@ the bundle's installation metadata and reused for updates. Build directories
 distinguish commits and signing identities; signing private keys stay in
 Keychain. No app imports build-tool code at runtime.
 
+`credentials.ts` owns desktop credential access. Certificate-signed installations
+use `credential-helper.ts` to launch the native `Scope Credentials` executable
+in `Contents/Helpers`, implemented in `apps/desktop/native/credentials.m`.
+The helper accepts bounded read, write, and delete requests through private
+pipes, checks the parent's Scope identifier and matching signing certificate,
+and exits after one operation. It accesses the existing profile-specific
+Keychain entry. Secrets return only to desktop main and never enter process
+arguments or logs. Ad-hoc installations and Mac checkout launches use the
+native Keychain module directly; isolated sessions use memory.
+
+`tools/package-credential-helper.ts` builds and signs the helper separately.
+Packaging reuses the active build's verified helper when its source, build
+options, architecture, and certificate match. The enclosing app signs a
+reference to that unchanged executable. This preserves the helper's build
+hash, which macOS uses for self-signed Keychain access, across ordinary updates.
+
 `desktop-store.ts` persists settings, workspace groups, and selection.
 `library/store.ts` persists tabs, artifact metadata, content references, bytes,
 and diagram drafts in `scope.db`. `lifecycle.ts` coordinates opening, closing,
@@ -224,7 +240,7 @@ replaces links and images with text. Downloads use a save dialog in main.
 
 OpenRouter is the diagram provider, using the model in `plugins/diagram/provider-settings.ts`. The
 settings form submits a new key to main and clears the input after saving.
-Main stores the key in a profile-specific macOS Keychain entry and returns
+Main stores the key through its credential store in a profile-specific macOS Keychain entry and returns
 only presence or an access error. Linux and isolated development sessions
 keep keys in memory. Provider keys never enter SQLite, the hub, or artifact
 content.

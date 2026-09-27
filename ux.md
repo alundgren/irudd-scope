@@ -92,6 +92,10 @@ apply; the current app keeps working until then. The connected certificate is
 visible and can be replaced or disconnected. Certificate creation and private
 key approval stay in macOS. Disconnecting never removes a certificate from
 Keychain. Failed and canceled builds leave the current identity in use.
+The first credential access may ask the user to approve **Scope Credentials**.
+Settings names this helper and explains **Always Allow**, so the system dialog
+is recognizable. Ordinary updates retain that permission by reusing the helper.
+Changes to the helper or certificate and a locked Keychain can still prompt.
 
 Agent tools provides separate CLI and global skill installation actions with
 pending, installed, and failure states. The CLI follows the active app build.

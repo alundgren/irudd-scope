@@ -132,8 +132,14 @@ export function SigningSettings({
         </p>
       )}
       <p className="secondary">
-        Connecting rebuilds Scope on this Mac. Restart when ready to apply it. macOS may ask to
-        approve signing and the app's first access to saved credentials.
+        Connecting rebuilds Scope on this Mac. Restart when ready to apply it. macOS may ask you to
+        approve signing.
+      </p>
+      <p className="secondary">
+        On first access, macOS may ask to let &quot;Scope Credentials&quot; use your saved
+        credentials. Choose Always Allow to remember this permission across ordinary app updates.
+        Changes to the credential helper or certificate, or a locked Keychain, can require another
+        approval.
       </p>
       {status?.phase === "ready" && !changing && (
         <p className="secondary">The prepared update will be rebuilt with this certificate.</p>

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Schema } from "effect";
 import { decode } from "@irudd-scope/protocol";
+import { credentialHelperEntry } from "./credential-helper.ts";
 
 const Secrets = Schema.Struct({
   apiKey: Schema.optionalKey(Schema.String),
@@ -28,9 +29,10 @@ export function memoryCredentials(): CredentialStore {
   };
 }
 
-export async function macCredentials(directory: string): Promise<CredentialStore> {
-  const { AsyncEntry } = await import("@napi-rs/keyring");
+export async function macCredentials(directory: string, helper?: string): Promise<CredentialStore> {
   const profile = createHash("sha256").update(directory).digest("hex");
+  if (helper) return keychainCredentials(credentialHelperEntry(helper, profile));
+  const { AsyncEntry } = await import("@napi-rs/keyring");
   return keychainCredentials(new AsyncEntry("alundgren.irudd-scope", profile));
 }
 
