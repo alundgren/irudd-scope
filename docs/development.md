@@ -17,7 +17,7 @@ Tests use temporary data directories and synthetic credentials. Prefer complete 
 
 After `vp install`, run `vp run desktop` to build and open Electron. Electron main starts the local publishing API and owns the SQLite database. No separate hub process or connection settings are needed. Electron's bundled Node runtime is independent of the Node version used by Vite+.
 
-On macOS the default artifact directory is `~/Library/Application Support/irudd-scope/artifacts`. It contains `scope.db`, which stores metadata and artifact bytes. Electron's user data directory contains `desktop.db` for provider settings and open tabs. Mac provider keys live directly in Keychain. The private discovery file is the exception to database storage because the CLI reads its endpoint and publishing token before contacting Scope.
+On macOS the default artifact directory is `~/Library/Application Support/irudd-scope/artifacts`. It contains `scope.db`, which stores metadata and artifact bytes. Electron's user data directory contains `desktop.db` for ordinary settings, open and closed tabs, diagram conversations, and working drafts. Mac provider keys live directly in Keychain. The private discovery file is the exception to database storage because the CLI reads its endpoint and publishing token before contacting Scope.
 
 Scope creates `~/.config/irudd-scope/desktop.json` with mode `0600`. It contains a versioned local endpoint and bearer token. The CLI discovers these automatically. Keep this file private and outside Git. Quitting Scope leaves the connection file in place, but publication fails until the app is running again.
 
@@ -36,9 +36,9 @@ vp run scope list
 
 The built executable is `packages/cli/dist/main.mjs`. Its shebang runs Node; put a wrapper or symlink named `irudd-scope` on your PATH once the configured Node runtime is available. `vp run scope` is the equivalent checkout command.
 
-Settings contains the diagram provider, model, and API key. OpenRouter and Gemini 3.8 Flash are the initial choices. On macOS the provider key is stored directly in Keychain. Linux development keeps it in memory. Version 1 and version 2 JSON settings migrate into `desktop.db`; the provider key migrates through Electron secure storage into Keychain, and obsolete hub fields are discarded. Migration removes the JSON file only after saving the replacement. Existing browser tab preferences import into SQLite on first launch.
+Open Settings from the workspace menu or Command-comma. Search finds appearance, the diagram provider, model, and API key. Appearance follows System unless Light or Dark is selected. OpenRouter and Gemini 3.8 Flash are the initial choices. On macOS the provider key is stored directly in Keychain. Linux development keeps it in memory. Version 1 and version 2 JSON settings migrate into `desktop.db`; the provider key migrates through Electron secure storage into Keychain, and obsolete hub fields are discarded. Migration removes the JSON file only after saving the replacement. Existing browser tab preferences import into SQLite on first launch.
 
-Use Create diagram in the empty workspace or search. A generated diagram becomes a normal artifact stored on the Mac. Use the change field on its canvas for targeted edits, then Save. Model output is validated before application. A failed request does not change the canvas.
+Use Create diagram in the empty workspace or search. A generated diagram becomes a normal artifact stored on the Mac. Open Ask agent on its canvas for targeted edits, then Save. Model output is validated before application. A failed request does not change the canvas.
 
 For isolated development or tests, set `SCOPE_DESKTOP_DATA_DIR` for Electron preferences, `SCOPE_DATA_DIR` for artifact storage, and `SCOPE_CONNECTION_FILE` for discovery. The artifact directory defaults to `artifacts` under the selected Electron data directory. The desktop and CLI must use the same connection file. `SCOPE_PORT` selects the loopback port, default `43120`; `0` lets the OS choose a free port and records it in the connection file. Isolate both data and connection files when running multiple development instances. Set `SCOPE_SESSION_CREDENTIALS=1` to keep provider keys in memory on a development Mac. Standard Electron tests use this option to avoid accessing native Keychain.
 
@@ -70,7 +70,9 @@ Linux desktop tests require Xvfb and the Electron shared libraries. On Ubuntu, i
 
 `vp run ready` builds, runs Vite+'s format/lint/type checks, then runs the integration and Electron tests. Use `vp run test tests/desktop.test.ts` or `vp test run tests/artifacts.test.ts` for focused checks after building. `vp check --fix` explicitly applies formatting or lint corrections; the standard command never does so.
 
-Artifacts are durable. Unsaved canvas edits are local to the current desktop process and need Save before quitting. HTML previews permit inline styles and embedded data images; scripts, external assets, forms, nested frames, and navigation are blocked. Markdown does not execute raw HTML or load remote images.
+Published artifacts and working diagram drafts are durable. SQLite retains unsaved canvas edits, conversation, unsent prompts, and zoom and pan across restarts. Save publishes the working canvas as an artifact revision. Closing a tab retains its draft and conversation; automatic cleanup is future work. Draft writes are coalesced during editing and flushed before closing the tab or window. A failed write leaves the canvas available with a retry action. Desktop schema version 3 requires this desktop or a newer build; back up `desktop.db` before upgrading if you need to downgrade.
+
+HTML previews permit inline styles and embedded data images; scripts, external assets, forms, nested frames, and navigation are blocked. Markdown does not execute raw HTML or load remote images.
 
 The desktop currently runs from a checkout. A signed Mac application bundle and its native Keychain acceptance check are still required before distributing releases. Linux tests do not establish that behavior. Local Codex/Claude providers, remote generation requests, session tools, and tool-size hooks are planned capabilities, not working settings.
 

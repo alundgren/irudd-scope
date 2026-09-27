@@ -6,11 +6,7 @@
     <title>Scope appearance study</title>
     <script>
       (() => {
-        let mode = "system";
-        try {
-          const saved = localStorage.getItem("scope-study-appearance");
-          if (["system", "light", "dark"].includes(saved)) mode = saved;
-        } catch {}
+        const mode = "system";
         document.documentElement.dataset.mode = mode;
         document.documentElement.dataset.theme =
           mode === "system"
@@ -20,6 +16,7 @@
             : mode;
       })();
     </script>
+    <link rel="stylesheet" href="../../apps/desktop/src/renderer/tokens.css" />
     <style>
       @font-face {
         font-family: "Study Comic Shanns";
@@ -28,38 +25,9 @@
         font-display: swap;
       }
       :root {
-        color-scheme: light;
-        --canvas: #ffffff;
-        --panel: #ffffff;
-        --strip: #f6f6f9;
-        --text: #1b1b1f;
-        --muted: #626271;
-        --line: #e6e6ed;
-        --outline: #767680;
-        --accent: #6965db;
-        --selected: #e3e2fe;
-        --shadow: 0 2px 12px #1b1b1f12;
-        font:
-          14px/20px system-ui,
-          -apple-system,
-          BlinkMacSystemFont,
-          "Segoe UI",
-          sans-serif;
-        color: var(--text);
-        background: var(--canvas);
-      }
-      :root[data-theme="dark"] {
-        color-scheme: dark;
-        --canvas: #121212;
-        --panel: #232329;
-        --strip: #1b1b1f;
-        --text: #e3e3e8;
-        --muted: #aaaab5;
-        --line: #3d3d49;
-        --outline: #8e8d9c;
-        --accent: #a8a5ff;
-        --selected: #403e6a;
-        --shadow: 0 2px 12px #00000045;
+        font: var(--scope-text-ui) / var(--scope-leading-ui) var(--scope-font-ui);
+        color: var(--scope-text);
+        background: var(--scope-canvas);
       }
       * {
         box-sizing: border-box;
@@ -78,10 +46,10 @@
         cursor: pointer;
         border: 0;
         background: transparent;
-        border-radius: 6px;
+        border-radius: var(--scope-radius-control);
       }
       button:hover {
-        background: var(--line);
+        background: var(--scope-line);
       }
       button:disabled {
         opacity: 0.45;
@@ -91,8 +59,8 @@
         background: transparent;
       }
       :focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 2px;
+        outline: var(--scope-focus-width) solid var(--scope-accent);
+        outline-offset: var(--scope-focus-offset);
       }
       [hidden] {
         display: none !important;
@@ -113,14 +81,14 @@
         overflow: hidden;
       }
       .bar {
-        height: 44px;
-        flex: 0 0 44px;
+        height: var(--scope-strip-height);
+        flex: 0 0 var(--scope-strip-height);
         display: flex;
         align-items: center;
         gap: 4px;
         padding: 6px;
-        background: var(--strip);
-        border-bottom: 1px solid var(--line);
+        background: var(--scope-strip);
+        border-bottom: 1px solid var(--scope-line);
         z-index: 2;
       }
       .icon {
@@ -151,12 +119,12 @@
         flex: 0 0 auto;
         max-width: 216px;
         height: 32px;
-        border-radius: 8px;
+        border-radius: var(--scope-radius-tab);
         position: relative;
         align-items: center;
       }
       .tab.active {
-        background: var(--selected);
+        background: var(--scope-selected);
       }
       .tab.active::after {
         content: "";
@@ -165,7 +133,7 @@
         bottom: 0;
         left: 12px;
         right: 12px;
-        background: var(--accent);
+        background: var(--scope-accent);
       }
       .tab-button {
         min-width: 80px;
@@ -175,10 +143,10 @@
         white-space: nowrap;
         text-overflow: ellipsis;
         overflow: hidden;
-        color: var(--muted);
+        color: var(--scope-muted);
       }
       .active .tab-button {
-        color: var(--text);
+        color: var(--scope-text);
         font-weight: 500;
       }
       .close-tab {
@@ -203,7 +171,7 @@
         inset: 0;
         overflow: auto;
         scrollbar-width: thin;
-        scrollbar-color: var(--outline) var(--canvas);
+        scrollbar-color: var(--scope-outline) var(--scope-canvas);
       }
       .diagram-pane {
         --chat-width: min(360px, 46vw);
@@ -216,7 +184,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: width 180ms ease;
+        transition: width var(--scope-motion) ease;
       }
       .diagram-pane.chat-open .canvas-content {
         width: calc(100% - var(--chat-width));
@@ -229,8 +197,8 @@
         align-items: center;
         gap: 8px;
         padding: 8px 12px;
-        background: var(--panel);
-        border: 1px solid var(--outline);
+        background: var(--scope-panel);
+        border: 1px solid var(--scope-outline);
       }
       .chat-open .chat-launch {
         visibility: hidden;
@@ -243,11 +211,11 @@
         width: var(--chat-width);
         display: flex;
         flex-direction: column;
-        border-left: 1px solid var(--line);
-        background: var(--panel);
+        border-left: 1px solid var(--scope-line);
+        background: var(--scope-panel);
         visibility: hidden;
         transform: translateX(100%);
-        transition: transform 180ms ease;
+        transition: transform var(--scope-motion) ease;
       }
       .chat-open .chat-panel {
         visibility: visible;
@@ -258,7 +226,7 @@
         align-items: center;
         justify-content: space-between;
         padding: 16px;
-        border-bottom: 1px solid var(--line);
+        border-bottom: 1px solid var(--scope-line);
       }
       .chat-heading h2 {
         margin: 0 0 4px;
@@ -274,7 +242,7 @@
         overflow-y: auto;
         padding: 20px 16px;
         scrollbar-width: thin;
-        scrollbar-color: var(--outline) var(--panel);
+        scrollbar-color: var(--scope-outline) var(--scope-panel);
       }
       .chat-message {
         margin-bottom: 24px;
@@ -292,13 +260,13 @@
         font-weight: 600;
       }
       .chat-message.from-user {
-        background: var(--strip);
+        background: var(--scope-strip);
         padding: 12px;
-        border-radius: 8px;
+        border-radius: var(--scope-radius-tab);
       }
       .chat-form {
         padding: 16px;
-        border-top: 1px solid var(--line);
+        border-top: 1px solid var(--scope-line);
       }
       .chat-form textarea {
         width: 100%;
@@ -306,9 +274,9 @@
         max-height: 220px;
         resize: vertical;
         padding: 12px;
-        border: 1px solid var(--outline);
-        border-radius: 8px;
-        background: var(--canvas);
+        border: 1px solid var(--scope-outline);
+        border-radius: var(--scope-radius-tab);
+        background: var(--scope-canvas);
       }
       .chat-actions,
       .setting-actions {
@@ -322,20 +290,20 @@
       }
       .action {
         padding: 6px 12px;
-        border: 1px solid var(--outline);
+        border: 1px solid var(--scope-outline);
       }
       .primary {
-        background: var(--selected);
-        color: var(--text);
+        background: var(--scope-selected);
+        color: var(--scope-text);
         border-color: transparent;
       }
       .sample-edit {
         padding: 6px 10px;
         margin: 8px 0 16px;
-        border: 1px solid var(--outline);
+        border: 1px solid var(--scope-outline);
       }
-      .drawing .api-emphasis {
-        stroke: var(--accent);
+      .drawing .scope-emphasis {
+        stroke: var(--scope-accent);
         stroke-width: 4;
       }
       .app[data-layout="floating"] .chat-heading {
@@ -362,28 +330,28 @@
       }
       .drawing text {
         font-family: "Study Comic Shanns", ui-monospace, monospace;
-        fill: var(--text);
+        fill: var(--scope-text);
         font-size: 20px;
       }
       .drawing .note {
-        fill: var(--muted);
+        fill: var(--scope-muted);
         font-size: 16px;
       }
       .drawing .ink {
         fill: none;
-        stroke: var(--text);
+        stroke: var(--scope-text);
         stroke-width: 1.6;
         stroke-linecap: round;
         stroke-linejoin: round;
       }
       .drawing .on-tint {
-        fill: var(--text);
+        fill: var(--scope-text);
       }
       .drawing .tint {
-        fill: var(--selected);
+        fill: var(--scope-selected);
       }
       .drawing .accent-ink {
-        stroke: var(--accent);
+        stroke: var(--scope-accent);
       }
       .zoom {
         position: absolute;
@@ -391,9 +359,9 @@
         bottom: 16px;
         display: flex;
         align-items: center;
-        background: var(--strip);
+        background: var(--scope-strip);
         padding: 2px;
-        border-radius: 8px;
+        border-radius: var(--scope-radius-tab);
         z-index: 1;
       }
       .zoom output {
@@ -430,14 +398,14 @@
         font-size: 14px;
       }
       .document pre {
-        background: var(--strip);
-        border-radius: 8px;
+        background: var(--scope-strip);
+        border-radius: var(--scope-radius-tab);
         padding: 20px;
         overflow: auto;
         line-height: 24px;
       }
       .document .intro {
-        color: var(--muted);
+        color: var(--scope-muted);
       }
       table {
         width: 100%;
@@ -447,13 +415,13 @@
       th,
       td {
         padding: 16px 8px;
-        border-bottom: 1px solid var(--line);
+        border-bottom: 1px solid var(--scope-line);
         text-align: left;
       }
       th {
         font-size: 14px;
         font-weight: 500;
-        color: var(--muted);
+        color: var(--scope-muted);
       }
       .checkout {
         max-width: 560px;
@@ -470,33 +438,33 @@
         display: flex;
         justify-content: space-between;
         padding: 20px 0;
-        border-bottom: 1px solid var(--line);
+        border-bottom: 1px solid var(--scope-line);
       }
       .checkout small {
         display: block;
-        color: var(--muted);
+        color: var(--scope-muted);
         font-size: 14px;
       }
       .empty {
         padding: 60px 24px;
         text-align: center;
-        color: var(--muted);
+        color: var(--scope-muted);
       }
       .empty button {
         margin: 16px;
         padding: 8px 16px;
-        color: var(--text);
-        background: var(--selected);
+        color: var(--scope-text);
+        background: var(--scope-selected);
       }
       .app[data-layout="floating"] .bar {
         position: absolute;
         top: 12px;
         left: 12px;
         right: 12px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--panel);
-        box-shadow: var(--shadow);
+        border: 1px solid var(--scope-line);
+        border-radius: var(--scope-radius-tab);
+        background: var(--scope-panel);
+        box-shadow: var(--scope-shadow);
       }
       .app.focus .bar {
         display: none;
@@ -509,8 +477,8 @@
         left: 50%;
         transform: translateX(-50%);
         padding: 6px 10px;
-        background: var(--panel);
-        border: 1px solid var(--outline);
+        background: var(--scope-panel);
+        border: 1px solid var(--scope-outline);
         font-size: 12px;
       }
       .app.focus .exit-focus {
@@ -519,11 +487,11 @@
       dialog {
         width: min(480px, calc(100vw - 32px));
         padding: 24px;
-        background: var(--panel);
-        color: var(--text);
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        box-shadow: var(--shadow);
+        background: var(--scope-panel);
+        color: var(--scope-text);
+        border: 1px solid var(--scope-line);
+        border-radius: var(--scope-radius-dialog);
+        box-shadow: var(--scope-shadow);
         max-height: calc(100dvh - 48px);
       }
       dialog::backdrop {
@@ -542,7 +510,7 @@
         font-weight: 600;
       }
       .caption {
-        color: var(--muted);
+        color: var(--scope-muted);
         font-size: 12px;
         line-height: 18px;
       }
@@ -554,18 +522,18 @@
       .choices {
         display: flex;
         gap: 4px;
-        background: var(--strip);
+        background: var(--scope-strip);
         padding: 4px;
-        border-radius: 8px;
+        border-radius: var(--scope-radius-tab);
       }
       .choices button {
         flex: 1;
         padding: 6px 8px;
       }
       .choices button[aria-pressed="true"] {
-        background: var(--selected);
-        color: var(--text);
-        box-shadow: inset 0 -2px var(--accent);
+        background: var(--scope-selected);
+        color: var(--scope-text);
+        box-shadow: inset 0 -2px var(--scope-accent);
       }
       .menu-actions {
         display: grid;
@@ -584,12 +552,12 @@
       .menu-entry kbd {
         margin-left: auto;
         font: inherit;
-        color: var(--muted);
+        color: var(--scope-muted);
         font-size: 12px;
       }
       .menu-divider {
         border: 0;
-        border-top: 1px solid var(--line);
+        border-top: 1px solid var(--scope-line);
         width: 100%;
         margin: 8px 0;
       }
@@ -600,7 +568,7 @@
       }
       .settings-top {
         padding: 24px 24px 8px;
-        border-bottom: 1px solid var(--line);
+        border-bottom: 1px solid var(--scope-line);
       }
       .settings-top .search-field {
         position: relative;
@@ -617,11 +585,11 @@
         max-height: min(560px, calc(100dvh - 260px));
         overflow: auto;
         scrollbar-width: thin;
-        scrollbar-color: var(--outline) var(--panel);
+        scrollbar-color: var(--scope-outline) var(--scope-panel);
       }
       .setting {
         padding: 16px 0;
-        border-bottom: 1px solid var(--line);
+        border-bottom: 1px solid var(--scope-line);
       }
       .setting:last-child {
         border-bottom: 0;
@@ -639,9 +607,9 @@
       .setting input {
         width: 100%;
         padding: 8px 12px;
-        border: 1px solid var(--outline);
-        border-radius: 6px;
-        background: var(--canvas);
+        border: 1px solid var(--scope-outline);
+        border-radius: var(--scope-radius-control);
+        background: var(--scope-canvas);
       }
       .setting p {
         margin: 8px 0 0;
@@ -660,9 +628,9 @@
         margin-bottom: 12px;
       }
       .search-field input {
-        border: 1px solid var(--outline);
-        border-radius: 6px;
-        background: var(--canvas);
+        border: 1px solid var(--scope-outline);
+        border-radius: var(--scope-radius-control);
+        background: var(--scope-canvas);
         padding: 10px 12px;
         width: 100%;
         min-width: 0;
@@ -673,23 +641,23 @@
         max-height: 420px;
         overflow-y: auto;
         scrollbar-width: thin;
-        scrollbar-color: var(--outline) var(--panel);
+        scrollbar-color: var(--scope-outline) var(--scope-panel);
       }
       .results button {
         text-align: left;
         padding: 10px 12px;
       }
       .results button[aria-current="true"] {
-        background: var(--selected);
+        background: var(--scope-selected);
       }
       .results small {
         display: block;
         font-size: 12px;
         line-height: 18px;
-        color: var(--muted);
+        color: var(--scope-muted);
       }
       .results [aria-current="true"] small {
-        color: var(--text);
+        color: var(--scope-text);
       }
       dl {
         display: grid;
@@ -698,13 +666,13 @@
         margin: 24px 0;
       }
       dt {
-        color: var(--muted);
+        color: var(--scope-muted);
       }
       dd {
         margin: 0;
       }
       a {
-        color: var(--text);
+        color: var(--scope-text);
         text-underline-offset: 3px;
       }
       .sr-only {
@@ -732,7 +700,7 @@
           width: 100%;
         }
         .chat-open .chat-panel {
-          box-shadow: var(--shadow);
+          box-shadow: var(--scope-shadow);
         }
         .document {
           margin-top: 40px;
@@ -812,9 +780,8 @@
             >
               <title id="drawing-title">Scope artifact publishing</title>
               <desc id="drawing-description">
-                Codex and Claude publish through the Scope CLI to the local API on the Mac. Scope
-                stores and displays the artifacts. This is an illustrative diagram for the visual
-                study.
+                Codex and Claude publish through the Scope CLI to Scope on an awake Mac. The desktop
+                stores the artifacts. This is an illustrative diagram for the visual study.
               </desc>
               <text x="144" y="132" style="font-size: 30px">
                 A place for the things agents make.
@@ -829,7 +796,7 @@
                   d="M382 263 Q383 255 392 256 L533 259 Q543 259 542 269 L541 348 Q541 358 529 356 L393 355 Q382 356 383 346 Z"
                 />
                 <path
-                  id="api-outline"
+                  id="scope-outline"
                   class="tint"
                   d="M612 253 Q613 244 625 245 L779 246 Q790 246 790 259 L788 361 Q789 372 777 371 L624 369 Q613 369 613 358 Z"
                 />
@@ -843,13 +810,13 @@
               </g>
               <text x="150" y="318">Codex / Claude</text>
               <text x="408" y="318">Scope CLI</text>
-              <text x="631" y="304">Local API</text>
-              <text x="620" y="338" class="note on-tint">SQLite on the Mac</text>
-              <text x="906" y="318">Scope</text>
+              <text x="679" y="304">Scope</text>
+              <text x="620" y="338" class="note on-tint">artifacts live here</text>
+              <text x="889" y="318">Inspect</text>
               <text x="146" y="398" class="note">Mac or Ubuntu VM</text>
               <text x="879" y="398" class="note">your Mac</text>
-              <text x="484" y="492">Keep Scope open to publish.</text>
-              <text x="484" y="522">Your Mac stores everything.</text>
+              <text x="484" y="492">Publish while Scope is open.</text>
+              <text x="484" y="522">Artifacts stay on your Mac.</text>
             </svg>
             <div class="zoom" aria-label="Diagram zoom">
               <button class="icon" id="zoom-out" aria-label="Zoom out" title="Zoom out">
@@ -902,18 +869,15 @@
                 <article class="chat-message from-user">
                   <strong>You</strong>
                   <p>
-                    Show how agents publish things for me to inspect while Scope is open on my Mac.
+                    Show how agents publish things for me to inspect, even while my Mac is asleep.
                   </p>
                 </article>
                 <article class="chat-message">
                   <strong>Gemini</strong>
-                  <p>
-                    The Mac stores the artifacts. A remote hub is optional and only forwards
-                    requests.
-                  </p>
+                  <p>Scope keeps artifacts on your Mac. What would you like to change?</p>
                 </article>
               </div>
-              <button class="sample-edit" id="sample-edit">Emphasize the local API</button>
+              <button class="sample-edit" id="sample-edit">Emphasize Scope</button>
               <p class="caption" id="chat-status" role="status"></p>
             </div>
             <form class="chat-form" id="chat-form">
@@ -1198,11 +1162,9 @@
             <button data-layout="compact" aria-pressed="true">Compact strip</button
             ><button data-layout="floating" aria-pressed="false">Floating strip</button>
           </div>
-          <p class="caption">Study control. The compact strip is the proposed default.</p>
+          <p class="caption">Study control. The compact strip is the selected layout.</p>
         </section>
-        <p id="settings-empty" hidden>
-          No matching settings. Try model, key, appearance, or connection.
-        </p>
+        <p id="settings-empty" hidden>No matching settings. Try model, key, or appearance.</p>
       </div>
     </dialog>
     <dialog id="details-dialog" aria-labelledby="details-title">
@@ -1251,7 +1213,7 @@
         Search: Command/Control K<br />Focus: Command/Control Shift F<br />Reopen: Command/Control
         Shift T<br />Tab navigation: arrows, Home, End<br />Exit a dialog or focus: Escape
       </p>
-      <p><a href="../excalidraw-style-study.md">Read the proposal and integration findings</a></p>
+      <p><a href="../excalidraw-style-study.md">Read the visual reference</a></p>
       <p><a href="THIRD-PARTY-NOTICES.md">Font and theme notices</a></p>
     </dialog>
     <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
@@ -1375,9 +1337,6 @@
       for (const button of document.querySelectorAll("button[data-mode]")) {
         button.onclick = () => {
           setAppearance(button.dataset.mode);
-          try {
-            localStorage.setItem("scope-study-appearance", button.dataset.mode);
-          } catch {}
         };
       }
       for (const button of document.querySelectorAll("button[data-layout]")) {
@@ -1438,7 +1397,7 @@
       byId("close-chat").onclick = () => setChatOpen(false);
       byId("chat-input").oninput = syncChatActions;
       byId("sample-edit").onclick = () => {
-        byId("chat-input").value = "Emphasize the local API and keep the flow in place.";
+        byId("chat-input").value = "Emphasize Scope and keep the flow in place.";
         syncChatActions();
         byId("chat-input").focus();
       };
@@ -1458,10 +1417,10 @@
         byId("chat-status").textContent = "Previewing a sample edit…";
         replyTimer = setTimeout(() => {
           replyTimer = null;
-          byId("api-outline").classList.add("api-emphasis");
+          byId("scope-outline").classList.add("scope-emphasis");
           appendChatMessage(
             "Gemini · sample reply",
-            "Previewed the sample edit: a stronger outline around the local API. The flow stays in place.",
+            "Previewed the sample edit: a stronger outline around Scope. The flow stays in place.",
           );
           byId("chat-status").textContent = "Sample edit shown. No model was called.";
           syncChatActions();

@@ -2,7 +2,7 @@
 
 Scope lets coding agents publish artifacts for a human to inspect in a Mac desktop app. The desktop owns persistent artifacts. Publishing requires Scope to be running on an awake Mac. The optional hub only forwards requests and fails when the desktop is unavailable. Agent observation is optional. Scope does not run coding sessions or orchestrate agents.
 
-Read [architecture](docs/architecture.md) before changing ownership or dependencies, [development](docs/development.md) before running or validating code, and [ux.md](ux.md) before changing an interaction. The [visual prototype brief](docs/visual-prototype-brief.md) describes the intended desktop experience.
+Read [architecture](docs/architecture.md) before changing ownership or dependencies, [development](docs/development.md) before running or validating code, and the repo [UX guidance skill](.agents/skills/ux-guidance/SKILL.md) before UI changes or UX reviews. [ux.md](ux.md) records settled UI decisions; the [visual reference](docs/excalidraw-style-study.md) shows the selected design.
 
 - Define contracts once in `packages/protocol`. Keep storage and transport details with their owner. Validate external input before use.
 - Keep dependencies directed toward shared contracts. Desktop and CLI must not import hub internals. Split modules for actual responsibilities, not speculative reuse.

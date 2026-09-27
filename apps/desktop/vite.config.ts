@@ -24,7 +24,12 @@ export default defineConfig({
     },
   ],
   resolve: { alias: { "@": resolve(directory, "src/renderer") } },
-  build: { outDir: resolve(directory, "dist/renderer"), emptyOutDir: true, target: "chrome152" },
+  build: {
+    outDir: resolve(directory, "dist/renderer"),
+    emptyOutDir: true,
+    target: "chrome152",
+    chunkSizeWarningLimit: 5000,
+  },
   pack: [
     {
       entry: { main: "src/main.ts" },

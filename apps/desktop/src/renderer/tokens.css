@@ -1,0 +1,54 @@
+:root {
+  color-scheme: light dark;
+  --scope-canvas: light-dark(#ffffff, #121212);
+  --scope-panel: light-dark(#ffffff, #232329);
+  --scope-strip: light-dark(#f6f6f9, #1b1b1f);
+  --scope-text: light-dark(#1b1b1f, #e3e3e8);
+  --scope-muted: light-dark(#626271, #aaaab5);
+  --scope-line: light-dark(#e6e6ed, #3d3d49);
+  --scope-outline: light-dark(#767680, #8e8d9c);
+  --scope-accent: light-dark(#6965db, #a8a5ff);
+  --scope-selected: light-dark(#e3e2fe, #403e6a);
+  --scope-danger: light-dark(#b42335, #ff99a4);
+  --scope-shadow: 0 2px 12px light-dark(#1b1b1f12, #00000045);
+  --scope-overlay: light-dark(#1b1b1f30, #00000066);
+  --scope-font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --scope-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --scope-text-ui: 14px;
+  --scope-leading-ui: 20px;
+  --scope-text-detail: 12px;
+  --scope-leading-detail: 18px;
+  --scope-text-reading: 16px;
+  --scope-leading-reading: 26px;
+  --scope-weight-regular: 400;
+  --scope-weight-medium: 500;
+  --scope-weight-strong: 600;
+  --scope-space-1: 4px;
+  --scope-space-2: 8px;
+  --scope-space-3: 12px;
+  --scope-space-4: 16px;
+  --scope-space-6: 24px;
+  --scope-space-8: 32px;
+  --scope-radius-control: 6px;
+  --scope-radius-tab: 8px;
+  --scope-radius-dialog: 12px;
+  --scope-control: 32px;
+  --scope-strip-height: 44px;
+  --scope-focus-width: 2px;
+  --scope-focus-offset: 2px;
+  --scope-motion: 180ms;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --scope-motion: 0ms;
+  }
+}

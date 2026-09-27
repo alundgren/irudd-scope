@@ -6,6 +6,20 @@ const bridge: ScopeBridge = {
   saveSettings: (input) => ipcRenderer.invoke("scope:save-settings", input),
   workspace: () => ipcRenderer.invoke("scope:workspace"),
   saveWorkspace: (input) => ipcRenderer.invoke("scope:save-workspace", input),
+  diagramDraft: (id) => ipcRenderer.invoke("scope:diagram-draft", id),
+  saveDiagramDraft: (id, draft) => ipcRenderer.invoke("scope:save-diagram-draft", { id, draft }),
+  onBeforeClose: (listener) => {
+    const flush = () => {
+      void listener().then(
+        () => ipcRenderer.invoke("scope:close-ready", true),
+        () => ipcRenderer.invoke("scope:close-ready", false),
+      );
+    };
+    ipcRenderer.on("scope:before-close", flush);
+    return () => {
+      ipcRenderer.removeListener("scope:before-close", flush);
+    };
+  },
   snapshot: () => ipcRenderer.invoke("scope:snapshot"),
   content: (id, revision) => ipcRenderer.invoke("scope:content", { id, revision }),
   download: (id, revision) => ipcRenderer.invoke("scope:download", { id, revision }),

@@ -5,9 +5,9 @@ import { DatabaseSync } from "node:sqlite";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test("the diagram tool creates an editable Excalidraw artifact in desktop storage", async () => {
-  const { directory, launch, connect } = await desktopFixture();
-  const application = await launch();
-  const client = await connect();
+  const { directory, settingsDirectory, launch, connect } = await desktopFixture();
+  let application = await launch();
+  let client = await connect();
   try {
     const result = await readFile(
       new URL("./fixtures/diagram-response.json", import.meta.url),
@@ -23,19 +23,24 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
             })
           : original(url, init);
     }, result);
-    const page = await application.firstWindow();
+    let page = await application.firstWindow();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    await page.getByRole("button", { name: "Workspace menu" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByLabel("OpenRouter API key").fill("synthetic-diagram-key");
     await page.getByRole("button", { name: "Save settings" }).click();
     await page.getByText("Settings saved.").waitFor();
+    await page.getByLabel("Appearance", { exact: true }).selectOption("dark");
+    await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe("dark");
     await page.getByRole("button", { name: "Done", exact: true }).click();
     await page.getByRole("button", { name: "Create diagram", exact: true }).click();
     await page.getByLabel("What should the diagram show?").fill("A browser talks to an API.");
     await page.getByRole("button", { name: "Create diagram", exact: true }).click();
+    await page.getByRole("button", { name: "Ask agent", exact: true }).click();
     await page.getByLabel("Change diagram", { exact: true }).waitFor();
     await page.locator(".excalidraw canvas").first().waitFor();
+    await page.locator(".excalidraw.theme--dark").waitFor();
     const artifacts = await client.list();
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0].kind).toBe("excalidraw");
@@ -67,13 +72,194 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
           : original(url, init);
     });
     await page.getByLabel("Change diagram", { exact: true }).fill("Move the API right.");
-    await page.getByRole("button", { name: "Apply change", exact: true }).click();
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await page.getByText("Moved the API.", { exact: true }).waitFor();
+    await page.getByLabel("Change diagram", { exact: true }).fill("Keep this draft");
+    await page.getByRole("button", { name: "Close diagram chat" }).click();
+    expect(await page.getByRole("complementary", { name: "Diagram agent" }).isVisible()).toBe(
+      false,
+    );
+    await page.getByRole("button", { name: "Ask agent", exact: true }).click();
+    expect(await page.getByLabel("Change diagram", { exact: true }).inputValue()).toBe(
+      "Keep this draft",
+    );
+    const canvas = await page.locator(".excalidraw canvas").first().elementHandle();
+    await page.getByRole("button", { name: "Focus artifact" }).click();
+    expect(await page.getByRole("complementary", { name: "Diagram agent" }).isVisible()).toBe(
+      false,
+    );
+    await page.keyboard.press("Escape");
+    expect(await page.getByLabel("Change diagram", { exact: true }).inputValue()).toBe(
+      "Keep this draft",
+    );
+    expect(await canvas?.evaluate((element) => element.isConnected)).toBe(true);
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect.poll(async () => (await client.get(artifacts[0].id)).revision).toBe(2);
     const updated = JSON.parse(new TextDecoder().decode(await client.content(artifacts[0].id)));
     expect(updated.elements.find((element: { id: string }) => element.id === "agent:api").x).toBe(
       540,
     );
+    await application.evaluate(() => {
+      const original = globalThis.fetch;
+      globalThis.fetch = async (url, init) => {
+        if (url !== "https://openrouter.ai/api/v1/chat/completions") return original(url, init);
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("Canceled")), {
+            once: true,
+          });
+        });
+      };
+    });
+    await page.getByLabel("Change diagram", { exact: true }).fill("A request to cancel");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByText("Request canceled. The canvas is unchanged.", { exact: true }).waitFor();
+    expect((await client.get(artifacts[0].id)).revision).toBe(2);
+    expect(await page.getByRole("button", { name: "Save", exact: true }).isEnabled()).toBe(false);
+    await application.evaluate(() => {
+      const original = globalThis.fetch;
+      globalThis.fetch = async (url, init) =>
+        url === "https://openrouter.ai/api/v1/chat/completions"
+          ? Response.json({
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      message: "Moved it again.",
+                      operations: [{ type: "move", id: "api", x: 620, y: 180 }],
+                    }),
+                  },
+                  finish_reason: "stop",
+                },
+              ],
+            })
+          : original(url, init);
+    });
+    await page.getByLabel("Change diagram", { exact: true }).fill("Move it again");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await page.getByText("Moved it again.", { exact: true }).waitFor();
+    await client.publish(
+      artifacts[0].id,
+      {
+        title: artifacts[0].title,
+        kind: "excalidraw",
+        mediaType: artifacts[0].mediaType,
+        fileName: artifacts[0].fileName,
+        expectedRevision: 2,
+      },
+      new TextEncoder().encode(JSON.stringify(updated)),
+    );
+    await page.getByText("A newer version arrived. Your edits are still here.").waitFor();
+    const database = new DatabaseSync(join(settingsDirectory, "desktop.db"));
+    try {
+      database.exec(
+        "CREATE TRIGGER fail_draft BEFORE INSERT ON diagram_drafts BEGIN SELECT RAISE(ABORT, 'synthetic write failure'); END",
+      );
+      await page
+        .getByLabel("Change diagram", { exact: true })
+        .fill("Keep this prompt through a failure");
+      await page
+        .getByText("Could not save this draft on your Mac. Keep Scope open and retry.")
+        .waitFor();
+      await page.getByRole("button", { name: `Close ${artifacts[0].title}`, exact: true }).click();
+      await page
+        .getByText("Could not save this tab. Keep it open and try closing it again.")
+        .waitFor();
+      expect(await page.getByRole("tab", { name: artifacts[0].title, exact: true }).count()).toBe(
+        1,
+      );
+      database.exec("DROP TRIGGER fail_draft");
+      await page.getByRole("button", { name: "Retry", exact: true }).click();
+      await page
+        .getByText("Could not save this draft on your Mac. Keep Scope open and retry.")
+        .waitFor({ state: "hidden" });
+    } finally {
+      database.close();
+    }
+    await page.getByRole("button", { name: "Dismiss error" }).click();
+    await page.getByRole("button", { name: `Close ${artifacts[0].title}`, exact: true }).click();
+    await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+    const closedDraft = await page.evaluate((id) => window.scope.diagramDraft(id), artifacts[0].id);
+    expect(JSON.parse(closedDraft!.content).elements).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "agent:api", x: 620 })]),
+    );
+    await page.keyboard.press("ControlOrMeta+Shift+t");
+    await page.getByText("Moved it again.", { exact: true }).waitFor();
+    expect(await page.getByLabel("Change diagram", { exact: true }).inputValue()).toBe(
+      "Keep this prompt through a failure",
+    );
+    await page.getByText("A newer version arrived. Your edits are still here.").waitFor();
+    expect(await page.getByRole("button", { name: "Save", exact: true }).isEnabled()).toBe(true);
+    const previousViewport = (await page.evaluate(
+      (id) => window.scope.diagramDraft(id),
+      artifacts[0].id,
+    ))!.viewport;
+    await page.getByRole("button", { name: "Zoom out", exact: true }).click();
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate((id) => window.scope.diagramDraft(id), artifacts[0].id))?.viewport
+            .zoom,
+      )
+      .toBeLessThan(previousViewport.zoom);
+    const zoomedViewport = (await page.evaluate(
+      (id) => window.scope.diagramDraft(id),
+      artifacts[0].id,
+    ))!.viewport;
+    await page.mouse.move(600, 400);
+    await page.mouse.wheel(100, 140);
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate((id) => window.scope.diagramDraft(id), artifacts[0].id))?.viewport,
+      )
+      .not.toEqual(zoomedViewport);
+    const viewport = (await page.evaluate((id) => window.scope.diagramDraft(id), artifacts[0].id))!
+      .viewport;
+    expect(viewport.zoom).toBeLessThan(previousViewport.zoom);
+    // Quit immediately after typing, before the periodic draft write is due.
+    await page
+      .getByLabel("Change diagram", { exact: true })
+      .fill("Keep this last prompt after restart");
+    await application.close();
+    application = await launch();
+    client = await connect();
+    page = await application.firstWindow();
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.getByText("Moved it again.", { exact: true }).waitFor();
+    expect(await page.getByLabel("Change diagram", { exact: true }).inputValue()).toBe(
+      "Keep this last prompt after restart",
+    );
+    await page.getByText("A newer version arrived. Your edits are still here.").waitFor();
+    await page.getByLabel("Change diagram", { exact: true }).fill("Continue the restored draft");
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate((id) => window.scope.diagramDraft(id), artifacts[0].id))?.intent,
+      )
+      .toBe("Continue the restored draft");
+    const restored = await page.evaluate((id) => window.scope.diagramDraft(id), artifacts[0].id);
+    expect(restored?.dirty).toBe(true);
+    expect(JSON.parse(restored!.content).elements).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "agent:api", x: 620 })]),
+    );
+    expect(restored?.viewport).toEqual(viewport);
+    expect((await client.get(artifacts[0].id)).revision).toBe(3);
+    await page.getByRole("button", { name: "Save a copy", exact: true }).click();
+    await expect.poll(async () => (await client.list()).length).toBe(2);
+    const copy = (await client.list()).find((artifact) => artifact.id !== artifacts[0].id)!;
+    const copied = JSON.parse(new TextDecoder().decode(await client.content(copy.id)));
+    expect(copied.elements.find((element: { id: string }) => element.id === "agent:api").x).toBe(
+      620,
+    );
+    const remote = JSON.parse(new TextDecoder().decode(await client.content(artifacts[0].id)));
+    expect(remote.elements.find((element: { id: string }) => element.id === "agent:api").x).toBe(
+      540,
+    );
+    await page.getByRole("button", { name: "Discard edits and load latest", exact: true }).click();
+    await expect
+      .poll(() => page.getByRole("button", { name: "Save", exact: true }).isEnabled())
+      .toBe(false);
     expect(errors).toEqual([]);
     await page.screenshot({ path: join(directory, "diagram.png") });
   } finally {
@@ -150,6 +336,7 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
         }
       }),
     ).toBe(false);
+    await page.getByRole("button", { name: "Workspace menu" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     expect(await page.getByText("Hub connection", { exact: true }).count()).toBe(0);
     expect(await page.getByLabel("Hub token").count()).toBe(0);

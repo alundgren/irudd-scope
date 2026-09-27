@@ -3,7 +3,9 @@ import ReactMarkdown from "react-markdown";
 import type { Artifact, ArtifactKind } from "@irudd-scope/protocol";
 import type { ArtifactContent } from "../bridge.ts";
 
-type RendererProps = { item: ArtifactContent };
+import type { Theme } from "./appearance.ts";
+
+type RendererProps = { item: ArtifactContent; theme: Theme; focus: boolean };
 const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 function TextView({ item }: RendererProps) {
   return <pre className="text-document">{text(item.bytes)}</pre>;
@@ -71,7 +73,15 @@ const renderers: Record<ArtifactKind, ComponentType<RendererProps>> = {
   ),
 };
 
-export function ArtifactView({ artifact }: { artifact: Artifact }) {
+export function ArtifactView({
+  artifact,
+  theme,
+  focus,
+}: {
+  artifact: Artifact;
+  theme: Theme;
+  focus: boolean;
+}) {
   const [item, setItem] = useState<ArtifactContent>();
   const [error, setError] = useState("");
   useEffect(() => {
@@ -91,7 +101,7 @@ export function ArtifactView({ artifact }: { artifact: Artifact }) {
       active = false;
     };
   }, [artifact.id, artifact.revision]);
-  if (error)
+  if (error && !item)
     return (
       <p className="empty-state" role="alert">
         {error}
@@ -108,7 +118,12 @@ export function ArtifactView({ artifact }: { artifact: Artifact }) {
     : FileView;
   return (
     <Suspense fallback={<p className="empty-state">Opening canvas…</p>}>
-      <Renderer item={item} />
+      {error && (
+        <p className="diagram-notice" role="alert">
+          {error} Showing the last loaded version.
+        </p>
+      )}
+      <Renderer item={item} theme={theme} focus={focus} />
     </Suspense>
   );
 }
