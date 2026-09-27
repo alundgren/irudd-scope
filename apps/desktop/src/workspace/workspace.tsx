@@ -47,12 +47,14 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
   const [focus, setFocus] = useState(false);
   const [details, setDetails] = useState(false);
   const [error, setError] = useState("");
-  const { snapshot, unread, markRead, recordPublication } = useArtifactLibrary(setError);
+  const { snapshot, unread, arrivals, acknowledgeArrivals, markRead, recordPublication } =
+    useArtifactLibrary(setError);
   const {
     workspace,
     ready: workspaceReady,
     save: workspaceSave,
     openTab,
+    addTabs,
     closeTab,
     updateTab,
     updateState,
@@ -84,6 +86,28 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
         updateTab(tab.id, { type, title: artifact.title });
     }
   }, [snapshot.artifacts, workspace.tabs, workspace.closed]);
+  useEffect(() => {
+    if (!workspaceReady || creating || !arrivals.length) return;
+    const existing = new Set([...workspace.tabs, ...workspace.closed].map(tabArtifactId));
+    const tabs = arrivals.flatMap((id) => {
+      const artifact = artifacts.get(id);
+      if (!artifact || existing.has(id)) return [];
+      const plugin = pluginForArtifact(artifact);
+      return [
+        {
+          id: crypto.randomUUID(),
+          groupId: workspace.groups[0].id,
+          type: plugin.type,
+          title: artifact.title,
+          state: plugin.publication!.state(artifact),
+        },
+      ];
+    });
+    const selected = addTabs(tabs);
+    const selectedArtifact = tabs.find((tab) => tab.id === selected);
+    if (selectedArtifact) markRead(tabArtifactId(selectedArtifact)!);
+    acknowledgeArrivals(arrivals);
+  }, [arrivals, snapshot.artifacts, workspace, workspaceReady, creating]);
   useEffect(() => {
     tabButtons.current
       .get(workspace.selected ?? "")

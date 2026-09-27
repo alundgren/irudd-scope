@@ -37,13 +37,21 @@ Publication commands print a JSON artifact record with its ID and revision. Trea
 
 For Markdown, raw HTML is omitted and links and image descriptions appear as text. HTML previews allow inline styles and embedded data images; scripts and external resources are blocked. Use static HTML that works within those limits.
 
-An `.excalidraw` file must contain a finished, valid Excalidraw document. The CLI publishes the provided file; it does not generate or render a diagram from a prompt. It classifies the file by extension but does not validate its contents. The desktop opens it in the diagram view; malformed content may show a load error and remain available to download.
+### Diagrams
+
+For a request to publish a diagram, create a finished `.excalidraw` file by default. Follow an explicitly requested format instead when provided. Include visible nodes, readable labels, and connections so the user can inspect and edit the diagram on the canvas. Markdown code blocks, including ASCII art and Mermaid source, display as text in Scope.
+
+The file must contain a valid Excalidraw document with `type: "excalidraw"`, `version: 2`, native `elements`, `appState`, and `files`. Use an available Excalidraw exporter or create native document elements with unique IDs and explicit positions and dimensions. Ensure labels fit and connections meet their intended nodes. Publish the finished file with `add diagram.excalidraw --title "App overview" --id app-overview`.
+
+The CLI publishes the provided file; it does not generate or render a diagram from a prompt. It classifies the file by extension but does not validate its contents. The desktop opens it in the diagram view; malformed content may show a load error and remain available to download.
+
+For diagram requests, inspect the published artifact in Scope when desktop access is available. Check that the diagram appears, labels are legible, and connections are visible. Correct the file and update the same artifact ID if needed. When desktop access is unavailable, report the successful publication and state that rendering was not visually checked.
 
 ## Connection and confirmation
 
 With no explicit endpoint or token override, the CLI reads `SCOPE_CONNECTION_FILE` or `~/.config/irudd-scope/desktop.json`. Scope must be open on an awake Mac to accept publication. An explicit endpoint from `--endpoint` or `SCOPE_ENDPOINT` requires explicit credentials from `--token-file`, `SCOPE_TOKEN_FILE`, or `SCOPE_TOKEN`; the CLI never borrows the token from local discovery. Keep token values private.
 
-A successful command confirms that Scope accepted the artifact record. It does not confirm that the desktop opened a tab or rendered the content. When the task requires a visual check, inspect the artifact in Scope.
+A successful command confirms that Scope accepted the artifact record. It does not confirm that the desktop opened a tab or rendered the content. New publications appear in tabs, selecting the first arrival in an empty workspace and preserving the current selection otherwise. When the task requires a visual check, inspect the artifact in Scope.
 
 CLI requests share a 10-second deadline. Use `--timeout-ms 60000` when a large remote upload needs more time. A timeout can leave a completed write without a receipt; keep the artifact ID for recovery.
 

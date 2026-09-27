@@ -99,6 +99,20 @@ export function useWorkspace(onError: (message: string) => void) {
     return true;
   }
 
+  function addTabs(tabs: readonly Tab[]): string | null {
+    const previous = current.current;
+    const existing = new Set([...previous.tabs, ...previous.closed].map((tab) => tab.id));
+    const added = tabs.filter((tab) => !existing.has(tab.id));
+    const available = 100 - previous.tabs.length;
+    if (added.length > available)
+      onError("Close a tab before opening another. Your artifacts stay in the library.");
+    const next = [...previous.tabs, ...added.slice(0, available)];
+    const selected = previous.selected ?? next[0]?.id ?? null;
+    if (next.length !== previous.tabs.length)
+      replace(decodeWorkspace({ ...previous, tabs: next, selected }));
+    return selected;
+  }
+
   async function closeTab(id: string): Promise<boolean> {
     try {
       await flushWorkspace();
@@ -139,5 +153,15 @@ export function useWorkspace(onError: (message: string) => void) {
     );
   }
   const updateState = (id: string, state: TabState) => updateTab(id, { state });
-  return { workspace, ready, save, openTab, closeTab, createGroup, updateTab, updateState };
+  return {
+    workspace,
+    ready,
+    save,
+    openTab,
+    addTabs,
+    closeTab,
+    createGroup,
+    updateTab,
+    updateState,
+  };
 }
