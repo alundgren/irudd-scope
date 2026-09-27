@@ -4,7 +4,7 @@ Create interactive visual prototypes for the main desktop screen and tab navigat
 
 ## Product
 
-Coding agents leave artifacts for one human to inspect. Codex and Claude run on a Mac and Ubuntu VM. Their CLI publishes to a persistent VM hub. The human opens Scope on the Mac to inspect, interact with, download, or edit an artifact. Scope does not run coding sessions and has no agent chat.
+Coding agents leave artifacts for one human to inspect. Codex and Claude run on a Mac and Ubuntu VM. The current implementation publishes through a persistent hub. Publishing is only required while the Mac is awake. The human opens Scope on the Mac to inspect, interact with, download, or edit an artifact. Scope does not run coding sessions and has no agent chat.
 
 The central item is an artifact with a stable identity. Tabs are views of artifacts. Artifacts can update in place, and closing a tab must not delete the artifact. Supported content includes Markdown or text, an image, a static HTML preview, a downloadable file, and an editable Excalidraw diagram.
 
