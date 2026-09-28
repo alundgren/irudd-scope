@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "ready": "vp run build && vp run check && vp run test",
-    "check": "vp fmt --check && vp lint --format=unix",
+    "check": "vp fmt --check && vp exec node tools/lint.ts",
     "test": "vp exec node tools/test.ts",
     "build": "vp run -r build",
     "package:desktop": "vp exec node tools/package-desktop.ts",

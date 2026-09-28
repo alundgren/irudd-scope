@@ -48,7 +48,7 @@ Oxlint warns when cyclomatic complexity exceeds 10, a JavaScript or TypeScript
 file exceeds 500 lines, or a function exceeds 150 lines. Line counts exclude
 blank and comment-only lines. These are review prompts and never fail the
 standard checks. Required lint errors, type errors, and formatting failures
-still fail. Keep the advisories visible and separate from failures; do not add
+still fail. Keep unreviewed advisories visible and separate from failures; do not add
 `--quiet`, `--deny-warnings`, or a warning limit to the standard check.
 
 Simplify when it improves understanding. Keep related code together when
@@ -57,8 +57,26 @@ test scenarios can justify a warning. Explain material retained complexity in
 the PR's Evidence section. Do not split code or suppress findings just to lower
 a count. The thresholds belong in `vite.config.ts`.
 
-Use `vp run check` for compact output, `vp lint --format=unix` for lint and type
-diagnostics, or `vp check` when source context helps investigate a finding.
+The standard check uses [tools/lint-exceptions.ts](../tools/lint-exceptions.ts)
+to omit reviewed advisories from its compact report. Each entry records the
+exact file, rule limits, and reason for keeping that code together. Function
+entries also name unique, trimmed source lines starting at the diagnostic.
+The anchor follows line-number changes and distinguishes anonymous callbacks.
+Only warnings from these three advisory rules can match an exception.
+
+Review the function or file before adding an entry. Set each limit to the
+reviewed count and explain why a refactor would not help. Increased counts,
+new functions, other warnings, and errors remain visible. Remove an entry
+when its warning disappears; the check reports unused or ambiguous entries.
+An anchor change requires checking the entry against the new code. Do not
+refresh the registry automatically, widen limits without review, or disable
+rules for entire directories. Review still applies to behavior changes within
+an existing count limit. The report prints one total for accepted advisories;
+Oxlint's exit status remains unchanged.
+
+Use `vp run check` for the reviewed report, `vp lint --format=unix` for all raw
+lint and type diagnostics, or `vp check` when source context helps investigate
+a finding. Direct Vite+ commands do not apply the exception registry.
 
 Tests import from `vite-plus/test`. Prefer tests in this order:
 
