@@ -804,16 +804,9 @@ h2 {
   min-width: 0;
   height: 100%;
 }
-.diagram-controls {
-  display: flex;
-  align-items: center;
-  gap: var(--scope-space-2);
-}
-.diagram-controls [data-slot="button"] {
-  font-family: var(--scope-font-ui);
-}
-.focus-mode .diagram-controls {
-  margin-top: var(--scope-space-8);
+.diagram-canvas .excalidraw .help-icon,
+.diagram-canvas .excalidraw .default-sidebar-trigger {
+  display: none;
 }
 .diagram-notice {
   padding: var(--scope-space-2) var(--scope-space-3);

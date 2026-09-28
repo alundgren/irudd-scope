@@ -1,17 +1,31 @@
 import type { TabContext } from "../api.ts";
-import { useEffect, useRef, useState } from "react";
-import { Excalidraw, getSceneVersion, loadFromBlob, serializeAsJSON } from "@excalidraw/excalidraw";
+import { useContext, useEffect, useRef, useState } from "react";
+import {
+  Excalidraw,
+  MainMenu,
+  getSceneVersion,
+  loadFromBlob,
+  serializeAsJSON,
+} from "@excalidraw/excalidraw";
 import type { AppState, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { ArtifactContent } from "../../bridge.ts";
 import { readSemanticScene, updateCanvasElements } from "./canvas.ts";
 import { applyOperations } from "./scene.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { DiagramChat } from "./chat.tsx";
-import { MessageSquare, X } from "lucide-react";
+import { BookOpen, ImageDown, MessageSquare, X } from "lucide-react";
 import type { Theme } from "../../renderer/appearance.ts";
 import type { DiagramDraft } from "./draft.ts";
 import { useAutosave } from "../../workspace/persistence.ts";
+import { SettingsContext } from "../../renderer/settings-context.tsx";
 import "@excalidraw/excalidraw/index.css";
+
+type DiagramSnapshot = {
+  draft: DiagramDraft;
+  sceneVersion: number;
+  settings: string;
+  loadId: number;
+};
 
 function canvasSettings(state: Partial<AppState>) {
   return JSON.stringify([
@@ -33,14 +47,18 @@ export function DiagramView({
   theme: Theme;
   viewing: boolean;
 }) {
+  const preferences = useContext(SettingsContext);
+  const enabled = preferences?.settings?.diagramGenerationEnabled ?? false;
   const [api, setApi] = useState<ExcalidrawImperativeAPI>();
   const [dirty, setDirty] = useState(false);
   const dirtyRef = useRef(false);
   const version = useRef(-1);
   const savedSettings = useRef("");
   const loaded = useRef(item.artifact.revision);
+  const loadId = useRef(0);
   const [revision, setRevision] = useState(item.artifact.revision);
   const [busy, setBusy] = useState<"generation" | "saving" | null>(null);
+  const [publishing, setPublishing] = useState(false);
   const [intent, setIntent] = useState("");
   const [messages, setMessages] = useState<DiagramDraft["messages"]>([]);
   const [chatOpen, setChatOpen] = useState(false);
@@ -57,20 +75,70 @@ export function DiagramView({
   latest.current = item;
   const display = useRef({ theme, viewing });
   display.current = { theme, viewing };
-  const draftSave = useAutosave<DiagramDraft>(
+  const draftSave = useAutosave<DiagramSnapshot>(
     () => {
       if (!api || !readyRef.current) return undefined;
       const state = api.getAppState();
       return {
-        version: 1,
-        content: serializeAsJSON(api.getSceneElements(), state, api.getFiles(), "local"),
-        revision: loaded.current,
-        dirty: dirtyRef.current,
-        ...conversation.current,
-        viewport: { zoom: state.zoom.value, scrollX: state.scrollX, scrollY: state.scrollY },
+        draft: {
+          version: 1,
+          content: serializeAsJSON(api.getSceneElements(), state, api.getFiles(), "local"),
+          revision: loaded.current,
+          dirty: dirtyRef.current,
+          ...conversation.current,
+          viewport: { zoom: state.zoom.value, scrollX: state.scrollX, scrollY: state.scrollY },
+        },
+        sceneVersion: getSceneVersion(api.getSceneElements()),
+        settings: canvasSettings(state),
+        loadId: loadId.current,
       };
     },
-    (draft) => window.scope.saveDiagramDraft(context.tabId, draft),
+    async (snapshot) => {
+      if (snapshot.loadId !== loadId.current) return;
+      const changed =
+        snapshot.sceneVersion !== version.current || snapshot.settings !== savedSettings.current;
+      const draft = { ...snapshot.draft, revision: loaded.current, dirty: changed };
+      await window.scope.saveDiagramDraft(context.tabId, draft);
+      if (
+        !changed ||
+        snapshot.loadId !== loadId.current ||
+        latest.current.artifact.revision > loaded.current
+      )
+        return;
+      setPublishing(true);
+      try {
+        const saved = await window.scope.saveDiagram({
+          id: item.artifact.id,
+          title: latest.current.artifact.title,
+          expectedRevision: loaded.current,
+          content: draft.content,
+        });
+        if (snapshot.loadId !== loadId.current) return;
+        loaded.current = saved.revision;
+        version.current = snapshot.sceneVersion;
+        savedSettings.current = snapshot.settings;
+        setRevision(saved.revision);
+        markDirty(
+          Boolean(
+            api &&
+            (getSceneVersion(api.getSceneElements()) !== snapshot.sceneVersion ||
+              canvasSettings(api.getAppState()) !== snapshot.settings),
+          ),
+        );
+        await window.scope.saveDiagramDraft(context.tabId, {
+          ...draft,
+          revision: saved.revision,
+          dirty: false,
+        });
+        context.events.emit({
+          type: "resource.saved",
+          resource: { kind: "artifact", id: saved.id },
+          revision: saved.revision,
+        });
+      } finally {
+        setPublishing(false);
+      }
+    },
     context.tabId,
   );
   useEffect(() => {
@@ -107,6 +175,7 @@ export function DiagramView({
     viewport?: DiagramDraft["viewport"],
   ) {
     if (!api) return;
+    const currentLoad = ++loadId.current;
     readyRef.current = false;
     setReady(false);
     try {
@@ -115,6 +184,7 @@ export function DiagramView({
         null,
         null,
       );
+      if (currentLoad !== loadId.current) return;
       version.current = changed ? -1 : getSceneVersion(data.elements);
       savedSettings.current = canvasSettings(data.appState ?? {});
       loaded.current = nextRevision;
@@ -153,10 +223,12 @@ export function DiagramView({
       restored && (restored.dirty || restored.revision === item.artifact.revision)
         ? restored
         : null;
+    const content = new TextDecoder().decode(item.bytes);
+    const alreadyPublished = draft?.content === content;
     void load(
-      draft?.content ?? new TextDecoder().decode(item.bytes),
-      draft?.revision ?? item.artifact.revision,
-      draft?.dirty ?? false,
+      draft?.content ?? content,
+      alreadyPublished ? item.artifact.revision : (draft?.revision ?? item.artifact.revision),
+      !alreadyPublished && (draft?.dirty ?? false),
       restored?.viewport,
     );
     return () => {
@@ -167,19 +239,20 @@ export function DiagramView({
     };
   }, [api, item.artifact.id]);
   useEffect(() => {
-    if (api && ready && item.artifact.revision !== loaded.current && !dirtyRef.current)
-      void load(new TextDecoder().decode(item.bytes), item.artifact.revision);
-  }, [item.artifact.revision, api, ready]);
-  async function save(copy = false) {
+    if (!api || !ready || item.artifact.revision <= loaded.current) return;
+    if (dirtyRef.current) draftSave.schedule();
+    else void load(new TextDecoder().decode(item.bytes), item.artifact.revision);
+  }, [item.artifact.revision, api, ready, dirty]);
+  async function keepBoth() {
     if (!api) return;
     setBusy("saving");
     const savedVersion = getSceneVersion(api.getSceneElements());
     const nextSettings = canvasSettings(api.getAppState());
     try {
       const saved = await window.scope.saveDiagram({
-        id: copy ? crypto.randomUUID() : item.artifact.id,
-        title: copy ? `${item.artifact.title} copy` : item.artifact.title,
-        expectedRevision: copy ? 0 : loaded.current,
+        id: crypto.randomUUID(),
+        title: `${item.artifact.title} copy`,
+        expectedRevision: 0,
         content: serializeAsJSON(
           api.getSceneElements(),
           api.getAppState(),
@@ -192,18 +265,15 @@ export function DiagramView({
         resource: { kind: "artifact", id: saved.id },
         revision: saved.revision,
       });
-      if (!copy) {
-        loaded.current = saved.revision;
-        setRevision(saved.revision);
-        version.current = savedVersion;
-        savedSettings.current = nextSettings;
-        markDirty(
-          getSceneVersion(api.getSceneElements()) !== savedVersion ||
-            canvasSettings(api.getAppState()) !== nextSettings,
+      if (
+        getSceneVersion(api.getSceneElements()) === savedVersion &&
+        canvasSettings(api.getAppState()) === nextSettings
+      )
+        await load(
+          new TextDecoder().decode(latest.current.bytes),
+          latest.current.artifact.revision,
         );
-        draftSave.schedule();
-      }
-      setNotice(copy ? "Saved a separate copy. Find it in the artifact list." : "Diagram saved.");
+      setNotice("Kept a separate copy. Find it in the artifact list.");
     } catch (failure) {
       setNotice(failure instanceof Error ? failure.message : "Could not save the diagram.");
     } finally {
@@ -245,7 +315,7 @@ export function DiagramView({
         {
           role: "assistant",
           text: result.message,
-          details: `${(metrics.durationMs / 1000).toFixed(1)}s · ${metrics.inputTokens ?? "?"} in / ${metrics.outputTokens ?? "?"} out${metrics.cost === null ? "" : ` · $${metrics.cost.toFixed(5)}`}. Save to publish.`,
+          details: `${(metrics.durationMs / 1000).toFixed(1)}s · ${metrics.inputTokens ?? "?"} in / ${metrics.outputTokens ?? "?"} out${metrics.cost === null ? "" : ` · $${metrics.cost.toFixed(5)}`}.`,
         },
       ]);
     } catch (failure) {
@@ -291,7 +361,7 @@ export function DiagramView({
     <div
       className={`diagram-view${viewing ? " diagram-viewing" : ""}`}
       onKeyDown={(event) => {
-        if (event.key === "Escape" && chatOpen && !viewing) {
+        if (event.key === "Escape" && chatOpen && enabled && !viewing) {
           event.stopPropagation();
           setChatOpen(false);
         }
@@ -299,13 +369,13 @@ export function DiagramView({
     >
       {draftSave.error && (
         <div className="diagram-notice" role="alert">
-          <span>Could not save this draft on your Mac. Keep Scope open and retry.</span>
+          <span>Could not save this diagram. Keep Scope open and retry.</span>
           <Button size="sm" onClick={() => void draftSave.flush().catch(() => {})}>
             Retry
           </Button>
         </div>
       )}
-      {item.artifact.revision !== revision && dirty && (
+      {item.artifact.revision > revision && dirty && !publishing && (
         <div className="diagram-notice" role="alert">
           <span>A newer version arrived. Your edits are still here.</span>
           <Button
@@ -319,15 +389,15 @@ export function DiagramView({
               )
             }
           >
-            Discard edits and load latest
+            Use incoming version
           </Button>
           <Button
             size="sm"
             variant="secondary"
             disabled={busy !== null}
-            onClick={() => void save(true)}
+            onClick={() => void keepBoth()}
           >
-            Save a copy
+            Keep both
           </Button>
         </div>
       )}
@@ -354,23 +424,6 @@ export function DiagramView({
             onLinkOpen={(_element, event) => event.preventDefault()}
             validateEmbeddable={false}
             aiEnabled={false}
-            renderTopRightUI={() =>
-              viewing ? null : (
-                <div className="diagram-controls">
-                  <Button size="sm" disabled={busy !== null || !dirty} onClick={() => void save()}>
-                    Save
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    aria-expanded={chatOpen}
-                    onClick={() => setChatOpen((value) => !value)}
-                  >
-                    <MessageSquare /> Ask agent
-                  </Button>
-                </div>
-              )
-            }
             UIOptions={{
               canvasActions: {
                 export: false,
@@ -388,10 +441,36 @@ export function DiagramView({
                 draftSave.schedule();
               }
             }}
-          />
+          >
+            <MainMenu>
+              <MainMenu.Item
+                icon={<ImageDown />}
+                onSelect={() =>
+                  api?.updateScene({ appState: { openDialog: { name: "imageExport" } } })
+                }
+              >
+                Export
+              </MainMenu.Item>
+              <MainMenu.DefaultItems.SearchMenu />
+              <MainMenu.Item
+                icon={<BookOpen />}
+                onSelect={() => api?.toggleSidebar({ name: "default", tab: "library" })}
+              >
+                Library
+              </MainMenu.Item>
+              {enabled && (
+                <MainMenu.Item
+                  icon={<MessageSquare />}
+                  onSelect={() => setChatOpen((value) => !value)}
+                >
+                  Ask agent
+                </MainMenu.Item>
+              )}
+            </MainMenu>
+          </Excalidraw>
         </div>
         <DiagramChat
-          open={chatOpen}
+          open={chatOpen && enabled}
           focus={viewing}
           messages={messages}
           intent={intent}

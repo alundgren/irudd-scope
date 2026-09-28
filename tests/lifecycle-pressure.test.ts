@@ -229,10 +229,15 @@ test(
         await clientFor(index).delete(tabArtifactId(tab)!);
       });
       await waitTabs(19);
-      expect((await local.list()).length).toBe(19);
+      const remainingArtifacts = await local.list();
+      expect(remainingArtifacts.length).toBe(19);
+      // Deletions and queued arrivals update the tab list separately.
+      await expect
+        .poll(async () => (await page.getByRole("tab").allTextContents()).sort())
+        .toEqual(remainingArtifacts.map((artifact) => artifact.title).sort());
       await sample("overflow-drained");
       for (let remaining = 19; remaining > 0; remaining--) {
-        await page.keyboard.press("ControlOrMeta+w");
+        await page.getByRole("tab", { selected: true }).press("ControlOrMeta+w");
         await waitTabs(remaining - 1);
       }
       await checkEmpty();

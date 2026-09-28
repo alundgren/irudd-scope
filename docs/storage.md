@@ -26,7 +26,10 @@ Keychain approval.
 
 Closing an individual tab permanently deletes its content and state. A draft
 contains the working canvas, base revision, conversation, unsent prompt, panel
-state, and zoom and pan. Save publishes a revision; draft writes do not.
+state, and zoom and pan. Autosave writes the draft before updating the artifact
+revision. Conversation and viewport changes update only the draft. If a newer
+artifact arrives before pending canvas edits are published, the draft retains
+those edits until the user chooses which version to keep.
 Quitting Scope, closing its last window, updating, and restarting preserve tabs
 that remain open. Pending edits flush before application shutdown.
 
