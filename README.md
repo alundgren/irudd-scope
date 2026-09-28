@@ -70,7 +70,7 @@ vp run ready
 
 The project pins Node and pnpm through Vite+. Linux supports development and testing. macOS is the desktop deployment target.
 
-Scope displays text, Markdown, raster images, static HTML, downloadable files,
+Scope displays text, Markdown, raster images, interactive HTML, downloadable files,
 and editable Excalidraw diagrams. Diagram generation uses an OpenRouter key
 configured in the desktop. Built-in file and diagram plugins run inside a
 shared tab host with persistent groups and events limited to each group.

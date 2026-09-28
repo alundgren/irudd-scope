@@ -4,6 +4,13 @@ import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 
 const bridge: ScopeBridge = {
+  platform: process.platform,
+  setFullscreen: (enabled) => ipcRenderer.invoke("scope:set-fullscreen", enabled),
+  onFullscreenChange: (listener) => {
+    const receive = (_event: unknown, enabled: boolean) => listener(enabled);
+    ipcRenderer.on("scope:fullscreen-changed", receive);
+    return () => ipcRenderer.removeListener("scope:fullscreen-changed", receive);
+  },
   remotes: () => ipcRenderer.invoke("scope:remotes"),
   pairRemote: (url) => ipcRenderer.invoke("scope:pair-remote", url),
   setRemoteEnabled: (id, enabled) =>
