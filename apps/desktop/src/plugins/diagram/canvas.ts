@@ -295,7 +295,7 @@ export function updateCanvasElements(
     const old = existing.get(item.id);
     if (!old) return item;
     const meta = agentData(item)!;
-    if (meta.primary && semanticId(old) !== meta.object.id)
+    if (!previous.has(meta.object.id) || (meta.primary && semanticId(old) !== meta.object.id))
       throw new Error(`Native element ID ${old.id} already exists. Choose another new ID.`);
     if (!meta.primary) {
       const owner = current.find((element) => semanticId(element) === meta.object.id);
@@ -305,6 +305,7 @@ export function updateCanvasElements(
       if (!boundToOwner && !groupTitle)
         throw new Error(`Native element ID ${old.id} already exists. Choose another new ID.`);
     }
+    if (old.type !== item.type) return newElementWith({ ...item, version: old.version }, {}, true);
     const objectId = agentData(item)!.object.id;
     if (!old.isDeleted && !changed.has(objectId)) return old;
     const customData =
