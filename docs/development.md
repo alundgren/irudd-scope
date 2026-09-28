@@ -157,8 +157,8 @@ and allow native dialogs during manual checks. Installed apps are unaffected.
 After building, run `vp run test tests/lifecycle-pressure.test.ts --maxWorkers=1`.
 The standard test uses generated content, a temporary desktop profile, and a
 paired hub on loopback. Four publishers, two direct and two through the hub,
-exercise all six artifact kinds, shared bytes, 120 publications crossing the
-100-tab limit, automatic queue draining, drafts, and restart. It then runs two
+exercise all six artifact kinds, shared bytes, 120 publications with
+tab overflow, drafts, and restart. It then runs two
 12-artifact create/update/delete cycles. It verifies content bytes, deletion,
 database integrity, empty content tables, and physical reclamation in all three
 databases. `tests/tab-open.test.ts` holds real IPC requests before and after

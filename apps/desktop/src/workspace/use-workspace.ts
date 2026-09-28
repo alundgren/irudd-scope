@@ -101,6 +101,11 @@ export function useWorkspace(onError: (message: string) => void) {
   }
 
   function openTab(tab: Tab, artifactRevision?: number): Promise<boolean> {
+    const previous = current.current;
+    if (previous.tabs.some((entry) => entry.id === tab.id)) {
+      replace({ ...previous, selected: tab.id });
+      return Promise.resolve(true);
+    }
     return queueOpen([{ tab, artifactRevision }], true).then(({ opened }) =>
       opened.some((tab) => current.current.tabs.some((entry) => entry.id === tab.id)),
     );
@@ -134,10 +139,6 @@ export function useWorkspace(onError: (message: string) => void) {
           handled.push(tab);
           openedTabs.push(existing);
           continue;
-        }
-        if (previous.tabs.length >= 100) {
-          if (select) onError("Close a tab before opening another.");
-          break;
         }
         try {
           const opened = await window.scope.openTab(tab, artifactRevision);
@@ -185,6 +186,13 @@ export function useWorkspace(onError: (message: string) => void) {
     }
   }
 
+  function moveTabToEnd(id: string): void {
+    const previous = current.current;
+    const tab = previous.tabs.find((entry) => entry.id === id);
+    if (tab)
+      replace({ ...previous, tabs: [...previous.tabs.filter((entry) => entry.id !== id), tab] });
+  }
+
   function updateTab(id: string, patch: Partial<Pick<Tab, "state" | "type" | "title">>): void {
     const previous = current.current;
     const update = (tab: Tab) => {
@@ -208,6 +216,7 @@ export function useWorkspace(onError: (message: string) => void) {
     openTab,
     addTabs,
     closeTab,
+    moveTabToEnd,
     createGroup,
     updateTab,
     updateState,

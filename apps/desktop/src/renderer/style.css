@@ -141,11 +141,13 @@ svg.lucide {
   app-region: no-drag;
 }
 .tabs {
+  --tab-min-width: 184px;
+  --tab-picker-width: 76px;
   display: flex;
   flex: 1;
   min-width: 0;
   align-items: center;
-  overflow-x: auto;
+  overflow: hidden;
   gap: var(--scope-space-1);
   height: 100%;
   padding: 3px;
@@ -154,10 +156,11 @@ svg.lucide {
 .artifact-tab {
   position: relative;
   display: flex;
-  flex: 0 0 auto;
+  flex: 0 1 216px;
   align-items: center;
   border-radius: var(--scope-radius-tab);
   max-width: 216px;
+  min-width: 0;
   height: var(--scope-control);
   padding-right: var(--scope-space-1);
   color: var(--scope-muted);
@@ -184,7 +187,8 @@ svg.lucide {
   white-space: nowrap;
   height: 100%;
   padding: 0 var(--scope-space-3);
-  min-width: 80px;
+  min-width: 0;
+  flex: 1;
   text-align: left;
   border-radius: var(--scope-radius-control);
 }
@@ -210,6 +214,88 @@ svg.lucide {
   position: absolute;
   right: 0;
   top: 3px;
+}
+.tab-overflow-trigger {
+  flex: 0 0 var(--tab-picker-width);
+  gap: var(--scope-space-1);
+  padding: 0 var(--scope-space-2);
+  font-variant-numeric: tabular-nums;
+}
+.tab-overflow-trigger[data-popup-open] {
+  background: var(--scope-selected);
+}
+.tab-overflow-trigger .unread-dot {
+  margin: 0;
+}
+.tab-overflow-positioner {
+  z-index: 50;
+}
+.tab-overflow-popup {
+  display: flex;
+  flex-direction: column;
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(540px, var(--available-height));
+  overflow: hidden;
+  padding: var(--scope-space-3);
+  gap: var(--scope-space-3);
+  color: var(--scope-text);
+  background: var(--scope-panel);
+  border: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-dialog);
+  box-shadow: var(--scope-shadow);
+  outline: none;
+}
+.tab-overflow-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--scope-space-2);
+}
+.tab-overflow-heading h2 {
+  font-weight: var(--scope-weight-medium);
+}
+.tab-overflow-heading > span {
+  flex: 1;
+  text-align: right;
+  color: var(--scope-muted);
+  font-size: var(--scope-text-detail);
+}
+.tab-overflow-results {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scope-outline) transparent;
+}
+.tab-overflow-result {
+  display: flex;
+  align-items: center;
+  gap: var(--scope-space-3);
+  width: 100%;
+  min-height: 40px;
+  padding: var(--scope-space-2);
+  text-align: left;
+  border-radius: var(--scope-radius-control);
+}
+.tab-overflow-result:is(:hover, :focus-visible) {
+  background: var(--scope-selected);
+}
+.tab-overflow-result > svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--scope-muted);
+}
+.tab-overflow-result > span:not(.unread-dot) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab-overflow-result > small {
+  flex: 0 0 auto;
+  color: var(--scope-muted);
+  font-size: var(--scope-text-detail);
 }
 .workspace-content {
   flex: 1;
