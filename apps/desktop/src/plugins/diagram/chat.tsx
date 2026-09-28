@@ -1,3 +1,5 @@
+import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
+import { NativeSelect, NativeSelectOption } from "../../renderer/components/ui/native-select.tsx";
 import { useContext, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { Button } from "../../renderer/components/ui/button.tsx";
@@ -16,12 +18,18 @@ export function DiagramChat({
   onIntentChange,
   onSend,
   onCancel,
+  target,
+  onTargetChange,
+  agentStatus,
 }: {
   open: boolean;
   focus: boolean;
   messages: DiagramDraft["messages"];
   intent: string;
-  busy: "generation" | "saving" | null;
+  busy: "generation" | "connected" | "saving" | null;
+  target: "embedded" | "connected";
+  onTargetChange: (target: "embedded" | "connected") => void;
+  agentStatus: DiagramAgentStatus;
   ready: boolean;
   onClose: () => void;
   onIntentChange: (intent: string) => void;
@@ -29,7 +37,11 @@ export function DiagramChat({
   onCancel: () => void;
 }) {
   const preferences = useContext(SettingsContext);
-  const enabled = preferences?.settings?.diagramGenerationEnabled ?? false;
+  const enabled =
+    target === "connected"
+      ? agentStatus.phase !== "disconnected"
+      : (preferences?.settings?.diagramGenerationEnabled ?? false);
+  const pending = busy === "generation" || busy === "connected";
   const history = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -43,7 +55,22 @@ export function DiagramChat({
       <div className="chat-heading">
         <div>
           <h2>Diagram agent</h2>
-          <p className="secondary">Gemini 3.8 Flash · OpenRouter</p>
+          <NativeSelect
+            aria-label="Diagram agent"
+            value={target}
+            disabled={busy !== null}
+            onChange={(event) => onTargetChange(event.target.value as "embedded" | "connected")}
+          >
+            <NativeSelectOption value="embedded">Embedded agent</NativeSelectOption>
+            <NativeSelectOption value="connected">Connected agent</NativeSelectOption>
+          </NativeSelect>
+          <p className="secondary" role="status">
+            {target === "embedded"
+              ? "Gemini 3.8 Flash · OpenRouter"
+              : agentStatus.phase === "disconnected"
+                ? "No agent connected"
+                : `${agentStatus.name} · ${agentStatus.phase === "waiting" ? "Waiting for a request" : "Working"}`}
+          </p>
         </div>
         <Button
           variant="ghost"
@@ -75,18 +102,27 @@ export function DiagramChat({
             {message.details && <p className="secondary">{message.details}</p>}
           </div>
         ))}
-        {busy === "generation" && (
+        {pending && (
           <p role="status" className="secondary">
-            Updating diagram…
+            {target === "connected" ? "Waiting for your publishing agent…" : "Updating diagram…"}
           </p>
         )}
       </div>
       {!enabled ? (
         <div className="chat-form">
-          <p>Enable diagram generation in Settings to ask the diagram agent.</p>
-          <Button onClick={() => preferences?.openSettings("diagram generation")}>
-            Open diagram settings
-          </Button>
+          {target === "connected" ? (
+            <p>
+              Ask the agent that published this diagram to connect and wait for requests. Keep that
+              agent running, then send your message here.
+            </p>
+          ) : (
+            <>
+              <p>Enable diagram generation in Settings to ask the diagram agent.</p>
+              <Button onClick={() => preferences?.openSettings("diagram generation")}>
+                Open diagram settings
+              </Button>
+            </>
+          )}
         </div>
       ) : (
         <form
@@ -102,7 +138,7 @@ export function DiagramChat({
             placeholder="Describe a change…"
             value={intent}
             maxLength={16000}
-            disabled={busy === "generation"}
+            disabled={pending}
             onChange={(event) => onIntentChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -113,7 +149,7 @@ export function DiagramChat({
           />
           <div className="chat-actions">
             <span className="secondary">Shift + Enter for a new line</span>
-            {busy === "generation" ? (
+            {pending ? (
               <Button type="button" size="sm" variant="secondary" onClick={onCancel}>
                 Cancel
               </Button>

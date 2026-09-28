@@ -61,6 +61,7 @@ async function main() {
   nativeTheme.themeSource = store.settings().appearance;
   let lifecycle: DesktopLifecycle;
   const artifacts = await startLocalArtifacts({
+    diagramAgent: (command, signal) => desktopIpc.diagramAgent(command, signal),
     diagram: (command, signal) => desktopIpc.diagram(command, signal),
     initialize: async (artifacts) => {
       lifecycle = new DesktopLifecycle(artifacts, store);

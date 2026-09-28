@@ -1,3 +1,4 @@
+import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
 import type { TabContext } from "../api.ts";
 import { useEffect, useRef, useState } from "react";
 import { Excalidraw, getSceneVersion, loadFromBlob, serializeAsJSON } from "@excalidraw/excalidraw";
@@ -44,18 +45,48 @@ export function DiagramView({
   const savedSettings = useRef("");
   const loaded = useRef(item.artifact.revision);
   const [revision, setRevision] = useState(item.artifact.revision);
-  const [busy, setBusy] = useState<"generation" | "saving" | null>(null);
+  const [busy, setBusy] = useState<"generation" | "connected" | "saving" | null>(null);
   const busyRef = useRef(busy);
   busyRef.current = busy;
   const [intent, setIntent] = useState("");
   const [messages, setMessages] = useState<DiagramDraft["messages"]>([]);
+  const [agentTarget, setAgentTarget] = useState<"embedded" | "connected">("embedded");
+  const [agentStatus, setAgentStatus] = useState<DiagramAgentStatus>({
+    id: item.artifact.id,
+    phase: "disconnected",
+    name: "",
+  });
+  useEffect(() => {
+    let active = true;
+    const receive = (status: DiagramAgentStatus) => {
+      if (active && status.id === item.artifact.id) setAgentStatus(status);
+    };
+    let receivedEvent = false;
+    const remove = window.scope.onDiagramAgentStatus((status) => {
+      if (status.id === item.artifact.id) {
+        receivedEvent = true;
+        receive(status);
+      }
+    });
+    void window.scope
+      .diagramAgentStatus(item.artifact.id)
+      .then((status) => {
+        if (!receivedEvent) receive(status);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      remove();
+      void window.scope.cancelDiagramAgent(item.artifact.id).catch(() => {});
+    };
+  }, [item.artifact.id]);
   const [chatOpen, setChatOpen] = useState(false);
   const [restored, setRestored] = useState<DiagramDraft | null>();
   const [restoreError, setRestoreError] = useState(false);
   const [restoreAttempt, setRestoreAttempt] = useState(0);
   const conversation = useRef({ intent, messages, chatOpen });
   conversation.current = { intent, messages, chatOpen };
-  const request = useRef<{ canceled: boolean } | null>(null);
+  const request = useRef<{ canceled: boolean; target?: "connected" } | null>(null);
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
   const readyRef = useRef(false);
@@ -242,6 +273,48 @@ export function DiagramView({
       setBusy(null);
     }
   }
+  async function changeConnected() {
+    if (!api || !intent.trim() || busy || request.current || agentStatus.phase !== "waiting")
+      return;
+    const current = { canceled: false, target: "connected" as const };
+    request.current = current;
+    setBusy("connected");
+    const prompt = intent.trim();
+    setMessages((previous) => [...previous, { role: "user", text: prompt }]);
+    try {
+      const result = await window.scope.requestDiagramAgent({
+        id: item.artifact.id,
+        intent: prompt,
+        history: messages.slice(-12).map(({ role, text }) => ({ role, text: text.slice(0, 4000) })),
+      });
+      if (!current.canceled) {
+        setIntent("");
+        setMessages((previous) => [
+          ...previous,
+          {
+            role: "assistant",
+            text: result.message,
+            details: `${agentStatus.name}. Save to publish any edits.`,
+          },
+        ]);
+      }
+    } catch (error) {
+      setMessages((previous) => [
+        ...previous,
+        {
+          role: "assistant",
+          text: current.canceled
+            ? "Request canceled. Read the canvas before retrying if a reply was already arriving."
+            : error instanceof Error
+              ? error.message
+              : "The connected agent did not reply. Connect again and retry.",
+        },
+      ]);
+    } finally {
+      if (request.current === current) request.current = null;
+      setBusy(null);
+    }
+  }
   async function change() {
     if (!api || !intent.trim() || busy || request.current) return;
     const current = { canceled: false };
@@ -329,7 +402,11 @@ export function DiagramView({
     }
     const unregister = registerDiagramCommands(item.artifact.id, async (command, signal) => {
       const combined = AbortSignal.any([signal, lifetime.signal]);
-      if (busy || request.current || !readyRef.current)
+      if (
+        (busyRef.current && busyRef.current !== "connected") ||
+        (request.current && request.current.target !== "connected") ||
+        !readyRef.current
+      )
         throw new Error("The diagram is busy. Retry after the current operation finishes.");
       if (command.action === "create") throw new Error("Use the diagram creation command.");
       const current = await snapshot();
@@ -337,7 +414,11 @@ export function DiagramView({
       if ("snapshot" in command && command.snapshot && command.snapshot !== current.snapshot)
         throw new Error("The canvas changed since it was read. Read it again before editing.");
       if (command.action === "apply") {
-        if (busyRef.current || request.current || !readyRef.current)
+        if (
+          (busyRef.current && busyRef.current !== "connected") ||
+          (request.current && request.current.target !== "connected") ||
+          !readyRef.current
+        )
           throw new Error(
             "The diagram is busy. Read it again after the current operation finishes.",
           );
@@ -390,12 +471,14 @@ export function DiagramView({
       lifetime.abort();
       unregister();
     };
-  }, [api, ready, busy, item.artifact.id]);
+  }, [api, ready, item.artifact.id]);
   async function cancel() {
     if (!request.current) return;
     request.current.canceled = true;
     try {
-      await window.scope.cancelDiagramGeneration();
+      if (request.current.target === "connected")
+        await window.scope.cancelDiagramAgent(item.artifact.id);
+      else await window.scope.cancelDiagramGeneration();
     } catch {
       setNotice("Could not reach the provider to cancel. Its result will not change the canvas.");
     }
@@ -524,7 +607,10 @@ export function DiagramView({
           ready={ready}
           onClose={() => setChatOpen(false)}
           onIntentChange={setIntent}
-          onSend={() => void change()}
+          target={agentTarget}
+          onTargetChange={setAgentTarget}
+          agentStatus={agentStatus}
+          onSend={() => void (agentTarget === "connected" ? changeConnected() : change())}
           onCancel={() => void cancel()}
         />
       </div>

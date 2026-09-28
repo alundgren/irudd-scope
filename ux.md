@@ -127,7 +127,14 @@ Create diagram is available in the empty workspace and search panel.
 An existing diagram has an Ask agent conversation, closed by default.
 It sits beside the canvas at desktop widths and overlays it in a narrow
 window. Enter sends, Shift+Enter adds a line, and a pending request offers
-Cancel. Save explicitly publishes changes.
+Cancel. Save explicitly publishes changes. The conversation has an agent selector.
+Embedded agent uses the configured model. Connected agent sends requests to a
+publisher that has explicitly connected and is waiting, even when embedded
+generation is off. The panel shows the connection name and waiting or working
+state. With no connected agent it explains how to make one available. Replies
+appear in the conversation and edits remain drafts until Save. Cancel ends that
+request and invalidates late replies. The selector returns to Embedded agent on
+restart; connection state does not survive restart.
 
 SQLite retains the conversation, unsent prompt, working canvas, and zoom and
 pan across restarts for tabs that remain open. Incoming revisions preserve unsaved

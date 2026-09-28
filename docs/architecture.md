@@ -273,3 +273,15 @@ The CLI owns file input and explicit PNG output. The hub only forwards requests.
 Embedded generation receives bounded recent conversation, current selection,
 and read-only object summaries as well as the editable scene. Supported imported
 and manually drawn objects use stable native aliases in semantic operations.
+
+### Connected diagram agents
+
+An authenticated publisher can explicitly wait for a request from its diagram
+tab through `POST /v1/diagram-agents`. Desktop main owns bounded, temporary
+connection records. The tab sends intent, recent conversation, and a current
+snapshot only to an active waiter. A request-specific credential authorizes the
+reply; semantic edits use the same snapshot validation and draft persistence as
+other diagram commands. Connection records and reply credentials never enter
+SQLite. Renderer reload, tab close, cancellation, expiry, and desktop shutdown
+end them. The hub only forwards the HTTP traffic. Scope does not launch, resume,
+or schedule agent sessions.

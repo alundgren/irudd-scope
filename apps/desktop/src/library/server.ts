@@ -1,3 +1,4 @@
+import { DiagramAgentCommand, DiagramAgentReply } from "@irudd-scope/protocol/diagram-agent";
 import {
   DiagramCommand,
   DiagramReply,
@@ -25,6 +26,7 @@ import {
 import { ArtifactStore } from "./store.ts";
 
 export async function startArtifactServer(options: {
+  diagramAgent?: (command: DiagramAgentCommand, signal: AbortSignal) => Promise<DiagramAgentReply>;
   diagram?: (command: DiagramCommand, signal: AbortSignal) => Promise<DiagramReply>;
   directory: string;
   token: string;
@@ -97,6 +99,28 @@ export async function startArtifactServer(options: {
     if (request.headers.origin)
       throw new ScopeError(403, "Browser-origin requests are not supported.");
 
+    if (request.method === "POST" && url.pathname === "/v1/diagram-agents" && !url.search) {
+      if (!options.diagramAgent) throw new ScopeError(503, "The diagram editor is unavailable.");
+      const awaitBody = await readJson(
+        request,
+        MAX_DIAGRAM_REQUEST_BYTES,
+        "Diagram request exceeds 512 KiB.",
+      );
+      const command = validate(() => decode(DiagramAgentCommand, awaitBody));
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+      response.once("close", cancel);
+      try {
+        json(
+          response,
+          200,
+          decode(DiagramAgentReply, await options.diagramAgent(command, controller.signal)),
+        );
+      } finally {
+        response.off("close", cancel);
+      }
+      return;
+    }
     if (request.method === "POST" && url.pathname === "/v1/diagrams" && !url.search) {
       if (!options.diagram) throw new ScopeError(503, "The diagram editor is unavailable.");
       const awaitBody = await readJson(

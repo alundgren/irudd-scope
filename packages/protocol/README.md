@@ -118,3 +118,30 @@ pending editor work. A timeout can follow a completed write; read before retryin
 Preview is generated only on request, at most 2048 pixels on its longest side and
 8 MiB before base64 encoding. Clients bound the complete JSON response to 16 MiB.
 `irudd-scope diagram guide` returns the operation schema and usage instructions.
+
+## Connected diagram agents
+
+`src/diagram-agent.ts` defines `POST /v1/diagram-agents`. It uses the publishing
+bearer token and the diagram request/response size limits. Paired hubs forward it.
+Scope holds no agent runtime or host credentials. All connection state stays in
+desktop memory, with at most four connections and one per diagram.
+
+`wait` takes `id` and a display `name`. It verifies a loaded diagram tab, then
+waits up to 20 seconds. The reply is `{ type: "idle" }` or a `request` containing
+`id`, `requestId`, private `token`, `intent`, bounded `history`, and `diagram`.
+Only an agent with an outstanding wait is available for new tab requests.
+Closing that wait cancels availability. Repeat waits explicitly when idle.
+
+`reply` takes `id`, `requestId`, `token`, `snapshot`, `message`, and `operations`.
+The request credential is scoped to that diagram and one delivered request.
+Edits use the normal snapshot check and persist as a draft. Empty operations
+send only a message. Successful replies consume the credential. A stale edit
+keeps the request available so the agent can inspect the current canvas before
+responding. `release` with the same identity and credential ends the request.
+The display name and artifact provenance are not authentication.
+
+Delivered requests have a five-minute reply deadline. Cancel, tab close,
+renderer reload, and desktop shutdown invalidate them. After delivery, the agent
+may compute its reply without keeping an HTTP request open, within that deadline.
+There is no offline request queue, automatic resume, replay, or agent launch.
+Lost reply responses are ambiguous: inspect the draft before retrying.
