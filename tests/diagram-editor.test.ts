@@ -158,7 +158,10 @@ test.for(["before", "after"] as const)(
         await page.keyboard.press("ControlOrMeta+,");
         await page.getByLabel("Search settings").fill("appearance");
         await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
-        await page.getByRole("button", { name: "Done", exact: true }).click();
+        await page
+          .getByRole("dialog", { name: "Settings", exact: true })
+          .getByRole("button", { name: "Close", exact: true })
+          .click();
         await page.getByRole("dialog").waitFor({ state: "hidden" });
         await page.setViewportSize(
           appearance === "light" ? { width: 1280, height: 820 } : { width: 700, height: 620 },

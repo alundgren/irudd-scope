@@ -169,7 +169,10 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
         .click();
       await page.getByRole("button", { name: "Appearance", exact: true }).click();
       await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await page
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
       await page.setViewportSize(
         appearance === "light" ? { width: 1280, height: 820 } : { width: 700, height: 620 },
       );
