@@ -29,6 +29,7 @@ test.each([false, true])(
       const file = join(f.directory, "operations.json");
       await writeFile(file, JSON.stringify(operations));
       await cli("diagram", "create", file, "--id", "connected", "--title", "Connected diagram");
+      await page.getByTestId("main-menu-trigger").click();
       await page.getByRole("button", { name: "Ask agent", exact: true }).click();
       await page
         .getByRole("combobox", { name: "Diagram agent", exact: true })
@@ -92,9 +93,15 @@ test.each([false, true])(
       await page.getByText("Renamed the browser.", { exact: true }).waitFor();
       await page.getByText("No agent connected", { exact: true }).waitFor();
       await expect(client.diagramAgent(reply)).rejects.toThrow("expired");
-      expect((await client.get("connected")).revision).toBe(1);
-      await page.getByRole("button", { name: "Save", exact: true }).click();
-      await expect.poll(async () => (await client.get("connected")).revision).toBe(2);
+      await expect.poll(async () => (await client.get("connected")).revision).toBe(3);
+      const saved = JSON.parse(new TextDecoder().decode(await client.content("connected")));
+      expect(
+        saved.elements.find((element: { id: string }) => element.id === "agent:browser:label")
+          .originalText,
+      ).toBe("Web client");
+      expect(saved.elements.find((element: { id: string }) => element.id === "agent:api").x).toBe(
+        600,
+      );
 
       const canceled = wait();
       await page

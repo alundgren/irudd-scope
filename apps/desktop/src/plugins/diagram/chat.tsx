@@ -91,8 +91,8 @@ export function DiagramChat({
       >
         {!messages.length && (
           <p className="secondary">
-            Describe a change to this diagram. You can edit the result on the canvas, then Save to
-            publish.
+            Describe a change to this diagram. You can edit the result on the canvas. Changes save
+            automatically.
           </p>
         )}
         {messages.map((message, index) => (

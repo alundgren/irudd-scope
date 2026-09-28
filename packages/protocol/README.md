@@ -101,7 +101,7 @@ No model key is involved. Read, apply, and preview require a loaded diagram tab.
 | --------- | ---------------------------------------------- | --------------------------------------------------- |
 | `create`  | `id`, `title`, `operations`, optional `source` | `{ type: "created", artifact }`, published revision |
 | `read`    | `id`                                           | `{ type: "snapshot", diagram }`                     |
-| `apply`   | `id`, `snapshot`, `operations`                 | Updated snapshot; persisted draft, awaiting Save    |
+| `apply`   | `id`, `snapshot`, `operations`                 | Updated snapshot; edits save automatically          |
 | `preview` | `id`, optional `snapshot`                      | PNG `data` in base64, ID, revision, and snapshot    |
 
 Snapshots include the published revision, dirty flag, editable scene, selected IDs,
@@ -134,7 +134,8 @@ Closing that wait cancels availability. Repeat waits explicitly when idle.
 
 `reply` takes `id`, `requestId`, `token`, `snapshot`, `message`, and `operations`.
 The request credential is scoped to that diagram and one delivered request.
-Edits use the normal snapshot check and persist as a draft. Empty operations
+Edits use the normal snapshot check and autosave to the artifact after saving
+the working draft. Empty operations
 send only a message. Successful replies consume the credential. A stale edit
 keeps the request available so the agent can inspect the current canvas before
 responding. `release` with the same identity and credential ends the request.

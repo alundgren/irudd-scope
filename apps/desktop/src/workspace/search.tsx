@@ -58,7 +58,7 @@ export function WorkspaceSearch({
   actions: readonly WorkspaceAction[];
   currentTab?: { title: string; actions: readonly WorkspaceAction[] };
   onOpenSettings: (filter?: string) => void;
-  finalFocus: boolean | RefObject<HTMLButtonElement | null>;
+  finalFocus: boolean | RefObject<HTMLElement | null>;
 }) {
   const results = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);

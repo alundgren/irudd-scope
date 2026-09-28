@@ -96,6 +96,7 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     await page.getByRole("button", { name: "Create diagram", exact: true }).click();
     await page.getByLabel("What should the diagram show?").fill("A browser talks to an API.");
     await page.getByRole("button", { name: "Create diagram", exact: true }).click();
+    await page.getByTestId("main-menu-trigger").click();
     await page.getByRole("button", { name: "Ask agent", exact: true }).click();
     await page.getByLabel("Change diagram", { exact: true }).waitFor();
     await page.locator(".excalidraw canvas").first().waitFor();
@@ -139,22 +140,54 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     expect(await page.getByRole("complementary", { name: "Diagram agent" }).isVisible()).toBe(
       false,
     );
+    await page.getByTestId("main-menu-trigger").click();
     await page.getByRole("button", { name: "Ask agent", exact: true }).click();
     expect(await page.getByLabel("Change diagram", { exact: true }).inputValue()).toBe(
       "Keep this draft",
     );
+    for (const enabled of [false, true]) {
+      await page.keyboard.press("ControlOrMeta+,");
+      await page.getByLabel("Search settings").fill("diagram generation");
+      const enable = page.getByRole("switch", { name: "Enable diagram generation" });
+      await enable.click();
+      await expect.poll(() => enable.getAttribute("aria-checked")).toBe(String(enabled));
+      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await expect.poll(() => page.getByRole("dialog").count()).toBe(0);
+      await page.getByTestId("main-menu-trigger").click();
+      expect(await page.getByRole("button", { name: "Ask agent", exact: true }).count()).toBe(1);
+      await page.getByTestId("main-menu-trigger").click();
+      expect(await page.getByRole("complementary", { name: "Diagram agent" }).isVisible()).toBe(
+        true,
+      );
+      expect(
+        await page.getByRole("combobox", { name: "Diagram agent", exact: true }).isVisible(),
+      ).toBe(true);
+      expect(await page.getByLabel("Change diagram", { exact: true }).count()).toBe(
+        enabled ? 1 : 0,
+      );
+    }
+    expect(await page.getByLabel("Change diagram", { exact: true }).inputValue()).toBe(
+      "Keep this draft",
+    );
+    await page.getByText("Moved the API.", { exact: true }).waitFor();
     const canvas = await page.locator(".excalidraw canvas").first().elementHandle();
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
+    expect(await page.getByRole("complementary", { name: "Diagram agent" }).isVisible()).toBe(true);
+    const mode = page.getByRole("combobox", { name: "Fullscreen diagram mode" });
+    await mode.selectOption("view");
     expect(await page.getByRole("complementary", { name: "Diagram agent" }).isVisible()).toBe(
       false,
     );
     await page.keyboard.press("Escape");
+    expect(await mode.inputValue()).toBe("edit");
     expect(await page.getByLabel("Change diagram", { exact: true }).inputValue()).toBe(
       "Keep this draft",
     );
     expect(await canvas?.evaluate((element) => element.isConnected)).toBe(true);
-    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await mode.selectOption("tabs");
+    await page.getByRole("navigation", { name: "Open artifacts" }).waitFor();
+    expect(await page.getByRole("button", { name: "Save", exact: true }).count()).toBe(0);
     await expect.poll(async () => (await client.get(artifacts[0].id)).revision).toBe(2);
     const updated = JSON.parse(new TextDecoder().decode(await client.content(artifacts[0].id)));
     expect(updated.elements.find((element: { id: string }) => element.id === "agent:api").x).toBe(
@@ -176,7 +209,7 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.getByText("Request canceled. The canvas is unchanged.", { exact: true }).waitFor();
     expect((await client.get(artifacts[0].id)).revision).toBe(2);
-    expect(await page.getByRole("button", { name: "Save", exact: true }).isEnabled()).toBe(false);
+    expect(await page.getByRole("button", { name: "Save", exact: true }).count()).toBe(0);
     await application.evaluate(() => {
       const original = globalThis.fetch;
       globalThis.fetch = async (url, init) =>
@@ -196,21 +229,6 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
             })
           : original(url, init);
     });
-    await page.getByLabel("Change diagram", { exact: true }).fill("Move it again");
-    await page.getByRole("button", { name: "Send", exact: true }).click();
-    await page.getByText("Moved it again.", { exact: true }).waitFor();
-    await client.publish(
-      artifacts[0].id,
-      {
-        title: artifacts[0].title,
-        kind: "excalidraw",
-        mediaType: artifacts[0].mediaType,
-        fileName: artifacts[0].fileName,
-        expectedRevision: 2,
-      },
-      new TextEncoder().encode(JSON.stringify(updated)),
-    );
-    await page.getByText("A newer version arrived. Your edits are still here.").waitFor();
     const database = new DatabaseSync(join(settingsDirectory, "artifacts/scope.db"), {
       timeout: 5000,
     });
@@ -218,12 +236,26 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
       database.exec(
         "CREATE TRIGGER fail_draft BEFORE INSERT ON tab_drafts BEGIN SELECT RAISE(ABORT, 'synthetic write failure'); END",
       );
+      await page.getByLabel("Change diagram", { exact: true }).fill("Move it again");
+      await page.getByRole("button", { name: "Send", exact: true }).click();
+      await page.getByText("Moved it again.", { exact: true }).waitFor();
+      await page.getByText("Could not save this diagram. Keep Scope open and retry.").waitFor();
+      await client.publish(
+        artifacts[0].id,
+        {
+          title: artifacts[0].title,
+          kind: "excalidraw",
+          mediaType: artifacts[0].mediaType,
+          fileName: artifacts[0].fileName,
+          expectedRevision: 2,
+        },
+        new TextEncoder().encode(JSON.stringify(updated)),
+      );
+      await page.getByText("A newer version arrived. Your edits are still here.").waitFor();
       await page
         .getByLabel("Change diagram", { exact: true })
         .fill("Keep this prompt through a failure");
-      await page
-        .getByText("Could not save this draft on your Mac. Keep Scope open and retry.")
-        .waitFor();
+      await page.getByText("Could not save this diagram. Keep Scope open and retry.").waitFor();
       database.exec(
         "CREATE TRIGGER fail_close BEFORE DELETE ON live_tabs BEGIN SELECT RAISE(ABORT, 'synthetic close failure'); END",
       );
@@ -238,7 +270,7 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
         for (const button of buttons) (button as HTMLButtonElement).click();
       });
       await page
-        .getByText("Could not save this draft on your Mac. Keep Scope open and retry.")
+        .getByText("Could not save this diagram. Keep Scope open and retry.")
         .waitFor({ state: "hidden" });
     } finally {
       database.close();
@@ -254,7 +286,7 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
       "Keep this prompt through a failure",
     );
     await page.getByText("A newer version arrived. Your edits are still here.").waitFor();
-    expect(await page.getByRole("button", { name: "Save", exact: true }).isEnabled()).toBe(true);
+    expect(await page.getByRole("button", { name: "Save", exact: true }).count()).toBe(0);
     const previousViewport = (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))!
       .viewport;
     await page.getByRole("button", { name: "Zoom out", exact: true }).click();
@@ -300,7 +332,7 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     );
     expect(restored?.viewport).toEqual(viewport);
     expect((await client.get(artifacts[0].id)).revision).toBe(3);
-    await page.getByRole("button", { name: "Save a copy", exact: true }).click();
+    await page.getByRole("button", { name: "Keep both", exact: true }).click();
     await expect.poll(async () => (await client.list()).length).toBe(2);
     const copy = (await client.list()).find((artifact) => artifact.id !== artifacts[0].id)!;
     const copied = JSON.parse(new TextDecoder().decode(await client.content(copy.id)));
@@ -311,9 +343,11 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     expect(remote.elements.find((element: { id: string }) => element.id === "agent:api").x).toBe(
       540,
     );
-    await page.getByRole("button", { name: "Discard edits and load latest", exact: true }).click();
+    await page
+      .getByText("A newer version arrived. Your edits are still here.")
+      .waitFor({ state: "hidden" });
     await expect
-      .poll(() => page.getByRole("button", { name: "Save", exact: true }).isEnabled())
+      .poll(async () => (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))?.dirty)
       .toBe(false);
     expect(errors).toEqual([]);
     await page.screenshot({ path: join(directory, "diagram.png") });

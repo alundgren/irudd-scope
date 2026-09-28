@@ -17,9 +17,9 @@ export const diagramPlugin: TabPlugin = {
     artifactId: publishedArtifactId,
     state: publishedTabState,
   },
-  View: ({ artifact, context, theme, focus }) => (
+  View: ({ artifact, context, theme, viewing }) => (
     <PublishedContent artifact={artifact}>
-      {(item) => <DiagramView item={item} context={context} theme={theme} focus={focus} />}
+      {(item) => <DiagramView item={item} context={context} theme={theme} viewing={viewing} />}
     </PublishedContent>
   ),
   tools: [

@@ -263,7 +263,8 @@ their Keychain credentials when connecting at startup.
 
 Use Create diagram in the empty workspace or search panel. A
 generated diagram becomes an editable artifact. Ask agent edits its current
-canvas; Save publishes the edits. HTML previews run trusted agent output with
+canvas; edits save automatically. The diagram's left menu provides Export,
+Find on canvas, and Library. HTML previews run trusted agent output with
 scripts, external styles, images, fonts, network requests, forms, and popups.
 Publish a complete HTML document. Resources must be embedded or use reachable
 URLs; publishing a file does not upload adjacent files. A document can set its

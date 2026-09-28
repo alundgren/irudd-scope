@@ -58,13 +58,19 @@ native editing shortcuts. Windows and Linux hide the menu bar until Alt is
 pressed. The macOS menu bar belongs to the system and follows its fullscreen
 visibility setting.
 
-Fullscreen in the search panel enters native fullscreen and Scope's focus mode.
-It keeps the selected artifact mounted, hides workspace controls and diagram
-chat, and leaves a small icon button at the top right, clear of Excalidraw's
-centered toolbar. It preserves scroll, zoom, and conversation. Excalidraw
-uses zen mode. Escape closes an active dialog or editor interaction before
-leaving focus. Command-Shift-F toggles focus; Command-K opens the panel in
-either mode. Leaving native fullscreen also restores the workspace controls.
+Fullscreen in the search panel enters native fullscreen, keeps the selected
+artifact mounted, and hides workspace navigation. Other artifact tabs leave a
+small exit at the top right, clear of Excalidraw's centered toolbar.
+Diagram tabs start in Edit, with the Excalidraw tools and left menu available.
+A small control at the top right switches between Edit, View, and
+Present or exits fullscreen. View shows only the drawing and allows zoom and pan.
+Present adds a larger pointer with a short trail for an audience. View and
+Present prevent edits and hide the diagram conversation without discarding it.
+Switching modes preserves the canvas, zoom, draft, and conversation. Escape
+closes an active dialog or editor interaction, then returns View or Present to
+Edit and Edit to the workspace. Command-Shift-F toggles fullscreen; Command-K
+opens the panel in any mode. Leaving native fullscreen also restores the
+workspace controls.
 
 Published HTML is trusted agent output. Prototypes run their scripts, load
 external resources, submit forms, and open links without a trust prompt or
@@ -87,8 +93,9 @@ Appearance saves when changed. The API key has its own Save key action inside
 Diagram generation.
 Diagram generation is off by default, including for existing profiles. Its
 switch saves immediately. Turning it off retains the saved key and diagram
-drafts. Create diagram and Ask agent offer a link to its Settings section
-while it is off; existing diagrams remain editable.
+drafts. Create diagram offers a link to its Settings section while it is off.
+Ask agent and the conversation panel are hidden until generation is enabled;
+existing diagrams remain editable.
 The diagram provider, model, and API key stay together. OpenRouter with Gemini
 3.8 Flash is the supported configuration. Saving a key clears the input;
 saved secrets are never displayed. Keychain errors remain visible while
@@ -138,19 +145,27 @@ Create diagram is available in the empty workspace and search panel.
 An existing diagram has an Ask agent conversation, closed by default.
 It sits beside the canvas at desktop widths and overlays it in a narrow
 window. Enter sends, Shift+Enter adds a line, and a pending request offers
-Cancel. Save explicitly publishes changes. The conversation has an agent selector.
-Embedded agent uses the configured model. Connected agent sends requests to a
-publisher that has explicitly connected and is waiting, even when embedded
-generation is off. The panel shows the connection name and waiting or working
-state. With no connected agent it explains how to make one available. Replies
-appear in the conversation and edits remain drafts until Save. Cancel ends that
-request and invalidates late replies. The selector returns to Embedded agent on
-restart; connection state does not survive restart.
+Cancel. Canvas edits save automatically to the artifact in SQLite, alongside
+the conversation and view position. The editor has no Save button.
+Its left menu contains Export, Find on canvas, Library, and Ask agent. The menu
+replaces the separate Library and Ask agent controls on the right.
+The editor's bottom-right help button is hidden because its shortcut reference
+includes commands unavailable in Scope.
+
+The conversation has an agent selector. Embedded agent uses the configured
+model. Connected agent sends requests to a publisher that has explicitly
+connected and is waiting, even when embedded generation is off. Ask agent stays
+available in that case so the person can choose Connected agent. The panel
+shows the connection name and waiting or working state. With no connected agent
+it explains how to make one available. Replies appear in the conversation and
+canvas edits save automatically. Cancel ends that request and invalidates late
+replies. The selector returns to Embedded agent on restart; connection state
+does not survive restart.
 
 SQLite retains the conversation, unsent prompt, working canvas, and zoom and
-pan across restarts for tabs that remain open. Incoming revisions preserve unsaved
-edits and offer loading the latest content or saving a copy. Failed draft
-writes retain the canvas and offer Retry. Scope provides diagram conversation,
+pan across restarts for tabs that remain open. Incoming revisions preserve pending
+edits and offer Use incoming version or Keep both. Failed saves retain the canvas
+and offer Retry. Scope provides diagram conversation,
 not general chat or agent orchestration.
 
 English text, keyboard navigation, visible focus, labeled icon controls, and
