@@ -55,6 +55,7 @@ export class ArtifactStore {
       const store = new ArtifactStore(runtime, sql, filename, checkpoint);
       await store.initialize(directory);
       await store.initializeLifecycle();
+      await store.initializeNames();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -86,7 +87,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 3) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 4) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");
@@ -162,7 +163,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version === 3) return;
+    if (version >= 3) return;
     await this.run(
       sql.withTransaction(
         Effect.gen(function* () {
@@ -211,6 +212,18 @@ export class ArtifactStore {
           yield* sql`INSERT INTO lifecycle VALUES ('revision_floor', 1)`;
           yield* sql`INSERT INTO lifecycle SELECT 'max_revision', coalesce(max(revision), 0) FROM artifacts`;
           yield* sql`PRAGMA user_version = 3`;
+        }),
+      ),
+    );
+  }
+
+  private async initializeNames(): Promise<void> {
+    const sql = this.sql;
+    await this.run(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`CREATE UNIQUE INDEX IF NOT EXISTS artifacts_name ON artifacts(json_extract(document, '$.name')) WHERE json_extract(document, '$.name') IS NOT NULL`;
+          yield* sql`PRAGMA user_version = 4`;
         }),
       ),
     );
@@ -459,6 +472,16 @@ export class ArtifactStore {
     return decode(Artifact, JSON.parse(row.document));
   }
 
+  async named(name: string): Promise<Artifact> {
+    const [row] = await this.run(
+      this.sql<{
+        document: string;
+      }>`SELECT document FROM artifacts WHERE json_extract(document, '$.name') = ${name}`,
+    );
+    if (!row) throw new ScopeError(404, "Named tab not found.");
+    return decode(Artifact, JSON.parse(row.document));
+  }
+
   async list(after = ""): Promise<{ items: Artifact[]; next: string | null }> {
     const rows = await this.run(
       this.sql<{
@@ -495,6 +518,15 @@ export class ArtifactStore {
               new ScopeError(409, "Artifact changed. Read the current revision before updating."),
             );
           const { expectedRevision, tabId, ...metadata } = input;
+          if (previous?.name && input.name && previous.name !== input.name)
+            return yield* Effect.fail(new ScopeError(409, "A tab's name cannot change."));
+          const name = previous?.name ?? input.name;
+          if (name) {
+            const duplicate =
+              yield* sql`SELECT id FROM artifacts WHERE json_extract(document, '$.name') = ${name} AND id <> ${id}`;
+            if (duplicate.length)
+              return yield* Effect.fail(new ScopeError(409, "This tab name is already in use."));
+          }
           const [counter] = yield* sql<{
             value: number;
           }>`SELECT value FROM lifecycle WHERE name = 'revision_floor'`;
@@ -503,6 +535,7 @@ export class ArtifactStore {
           const now = new Date().toISOString();
           const artifact = decode(Artifact, {
             ...metadata,
+            ...(name ? { name } : {}),
             id,
             revision,
             size: blob.size,
@@ -511,6 +544,51 @@ export class ArtifactStore {
           });
           yield* sql`INSERT INTO artifacts(id, revision, document, tab_id, blob_id) VALUES (${id}, ${revision}, ${JSON.stringify(artifact)}, ${tabId}, ${input.blob})
         ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, document = excluded.document, blob_id = excluded.blob_id`;
+          return artifact;
+        }),
+      ),
+      (artifact) => ({ type: "artifact", artifact }),
+    );
+  }
+
+  async replaceContent(
+    id: string,
+    expectedRevision: number,
+    title: string,
+    bytes: Uint8Array,
+  ): Promise<Artifact> {
+    if (bytes.byteLength > MAX_CONTENT_BYTES)
+      throw new ScopeError(413, "Artifact exceeds the 32 MiB limit.");
+    const blob = createHash("sha256").update(bytes).digest("hex");
+    const sql = this.sql;
+    return this.mutate(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const [row] = yield* sql<{
+            document: string;
+            tab_id: string;
+          }>`SELECT document, tab_id FROM artifacts WHERE id = ${id}`;
+          if (!row) return yield* Effect.fail(new ScopeError(404, "This tab is closed."));
+          const previous = decode(Artifact, JSON.parse(row.document));
+          if (previous.revision !== expectedRevision)
+            return yield* Effect.fail(
+              new ScopeError(409, "Artifact changed. Read the current revision before updating."),
+            );
+          const artifact = decode(Artifact, {
+            ...previous,
+            title,
+            blob,
+            size: bytes.byteLength,
+            revision: expectedRevision + 1,
+            updatedAt: new Date().toISOString(),
+          });
+          yield* sql`INSERT INTO blobs(id, content) VALUES (${blob}, ${bytes}) ON CONFLICT(id) DO NOTHING`;
+          // Editor saves commit content and metadata together, so they need no upload grace period.
+          // An existing staging reference still protects a concurrent external upload.
+          yield* sql`INSERT INTO tab_blobs VALUES (${row.tab_id}, ${blob}, 0) ON CONFLICT(tab_id, blob_id) DO NOTHING`;
+          yield* sql`UPDATE artifacts SET revision = ${artifact.revision}, document = ${JSON.stringify(artifact)}, blob_id = ${blob} WHERE id = ${id}`;
+          yield* sql`UPDATE lifecycle SET value = max(value, ${artifact.revision}) WHERE name = 'max_revision'`;
+          yield* sql`DELETE FROM tab_blobs WHERE tab_id = ${row.tab_id} AND staged_until = 0 AND blob_id <> ${blob}`;
           return artifact;
         }),
       ),

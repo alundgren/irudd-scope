@@ -16,6 +16,9 @@ export function DiagramChat({
   onIntentChange,
   onSend,
   onCancel,
+  name,
+  target,
+  onTargetChange,
 }: {
   open: boolean;
   focus: boolean;
@@ -27,9 +30,13 @@ export function DiagramChat({
   onIntentChange: (intent: string) => void;
   onSend: () => void;
   onCancel: () => void;
+  name?: string;
+  target: "external" | "embedded";
+  onTargetChange: (target: "external" | "embedded") => void;
 }) {
   const preferences = useContext(SettingsContext);
-  const enabled = preferences?.settings?.diagramGenerationEnabled ?? false;
+  const external = Boolean(name) && target === "external";
+  const enabled = external || (preferences?.settings?.diagramGenerationEnabled ?? false);
   const history = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -42,8 +49,8 @@ export function DiagramChat({
     <aside className="diagram-chat" aria-label="Diagram agent" hidden={!open || focus}>
       <div className="chat-heading">
         <div>
-          <h2>Diagram agent</h2>
-          <p className="secondary">Gemini 3.8 Flash · OpenRouter</p>
+          <h2>{external ? "Your coding agent" : "Diagram agent"}</h2>
+          <p className="secondary">{external ? name : "Gemini 3.8 Flash · OpenRouter"}</p>
         </div>
         <Button
           variant="ghost"
@@ -55,6 +62,28 @@ export function DiagramChat({
           <X />
         </Button>
       </div>
+      {name && (
+        <div className="chat-target">
+          <label>
+            Send to{" "}
+            <select
+              aria-label="Conversation recipient"
+              value={target}
+              onChange={(event) => onTargetChange(event.target.value as "external" | "embedded")}
+            >
+              <option value="external">Your coding agent</option>
+              <option value="embedded">Scope diagram agent</option>
+            </select>
+          </label>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void navigator.clipboard.writeText(name)}
+          >
+            Copy name
+          </Button>
+        </div>
+      )}
       <div
         className="chat-history"
         role="log"
@@ -64,13 +93,20 @@ export function DiagramChat({
       >
         {!messages.length && (
           <p className="secondary">
-            Describe a change to this diagram. You can edit the result on the canvas. Changes save
-            automatically.
+            {external
+              ? "Keep your coding agent's Scope listener running to receive messages and canvas edits. Use this name to reconnect in another session."
+              : "Describe a change to this diagram. You can edit the result on the canvas. Changes save automatically."}
           </p>
         )}
         {messages.map((message, index) => (
           <div className={`chat-message${message.role === "user" ? " from-user" : ""}`} key={index}>
-            <strong>{message.role === "user" ? "You" : "Diagram agent"}</strong>
+            <strong>
+              {message.role === "user"
+                ? "You"
+                : message.agent === "external"
+                  ? "Your coding agent"
+                  : "Diagram agent"}
+            </strong>
             <p>{message.text}</p>
             {message.details && <p className="secondary">{message.details}</p>}
           </div>
@@ -101,7 +137,7 @@ export function DiagramChat({
             aria-label="Change diagram"
             placeholder="Describe a change…"
             value={intent}
-            maxLength={16000}
+            maxLength={external ? 4000 : 16000}
             disabled={busy === "generation"}
             onChange={(event) => onIntentChange(event.target.value)}
             onKeyDown={(event) => {

@@ -1,4 +1,5 @@
 import type { DiagramCommandRequest, DiagramCommandResponse } from "./plugins/diagram/commands.ts";
+import type { DiagramEvent } from "@irudd-scope/protocol";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { SettingsUpdate, SettingsView } from "./settings.ts";
 import type { Tab, Workspace } from "./workspace/contract.ts";
@@ -53,6 +54,7 @@ export type ScopeBridge = {
   saveWorkspace: (input: Workspace) => Promise<void>;
   diagramDraft: (id: string) => Promise<DiagramDraft | null>;
   saveDiagramDraft: (id: string, draft: DiagramDraft) => Promise<void>;
+  diagramEvent: (event: DiagramEvent) => Promise<void>;
   onBeforeClose: (listener: () => Promise<void>) => () => void;
   artifactLibrary: () => Promise<ArtifactLibrarySnapshot>;
   content: (id: string, revision: number) => Promise<ArtifactContent>;

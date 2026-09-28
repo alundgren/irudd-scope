@@ -235,7 +235,7 @@ export async function startPairedHub(state: HubState, port = state.configuration
         bounded(
           item.request.url === "/v1/diagrams"
             ? MAX_DIAGRAM_REQUEST_BYTES
-            : item.request.url?.endsWith("/blobs")
+            : item.request.url?.endsWith("/blobs") || item.request.url === "/v1/diagrams/sync"
               ? MAX_CONTENT_BYTES
               : MAX_METADATA_BYTES,
         ),

@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { ScopeError, decode } from "@irudd-scope/protocol";
-import { DiagramCommand, DiagramReply } from "@irudd-scope/protocol/diagram";
+import { DiagramReply } from "@irudd-scope/protocol/diagram";
+import { DiagramSyncReply } from "@irudd-scope/protocol/diagram-sync";
 import {
   DiagramCommandResponse,
+  HostedDiagramCommand,
   type DiagramCommandRequest,
   type DiagramCommandResult,
 } from "./commands.ts";
@@ -36,8 +38,8 @@ export function diagramCommands(
         entry.reject(new ScopeError(503, "The diagram editor closed."));
       }
     },
-    async run(input: DiagramCommand, signal: AbortSignal): Promise<DiagramReply> {
-      const command = decode(DiagramCommand, input);
+    async run(input: HostedDiagramCommand, signal: AbortSignal): Promise<DiagramCommandResult> {
+      const command = decode(HostedDiagramCommand, input);
       if (
         pending.size >= 4 ||
         [...pending.values()].some((entry) => entry.artifactId === command.id)
@@ -69,6 +71,7 @@ export function diagramCommands(
             command.id,
             {
               title: command.title,
+              ...(command.name ? { name: command.name } : {}),
               kind: "excalidraw",
               mediaType: "application/vnd.excalidraw+json",
               fileName: `${command.id}.excalidraw`,
@@ -80,7 +83,9 @@ export function diagramCommands(
           );
           return { type: "created", artifact };
         }
-        return decode(DiagramReply, result);
+        return command.action === "sync"
+          ? decode(DiagramSyncReply, result)
+          : decode(DiagramReply, result);
       } finally {
         combined.removeEventListener("abort", aborted);
         pending.delete(requestId);

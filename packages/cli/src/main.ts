@@ -14,22 +14,32 @@ import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import {
   ArtifactId,
+  ArtifactName,
   ArtifactKind,
   DEFAULT_CONNECTION_FILE,
   DEFAULT_PORT,
   MAX_CONTENT_BYTES,
   Source,
+  ScopeError,
   decode,
   decodeLocalConnection,
 } from "@irudd-scope/protocol";
 import { MAX_MAINTENANCE_TIMEOUT_MS } from "@irudd-scope/protocol/maintenance";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { setup, manageHub, installSkill, printPairing } from "./setup.ts";
+import { pullDiagram, pushDiagram, rebaseDiagram } from "./diagram-working.ts";
+import { watchDiagram } from "./diagram-watch.ts";
 
-const help = `irudd-scope add FILE [--title TITLE] [--id ID]
+const help = `irudd-scope add FILE [--title TITLE] [--id ID] [--named | --name NAME]
 irudd-scope text TEXT [--title TITLE] [--id ID] [--kind text|markdown]
 irudd-scope update ID FILE [--title TITLE]
 irudd-scope diagram guide|read|create|apply|preview [ID] [FILE]
+irudd-scope diagram pull NAME --output WORKING.json
+irudd-scope diagram push WORKING.json [--resolved] [--full]
+irudd-scope diagram rebase WORKING.json
+irudd-scope diagram propose WORKING.json --note TEXT [--resolved]
+irudd-scope diagram reply NAME TEXT
+irudd-scope diagram watch NAME [--claude-channel | --t3-thread ID | --codex-thread ID]
 irudd-scope list
 irudd-scope get ID
 irudd-scope delete ID
@@ -135,6 +145,17 @@ function parseOptions() {
     allowPositionals: true,
     options: {
       snapshot: { type: "string" },
+      named: { type: "boolean" },
+      name: { type: "string" },
+      resolved: { type: "boolean" },
+      full: { type: "boolean" },
+      note: { type: "string" },
+      "claude-channel": { type: "boolean" },
+      "t3-thread": { type: "string" },
+      "t3-endpoint": { type: "string" },
+      "t3-token-file": { type: "string" },
+      "codex-thread": { type: "string" },
+      "codex-url": { type: "string" },
       output: { type: "string" },
       status: { type: "boolean" },
       help: { type: "boolean", short: "h" },
@@ -155,6 +176,22 @@ function parseOptions() {
 }
 
 type Options = ReturnType<typeof parseOptions>["values"];
+
+function artifactName(values: Options, title: string) {
+  if (values.named && values.name) throw new Error("Choose --named or --name, not both.");
+  if (values.name) return decode(ArtifactName, values.name);
+  if (!values.named) return undefined;
+  const prefix =
+    title
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 110)
+      .replace(/-+$/g, "") || "diagram";
+  return `${prefix}-${randomUUID().slice(0, 8)}`;
+}
 
 function validateArtifactCommand(
   command: string,
@@ -206,6 +243,25 @@ async function localConnection(signal: AbortSignal) {
   }
 }
 
+async function resolveArtifact(client: ScopeClient, key: string) {
+  try {
+    return await client.get(key);
+  } catch (error) {
+    if (!(error instanceof ScopeError) || error.status !== 404) throw error;
+    try {
+      decode(ArtifactName, key);
+    } catch {
+      throw error;
+    }
+    try {
+      return await client.named(key);
+    } catch (namedError) {
+      if (namedError instanceof ScopeError && namedError.status === 404) throw error;
+      throw namedError;
+    }
+  }
+}
+
 async function publicationContent(
   command: string,
   argument: string,
@@ -253,10 +309,13 @@ async function preparePublication(
     file ? readFile(file, { signal }) : Promise.resolve(new TextEncoder().encode(argument!)),
   ]);
   const id = current?.id ?? values.id ?? randomUUID();
+  const title = values.title ?? current?.title ?? (command === "text" ? "Note" : fileName);
+  const name = current?.name ?? artifactName(values, title);
   return {
     id,
     input: {
-      title: values.title ?? current?.title ?? (command === "text" ? "Note" : fileName),
+      title,
+      ...(name ? { name } : {}),
       kind,
       mediaType,
       fileName,
@@ -299,10 +358,63 @@ async function main() {
   }
   if (command === "diagram") {
     const action = argument;
+    if (
+      ["pull", "push", "rebase", "propose", "reply", "proposal", "watch"].includes(action ?? "")
+    ) {
+      if (!replacement) throw new Error("Provide the diagram name or working file. Use --help.");
+      if (action === "watch") {
+        const controller = new AbortController();
+        const stop = () => controller.abort();
+        process.once("SIGINT", stop);
+        process.once("SIGTERM", stop);
+        try {
+          await watchDiagram(
+            await connect(values, controller.signal),
+            replacement,
+            values,
+            controller,
+          );
+        } finally {
+          controller.abort();
+        }
+        return;
+      }
+      const client = await connect(values, AbortSignal.timeout(parseTimeout(values["timeout-ms"])));
+      const result =
+        action === "pull"
+          ? await (async () => {
+              if (!values.output)
+                throw new Error(
+                  "Pull requires --output WORKING.json. Choose a new file to preserve existing edits.",
+                );
+              return pullDiagram(client, replacement, values.output);
+            })()
+          : action === "rebase"
+            ? await rebaseDiagram(client, replacement)
+            : action === "push" || action === "propose"
+              ? await pushDiagram(client, replacement, {
+                  full: values.full,
+                  resolved: values.resolved,
+                  ...(action === "propose"
+                    ? { note: values.note ?? "Is this what you meant?" }
+                    : {}),
+                })
+              : action === "reply"
+                ? await client.syncDiagram({
+                    action: "message",
+                    name: replacement,
+                    text: positionals[3] ?? "",
+                  })
+                : await client.syncDiagram({ action: "proposal", name: replacement });
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
     if (action === "guide") {
       console.log(
         JSON.stringify(
           {
+            namedDiagrams:
+              "Create with --named and tell the person the returned name. For all native Excalidraw objects: add diagram.excalidraw --named --title TITLE; diagram pull NAME --output diagram.scope.json. Edit document.elements by id, document.appState, or document.files in that working file; leave base, id and version intact. diagram push FILE sends property deltas. A conflict exits 2 without changing your work. diagram rebase FILE merges independent changes and lists conflicting fields; use judgement, then push --resolved or propose FILE --resolved --note TEXT for human visual acceptance. Proposals are editable in Scope. Pull to a new file for full recovery. Use diagram watch NAME in a background process for events; never run an agent polling loop. Each working file stores image data once; delete it with the worktree. No global agent cache. --full resends the document with the same version check for comparison or recovery.",
             instructions:
               "Create with: diagram create operations.json --id ID --title TITLE. Read with: diagram read ID. Edit with: diagram apply ID operations.json --snapshot TOKEN_FROM_READ. Edits save automatically to the artifact. Scope retains local edits if a newer revision conflicts. Read and preview require the diagram tab to be open and loaded. Export with: diagram preview ID --output preview.png. No model credentials are needed. After any timeout, read before retrying; a command may have completed. Use add for an existing native .excalidraw file.",
             drawing:
@@ -322,6 +434,8 @@ async function main() {
     const timeoutMs = parseTimeout(values["timeout-ms"]);
     const signal = AbortSignal.timeout(timeoutMs);
     const client = await connect(values, signal);
+    const diagramId =
+      action === "create" ? undefined : (await resolveArtifact(client, replacement)).id;
     const readOperations = async (file: string | undefined) => {
       if (!file) throw new Error("Provide a file containing a JSON array of diagram operations.");
       if ((await stat(file)).size > MAX_DIAGRAM_REQUEST_BYTES)
@@ -337,6 +451,9 @@ async function main() {
             action,
             id: values.id ?? randomUUID(),
             title: values.title ?? "Diagram",
+            ...(values.named || values.name
+              ? { name: artifactName(values, values.title ?? "Diagram") }
+              : {}),
             operations: await readOperations(replacement),
             source: await provenance(
               values.agent,
@@ -347,17 +464,17 @@ async function main() {
         : action === "apply"
           ? await client.diagram({
               action,
-              id: replacement,
+              id: diagramId!,
               snapshot: decode(DiagramSnapshotId, values.snapshot),
               operations: await readOperations(positionals[3]),
             })
           : action === "read"
-            ? await client.diagram({ action, id: replacement })
+            ? await client.diagram({ action, id: diagramId! })
             : await (async () => {
                 if (!values.output) throw new Error("Preview requires --output FILE.png.");
                 return client.diagram({
                   action: "preview",
-                  id: replacement,
+                  id: diagramId!,
                   ...(values.snapshot ? { snapshot: values.snapshot } : {}),
                 });
               })();
@@ -408,7 +525,7 @@ async function main() {
       return;
     }
     if (command === "get") {
-      console.log(JSON.stringify(await client.get(argument!), null, 2));
+      console.log(JSON.stringify(await resolveArtifact(client, argument!), null, 2));
       return;
     }
 

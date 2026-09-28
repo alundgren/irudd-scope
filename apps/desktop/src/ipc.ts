@@ -16,6 +16,8 @@ import type { AppUpdates } from "./updates.ts";
 import type { Remotes } from "./remotes.ts";
 import { RemoteId } from "@irudd-scope/protocol/remote";
 import { openKeychainAccess } from "./signing.ts";
+import { DiagramCommand, DiagramReply } from "@irudd-scope/protocol/diagram";
+import { DiagramSyncCommand, DiagramSyncReply } from "@irudd-scope/protocol/diagram-sync";
 
 export function registerDesktopIpc({
   window,
@@ -178,8 +180,10 @@ export function registerDesktopIpc({
   });
 
   return {
-    diagram: (command: Parameters<typeof diagrams.run>[0], signal: AbortSignal) =>
-      diagrams.run(command, signal),
+    diagram: async (command: DiagramCommand, signal: AbortSignal) =>
+      decode(DiagramReply, await diagrams.run(command, signal)),
+    syncDiagram: async (request: DiagramSyncCommand, id: string, signal: AbortSignal) =>
+      decode(DiagramSyncReply, await diagrams.run({ action: "sync", id, request }, signal)),
     cancelPending: () => {
       plugins.cancelPending();
       diagrams.cancelAll();
