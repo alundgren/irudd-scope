@@ -85,16 +85,17 @@ test("Settings starts compact, opens search matches, and preserves input across 
       }
     }
 
-    const done = settings.getByRole("button", { name: "Done", exact: true });
+    const close = settings.getByRole("button", { name: "Close", exact: true });
+    expect(await settings.getByRole("button", { name: "Done", exact: true }).count()).toBe(0);
     await settings.getByRole("button", { name: "Signing certificate", exact: true }).click();
     await settings.getByText("How to create a certificate", { exact: true }).click();
     const searchPosition = await search.boundingBox();
-    const donePosition = await done.boundingBox();
+    const closePosition = await close.boundingBox();
     await settings
       .getByRole("button", { name: "Connect certificate", exact: true })
       .scrollIntoViewIfNeeded();
     expect(await search.boundingBox()).toEqual(searchPosition);
-    expect(await done.boundingBox()).toEqual(donePosition);
+    expect(await close.boundingBox()).toEqual(closePosition);
     await search.fill("credentials");
     await key.waitFor();
     if (process.env.SCOPE_TEST_SCREENSHOTS) {
@@ -103,7 +104,7 @@ test("Settings starts compact, opens search matches, and preserves input across 
         animations: "disabled",
       });
     }
-    await done.click();
+    await close.click();
     await settings.waitFor({ state: "hidden" });
   } finally {
     await application.close();
@@ -190,7 +191,7 @@ test("diagram key checks require an open enabled section and failed access can b
     await settings.getByText("Settings saved.", { exact: true }).waitFor();
     await search.fill("no matching setting");
     await settings.getByRole("button", { name: "Clear search" }).click();
-    await settings.getByRole("button", { name: "Done", exact: true }).click();
+    await settings.getByRole("button", { name: "Close", exact: true }).click();
     await page
       .getByLabel("What should the diagram show?")
       .fill("Keep this prompt while generation is off.");
@@ -207,11 +208,11 @@ test("diagram key checks require an open enabled section and failed access can b
     await search.fill("theme");
     await search.fill("diagram generation");
     expect(await checks()).toBe(3);
-    await settings.getByRole("button", { name: "Done", exact: true }).click();
+    await settings.getByRole("button", { name: "Close", exact: true }).click();
     await page.getByRole("button", { name: "Open diagram settings" }).click();
     await enable.click();
     await settings.getByText("Key saved", { exact: true }).waitFor();
-    await settings.getByRole("button", { name: "Done", exact: true }).click();
+    await settings.getByRole("button", { name: "Close", exact: true }).click();
     expect(await page.getByLabel("What should the diagram show?").inputValue()).toBe(
       "Keep this prompt while generation is off.",
     );

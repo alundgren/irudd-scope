@@ -119,7 +119,7 @@ Settings opens with its search input focused and its sections collapsed.
 Each section has a short description and can be expanded with the mouse or
 keyboard. Search opens matching sections; clearing it returns to the compact
 overview. Fields keep unsaved input when collapsed or filtered out. The search
-field and Done button stay visible while the sections scroll. Empty results
+field and top-right close button stay visible while the sections scroll. Empty results
 offer Clear search and return focus to the search field.
 Appearance saves when changed. The API key has its own Save key action inside
 Diagram generation.

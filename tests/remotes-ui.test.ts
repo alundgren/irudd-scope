@@ -49,7 +49,10 @@ test("Settings pairs a remote, shows publications, disconnects, and removes its 
       "--title",
       "Remote review with a long title to check workspace navigation",
     );
-    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     await page.getByText("A publication from the paired remote", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
@@ -85,7 +88,10 @@ test("Settings pairs a remote, shows publications, disconnects, and removes its 
     await page.getByRole("button", { name: "Remove remote", exact: true }).click();
     await page.getByText("No remotes paired.").waitFor();
     expect(state.status().pairedMac).toBeNull();
-    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     await page.getByText("A publication from the paired remote", { exact: true }).waitFor();
   } finally {
     await app.close();

@@ -55,7 +55,10 @@ test("retention drawer keeps Trashcan secondary, restores tabs, and requires two
       await page.keyboard.press("ControlOrMeta+,");
       await page.getByLabel("Search settings").fill("appearance");
       await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await page
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
       await page
         .getByRole("dialog", { name: "Settings", exact: true })
         .waitFor({ state: "hidden" });

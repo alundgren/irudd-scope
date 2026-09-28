@@ -634,7 +634,7 @@ h2 {
   flex-direction: column;
   gap: 0;
   width: 640px;
-  height: min(620px, calc(100vh - 32px));
+  max-height: min(620px, calc(100vh - 32px));
   max-width: calc(100vw - 32px);
   padding: 0;
   overflow: hidden;
@@ -697,18 +697,12 @@ h2 {
   justify-content: space-between;
   flex-wrap: wrap;
 }
-.settings-footer {
-  display: flex;
-  flex: 0 0 auto;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--scope-space-4);
-  padding: var(--scope-space-4) var(--scope-space-6);
-  border-top: 1px solid var(--scope-line);
-}
-.settings-footer > div {
+.settings-notice {
   display: grid;
+  flex: 0 0 auto;
   gap: var(--scope-space-2);
+  justify-items: start;
+  padding: 0 calc(var(--scope-space-6) + var(--scope-space-3)) var(--scope-space-4);
   font-size: var(--scope-text-detail);
 }
 .settings-empty {
