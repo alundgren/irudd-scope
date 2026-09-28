@@ -39,7 +39,10 @@ test("new CLI publications open visible tabs and preserve reading and saved sele
       await page.keyboard.press("ControlOrMeta+,");
       await page.getByRole("button", { name: "Appearance", exact: true }).click();
       await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await page
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
       await page
         .getByRole("dialog", { name: "Settings", exact: true })
         .waitFor({ state: "hidden" });
@@ -109,7 +112,7 @@ test("publications wait while a diagram is being composed", async () => {
     await page.getByRole("switch", { name: "Enable diagram generation" }).click();
     await page
       .getByRole("dialog", { name: "Settings", exact: true })
-      .getByRole("button", { name: "Done", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
       .click();
     await page
       .getByLabel("What should the diagram show?")
@@ -264,7 +267,10 @@ test("the compact workspace preserves reading position, supports overflowing tab
     );
     expect(await page.getByLabel("OpenRouter API key").isVisible()).toBe(false);
     expect(await page.getByLabel("Appearance", { exact: true }).isVisible()).toBe(false);
-    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     expect(await pane.evaluate((element) => element.scrollTop)).toBe(scroll);
 
     await client.publish(

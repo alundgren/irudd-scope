@@ -10,11 +10,9 @@ import { ModelSettings } from "./model-settings.tsx";
 import { matchingSettings, SettingsSection } from "./settings-section.tsx";
 
 export function SettingsViewPanel({
-  onClose,
   onSettingsChange,
   initialQuery = "",
 }: {
-  onClose: () => void;
   onSettingsChange: (settings: SettingsView) => void;
   initialQuery?: string;
 }) {
@@ -70,6 +68,16 @@ export function SettingsViewPanel({
           autoFocus
         />
       </div>
+      {notice && (
+        <div className="settings-notice">
+          <p role="status">{notice}</p>
+          {!settings && (
+            <Button type="button" variant="secondary" onClick={() => void load()}>
+              Retry
+            </Button>
+          )}
+        </div>
+      )}
       <div className="settings-sections">
         {matches.length === 0 && (
           <div className="settings-empty" role="status">
@@ -116,19 +124,6 @@ export function SettingsViewPanel({
         </SettingsSection>
         <RemoteSettings query={query} />
         <InstallationSettings query={query} />
-      </div>
-      <div className="settings-footer">
-        <div>
-          {notice && <p role="status">{notice}</p>}
-          {!settings && notice && (
-            <Button type="button" variant="secondary" onClick={() => void load()}>
-              Retry
-            </Button>
-          )}
-        </div>
-        <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
-          Done
-        </Button>
       </div>
     </>
   );

@@ -529,7 +529,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           <SettingsViewPanel
             key={settingsQuery}
             initialQuery={settingsQuery}
-            onClose={() => setSettings(false)}
             onSettingsChange={(value) => {
               setPreferences(value);
               setAppearance(value.appearance);
