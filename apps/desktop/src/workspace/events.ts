@@ -53,20 +53,7 @@ export class TabEventRouter {
           while (this.queue.length) {
             const { envelope, membership: sender } = this.queue.shift()!;
             if (this.tabs.get(envelope.tabId) !== sender) continue;
-            const listeners = [...this.listeners];
-            for (const listener of listeners) {
-              if (!this.listeners.has(listener)) continue;
-              if (listener.tabId === envelope.tabId) continue;
-              if (listener.tabId && this.tabs.get(listener.tabId)?.groupId !== envelope.groupId)
-                continue;
-              try {
-                void Promise.resolve(listener.receive(structuredClone(envelope))).catch(
-                  this.onError,
-                );
-              } catch (error) {
-                this.onError(error);
-              }
-            }
+            this.deliver(envelope);
           }
         } finally {
           this.dispatching = false;
@@ -92,5 +79,19 @@ export class TabEventRouter {
         for (const unsubscribe of owned) unsubscribe();
       },
     };
+  }
+
+  private deliver(envelope: TabEventEnvelope): void {
+    const listeners = [...this.listeners];
+    for (const listener of listeners) {
+      if (!this.listeners.has(listener)) continue;
+      if (listener.tabId === envelope.tabId) continue;
+      if (listener.tabId && this.tabs.get(listener.tabId)?.groupId !== envelope.groupId) continue;
+      try {
+        void Promise.resolve(listener.receive(structuredClone(envelope))).catch(this.onError);
+      } catch (error) {
+        this.onError(error);
+      }
+    }
   }
 }
