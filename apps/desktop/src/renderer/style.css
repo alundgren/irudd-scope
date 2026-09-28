@@ -1026,3 +1026,92 @@ h2 {
     transition-duration: 0ms !important;
   }
 }
+
+.tab-permanent {
+  opacity: 0;
+}
+.artifact-tab:is(:hover, :focus-within, .selected) .tab-permanent,
+.tab-permanent.is-permanent {
+  opacity: 1;
+}
+.tab-permanent.is-permanent {
+  color: var(--scope-accent);
+}
+.tab-retention-filters,
+.trash-confirm-actions {
+  display: flex;
+  gap: var(--scope-space-1);
+}
+.tab-retention-filters [aria-pressed="true"] {
+  background: var(--scope-selected);
+}
+.tab-retention-filters {
+  flex-wrap: wrap;
+}
+.tab-drawer-row {
+  display: flex;
+  align-items: center;
+  gap: var(--scope-space-1);
+}
+.tab-drawer-row .tab-overflow-result {
+  flex: 1;
+  min-width: 0;
+}
+.tab-drawer-title > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab-drawer-title small {
+  display: block;
+  font-size: var(--scope-text-detail);
+  color: var(--scope-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.retention-note,
+.empty-trash p,
+.trash-unlock {
+  font-size: var(--scope-text-detail);
+  color: var(--scope-muted);
+}
+.empty-trash {
+  border-top: 1px solid var(--scope-line);
+  padding-top: var(--scope-space-3);
+  display: grid;
+  gap: var(--scope-space-2);
+}
+.empty-trash > button {
+  justify-self: start;
+  color: var(--scope-danger);
+}
+.empty-trash [role="alert"] {
+  color: var(--scope-danger);
+}
+.trash-unlock {
+  display: grid;
+  gap: var(--scope-space-1);
+}
+.trash-unlock input {
+  width: 100%;
+  accent-color: var(--scope-danger);
+}
+.trash-confirm-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.tab-drawer-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--scope-space-3);
+  border-top: 1px solid var(--scope-line);
+  padding-top: var(--scope-space-2);
+}
+.tab-drawer-footer .retention-note {
+  flex: 1;
+}
+.tab-drawer-footer > button {
+  color: var(--scope-muted);
+}

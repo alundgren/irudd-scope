@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 
-test("new CLI publications open visible tabs and preserve reading and saved selection while closing deletes content", async () => {
+test("new CLI publications open visible tabs and preserve reading and saved selection while closing retains content in Trashcan", async () => {
   const { directory, launch, cli } = await desktopFixture();
   let application = await launch();
   try {
@@ -62,8 +62,8 @@ test("new CLI publications open visible tabs and preserve reading and saved sele
     await page.keyboard.press("ControlOrMeta+w");
     await expect.poll(() => page.getByRole("tab").count()).toBe(1);
     expect(await pane.evaluate((element) => element.scrollTop)).toBe(scroll);
-    await expect(cli("get", "second")).rejects.toThrow("Artifact not found");
-    await expect(cli("update", "second", second)).rejects.toThrow("Artifact not found");
+    expect(JSON.parse((await cli("get", "second")).stdout).id).toBe("second");
+    await expect(cli("update", "second", second)).rejects.toThrow("Trashcan");
     await page.getByRole("button", { name: "Search and controls" }).click();
     expect(await page.getByRole("button", { name: "Reopen closed tab", exact: true }).count()).toBe(
       0,
@@ -73,7 +73,7 @@ test("new CLI publications open visible tabs and preserve reading and saved sele
     await page.keyboard.press("Escape");
     await page.keyboard.press("ControlOrMeta+w");
     await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
-    expect(JSON.parse((await cli("list")).stdout)).toEqual([]);
+    expect(JSON.parse((await cli("list")).stdout)).toHaveLength(2);
     await application.close();
     application = await launch();
     page = await application.firstWindow();
@@ -281,7 +281,7 @@ test("the compact workspace preserves reading position, supports overflowing tab
     await page.getByRole("img", { name: "Updated artifact" }).first().waitFor();
     expect(await navigation.getByRole("tab", { selected: true }).textContent()).toBe(titles[11]);
     await searchTrigger.click();
-    await currentTab.getByRole("button", { name: "Close tab", exact: true }).click();
+    await currentTab.getByRole("button", { name: "Move to Trashcan", exact: true }).click();
     await expect
       .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
       .toBe(11);
@@ -297,8 +297,8 @@ test("the compact workspace preserves reading position, supports overflowing tab
       .poll(() => navigation.getByRole("tab", { selected: true }).textContent())
       .toBe(titles[10]);
     expect(errors).toEqual([]);
-    expect((await client.list()).length).toBe(11);
-    await expect(client.get("report-11")).rejects.toMatchObject({ status: 404 });
+    expect((await client.list()).length).toBe(12);
+    expect(await client.get("report-11")).toBeDefined();
     await application.close();
     application = await launch();
     const reopened = await application.firstWindow();

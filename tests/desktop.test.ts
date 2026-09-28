@@ -253,10 +253,10 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
         .fill("Keep this prompt through a failure");
       await page.getByText("Could not save this diagram. Keep Scope open and retry.").waitFor();
       database.exec(
-        "CREATE TRIGGER fail_close BEFORE DELETE ON live_tabs BEGIN SELECT RAISE(ABORT, 'synthetic close failure'); END",
+        "CREATE TRIGGER fail_close BEFORE UPDATE OF trashed_at ON live_tabs BEGIN SELECT RAISE(ABORT, 'synthetic close failure'); END",
       );
       await page.getByRole("button", { name: `Close ${artifacts[0].title}`, exact: true }).click();
-      await page.getByText("Could not close this tab. Try closing it again.").waitFor();
+      await page.getByText("Could not move this tab to Trashcan. Try again.").waitFor();
       expect(await page.getByRole("tab", { name: artifacts[0].title, exact: true }).count()).toBe(
         1,
       );
@@ -394,9 +394,16 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
         ),
       )
       .toBe(true);
-    await expect.poll(async () => (await client.list()).length).toBe(1);
-    expect(await page.evaluate((id) => window.scope.diagramDraft(id), tabId)).toBeNull();
-    await expect(client.get(artifacts[0].id)).rejects.toMatchObject({ status: 404 });
+    await expect.poll(async () => (await client.list()).length).toBe(2);
+    expect(await page.evaluate((id) => window.scope.diagramDraft(id), tabId)).not.toBeNull();
+    expect(await client.get(artifacts[0].id)).toBeDefined();
+    await page.getByRole("button", { name: /^More tabs,/ }).click();
+    await page.getByRole("button", { name: "Trashcan", exact: true }).click();
+    await page.locator(".tab-overflow-result").filter({ hasText: artifacts[0].title }).click();
+    await page.getByRole("textbox", { name: "Change diagram", exact: true }).waitFor();
+    expect(
+      await page.getByRole("textbox", { name: "Change diagram", exact: true }).inputValue(),
+    ).toBe("Close during this request");
   } finally {
     await application.close();
     await rm(directory, { recursive: true, force: true });

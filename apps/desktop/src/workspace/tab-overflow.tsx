@@ -1,55 +1,101 @@
-import { useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { Popover } from "@base-ui/react/popover";
-import { ChevronDown, File, Search, X } from "lucide-react";
+import { ArrowLeft, Bookmark, ChevronDown, File, RotateCcw, Search, Trash2, X } from "lucide-react";
 import type { Artifact } from "@irudd-scope/protocol";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { Input } from "../renderer/components/ui/input.tsx";
 import { tabArtifactId } from "../plugins/registry.renderer.ts";
 import type { Tab } from "./contract.ts";
+import { TRASH_RETENTION_MS, type RetainedTab } from "./retention.ts";
+import { EmptyTrash } from "./empty-trash.tsx";
 
 export function TabOverflow({
   tabs,
+  retainedTabs,
   hiddenIds,
   artifacts,
   unread,
   tabButtons,
   onSelect,
+  onPermanent,
+  onRestore,
+  onClose,
   open,
   onOpenChange,
   restoreFocus,
 }: {
   tabs: readonly Tab[];
+  retainedTabs: readonly RetainedTab[];
   hiddenIds: ReadonlySet<string>;
   artifacts: ReadonlyMap<string, Artifact>;
   unread: ReadonlySet<string>;
   tabButtons: RefObject<Map<string, HTMLButtonElement>>;
   onSelect: (id: string) => void;
+  onPermanent: (id: string, permanent: boolean) => Promise<void>;
+  onRestore: (id: string) => Promise<void>;
+  onClose: (id: string) => Promise<void>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   restoreFocus: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!open) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, [open]);
+  const [section, setSection] = useState<"active" | "trash">("active");
+  const [filter, setFilter] = useState<"all" | "permanent" | "temporary">("all");
+  const [pending, setPending] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const results = useRef<HTMLDivElement>(null);
   const chosen = useRef<string | null>(null);
   const needle = query.trim().toLowerCase();
-  const entries = tabs.toReversed().flatMap((tab) => {
+  const retention = new Map(retainedTabs.map((entry) => [entry.tab.id, entry]));
+  const trash = retainedTabs
+    .filter((entry) => entry.trashedAt !== null)
+    .toSorted((a, b) => b.trashedAt! - a.trashedAt! || a.tab.id.localeCompare(b.tab.id));
+  const ordered =
+    section === "trash"
+      ? trash.map((entry) => entry.tab)
+      : tabs
+          .toReversed()
+          .toSorted((a, b) => Number(hiddenIds.has(b.id)) - Number(hiddenIds.has(a.id)));
+  const entries = ordered.flatMap((tab) => {
+    const entry = retention.get(tab.id);
     const artifactId = tabArtifactId(tab);
     const artifact = artifacts.get(artifactId ?? "");
     const title = artifact?.title ?? tab.title;
-    const hidden = hiddenIds.has(tab.id);
-    if (needle ? !`${title} ${artifact?.kind ?? tab.type}`.toLowerCase().includes(needle) : !hidden)
+    const kind = artifact?.kind ?? tab.type;
+    const name = artifact?.name;
+    const permanent = entry?.permanent ?? false;
+    if (section === "active" && filter !== "all" && permanent !== (filter === "permanent"))
       return [];
-    return [{ tab, title, hidden, updated: Boolean(artifactId && unread.has(artifactId)) }];
+    if (needle && !`${title} ${kind} ${name ?? ""}`.toLowerCase().includes(needle)) return [];
+    return [
+      {
+        tab,
+        title,
+        kind,
+        name,
+        permanent,
+        trashedAt: entry?.trashedAt ?? null,
+        hidden: hiddenIds.has(tab.id),
+        updated: Boolean(artifactId && unread.has(artifactId)),
+      },
+    ];
   });
   const hasUnread = tabs.some(
     (tab) => hiddenIds.has(tab.id) && unread.has(tabArtifactId(tab) ?? ""),
   );
+  const trashEntries = trash.map((entry) => ({ id: entry.tab.id, trashedAt: entry.trashedAt! }));
 
   function navigate(event: KeyboardEvent) {
     if (!["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
     const buttons = Array.from(
-      results.current?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+      results.current?.querySelectorAll<HTMLButtonElement>("[data-tab-result]") ?? [],
     );
     if (!buttons.length) return;
     const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
@@ -66,6 +112,16 @@ export function TabOverflow({
       buttons[next]?.focus();
     }
   }
+  async function restore(id: string) {
+    setPending(id);
+    try {
+      await onRestore(id);
+      chosen.current = id;
+      onOpenChange(false);
+    } finally {
+      setPending(null);
+    }
+  }
 
   return (
     <Popover.Root
@@ -75,6 +131,7 @@ export function TabOverflow({
         onOpenChange(value);
         if (value) {
           setQuery("");
+          setSection("active");
           chosen.current = null;
         }
       }}
@@ -82,7 +139,7 @@ export function TabOverflow({
       <Popover.Trigger
         render={<Button variant="ghost" className="tab-overflow-trigger" />}
         aria-label={`More tabs, ${hiddenIds.size} hidden`}
-        title={`${hiddenIds.size} more tabs`}
+        title="Tabs and Trashcan"
       >
         <ChevronDown aria-hidden="true" />
         <span>{hiddenIds.size}</span>
@@ -94,6 +151,7 @@ export function TabOverflow({
           align="start"
           sideOffset={8}
           collisionPadding={8}
+          collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
           className="tab-overflow-positioner"
         >
           <Popover.Popup
@@ -106,9 +164,17 @@ export function TabOverflow({
             onKeyDown={navigate}
           >
             <div className="tab-overflow-heading">
-              <Popover.Title>More tabs</Popover.Title>
+              <Popover.Title>
+                {section === "active" ? `Active · ${tabs.length}` : "Trashcan"}
+              </Popover.Title>
               <span>
-                {hiddenIds.size} hidden · {tabs.length} total
+                {section === "active" ? (
+                  `${hiddenIds.size} hidden · ${tabs.length - hiddenIds.size} in tab bar`
+                ) : (
+                  <Button variant="ghost" size="sm" onClick={() => setSection("active")}>
+                    <ArrowLeft /> Active
+                  </Button>
+                )}
               </span>
               <Popover.Close
                 render={<Button variant="ghost" size="icon-xs" aria-label="Close tab picker" />}
@@ -121,7 +187,7 @@ export function TabOverflow({
               <Input
                 ref={input}
                 aria-label="Search tabs"
-                placeholder={`Search all ${tabs.length} tabs…`}
+                placeholder="Search titles, names, and kinds…"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
@@ -139,32 +205,119 @@ export function TabOverflow({
                 </Button>
               )}
             </div>
+            {section === "active" ? (
+              <div className="tab-retention-filters" aria-label="Filter active tabs">
+                {(["all", "permanent", "temporary"] as const).map((value) => (
+                  <Button
+                    key={value}
+                    variant="ghost"
+                    size="sm"
+                    aria-pressed={filter === value}
+                    onClick={() => setFilter(value)}
+                  >
+                    {value === "all" ? "All" : value === "permanent" ? "Permanent" : "Temporary"}
+                  </Button>
+                ))}
+              </div>
+            ) : (
+              <p className="retention-note">
+                Tabs stay here for 7 days. Restore one to use it again.
+              </p>
+            )}
             <div className="tab-overflow-results" ref={results}>
-              {entries.map(({ tab, title, hidden, updated }) => (
-                <button
-                  className="tab-overflow-result"
-                  key={tab.id}
-                  title={title}
-                  onClick={() => {
-                    chosen.current = tab.id;
-                    onSelect(tab.id);
-                    onOpenChange(false);
-                  }}
-                >
-                  <File aria-hidden="true" />
-                  <span>{title}</span>
-                  {!hidden && <small>In tab bar</small>}
-                  {updated && (
-                    <span className="unread-dot" role="img" aria-label="Updated artifact" />
+              {entries.map(({ tab, title, kind, name, hidden, updated, permanent, trashedAt }) => (
+                <div className="tab-drawer-row" key={tab.id}>
+                  <button
+                    className="tab-overflow-result"
+                    data-tab-result
+                    title={title}
+                    disabled={pending === tab.id}
+                    onClick={() => {
+                      if (trashedAt !== null) {
+                        void restore(tab.id);
+                        return;
+                      }
+                      chosen.current = tab.id;
+                      onSelect(tab.id);
+                      onOpenChange(false);
+                    }}
+                  >
+                    {trashedAt !== null ? (
+                      <RotateCcw aria-hidden="true" />
+                    ) : (
+                      <File aria-hidden="true" />
+                    )}
+                    <span className="tab-drawer-title">
+                      <span>{title}</span>
+                      <small>
+                        {name ? `${name} · ` : ""}
+                        {kind}
+                      </small>
+                    </span>
+                    {trashedAt !== null ? (
+                      <small
+                        title={`Deletes ${new Date(trashedAt + TRASH_RETENTION_MS).toLocaleString()}`}
+                      >
+                        {pending === tab.id
+                          ? "Restoring…"
+                          : `Restore · ${Math.max(1, Math.ceil((trashedAt + TRASH_RETENTION_MS - now) / 86_400_000))}d left`}
+                      </small>
+                    ) : (
+                      !hidden && <small>In tab bar</small>
+                    )}
+                    {updated && trashedAt === null && (
+                      <span className="unread-dot" role="img" aria-label="Updated artifact" />
+                    )}
+                  </button>
+                  {trashedAt === null && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-pressed={permanent}
+                        aria-label={`${permanent ? "Make temporary" : "Keep permanently"}: ${title}`}
+                        title={permanent ? "Permanent · Make temporary" : "Keep permanently"}
+                        onClick={() => void onPermanent(tab.id, !permanent)}
+                      >
+                        <Bookmark fill={permanent ? "currentColor" : "none"} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={`Trash ${title}`}
+                        title="Move to Trashcan"
+                        onClick={() => void onClose(tab.id)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </>
                   )}
-                </button>
+                </div>
               ))}
               {!entries.length && (
                 <p className="search-empty" role="status">
-                  No tabs match "{query}".
+                  {needle
+                    ? `No tabs match "${query}".`
+                    : section === "trash"
+                      ? "Trashcan is empty."
+                      : filter === "all"
+                        ? "No active tabs."
+                        : `No ${filter} tabs.`}
                 </p>
               )}
             </div>
+            {section === "active" ? (
+              <div className="tab-drawer-footer">
+                <p className="retention-note">
+                  Temporary tabs move to Trashcan after 1 day outside the tab bar.
+                </p>
+                <Button variant="ghost" size="sm" onClick={() => setSection("trash")}>
+                  <Trash2 /> Trashcan
+                </Button>
+              </div>
+            ) : (
+              open && <EmptyTrash key={JSON.stringify(trashEntries)} entries={trashEntries} />
+            )}
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>

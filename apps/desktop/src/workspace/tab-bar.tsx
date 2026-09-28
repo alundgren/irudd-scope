@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -6,14 +7,19 @@ import {
   type RefObject,
 } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
-import { Search, X } from "lucide-react";
+import { Bookmark, Search, X } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { tabArtifactId } from "../plugins/registry.renderer.ts";
 import type { Tab } from "./contract.ts";
+import type { RetainedTab } from "./retention.ts";
 import { TabOverflow } from "./tab-overflow.tsx";
 
 export function TabBar({
   tabs,
+  retainedTabs,
+  onPermanent,
+  onRestore,
+  onVisible,
   selectedId,
   creating,
   artifacts,
@@ -30,6 +36,10 @@ export function TabBar({
   onSearch,
 }: {
   tabs: readonly Tab[];
+  retainedTabs: readonly RetainedTab[];
+  onPermanent: (id: string, permanent: boolean) => Promise<void>;
+  onRestore: (id: string) => Promise<void>;
+  onVisible: (ids: string[]) => void;
   selectedId: string | null;
   creating: boolean;
   artifacts: ReadonlyMap<string, Artifact>;
@@ -46,7 +56,7 @@ export function TabBar({
   onSearch: () => void;
 }) {
   const navigation = useRef<HTMLElement>(null);
-  const [capacity, setCapacity] = useState({ full: 1, overflow: 1 });
+  const [capacity, setCapacity] = useState(1);
   useLayoutEffect(() => {
     const element = navigation.current;
     if (!element) return;
@@ -57,17 +67,14 @@ export function TabBar({
         element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) + gap;
       const tabWidth = parseFloat(style.getPropertyValue("--tab-min-width")) + gap;
       const pickerWidth = parseFloat(style.getPropertyValue("--tab-picker-width")) + gap;
-      setCapacity({
-        full: Math.floor(width / tabWidth),
-        overflow: Math.floor((width - pickerWidth) / tabWidth),
-      });
+      setCapacity(Math.floor((width - pickerWidth) / tabWidth));
     };
     const resize = new ResizeObserver(measure);
     measure();
     resize.observe(element);
     return () => resize.disconnect();
   }, []);
-  const count = Math.max(1, tabs.length <= capacity.full ? capacity.full : capacity.overflow);
+  const count = Math.max(1, capacity);
   let visibleTabs = tabs.slice(-count);
   const selected = tabs.find((tab) => tab.id === selectedId);
   if (selected && !visibleTabs.includes(selected))
@@ -75,9 +82,10 @@ export function TabBar({
   const visibleIds = new Set(visibleTabs.map((tab) => tab.id));
   const hiddenIds = new Set(tabs.filter((tab) => !visibleIds.has(tab.id)).map((tab) => tab.id));
   const openArtifacts = new Set(tabs.map(tabArtifactId));
-  useLayoutEffect(() => {
-    if (!hiddenIds.size) onOverflowChange(false);
-  }, [hiddenIds.size, onOverflowChange]);
+  const visibleKey = visibleTabs.map((tab) => tab.id).join();
+  useEffect(() => {
+    onVisible(visibleKey ? visibleKey.split(",") : []);
+  }, [visibleKey, onVisible]);
   function navigateTabs(event: ReactKeyboardEvent) {
     const index = tabs.findIndex((tab) => tab.id === selectedId);
     const target =
@@ -97,25 +105,28 @@ export function TabBar({
   return (
     <header className="workspace-bar">
       <nav className="tabs" aria-label="Open artifacts" ref={navigation}>
-        {hiddenIds.size > 0 && (
-          <TabOverflow
-            tabs={tabs}
-            hiddenIds={hiddenIds}
-            artifacts={artifacts}
-            unread={unread}
-            tabButtons={tabButtons}
-            onSelect={onReveal}
-            open={overflowOpen}
-            onOpenChange={onOverflowChange}
-            restoreFocus={restoreOverflowFocus}
-          />
-        )}
+        <TabOverflow
+          tabs={tabs}
+          retainedTabs={retainedTabs}
+          onPermanent={onPermanent}
+          onRestore={onRestore}
+          onClose={onClose}
+          hiddenIds={hiddenIds}
+          artifacts={artifacts}
+          unread={unread}
+          tabButtons={tabButtons}
+          onSelect={onReveal}
+          open={overflowOpen}
+          onOpenChange={onOverflowChange}
+          restoreFocus={restoreOverflowFocus}
+        />
         <div className="contents" role="tablist" aria-label="Artifacts" onKeyDown={navigateTabs}>
           {visibleTabs.map((tab) => {
             const { id } = tab;
             const artifactId = tabArtifactId(tab);
             const artifact = artifacts.get(artifactId ?? "");
             const title = artifact?.title ?? tab.title;
+            const permanent = retainedTabs.find((entry) => entry.tab.id === id)?.permanent ?? false;
             const isSelected = id === selectedId && !creating;
             return (
               <div className={`artifact-tab${isSelected ? " selected" : ""}`} key={id}>
@@ -146,9 +157,20 @@ export function TabBar({
                 <Button
                   variant="ghost"
                   size="icon-xs"
+                  className={`tab-permanent${permanent ? " is-permanent" : ""}`}
+                  aria-label={`${permanent ? "Make temporary" : "Keep permanently"}: ${title}`}
+                  aria-pressed={permanent}
+                  title={permanent ? "Permanent · Make temporary" : "Keep permanently"}
+                  onClick={() => void onPermanent(id, !permanent)}
+                >
+                  <Bookmark fill={permanent ? "currentColor" : "none"} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
                   className="tab-close"
                   aria-label={`Close ${title}`}
-                  title="Close tab"
+                  title="Move to Trashcan"
                   onClick={() => onClose(id)}
                 >
                   <X />

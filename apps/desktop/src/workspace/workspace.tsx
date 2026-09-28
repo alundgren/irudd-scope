@@ -1,5 +1,15 @@
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Download, Maximize2, Minimize2, Settings, X, Info, Plus } from "lucide-react";
+import {
+  Download,
+  Maximize2,
+  Minimize2,
+  Settings,
+  X,
+  Info,
+  Plus,
+  Bookmark,
+  Trash2,
+} from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { NativeSelect, NativeSelectOption } from "../renderer/components/ui/native-select.tsx";
 import {
@@ -14,6 +24,7 @@ import { useAppearance } from "../renderer/appearance.ts";
 import { SettingsContext } from "../renderer/settings-context.tsx";
 import type { SettingsView } from "../settings.ts";
 import { useArtifactLibrary } from "../library/use-library.ts";
+import { useTabRetention } from "./use-tab-retention.ts";
 import { useWorkspace } from "./use-workspace.ts";
 import { WorkspaceSearch } from "./search.tsx";
 
@@ -72,6 +83,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     updateTab,
     updateState,
   } = useWorkspace(setError);
+  const retention = useTabRetention(workspaceReady, setError);
   // Moving an iframe resets its document, so panel order must be independent of tab order.
   const paneTabs = useMemo(
     () => workspace.tabs.toSorted((a, b) => a.id.localeCompare(b.id)),
@@ -92,6 +104,20 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const returnFocus = focus && active?.type === "diagram" ? modeSelect : controlsButton;
   const viewing = focus && active?.type === "diagram" && diagramMode !== "edit";
   const presentation = viewing && diagramMode === "present";
+  const trashedArtifacts = new Set(
+    retention.tabs
+      .filter((entry) => entry.trashedAt !== null)
+      .map((entry) => tabArtifactId(entry.tab)),
+  );
+  const activeUnread = new Set([...unread].filter((id) => !trashedArtifacts.has(id)));
+  const activeArtifacts = snapshot.artifacts.filter(
+    (artifact) => !trashedArtifacts.has(artifact.id),
+  );
+  const activePermanent =
+    retention.tabs.find((entry) => entry.tab.id === active?.id)?.permanent ?? false;
+  useEffect(() => {
+    if (focus) retention.reportVisible(workspace.selected ? [workspace.selected] : []);
+  }, [focus, workspace.selected, retention.reportVisible]);
   const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
   useEffect(() => {
     if (activeArtifact) markRead(activeArtifact.id);
@@ -120,16 +146,28 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     }
   }, [snapshot.artifacts, workspace.tabs]);
   useEffect(() => {
-    if (!workspaceReady || snapshot.connection !== "connected") return;
+    if (!workspaceReady || !retention.ready || snapshot.connection !== "connected") return;
     // A replacement publication can arrive before the old tab's close notification.
     const open = new Set(workspace.tabs.map(tabArtifactId));
-    queueArrivals(snapshot.artifacts.filter((artifact) => !open.has(artifact.id)));
-  }, [snapshot.artifacts, snapshot.connection, workspace.tabs, workspaceReady]);
+    queueArrivals(activeArtifacts.filter((artifact) => !open.has(artifact.id)));
+  }, [
+    snapshot.artifacts,
+    snapshot.connection,
+    workspace.tabs,
+    workspaceReady,
+    retention.tabs,
+    retention.ready,
+  ]);
   useEffect(() => {
-    if (!workspaceReady || creating || !arrivals.length || receivingArrivals) return;
+    if (!workspaceReady || !retention.ready || creating || !arrivals.length || receivingArrivals)
+      return;
     const existing = new Set(workspace.tabs.map(tabArtifactId));
-    const pending = arrivals.filter((artifact) => !existing.has(artifact.id));
-    const alreadyOpen = arrivals.filter((artifact) => existing.has(artifact.id));
+    const pending = arrivals.filter(
+      (artifact) => !existing.has(artifact.id) && !trashedArtifacts.has(artifact.id),
+    );
+    const alreadyOpen = arrivals.filter(
+      (artifact) => existing.has(artifact.id) || trashedArtifacts.has(artifact.id),
+    );
     if (!pending.length && !alreadyOpen.length) return;
     setReceivingArrivals(true);
     const tabs = pending.map((artifact) => {
@@ -157,7 +195,15 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       .finally(() => {
         setReceivingArrivals(false);
       });
-  }, [arrivals, workspace, workspaceReady, creating, receivingArrivals]);
+  }, [
+    arrivals,
+    workspace,
+    workspaceReady,
+    creating,
+    receivingArrivals,
+    retention.tabs,
+    retention.ready,
+  ]);
   useEffect(() => {
     tabButtons.current
       .get(workspace.selected ?? "")
@@ -204,6 +250,15 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     if (workspace.selected === id) setDiagramMode("edit");
     if (!tabs.length) setFocus(false);
     requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
+  }
+  async function restore(id: string) {
+    try {
+      const tab = await window.scope.restoreTab(id);
+      await activate(tab, true);
+      moveTabToEnd(tab.id);
+    } catch {
+      setError("Could not restore this tab. Try again.");
+    }
   }
   function openSettings(filter = "") {
     setOverflow(false);
@@ -276,10 +331,14 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       {!focus && (
         <TabBar
           tabs={workspace.tabs}
+          retainedTabs={retention.tabs}
+          onPermanent={retention.setPermanent}
+          onRestore={restore}
+          onVisible={retention.reportVisible}
           selectedId={workspace.selected}
           creating={Boolean(creating)}
           artifacts={artifacts}
-          unread={unread}
+          unread={activeUnread}
           tabButtons={tabButtons}
           controlsButton={controlsButton}
           searchOpen={search}
@@ -415,9 +474,9 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                   <Plus /> {tool.title}
                 </Button>
               ))}
-              {snapshot.artifacts.length ? (
+              {activeArtifacts.length ? (
                 <div className="artifact-list">
-                  {snapshot.artifacts
+                  {activeArtifacts
                     .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
                     .map((artifact) => (
                       <button key={artifact.id} onClick={() => open(artifact.id)}>
@@ -438,7 +497,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         onOpenChange={setSearch}
         query={query}
         setQuery={setQuery}
-        artifacts={snapshot.artifacts}
+        artifacts={activeArtifacts}
         onOpenArtifact={open}
         onOpenSettings={openSettings}
         finalFocus={settings || details ? false : returnFocus}
@@ -506,10 +565,18 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                       ]
                     : []),
                   {
+                    id: "permanent",
+                    title: activePermanent ? "Make temporary" : "Keep permanently",
+                    keywords: "retention bookmark permanent temporary",
+                    icon: Bookmark,
+                    pressed: activePermanent,
+                    onSelect: () => void retention.setPermanent(active.id, !activePermanent),
+                  },
+                  {
                     id: "close",
-                    title: "Close tab",
-                    keywords: "delete remove",
-                    icon: X,
+                    title: "Move to Trashcan",
+                    keywords: "close trash delete remove",
+                    icon: Trash2,
                     shortcut: "⌘W",
                     onSelect: () => {
                       setSearch(false);

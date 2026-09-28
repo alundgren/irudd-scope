@@ -2,6 +2,7 @@ import type { DiagramCommandRequest, DiagramCommandResponse } from "./plugins/di
 import type { DiagramEvent } from "@irudd-scope/protocol";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { SettingsUpdate, SettingsView } from "./settings.ts";
+import type { RetainedTab, TrashEntry } from "./workspace/retention.ts";
 import type { Tab, Workspace } from "./workspace/contract.ts";
 import type { DiagramRequest, DiagramResult } from "./plugins/diagram/contract.ts";
 import type { DiagramDraft } from "./plugins/diagram/draft.ts";
@@ -48,6 +49,13 @@ export type ScopeBridge = {
   diagramSettings: () => Promise<SettingsView>;
   saveSettings: (input: SettingsUpdate) => Promise<SettingsView>;
   openTab: (tab: Tab, artifactRevision?: number) => Promise<Tab | null>;
+  retainedTabs: () => Promise<RetainedTab[]>;
+  onRetentionChanged: (listener: (tabs: RetainedTab[]) => void) => () => void;
+  setTabPermanent: (id: string, permanent: boolean) => Promise<void>;
+  restoreTab: (id: string) => Promise<Tab>;
+  emptyTrash: (entries: readonly TrashEntry[]) => Promise<void>;
+  reportVisibleTabs: (ids: readonly string[]) => Promise<void>;
+  checkTabRetention: (ids: readonly string[]) => Promise<void>;
   closeTab: (id: string) => Promise<void>;
   onTabsClosed: (listener: (ids: string[]) => void) => () => void;
   workspace: () => Promise<Workspace | null>;

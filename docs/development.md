@@ -509,7 +509,7 @@ in the shell profile remains. Hub data locations and recovery are in
 
 ### Deletion and database maintenance
 
-Closing a tab deletes its content. Quitting the app preserves tabs left open.
+Closing a tab moves it to Trashcan. Quitting preserves active and trashed tabs.
 The CLI offers `delete ID`, `shrink`, and `hub shrink`. Use `--timeout-ms 120000`
 for maintenance and `--status` on either shrink command to inspect its latest
 receipt. Desktop shrinking through a hub still targets the Mac's two databases;

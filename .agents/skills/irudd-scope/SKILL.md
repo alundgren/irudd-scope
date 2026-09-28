@@ -42,7 +42,9 @@ HTML previews run interactive prototypes and mockups, including scripts, externa
 For ongoing collaboration, create a **named** diagram with `--named` and announce
 the returned `name` to the person. It remains usable across agents and sessions
 while its tab exists. `--name NAME` selects an exact unique name; names cannot
-be changed. Closing the tab deletes the diagram and its proposals.
+be changed. Closing the tab moves the diagram and its proposals to Trashcan. Restore it
+in Scope before sending further edits. Its name stays reserved until permanent
+deletion. New named tabs are temporary, like other arrivals.
 
 Use the native working model when editing existing Excalidraw objects, including
 images, freehand, frames, bound text, groups, and elbow arrows:
@@ -102,7 +104,7 @@ These commands require an updated desktop, CLI, and hub. Embedded diagram genera
 
 With no explicit endpoint or token override, the CLI reads `SCOPE_CONNECTION_FILE` or `~/.config/irudd-scope/desktop.json`. Scope must be open on an awake Mac to accept publication. An explicit endpoint from `--endpoint` or `SCOPE_ENDPOINT` requires explicit credentials from `--token-file`, `SCOPE_TOKEN_FILE`, or `SCOPE_TOKEN`; the CLI never borrows the token from local discovery. Keep token values private.
 
-A successful command confirms that Scope persisted a tab and its artifact record. It does not confirm that the desktop opened a tab or rendered the content. New publications appear in tabs, selecting the first arrival in an empty workspace and preserving the current selection otherwise. Tabs beyond the visible strip remain available in its searchable overflow dropdown. When the task requires a visual check, inspect the artifact in Scope. Closing a tab permanently deletes its content and draft. Quitting or restarting Scope preserves tabs left open.
+A successful command confirms that Scope persisted a tab and its artifact record. It does not confirm that the desktop opened a tab or rendered the content. New publications appear in tabs, selecting the first arrival in an empty workspace and preserving the current selection otherwise. Tabs beyond the visible strip remain available in its searchable overflow dropdown. When the task requires a visual check, inspect the artifact in Scope. Closing a tab moves it to Trashcan and retains its content and draft for seven days. Temporary tabs also enter Trashcan after a day outside the visible strip; the user can keep them permanently with the bookmark control. Quitting or restarting Scope preserves tabs left open.
 
 CLI requests share a 10-second deadline. Use `--timeout-ms 60000` when a large remote upload needs more time. A timeout can leave a completed write without a receipt; keep the artifact ID for recovery.
 
@@ -113,7 +115,9 @@ Requests are not queued or replayed. If Scope is unavailable, open it and retry 
 When asked to remove an artifact, use `delete ID`. This deletes its content,
 tabs, and drafts on the desktop, including through a paired hub. The JSON
 receipt contains `id` and `deleted`; an absent artifact returns `deleted: false`
-with success. There is no trash or reopen-closed history.
+with success. This explicit command bypasses Trashcan; ordinary desktop close
+retains the tab for seven days. Reads and lists include retained trash, but
+updates fail until the user restores the tab in Scope.
 
 Use `shrink --timeout-ms 120000` for both desktop databases through the normal
 artifact connection. Use `hub shrink --timeout-ms 120000` for the local hub's

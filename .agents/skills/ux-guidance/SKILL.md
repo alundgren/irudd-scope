@@ -22,10 +22,12 @@ distinct. Omit unavailable panel actions.
 Keep the selected tab visible when titles overflow. New publications open in
 tabs, selecting the first arrival only when no artifact is open. Later arrivals
 and background updates keep the current selection and indicate unread content.
-Startup restores saved open tabs and opens queued publications. Overflow tabs
-live in the searchable dropdown at the left; selecting a result moves it to
-the right end of the strip. Closing a tab permanently deletes its artifact and
-draft. Quitting Scope preserves tabs left open. Focus keeps the artifact mounted, preserves position,
+Startup restores saved open tabs and opens queued publications. The left drawer opens on Active with a count, search, and retention filters.
+Trashcan is a subdued footer link without a count. Selecting a result moves it
+to the right end of the strip. Bookmark toggles permanence without reordering.
+Closing moves a tab to Trashcan, preserving content and drafts. Restore returns
+it to the right end. Temporary tabs expire after a day outside the visible strip;
+trash expires after seven days. Emptying requires an inline slider and click. Quitting Scope preserves tabs left open. Focus keeps the artifact mounted, preserves position,
 hides chat, and exposes a small exit clear of editor controls. Escape dismisses
 the current dialog or editor interaction before leaving focus.
 

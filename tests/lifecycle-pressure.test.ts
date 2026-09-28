@@ -184,6 +184,7 @@ test(
       const duplicate = artifacts.get(idFor(0, 1))!;
       expect(duplicate.blob).toBe(artifacts.get(idFor(0, 0))!.blob);
       await page.getByRole("button", { name: `Close ${idFor(0, 0)}`, exact: true }).click();
+      await local.delete(idFor(0, 0));
       artifacts.delete(idFor(0, 0));
       await page.getByRole("button", { name: /^More tabs,/ }).waitFor();
       await waitTabs(119);
@@ -252,6 +253,7 @@ test(
         await page.getByRole("tab", { selected: true }).press("ControlOrMeta+w");
         await waitTabs(remaining - 1);
       }
+      for (const artifact of await local.list()) await local.delete(artifact.id);
       await checkEmpty();
       expect(await local.delete(duplicate.id)).toEqual({ id: duplicate.id, deleted: false });
       artifacts.clear();

@@ -51,8 +51,12 @@ export function useWorkspace(onError: (message: string) => void) {
           tabs,
           selected: tabs.some((tab) => tab.id === previous.selected)
             ? previous.selected
-            : (tabs[Math.max(0, previous.tabs.findIndex((tab) => tab.id === previous.selected) - 1)]
-                ?.id ?? null),
+            : (tabs[
+                Math.min(
+                  tabs.length - 1,
+                  Math.max(0, previous.tabs.findIndex((tab) => tab.id === previous.selected) - 1),
+                )
+              ]?.id ?? null),
         });
       }),
     [],
@@ -177,11 +181,11 @@ export function useWorkspace(onError: (message: string) => void) {
 
   async function closeTab(id: string): Promise<boolean> {
     try {
-      await save.flush();
+      await flushWorkspace();
       await window.scope.closeTab(id);
       return true;
     } catch {
-      onError("Could not close this tab. Try closing it again.");
+      onError("Could not move this tab to Trashcan. Try again.");
       return false;
     }
   }

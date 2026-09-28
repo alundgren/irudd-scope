@@ -1,3 +1,4 @@
+import type { RetainedTab, TrashEntry } from "./workspace/retention.ts";
 import type { ShrinkReceipt } from "@irudd-scope/protocol/maintenance";
 import { decode, type DeleteReceipt } from "@irudd-scope/protocol";
 import { Tab, decodeWorkspace, emptyWorkspace, type Workspace } from "./workspace/contract.ts";
@@ -8,6 +9,8 @@ import { validateTabState } from "./plugins/registry.ts";
 export class DesktopLifecycle {
   private pending = Promise.resolve();
   onRemoved: (ids: string[]) => void = () => {};
+  onRetentionChanged: (tabs: RetainedTab[]) => void = () => {};
+  private visibleIds: readonly string[] = [];
   onClosed: (ids: string[]) => void = () => {};
 
   constructor(
@@ -55,7 +58,9 @@ export class DesktopLifecycle {
   async workspace(): Promise<Workspace> {
     const layout = (await this.desktop.layout()) ?? emptyWorkspace();
     const tabs = (await this.artifacts.tabs()).flatMap((tab) =>
-      tab.opened && tab.document ? [decode(Tab, JSON.parse(tab.document))] : [],
+      tab.opened && tab.document && tab.trashed_at === null
+        ? [decode(Tab, JSON.parse(tab.document))]
+        : [],
     );
     const groups = [...layout.groups];
     for (const tab of tabs)
@@ -83,7 +88,68 @@ export class DesktopLifecycle {
   openTab(value: unknown, artifactRevision?: number): Promise<Tab | null> {
     const tab = decode(Tab, value);
     validateTabState(tab, true);
-    return this.enqueue(() => this.artifacts.openTab(tab, artifactRevision));
+    return this.enqueue(async () => {
+      const opened = await this.artifacts.openTab(tab, artifactRevision);
+      if (opened) await this.notifyRetention();
+      return opened;
+    });
+  }
+
+  private async notifyRetention(): Promise<void> {
+    this.onRetentionChanged(await this.artifacts.retainedTabs());
+  }
+
+  setTabPermanent(id: string, permanent: boolean): Promise<void> {
+    return this.enqueue(async () => {
+      await this.artifacts.setTabPermanent(id, permanent);
+      await this.notifyRetention();
+    });
+  }
+
+  reportVisibleTabs(ids: readonly string[], now = Date.now()): Promise<void> {
+    return this.enqueue(async () => {
+      await this.artifacts.markTabsVisible([...new Set([...this.visibleIds, ...ids])], now);
+      this.visibleIds = ids;
+    });
+  }
+
+  closeTab(id: string): Promise<void> {
+    return this.enqueue(async () => {
+      const ids = await this.artifacts.trashTab(id);
+      await this.notifyRetention();
+      this.onRemoved(ids);
+      this.onClosed(ids);
+    });
+  }
+
+  restoreTab(id: string): Promise<Tab> {
+    return this.enqueue(async () => {
+      const tab = await this.artifacts.restoreTab(id);
+      await this.notifyRetention();
+      return tab;
+    });
+  }
+
+  emptyTrash(entries: readonly TrashEntry[]): Promise<void> {
+    return this.enqueue(async () => {
+      const ids = await this.artifacts.emptyTrash(entries);
+      await this.notifyRetention();
+      this.onRemoved(ids);
+      this.onClosed(ids);
+    });
+  }
+
+  checkRetention(visibleIds: readonly string[], now = Date.now()): Promise<void> {
+    return this.enqueue(async () => {
+      await this.artifacts.markTabsVisible(visibleIds, now);
+      const trashed = await this.artifacts.expireTemporaryTabs(now);
+      const deleted = await this.artifacts.emptyTrash(await this.artifacts.expiredTrash(now));
+      if (trashed.length || deleted.length) {
+        await this.notifyRetention();
+        this.onRemoved([...trashed, ...deleted]);
+        this.onClosed([...trashed, ...deleted]);
+      }
+    });
   }
 
   deleteArtifact(id: string): Promise<DeleteReceipt> {
@@ -94,25 +160,9 @@ export class DesktopLifecycle {
       await this.checkpoint("after-close-commit");
       this.onRemoved(tabs.map((tab) => tab.id));
       await this.checkpoint("after-cleanup");
+      await this.notifyRetention();
       this.onClosed(tabs.map((tab) => tab.id));
       return { id, deleted };
-    });
-  }
-
-  closeTab(id: string): Promise<string | null> {
-    return this.enqueue(async () => {
-      const tabs = await this.artifacts.tabs();
-      const tab = tabs.find((entry) => entry.id === id);
-      const removed = tab?.artifact_id
-        ? tabs.filter((entry) => entry.artifact_id === tab.artifact_id)
-        : [{ id }];
-      await this.checkpoint("before-close-commit");
-      const artifactId = await this.artifacts.removeTab(id);
-      await this.checkpoint("after-close-commit");
-      this.onRemoved(removed.map((entry) => entry.id));
-      await this.checkpoint("after-cleanup");
-      this.onClosed(removed.map((entry) => entry.id));
-      return artifactId;
     });
   }
 }

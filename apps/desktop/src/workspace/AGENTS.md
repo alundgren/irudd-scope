@@ -15,8 +15,10 @@ tab subscriptions, and isolate listener failures. The main-process bridge
 validates the saved sender and group. Events are not persisted or replayed.
 
 `persistence.ts` flushes pending writes before the window closes. Closing an
-individual tab deletes its content and state atomically. Failed deletion keeps
-the tab visible for retry. Late saves only update existing tabs. Preserve open
+individual tab flushes saves and moves it to Trashcan. Failed saves or trash
+writes keep the tab visible for retry. `retention.ts` owns desktop retention
+contracts; `use-tab-retention.ts` reports visibility and requests cleanup after
+saves. Permanent deletion removes tab content atomically. Late saves only update existing tabs. Preserve open
 IDs, order, selection, groups, and unavailable plugin records in migrations.
 
 Read the [UX skill](../../../../.agents/skills/ux-guidance/SKILL.md) for UI

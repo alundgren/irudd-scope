@@ -34,11 +34,14 @@ live with the desktop.
 
 Tabs show the artifact title and indicate unread updates. Selection has both a
 tinted background and a solid marker. The strip shows as many tabs as fit at a
-readable width. Overflow lives in a dropdown at the left, with a hidden-tab
-count and unread indicator. It lists hidden tabs immediately; typing searches
-all tab titles and kinds. Selecting a result moves that tab to the right end
-and moves the leftmost visible tab into the dropdown. The selected tab stays
-visible when the window narrows or new publications arrive.
+readable width. The left drawer opens on Active with a count, title/name/kind search, and All,
+Permanent, and Temporary filters. Hidden tabs come first in reverse strip order;
+visible tabs follow in the same order, marked In tab bar. A subdued Trashcan
+link sits below the active list without a count, since recovery is infrequent.
+The drawer remains available even when every tab fits or no active tabs remain.
+Selecting a result moves it to the right end and moves the leftmost visible tab
+into the drawer. The selected tab stays visible when the window narrows or new
+publications arrive. Permanence does not change tab order.
 
 New publications open in tabs without a fixed count limit. The first arrival
 selects itself when no artifact is open; later arrivals keep the current
@@ -50,16 +53,36 @@ state. Diagram views stay mounted to receive background editing commands.
 The visible tab count does not bound memory used by previously visited content
 or diagrams.
 
-Closing a tab permanently deletes its artifact, draft, conversation, and tab
-state. Normal close controls and Command-W perform deletion directly. There is
-no closed history or reopen action. A failed deletion keeps the tab visible
-with an error so the same close action can be retried. Quitting Scope, closing
-the last window, updating, and restarting preserve tabs left open. SQLite
-retains open and queued tabs, selection, and group membership. Each
-tab has its own UUID and belongs to a group with an owner reference. Group
-membership has no visual indicator. The desktop opens published items in its
-local workspace group. File views and the diagram editor are built-in plugins;
-existing image, Markdown, HTML, text, and download views remain together.
+New tabs are temporary, including named tabs. A small bookmark button keeps a
+tab permanently; a filled bookmark indicates permanence. It appears on hover,
+keyboard focus, and the selected tab, and stays visible on permanent tabs. The
+same toggle is available in Active and in the current-tab search controls.
+Turning permanence off starts a fresh one-day allowance.
+
+Temporary tabs move to Trashcan after 24 hours outside the visible strip. The
+selected artifact counts as visible in fullscreen. A minimized or hidden window
+does not keep refreshing visibility. Scope checks on startup and every minute
+while running, after flushing pending saves. A long offline interval starts a
+full seven days in Trashcan when the tab is actually moved there.
+
+Close controls and Command-W move tabs to Trashcan, preserving artifact content,
+names, drafts, conversations, and saved viewport. Agent updates cannot restore
+trashed tabs or refresh their retention clocks. Restore returns the same tab to
+the right end, selects it, preserves its permanent setting, and restarts the
+one-day allowance for temporary tabs. Trashcan sorts newest first and shows the
+remaining retention time. It permanently deletes tabs after seven days there.
+Empty Trashcan expands an inline warning, requires a slider and a separate
+Delete button, and resets when canceled, closed, or the trash contents change.
+The confirmation covers the whole trash, even when search hides some entries.
+A failed save or retention action leaves a visible error and a retry path.
+
+Quitting Scope, closing the last window, updating, and restarting preserve
+active and trashed tabs. SQLite retains retention, selection, and group
+membership. Each tab has its own UUID and belongs to a group with an owner
+reference. Group membership has no visual indicator. The desktop opens
+published items in its local workspace group. File views and the diagram editor
+are built-in plugins; existing image, Markdown, HTML, text, and download views
+remain together. The explicit CLI/API delete command still deletes permanently.
 
 The Mac window combines its native window buttons and tabs in one draggable
 strip, without a separate title bar. The application menu stays available for
@@ -87,10 +110,10 @@ preview restrictions. The document keeps its own styling and browser behavior.
 
 Search opens with labeled icon controls for Settings, Fullscreen, creation
 tools. A tinted current-tab area shows the title
-and its Download, Artifact details, and Close tab actions. Unavailable actions
+and its Download, Artifact details, retention toggle, and Move to Trashcan actions. Unavailable actions
 are omitted. Workspace controls and current-tab actions have distinct areas.
 Artifact results appear only after typing, alongside matching actions and
-specific settings. There is no closed-tab action or shortcut.
+specific settings. Trashed tabs appear only in the left drawer.
 The panel scrolls in short windows and stacks its controls in narrow windows.
 Settings opens with its search input focused and its sections collapsed.
 Each section has a short description and can be expanded with the mouse or
@@ -172,7 +195,7 @@ the original canvas and provides Accept proposal and Reject proposal. Accept
 uses the edited preview and checks that the original has not changed. A stale
 proposal stays visible with an explanation and can be rejected before the agent
 reconciles again. The original canvas stays mounted underneath. Proposals and
-the selected recipient persist with the tab and are deleted when it closes.
+the selected recipient persist with the tab through Trashcan and are removed on permanent deletion.
 The editor's bottom-right help button is hidden because its shortcut reference
 includes commands unavailable in Scope.
 

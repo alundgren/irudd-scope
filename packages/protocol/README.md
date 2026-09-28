@@ -30,7 +30,10 @@ The API uses a bearer token on every `/v1` request. It has no browser CORS acces
 
 Publication commits the tab first, then uploads content, then publishes metadata.
 `expectedRevision: 0` creates an artifact; updates require the revision last read.
-A closed tab cannot accept metadata or content, even if a caller retained its ID.
+A trashed or deleted tab cannot accept metadata or content, even if a caller retained its ID.
+Desktop close retains content in Trashcan for seven days; read and list routes
+include it and names remain reserved. Restore in Scope before updating a
+trashed tab. `DELETE /v1/artifacts/:id` still deletes permanently.
 A 409 means reload and decide whether the update should still be applied. A new
 explicit create can reuse a deleted artifact ID, with a revision greater than
 those issued before deletion. Revisions are not necessarily consecutive across

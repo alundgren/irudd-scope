@@ -137,6 +137,9 @@ async function main() {
     },
   });
   lifecycle!.onRemoved = (ids) => desktopIpc.cancelTabs(ids);
+  lifecycle!.onRetentionChanged = (tabs) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:retention-changed", tabs);
+  };
   lifecycle!.onClosed = (ids) => {
     if (!window.isDestroyed()) window.webContents.send("scope:tabs-closed", ids);
   };

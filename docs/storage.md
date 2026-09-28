@@ -4,14 +4,14 @@ Electron main owns Scope's persistent data. Defaults below apply on macOS.
 Use the [development environment variables](development.md#isolated-development)
 to select separate directories for development.
 
-| Data                | Location                                                       | Contents                                                                                             |
-| ------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Open and queued tabs, published metadata, content references, bytes, and diagram drafts.             |
-| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, and remote configuration.             |
-| Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                            |
-| Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                        |
-| CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                       |
-| Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, private endpoint, local listener configuration, credential hashes, and pairing expiry. |
+| Data                | Location                                                       | Contents                                                                                                                   |
+| ------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, and diagram drafts. |
+| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, and remote configuration.                                   |
+| Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                                                  |
+| Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                              |
+| CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                                             |
+| Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, private endpoint, local listener configuration, credential hashes, and pairing expiry.                       |
 
 Scope creates database directories with mode `0700` and database files with
 mode `0600`. Treat the whole profile and discovery file as private. Explicit
@@ -24,7 +24,7 @@ the helper changes access permission, not the stored provider key or remote
 tokens. Changing the executable that accesses this entry may require another
 Keychain approval.
 
-Closing an individual tab permanently deletes its content and state. A draft
+Closing an individual tab moves it to Trashcan and retains its content and state. A draft
 contains the working canvas, base revision, conversation, unsent prompt, panel
 state, and zoom and pan. Autosave writes the draft before updating the artifact
 revision. Conversation and viewport changes update only the draft. If a newer
@@ -34,16 +34,30 @@ Quitting Scope, closing its last window, updating, and restarting preserve tabs
 that remain open. Pending edits flush before application shutdown.
 
 Every publication commits a queued tab before accepting content or metadata.
-Tab-owned records reference that tab in `scope.db`. Closing deletes the tab,
-metadata, content references, and drafts in one transaction. A crash before
-commit leaves the whole tab intact; after commit the whole tab is gone.
-Late workspace and draft saves cannot insert a missing tab. Shared bytes remain
-while any tab references them. There is no deletion history or pending-deletion
-log. Workspace selection and groups remain separate application preferences.
+Tab-owned records reference that tab in `scope.db`. Tabs store a permanence
+flag, last-visible timestamp, and nullable trash timestamp. The trash timestamp
+takes precedence over permanence. Restoring clears it, keeps the previous
+permanence, and resets visibility time. Late workspace saves cannot clear trash
+or recreate deleted rows. Draft saves can preserve a write already in progress
+when a tab moves to Trashcan, but cannot insert a deleted tab.
 
-Profiles with more than 100 open tabs require a version that supports tab
-overflow. Older builds reject those workspaces; close tabs to 100 or fewer
-before downgrading.
+Temporary tabs become trash after 24 hours outside the visible tab strip; the
+selected fullscreen tab counts as visible. Hidden and minimized windows do not
+refresh visibility. Checks run after startup and every minute while the renderer
+is running, after pending saves flush. A failed flush defers cleanup. Trash gets
+seven days from the actual transition, including after a long absence. Permanent
+tabs never expire while active. Returning a permanent tab to temporary starts a
+fresh 24 hours. Sleep or a stopped app delays collection until Scope runs again.
+
+Trash retains artifact names, bytes, drafts, conversation, and saved viewport.
+Agent writes to trash fail and require restoration in Scope. Artifact read and
+list APIs include trash. Emptying Trashcan deletes all confirmed entries,
+including entries hidden by a search. Entries restored since confirmation
+survive. Deletion removes the tab, metadata, references, and drafts in one
+transaction. A crash leaves either the retained records or complete deletion.
+Shared bytes remain while any tab references them. Workspace selection and
+groups remain separate application preferences. HTML's unsaved in-page state
+survives tab switches while mounted, but is not persisted through trash or restart.
 
 ## Reclaiming disk space
 
@@ -52,8 +66,8 @@ after upload. This covers the gap before metadata publication, including content
 shared with another tab that closes in the meantime. An abandoned publication's
 queued tab expires after its staging references expire. Successful publications
 open automatically, including after restart, without a fixed tab count limit.
-Closing each tab removes all published content. Cleanup runs at startup, during
-shrink, and at one-minute maintenance checks. A shrink receipt reports bytes
+Permanent deletion removes tab-owned content. Upload cleanup runs at startup,
+during shrink, and at one-minute maintenance checks. A shrink receipt reports bytes
 still protected by staging; it does not claim those bytes were reclaimed.
 
 Editor saves replace content and metadata in one transaction. Replaced editor
@@ -129,14 +143,17 @@ token. The library and preferences remain intact.
 
 ## Supported data imports
 
-Scope reads artifact schema version 4, desktop schema version 6, and hub schema
+Scope reads artifact schema version 5, desktop schema version 6, and hub schema
 version 2. It rejects
 newer schema versions. Back up the complete data directories before an upgrade
 when you need the option to return to an older desktop.
 
-Artifact schema 4 adds a unique index for optional tab names. Diagram drafts may
+Artifact schema 5 adds retention columns to the tab table. Existing tabs keep
+their IDs, order, names, and drafts and begin as temporary with a fresh visibility
+timestamp. Schema 4 introduced the unique index for optional tab names. Older
+builds reject schema 5; restore a pre-upgrade backup to downgrade. Diagram drafts may
 also contain an editable proposal and the selected conversation recipient.
-Closing the tab removes these with its ordinary content. Delta history is bounded
+Permanent deletion removes these with its ordinary content. Delta history is bounded
 in renderer memory and disappears on restart. The hub stores no diagram model.
 
 An agent's explicit `diagram pull --output FILE` export is a disposable working
