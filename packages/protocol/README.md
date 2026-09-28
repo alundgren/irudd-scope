@@ -88,6 +88,21 @@ No request survives reconnection. The local management endpoints generate
 pairing links, report status, and revoke access. Removing a paired remote
 uses authenticated `DELETE /v1/relay/disconnect` to revoke its credential.
 
+The paired Mac can read `GET /v1/relay/update` and request
+`POST /v1/relay/update` with `{ commit, retry? }`. `commit` is a full lowercase
+Git SHA from the running Mac app. The local publishing credential cannot call
+these endpoints. Bodies are limited to 1 KiB, browser-origin requests are
+rejected, and the hub accepts no command, repository URL, or installation path
+from the request.
+
+`HubUpdateStatus` reports support, phase, running commit, target commit, and a
+bounded message with optional build output. A POST returns 202 with the current status; it does not mean
+the build has completed. Repeated requests for a running update reuse it, and
+failed attempts for the same commit require `retry: true`. A missing endpoint
+on an older hub requires a manual installation update. The optional `commit`
+on local `HubStatus` identifies the running build for restart verification.
+Existing pairing, relay events, and publication contracts remain compatible.
+
 Local management `POST /v1/hub/shrink` accepts the same `{ timeoutMs }` request
 and returns a hub receipt. `GET /v1/hub/maintenance` reads the latest hub result.
 Both require the local publishing credential. They work without a connected

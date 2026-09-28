@@ -11,12 +11,14 @@ import {
 } from "@irudd-scope/protocol/remote";
 import type { DesktopStore } from "./desktop-store.ts";
 import type { Remote, RemoteStatus } from "./remote-contract.ts";
+import { synchronizeRemote } from "./remote-updates.ts";
 
 type Connection = { controller: AbortController; task: Promise<void> };
 
 export class Remotes {
   private readonly statuses = new Map<string, RemoteStatus>();
   private readonly connections = new Map<string, Connection>();
+  private readonly updating = new Map<string, Connection>();
   private readonly pairing = new AbortController();
   private pending = Promise.resolve();
   private closed = false;
@@ -25,13 +27,19 @@ export class Remotes {
     private readonly store: DesktopStore,
     private readonly local: { url: string; token: string },
     private readonly onChange: (status: RemoteStatus[]) => void,
+    private readonly currentCommit?: string,
   ) {}
 
   snapshot() {
     return [...this.statuses.values()];
   }
   private status(remote: Remote, connection: RemoteStatus["connection"], message: string) {
-    this.statuses.set(remote.id, { ...remote, connection, message });
+    this.statuses.set(remote.id, {
+      ...remote,
+      connection,
+      message,
+      update: this.statuses.get(remote.id)?.update,
+    });
     this.onChange(this.snapshot());
   }
   async start() {
@@ -131,10 +139,40 @@ export class Remotes {
   }
   private async disconnect(id: string) {
     const connection = this.connections.get(id);
+    connection?.controller.abort();
+    const update = this.updating.get(id);
+    update?.controller.abort();
+    await update?.task;
     if (!connection) return;
-    connection.controller.abort();
     await connection.task;
     this.connections.delete(id);
+  }
+  async retryUpdate(id: string) {
+    const remote = this.statuses.get(id);
+    const connection = this.connections.get(id);
+    if (!this.currentCommit || !remote?.enabled || remote.connection !== "connected" || !connection)
+      throw new Error("Connect the remote from the installed Mac app before retrying.");
+    const token = await this.store.remoteToken(id);
+    if (!token) throw new Error("Pair this remote again. Its credential is unavailable.");
+    this.updateRemote(remote, token, connection.controller.signal, true);
+  }
+  private updateRemote(remote: Remote, token: string, signal: AbortSignal, retry = false) {
+    if (!this.currentCommit || this.updating.has(remote.id)) return;
+    const controller = new AbortController();
+    const task = synchronizeRemote(
+      remote.endpoint,
+      token,
+      this.currentCommit,
+      AbortSignal.any([signal, controller.signal]),
+      (update) => {
+        const current = this.statuses.get(remote.id);
+        if (!current || this.closed) return;
+        this.statuses.set(remote.id, { ...current, update });
+        this.onChange(this.snapshot());
+      },
+      retry,
+    ).finally(() => this.updating.delete(remote.id));
+    this.updating.set(remote.id, { controller, task });
   }
   private connect(remote: Remote) {
     if (this.closed) return;
@@ -150,6 +188,7 @@ export class Remotes {
       const requests = new Map<string, AbortController>();
       const tasks = new Set<Promise<void>>();
       let heartbeat: ReturnType<typeof setTimeout> | undefined;
+      let checkedUpdates = false;
       const alive = () => {
         clearTimeout(heartbeat);
         heartbeat = setTimeout(() => session.abort(), 30_000);
@@ -169,6 +208,10 @@ export class Remotes {
           alive();
           if (event.type === "ready") {
             this.status(remote, "connected", "Connected. Publications arrive while Scope is open.");
+            if (!checkedUpdates) {
+              checkedUpdates = true;
+              this.updateRemote(remote, token, sessionSignal);
+            }
             return;
           }
           if (event.type === "cancel") {
@@ -208,6 +251,9 @@ export class Remotes {
       } finally {
         clearTimeout(heartbeat);
         session.abort();
+        const update = this.updating.get(remote.id);
+        update?.controller.abort();
+        await update?.task;
         await Promise.allSettled(tasks);
       }
       await delay(3000, undefined, { signal }).catch(() => {});

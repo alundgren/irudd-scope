@@ -4,6 +4,21 @@ import { decode, validateEndpoint } from "./index.ts";
 export const RemoteToken = Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9_-]{32,128}$/));
 export const RemoteId = Schema.String.check(Schema.isPattern(/^[a-f0-9-]{36}$/));
 export const RemoteName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(160));
+export const BuildCommit = Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/));
+export const HubUpdateRequest = Schema.Struct({
+  commit: BuildCommit,
+  retry: Schema.optionalKey(Schema.Boolean),
+});
+export type HubUpdateRequest = typeof HubUpdateRequest.Type;
+export const HubUpdateStatus = Schema.Struct({
+  supported: Schema.Boolean,
+  phase: Schema.Literals(["idle", "building", "restarting", "error"]),
+  currentCommit: Schema.optionalKey(BuildCommit),
+  targetCommit: Schema.optionalKey(BuildCommit),
+  message: Schema.String.check(Schema.isMaxLength(2048)),
+  output: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8192))),
+});
+export type HubUpdateStatus = typeof HubUpdateStatus.Type;
 export const PairRequest = Schema.Struct({ name: RemoteName });
 export const PairReceipt = Schema.Struct({ id: RemoteId, name: RemoteName, token: RemoteToken });
 export const HubStatus = Schema.Struct({
@@ -13,6 +28,7 @@ export const HubStatus = Schema.Struct({
   port: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 })),
   pairedMac: Schema.NullOr(RemoteName),
   connected: Schema.optionalKey(Schema.Boolean),
+  commit: Schema.optionalKey(BuildCommit),
 });
 export type HubStatus = typeof HubStatus.Type;
 

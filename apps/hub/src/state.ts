@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { hostname } from "node:os";
 import { Schema } from "effect";
 import { decode, decodeLocalConnection, validateEndpoint } from "@irudd-scope/protocol";
-import { RemoteId, RemoteName, pairingUrl } from "@irudd-scope/protocol/remote";
+import { RemoteId, RemoteName, pairingUrl, HubUpdateStatus } from "@irudd-scope/protocol/remote";
 
 const Configuration = Schema.Struct({
   id: RemoteId,
@@ -57,6 +57,13 @@ export class HubState {
     const value = this.get("configuration");
     if (!value) throw new Error("Run irudd-scope setup before starting the hub.");
     return decode(Configuration, JSON.parse(value));
+  }
+  updateStatus() {
+    const value = this.get("update");
+    return value ? decode(HubUpdateStatus, JSON.parse(value)) : undefined;
+  }
+  saveUpdate(status: HubUpdateStatus) {
+    this.set("update", JSON.stringify(decode(HubUpdateStatus, status)));
   }
   async configure(input: Omit<Configuration, "id" | "name">) {
     validateEndpoint(input.endpoint);

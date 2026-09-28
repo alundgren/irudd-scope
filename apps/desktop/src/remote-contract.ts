@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { RemoteId, RemoteName } from "@irudd-scope/protocol/remote";
+import { RemoteId, RemoteName, type HubUpdateStatus } from "@irudd-scope/protocol/remote";
 
 export const Remote = Schema.Struct({
   id: RemoteId,
@@ -12,4 +12,5 @@ export const Remotes = Schema.Array(Remote);
 export type RemoteStatus = Remote & {
   connection: "connecting" | "connected" | "disconnected" | "error";
   message: string;
+  update?: HubUpdateStatus;
 };

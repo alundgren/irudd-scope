@@ -447,7 +447,8 @@ Install the standalone CLI on the remote with the root `install-cli.sh`. It
 builds only the CLI and hub packages, copies the managed Node runtime into
 the installation, and links `~/.local/bin/irudd-scope`. It does not install
 the desktop. Linux and macOS can install the CLI; managed hub setup currently
-requires Linux, a working systemd user service manager, and user lingering.
+requires Linux, `flock` from util-linux, a working systemd user service manager,
+and user lingering.
 Tailscale must already be installed and connected, with permission to configure
 Serve. Setup reports missing prerequisites before changing the service.
 
@@ -493,8 +494,30 @@ removes only its service and Serve route, preserving the CLI, skill, and
 settings. It requires the hub to be running. Logs are available through
 `journalctl --user -u irudd-scope-hub.service`.
 
-Re-run the standalone installer to update its payload, then run setup to
-restart the hub with the new version. Completed builds live in
+The installed Mac app requests remote updates after it is running the new
+version. Enabled remotes update on connection, including after being offline.
+The requested commit is the running Mac's commit, never a prepared update or
+whatever happens to be latest on `main`. The remote verifies that commit is on
+the repository's `main` history and refuses a downgrade or a different history.
+Development launches do not request updates.
+
+The hub starts `irudd-scope-update.service` as a separate transient systemd
+user service. It fetches and builds while the existing hub keeps serving, then
+switches the CLI, skill, and hub together and restarts the hub. Publication is
+briefly unavailable during restart; active transfers can fail and are not
+replayed. The worker checks the replacement's running commit and restores the
+previous build if startup fails. Pairing, discovery, and Serve configuration
+stay in place. An accepted update can finish after the Mac disconnects.
+
+Settings → Remotes shows progress and Retry update on failure. Failed attempts
+are retained in `hub.db` and do not repeat automatically for the same commit.
+Worker logs are in `journalctl --user -u irudd-scope-update.service`. Linux
+installation locks release when the updater exits, including after a crash.
+
+Older hubs cannot receive update requests. Re-run the standalone installer and
+`irudd-scope setup` once on each such remote. This remains the manual recovery
+procedure for an unavailable hub. The installer updates its payload; setup
+restarts the hub. Completed builds live in
 `~/.local/share/irudd-scope-cli/builds`; `current` and `previous` select builds.
 `SCOPE_CLI_INSTALL_ROOT`, `SCOPE_CLI_BIN_DIR`, and `SCOPE_VP` override installer
 paths. `SCOPE_CLI_SOURCE` builds an existing absolute checkout without fetching

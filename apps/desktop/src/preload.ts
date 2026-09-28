@@ -32,6 +32,7 @@ const bridge: ScopeBridge = {
   setRemoteEnabled: (id, enabled) =>
     ipcRenderer.invoke("scope:set-remote-enabled", { id, enabled }),
   removeRemote: (id) => ipcRenderer.invoke("scope:remove-remote", id),
+  retryRemoteUpdate: (id) => ipcRenderer.invoke("scope:retry-remote-update", id),
   onRemotesChange: (listener) => {
     const receive = (_event: unknown, status: RemoteStatus[]) => listener(status);
     ipcRenderer.on("scope:remotes-changed", receive);

@@ -27,6 +27,7 @@ export type ScopeBridge = {
   pairRemote: (url: string) => Promise<void>;
   setRemoteEnabled: (id: string, enabled: boolean) => Promise<void>;
   removeRemote: (id: string) => Promise<void>;
+  retryRemoteUpdate: (id: string) => Promise<void>;
   onRemotesChange: (listener: (status: RemoteStatus[]) => void) => () => void;
   updates: () => Promise<UpdateStatus>;
   checkForUpdates: () => Promise<void>;
