@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useContext, useEffect, useRef, useState, type FormEvent } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
 import { emptyScene } from "./contract.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { Input } from "../../renderer/components/ui/input.tsx";
 import { Textarea } from "../../renderer/components/ui/textarea.tsx";
+import { SettingsContext } from "../../renderer/settings-context.tsx";
 
 export function CreateDiagram({
   onCreated,
@@ -12,6 +13,8 @@ export function CreateDiagram({
   onCreated: (artifact: Artifact) => void;
   onClose: () => void;
 }) {
+  const preferences = useContext(SettingsContext);
+  const enabled = preferences?.settings?.diagramGenerationEnabled ?? false;
   const [title, setTitle] = useState("Architecture");
   const [intent, setIntent] = useState("");
   const [busy, setBusy] = useState(false);
@@ -25,6 +28,7 @@ export function CreateDiagram({
   }, []);
   async function create(event: FormEvent) {
     event.preventDefault();
+    if (!enabled) return;
     setError("");
     setBusy(true);
     try {
@@ -59,46 +63,55 @@ export function CreateDiagram({
           Done
         </Button>
       </div>
-      <form className="settings-form" onSubmit={(event) => void create(event)}>
-        <label>
-          Title
-          <Input
-            required
-            value={title}
-            maxLength={160}
-            onChange={(event) => setTitle(event.target.value)}
-          />
-        </label>
-        <label>
-          What should the diagram show?
-          <Textarea
-            required
-            value={intent}
-            maxLength={16_000}
-            rows={8}
-            onChange={(event) => setIntent(event.target.value)}
-            placeholder="A customer places an order. The kitchen prepares it for delivery."
-          />
-        </label>
-        <p className="secondary">
-          Gemini 3.8 Flash via OpenRouter. The result is saved as an editable artifact.
-        </p>
-        <div className="section-title">
-          <Button type="submit" disabled={busy}>
-            {busy ? "Generating…" : "Create diagram"}
+      {!enabled ? (
+        <div className="settings-form">
+          <p>Enable diagram generation in Settings to create a diagram.</p>
+          <Button onClick={() => preferences?.openSettings("diagram generation")}>
+            Open diagram settings
           </Button>
-          {busy && (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => void window.scope.cancelDiagramGeneration()}
-            >
-              Cancel
-            </Button>
-          )}
         </div>
-        {error && <p role="alert">{error}</p>}
-      </form>
+      ) : (
+        <form className="settings-form" onSubmit={(event) => void create(event)}>
+          <label>
+            Title
+            <Input
+              required
+              value={title}
+              maxLength={160}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </label>
+          <label>
+            What should the diagram show?
+            <Textarea
+              required
+              value={intent}
+              maxLength={16_000}
+              rows={8}
+              onChange={(event) => setIntent(event.target.value)}
+              placeholder="A customer places an order. The kitchen prepares it for delivery."
+            />
+          </label>
+          <p className="secondary">
+            Gemini 3.8 Flash via OpenRouter. The result is saved as an editable artifact.
+          </p>
+          <div className="section-title">
+            <Button type="submit" disabled={busy}>
+              {busy ? "Generating…" : "Create diagram"}
+            </Button>
+            {busy && (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => void window.scope.cancelDiagramGeneration()}
+              >
+                Cancel
+              </Button>
+            )}
+          </div>
+          {error && <p role="alert">{error}</p>}
+        </form>
+      )}
     </section>
   );
 }

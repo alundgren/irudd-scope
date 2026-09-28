@@ -16,6 +16,7 @@ export function registerDiagramIpc({
 }: MainPluginContext) {
   let generation: AbortController | undefined;
   let generationTab: string | undefined;
+  handle("scope:diagram-settings", () => store.diagramSettings());
   handle("scope:diagram-draft", (input) => artifacts.diagramDraft(decode(Uuid, input)));
   const SaveDraft = Schema.Struct({ id: Uuid, draft: DiagramDraft });
   handle("scope:save-diagram-draft", (input) => {
@@ -23,6 +24,8 @@ export function registerDiagramIpc({
     return artifacts.saveDiagramDraft(id, draft);
   });
   handle("scope:generate-diagram", async (input) => {
+    if (!store.settings().diagramGenerationEnabled)
+      throw new Error("Enable diagram generation in Settings first.");
     if (generation) throw new Error("A diagram request is already running.");
     const { request, tabId } = decode(
       Schema.Struct({ request: DiagramRequest, tabId: Schema.optionalKey(Uuid) }),
@@ -35,6 +38,9 @@ export function registerDiagramIpc({
       if (tabId && !(await workspace())?.tabs.some((tab) => tab.id === tabId))
         throw new Error("This tab is closed.");
       const key = await store.secret("apiKey");
+      active.signal.throwIfAborted();
+      if (!store.settings().diagramGenerationEnabled)
+        throw new Error("Enable diagram generation in Settings first.");
       if (!key) throw new Error("Add an OpenRouter key in Settings first.");
       return await openRouterProvider(key).generateDiagram(request, active.signal);
     } finally {

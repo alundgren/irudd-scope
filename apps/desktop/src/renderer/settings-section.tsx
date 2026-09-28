@@ -12,7 +12,7 @@ const settingsSections = [
   {
     id: "model",
     title: "Diagram generation",
-    description: "Provider, model, and API key",
+    description: "Enable generation, provider, model, and API key",
     terms: "openrouter gemini credentials",
   },
   {
@@ -57,7 +57,7 @@ export function SettingsSection({
 }: {
   id: (typeof settingsSections)[number]["id"];
   query: string;
-  children: ReactNode;
+  children: ReactNode | ((active: boolean) => ReactNode);
 }) {
   const labelId = useId();
   const [disclosure, setDisclosure] = useState({ query, expanded: Boolean(query.trim()) });
@@ -92,7 +92,7 @@ export function SettingsSection({
         className="settings-section-content settings-form"
         hidden={!disclosure.expanded}
       >
-        {children}
+        {typeof children === "function" ? children(visible && disclosure.expanded) : children}
       </div>
     </section>
   );

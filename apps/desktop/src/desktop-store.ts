@@ -26,6 +26,7 @@ import { RemoteToken } from "@irudd-scope/protocol/remote";
 const SavedSettings = Schema.Struct({
   version: Schema.Literal(2),
   appearance: Schema.optionalKey(Appearance),
+  diagramGenerationEnabled: Schema.optionalKey(Schema.Boolean),
   provider: Schema.Literal(DIAGRAM_PROVIDER),
   model: Schema.Literal(DIAGRAM_MODEL),
 });
@@ -47,8 +48,9 @@ export class DesktopStore {
   };
   private runtime?: ReturnType<typeof databaseRuntime>;
   private sql?: SqliteClient.SqliteClient;
-  private presence = { hasApiKey: false };
+  private hasApiKey: boolean | null = null;
   private credentialError?: string;
+  private legacyApiKey?: string;
   private pending = Promise.resolve();
   readonly filename: string;
 
@@ -80,41 +82,23 @@ export class DesktopStore {
       const [row] = await this.run(
         sql<{ document: string }>`SELECT document FROM preferences WHERE name = 'settings'`,
       );
-      let legacy: string | null = null;
-      if (row) {
-        const saved = decode(LegacySettings, JSON.parse(row.document));
+      const legacy = await readFile(join(this.directory, "settings.json"), "utf8").catch(
+        (error: unknown) => {
+          if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+          throw error;
+        },
+      );
+      const old = legacy === null ? undefined : decode(LegacySettings, JSON.parse(legacy));
+      this.legacyApiKey = old?.apiKey;
+      const saved = row ? decode(LegacySettings, JSON.parse(row.document)) : old;
+      if (saved) {
         this.saved = {
           version: 2,
           provider: saved.provider,
           model: saved.model,
           appearance: saved.appearance ?? "system",
+          diagramGenerationEnabled: saved.diagramGenerationEnabled ?? false,
         };
-      } else {
-        legacy = await readFile(join(this.directory, "settings.json"), "utf8").catch(
-          (error: unknown) => {
-            if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
-            throw error;
-          },
-        );
-        if (legacy !== null) {
-          const old = decode(LegacySettings, JSON.parse(legacy));
-          if (old.apiKey) {
-            if (this.credentials.kind !== "keychain" || !this.decodeLegacySecret)
-              throw new Error(
-                "Open this desktop profile on macOS to migrate its saved credentials to Keychain.",
-              );
-            const secrets = { ...(await this.credentials.read()) };
-            if (!secrets.apiKey)
-              secrets.apiKey = await this.decodeLegacySecret(Buffer.from(old.apiKey, "base64"));
-            await this.credentials.write(secrets);
-          }
-          this.saved = {
-            version: 2,
-            provider: old.provider,
-            model: old.model,
-            appearance: old.appearance ?? "system",
-          };
-        }
       }
       const document = JSON.stringify(this.saved);
       await this.run(
@@ -147,8 +131,8 @@ export class DesktopStore {
           }),
         ),
       );
-      if (legacy !== null) await unlink(join(this.directory, "settings.json"));
-      await this.refreshPresence();
+      if (legacy !== null && !this.legacyApiKey)
+        await unlink(join(this.directory, "settings.json"));
       this.maintenance = new DatabaseMaintenance(filename, "desktop.db");
     } catch (error) {
       await this.runtime.dispose();
@@ -162,31 +146,56 @@ export class DesktopStore {
     return this.runtime.runPromise(effect);
   }
 
-  private async refreshPresence(): Promise<void> {
-    try {
-      const secrets = await this.credentials.read();
-      this.presence = {
-        hasApiKey: Boolean(secrets.apiKey),
-      };
-      this.credentialError = undefined;
-    } catch {
-      this.credentialError = "Key status is unavailable. Save settings to request access again.";
+  private async readDiagramCredentials() {
+    const secrets = { ...(await this.credentials.read()) };
+    if (this.legacyApiKey) {
+      if (!secrets.apiKey) {
+        if (this.credentials.kind !== "keychain" || !this.decodeLegacySecret)
+          throw new Error(
+            "Open this desktop profile on macOS to migrate its saved credentials to Keychain.",
+          );
+        secrets.apiKey = await this.decodeLegacySecret(Buffer.from(this.legacyApiKey, "base64"));
+        await this.credentials.write(secrets);
+      }
+      await unlink(join(this.directory, "settings.json"));
+      this.legacyApiKey = undefined;
     }
+    this.hasApiKey = Boolean(secrets.apiKey);
+    this.credentialError = undefined;
+    return secrets;
+  }
+
+  diagramSettings(): Promise<SettingsView> {
+    return this.enqueue(async () => {
+      if (this.saved.diagramGenerationEnabled) {
+        try {
+          await this.readDiagramCredentials();
+        } catch {
+          this.credentialError = "Key status is unavailable. Retry to request access again.";
+        }
+      }
+      return this.settings();
+    });
   }
 
   settings(): SettingsView {
     return {
       appearance: this.saved.appearance ?? "system",
+      diagramGenerationEnabled: this.saved.diagramGenerationEnabled ?? false,
       provider: this.saved.provider,
       model: this.saved.model,
-      ...this.presence,
+      hasApiKey: this.hasApiKey,
       keyStorage: this.credentials.kind,
       ...(this.credentialError ? { credentialError: this.credentialError } : {}),
     };
   }
 
-  async secret(name: "apiKey"): Promise<string | undefined> {
-    return (await this.credentials.read())[name];
+  secret(name: "apiKey"): Promise<string | undefined> {
+    return this.enqueue(async () => {
+      if (!this.saved.diagramGenerationEnabled)
+        throw new Error("Enable diagram generation in Settings first.");
+      return (await this.readDiagramCredentials())[name];
+    });
   }
 
   private enqueue<A>(write: () => Promise<A>): Promise<A> {
@@ -203,10 +212,14 @@ export class DesktopStore {
       const input = decodeSettingsUpdate(value);
       const next = { ...this.saved };
       if (input.appearance !== undefined) next.appearance = input.appearance;
+      if (input.diagramGenerationEnabled !== undefined)
+        next.diagramGenerationEnabled = input.diagramGenerationEnabled;
       if (input.removeApiKey && input.apiKey)
         throw new Error("Choose either replacing or removing the key.");
       if (input.apiKey !== undefined || input.removeApiKey) {
-        const secrets = { ...(await this.credentials.read()) };
+        if (!next.diagramGenerationEnabled)
+          throw new Error("Enable diagram generation in Settings first.");
+        const secrets = await this.readDiagramCredentials();
         if (input.removeApiKey) delete secrets.apiKey;
         const secret = input.apiKey?.trim();
         if (secret !== undefined) {
@@ -214,13 +227,17 @@ export class DesktopStore {
           secrets.apiKey = secret;
         }
         await this.credentials.write(secrets);
+        this.hasApiKey = Boolean(secrets.apiKey);
       }
       await this.run(
         this
           .sql!`UPDATE preferences SET document = ${JSON.stringify(next)} WHERE name = 'settings'`,
       );
       this.saved = next;
-      await this.refreshPresence();
+      if (!next.diagramGenerationEnabled) {
+        this.hasApiKey = null;
+        this.credentialError = undefined;
+      }
       return this.settings();
     });
   }

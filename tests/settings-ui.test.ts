@@ -2,6 +2,7 @@ import { expect, test } from "vite-plus/test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
+import { emptyScene } from "../apps/desktop/src/plugins/diagram/contract.ts";
 
 test("Settings starts compact, opens search matches, and preserves input across folded sections", async () => {
   const { directory, launch } = await desktopFixture();
@@ -30,6 +31,11 @@ test("Settings starts compact, opens search matches, and preserves input across 
     expect(await settings.getByLabel("Appearance", { exact: true }).isVisible()).toBe(false);
 
     await diagram.click();
+    const enable = settings.getByRole("switch", { name: "Enable diagram generation" });
+    expect(await enable.getAttribute("aria-checked")).toBe("false");
+    expect(await key.isVisible()).toBe(false);
+    await enable.focus();
+    await page.keyboard.press("Space");
     await key.fill("synthetic-unsaved-key");
     await diagram.click();
     expect(await key.isVisible()).toBe(false);
@@ -70,6 +76,12 @@ test("Settings starts compact, opens search matches, and preserves input across 
           path: join(process.env.SCOPE_TEST_SCREENSHOTS, `settings-${theme}.png`),
           animations: "disabled",
         });
+        await search.fill("diagram generation");
+        await page.screenshot({
+          path: join(process.env.SCOPE_TEST_SCREENSHOTS, `diagram-settings-${theme}.png`),
+          animations: "disabled",
+        });
+        await search.fill("");
       }
     }
 
@@ -93,6 +105,116 @@ test("Settings starts compact, opens search matches, and preserves input across 
     }
     await done.click();
     await settings.waitFor({ state: "hidden" });
+  } finally {
+    await application.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("diagram key checks require an open enabled section and failed access can be retried", async () => {
+  const { directory, launch } = await desktopFixture();
+  const application = await launch();
+  try {
+    const page = await application.firstWindow();
+    await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+    await expect(
+      page.evaluate(
+        (scene) => window.scope.generateDiagram({ intent: "Draw a browser", scene }),
+        emptyScene(),
+      ),
+    ).rejects.toThrow("Enable diagram generation");
+    const initial = await page.evaluate(() => window.scope.settings());
+    await application.evaluate(({ ipcMain }, settings) => {
+      const access = { checks: 0, fail: true, hasApiKey: false };
+      Object.assign(globalThis, { scopeTestDiagramAccess: access });
+      ipcMain.removeHandler("scope:diagram-settings");
+      ipcMain.handle("scope:diagram-settings", () => {
+        access.checks++;
+        return {
+          ...settings,
+          diagramGenerationEnabled: true,
+          hasApiKey: access.fail ? null : access.hasApiKey,
+          ...(access.fail
+            ? { credentialError: "Key status is unavailable. Retry to request access again." }
+            : {}),
+        };
+      });
+    }, initial);
+    const checks = () =>
+      application.evaluate(
+        () =>
+          (globalThis as unknown as { scopeTestDiagramAccess: { checks: number } })
+            .scopeTestDiagramAccess.checks,
+      );
+
+    await page.getByRole("button", { name: "Create diagram", exact: true }).click();
+    await page.getByRole("button", { name: "Open diagram settings" }).click();
+    const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+    const search = settings.getByLabel("Search settings");
+    const enable = settings.getByRole("switch", { name: "Enable diagram generation" });
+    const key = settings.getByLabel("OpenRouter API key");
+    expect(await enable.getAttribute("aria-checked")).toBe("false");
+    expect(await key.isVisible()).toBe(false);
+    expect(await checks()).toBe(0);
+    if (process.env.SCOPE_TEST_SCREENSHOTS) {
+      await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
+      await page.screenshot({
+        path: join(process.env.SCOPE_TEST_SCREENSHOTS, "diagram-generation-off.png"),
+        animations: "disabled",
+      });
+    }
+
+    await enable.click();
+    await settings.getByText("Key status unavailable", { exact: true }).waitFor();
+    expect(await checks()).toBe(1);
+    expect(await settings.getByText("No key saved", { exact: true }).isVisible()).toBe(false);
+    await application.evaluate(() => {
+      (
+        globalThis as unknown as { scopeTestDiagramAccess: { fail: boolean } }
+      ).scopeTestDiagramAccess.fail = false;
+    });
+    await settings.getByRole("button", { name: "Retry key access" }).click();
+    await settings.getByText("No key saved", { exact: true }).waitFor();
+    expect(await checks()).toBe(2);
+    await key.fill("synthetic-diagram-key");
+    await settings.getByRole("button", { name: "Save key", exact: true }).click();
+    await settings.getByText("Key saved", { exact: true }).waitFor();
+    await application.evaluate(() => {
+      (
+        globalThis as unknown as { scopeTestDiagramAccess: { hasApiKey: boolean } }
+      ).scopeTestDiagramAccess.hasApiKey = true;
+    });
+
+    await search.fill("theme");
+    await settings.getByLabel("Appearance", { exact: true }).selectOption("dark");
+    await settings.getByText("Settings saved.", { exact: true }).waitFor();
+    await search.fill("no matching setting");
+    await settings.getByRole("button", { name: "Clear search" }).click();
+    await settings.getByRole("button", { name: "Done", exact: true }).click();
+    await page
+      .getByLabel("What should the diagram show?")
+      .fill("Keep this prompt while generation is off.");
+    await page.keyboard.press("ControlOrMeta+,");
+    await search.waitFor();
+    expect(await key.isVisible()).toBe(false);
+    expect(await checks()).toBe(2);
+    await search.fill("credentials");
+    await settings.getByText("Key saved", { exact: true }).waitFor();
+    expect(await checks()).toBe(3);
+    await enable.click();
+    await expect.poll(() => enable.getAttribute("aria-checked")).toBe("false");
+    expect(await key.isVisible()).toBe(false);
+    await search.fill("theme");
+    await search.fill("diagram generation");
+    expect(await checks()).toBe(3);
+    await settings.getByRole("button", { name: "Done", exact: true }).click();
+    await page.getByRole("button", { name: "Open diagram settings" }).click();
+    await enable.click();
+    await settings.getByText("Key saved", { exact: true }).waitFor();
+    await settings.getByRole("button", { name: "Done", exact: true }).click();
+    expect(await page.getByLabel("What should the diagram show?").inputValue()).toBe(
+      "Keep this prompt while generation is off.",
+    );
   } finally {
     await application.close();
     await rm(directory, { recursive: true, force: true });

@@ -9,7 +9,9 @@ import {
 } from "../renderer/components/ui/dialog.tsx";
 import { SettingsViewPanel } from "../renderer/settings-view.tsx";
 import { UpdateNotice } from "../renderer/installation-settings.tsx";
-import { useAppearance, type Appearance } from "../renderer/appearance.ts";
+import { useAppearance } from "../renderer/appearance.ts";
+import { SettingsContext } from "../renderer/settings-context.tsx";
+import type { SettingsView } from "../settings.ts";
 import { useArtifactLibrary } from "../library/use-library.ts";
 import { useWorkspace } from "./use-workspace.ts";
 import { WorkspaceSearch } from "./search.tsx";
@@ -20,8 +22,9 @@ import { TabHost } from "./tab-host.tsx";
 import { TabEventRouter } from "./events.ts";
 import { pluginTools, pluginForArtifact, tabArtifactId } from "../plugins/registry.renderer.ts";
 
-export function App({ initialAppearance }: { initialAppearance: Appearance }) {
-  const { theme, setAppearance } = useAppearance(initialAppearance);
+export function App({ initialSettings }: { initialSettings: SettingsView | undefined }) {
+  const { theme, setAppearance } = useAppearance(initialSettings?.appearance ?? "system");
+  const [preferences, setPreferences] = useState(initialSettings);
   const [settings, setSettings] = useState(false);
   const [settingsQuery, setSettingsQuery] = useState("");
   const [creating, setCreating] = useState<string | null>(null);
@@ -201,7 +204,7 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
     return () => window.removeEventListener("keydown", keyboard);
   });
   if (!workspaceReady) return <p role="status">Opening workspace…</p>;
-  return (
+  const content = (
     <main className={`workspace${focus ? " focus-mode" : ""}`}>
       {!focus && (
         <TabBar
@@ -426,7 +429,10 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
             key={settingsQuery}
             initialQuery={settingsQuery}
             onClose={() => setSettings(false)}
-            onAppearanceChange={setAppearance}
+            onSettingsChange={(value) => {
+              setPreferences(value);
+              setAppearance(value.appearance);
+            }}
           />
         </DialogContent>
       </Dialog>
@@ -456,5 +462,10 @@ export function App({ initialAppearance }: { initialAppearance: Appearance }) {
         </DialogContent>
       </Dialog>
     </main>
+  );
+  return (
+    <SettingsContext.Provider value={{ settings: preferences, openSettings }}>
+      {content}
+    </SettingsContext.Provider>
   );
 }

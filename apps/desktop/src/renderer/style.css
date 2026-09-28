@@ -544,7 +544,8 @@ h2 {
   display: grid;
   gap: var(--scope-space-3);
 }
-.settings-section-content .appearance-setting {
+.settings-section-content .appearance-setting,
+.diagram-generation-setting {
   display: flex;
   align-items: center;
   justify-content: space-between;

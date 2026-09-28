@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useContext, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { Textarea } from "../../renderer/components/ui/textarea.tsx";
 import type { DiagramDraft } from "./draft.ts";
+import { SettingsContext } from "../../renderer/settings-context.tsx";
 
 export function DiagramChat({
   open,
@@ -27,14 +28,16 @@ export function DiagramChat({
   onSend: () => void;
   onCancel: () => void;
 }) {
+  const preferences = useContext(SettingsContext);
+  const enabled = preferences?.settings?.diagramGenerationEnabled ?? false;
   const history = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (history.current) history.current.scrollTop = history.current.scrollHeight;
   }, [messages, open, focus]);
   useEffect(() => {
-    if (open && !focus) composer.current?.focus({ preventScroll: true });
-  }, [open, focus]);
+    if (open && !focus && enabled) composer.current?.focus({ preventScroll: true });
+  }, [open, focus, enabled]);
   return (
     <aside className="diagram-chat" aria-label="Diagram agent" hidden={!open || focus}>
       <div className="chat-heading">
@@ -78,41 +81,50 @@ export function DiagramChat({
           </p>
         )}
       </div>
-      <form
-        className="chat-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSend();
-        }}
-      >
-        <Textarea
-          ref={composer}
-          aria-label="Change diagram"
-          placeholder="Describe a change…"
-          value={intent}
-          maxLength={16000}
-          disabled={busy === "generation"}
-          onChange={(event) => onIntentChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              onSend();
-            }
-          }}
-        />
-        <div className="chat-actions">
-          <span className="secondary">Shift + Enter for a new line</span>
-          {busy === "generation" ? (
-            <Button type="button" size="sm" variant="secondary" onClick={onCancel}>
-              Cancel
-            </Button>
-          ) : (
-            <Button type="submit" size="sm" disabled={busy !== null || !ready || !intent.trim()}>
-              Send
-            </Button>
-          )}
+      {!enabled ? (
+        <div className="chat-form">
+          <p>Enable diagram generation in Settings to ask the diagram agent.</p>
+          <Button onClick={() => preferences?.openSettings("diagram generation")}>
+            Open diagram settings
+          </Button>
         </div>
-      </form>
+      ) : (
+        <form
+          className="chat-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSend();
+          }}
+        >
+          <Textarea
+            ref={composer}
+            aria-label="Change diagram"
+            placeholder="Describe a change…"
+            value={intent}
+            maxLength={16000}
+            disabled={busy === "generation"}
+            onChange={(event) => onIntentChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                onSend();
+              }
+            }}
+          />
+          <div className="chat-actions">
+            <span className="secondary">Shift + Enter for a new line</span>
+            {busy === "generation" ? (
+              <Button type="button" size="sm" variant="secondary" onClick={onCancel}>
+                Cancel
+              </Button>
+            ) : (
+              <Button type="submit" size="sm" disabled={busy !== null || !ready || !intent.trim()}>
+                Send
+              </Button>
+            )}
+          </div>
+        </form>
+      )}
     </aside>
   );
 }
