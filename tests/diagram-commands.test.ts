@@ -33,6 +33,29 @@ test("diagram commands create, read imported objects, reject stale edits and exp
     await expect
       .poll(async () => (await read("created").catch(() => null))?.scene.nodes.length)
       .toBe(2);
+    const generated = await read("created");
+    const replacement = await client.diagram({
+      action: "apply",
+      id: "created",
+      snapshot: generated.snapshot,
+      operations: [
+        { type: "delete", ids: ["browser"] },
+        {
+          type: "createNode",
+          id: "browser",
+          kind: "ellipse",
+          label: "Browser",
+          x: 100,
+          y: 100,
+          width: null,
+          height: null,
+        },
+      ],
+    });
+    if (replacement.type !== "snapshot") throw new Error("Expected a snapshot.");
+    expect(replacement.diagram.scene.nodes.find((node) => node.id === "browser")?.kind).toBe(
+      "ellipse",
+    );
     const native = JSON.parse(new TextDecoder().decode(await client.content("created")));
     for (const element of native.elements) {
       delete element.customData;
@@ -49,6 +72,26 @@ test("diagram commands create, read imported objects, reject stale edits and exp
       angle: 0.4,
       boundElements: [],
     });
+    native.elements.push({
+      ...native.elements.at(-1),
+      id: "agent:reserved",
+      x: 1000,
+      customData: {
+        drawingAgent: {
+          category: "nodes",
+          primary: true,
+          object: {
+            id: "reserved",
+            kind: "rectangle",
+            label: "Reserved",
+            x: 1000,
+            y: 100,
+            width: 180,
+            height: 80,
+          },
+        },
+      },
+    });
     const imported = join(directory, "imported.excalidraw");
     await writeFile(imported, JSON.stringify(native));
     await cli("add", imported, "--id", "imported", "--title", "Imported diagram");
@@ -57,7 +100,42 @@ test("diagram commands create, read imported objects, reject stale edits and exp
       .toBe(2);
     const initial = await read("imported");
     expect(initial.scene.nodes.map((item) => item.id)).toContain("native:agent:browser");
-    expect(initial.readOnly).toMatchObject([{ id: "native:rotated-native" }]);
+    expect(initial.readOnly).toMatchObject([{ id: "native:rotated-native" }, { id: "reserved" }]);
+    await expect(
+      client.diagram({
+        action: "apply",
+        id: "imported",
+        snapshot: initial.snapshot,
+        operations: [
+          {
+            type: "group",
+            id: "native:rotated-native",
+            label: "Invalid",
+            ids: ["native:agent:browser"],
+          },
+        ],
+      }),
+    ).rejects.toThrow("New diagram IDs");
+    await expect(
+      client.diagram({
+        action: "apply",
+        id: "imported",
+        snapshot: initial.snapshot,
+        operations: [
+          {
+            type: "createNode",
+            id: "reserved",
+            kind: "rectangle",
+            label: "Invalid",
+            x: 0,
+            y: 0,
+            width: null,
+            height: null,
+          },
+        ],
+      }),
+    ).rejects.toThrow("Native element ID agent:reserved already exists");
+    expect((await read("imported")).snapshot).toBe(initial.snapshot);
     await writeFile(
       file,
       JSON.stringify([{ type: "setLabel", id: "native:agent:browser", label: "Web client" }]),
