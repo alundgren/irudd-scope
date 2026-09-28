@@ -88,90 +88,30 @@ export async function startArtifactServer(options: {
 
   async function handle(request: IncomingMessage, response: ServerResponse) {
     const url = new URL(request.url ?? "/", "http://localhost");
-    if (request.method === "GET" && url.pathname === "/health") {
+    const route = `${request.method} ${url.pathname}`;
+    if (route === "GET /health") {
       json(response, 200, { status: "ok" });
       return;
     }
-    const expected = Buffer.from(`Bearer ${options.token}`);
-    const received = Buffer.from(request.headers.authorization ?? "");
-    if (received.length !== expected.length || !timingSafeEqual(received, expected))
-      throw new ScopeError(401, "A valid publishing token is required.");
-    if (request.headers.origin)
-      throw new ScopeError(403, "Browser-origin requests are not supported.");
+    authenticate(request, options.token);
 
-    if (request.method === "POST" && url.pathname === "/v1/diagram-agents" && !url.search) {
-      if (!options.diagramAgent) throw new ScopeError(503, "The diagram editor is unavailable.");
-      const awaitBody = await readJson(
-        request,
-        MAX_DIAGRAM_REQUEST_BYTES,
-        "Diagram request exceeds 512 KiB.",
-      );
-      const command = validate(() => decode(DiagramAgentCommand, awaitBody));
-      const controller = new AbortController();
-      const cancel = () => controller.abort();
-      response.once("close", cancel);
-      try {
-        json(
-          response,
-          200,
-          decode(DiagramAgentReply, await options.diagramAgent(command, controller.signal)),
-        );
-      } finally {
-        response.off("close", cancel);
-      }
+    if (route === "POST /v1/diagram-agents" && !url.search) {
+      await handleDiagramAgent(request, response);
       return;
     }
-    if (request.method === "POST" && url.pathname === "/v1/diagrams" && !url.search) {
-      if (!options.diagram) throw new ScopeError(503, "The diagram editor is unavailable.");
-      const awaitBody = await readJson(
-        request,
-        MAX_DIAGRAM_REQUEST_BYTES,
-        "Diagram request exceeds 512 KiB.",
-      );
-      const command = validate(() => decode(DiagramCommand, awaitBody));
-      const controller = new AbortController();
-      const cancel = () => controller.abort();
-      response.once("close", cancel);
-      try {
-        json(
-          response,
-          200,
-          decode(DiagramReply, await options.diagram(command, controller.signal)),
-        );
-      } finally {
-        response.off("close", cancel);
-      }
+    if (route === "POST /v1/diagrams" && !url.search) {
+      await handleDiagram(request, response);
       return;
     }
-    if (request.method === "GET" && url.pathname === "/v1/events") {
-      if (streams.size >= 8) throw new ScopeError(503, "Too many open event streams.");
-      response.writeHead(200, {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-store",
-        "X-Accel-Buffering": "no",
-      });
-      streams.add(response);
-      sendEvent(response, { type: "ready" });
-      const heartbeat = setInterval(() => {
-        if (!response.write(": heartbeat\n\n")) response.destroy();
-      }, 15_000);
-      response.on("close", () => {
-        clearInterval(heartbeat);
-        streams.delete(response);
-      });
+    if (route === "GET /v1/events") {
+      openEventStream(response);
       return;
     }
-    if (url.pathname === "/v1/maintenance/shrink" && request.method === "POST" && !url.search) {
-      const body = await readJson(request, 1024, "Maintenance request exceeds the size limit.");
-      const input = validate(() => decode(ShrinkRequest, body));
-      request.setTimeout(input.timeoutMs + 5000);
-      const receipt = options.shrink
-        ? await options.shrink(input.timeoutMs)
-        : { target: "desktop", databases: [await store.maintenance.run(true, input.timeoutMs)] };
-      json(response, 200, decode(ShrinkReceipt, receipt));
+    if (route === "POST /v1/maintenance/shrink" && !url.search) {
+      await shrink(request, response);
       return;
     }
-    if (url.pathname === "/v1/maintenance/status" && request.method === "GET" && !url.search) {
+    if (route === "GET /v1/maintenance/status" && !url.search) {
       json(response, 200, {
         target: "desktop",
         databases: options.maintenanceStatus?.() ?? [store.maintenance.latest()].filter(Boolean),
@@ -181,18 +121,10 @@ export async function startArtifactServer(options: {
     const upload = /^\/v1\/tabs\/([^/]+)\/blobs$/.exec(url.pathname);
     if (request.method === "POST" && upload && !url.search) {
       const tabId = validate(() => decode(PublicationTabId, upload[1]));
-      if (Number(request.headers["content-length"]) > MAX_CONTENT_BYTES)
-        throw new ScopeError(413, "Artifact exceeds the 32 MiB limit.");
-      if (uploads >= 4) throw new ScopeError(503, "Scope is busy uploading artifacts. Try again.");
-      uploads++;
-      try {
-        json(response, 201, { blob: await store.upload(tabId, request) });
-      } finally {
-        uploads--;
-      }
+      await uploadContent(request, response, tabId);
       return;
     }
-    if (request.method === "GET" && url.pathname === "/v1/artifacts") {
+    if (route === "GET /v1/artifacts") {
       const after = url.searchParams.get("after");
       if (after) validate(() => decode(ArtifactId, after));
       json(response, 200, await store.list(after ?? ""));
@@ -204,6 +136,103 @@ export async function startArtifactServer(options: {
     await handleArtifact(request, response, url, id, match[2]);
   }
 
+  async function handleDiagramAgent(request: IncomingMessage, response: ServerResponse) {
+    if (!options.diagramAgent) throw new ScopeError(503, "The diagram editor is unavailable.");
+    const body = await readJson(
+      request,
+      MAX_DIAGRAM_REQUEST_BYTES,
+      "Diagram request exceeds 512 KiB.",
+    );
+    const command = validate(() => decode(DiagramAgentCommand, body));
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    response.once("close", cancel);
+    try {
+      json(
+        response,
+        200,
+        decode(DiagramAgentReply, await options.diagramAgent(command, controller.signal)),
+      );
+    } finally {
+      response.off("close", cancel);
+    }
+  }
+
+  async function handleDiagram(request: IncomingMessage, response: ServerResponse) {
+    if (!options.diagram) throw new ScopeError(503, "The diagram editor is unavailable.");
+    const body = await readJson(
+      request,
+      MAX_DIAGRAM_REQUEST_BYTES,
+      "Diagram request exceeds 512 KiB.",
+    );
+    const command = validate(() => decode(DiagramCommand, body));
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    response.once("close", cancel);
+    try {
+      json(response, 200, decode(DiagramReply, await options.diagram(command, controller.signal)));
+    } finally {
+      response.off("close", cancel);
+    }
+  }
+
+  function openEventStream(response: ServerResponse) {
+    if (streams.size >= 8) throw new ScopeError(503, "Too many open event streams.");
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
+    });
+    streams.add(response);
+    sendEvent(response, { type: "ready" });
+    const heartbeat = setInterval(() => {
+      if (!response.write(": heartbeat\n\n")) response.destroy();
+    }, 15_000);
+    response.on("close", () => {
+      clearInterval(heartbeat);
+      streams.delete(response);
+    });
+  }
+
+  async function shrink(request: IncomingMessage, response: ServerResponse) {
+    const body = await readJson(request, 1024, "Maintenance request exceeds the size limit.");
+    const input = validate(() => decode(ShrinkRequest, body));
+    request.setTimeout(input.timeoutMs + 5000);
+    const receipt = options.shrink
+      ? await options.shrink(input.timeoutMs)
+      : { target: "desktop", databases: [await store.maintenance.run(true, input.timeoutMs)] };
+    json(response, 200, decode(ShrinkReceipt, receipt));
+  }
+
+  async function uploadContent(request: IncomingMessage, response: ServerResponse, tabId: string) {
+    if (Number(request.headers["content-length"]) > MAX_CONTENT_BYTES)
+      throw new ScopeError(413, "Artifact exceeds the 32 MiB limit.");
+    if (uploads >= 4) throw new ScopeError(503, "Scope is busy uploading artifacts. Try again.");
+    uploads++;
+    try {
+      json(response, 201, { blob: await store.upload(tabId, request) });
+    } finally {
+      uploads--;
+    }
+  }
+
+  async function serveContent(response: ServerResponse, url: URL, id: string) {
+    const artifact = await store.get(id);
+    const revision = url.searchParams.get("revision");
+    if (revision && Number(revision) !== artifact.revision)
+      throw new ScopeError(409, "Artifact changed. Reload it to read the current content.");
+    const bytes = await store.content(artifact.blob);
+    response.writeHead(200, {
+      "Content-Type": "application/octet-stream",
+      "Content-Length": artifact.size,
+      "Content-Disposition": "attachment",
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "no-store",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+    });
+    response.end(bytes);
+  }
+
   async function handleArtifact(
     request: IncomingMessage,
     response: ServerResponse,
@@ -211,46 +240,39 @@ export async function startArtifactServer(options: {
     id: string,
     suffix: string | undefined,
   ) {
-    if (request.method === "POST" && suffix === "/tab" && !url.search) {
-      const body = await readJson(request, 1024, "Tab request exceeds the size limit.");
-      const input = validate(() => decode(PublicationRequest, body));
-      json(response, 201, { tabId: await store.reserve(id, input.expectedRevision) });
-      return;
-    }
-    if (request.method === "DELETE" && !suffix && !url.search) {
-      const receipt = options.deleteArtifact
-        ? await options.deleteArtifact(id)
-        : { id, deleted: await store.removeArtifact(id) };
-      json(response, 200, receipt);
-      return;
-    }
-    if (request.method === "GET" && suffix !== "/tab") {
-      const artifact = await store.get(id);
-      if (!suffix) {
-        json(response, 200, artifact);
+    switch (request.method) {
+      case "POST": {
+        if (suffix !== "/tab" || url.search) break;
+        const body = await readJson(request, 1024, "Tab request exceeds the size limit.");
+        const input = validate(() => decode(PublicationRequest, body));
+        json(response, 201, { tabId: await store.reserve(id, input.expectedRevision) });
         return;
       }
-      const revision = url.searchParams.get("revision");
-      if (revision && Number(revision) !== artifact.revision)
-        throw new ScopeError(409, "Artifact changed. Reload it to read the current content.");
-      const bytes = await store.content(artifact.blob);
-      response.writeHead(200, {
-        "Content-Type": "application/octet-stream",
-        "Content-Length": artifact.size,
-        "Content-Disposition": "attachment",
-        "X-Content-Type-Options": "nosniff",
-        "Cache-Control": "no-store",
-        "Content-Security-Policy": "default-src 'none'; sandbox",
-      });
-      response.end(bytes);
-      return;
-    }
-    if (request.method === "PUT" && !suffix) {
-      const body = await readJson(request, MAX_METADATA_BYTES, "Artifact metadata exceeds 16 KiB.");
-      const input = validate(() => decode(ArtifactWrite, body));
-      const artifact = await store.put(id, input);
-      json(response, input.expectedRevision === 0 ? 201 : 200, artifact);
-      return;
+      case "DELETE": {
+        if (suffix || url.search) break;
+        const receipt = options.deleteArtifact
+          ? await options.deleteArtifact(id)
+          : { id, deleted: await store.removeArtifact(id) };
+        json(response, 200, receipt);
+        return;
+      }
+      case "GET":
+        if (suffix === "/tab") break;
+        if (suffix) await serveContent(response, url, id);
+        else json(response, 200, await store.get(id));
+        return;
+      case "PUT": {
+        if (suffix) break;
+        const body = await readJson(
+          request,
+          MAX_METADATA_BYTES,
+          "Artifact metadata exceeds 16 KiB.",
+        );
+        const input = validate(() => decode(ArtifactWrite, body));
+        const artifact = await store.put(id, input);
+        json(response, input.expectedRevision === 0 ? 201 : 200, artifact);
+        return;
+      }
     }
     throw new ScopeError(405, "Method not supported.");
   }
@@ -284,6 +306,15 @@ export async function startArtifactServer(options: {
         await store.close();
       })()),
   };
+}
+
+function authenticate(request: IncomingMessage, token: string) {
+  const expected = Buffer.from(`Bearer ${token}`);
+  const received = Buffer.from(request.headers.authorization ?? "");
+  if (received.length !== expected.length || !timingSafeEqual(received, expected))
+    throw new ScopeError(401, "A valid publishing token is required.");
+  if (request.headers.origin)
+    throw new ScopeError(403, "Browser-origin requests are not supported.");
 }
 
 function validate<T>(read: () => T): T {
