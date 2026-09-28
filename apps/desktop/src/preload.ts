@@ -48,7 +48,8 @@ const bridge: ScopeBridge = {
   settings: () => ipcRenderer.invoke("scope:settings"),
   diagramSettings: () => ipcRenderer.invoke("scope:diagram-settings"),
   saveSettings: (input) => ipcRenderer.invoke("scope:save-settings", input),
-  openTab: (tab) => ipcRenderer.invoke("scope:open-tab", tab),
+  openTab: (tab, artifactRevision) =>
+    ipcRenderer.invoke("scope:open-tab", { tab, artifactRevision }),
   closeTab: (id) => ipcRenderer.invoke("scope:close-tab", id),
   onTabsClosed: (listener) => {
     const receive = (_event: unknown, ids: string[]) => listener(ids);

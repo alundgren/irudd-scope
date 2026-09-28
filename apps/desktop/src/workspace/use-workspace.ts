@@ -5,7 +5,6 @@ import {
   importWorkspace,
   type Tab,
   type TabGroup,
-  tabArtifactId,
   type TabState,
   type Workspace,
 } from "./contract.ts";
@@ -22,12 +21,15 @@ function legacyWorkspace(): Workspace {
   return emptyWorkspace();
 }
 
+type TabOpen = { tab: Tab; artifactRevision?: number };
+
 export function useWorkspace(onError: (message: string) => void) {
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
   const current = useRef(workspace);
   const [ready, setReady] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const opening = useRef(Promise.resolve());
+  const pendingOpens = useRef(new Set<{ closed: Set<string> }>());
   const save = useAutosave(
     () => (loaded ? current.current : undefined),
     (value) => window.scope.saveWorkspace(value),
@@ -41,6 +43,7 @@ export function useWorkspace(onError: (message: string) => void) {
     () =>
       window.scope.onTabsClosed((ids) => {
         for (const id of ids) discardTabSaves(id);
+        for (const pending of pendingOpens.current) for (const id of ids) pending.closed.add(id);
         const previous = current.current;
         const tabs = previous.tabs.filter((tab) => !ids.includes(tab.id));
         replace({
@@ -97,53 +100,73 @@ export function useWorkspace(onError: (message: string) => void) {
     return group;
   }
 
-  function openTab(tab: Tab): Promise<boolean> {
-    return queueOpen([tab], true).then(() =>
-      current.current.tabs.some(
-        (entry) =>
-          entry.id === tab.id ||
-          Boolean(tabArtifactId(tab) && tabArtifactId(entry) === tabArtifactId(tab)),
-      ),
+  function openTab(tab: Tab, artifactRevision?: number): Promise<boolean> {
+    return queueOpen([{ tab, artifactRevision }], true).then(({ opened }) =>
+      opened.some((tab) => current.current.tabs.some((entry) => entry.id === tab.id)),
     );
   }
 
-  function addTabs(tabs: readonly Tab[]): Promise<string | null> {
-    return queueOpen(tabs, false);
+  function addTabs(tabs: readonly TabOpen[]): Promise<Tab[]> {
+    return queueOpen(tabs, false).then(({ handled }) => handled);
   }
 
-  function queueOpen(tabs: readonly Tab[], select: boolean): Promise<string | null> {
+  function queueOpen(tabs: readonly TabOpen[], select: boolean) {
+    const requests = tabs.map((input) => {
+      const request = {
+        ...input,
+        closed: new Set<string>(),
+      };
+      pendingOpens.current.add(request);
+      return request;
+    });
     const task = opening.current.then(async () => {
-      for (const tab of tabs) {
+      const handled: Tab[] = [];
+      const openedTabs: Tab[] = [];
+      for (const { tab, artifactRevision, closed } of requests) {
         const previous = current.current;
-        const artifactId = tabArtifactId(tab);
-        const existing = previous.tabs.find(
-          (entry) => entry.id === tab.id || (artifactId && tabArtifactId(entry) === artifactId),
-        );
+        if (closed.has(tab.id)) {
+          handled.push(tab);
+          continue;
+        }
+        const existing = previous.tabs.find((entry) => entry.id === tab.id);
         if (existing) {
           if (select) replace({ ...previous, selected: existing.id });
+          handled.push(tab);
+          openedTabs.push(existing);
           continue;
         }
         if (previous.tabs.length >= 100) {
-          onError("Close a tab before opening another. Your artifacts stay in the library.");
+          if (select) onError("Close a tab before opening another.");
           break;
         }
         try {
-          const opened = await window.scope.openTab(tab);
+          const opened = await window.scope.openTab(tab, artifactRevision);
           const latest = current.current;
-          if (!latest.tabs.some((entry) => entry.id === opened.id))
+          if (opened && !closed.has(opened.id)) {
+            const tabs = latest.tabs.some((entry) => entry.id === opened.id)
+              ? latest.tabs
+              : [...latest.tabs, opened];
             replace(
               decodeWorkspace({
                 ...latest,
-                tabs: [...latest.tabs, opened],
+                tabs,
                 selected: select ? opened.id : (latest.selected ?? opened.id),
               }),
             );
+            openedTabs.push(opened);
+          }
         } catch (error) {
           onError(error instanceof Error ? error.message : "Could not open this tab.");
         }
+        handled.push(tab);
       }
-      return current.current.selected;
+      return { handled, opened: openedTabs };
     });
+    void task
+      .finally(() => {
+        for (const request of requests) pendingOpens.current.delete(request);
+      })
+      .catch(() => {});
     opening.current = task.then(
       () => {},
       () => {},

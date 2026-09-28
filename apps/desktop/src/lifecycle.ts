@@ -80,23 +80,10 @@ export class DesktopLifecycle {
     });
   }
 
-  openTab(value: unknown): Promise<Tab> {
+  openTab(value: unknown, artifactRevision?: number): Promise<Tab | null> {
     const tab = decode(Tab, value);
     validateTabState(tab, true);
-    return this.enqueue(async () => {
-      const current = await this.workspace();
-      if (
-        current.tabs.length >= 100 &&
-        !current.tabs.some(
-          (entry) =>
-            entry.id === tab.id ||
-            (entry.state.data.artifactId === tab.state.data.artifactId &&
-              tab.state.data.artifactId),
-        )
-      )
-        throw new Error("Close a tab before opening another. Your artifacts stay in the library.");
-      return this.artifacts.openTab(tab);
-    });
+    return this.enqueue(() => this.artifacts.openTab(tab, artifactRevision));
   }
 
   deleteArtifact(id: string): Promise<DeleteReceipt> {

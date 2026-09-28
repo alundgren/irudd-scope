@@ -33,6 +33,8 @@ protocol.registerSchemesAsPrivileged([
 ]);
 async function main() {
   await app.whenReady();
+  const hideTestWindow = !app.isPackaged && process.env.SCOPE_TEST_HIDE_WINDOW === "1";
+  if (hideTestWindow) app.dock?.hide();
   const icon = fileURLToPath(new URL("../resources/icon.png", import.meta.url));
   app.dock?.setIcon(icon);
 
@@ -96,6 +98,7 @@ async function main() {
       nodeIntegration: false,
       webSecurity: true,
       webviewTag: false,
+      backgroundThrottling: !hideTestWindow,
     },
   });
   const client = new ScopeClient(artifacts.url, artifacts.token);
@@ -202,7 +205,9 @@ async function main() {
   configureRendererSecurity(fileURLToPath(new URL("./renderer", import.meta.url)));
   restrictRendererNavigation(window.webContents);
   window.on("close", requestClose);
-  window.once("ready-to-show", () => window.show());
+  window.once("ready-to-show", () => {
+    if (!hideTestWindow) window.show();
+  });
   void window.loadURL("scope://app/index.html");
   void library.connect();
   void updates

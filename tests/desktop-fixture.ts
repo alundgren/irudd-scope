@@ -11,7 +11,8 @@ import { ScopeClient } from "@irudd-scope/protocol/client";
 const require = createRequire(new URL("../apps/desktop/package.json", import.meta.url));
 const exec = promisify(execFile);
 
-export async function desktopFixture(options: { disableGpu?: boolean } = {}) {
+export async function desktopFixture(options: { disableGpu?: boolean; showWindow?: boolean } = {}) {
+  const showWindow = options.showWindow ?? process.env.SCOPE_TEST_SHOW_WINDOWS === "1";
   const directory = await mkdtemp(join(tmpdir(), "scope-desktop-"));
   const settingsDirectory = join(directory, "desktop");
   const connectionFile = join(directory, "connection.json");
@@ -22,6 +23,8 @@ export async function desktopFixture(options: { disableGpu?: boolean } = {}) {
     SCOPE_DATA_DIR: join(settingsDirectory, "artifacts"),
     SCOPE_PORT: "0",
     SCOPE_SESSION_CREDENTIALS: "1",
+    // Hidden Linux windows stall CSS animations and prevent dialogs from closing.
+    SCOPE_TEST_HIDE_WINDOW: showWindow || process.platform === "linux" ? "0" : "1",
   };
   // Electron-based development tools can pass their Node-only mode to children.
   delete env.ELECTRON_RUN_AS_NODE;
@@ -36,6 +39,45 @@ export async function desktopFixture(options: { disableGpu?: boolean } = {}) {
         Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
       ),
     });
+    const diagnostics: string[] = [];
+    const child = application.process();
+    child.stderr?.on("data", (data: Buffer) => {
+      diagnostics.push(data.toString());
+      if (diagnostics.length > 100) diagnostics.shift();
+    });
+    if (!showWindow) {
+      await application.evaluate(({ dialog }) => {
+        dialog.showMessageBox = async (windowOrOptions, options?: Electron.MessageBoxOptions) => {
+          const message = options ?? (windowOrOptions as Electron.MessageBoxOptions);
+          console.error(`Unexpected test dialog: ${message.message}`);
+          return { response: 1, checkboxChecked: false };
+        };
+      });
+    }
+    const close = application.close.bind(application);
+    application.close = async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          close(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error("Electron did not close within 15 seconds.")),
+              15_000,
+            );
+          }),
+        ]);
+        if (diagnostics.some((line) => line.includes("Unexpected test dialog:")))
+          throw new Error("Electron reported a dialog during the test.");
+      } catch (error) {
+        child.kill("SIGKILL");
+        throw new Error(
+          `${error instanceof Error ? error.message : "Electron close failed."}\n${diagnostics.join("").slice(-8000)}`,
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+    };
     try {
       await application.firstWindow();
       return application;

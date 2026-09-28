@@ -44,9 +44,10 @@ Uploads and unsuccessful updates retain content references for fifteen minutes
 after upload. This covers the gap before metadata publication, including content
 shared with another tab that closes in the meantime. An abandoned publication's
 queued tab expires after its staging references expire. Successful publications
-that exceed the 100-open-tab limit stay queued in the library. Closing another
-tab does not evict or delete them. Cleanup runs at startup, during shrink, and
-at one-minute maintenance checks. A shrink receipt reports bytes still protected
+that exceed the 100-open-tab limit stay queued in the library and open
+automatically as other tabs close, including after restart. Closing each tab,
+including those opened from the queue, removes all published content. Cleanup
+runs at startup, during shrink, and at one-minute maintenance checks. A shrink receipt reports bytes still protected
 by staging; it does not claim those bytes were reclaimed.
 
 Automatic shrinking applies independently to `scope.db`, `desktop.db`, and a

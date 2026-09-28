@@ -8,7 +8,7 @@ export function useArtifactLibrary(onError: (message: string) => void) {
     connection: "connecting",
   });
   const [unread, setUnread] = useState<Set<string>>(new Set());
-  const [arrivals, setArrivals] = useState<string[]>([]);
+  const [arrivals, setArrivals] = useState<Artifact[]>([]);
   const revisions = useRef<Map<string, number> | null>(null);
 
   useEffect(() => {
@@ -16,14 +16,10 @@ export function useArtifactLibrary(onError: (message: string) => void) {
     const receive = (next: ArtifactLibrarySnapshot) => {
       if (!active) return;
       if (next.connection === "connected") {
-        const added = next.artifacts.filter((artifact) => !revisions.current?.has(artifact.id));
-        if (added.length)
-          setArrivals((previous) => [
-            ...new Set([...previous, ...added.map((artifact) => artifact.id)]),
-          ]);
         const changed = next.artifacts.filter(
           (artifact) => revisions.current?.get(artifact.id) !== artifact.revision,
         );
+        if (changed.length) queueArrivals(changed);
         if (changed.length)
           setUnread(
             (previous) => new Set([...previous, ...changed.map((artifact) => artifact.id)]),
@@ -36,7 +32,7 @@ export function useArtifactLibrary(onError: (message: string) => void) {
       if (next.connection === "connected") {
         const ids = new Set(next.artifacts.map((artifact) => artifact.id));
         setUnread((previous) => new Set([...previous].filter((id) => ids.has(id))));
-        setArrivals((previous) => previous.filter((id) => ids.has(id)));
+        setArrivals((previous) => previous.filter((artifact) => ids.has(artifact.id)));
       }
       setSnapshot(next);
     };
@@ -68,13 +64,39 @@ export function useArtifactLibrary(onError: (message: string) => void) {
   }
 
   function recordPublication(artifact: Artifact): void {
-    acknowledgeArrivals([artifact.id]);
+    acknowledgeArrivals([artifact]);
     markRead(artifact.id);
   }
 
-  function acknowledgeArrivals(ids: readonly string[]): void {
-    setArrivals((previous) => previous.filter((id) => !ids.includes(id)));
+  function queueArrivals(artifacts: readonly Artifact[]): void {
+    setArrivals((previous) => {
+      const pending = new Map(previous.map((artifact) => [artifact.id, artifact]));
+      let changed = false;
+      for (const artifact of artifacts) {
+        if (pending.get(artifact.id)?.revision === artifact.revision) continue;
+        pending.set(artifact.id, artifact);
+        changed = true;
+      }
+      return changed ? [...pending.values()] : previous;
+    });
   }
 
-  return { snapshot, unread, arrivals, acknowledgeArrivals, markRead, recordPublication };
+  function acknowledgeArrivals(handled: readonly Artifact[]): void {
+    setArrivals((previous) =>
+      previous.filter(
+        (artifact) =>
+          !handled.some((item) => item.id === artifact.id && item.revision === artifact.revision),
+      ),
+    );
+  }
+
+  return {
+    snapshot,
+    unread,
+    arrivals,
+    queueArrivals,
+    acknowledgeArrivals,
+    markRead,
+    recordPublication,
+  };
 }

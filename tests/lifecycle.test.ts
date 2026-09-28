@@ -166,6 +166,35 @@ test("publication persists a tab first, rejects missing owners, and deletes shar
   });
 });
 
+test("obsolete opens cannot adopt a deleted artifact's replacement, with or without a revision", async () => {
+  const f = await fixture();
+  const first = await f.client.publish("open-race", metadata, Buffer.from("Original content"));
+  const workspace = await f.lifecycle.workspace();
+  const request = {
+    id: crypto.randomUUID(),
+    groupId: workspace.groups[0].id,
+    type: "file",
+    title: first.title,
+    state: { version: 1, data: { artifactId: first.id } },
+  };
+  const original = await f.lifecycle.openTab(request, first.revision);
+  expect(original).not.toBeNull();
+  await f.client.delete(first.id);
+  expect(await f.lifecycle.openTab(request, first.revision)).toBeNull();
+  const replacement = await f.client.publish(
+    first.id,
+    metadata,
+    Buffer.from("Replacement content"),
+  );
+  expect(await f.lifecycle.openTab(request, first.revision)).toBeNull();
+  expect(await f.lifecycle.openTab(original)).toBeNull();
+  expect((await f.lifecycle.workspace()).tabs).toEqual([]);
+  const opened = await f.lifecycle.openTab(request, replacement.revision);
+  expect(opened).not.toBeNull();
+  expect(opened?.id).not.toBe(original?.id);
+  expect((await f.lifecycle.workspace()).tabs).toEqual([opened]);
+});
+
 test("uploads stay attached to queued tabs through deletion of another reference and expire without orphaned rows", async () => {
   const f = await fixture();
   const store = f.server.store;
@@ -357,6 +386,7 @@ test.for([
       title: "Crash test",
       state: { version: 1, data: { artifactId: "crash-test" } },
     });
+    if (!tab) throw new Error("Expected the saved tab to open.");
     await lifecycle.saveWorkspace({ ...workspace, tabs: [tab], selected: tabId });
     await artifacts.saveDiagramDraft(tabId, draft);
     await artifacts.close();
