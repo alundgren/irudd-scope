@@ -1,3 +1,8 @@
+import {
+  DiagramCommand,
+  DiagramReply,
+  MAX_DIAGRAM_REQUEST_BYTES,
+} from "@irudd-scope/protocol/diagram";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import {
@@ -20,6 +25,7 @@ import {
 import { ArtifactStore } from "./store.ts";
 
 export async function startArtifactServer(options: {
+  diagram?: (command: DiagramCommand, signal: AbortSignal) => Promise<DiagramReply>;
   directory: string;
   token: string;
   port?: number;
@@ -91,6 +97,28 @@ export async function startArtifactServer(options: {
     if (request.headers.origin)
       throw new ScopeError(403, "Browser-origin requests are not supported.");
 
+    if (request.method === "POST" && url.pathname === "/v1/diagrams" && !url.search) {
+      if (!options.diagram) throw new ScopeError(503, "The diagram editor is unavailable.");
+      const awaitBody = await readJson(
+        request,
+        MAX_DIAGRAM_REQUEST_BYTES,
+        "Diagram request exceeds 512 KiB.",
+      );
+      const command = validate(() => decode(DiagramCommand, awaitBody));
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+      response.once("close", cancel);
+      try {
+        json(
+          response,
+          200,
+          decode(DiagramReply, await options.diagram(command, controller.signal)),
+        );
+      } finally {
+        response.off("close", cancel);
+      }
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/v1/events") {
       if (streams.size >= 8) throw new ScopeError(503, "Too many open event streams.");
       response.writeHead(200, {

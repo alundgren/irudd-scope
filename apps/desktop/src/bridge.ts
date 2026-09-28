@@ -1,3 +1,4 @@
+import type { DiagramCommandRequest, DiagramCommandResponse } from "./plugins/diagram/commands.ts";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { SettingsUpdate, SettingsView } from "./settings.ts";
 import type { Tab, Workspace } from "./workspace/contract.ts";
@@ -15,6 +16,9 @@ export type ArtifactContent = { artifact: Artifact; bytes: Uint8Array };
 import type { TabEventEnvelope } from "./plugins/events.ts";
 
 export type ScopeBridge = {
+  onDiagramCommand: (listener: (input: DiagramCommandRequest) => void) => () => void;
+  onDiagramCommandCancel: (listener: (id: string) => void) => () => void;
+  diagramCommandResult: (response: DiagramCommandResponse) => Promise<void>;
   remotes: () => Promise<RemoteStatus[]>;
   pairRemote: (url: string) => Promise<void>;
   setRemoteEnabled: (id: string, enabled: boolean) => Promise<void>;

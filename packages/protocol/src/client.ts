@@ -1,3 +1,9 @@
+import {
+  DiagramCommand,
+  DiagramReply,
+  MAX_DIAGRAM_REPLY_BYTES,
+  MAX_DIAGRAM_REQUEST_BYTES,
+} from "./diagram.ts";
 import { readRemoteJson } from "./remote.ts";
 import {
   ShrinkRequest,
@@ -66,6 +72,23 @@ export class ScopeClient {
     return response;
   }
 
+  async diagram(input: DiagramCommand): Promise<DiagramReply> {
+    const body = JSON.stringify(decode(DiagramCommand, input));
+    if (new TextEncoder().encode(body).byteLength > MAX_DIAGRAM_REQUEST_BYTES)
+      throw new Error("Diagram request exceeds 512 KiB.");
+    return decode(
+      DiagramReply,
+      await readRemoteJson(
+        await this.request("/v1/diagrams", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }),
+        MAX_DIAGRAM_REPLY_BYTES,
+      ),
+    );
+  }
+
   async list(signal?: AbortSignal): Promise<Artifact[]> {
     const artifacts: Artifact[] = [];
     let next: string | null = null;
@@ -115,12 +138,14 @@ export class ScopeClient {
     id: string,
     metadata: Omit<ArtifactWrite, "blob" | "tabId">,
     content: Uint8Array,
+    signal?: AbortSignal,
   ): Promise<Artifact> {
     decode(ArtifactId, id);
     if (content.byteLength > MAX_CONTENT_BYTES)
       throw new Error("Artifact exceeds the 32 MiB limit.");
     const reservation = await this.request(`/v1/artifacts/${id}/tab`, {
       method: "POST",
+      signal,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(
         decode(PublicationRequest, { expectedRevision: metadata.expectedRevision }),
@@ -129,12 +154,14 @@ export class ScopeClient {
     const { tabId } = decode(PublicationReceipt, await reservation.json());
     const upload = await this.request(`/v1/tabs/${tabId}/blobs`, {
       method: "POST",
+      signal,
       headers: { "Content-Type": "application/octet-stream" },
       body: new Blob([new Uint8Array(content)]),
     });
     const { blob } = decode(BlobReceipt, await upload.json());
     const response = await this.request(`/v1/artifacts/${id}`, {
       method: "PUT",
+      signal,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(decode(ArtifactWrite, { ...metadata, blob, tabId })),
     });

@@ -2,7 +2,7 @@
 
 Own artifact schemas, limits, discovery validation, and the HTTP client.
 Keep this package independent of apps, filesystem operations, Electron, and
-model providers. Desktop-only settings and diagram contracts stay in desktop.
+model providers. Desktop-only settings, drafts, and renderer IPC contracts stay in desktop. Public diagram operations and commands live in `src/diagram.ts`.
 
 Derive types from Effect Schema and validate external input before use. Define
 contracts once and keep [README.md](README.md) consistent with them. A change

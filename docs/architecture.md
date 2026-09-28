@@ -34,8 +34,8 @@ formats are compatibility contracts.
 | Artifact library  | Published artifact metadata and the desktop's connection status.                                        | `apps/desktop/src/library/library.ts`; `library/use-library.ts` tracks unread updates.                    |
 | Workspace         | Open and queued tab records, group membership, and selected tab ID. Closing deletes tab content.        | `apps/desktop/src/workspace/contract.ts` defines the contract; `workspace/use-workspace.ts` manages tabs. |
 | Settings          | Appearance, provider configuration, and credential presence.                                            | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.               |
-| Semantic scene    | Diagram nodes, text, connections, and groups with stable IDs.                                           | `apps/desktop/src/plugins/diagram/contract.ts` and `scene.ts`.                                            |
-| Diagram operation | A validated change to a semantic scene, such as moving a node or adding a connection.                   | `apps/desktop/src/plugins/diagram/contract.ts`; `scene.ts` applies operations.                            |
+| Semantic scene    | Diagram nodes, text, connections, and groups with stable IDs.                                           | `packages/protocol/src/diagram.ts`; desktop `scene.ts` validates relationships.                           |
+| Diagram operation | A validated change to a semantic scene, such as moving a node or adding a connection.                   | `packages/protocol/src/diagram.ts`; desktop `scene.ts` applies operations.                                |
 | Canvas            | The editable Excalidraw document and its view state.                                                    | `apps/desktop/src/plugins/diagram/canvas.ts` converts scenes; `plugins/diagram/view.tsx` owns editing.    |
 | Diagram draft     | Unpublished canvas, conversation, prompt, panel state, and view position based on an artifact revision. | `apps/desktop/src/plugins/diagram/draft.ts` defines the contract; `library/store.ts` stores drafts.       |
 | Diagram provider  | Generates validated diagram operations from an intent and semantic scene.                               | `apps/desktop/src/plugins/diagram/contract.ts`; `openrouter.ts` owns the external API format.             |
@@ -259,5 +259,17 @@ Create diagram and Ask agent invoke the provider explicitly, one request
 at a time, with cancellation. The provider returns validated semantic
 operations and usage. The renderer applies those operations to Excalidraw.
 Concurrent edits and new artifact revisions retain the working canvas and
-offer recovery choices. The HTTP API accepts finished artifacts, not
-generation jobs. Scope does not run or coordinate coding sessions.
+offer recovery choices. The HTTP API accepts finished artifacts and semantic diagram operations. It
+does not accept model generation jobs. Scope does not run or coordinate coding sessions.
+
+### Diagram authoring
+
+The shared protocol defines semantic diagram operations and named commands.
+The desktop diagram plugin validates relationships, converts native elements,
+and handles loaded tab drafts. Authenticated `POST /v1/diagrams` calls use named
+main-to-renderer IPC with a deadline. Creating a diagram publishes through the
+existing artifact API. Applying operations persists a draft; Save publishes it.
+The CLI owns file input and explicit PNG output. The hub only forwards requests.
+Embedded generation receives bounded recent conversation, current selection,
+and read-only object summaries as well as the editable scene. Supported imported
+and manually drawn objects use stable native aliases in semantic operations.

@@ -89,3 +89,32 @@ Both require the local publishing credential. They work without a connected
 Mac and are excluded from the desktop relay allowlist. The stateless forwarding
 mode reports that it has no hub database. `irudd-scope hub shrink --status`
 reads the local hub result.
+
+## Diagram commands
+
+`src/diagram.ts` defines semantic objects, operation batches, and the additive
+`POST /v1/diagrams` endpoint. The normal publishing bearer token is required.
+The hub forwards these commands to the desktop, which uses its trusted renderer.
+No model key is involved. Read, apply, and preview require a loaded diagram tab.
+
+| Action    | Input                                          | Result                                              |
+| --------- | ---------------------------------------------- | --------------------------------------------------- |
+| `create`  | `id`, `title`, `operations`, optional `source` | `{ type: "created", artifact }`, published revision |
+| `read`    | `id`                                           | `{ type: "snapshot", diagram }`                     |
+| `apply`   | `id`, `snapshot`, `operations`                 | Updated snapshot; persisted draft, awaiting Save    |
+| `preview` | `id`, optional `snapshot`                      | PNG `data` in base64, ID, revision, and snapshot    |
+
+Snapshots include the published revision, dirty flag, editable scene, selected IDs,
+read-only objects, and omitted-object count. The snapshot is a SHA-256 digest of
+revision and native document content. Apply rejects a changed snapshot or an
+unresolved incoming revision. All operations validate before any edit. Native IDs,
+styles, and unsupported objects are retained. Use opaque existing IDs verbatim;
+new IDs start with a letter and contain letters, digits, underscores, or hyphens.
+Existing native-file publication and saved diagram documents remain compatible.
+
+Requests are limited to 512 KiB and 100 operations. The desktop allows four active
+commands and one per artifact, each with a 20-second deadline. Disconnects cancel
+pending editor work. A timeout can follow a completed write; read before retrying.
+Preview is generated only on request, at most 2048 pixels on its longest side and
+8 MiB before base64 encoding. Clients bound the complete JSON response to 16 MiB.
+`irudd-scope diagram guide` returns the operation schema and usage instructions.

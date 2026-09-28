@@ -23,7 +23,12 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
 });
 
-async function fixture(options: { shrinkDelayMs?: number } = {}) {
+async function fixture(
+  options: {
+    shrinkDelayMs?: number;
+    diagram?: Parameters<typeof startArtifactServer>[0]["diagram"];
+  } = {},
+) {
   const directory = await mkdtemp(join(tmpdir(), "scope-remotes-"));
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const state = await HubState.open(join(directory, "hub"));
@@ -42,6 +47,7 @@ async function fixture(options: { shrinkDelayMs?: number } = {}) {
   let lifecycle: DesktopLifecycle;
   const desktop = await startArtifactServer({
     directory: join(directory, "artifacts"),
+    diagram: options.diagram,
     token,
     port: 0,
     initialize: async (artifacts) => {
@@ -298,3 +304,63 @@ test("a remote CLI maintenance request can exceed thirty seconds while relay hea
   ]);
   expect(f.remotes.snapshot()[0].connection).toBe("connected");
 }, 60_000);
+
+test("paired forwarding carries bounded diagram commands and rejects browser callers", async () => {
+  let received = 0;
+  const f = await fixture({
+    diagram: async (command) => {
+      if (command.action !== "apply") throw new Error("Expected apply.");
+      received = command.operations.length;
+      return {
+        type: "snapshot",
+        diagram: {
+          id: command.id,
+          revision: 1,
+          snapshot: "b".repeat(64),
+          dirty: true,
+          scene: { nodes: [], texts: [], connections: [], groups: [] },
+          selectedIds: [],
+          readOnly: [],
+          omitted: 0,
+        },
+      };
+    },
+  });
+  await f.remotes.pair(f.state.pairUrl());
+  await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
+  const command = {
+    action: "apply" as const,
+    id: "diagram",
+    snapshot: "a".repeat(64),
+    operations: Array.from({ length: 80 }, (_, index) => ({
+      type: "createText" as const,
+      id: `text${index}`,
+      text: "x".repeat(400),
+      x: index * 100,
+      y: 0,
+    })),
+  };
+  expect((await f.client.diagram(command)).type).toBe("snapshot");
+  expect(received).toBe(80);
+  const headers = { Authorization: `Bearer ${f.local.token}`, "Content-Type": "application/json" };
+  expect(
+    (
+      await fetch(`${f.hub.url}/v1/diagrams`, {
+        method: "POST",
+        headers: { ...headers, Origin: "https://example.com" },
+        body: JSON.stringify(command),
+      })
+    ).status,
+  ).toBe(403);
+  expect(
+    (
+      await fetch(`${f.hub.url}/v1/diagrams`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ ...command, operations: [{ type: "shell", command: "ignored" }] }),
+      })
+    ).status,
+  ).toBe(400);
+  await f.remotes.setEnabled(f.remotes.snapshot()[0].id, false);
+  await expect(f.client.diagram(command)).rejects.toMatchObject({ status: 503 });
+});

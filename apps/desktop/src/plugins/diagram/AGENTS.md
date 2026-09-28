@@ -3,8 +3,10 @@
 `renderer.tsx` registers the editor and creation tool. `view.tsx` owns editing;
 `create.tsx` owns generation of a new published diagram. `main.ts` registers
 provider, publication, and draft IPC operations. `provider-settings.ts` owns
-the configured model. `contract.ts`, `scene.ts`, and `canvas.ts` own validated
-semantic operations and Excalidraw conversion.
+the configured model. `contract.ts` owns provider contracts. Public diagram operations are defined in
+`packages/protocol/src/diagram.ts`; `scene.ts` validates their relationships and
+`canvas.ts` converts them to Excalidraw elements. The command modules route
+authenticated diagram requests to the loaded editor.
 
 Drafts are keyed by tab UUID in `scope.db` and require an existing tab. Preserve
 canvas, conversation, unsent prompt, and viewport while a tab remains open and

@@ -16,7 +16,7 @@ export const HubStatus = Schema.Struct({
 });
 export type HubStatus = typeof HubStatus.Type;
 
-export async function readRemoteJson(response: Response): Promise<unknown> {
+export async function readRemoteJson(response: Response, limit = 4096): Promise<unknown> {
   if (!response.body) throw new Error("The hub returned an empty response.");
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -27,7 +27,7 @@ export async function readRemoteJson(response: Response): Promise<unknown> {
       const { done, value } = await reader.read();
       if (done) break;
       bytes += value.byteLength;
-      if (bytes > 4096) throw new Error("The hub returned an oversized response.");
+      if (bytes > limit) throw new Error("The hub returned an oversized response.");
       text += decoder.decode(value, { stream: true });
     }
     return JSON.parse(text + decoder.decode());
@@ -59,6 +59,7 @@ export function artifactRequest(method: string, path: string): boolean {
   const url = new URL(path, "http://127.0.0.1");
   if (method === "GET" && ["/v1/events", "/v1/artifacts"].includes(url.pathname)) return true;
   if (method === "GET" && path === "/v1/maintenance/status") return true;
+  if (method === "POST" && path === "/v1/diagrams") return true;
   if (method === "POST" && maintenanceRequest(path)) return true;
   if (method === "POST" && /^\/v1\/tabs\/[0-9a-f-]{36}\/blobs$/.test(path)) return true;
   if (method === "POST" && /^\/v1\/artifacts\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}\/tab$/.test(path))

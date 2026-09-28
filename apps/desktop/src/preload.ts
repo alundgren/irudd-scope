@@ -1,9 +1,25 @@
+import type { DiagramCommandRequest } from "./plugins/diagram/commands.ts";
 import { contextBridge, ipcRenderer } from "electron";
 import type { ScopeBridge, ArtifactLibrarySnapshot } from "./bridge.ts";
 import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 
 const bridge: ScopeBridge = {
+  onDiagramCommand: (listener) => {
+    const receive = (_event: unknown, input: DiagramCommandRequest) => listener(input);
+    ipcRenderer.on("scope:diagram-command", receive);
+    return () => {
+      ipcRenderer.removeListener("scope:diagram-command", receive);
+    };
+  },
+  onDiagramCommandCancel: (listener) => {
+    const receive = (_event: unknown, id: string) => listener(id);
+    ipcRenderer.on("scope:diagram-command-cancel", receive);
+    return () => {
+      ipcRenderer.removeListener("scope:diagram-command-cancel", receive);
+    };
+  },
+  diagramCommandResult: (response) => ipcRenderer.invoke("scope:diagram-command-result", response),
   remotes: () => ipcRenderer.invoke("scope:remotes"),
   pairRemote: (url) => ipcRenderer.invoke("scope:pair-remote", url),
   setRemoteEnabled: (id, enabled) =>

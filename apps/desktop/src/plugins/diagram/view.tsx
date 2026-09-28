@@ -3,7 +3,11 @@ import { useEffect, useRef, useState } from "react";
 import { Excalidraw, getSceneVersion, loadFromBlob, serializeAsJSON } from "@excalidraw/excalidraw";
 import type { AppState, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { ArtifactContent } from "../../bridge.ts";
-import { readSemanticScene, updateCanvasElements } from "./canvas.ts";
+import { readDiagramContext, updateCanvasElements } from "./canvas.ts";
+import { parseScene } from "./contract.ts";
+import { registerDiagramCommands } from "./command-renderer.ts";
+import type { DiagramSnapshot } from "@irudd-scope/protocol/diagram";
+import { exportToBlob, CaptureUpdateAction } from "@excalidraw/excalidraw";
 import { applyOperations } from "./scene.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { DiagramChat } from "./chat.tsx";
@@ -41,6 +45,8 @@ export function DiagramView({
   const loaded = useRef(item.artifact.revision);
   const [revision, setRevision] = useState(item.artifact.revision);
   const [busy, setBusy] = useState<"generation" | "saving" | null>(null);
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
   const [intent, setIntent] = useState("");
   const [messages, setMessages] = useState<DiagramDraft["messages"]>([]);
   const [chatOpen, setChatOpen] = useState(false);
@@ -57,13 +63,44 @@ export function DiagramView({
   latest.current = item;
   const display = useRef({ theme, focus });
   display.current = { theme, focus };
+  const serialized = useRef<{
+    elements: string;
+    settings: string;
+    files: unknown;
+    content: string;
+  } | null>(null);
+  function documentContent() {
+    if (!api) throw new Error("Diagram is still opening.");
+    const elements = api.getSceneElements();
+    const state = api.getAppState();
+    const files = api.getFiles();
+    // Version totals can collide after undo and editing a different object.
+    const elementVersions = JSON.stringify(
+      elements.map(({ id, version, versionNonce }) => [id, version, versionNonce]),
+    );
+    const settings = canvasSettings(state);
+    if (
+      !serialized.current ||
+      serialized.current.elements !== elementVersions ||
+      serialized.current.settings !== settings ||
+      serialized.current.files !== files
+    ) {
+      serialized.current = {
+        elements: elementVersions,
+        settings,
+        files,
+        content: serializeAsJSON(elements, state, files, "local"),
+      };
+    }
+    return serialized.current.content;
+  }
   const draftSave = useAutosave<DiagramDraft>(
     () => {
       if (!api || !readyRef.current) return undefined;
       const state = api.getAppState();
       return {
         version: 1,
-        content: serializeAsJSON(api.getSceneElements(), state, api.getFiles(), "local"),
+        content: documentContent(),
         revision: loaded.current,
         dirty: dirtyRef.current,
         ...conversation.current,
@@ -115,6 +152,7 @@ export function DiagramView({
         null,
         null,
       );
+      serialized.current = null;
       version.current = changed ? -1 : getSceneVersion(data.elements);
       savedSettings.current = canvasSettings(data.appState ?? {});
       loaded.current = nextRevision;
@@ -179,12 +217,7 @@ export function DiagramView({
         id: copy ? crypto.randomUUID() : item.artifact.id,
         title: copy ? `${item.artifact.title} copy` : item.artifact.title,
         expectedRevision: copy ? 0 : loaded.current,
-        content: serializeAsJSON(
-          api.getSceneElements(),
-          api.getAppState(),
-          api.getFiles(),
-          "local",
-        ),
+        content: documentContent(),
       });
       context.events.emit({
         type: "resource.saved",
@@ -219,9 +252,16 @@ export function DiagramView({
     const original = api.getSceneElements();
     const originalVersion = getSceneVersion(original);
     try {
-      const before = readSemanticScene(original);
+      const details = readDiagramContext(original, api.getAppState().selectedElementIds);
+      const before = parseScene(details.scene);
       const result = await window.scope.generateDiagram(
-        { intent: prompt, scene: before },
+        {
+          intent: prompt,
+          ...details,
+          history: messages
+            .slice(-12)
+            .map(({ role, text }) => ({ role, text: text.slice(0, 4000) })),
+        },
         context.tabId,
       );
       if (current.canceled) throw new Error("Request canceled. The canvas is unchanged.");
@@ -230,6 +270,7 @@ export function DiagramView({
           "The canvas changed during generation. Your edits were kept. Try the request again.",
         );
       api.updateScene({
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
         elements: updateCanvasElements(
           before,
           applyOperations(before, result.operations),
@@ -264,6 +305,92 @@ export function DiagramView({
       setBusy(null);
     }
   }
+  useEffect(() => {
+    if (!api || !ready) return;
+    const lifetime = new AbortController();
+    async function snapshot(): Promise<DiagramSnapshot> {
+      const content = documentContent();
+      const snapshotRevision = loaded.current;
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(`${snapshotRevision}\n${content}`),
+      );
+      if (documentContent() !== content || loaded.current !== snapshotRevision)
+        throw new Error("The canvas changed. Read it again.");
+      return {
+        id: item.artifact.id,
+        revision: snapshotRevision,
+        dirty: dirtyRef.current,
+        snapshot: Array.from(new Uint8Array(digest), (value) =>
+          value.toString(16).padStart(2, "0"),
+        ).join(""),
+        ...readDiagramContext(api!.getSceneElements(), api!.getAppState().selectedElementIds),
+      };
+    }
+    const unregister = registerDiagramCommands(item.artifact.id, async (command, signal) => {
+      const combined = AbortSignal.any([signal, lifetime.signal]);
+      if (busy || request.current || !readyRef.current)
+        throw new Error("The diagram is busy. Retry after the current operation finishes.");
+      if (command.action === "create") throw new Error("Use the diagram creation command.");
+      const current = await snapshot();
+      combined.throwIfAborted();
+      if ("snapshot" in command && command.snapshot && command.snapshot !== current.snapshot)
+        throw new Error("The canvas changed since it was read. Read it again before editing.");
+      if (command.action === "apply") {
+        if (busyRef.current || request.current || !readyRef.current)
+          throw new Error(
+            "The diagram is busy. Read it again after the current operation finishes.",
+          );
+        if (loaded.current !== latest.current.artifact.revision)
+          throw new Error(
+            "A newer published revision is waiting. Resolve it in Scope before editing.",
+          );
+        const before = parseScene(current.scene);
+        const elements = updateCanvasElements(
+          before,
+          applyOperations(before, command.operations),
+          api.getSceneElements(),
+        );
+        combined.throwIfAborted();
+        api.updateScene({ elements, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+        markDirty(true);
+        draftSave.schedule();
+        await draftSave.flush();
+        setNotice("Agent edits are ready. Save to publish.");
+        return { type: "snapshot", diagram: await snapshot() };
+      }
+      if (command.action === "preview") {
+        const blob = await exportToBlob({
+          elements: api.getSceneElements(),
+          appState: { ...api.getAppState(), exportBackground: true },
+          files: api.getFiles(),
+          mimeType: "image/png",
+          maxWidthOrHeight: 2048,
+        });
+        combined.throwIfAborted();
+        if ((await snapshot()).snapshot !== current.snapshot)
+          throw new Error("The canvas changed while rendering. Request another preview.");
+        if (blob.size > 8 * 1024 * 1024) throw new Error("Preview exceeds 8 MiB.");
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let binary = "";
+        for (let offset = 0; offset < bytes.length; offset += 8192)
+          binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+        return {
+          type: "preview",
+          id: item.artifact.id,
+          revision: current.revision,
+          snapshot: current.snapshot,
+          mediaType: "image/png",
+          data: btoa(binary),
+        };
+      }
+      return { type: "snapshot", diagram: current };
+    });
+    return () => {
+      lifetime.abort();
+      unregister();
+    };
+  }, [api, ready, busy, item.artifact.id]);
   async function cancel() {
     if (!request.current) return;
     request.current.canceled = true;
