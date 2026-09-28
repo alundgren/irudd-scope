@@ -192,24 +192,86 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
         await checkContent(page, example, true);
         await expect.poll(fullscreen).toBe(true);
         if (example.kind === "excalidraw") {
-          const exit = page.getByRole("button", { name: "Exit focus mode" });
-          const bounds = await exit.boundingBox();
+          const mode = page.getByRole("combobox", { name: "Fullscreen diagram mode" });
+          const bounds = await mode.boundingBox();
           const width = await page.evaluate(() => innerWidth);
-          expect(bounds!.width).toBeLessThanOrEqual(24);
-          expect(bounds!.height).toBeLessThanOrEqual(24);
+          expect(bounds!.width).toBeLessThanOrEqual(150);
+          expect(bounds!.height).toBeLessThanOrEqual(32);
           expect(width - bounds!.x - bounds!.width).toBeLessThanOrEqual(12);
           expect(bounds!.y).toBeLessThanOrEqual(12);
+          expect(await mode.inputValue()).toBe("edit");
+          await page.getByRole("button", { name: "Ask agent", exact: true }).waitFor();
+          await page
+            .getByRole("dialog", { name: "Search and controls" })
+            .waitFor({ state: "hidden" });
+          await page
+            .locator(".excalidraw canvas.interactive")
+            .click({ position: { x: 300, y: 250 } });
+          await page.keyboard.press("Shift+1");
           if (process.env.SCOPE_TEST_SCREENSHOTS) {
             await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
             await page.screenshot({
-              path: join(
-                process.env.SCOPE_TEST_SCREENSHOTS,
-                `${appearance}-diagram-fullscreen.png`,
-              ),
+              path: join(process.env.SCOPE_TEST_SCREENSHOTS, `${appearance}-diagram-edit.png`),
             });
           }
+          await mode.selectOption("view");
+          expect(await page.locator(".excalidraw .layer-ui__wrapper").isVisible()).toBe(false);
+          expect(await page.locator(".excalidraw .App-bottom-bar").isVisible()).toBe(false);
+          expect(
+            await page.getByRole("button", { name: "Ask agent", exact: true }).isVisible(),
+          ).toBe(false);
+          const tabId = (await page
+            .getByRole("tabpanel", { name: example.title })
+            .getAttribute("id"))!.slice(5);
+          await expect
+            .poll(
+              async () =>
+                (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))?.viewport,
+            )
+            .toBeDefined();
+          const initialViewport = (await page.evaluate(
+            (id) => window.scope.diagramDraft(id),
+            tabId,
+          ))!.viewport;
+          await page.mouse.move(400, 300);
+          await page.mouse.wheel(100, 140);
+          await expect
+            .poll(() => page.evaluate((id) => window.scope.diagramDraft(id), tabId))
+            .not.toMatchObject({ viewport: initialViewport });
+          const pannedZoom = (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))!
+            .viewport.zoom;
+          await page.keyboard.down("Control");
+          await page.mouse.wheel(0, -200);
+          await page.keyboard.up("Control");
+          await expect
+            .poll(
+              async () =>
+                (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))?.viewport.zoom,
+            )
+            .not.toBe(pannedZoom);
+          if (process.env.SCOPE_TEST_SCREENSHOTS) {
+            await page.screenshot({
+              path: join(process.env.SCOPE_TEST_SCREENSHOTS, `${appearance}-diagram-view.png`),
+            });
+          }
+          await mode.selectOption("present");
+          await page.mouse.move(250, 250);
+          await expect
+            .poll(() =>
+              page.locator(".presentation-pointer").evaluate((element) => element.style.opacity),
+            )
+            .toBe("1");
+          if (process.env.SCOPE_TEST_SCREENSHOTS) {
+            await page.screenshot({
+              path: join(process.env.SCOPE_TEST_SCREENSHOTS, `${appearance}-diagram-present.png`),
+            });
+          }
+          await page.keyboard.press("Escape");
+          expect(await mode.inputValue()).toBe("edit");
+          await mode.selectOption("tabs");
+        } else {
+          await page.getByRole("button", { name: "Exit focus mode" }).click();
         }
-        await page.getByRole("button", { name: "Exit focus mode" }).click();
         await expect.poll(fullscreen).toBe(false);
         expect(await pane!.evaluate((element) => element.isConnected)).toBe(true);
         if (process.env.SCOPE_TEST_SCREENSHOTS) {

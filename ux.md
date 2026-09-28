@@ -58,13 +58,19 @@ native editing shortcuts. Windows and Linux hide the menu bar until Alt is
 pressed. The macOS menu bar belongs to the system and follows its fullscreen
 visibility setting.
 
-Fullscreen in the search panel enters native fullscreen and Scope's focus mode.
-It keeps the selected artifact mounted, hides workspace controls and diagram
-chat, and leaves a small icon button at the top right, clear of Excalidraw's
-centered toolbar. It preserves scroll, zoom, and conversation. Excalidraw
-uses zen mode. Escape closes an active dialog or editor interaction before
-leaving focus. Command-Shift-F toggles focus; Command-K opens the panel in
-either mode. Leaving native fullscreen also restores the workspace controls.
+Fullscreen in the search panel enters native fullscreen, keeps the selected
+artifact mounted, and hides workspace navigation. Other artifact tabs leave a
+small exit at the top right, clear of Excalidraw's centered toolbar.
+Diagram tabs start in Edit, with the Excalidraw tools, Save, and Ask agent
+available. A small control at the top right switches between Edit, View, and
+Present or exits fullscreen. View shows only the drawing and allows zoom and pan.
+Present adds a larger pointer with a short trail for an audience. View and
+Present prevent edits and hide the diagram conversation without discarding it.
+Switching modes preserves the canvas, zoom, draft, and conversation. Escape
+closes an active dialog or editor interaction, then returns View or Present to
+Edit and Edit to the workspace. Command-Shift-F toggles fullscreen; Command-K
+opens the panel in any mode. Leaving native fullscreen also restores the
+workspace controls.
 
 Published HTML is trusted agent output. Prototypes run their scripts, load
 external resources, submit forms, and open links without a trust prompt or

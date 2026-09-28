@@ -16,6 +16,7 @@ export type TabProps = {
   context: TabContext;
   theme: Theme;
   focus: boolean;
+  viewing: boolean;
   artifact?: Artifact;
 };
 export type CreatedTab = Pick<Tab, "type" | "title" | "state"> & { artifact?: Artifact };
