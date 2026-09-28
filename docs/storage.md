@@ -17,6 +17,13 @@ Scope creates database directories with mode `0700` and database files with
 mode `0600`. Treat the whole profile and discovery file as private. Explicit
 imports and downloads use files; ordinary storage uses SQLite.
 
+Certificate-signed Mac installations access the existing Keychain entry through
+the bundled **Scope Credentials** helper. The service name, profile account,
+and credential JSON remain compatible with direct Keychain access. Approving
+the helper changes access permission, not the stored provider key or remote
+tokens. Changing the executable that accesses this entry may require another
+Keychain approval.
+
 Closing an individual tab permanently deletes its content and state. A draft
 contains the working canvas, base revision, conversation, unsent prompt, panel
 state, and zoom and pan. Save publishes a revision; draft writes do not.

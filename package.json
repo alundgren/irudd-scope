@@ -10,6 +10,7 @@
     "test": "vp exec node tools/test.ts",
     "build": "vp run -r build",
     "package:desktop": "vp exec node tools/package-desktop.ts",
+    "check:credentials": "vp exec node tools/check-credential-helper.ts",
     "hub": "vp run hub#dev",
     "desktop": "vp run desktop#dev",
     "scope": "vp exec node packages/cli/src/main.ts"

@@ -15,6 +15,7 @@ import { ScopeClient } from "@irudd-scope/protocol/client";
 import { DesktopLifecycle } from "./lifecycle.ts";
 import { DesktopStore } from "./desktop-store.ts";
 import { macCredentials, memoryCredentials } from "./credentials.ts";
+import { CREDENTIAL_HELPER_NAME } from "./credential-helper.ts";
 import { startLocalArtifacts } from "./library/local.ts";
 import { ArtifactLibrary } from "./library/library.ts";
 import { registerDesktopIpc } from "./ipc.ts";
@@ -35,10 +36,20 @@ async function main() {
   const icon = fileURLToPath(new URL("../resources/icon.png", import.meta.url));
   app.dock?.setIcon(icon);
 
+  const installation =
+    app.isPackaged && process.platform === "darwin"
+      ? await readInstallation(app.getAppPath()).catch(() => undefined)
+      : undefined;
+
   const store = new DesktopStore(
     app.getPath("userData"),
     process.platform === "darwin" && process.env.SCOPE_SESSION_CREDENTIALS !== "1"
-      ? await macCredentials(app.getPath("userData"))
+      ? await macCredentials(
+          app.getPath("userData"),
+          installation?.signingIdentity
+            ? join(process.resourcesPath, "../Helpers", CREDENTIAL_HELPER_NAME)
+            : undefined,
+        )
       : memoryCredentials(),
     process.platform === "darwin"
       ? async (bytes) => (await safeStorage.decryptStringAsync(bytes)).result
@@ -92,10 +103,6 @@ async function main() {
     if (!window.isDestroyed()) window.webContents.send("scope:remotes-changed", status);
   });
   await remotes.start();
-  const installation =
-    app.isPackaged && process.platform === "darwin"
-      ? await readInstallation(app.getAppPath()).catch(() => undefined)
-      : undefined;
   const updates = new AppUpdates(installation, join(app.getAppPath(), "install.sh"), (status) => {
     if (!window.isDestroyed()) window.webContents.send("scope:updates-changed", status);
   });

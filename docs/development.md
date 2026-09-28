@@ -113,7 +113,15 @@ The test runner supplies the display environment for Electron. A test that
 does not use Electron can also run directly with `vp test run tests/artifact-storage.test.ts`.
 Passing Linux tests does not establish Mac signing, native Keychain access,
 or live OpenRouter behavior. Validate those separately on their real platform
-when changing the relevant integration. Keep validation results and screenshots
+when changing the relevant integration. `vp run check:credentials` verifies the
+native credential helper on macOS with temporary signing certificates, an
+isolated Keychain, and synthetic credentials. It checks unchanged helper access
+across different signed callers, existing credential access, rejected callers,
+and locked-Keychain failures, and reports read latency and helper memory use.
+It temporarily adds the test Keychain to the search list for signing, then
+removes it and deletes its files. `SCOPE_CREDENTIALS_KEYCHAIN` selects that
+isolated Keychain and disables helper permission dialogs during verification.
+Keep validation results and screenshots
 in review evidence, outside durable documentation.
 
 For local performance measurements after building, run:
@@ -274,8 +282,13 @@ older app, since its database support may differ.
 
 Scope works without a signing certificate. Its default ad-hoc signature can
 change with each build, so macOS may ask again before letting an updated app
-read saved Keychain credentials. Reusing a code-signing certificate gives
-local builds a stable identity. This does not notarize the app or provide
+read saved Keychain credentials. A self-signed certificate alone does not
+prevent this: macOS also checks the executable's build hash. Certificate-signed
+Scope installations use a small, separately signed credential helper that
+stays unchanged across ordinary app updates. The helper accepts requests only
+from Scope signed with the same certificate and uses the existing Keychain
+entry. It runs only for credential operations and exits afterward.
+This does not notarize the app or provide
 Developer ID signing for distribution. See [Apple's code-signing guidance](https://developer.apple.com/library/archive/technotes/tn2206/_index.html).
 
 Open **Settings → Signing certificate**. **How to create a certificate** has
@@ -323,10 +336,14 @@ recorded in the running app. Opting in works even when that commit was already
 installed with ad-hoc signing.
 
 macOS may ask for permission to use the certificate's private key during
-signing and to read Scope's saved credentials when the newly signed app first
-opens. Approving the new app's credential access should carry across later
-builds signed with the same certificate. It does not unlock a locked keychain
-or override other access restrictions.
+signing. When the credential helper first accesses saved credentials, macOS may
+ask you to approve **Scope Credentials**. Choose **Always Allow** to remember
+that permission. Existing provider keys and remote tokens stay in the same
+Keychain entry. Later ordinary updates reuse the verified helper, retaining
+its approval. A change to the helper itself or its signing certificate can
+require another approval. It does not unlock a locked keychain or override
+other access restrictions. Failed helper access remains an error; Scope does
+not silently switch credential stores or treat the entry as empty.
 
 A missing or unusable signing identity fails the build and leaves the current
 app installed. Restore access to the certificate and retry; Scope does not

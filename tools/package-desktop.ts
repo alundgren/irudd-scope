@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { readSigningIdentity } from "../apps/desktop/src/installation-files.ts";
+import { CREDENTIAL_HELPER_NAME } from "../apps/desktop/src/credential-helper.ts";
+import { packageCredentialHelper } from "./package-credential-helper.ts";
 
 const exec = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
@@ -28,6 +30,13 @@ const signingIdentity = await readSigningIdentity(
 );
 const temporary = await mkdtemp(join(tmpdir(), "scope-package-"));
 try {
+  const helper = join(temporary, CREDENTIAL_HELPER_NAME);
+  if (signingIdentity)
+    await packageCredentialHelper({
+      output: helper,
+      identity: signingIdentity,
+      reusable: join(installRoot, "current/Scope.app/Contents/Helpers", CREDENTIAL_HELPER_NAME),
+    });
   const source = join(temporary, "source");
   await mkdir(source);
   const manifest = JSON.parse(await readFile(join(desktop, "package.json"), "utf8"));
@@ -67,10 +76,20 @@ try {
     electronVersion: require("electron/package.json").version,
     prune: false,
     asar: false,
+    afterCopy: [
+      async ({ buildPath }) => {
+        if (!signingIdentity) return;
+        const directory = resolve(buildPath, "../../Helpers");
+        await mkdir(directory, { recursive: true });
+        await cp(helper, join(directory, CREDENTIAL_HELPER_NAME));
+      },
+    ],
     osxSign: {
       identity: signingIdentity ?? "-",
       identityValidation: false,
       continueOnError: false,
+      // Preserve the helper's CodeDirectory hash and its existing Keychain approval.
+      ignore: (path) => path.endsWith(`/Contents/Helpers/${CREDENTIAL_HELPER_NAME}`),
       // A local certificate need not have an Apple team identity for library validation.
       optionsForFile: () => ({ hardenedRuntime: false, timestamp: "none" }),
     },
