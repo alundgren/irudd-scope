@@ -132,6 +132,7 @@ export function registerDesktopIpc({
   handle("scope:close-ready", (input) => onCloseReady(decode(Schema.Boolean, input)));
   handle("scope:save-settings", async (input) => {
     const result = await store.saveSettings(decodeSettingsUpdate(input));
+    if (!result.diagramGenerationEnabled) plugins.cancelPending();
     nativeTheme.themeSource = result.appearance;
     return result;
   });

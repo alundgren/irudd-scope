@@ -17,6 +17,6 @@ document.documentElement.dataset.theme =
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App initialAppearance={appearance} />
+    <App initialSettings={initialSettings} />
   </StrictMode>,
 );

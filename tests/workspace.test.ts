@@ -105,6 +105,12 @@ test("publications wait while a diagram is being composed", async () => {
   try {
     const page = await application.firstWindow();
     await page.getByRole("button", { name: "Create diagram", exact: true }).click();
+    await page.getByRole("button", { name: "Open diagram settings" }).click();
+    await page.getByRole("switch", { name: "Enable diagram generation" }).click();
+    await page
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Done", exact: true })
+      .click();
     await page
       .getByLabel("What should the diagram show?")
       .fill("Keep this unsent diagram request.");
@@ -250,7 +256,10 @@ test("the compact workspace preserves reading position, supports overflowing tab
     await page.getByText('No settings match "not a setting".').waitFor();
     await page.getByRole("button", { name: "Clear search" }).click();
     await page.getByLabel("Search settings").fill("credentials");
-    expect(await page.getByLabel("OpenRouter API key").isVisible()).toBe(true);
+    expect(await page.getByRole("switch", { name: "Enable diagram generation" }).isVisible()).toBe(
+      true,
+    );
+    expect(await page.getByLabel("OpenRouter API key").isVisible()).toBe(false);
     expect(await page.getByLabel("Appearance", { exact: true }).isVisible()).toBe(false);
     await page.getByRole("button", { name: "Done", exact: true }).click();
     expect(await pane.evaluate((element) => element.scrollTop)).toBe(scroll);

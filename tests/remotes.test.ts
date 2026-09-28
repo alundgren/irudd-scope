@@ -132,7 +132,10 @@ test("a Mac pairs once, receives CLI publications over connections it opens, and
 
 test("pairing credentials stay out of SQLite and removal revokes access without removing the provider key", async () => {
   const f = await fixture();
-  await f.store.saveSettings({ apiKey: "synthetic-provider-secret" });
+  await f.store.saveSettings({
+    diagramGenerationEnabled: true,
+    apiKey: "synthetic-provider-secret",
+  });
   await f.remotes.pair(f.state.pairUrl());
   await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
   const remote = f.remotes.snapshot()[0];

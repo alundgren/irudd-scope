@@ -6,6 +6,7 @@ export const Appearance = Schema.Literals(["system", "light", "dark"]);
 export type Appearance = typeof Appearance.Type;
 export const SettingsUpdate = Schema.Struct({
   appearance: Schema.optionalKey(Appearance),
+  diagramGenerationEnabled: Schema.optionalKey(Schema.Boolean),
   apiKey: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096))),
   removeApiKey: Schema.optionalKey(Schema.Boolean),
   provider: Schema.optionalKey(Schema.Literal(DIAGRAM_PROVIDER)),
@@ -21,9 +22,10 @@ export function decodeSettingsUpdate(value: unknown): SettingsUpdate {
 }
 export type SettingsView = {
   appearance: Appearance;
+  diagramGenerationEnabled: boolean;
   provider: typeof DIAGRAM_PROVIDER;
   model: typeof DIAGRAM_MODEL;
-  hasApiKey: boolean;
+  hasApiKey: boolean | null;
   keyStorage: "keychain" | "session";
   credentialError?: string;
 };

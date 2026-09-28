@@ -130,10 +130,14 @@ and files. To move such a library, stop every process using it, copy the
 complete directory, and set `SCOPE_DATA_DIR` to the copy. Do not merge it with
 a nonempty library or run two stores against it.
 
-Settings JSON versions 1 and 2 import into `desktop.db`. Encrypted provider
-keys require macOS secure storage and migrate directly to Keychain. The JSON
-file is removed only after the replacement is saved. A failed credential
-import retains it for retry. Obsolete connection settings are discarded.
+Settings JSON versions 1 and 2 import into `desktop.db`. Diagram generation
+defaults to off when its preference is absent. Existing Keychain keys are
+retained. Encrypted provider keys in legacy JSON require macOS secure storage
+and migrate directly to Keychain on the first enabled diagram key operation.
+Startup imports ordinary preferences without accessing credentials. The legacy
+JSON remains until its key has migrated, including across restarts and failed
+access attempts. It is removed only after the replacement is saved. Obsolete
+connection settings are discarded.
 Existing artifact-ID tab lists first acquire stable tab and group UUIDs in
 `desktop.db`. On startup, Scope imports saved open tabs and their drafts into
 `scope.db`, then removes the old workspace document and artifact-keyed drafts

@@ -186,8 +186,13 @@ Open Settings from the search panel or Command-comma. The search button and
 Command-K open workspace controls, current-tab actions, and artifact search.
 Search also finds appearance and diagram generation settings. Appearance follows
 System unless Light or Dark is selected. Diagram generation uses OpenRouter and Gemini 3.8
-Flash. Add, replace, or remove its key in Settings. On macOS keys live in
-Keychain; Linux development keeps them in memory.
+Flash. Enable it in Settings → Diagram generation, then add its key. It is off
+by default, including for existing profiles. On macOS keys live in Keychain;
+Linux development keeps them in memory. Scope reads the provider key for a
+generation request or when that enabled section opens. Saving or removing a
+key also accesses Keychain. Startup and other settings changes do not read it.
+Turning generation off retains the saved key. Enabled remotes still access
+their Keychain credentials when connecting at startup.
 
 Use Create diagram in the empty workspace or search panel. A
 generated diagram becomes an editable artifact. Ask agent edits its current

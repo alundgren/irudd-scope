@@ -46,6 +46,7 @@ const bridge: ScopeBridge = {
   },
   publishTabEvent: (event) => ipcRenderer.invoke("scope:publish-tab-event", event),
   settings: () => ipcRenderer.invoke("scope:settings"),
+  diagramSettings: () => ipcRenderer.invoke("scope:diagram-settings"),
   saveSettings: (input) => ipcRenderer.invoke("scope:save-settings", input),
   openTab: (tab) => ipcRenderer.invoke("scope:open-tab", tab),
   closeTab: (id) => ipcRenderer.invoke("scope:close-tab", id),

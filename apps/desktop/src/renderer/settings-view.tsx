@@ -11,11 +11,11 @@ import { matchingSettings, SettingsSection } from "./settings-section.tsx";
 
 export function SettingsViewPanel({
   onClose,
-  onAppearanceChange,
+  onSettingsChange,
   initialQuery = "",
 }: {
   onClose: () => void;
-  onAppearanceChange: (appearance: Appearance) => void;
+  onSettingsChange: (settings: SettingsView) => void;
   initialQuery?: string;
 }) {
   const [settings, setSettings] = useState<SettingsView>();
@@ -30,6 +30,7 @@ export function SettingsViewPanel({
     try {
       const value = await window.scope.settings();
       setSettings(value);
+      onSettingsChange(value);
     } catch {
       setNotice("Could not load settings. Try again.");
     }
@@ -43,8 +44,9 @@ export function SettingsViewPanel({
     try {
       const saved = await window.scope.saveSettings(input);
       setSettings(saved);
-      onAppearanceChange(saved.appearance);
+      onSettingsChange(saved);
       if (input.apiKey || input.removeApiKey) setApiKey("");
+      if (input.diagramGenerationEnabled === false) setApiKey("");
       setNotice("Settings saved.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not save settings.");
@@ -100,13 +102,17 @@ export function SettingsViewPanel({
           <p className="secondary">System follows your Mac's appearance.</p>
         </SettingsSection>
         <SettingsSection id="model" query={query}>
-          <ModelSettings
-            settings={settings}
-            busy={busy}
-            apiKey={apiKey}
-            onApiKeyChange={setApiKey}
-            onSave={save}
-          />
+          {(active) => (
+            <ModelSettings
+              active={active}
+              settings={settings}
+              busy={busy}
+              apiKey={apiKey}
+              onApiKeyChange={setApiKey}
+              onSave={save}
+              onLoaded={setSettings}
+            />
+          )}
         </SettingsSection>
         <RemoteSettings query={query} />
         <InstallationSettings query={query} />

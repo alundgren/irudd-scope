@@ -245,6 +245,13 @@ only presence or an access error. Linux and isolated development sessions
 keep keys in memory. Provider keys never enter SQLite, the hub, or artifact
 content.
 
+Diagram generation requires an explicit opt-in stored with desktop settings.
+Profiles without that preference default to off. Ordinary settings reads and
+writes do not access provider credentials. The enabled diagram settings section
+checks key presence through its own named IPC operation; generation reads the
+key just before calling OpenRouter. Both operations enforce the enabled setting
+in main. Saving and removing keys also require generation to be enabled.
+
 Create diagram and Ask agent invoke the provider explicitly, one request
 at a time, with cancellation. The provider returns validated semantic
 operations and usage. The renderer applies those operations to Excalidraw.

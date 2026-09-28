@@ -72,10 +72,17 @@ field and Done button stay visible while the sections scroll. Empty results
 offer Clear search and return focus to the search field.
 Appearance saves when changed. The API key has its own Save key action inside
 Diagram generation.
+Diagram generation is off by default, including for existing profiles. Its
+switch saves immediately. Turning it off retains the saved key and diagram
+drafts. Create diagram and Ask agent offer a link to its Settings section
+while it is off; existing diagrams remain editable.
 The diagram provider, model, and API key stay together. OpenRouter with Gemini
 3.8 Flash is the supported configuration. Saving a key clears the input;
 saved secrets are never displayed. Keychain errors remain visible while
-Settings stays usable.
+Settings stays usable and offer Retry key access. Scope reads the provider
+key only for a generation request, key changes, or when the enabled Diagram
+generation section opens, including through search. Startup, folded or filtered
+sections, and unrelated preference changes do not check provider credentials.
 
 App updates and Agent tools are searchable Settings sections. Installed apps
 check `main` when opened and build changed commits locally in the background.

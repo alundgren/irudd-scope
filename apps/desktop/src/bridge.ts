@@ -37,6 +37,7 @@ export type ScopeBridge = {
   onAgentToolsChange: (listener: (status: AgentToolStatus) => void) => () => void;
   publishTabEvent: (event: TabEventEnvelope) => Promise<void>;
   settings: () => Promise<SettingsView>;
+  diagramSettings: () => Promise<SettingsView>;
   saveSettings: (input: SettingsUpdate) => Promise<SettingsView>;
   openTab: (tab: Tab) => Promise<Tab>;
   closeTab: (id: string) => Promise<void>;

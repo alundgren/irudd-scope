@@ -92,6 +92,7 @@ test("ordinary settings and tabs reopen from SQLite while credentials stay exclu
     await store.load();
     const secret = "synthetic-provider-secret";
     const view = await store.saveSettings({
+      diagramGenerationEnabled: true,
       apiKey: secret,
       appearance: "dark",
     });
@@ -132,6 +133,7 @@ test("Linux development credentials disappear when the process store is recreate
   try {
     await store.load();
     await store.saveSettings({
+      diagramGenerationEnabled: true,
       apiKey: "temporary-secret",
     });
     expect(await store.secret("apiKey")).toBe("temporary-secret");
@@ -139,7 +141,8 @@ test("Linux development credentials disappear when the process store is recreate
     await store.close();
     reopened = new DesktopStore(directory);
     await reopened.load();
-    expect(reopened.settings()).toMatchObject({ hasApiKey: false });
+    expect(reopened.settings()).toMatchObject({ hasApiKey: null });
+    expect(await reopened.diagramSettings()).toMatchObject({ hasApiKey: false });
   } finally {
     await reopened?.close();
     await store.close();
@@ -168,6 +171,9 @@ test.for([1, 2] as const)(
         }),
       );
       await store.load();
+      expect(await credentials.read()).toEqual({});
+      await store.saveSettings({ diagramGenerationEnabled: true });
+      expect(await store.secret("apiKey")).toBe("legacy-provider-key");
       expect(await credentials.read()).toEqual({ apiKey: "legacy-provider-key" });
       expect(documents(directory)).not.toContain(ciphertext);
       expect(documents(directory)).not.toContain("old-hub");
@@ -201,15 +207,17 @@ test("a locked or failing Keychain remains visible and cannot silently remove a 
   const store = new DesktopStore(directory, credentials);
   try {
     await store.load();
+    await store.saveSettings({ diagramGenerationEnabled: true });
+    await store.diagramSettings();
     locked = true;
     await expect(store.saveSettings({ removeApiKey: true })).rejects.toThrow("Keychain locked");
-    const view = await store.saveSettings({ provider: "openrouter" });
+    const view = await store.diagramSettings();
     expect(view.credentialError).toContain("Key status is unavailable");
     expect(view.hasApiKey).toBe(true);
     expect(secrets.apiKey).toBe("existing-provider-key");
     await expect(store.secret("apiKey")).rejects.toThrow("Keychain locked");
     locked = false;
-    const retried = await store.saveSettings({});
+    const retried = await store.diagramSettings();
     expect(retried.credentialError).toBeUndefined();
     expect(retried.hasApiKey).toBe(true);
     expect(await store.secret("apiKey")).toBe("existing-provider-key");
@@ -251,6 +259,8 @@ test("existing SQLite preferences retain tabs and provider credentials while dis
     expect(migrated?.tabs.map((tab) => tab.state.data.artifactId)).toEqual(workspace.tabs);
     expect(migrated?.selected).toBe(migrated?.tabs[0].id);
     expect(store.settings().appearance).toBe("system");
+    expect(store.settings().diagramGenerationEnabled).toBe(false);
+    await store.saveSettings({ diagramGenerationEnabled: true });
     expect(await store.secret("apiKey")).toBe("existing-provider-key");
     expect(documents(directory)).not.toContain("endpoint");
     expect(store.settings()).not.toHaveProperty("hasHubToken");
@@ -275,10 +285,14 @@ test("a failed credential migration retains the JSON settings for a successful r
   const retry = new DesktopStore(directory, credentials, async () => "recovered-provider-key");
   try {
     await writeFile(join(directory, "settings.json"), legacy);
-    await expect(failed.load()).rejects.toThrow("Keychain locked");
+    await failed.load();
+    await failed.saveSettings({ diagramGenerationEnabled: true });
+    await expect(failed.secret("apiKey")).rejects.toThrow("Keychain locked");
     expect(await readFile(join(directory, "settings.json"), "utf8")).toBe(legacy);
     expect(await credentials.read()).toEqual({});
+    await failed.close();
     await retry.load();
+    expect(await readFile(join(directory, "settings.json"), "utf8")).toBe(legacy);
     expect(await retry.secret("apiKey")).toBe("recovered-provider-key");
     await expect(readFile(join(directory, "settings.json"))).rejects.toMatchObject({
       code: "ENOENT",
