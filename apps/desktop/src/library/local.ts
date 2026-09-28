@@ -6,6 +6,7 @@ import { startArtifactServer } from "./server.ts";
 
 export async function startLocalArtifacts(options: {
   diagram?: Parameters<typeof startArtifactServer>[0]["diagram"];
+  syncDiagram?: Parameters<typeof startArtifactServer>[0]["syncDiagram"];
   directory: string;
   connectionFile: string;
   port?: number;

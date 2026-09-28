@@ -85,6 +85,7 @@ const bridge: ScopeBridge = {
   saveWorkspace: (input) => ipcRenderer.invoke("scope:save-workspace", input),
   diagramDraft: (id) => ipcRenderer.invoke("scope:diagram-draft", id),
   saveDiagramDraft: (id, draft) => ipcRenderer.invoke("scope:save-diagram-draft", { id, draft }),
+  diagramEvent: (event) => ipcRenderer.invoke("scope:diagram-event", event),
   onBeforeClose: (listener) => {
     const flush = () => {
       void listener().then(

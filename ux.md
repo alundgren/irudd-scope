@@ -103,8 +103,9 @@ Diagram generation.
 Diagram generation is off by default, including for existing profiles. Its
 switch saves immediately. Turning it off retains the saved key and diagram
 drafts. Create diagram offers a link to its Settings section while it is off.
-Ask agent and the conversation panel are hidden until generation is enabled;
-existing diagrams remain editable.
+Ask agent and the embedded conversation are hidden until generation is enabled,
+except that named diagrams always offer their external coding-agent conversation.
+Existing diagrams remain editable.
 The diagram provider, model, and API key stay together. OpenRouter with Gemini
 3.8 Flash is the supported configuration. Saving a key clears the input;
 saved secrets are never displayed. Keychain errors remain visible while
@@ -159,6 +160,19 @@ the conversation and view position. The editor has no Save button.
 Its left menu contains Export, Find on canvas, and Library, plus Ask agent when
 diagram generation is enabled. The menu replaces the separate Library and
 Ask agent controls on the right.
+
+Named diagrams default their conversation recipient to Your coding agent. The
+panel displays the stable name with Copy name and can switch to Scope diagram
+agent. An external coding session receives human messages and canvas-edit
+notices through a separately connected listener. A disconnected listener does
+not prevent editing. Scope's embedded generation acts on the human's behalf.
+
+An external agent can propose a reconciled diagram. Its editable preview covers
+the original canvas and provides Accept proposal and Reject proposal. Accept
+uses the edited preview and checks that the original has not changed. A stale
+proposal stays visible with an explanation and can be rejected before the agent
+reconciles again. The original canvas stays mounted underneath. Proposals and
+the selected recipient persist with the tab and are deleted when it closes.
 The editor's bottom-right help button is hidden because its shortcut reference
 includes commands unavailable in Scope.
 

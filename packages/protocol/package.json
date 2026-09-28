@@ -8,7 +8,8 @@
     "./client": "./src/client.ts",
     "./remote": "./src/remote.ts",
     "./maintenance": "./src/maintenance.ts",
-    "./diagram": "./src/diagram.ts"
+    "./diagram": "./src/diagram.ts",
+    "./diagram-sync": "./src/diagram-sync.ts"
   },
   "dependencies": {
     "effect": "catalog:"

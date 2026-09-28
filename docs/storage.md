@@ -56,6 +56,11 @@ Closing each tab removes all published content. Cleanup runs at startup, during
 shrink, and at one-minute maintenance checks. A shrink receipt reports bytes
 still protected by staging; it does not claim those bytes were reclaimed.
 
+Editor saves replace content and metadata in one transaction. Replaced editor
+snapshots are released immediately. External uploads still receive their
+fifteen-minute staging protection, including an initial native-file import or
+an upload that shares bytes with an editor snapshot.
+
 Automatic shrinking applies independently to `scope.db`, `desktop.db`, and a
 paired hub's `hub.db`. A database is eligible when its main file plus WAL is
 strictly above 100,000,000 bytes and at least 24 hours have passed since its last
@@ -124,10 +129,21 @@ token. The library and preferences remain intact.
 
 ## Supported data imports
 
-Scope reads artifact schema version 3, desktop schema version 6, and hub schema
+Scope reads artifact schema version 4, desktop schema version 6, and hub schema
 version 2. It rejects
 newer schema versions. Back up the complete data directories before an upgrade
 when you need the option to return to an older desktop.
+
+Artifact schema 4 adds a unique index for optional tab names. Diagram drafts may
+also contain an editable proposal and the selected conversation recipient.
+Closing the tab removes these with its ordinary content. Delta history is bounded
+in renderer memory and disappears on restart. The hub stores no diagram model.
+
+An agent's explicit `diagram pull --output FILE` export is a disposable working
+file in its worktree. It contains a base, current native document, and optimistic
+version; image data is stored once, with hashes in the base. Removing the worktree
+removes these files. Another session can pull the same name to a new file while
+the Scope tab exists. There is no global agent cache to collect.
 
 For an artifact directory containing a database and a `blobs/` directory,
 Scope verifies hashes, sizes, and referenced content before importing bytes

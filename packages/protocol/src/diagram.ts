@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { Artifact, ArtifactId, Revision, Source, decode } from "./index.ts";
+import { Artifact, ArtifactId, ArtifactName, Revision, Source, decode } from "./index.ts";
 
 export const DiagramObjectId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512));
 const id = DiagramObjectId;
@@ -116,6 +116,7 @@ export const DiagramCommand = Schema.Union([
   Schema.Struct({ action: Schema.Literal("read"), id: ArtifactId }),
   Schema.Struct({
     action: Schema.Literal("create"),
+    name: Schema.optionalKey(ArtifactName),
     id: ArtifactId,
     title: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(160)),
     operations: DiagramOperations,

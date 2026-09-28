@@ -79,13 +79,6 @@ export const lintExceptions: readonly LintException[] = [
       "One chat panel renders empty history, generation progress, opt-in recovery, and send or cancel controls. Its short conditional JSX keeps each action beside the state that enables it.",
   },
   {
-    file: "apps/desktop/src/plugins/diagram/main.ts",
-    at: 'handle("scope:save-diagram", async (value) => {',
-    limits: { complexity: 11 },
-    reason:
-      "Saving a diagram checks the external document before reading a revision and publishing it. Keep the short validation and provenance fallback beside the IPC operation they protect.",
-  },
-  {
     file: "apps/desktop/src/plugins/diagram/openrouter.ts",
     at: "generateDiagram: async (input, signal) => {",
     limits: { complexity: 13 },

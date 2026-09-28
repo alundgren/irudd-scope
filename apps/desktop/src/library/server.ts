@@ -23,9 +23,16 @@ import {
   type DatabaseShrink,
 } from "@irudd-scope/protocol/maintenance";
 import { ArtifactStore } from "./store.ts";
+import { DiagramSyncCommand, DiagramSyncReply } from "@irudd-scope/protocol/diagram-sync";
+import { ArtifactName } from "@irudd-scope/protocol";
 
 export async function startArtifactServer(options: {
   diagram?: (command: DiagramCommand, signal: AbortSignal) => Promise<DiagramReply>;
+  syncDiagram?: (
+    command: DiagramSyncCommand,
+    id: string,
+    signal: AbortSignal,
+  ) => Promise<DiagramSyncReply>;
   directory: string;
   token: string;
   port?: number;
@@ -92,6 +99,37 @@ export async function startArtifactServer(options: {
       return;
     }
     authenticate(request, options.token);
+
+    if (route === "POST /v1/diagrams/sync" && !url.search) {
+      if (!options.syncDiagram) throw new ScopeError(503, "The diagram editor is unavailable.");
+      const body = await readJson(request, MAX_CONTENT_BYTES, "Diagram request exceeds 32 MiB.");
+      const command = validate(() => decode(DiagramSyncCommand, body));
+      const artifact = await store.named(command.name);
+      if (artifact.kind !== "excalidraw")
+        throw new ScopeError(400, "This named tab is not a diagram.");
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+      response.once("close", cancel);
+      try {
+        json(
+          response,
+          200,
+          decode(
+            DiagramSyncReply,
+            await options.syncDiagram(command, artifact.id, controller.signal),
+          ),
+        );
+      } finally {
+        response.off("close", cancel);
+      }
+      return;
+    }
+    const named = /^\/v1\/names\/([^/]+)$/.exec(url.pathname);
+    if (request.method === "GET" && named && !url.search) {
+      const name = validate(() => decode(ArtifactName, decodeURIComponent(named[1])));
+      json(response, 200, await store.named(name));
+      return;
+    }
 
     if (route === "POST /v1/diagrams" && !url.search) {
       await handleDiagram(request, response);

@@ -60,6 +60,8 @@ export function artifactRequest(method: string, path: string): boolean {
   if (method === "GET" && ["/v1/events", "/v1/artifacts"].includes(url.pathname)) return true;
   if (method === "GET" && path === "/v1/maintenance/status") return true;
   if (method === "POST" && path === "/v1/diagrams") return true;
+  if (method === "POST" && path === "/v1/diagrams/sync") return true;
+  if (method === "GET" && /^\/v1\/names\/[a-z0-9][a-z0-9-]{0,127}$/.test(path)) return true;
   if (method === "POST" && maintenanceRequest(path)) return true;
   if (method === "POST" && /^\/v1\/tabs\/[0-9a-f-]{36}\/blobs$/.test(path)) return true;
   if (method === "POST" && /^\/v1\/artifacts\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}\/tab$/.test(path))

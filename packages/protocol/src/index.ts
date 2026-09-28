@@ -34,6 +34,7 @@ export function decodeLocalConnection(input: unknown): LocalConnection {
 export const ArtifactId = Schema.String.check(
   Schema.isPattern(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/),
 );
+export const ArtifactName = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,127}$/));
 export const BlobId = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 export const ArtifactKind = Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9-]{0,63}$/));
 export type ArtifactKind = typeof ArtifactKind.Type;
@@ -52,6 +53,7 @@ export const Revision = Schema.Int.check(
   Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
 );
 const Fields = {
+  name: Schema.optionalKey(ArtifactName),
   title: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(160)),
   kind: ArtifactKind,
   blob: BlobId,
@@ -94,10 +96,20 @@ export const ArtifactPage = Schema.Struct({
 export const BlobReceipt = Schema.Struct({ blob: BlobId });
 export const DeleteReceipt = Schema.Struct({ id: ArtifactId, deleted: Schema.Boolean });
 export type DeleteReceipt = typeof DeleteReceipt.Type;
+export const DiagramEvent = Schema.Struct({
+  type: Schema.Literal("diagram"),
+  id: ArtifactId,
+  name: ArtifactName,
+  event: Schema.Literals(["changed", "message", "proposal", "accepted", "rejected"]),
+  version: Schema.String,
+  text: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(4000))),
+});
+export type DiagramEvent = typeof DiagramEvent.Type;
 export const LiveEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("ready") }),
   Schema.Struct({ type: Schema.Literal("artifact"), artifact: Artifact }),
   Schema.Struct({ type: Schema.Literal("deleted"), id: ArtifactId }),
+  DiagramEvent,
 ]);
 export type LiveEvent = typeof LiveEvent.Type;
 

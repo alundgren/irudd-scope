@@ -1,3 +1,4 @@
+import { DiagramSyncCommand, DiagramSyncReply } from "./diagram-sync.ts";
 import {
   DiagramCommand,
   DiagramReply,
@@ -14,6 +15,7 @@ import {
 import {
   Artifact,
   ArtifactId,
+  ArtifactName,
   ArtifactPage,
   ArtifactWrite,
   BlobReceipt,
@@ -86,6 +88,30 @@ export class ScopeClient {
         }),
         MAX_DIAGRAM_REPLY_BYTES,
       ),
+    );
+  }
+
+  async syncDiagram(input: DiagramSyncCommand): Promise<DiagramSyncReply> {
+    const body = JSON.stringify(decode(DiagramSyncCommand, input));
+    if (new TextEncoder().encode(body).byteLength > MAX_CONTENT_BYTES)
+      throw new Error("Diagram request exceeds 32 MiB.");
+    return decode(
+      DiagramSyncReply,
+      await readRemoteJson(
+        await this.request("/v1/diagrams/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }),
+        MAX_CONTENT_BYTES + 64 * 1024,
+      ),
+    );
+  }
+
+  async named(name: string): Promise<Artifact> {
+    return decode(
+      Artifact,
+      await (await this.request(`/v1/names/${decode(ArtifactName, name)}`)).json(),
     );
   }
 

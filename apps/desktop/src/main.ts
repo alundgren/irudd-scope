@@ -62,6 +62,7 @@ async function main() {
   let lifecycle: DesktopLifecycle;
   const artifacts = await startLocalArtifacts({
     diagram: (command, signal) => desktopIpc.diagram(command, signal),
+    syncDiagram: (command, id, signal) => desktopIpc.syncDiagram(command, id, signal),
     initialize: async (artifacts) => {
       lifecycle = new DesktopLifecycle(artifacts, store);
       await lifecycle.recover();
