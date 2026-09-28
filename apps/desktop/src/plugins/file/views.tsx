@@ -26,17 +26,7 @@ function MarkdownView({ item }: RendererProps) {
   );
 }
 function HtmlView({ item }: RendererProps) {
-  const policy =
-    "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
-  return (
-    <iframe
-      title={item.artifact.title}
-      className="html-preview"
-      sandbox=""
-      referrerPolicy="no-referrer"
-      srcDoc={`<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${policy}"><meta charset="utf-8"></head><body>${text(item.bytes)}</body></html>`}
-    />
-  );
+  return <iframe title={item.artifact.title} className="html-preview" srcDoc={text(item.bytes)} />;
 }
 function ImageView({ item }: RendererProps) {
   const [url, setUrl] = useState("");

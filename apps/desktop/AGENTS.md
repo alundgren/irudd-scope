@@ -16,7 +16,7 @@ before changing these responsibilities.
 - `src/remotes.ts` owns pairing, Mac-initiated relay connections, and cancellation.
 - `src/bridge.ts`, `src/preload.ts`, and `src/ipc.ts` expose named desktop operations
   and validate callers. Plugin main entries register their own operations.
-- `src/renderer-security.ts` owns renderer content serving and access restrictions.
+- `src/renderer-content.ts` serves the renderer's application files.
 - `src/renderer/` owns startup, shared UI controls, settings, and theme tokens.
 
 Read the local instructions in the workspace, plugin, library, or renderer
@@ -25,7 +25,7 @@ files, but may import only renderer code and process-independent contracts.
 
 Validate IPC input and callers in main. Keep credentials out of renderer
 reads. Preserve cancellation and resource cleanup when changing lifecycle
-code. HTML artifacts must remain isolated with scripts disabled.
+code. HTML artifacts are trusted agent output and run as interactive browser documents.
 
 Storage changes need existing-data validation. Tests for this app live in
 `../../tests/`; use the relevant store tests and real Electron flows. Run

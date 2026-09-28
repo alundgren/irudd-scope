@@ -69,6 +69,14 @@ export function registerDesktopIpc({
     client,
   );
   handle("scope:diagram-command-result", (input) => diagrams.reply(input));
+  handle("scope:set-fullscreen", (input) => {
+    window.setFullScreen(decode(Schema.Boolean, input));
+  });
+  const enteredFullscreen = () => window.webContents.send("scope:fullscreen-changed", true);
+  const leftFullscreen = () => window.webContents.send("scope:fullscreen-changed", false);
+  window.on("enter-full-screen", enteredFullscreen);
+  window.on("leave-full-screen", leftFullscreen);
+
   const plugins = registerMainPlugins({
     handle,
     store,
@@ -178,6 +186,8 @@ export function registerDesktopIpc({
     },
     cancelTabs: (ids: string[]) => plugins.cancelTabs(ids),
     dispose: () => {
+      window.removeListener("enter-full-screen", enteredFullscreen);
+      window.removeListener("leave-full-screen", leftFullscreen);
       plugins.cancelPending();
       diagrams.cancelAll();
       eventListeners.clear();

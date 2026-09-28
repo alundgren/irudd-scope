@@ -133,6 +133,13 @@ svg.lucide {
   border-bottom: 1px solid var(--scope-line);
   background: var(--scope-strip);
 }
+:root[data-platform="darwin"] .workspace-bar {
+  padding-left: 80px;
+  app-region: drag;
+}
+:root[data-platform="darwin"] .workspace-bar button {
+  app-region: no-drag;
+}
 .tabs {
   display: flex;
   flex: 1;
@@ -218,8 +225,7 @@ svg.lucide {
 }
 .exit-focus {
   position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
+  right: var(--scope-space-2);
   top: var(--scope-space-2);
   z-index: 40;
   box-shadow: var(--scope-shadow);

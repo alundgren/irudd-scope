@@ -18,7 +18,7 @@ artifacts. Actual values belong to [tokens.css](apps/desktop/src/renderer/tokens
 
 System, Light, and Dark are supported because Scope sits alongside other Mac
 apps and follows native appearance. Excalidraw follows the selected appearance;
-artifact data, images, and isolated HTML keep their authored content. The
+artifact data, images, and HTML keep their authored content. The
 appearance picker uses a styled native select to retain desktop keyboard and
 platform behavior. Provider and model are plain text because each has one
 supported value.
@@ -52,12 +52,23 @@ membership has no visual indicator. The desktop opens published items in its
 local workspace group. File views and the diagram editor are built-in plugins;
 existing image, Markdown, HTML, text, and download views remain together.
 
-Fullscreen in the search panel enters Scope's focus mode. It keeps the selected
-artifact mounted, hides workspace controls and diagram chat, and leaves an
-exit at the top center. It preserves scroll, zoom, and conversation. Excalidraw
+The Mac window combines its native window buttons and tabs in one draggable
+strip, without a separate title bar. The application menu stays available for
+native editing shortcuts. Windows and Linux hide the menu bar until Alt is
+pressed. The macOS menu bar belongs to the system and follows its fullscreen
+visibility setting.
+
+Fullscreen in the search panel enters native fullscreen and Scope's focus mode.
+It keeps the selected artifact mounted, hides workspace controls and diagram
+chat, and leaves a small icon button at the top right, clear of Excalidraw's
+centered toolbar. It preserves scroll, zoom, and conversation. Excalidraw
 uses zen mode. Escape closes an active dialog or editor interaction before
 leaving focus. Command-Shift-F toggles focus; Command-K opens the panel in
-either mode.
+either mode. Leaving native fullscreen also restores the workspace controls.
+
+Published HTML is trusted agent output. Prototypes run their scripts, load
+external resources, submit forms, and open links without a trust prompt or
+preview restrictions. The document keeps its own styling and browser behavior.
 
 Search opens with labeled icon controls for Settings, Fullscreen, creation
 tools. A tinted current-tab area shows the title
