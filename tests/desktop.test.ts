@@ -146,14 +146,20 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     const canvas = await page.locator(".excalidraw canvas").first().elementHandle();
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
+    expect(await page.getByRole("complementary", { name: "Diagram agent" }).isVisible()).toBe(true);
+    const mode = page.getByRole("combobox", { name: "Fullscreen diagram mode" });
+    await mode.selectOption("view");
     expect(await page.getByRole("complementary", { name: "Diagram agent" }).isVisible()).toBe(
       false,
     );
     await page.keyboard.press("Escape");
+    expect(await mode.inputValue()).toBe("edit");
     expect(await page.getByLabel("Change diagram", { exact: true }).inputValue()).toBe(
       "Keep this draft",
     );
     expect(await canvas?.evaluate((element) => element.isConnected)).toBe(true);
+    await mode.selectOption("tabs");
+    await page.getByRole("navigation", { name: "Open artifacts" }).waitFor();
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect.poll(async () => (await client.get(artifacts[0].id)).revision).toBe(2);
     const updated = JSON.parse(new TextDecoder().decode(await client.content(artifacts[0].id)));

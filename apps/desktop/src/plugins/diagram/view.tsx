@@ -26,12 +26,12 @@ export function DiagramView({
   item,
   context,
   theme,
-  focus,
+  viewing,
 }: {
   item: ArtifactContent;
   context: TabContext;
   theme: Theme;
-  focus: boolean;
+  viewing: boolean;
 }) {
   const [api, setApi] = useState<ExcalidrawImperativeAPI>();
   const [dirty, setDirty] = useState(false);
@@ -55,8 +55,8 @@ export function DiagramView({
   const readyRef = useRef(false);
   const latest = useRef(item);
   latest.current = item;
-  const display = useRef({ theme, focus });
-  display.current = { theme, focus };
+  const display = useRef({ theme, viewing });
+  display.current = { theme, viewing };
   const draftSave = useAutosave<DiagramDraft>(
     () => {
       if (!api || !readyRef.current) return undefined;
@@ -125,7 +125,8 @@ export function DiagramView({
         appState: {
           ...data.appState,
           theme: display.current.theme,
-          zenModeEnabled: display.current.focus,
+          zenModeEnabled: display.current.viewing,
+          viewModeEnabled: display.current.viewing,
           isLoading: false,
           ...(viewport
             ? {
@@ -288,9 +289,9 @@ export function DiagramView({
     );
   return (
     <div
-      className="diagram-view"
+      className={`diagram-view${viewing ? " diagram-viewing" : ""}`}
       onKeyDown={(event) => {
-        if (event.key === "Escape" && chatOpen && !focus) {
+        if (event.key === "Escape" && chatOpen && !viewing) {
           event.stopPropagation();
           setChatOpen(false);
         }
@@ -348,12 +349,13 @@ export function DiagramView({
           <Excalidraw
             excalidrawAPI={setApi}
             theme={theme}
-            zenModeEnabled={focus}
+            zenModeEnabled={viewing}
+            viewModeEnabled={viewing}
             onLinkOpen={(_element, event) => event.preventDefault()}
             validateEmbeddable={false}
             aiEnabled={false}
             renderTopRightUI={() =>
-              focus ? null : (
+              viewing ? null : (
                 <div className="diagram-controls">
                   <Button size="sm" disabled={busy !== null || !dirty} onClick={() => void save()}>
                     Save
@@ -390,7 +392,7 @@ export function DiagramView({
         </div>
         <DiagramChat
           open={chatOpen}
-          focus={focus}
+          focus={viewing}
           messages={messages}
           intent={intent}
           busy={busy}
