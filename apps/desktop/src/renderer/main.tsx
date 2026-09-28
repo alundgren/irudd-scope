@@ -5,6 +5,7 @@ import "./style.css";
 import type {} from "../bridge.ts";
 
 window.EXCALIDRAW_ASSET_PATH = new URL("/", window.location.href).toString();
+document.documentElement.dataset.platform = window.scope.platform;
 
 const initialSettings = await window.scope.settings().catch(() => undefined);
 const appearance = initialSettings?.appearance ?? "system";

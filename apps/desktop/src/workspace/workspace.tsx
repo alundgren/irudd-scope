@@ -34,6 +34,10 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const [focus, setFocus] = useState(false);
   const [details, setDetails] = useState(false);
   const [error, setError] = useState("");
+  useEffect(() => window.scope.onFullscreenChange(setFocus), []);
+  useEffect(() => {
+    void window.scope.setFullscreen(focus).catch(() => setError("Could not change fullscreen."));
+  }, [focus]);
   const {
     snapshot,
     unread,
@@ -249,14 +253,14 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       {focus && (
         <Button
           variant="secondary"
-          size="sm"
+          size="icon-xs"
           className="exit-focus"
           ref={controlsButton}
           aria-label="Exit focus mode"
-          title="Exit focus · Escape"
+          title="Exit fullscreen · Escape"
           onClick={() => setFocus(false)}
         >
-          <Minimize2 /> Back to tabs
+          <Minimize2 />
         </Button>
       )}
       {workspaceSave.error && (

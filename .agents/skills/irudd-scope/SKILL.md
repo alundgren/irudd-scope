@@ -35,7 +35,7 @@ Publication commands print a JSON artifact record with its ID and revision. Trea
 | `.excalidraw`                                     | Editable diagram  |
 | Any other extension                               | Downloadable file |
 
-For Markdown, raw HTML is omitted and links and image descriptions appear as text. HTML previews allow inline styles and embedded data images; scripts and external resources are blocked. Use static HTML that works within those limits.
+HTML previews run interactive prototypes and mockups, including scripts, external styles, fonts, images, network requests, forms, and popups. Publish a complete document with embedded resources or reachable URLs. Adjacent files are not uploaded; use absolute resource URLs or set the document's base URL. Normal browser rules such as CORS apply. For Markdown, raw HTML is omitted and links and image descriptions appear as text.
 
 ### Diagrams
 

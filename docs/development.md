@@ -263,8 +263,11 @@ their Keychain credentials when connecting at startup.
 
 Use Create diagram in the empty workspace or search panel. A
 generated diagram becomes an editable artifact. Ask agent edits its current
-canvas; Save publishes the edits. HTML previews permit inline styles and
-embedded data images, with scripts and external resources blocked. Markdown
+canvas; Save publishes the edits. HTML previews run trusted agent output with
+scripts, external styles, images, fonts, network requests, forms, and popups.
+Publish a complete HTML document. Resources must be embedded or use reachable
+URLs; publishing a file does not upload adjacent files. A document can set its
+own base URL. Normal browser rules such as CORS still apply. Markdown
 omits raw HTML and renders link labels and image descriptions as text.
 
 ## Installed app
