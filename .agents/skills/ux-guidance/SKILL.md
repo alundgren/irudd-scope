@@ -46,11 +46,12 @@ replacement or removal, never the secret itself.
 Diagram conversation opens on request beside the canvas or over it in a narrow
 window. Keep conversation, draft, and view position across closing the panel,
 focus, navigation, and restart with the tab still open. Persist through named desktop SQLite operations.
-Save publishes the edited artifact; draft writes do not. Enter sends,
+Canvas edits save automatically to the artifact after the working draft is stored.
+Conversation and viewport updates save only the draft. Enter sends,
 Shift+Enter adds a line, and pending requests offer Cancel.
 
 Retain local edits when an artifact revision arrives or the canvas changes
-during generation. Offer loading the latest artifact or saving a copy.
+during generation. Offer Use incoming version or Keep both.
 Cancellation, provider failures, and failed draft writes must leave a useful
 next action. Do not add renderer persistence or generic execution APIs.
 

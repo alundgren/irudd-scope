@@ -19,13 +19,23 @@ test("the provider requests the selected model with a strict schema and validate
     });
   });
   const result = await provider.generateDiagram(
-    { intent: "Draw a browser talking to an API.", scene: emptyScene() },
+    {
+      intent: "Draw a browser talking to an API.",
+      scene: emptyScene(),
+      selectedIds: ["native:client"],
+      history: [
+        { role: "user", text: "Use a left-to-right layout." },
+        { role: "assistant", text: "Created the overview." },
+      ],
+    },
     new AbortController().signal,
   );
   expect(body).toMatchObject({
     model: "google/gemini-3.8-flash",
     response_format: { type: "json_schema", json_schema: { strict: true } },
   });
+  expect(JSON.stringify(body)).toContain("left-to-right layout");
+  expect(JSON.stringify(body)).toContain("native:client");
   expect(JSON.stringify(body)).not.toContain("synthetic-api-key");
   expect(result.metrics).toMatchObject({ inputTokens: 123, outputTokens: 45, cost: 0.001 });
   const scene = applyOperations(emptyScene(), result.operations);

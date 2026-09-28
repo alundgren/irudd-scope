@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Download, Maximize2, Minimize2, Settings, X, Info, Plus } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { NativeSelect, NativeSelectOption } from "../renderer/components/ui/native-select.tsx";
@@ -226,7 +226,8 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       setError(failure instanceof Error ? failure.message : "Download failed.");
     }
   }
-  useEffect(() => {
+  // A visible tab change must update shortcuts before another key can target the old tab.
+  useLayoutEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const command = event.metaKey || event.ctrlKey;

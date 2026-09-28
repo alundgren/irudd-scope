@@ -1,3 +1,4 @@
+import { startDiagramCommands } from "../plugins/diagram/command-renderer.ts";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "../workspace/workspace.tsx";
@@ -6,6 +7,8 @@ import type {} from "../bridge.ts";
 
 window.EXCALIDRAW_ASSET_PATH = new URL("/", window.location.href).toString();
 document.documentElement.dataset.platform = window.scope.platform;
+
+startDiagramCommands();
 
 const initialSettings = await window.scope.settings().catch(() => undefined);
 const appearance = initialSettings?.appearance ?? "system";

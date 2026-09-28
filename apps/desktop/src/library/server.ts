@@ -1,3 +1,8 @@
+import {
+  DiagramCommand,
+  DiagramReply,
+  MAX_DIAGRAM_REQUEST_BYTES,
+} from "@irudd-scope/protocol/diagram";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import {
@@ -20,6 +25,7 @@ import {
 import { ArtifactStore } from "./store.ts";
 
 export async function startArtifactServer(options: {
+  diagram?: (command: DiagramCommand, signal: AbortSignal) => Promise<DiagramReply>;
   directory: string;
   token: string;
   port?: number;
@@ -87,6 +93,10 @@ export async function startArtifactServer(options: {
     }
     authenticate(request, options.token);
 
+    if (route === "POST /v1/diagrams" && !url.search) {
+      await handleDiagram(request, response);
+      return;
+    }
     if (route === "GET /v1/events") {
       openEventStream(response);
       return;
@@ -118,6 +128,24 @@ export async function startArtifactServer(options: {
     if (!match) throw new ScopeError(404, "Endpoint not found.");
     const id = validate(() => decode(ArtifactId, decodeURIComponent(match[1])));
     await handleArtifact(request, response, url, id, match[2]);
+  }
+
+  async function handleDiagram(request: IncomingMessage, response: ServerResponse) {
+    if (!options.diagram) throw new ScopeError(503, "The diagram editor is unavailable.");
+    const body = await readJson(
+      request,
+      MAX_DIAGRAM_REQUEST_BYTES,
+      "Diagram request exceeds 512 KiB.",
+    );
+    const command = validate(() => decode(DiagramCommand, body));
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    response.once("close", cancel);
+    try {
+      json(response, 200, decode(DiagramReply, await options.diagram(command, controller.signal)));
+    } finally {
+      response.off("close", cancel);
+    }
   }
 
   function openEventStream(response: ServerResponse) {

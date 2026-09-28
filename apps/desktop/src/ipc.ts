@@ -1,3 +1,4 @@
+import { diagramCommands } from "./plugins/diagram/command-main.ts";
 import { dialog, ipcMain, nativeTheme, type BrowserWindow } from "electron";
 import { writeFile } from "node:fs/promises";
 import { Schema } from "effect";
@@ -60,6 +61,14 @@ export function registerDesktopIpc({
     });
   }
 
+  const diagrams = diagramCommands(
+    (request) => window.webContents.send("scope:diagram-command", request),
+    (id) => {
+      if (!window.isDestroyed()) window.webContents.send("scope:diagram-command-cancel", id);
+    },
+    client,
+  );
+  handle("scope:diagram-command-result", (input) => diagrams.reply(input));
   handle("scope:set-fullscreen", (input) => {
     window.setFullScreen(decode(Schema.Boolean, input));
   });
@@ -169,12 +178,18 @@ export function registerDesktopIpc({
   });
 
   return {
-    cancelPending: () => plugins.cancelPending(),
+    diagram: (command: Parameters<typeof diagrams.run>[0], signal: AbortSignal) =>
+      diagrams.run(command, signal),
+    cancelPending: () => {
+      plugins.cancelPending();
+      diagrams.cancelAll();
+    },
     cancelTabs: (ids: string[]) => plugins.cancelTabs(ids),
     dispose: () => {
       window.removeListener("enter-full-screen", enteredFullscreen);
       window.removeListener("leave-full-screen", leftFullscreen);
       plugins.cancelPending();
+      diagrams.cancelAll();
       eventListeners.clear();
     },
     onTabEvent: (listener: (event: TabEventEnvelope) => void | Promise<void>) => {

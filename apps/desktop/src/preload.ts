@@ -1,9 +1,25 @@
+import type { DiagramCommandRequest } from "./plugins/diagram/commands.ts";
 import { contextBridge, ipcRenderer } from "electron";
 import type { ScopeBridge, ArtifactLibrarySnapshot } from "./bridge.ts";
 import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 
 const bridge: ScopeBridge = {
+  onDiagramCommand: (listener) => {
+    const receive = (_event: unknown, input: DiagramCommandRequest) => listener(input);
+    ipcRenderer.on("scope:diagram-command", receive);
+    return () => {
+      ipcRenderer.removeListener("scope:diagram-command", receive);
+    };
+  },
+  onDiagramCommandCancel: (listener) => {
+    const receive = (_event: unknown, id: string) => listener(id);
+    ipcRenderer.on("scope:diagram-command-cancel", receive);
+    return () => {
+      ipcRenderer.removeListener("scope:diagram-command-cancel", receive);
+    };
+  },
+  diagramCommandResult: (response) => ipcRenderer.invoke("scope:diagram-command-result", response),
   platform: process.platform,
   setFullscreen: (enabled) => ipcRenderer.invoke("scope:set-fullscreen", enabled),
   onFullscreenChange: (listener) => {

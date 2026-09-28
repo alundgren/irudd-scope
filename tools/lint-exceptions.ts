@@ -72,14 +72,7 @@ export const lintExceptions: readonly LintException[] = [
   },
   {
     file: "apps/desktop/src/plugins/diagram/canvas.ts",
-    at: "export function readSemanticScene(elements: readonly ExcalidrawElement[]): SemanticScene {",
-    limits: { complexity: 27 },
-    reason:
-      "The four semantic categories require different Excalidraw type checks and binding fallbacks. The final pass removes references to deleted members; separate category modules would duplicate the same element lookup and metadata handling.",
-  },
-  {
-    file: "apps/desktop/src/plugins/diagram/canvas.ts",
-    at: "export function renderScene(scene: SemanticScene): ExcalidrawElement[] {",
+    at: "export function renderScene(",
     limits: { "max-lines-per-function": 152 },
     reason:
       "Rendering measures native text before placing group borders and connections. The ordered conversion and its element data stay together so labels, bounds, and stable IDs remain consistent.",

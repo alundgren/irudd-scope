@@ -1,3 +1,4 @@
+import { MAX_DIAGRAM_REQUEST_BYTES } from "@irudd-scope/protocol/diagram";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { Transform } from "node:stream";
@@ -231,7 +232,13 @@ export async function startPairedHub(state: HubState, port = state.configuration
       response.flushHeaders();
       await pipeline(
         item.request,
-        bounded(item.request.url?.endsWith("/blobs") ? MAX_CONTENT_BYTES : MAX_METADATA_BYTES),
+        bounded(
+          item.request.url === "/v1/diagrams"
+            ? MAX_DIAGRAM_REQUEST_BYTES
+            : item.request.url?.endsWith("/blobs")
+              ? MAX_CONTENT_BYTES
+              : MAX_METADATA_BYTES,
+        ),
         response,
         { signal: item.controller.signal },
       ).catch(() =>

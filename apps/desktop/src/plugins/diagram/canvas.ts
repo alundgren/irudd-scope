@@ -2,6 +2,7 @@ import { convertToExcalidrawElements, newElementWith } from "@excalidraw/excalid
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { emptyScene, type SceneNode, type SemanticScene } from "./contract.ts";
 import { sceneObjects } from "./scene.ts";
+import type { DiagramContext } from "@irudd-scope/protocol/diagram";
 
 type ElementInput = NonNullable<Parameters<typeof convertToExcalidrawElements>[0]>[number];
 type Category = keyof SemanticScene;
@@ -28,7 +29,26 @@ const data = (category: Category, object: AgentData["object"], primary = true) =
 });
 
 function agentData(element: ExcalidrawElement): AgentData | undefined {
-  return element.customData?.drawingAgent as AgentData | undefined;
+  const value = element.customData?.drawingAgent;
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !value.object ||
+    typeof value.object.id !== "string" ||
+    value.object.id.length === 0 ||
+    value.object.id.length > 512 ||
+    !["nodes", "texts", "connections", "groups"].includes(value.category) ||
+    typeof value.primary !== "boolean"
+  )
+    return undefined;
+  if (
+    value.category === "groups" &&
+    (!Array.isArray(value.object.ids) ||
+      !value.object.ids.every((id: unknown) => typeof id === "string") ||
+      typeof value.object.label !== "string")
+  )
+    return undefined;
+  return value as AgentData;
 }
 
 function boundary(node: SceneNode, target: SceneNode): [number, number] {
@@ -49,14 +69,42 @@ function boundary(node: SceneNode, target: SceneNode): [number, number] {
   return [cx + dx / divisor + (dx / length) * 6, cy + dy / divisor + (dy / length) * 6];
 }
 
-export function renderScene(scene: SemanticScene): ExcalidrawElement[] {
-  const groupIds = (id: string) =>
-    scene.groups.filter((group) => group.ids.includes(id)).map((group) => nativeGroupId(group.id));
+export function renderScene(
+  scene: SemanticScene,
+  current: readonly ExcalidrawElement[] = [],
+): ExcalidrawElement[] {
+  const existing = new Map(
+    current.filter((item) => !item.isDeleted).map((item) => [semanticId(item), item]),
+  );
+  const labels = new Map(
+    current
+      .filter((item) => !item.isDeleted && item.type === "text" && item.containerId)
+      .map((item) => [item.type === "text" ? item.containerId : null, item]),
+  );
+  const renderId = (id: string) => existing.get(id)?.id ?? elementId(id);
+  const renderLabelId = (id: string) => labels.get(renderId(id))?.id ?? labelId(id);
+  const textStyle = (id: string, bound: boolean) => {
+    const old = bound ? labels.get(renderId(id)) : existing.get(id);
+    return old?.type === "text"
+      ? {
+          fontSize: old.fontSize,
+          fontFamily: old.fontFamily,
+          textAlign: old.textAlign,
+          verticalAlign: old.verticalAlign,
+        }
+      : labelDefaults;
+  };
+  const groupIds = (id: string) => [
+    ...(existing.get(id)?.groupIds.filter((group) => !group.startsWith("agent-group:")) ?? []),
+    ...scene.groups
+      .filter((group) => group.ids.includes(id))
+      .map((group) => nativeGroupId(group.id)),
+  ];
   const items: ElementInput[] = [];
   for (const node of scene.nodes) {
     const label = {
-      ...labelDefaults,
-      id: labelId(node.id),
+      ...textStyle(node.id, true),
+      id: renderLabelId(node.id),
       text: node.label,
       groupIds: groupIds(node.id),
       customData: data("nodes", node, false),
@@ -64,7 +112,7 @@ export function renderScene(scene: SemanticScene): ExcalidrawElement[] {
     items.push({
       ...defaults,
       type: node.kind,
-      id: elementId(node.id),
+      id: renderId(node.id),
       x: node.x,
       y: node.y,
       width: node.width,
@@ -77,11 +125,11 @@ export function renderScene(scene: SemanticScene): ExcalidrawElement[] {
   for (const text of scene.texts) {
     items.push({
       type: "text",
-      id: elementId(text.id),
+      id: renderId(text.id),
       text: text.text,
       x: text.x,
       y: text.y,
-      ...labelDefaults,
+      ...textStyle(text.id, false),
       strokeColor: defaults.strokeColor,
       groupIds: groupIds(text.id),
       customData: data("texts", text),
@@ -92,18 +140,18 @@ export function renderScene(scene: SemanticScene): ExcalidrawElement[] {
     convertToExcalidrawElements(items, { regenerateIds: false }).map((item) => [item.id, item]),
   );
   const nodes = scene.nodes.map((node) => {
-    const element = measured.get(elementId(node.id))!;
+    const element = measured.get(renderId(node.id))!;
     return { ...node, width: element.width, height: element.height };
   });
-  const nodeIds = new Set(nodes.map((node) => elementId(node.id)));
+  const nodeIds = new Set(nodes.map((node) => renderId(node.id)));
   const finalItems: ElementInput[] = [];
   for (const group of scene.groups) {
-    const members = group.ids.map((id) => measured.get(elementId(id))!);
+    const members = group.ids.map((id) => measured.get(renderId(id))!);
     const x = Math.min(...members.map((item) => item.x)) - 24;
     const y = Math.min(...members.map((item) => item.y)) - 48;
     const title: ElementInput = {
       type: "text",
-      id: labelId(group.id),
+      id: renderLabelId(group.id),
       text: group.label,
       x: x + 16,
       y: y + 12,
@@ -118,7 +166,7 @@ export function renderScene(scene: SemanticScene): ExcalidrawElement[] {
       {
         ...defaults,
         type: "rectangle",
-        id: elementId(group.id),
+        id: renderId(group.id),
         x,
         y,
         width: Math.max(
@@ -177,9 +225,8 @@ export function renderScene(scene: SemanticScene): ExcalidrawElement[] {
     }
     const groups = groupIds(from.id).filter((id) => groupIds(to.id).includes(id));
     const label = {
-      ...labelDefaults,
-      fontSize: 16,
-      id: labelId(connection.id),
+      ...textStyle(connection.id, true),
+      id: renderLabelId(connection.id),
       text: connection.label,
       groupIds: groups,
       customData: data("connections", connection, false),
@@ -187,12 +234,12 @@ export function renderScene(scene: SemanticScene): ExcalidrawElement[] {
     finalItems.push({
       ...defaults,
       type: "arrow",
-      id: elementId(connection.id),
+      id: renderId(connection.id),
       x: start[0],
       y: start[1],
       points,
-      start: { id: elementId(from.id) },
-      end: { id: elementId(to.id) },
+      start: { id: renderId(from.id) },
+      end: { id: renderId(to.id) },
       startArrowhead: null,
       endArrowhead: "arrow",
       strokeStyle: connection.style,
@@ -233,93 +280,245 @@ export function updateCanvasElements(
     }
   }
   const existing = new Map(current.map((item) => [item.id, item]));
-  const rendered = renderScene(after).map((item) => {
+  const managed = new Set(
+    current
+      .filter(
+        (element) =>
+          previous.has(semanticId(element)) ||
+          (element.type === "text" &&
+            element.containerId &&
+            previous.has(semanticId(existing.get(element.containerId) ?? element))),
+      )
+      .map((element) => element.id),
+  );
+  const rendered = renderScene(after, current).map((item) => {
     const old = existing.get(item.id);
     if (!old) return item;
-    if (!old.isDeleted && !changed.has(agentData(item)!.object.id)) return old;
-    const {
-      id: _id,
-      version: _version,
-      versionNonce: _nonce,
-      updated: _updated,
-      ...properties
-    } = item;
-    return newElementWith(old, {
-      ...properties,
-      seed: old.seed,
-      strokeColor: old.strokeColor,
-      backgroundColor: old.backgroundColor,
-      fillStyle: old.fillStyle,
-      roughness: old.roughness,
-    });
+    const meta = agentData(item)!;
+    if (!previous.has(meta.object.id) || (meta.primary && semanticId(old) !== meta.object.id))
+      throw new Error(`Native element ID ${old.id} already exists. Choose another new ID.`);
+    if (!meta.primary) {
+      const owner = current.find((element) => semanticId(element) === meta.object.id);
+      const boundToOwner = old.type === "text" && old.containerId === owner?.id;
+      const groupTitle =
+        agentData(old)?.category === "groups" && agentData(old)?.object.id === meta.object.id;
+      if (!boundToOwner && !groupTitle)
+        throw new Error(`Native element ID ${old.id} already exists. Choose another new ID.`);
+    }
+    if (old.type !== item.type) return newElementWith({ ...item, version: old.version }, {}, true);
+    const objectId = agentData(item)!.object.id;
+    if (!old.isDeleted && !changed.has(objectId)) return old;
+    const customData =
+      agentData(old)?.object.id === meta.object.id
+        ? { ...old.customData, drawingAgent: item.customData?.drawingAgent }
+        : old.customData;
+    const geometry = {
+      x: item.x,
+      y: item.y,
+      width: item.width,
+      height: item.height,
+      customData,
+      isDeleted: false,
+    };
+    const groupIds = item.groupIds;
+    const boundElements = [
+      ...(old.boundElements ?? []).filter((bound) => !managed.has(bound.id)),
+      ...(item.boundElements ?? []),
+    ];
+    if (old.type === "text" && item.type === "text") {
+      return newElementWith(old, {
+        ...geometry,
+        groupIds,
+        text: item.text,
+        originalText: item.originalText,
+        containerId: item.containerId,
+      });
+    }
+    if (old.type === "arrow" && item.type === "arrow") {
+      const beforeEdge = before.connections.find((edge) => edge.id === objectId);
+      const afterEdge = after.connections.find((edge) => edge.id === objectId);
+      return newElementWith(old, {
+        ...geometry,
+        groupIds,
+        boundElements,
+        points: item.points,
+        startBinding: item.startBinding,
+        endBinding: item.endBinding,
+        strokeStyle: beforeEdge?.style === afterEdge?.style ? old.strokeStyle : item.strokeStyle,
+      });
+    }
+    return newElementWith(old, { ...geometry, groupIds, boundElements });
   });
-  const active = new Set(rendered.map((item) => item.id));
-  const retained = current
-    .filter((item) => !active.has(item.id))
-    .map((item) =>
-      agentData(item) && !item.isDeleted ? newElementWith(item, { isDeleted: true }) : item,
-    );
-  return [...rendered, ...retained];
+  const replacements = new Map(rendered.map((item) => [item.id, item]));
+  const previousIds = new Set(sceneObjects(before).map((item) => item.id));
+  const removedNativeIds = new Set(
+    current
+      .filter((item) => previousIds.has(semanticId(item)) && !replacements.has(item.id))
+      .map((item) => item.id),
+  );
+  const retained = current.map((item) => {
+    const next = replacements.get(item.id);
+    if (next) return next;
+    const deleted =
+      removedNativeIds.has(item.id) ||
+      (agentData(item)?.category === "groups" &&
+        previousIds.has(agentData(item)!.object.id) &&
+        !after.groups.some((group) => group.id === agentData(item)!.object.id)) ||
+      (item.type === "text" && item.containerId !== null && removedNativeIds.has(item.containerId));
+    return deleted && !item.isDeleted ? newElementWith(item, { isDeleted: true }) : item;
+  });
+  return [...retained, ...rendered.filter((item) => !existing.has(item.id))];
 }
 
-export function readSemanticScene(elements: readonly ExcalidrawElement[]): SemanticScene {
+function semanticId(element: ExcalidrawElement): string {
+  const meta = agentData(element);
+  return meta?.primary && element.id === elementId(meta.object.id)
+    ? meta.object.id
+    : `native:${element.id}`;
+}
+
+export function readDiagramContext(
+  elements: readonly ExcalidrawElement[],
+  selected: Readonly<Record<string, boolean>> = {},
+): DiagramContext {
   const scene = emptyScene();
   const active = elements.filter((item) => !item.isDeleted);
   const byId = new Map(active.map((item) => [item.id, item]));
-  for (const element of active) {
-    const meta = agentData(element);
-    // Excalidraw duplicates customData when copying. Only the original ID owns the semantic object.
-    if (!meta?.primary || element.id !== elementId(meta.object.id)) continue;
-    const boundLabel = active.find(
-      (item) => item.type === "text" && item.containerId === element.id,
-    );
-    const title = byId.get(labelId(meta.object.id));
-    const label = boundLabel?.type === "text" ? boundLabel.originalText : "";
-    if (meta.category === "nodes" && ["rectangle", "ellipse", "diamond"].includes(element.type)) {
-      scene.nodes.push({
-        id: meta.object.id,
-        kind: element.type as SceneNode["kind"],
-        label,
-        x: element.x,
-        y: element.y,
-        width: element.width,
-        height: element.height,
-      });
-    } else if (meta.category === "texts" && element.type === "text") {
-      scene.texts.push({
-        id: meta.object.id,
-        text: element.originalText,
-        x: element.x,
-        y: element.y,
-      });
-    } else if (
-      meta.category === "connections" &&
-      element.type === "arrow" &&
-      "from" in meta.object
+  const labels = new Map(
+    active
+      .filter((item) => item.type === "text" && item.containerId)
+      .map((item) => [item.type === "text" ? item.containerId : null, item]),
+  );
+  const represented = new Set<string>();
+  const groups: ExcalidrawElement[] = [];
+  const eligible = (item: ExcalidrawElement) =>
+    Math.abs(item.angle) < 0.001 &&
+    [item.x, item.y, item.width, item.height].every(
+      (value) => Number.isFinite(value) && Math.abs(value) <= 1_000_000,
+    ) &&
+    semanticId(item).length <= 512;
+  for (const item of active) {
+    if (!eligible(item)) continue;
+    const id = semanticId(item);
+    const meta = agentData(item);
+    if (meta?.primary && meta.category === "groups" && item.id === elementId(meta.object.id)) {
+      groups.push(item);
+      continue;
+    }
+    if (meta?.category === "groups" && !meta.primary && byId.has(elementId(meta.object.id)))
+      continue;
+    const bound = labels.get(item.id);
+    const label = bound?.type === "text" ? bound.originalText : "";
+    if (
+      ["rectangle", "ellipse", "diamond"].includes(item.type) &&
+      label.length <= 500 &&
+      item.width >= 1 &&
+      item.height >= 1 &&
+      scene.nodes.length < 500
     ) {
-      const start = element.startBinding && byId.get(element.startBinding.elementId);
-      const end = element.endBinding && byId.get(element.endBinding.elementId);
-      scene.connections.push({
-        ...meta.object,
+      scene.nodes.push({
+        id,
+        kind: item.type as SceneNode["kind"],
         label,
-        style: element.strokeStyle === "dashed" ? "dashed" : "solid",
-        from: (start && agentData(start)?.object.id) || meta.object.from,
-        to: (end && agentData(end)?.object.id) || meta.object.to,
+        x: item.x,
+        y: item.y,
+        width: item.width,
+        height: item.height,
       });
-    } else if (meta.category === "groups" && "ids" in meta.object) {
-      scene.groups.push({
-        ...meta.object,
-        label: title?.type === "text" ? title.originalText : meta.object.label,
-      });
+      represented.add(item.id);
+      if (bound) represented.add(bound.id);
+    } else if (
+      item.type === "text" &&
+      !item.containerId &&
+      item.originalText.length <= 500 &&
+      scene.texts.length < 100
+    ) {
+      scene.texts.push({ id, text: item.originalText, x: item.x, y: item.y });
+      represented.add(item.id);
     }
   }
   const nodes = new Set(scene.nodes.map((item) => item.id));
+  for (const item of active) {
+    if (
+      item.type !== "arrow" ||
+      !eligible(item) ||
+      ("elbowed" in item && item.elbowed) ||
+      (item.points.length !== 2 && agentData(item)?.category !== "connections") ||
+      scene.connections.length >= 1000
+    )
+      continue;
+    const start = item.startBinding && byId.get(item.startBinding.elementId);
+    const end = item.endBinding && byId.get(item.endBinding.elementId);
+    if (
+      !start ||
+      !end ||
+      !nodes.has(semanticId(start)) ||
+      !nodes.has(semanticId(end)) ||
+      start.id === end.id
+    )
+      continue;
+    const bound = labels.get(item.id);
+    const label = bound?.type === "text" ? bound.originalText : "";
+    if (label.length > 500) continue;
+    scene.connections.push({
+      id: semanticId(item),
+      from: semanticId(start),
+      to: semanticId(end),
+      label,
+      style: item.strokeStyle === "dashed" ? "dashed" : "solid",
+    });
+    represented.add(item.id);
+    if (bound) represented.add(bound.id);
+  }
   const members = new Set([...nodes, ...scene.texts.map((item) => item.id)]);
-  scene.connections = scene.connections.filter(
-    (item) => nodes.has(item.from) && nodes.has(item.to),
-  );
-  scene.groups = scene.groups
-    .map((item) => ({ ...item, ids: item.ids.filter((id) => members.has(id)) }))
-    .filter((item) => item.ids.length);
-  return scene;
+  for (const item of groups.slice(0, 30)) {
+    const meta = agentData(item)!;
+    if (!("ids" in meta.object)) continue;
+    const title = byId.get(labelId(meta.object.id));
+    const ids = [
+      ...new Set(
+        meta.object.ids.filter(
+          (id) => members.has(id) && !scene.groups.some((group) => group.ids.includes(id)),
+        ),
+      ),
+    ].slice(0, 100);
+    if (!ids.length) continue;
+    scene.groups.push({
+      id: meta.object.id,
+      label:
+        title?.type === "text" ? title.originalText.slice(0, 500) : meta.object.label.slice(0, 500),
+      ids,
+    });
+    represented.add(item.id);
+    if (title) represented.add(title.id);
+  }
+  const remaining = active.filter((item) => !represented.has(item.id));
+  return {
+    scene,
+    selectedIds: active
+      .filter(
+        (item) =>
+          selected[item.id] &&
+          represented.has(item.id) &&
+          !(item.type === "text" && item.containerId),
+      )
+      .map(semanticId)
+      .slice(0, 1000),
+    readOnly: remaining.slice(0, 1000).map((item) => ({
+      id: semanticId(item).slice(0, 512),
+      type: item.type,
+      x: item.x,
+      y: item.y,
+      width: item.width,
+      height: item.height,
+      text: item.type === "text" ? item.originalText.slice(0, 500) : "",
+      reason:
+        "Retain this object. Its type, rotation, size, or text is outside the editable diagram contract.",
+    })),
+    omitted: Math.max(0, remaining.length - 1000),
+  };
+}
+
+export function readSemanticScene(elements: readonly ExcalidrawElement[]): SemanticScene {
+  return readDiagramContext(elements).scene as SemanticScene;
 }

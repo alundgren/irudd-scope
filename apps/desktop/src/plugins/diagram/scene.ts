@@ -57,6 +57,10 @@ export function applyOperations(
   validateScene(scene);
   const exists = (id: string) => sceneObjects(scene).some((item) => item.id === id);
   const requireNew = (id: string) => {
+    if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(id))
+      throw new Error(
+        "New diagram IDs must start with a letter and use at most 64 letters, digits, underscores, or hyphens.",
+      );
     if (exists(id)) throw new Error(`ID ${id} already exists. Edit it or choose a new ID.`);
   };
   const requireObject = (id: string) => {
