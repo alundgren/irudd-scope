@@ -50,7 +50,7 @@ calls, and the human workspace. Its main process owns database connections,
 native APIs, and credentials. `main.ts` starts these resources and closes them
 after pending saves finish. `ipc.ts` validates callers and handles the named
 operations declared in `bridge.ts` and exposed by `preload.ts`.
-`renderer-security.ts` serves the application and restricts renderer access.
+`renderer-content.ts` serves the application's renderer files.
 
 `updates.ts` owns the installed app's startup Git check, local build process,
 prepared update, and certificate changes that take effect on restart.
@@ -119,7 +119,7 @@ together. `diagram/` owns the editor, creation tool, semantic operations,
 canvas conversion, provider calls, and draft contracts. A plugin can render
 content without referencing a library item. Publication support and creation
 tools are optional registrations. These are trusted modules in one renderer.
-Untrusted published HTML retains its separate iframe restrictions.
+Published HTML is trusted agent output and runs in an iframe without added restrictions.
 
 `plugins/registry.ts` registers process-independent saved-state validators.
 `registry.renderer.ts` registers views and tools; `registry.main.ts` registers
@@ -232,14 +232,16 @@ migration before implementation.
 
 ## Desktop security and generation
 
-The renderer has no Node integration. Main validates IPC callers and inputs,
-blocks unexpected navigation and child windows, and denies permissions.
+The renderer has no Node integration. Main validates IPC callers and inputs.
 The preload exposes no arbitrary filesystem, shell, fetch, or secret-reading
 operations. Artifact rendering receives content and metadata, not credentials.
 
-HTML runs in an iframe with scripts, same-origin access, forms, popups,
-nested frames, and external resources blocked. Markdown omits raw HTML and
-replaces links and images with text. Downloads use a save dialog in main.
+HTML runs unchanged in an iframe with scripts, forms, popups, nested frames,
+and external resources enabled. Scope adds no iframe sandbox, content security
+policy, network filter, or permission denial. The document shares the workspace
+origin and can access its parent. Chromium's normal web rules, including CORS,
+still apply. Markdown omits raw HTML and replaces links and images with text.
+Artifact downloads use a save dialog in main.
 
 OpenRouter is the diagram provider, using the model in `plugins/diagram/provider-settings.ts`. The
 settings form submits a new key to main and clears the input after saving.

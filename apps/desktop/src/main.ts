@@ -19,7 +19,7 @@ import { CREDENTIAL_HELPER_NAME } from "./credential-helper.ts";
 import { startLocalArtifacts } from "./library/local.ts";
 import { ArtifactLibrary } from "./library/library.ts";
 import { registerDesktopIpc } from "./ipc.ts";
-import { configureRendererSecurity, restrictRendererNavigation } from "./renderer-security.ts";
+import { serveRendererContent } from "./renderer-content.ts";
 import { readInstallation } from "./installation-files.ts";
 import { AppUpdates } from "./updates.ts";
 import { AgentTools } from "./agent-tools.ts";
@@ -91,6 +91,8 @@ async function main() {
     minWidth: 640,
     minHeight: 480,
     title: "Scope",
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    autoHideMenuBar: true,
     icon,
     show: false,
     webPreferences: {
@@ -204,8 +206,7 @@ async function main() {
     window.show();
     window.focus();
   });
-  configureRendererSecurity(fileURLToPath(new URL("./renderer", import.meta.url)));
-  restrictRendererNavigation(window.webContents);
+  serveRendererContent(fileURLToPath(new URL("./renderer", import.meta.url)));
   window.on("close", requestClose);
   window.once("ready-to-show", () => {
     if (!hideTestWindow) window.show();

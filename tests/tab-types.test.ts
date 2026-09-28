@@ -108,7 +108,7 @@ async function checkContent(page: Page, example: (typeof examples)[number], focu
     case "html": {
       const frame = pane.frameLocator("iframe");
       await frame.getByRole("heading", { name: "HTML review" }).waitFor();
-      expect(await frame.locator("body").getAttribute("data-executed")).toBeNull();
+      expect(await frame.locator("body").getAttribute("data-executed")).toBe("yes");
       break;
     }
     case "image":
@@ -133,8 +133,17 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
   const { directory, launch, cli, connect } = await desktopFixture();
   let application = await launch();
   const failures: string[] = [];
+  const fullscreen = () =>
+    application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.isFullScreen());
   try {
     let page = await application.firstWindow();
+    if (process.platform !== "darwin") {
+      expect(
+        await application.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0]!.isMenuBarVisible(),
+        ),
+      ).toBe(false);
+    }
     page.on("pageerror", (error) => failures.push(error.message));
     for (const example of examples) {
       const file = join(directory, example.fileName);
@@ -181,7 +190,27 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
         await page.getByRole("button", { name: "Search and controls" }).click();
         await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
         await checkContent(page, example, true);
+        await expect.poll(fullscreen).toBe(true);
+        if (example.kind === "excalidraw") {
+          const exit = page.getByRole("button", { name: "Exit focus mode" });
+          const bounds = await exit.boundingBox();
+          const width = await page.evaluate(() => innerWidth);
+          expect(bounds!.width).toBeLessThanOrEqual(24);
+          expect(bounds!.height).toBeLessThanOrEqual(24);
+          expect(width - bounds!.x - bounds!.width).toBeLessThanOrEqual(12);
+          expect(bounds!.y).toBeLessThanOrEqual(12);
+          if (process.env.SCOPE_TEST_SCREENSHOTS) {
+            await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
+            await page.screenshot({
+              path: join(
+                process.env.SCOPE_TEST_SCREENSHOTS,
+                `${appearance}-diagram-fullscreen.png`,
+              ),
+            });
+          }
+        }
         await page.getByRole("button", { name: "Exit focus mode" }).click();
+        await expect.poll(fullscreen).toBe(false);
         expect(await pane!.evaluate((element) => element.isConnected)).toBe(true);
         if (process.env.SCOPE_TEST_SCREENSHOTS) {
           await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
@@ -191,6 +220,13 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
         }
       }
     }
+    await page.keyboard.press("ControlOrMeta+Shift+f");
+    await expect.poll(fullscreen).toBe(true);
+    await application.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]!.setFullScreen(false);
+    });
+    await page.getByRole("navigation", { name: "Open artifacts" }).waitFor();
+    expect(await page.getByRole("button", { name: "Exit focus mode" }).count()).toBe(0);
     expect(
       await page
         .getByRole("tab")

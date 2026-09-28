@@ -98,6 +98,14 @@ export function registerDesktopIpc({
     connectedAgents.cancel(decode(ArtifactId, input)),
   );
   handle("scope:diagram-command-result", (input) => diagrams.reply(input));
+  handle("scope:set-fullscreen", (input) => {
+    window.setFullScreen(decode(Schema.Boolean, input));
+  });
+  const enteredFullscreen = () => window.webContents.send("scope:fullscreen-changed", true);
+  const leftFullscreen = () => window.webContents.send("scope:fullscreen-changed", false);
+  window.on("enter-full-screen", enteredFullscreen);
+  window.on("leave-full-screen", leftFullscreen);
+
   const plugins = registerMainPlugins({
     handle,
     store,
@@ -215,6 +223,8 @@ export function registerDesktopIpc({
     dispose: () => {
       window.webContents.removeListener("render-process-gone", rendererUnavailable);
       window.webContents.removeListener("did-start-navigation", navigating);
+      window.removeListener("enter-full-screen", enteredFullscreen);
+      window.removeListener("leave-full-screen", leftFullscreen);
       plugins.cancelPending();
       diagrams.cancelAll();
       connectedAgents.close();
