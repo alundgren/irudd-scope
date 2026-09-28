@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Excalidraw, loadFromBlob, serializeAsJSON } from "@excalidraw/excalidraw";
 import type { DiagramProposal } from "@irudd-scope/protocol/diagram-sync";
 import type { AppState, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import type { DiagramDraft } from "./draft.ts";
+import type { DiagramViewport } from "./draft.ts";
 import type { Theme } from "../../renderer/appearance.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
+import { useDiagramViewport } from "./viewport.ts";
+import { useDiagramMenu } from "./native-menu.ts";
 
 export function ProposalPreview({
   proposal,
@@ -16,6 +18,10 @@ export function ProposalPreview({
   onDiscuss,
   viewport,
   onViewportChange,
+  active,
+  tabId,
+  saving,
+  onSaveCopy,
 }: {
   proposal: DiagramProposal;
   theme: Theme;
@@ -24,16 +30,21 @@ export function ProposalPreview({
   onAccept: () => Promise<void>;
   onReject: () => Promise<void>;
   onDiscuss: () => void;
-  viewport?: DiagramDraft["viewport"];
-  onViewportChange: (viewport: DiagramDraft["viewport"]) => void;
+  viewport?: DiagramViewport;
+  onViewportChange: (viewport: DiagramViewport) => void;
+  active: boolean;
+  tabId: string;
+  saving: boolean;
+  onSaveCopy: (content: string) => Promise<void>;
 }) {
-  const api = useRef<ExcalidrawImperativeAPI | undefined>(undefined);
-  const fitted = useRef(Boolean(viewport));
+  const [api, setApi] = useState<ExcalidrawImperativeAPI>();
+  const [ready, setReady] = useState(false);
+  const canvasViewport = useDiagramViewport(api, active, ready, viewport);
   const initial = useMemo(
     () =>
       loadFromBlob(new Blob([proposal.content]), null, null).then((data) => ({
         ...data,
-        scrollToContent: !viewport,
+        scrollToContent: false,
         appState: {
           ...data.appState,
           ...(viewport
@@ -49,6 +60,19 @@ export function ProposalPreview({
   );
   const latest = useRef(proposal.content);
   const [busy, setBusy] = useState(false);
+  useDiagramMenu({
+    tabId,
+    api,
+    active,
+    ready,
+    busy: busy || saving,
+    saveCopy: async () => {
+      if (api)
+        await onSaveCopy(
+          serializeAsJSON(api.getSceneElements(), api.getAppState(), api.getFiles(), "local"),
+        );
+    },
+  });
   const [error, setError] = useState("");
   const accept = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -89,9 +113,7 @@ export function ProposalPreview({
       )}
       <div className="diagram-canvas">
         <Excalidraw
-          excalidrawAPI={(value) => {
-            api.current = value;
-          }}
+          excalidrawAPI={setApi}
           initialData={initial}
           theme={theme}
           viewModeEnabled={viewing}
@@ -109,19 +131,10 @@ export function ProposalPreview({
           }}
           onChange={(elements, state, files) => {
             if (state.isLoading) return;
-            if (!fitted.current) {
-              if (!api.current || !state.width || !state.height) return;
-              fitted.current = true;
-              if (elements.length) {
-                api.current.scrollToContent(elements, { fitToContent: true, animate: false });
-                return;
-              }
-            }
-            onViewportChange({
-              zoom: state.zoom.value,
-              scrollX: state.scrollX,
-              scrollY: state.scrollY,
-            });
+            setReady(true);
+            canvasViewport.observe(state);
+            const savedViewport = canvasViewport.read();
+            if (savedViewport) onViewportChange(savedViewport);
             const content = serializeAsJSON(elements, state, files, "local");
             if (content !== latest.current) {
               latest.current = content;

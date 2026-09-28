@@ -30,6 +30,8 @@ state, and zoom and pan. Autosave writes the draft before updating the artifact
 revision. Conversation and viewport changes update only the draft. If a newer
 artifact arrives before pending canvas edits are published, the draft retains
 those edits until the user chooses which version to keep.
+An unviewed diagram draft can omit its viewport so Scope fits it when first
+displayed. Existing drafts with a viewport retain their saved zoom and pan.
 Quitting Scope, closing its last window, updating, and restarting preserve tabs
 that remain open. Pending edits flush before application shutdown.
 
@@ -136,6 +138,8 @@ when you need the option to return to an older desktop.
 
 Artifact schema 4 adds a unique index for optional tab names. Diagram drafts may
 also contain an editable proposal and the selected conversation recipient.
+Drafts without a viewport require a desktop that supports fitting on first
+display; older desktops cannot open those drafts.
 Closing the tab removes these with its ordinary content. Delta history is bounded
 in renderer memory and disappears on restart. The hub stores no diagram model.
 

@@ -247,14 +247,14 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
             .poll(() => page.evaluate((id) => window.scope.diagramDraft(id), tabId))
             .not.toMatchObject({ viewport: initialViewport });
           const pannedZoom = (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))!
-            .viewport.zoom;
+            .viewport!.zoom;
           await page.keyboard.down("Control");
           await page.mouse.wheel(0, -200);
           await page.keyboard.up("Control");
           await expect
             .poll(
               async () =>
-                (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))?.viewport.zoom,
+                (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))?.viewport?.zoom,
             )
             .not.toBe(pannedZoom);
           if (process.env.SCOPE_TEST_SCREENSHOTS) {

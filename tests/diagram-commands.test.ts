@@ -30,6 +30,10 @@ test("diagram commands create, read imported objects, reject stale edits and exp
       if (result.type !== "snapshot") throw new Error("Expected a snapshot.");
       return result.diagram;
     }
+    await page
+      .getByRole("tabpanel", { name: "Created diagram", exact: true })
+      .locator("canvas.interactive")
+      .waitFor();
     await expect
       .poll(async () => (await read("created").catch(() => null))?.scene.nodes.length)
       .toBe(2);
