@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Download, Maximize2, Minimize2, Settings, X, Info, Plus } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
+import { NativeSelect, NativeSelectOption } from "../renderer/components/ui/native-select.tsx";
 import {
   Dialog,
   DialogContent,
@@ -20,7 +21,10 @@ import type { Tab } from "./contract.ts";
 import { TabBar } from "./tab-bar.tsx";
 import { TabHost } from "./tab-host.tsx";
 import { TabEventRouter } from "./events.ts";
+import { PresentationPointer } from "./presentation-pointer.tsx";
 import { pluginTools, pluginForArtifact, tabArtifactId } from "../plugins/registry.renderer.ts";
+
+type DiagramMode = "edit" | "view" | "present";
 
 export function App({ initialSettings }: { initialSettings: SettingsView | undefined }) {
   const { theme, setAppearance } = useAppearance(initialSettings?.appearance ?? "system");
@@ -32,9 +36,17 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const [search, setSearch] = useState(false);
   const [query, setQuery] = useState("");
   const [focus, setFocus] = useState(false);
+  const [diagramMode, setDiagramMode] = useState<DiagramMode>("edit");
   const [details, setDetails] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => window.scope.onFullscreenChange(setFocus), []);
+  useEffect(
+    () =>
+      window.scope.onFullscreenChange((value) => {
+        setFocus(value);
+        if (!value) setDiagramMode("edit");
+      }),
+    [],
+  );
   useEffect(() => {
     void window.scope.setFullscreen(focus).catch(() => setError("Could not change fullscreen."));
   }, [focus]);
@@ -59,12 +71,19 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   } = useWorkspace(setError);
   const [receivingArrivals, setReceivingArrivals] = useState(false);
   useEffect(() => {
-    if (!workspace.tabs.length) setFocus(false);
+    if (!workspace.tabs.length) {
+      setFocus(false);
+      setDiagramMode("edit");
+    }
   }, [workspace.tabs.length]);
   const tabButtons = useRef(new Map<string, HTMLButtonElement>());
   const controlsButton = useRef<HTMLButtonElement>(null);
+  const modeSelect = useRef<HTMLSelectElement>(null);
   const artifacts = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const active = workspace.tabs.find((tab) => tab.id === workspace.selected);
+  const returnFocus = focus && active?.type === "diagram" ? modeSelect : controlsButton;
+  const viewing = focus && active?.type === "diagram" && diagramMode !== "edit";
+  const presentation = viewing && diagramMode === "present";
   const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
   const openArtifacts = new Set(workspace.tabs.map(tabArtifactId));
   const waitingCount = arrivals.filter((artifact) => !openArtifacts.has(artifact.id)).length;
@@ -148,6 +167,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       return;
     const artifactId = tabArtifactId(tab);
     if (artifactId) markRead(artifactId);
+    if (tab.id !== workspace.selected) setDiagramMode("edit");
     setSearch(false);
     setCreating(null);
     if (keyboard) requestAnimationFrame(() => tabButtons.current.get(tab.id)?.focus());
@@ -177,6 +197,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     const tabs = workspace.tabs.filter((tab) => tab.id !== id);
     const selected =
       workspace.selected === id ? (tabs[Math.max(0, index - 1)]?.id ?? null) : workspace.selected;
+    if (workspace.selected === id) setDiagramMode("edit");
     if (!tabs.length) setFocus(false);
     requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
   }
@@ -191,6 +212,10 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     setDetails(false);
     setQuery("");
     setSearch(true);
+  }
+  function toggleFocus() {
+    if (focus) setDiagramMode("edit");
+    setFocus(!focus);
   }
   async function download() {
     if (!activeArtifact) return;
@@ -213,9 +238,12 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         event.preventDefault();
         openSettings();
       } else if (search || settings || details) return;
-      else if (event.key === "Escape" && focus) {
+      else if (event.key === "Escape" && viewing) {
         event.preventDefault();
-        setFocus(false);
+        setDiagramMode("edit");
+      } else if (event.key === "Escape" && focus) {
+        event.preventDefault();
+        toggleFocus();
       } else if (
         command &&
         event.shiftKey &&
@@ -224,7 +252,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         !creating
       ) {
         event.preventDefault();
-        setFocus((value) => !value);
+        toggleFocus();
       } else if (command && event.key.toLowerCase() === "w" && workspace.selected) {
         event.preventDefault();
         void close(workspace.selected);
@@ -235,7 +263,9 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   });
   if (!workspaceReady) return <p role="status">Opening workspace…</p>;
   const content = (
-    <main className={`workspace${focus ? " focus-mode" : ""}`}>
+    <main
+      className={`workspace${focus ? " focus-mode" : ""}${presentation ? " presentation-mode" : ""}`}
+    >
       {!focus && (
         <TabBar
           tabs={workspace.tabs}
@@ -252,18 +282,39 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         />
       )}
       {focus && (
-        <Button
-          variant="secondary"
-          size="icon-xs"
-          className="exit-focus"
-          ref={controlsButton}
-          aria-label="Exit focus mode"
-          title="Exit fullscreen · Escape"
-          onClick={() => setFocus(false)}
-        >
-          <Minimize2 />
-        </Button>
+        <div className="focus-controls">
+          {active?.type === "diagram" ? (
+            <NativeSelect
+              size="sm"
+              className="diagram-mode-select"
+              ref={modeSelect}
+              aria-label="Fullscreen diagram mode"
+              value={diagramMode}
+              onChange={(event) => {
+                if (event.target.value === "tabs") toggleFocus();
+                else setDiagramMode(event.target.value as DiagramMode);
+              }}
+            >
+              <NativeSelectOption value="edit">Edit</NativeSelectOption>
+              <NativeSelectOption value="view">View</NativeSelectOption>
+              <NativeSelectOption value="present">Present</NativeSelectOption>
+              <NativeSelectOption value="tabs">Back to tabs</NativeSelectOption>
+            </NativeSelect>
+          ) : (
+            <Button
+              variant="secondary"
+              size="icon-xs"
+              ref={controlsButton}
+              aria-label="Exit focus mode"
+              title="Exit fullscreen · Escape"
+              onClick={toggleFocus}
+            >
+              <Minimize2 />
+            </Button>
+          )}
+        </div>
       )}
+      {presentation && <PresentationPointer />}
       {workspaceSave.error && (
         <div className="error-bar" role="alert">
           Could not save open tabs.
@@ -319,6 +370,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                 updateState={updateState}
                 theme={theme}
                 focus={focus && id === workspace.selected}
+                viewing={viewing && id === workspace.selected}
               />
             </div>
           );
@@ -380,7 +432,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         artifacts={snapshot.artifacts}
         onOpenArtifact={open}
         onOpenSettings={openSettings}
-        finalFocus={settings || details ? false : controlsButton}
+        finalFocus={settings || details ? false : returnFocus}
         actions={[
           {
             id: "settings",
@@ -400,7 +452,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                   shortcut: "⌘⇧F",
                   pressed: focus,
                   onSelect: () => {
-                    setFocus((value) => !value);
+                    toggleFocus();
                     setSearch(false);
                   },
                 },
@@ -461,7 +513,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         }
       />
       <Dialog open={settings} onOpenChange={setSettings}>
-        <DialogContent className="settings-dialog" finalFocus={search ? false : controlsButton}>
+        <DialogContent className="settings-dialog" finalFocus={search ? false : returnFocus}>
           <DialogHeader>
             <DialogTitle>Settings</DialogTitle>
           </DialogHeader>
@@ -477,7 +529,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         </DialogContent>
       </Dialog>
       <Dialog open={details} onOpenChange={setDetails}>
-        <DialogContent finalFocus={search ? false : controlsButton}>
+        <DialogContent finalFocus={search ? false : returnFocus}>
           <DialogHeader>
             <DialogTitle>{activeArtifact?.title ?? "Artifact"}</DialogTitle>
           </DialogHeader>

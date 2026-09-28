@@ -223,12 +223,65 @@ svg.lucide {
   scrollbar-width: thin;
   scrollbar-color: var(--scope-outline) var(--scope-canvas);
 }
-.exit-focus {
+.focus-controls {
   position: fixed;
   right: var(--scope-space-2);
   top: var(--scope-space-2);
   z-index: 40;
+}
+.focus-controls [data-slot="button"],
+.diagram-mode-select {
   box-shadow: var(--scope-shadow);
+}
+.diagram-mode-select {
+  background: var(--scope-panel);
+  border-radius: var(--scope-radius-control);
+}
+.diagram-viewing > .diagram-notice,
+.diagram-viewing .excalidraw .layer-ui__wrapper,
+.diagram-viewing .excalidraw .App-bottom-bar,
+.diagram-viewing .excalidraw .FixedSideContainer {
+  display: none;
+}
+.presentation-mode .diagram-view * {
+  cursor: none !important;
+}
+.presentation-pointer {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+}
+.presentation-pointer > span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 50%;
+  transform: translate3d(-40px, -40px, 0);
+}
+.presentation-pointer-trail {
+  width: 10px;
+  height: 10px;
+  background: var(--scope-accent);
+  opacity: 0.35;
+  transition: transform 130ms ease-out;
+}
+.presentation-pointer-trail:nth-child(2) {
+  transition-duration: 85ms;
+  opacity: 0.5;
+}
+.presentation-pointer-trail:nth-child(3) {
+  transition-duration: 45ms;
+  opacity: 0.65;
+}
+.presentation-pointer-tip {
+  width: 18px;
+  height: 18px;
+  background: var(--scope-accent);
+  border: 2px solid var(--scope-canvas);
+  box-shadow: 0 0 0 2px var(--scope-accent);
 }
 .empty-state {
   padding: var(--scope-space-8);
@@ -751,13 +804,9 @@ h2 {
   min-width: 0;
   height: 100%;
 }
-.diagram-controls {
-  display: flex;
-  align-items: center;
-  gap: var(--scope-space-2);
-}
-.diagram-controls [data-slot="button"] {
-  font-family: var(--scope-font-ui);
+.diagram-canvas .excalidraw .help-icon,
+.diagram-canvas .excalidraw .default-sidebar-trigger {
+  display: none;
 }
 .diagram-notice {
   padding: var(--scope-space-2) var(--scope-space-3);

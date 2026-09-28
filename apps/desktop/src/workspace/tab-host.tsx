@@ -35,6 +35,7 @@ export function TabHost({
   artifact?: Artifact;
   theme: Theme;
   focus: boolean;
+  viewing: boolean;
 }) {
   const events = useMemo(() => router.forTab(tab.id), [router, tab.id, tab.groupId]);
   const [saves] = useState(() => new Set<() => void>());

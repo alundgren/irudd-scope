@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { DiagramSnapshot } from "@irudd-scope/protocol/diagram";
 import { desktopFixture } from "./desktop-fixture.ts";
 
-test("diagram commands create, read imported objects, reject stale edits and export the draft", async () => {
+test("diagram commands create, read imported objects, reject stale edits and export the saved diagram", async () => {
   const { directory, launch, connect, cli } = await desktopFixture();
   let application = await launch();
   try {
@@ -143,7 +143,7 @@ test("diagram commands create, read imported objects, reject stale edits and exp
     const edit = JSON.parse(
       (await cli("diagram", "apply", "imported", file, "--snapshot", initial.snapshot)).stdout,
     );
-    expect(edit.diagram).toMatchObject({ dirty: true, revision: 1 });
+    expect(edit.diagram).toMatchObject({ dirty: false, revision: 2 });
     expect(edit.diagram.scene.nodes[0].label).toBe("Web client");
     await expect(
       cli("diagram", "apply", "imported", file, "--snapshot", initial.snapshot),
@@ -160,7 +160,7 @@ test("diagram commands create, read imported objects, reject stale edits and exp
       }),
     ).rejects.toThrow("Unknown object");
     expect((await read("imported")).snapshot).toBe(edit.diagram.snapshot);
-    expect((await client.get("imported")).revision).toBe(1);
+    expect((await client.get("imported")).revision).toBe(2);
     const png = join(directory, "preview.png");
     await cli(
       "diagram",
@@ -184,7 +184,6 @@ test("diagram commands create, read imported objects, reject stale edits and exp
         timeout: 10000,
       })
       .toBe("Web client");
-    await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect.poll(async () => (await client.get("imported")).revision).toBe(2);
     const published = JSON.parse(new TextDecoder().decode(await client.content("imported")));
     expect(

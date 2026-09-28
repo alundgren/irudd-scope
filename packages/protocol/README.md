@@ -101,7 +101,7 @@ No model key is involved. Read, apply, and preview require a loaded diagram tab.
 | --------- | ---------------------------------------------- | --------------------------------------------------- |
 | `create`  | `id`, `title`, `operations`, optional `source` | `{ type: "created", artifact }`, published revision |
 | `read`    | `id`                                           | `{ type: "snapshot", diagram }`                     |
-| `apply`   | `id`, `snapshot`, `operations`                 | Updated snapshot; persisted draft, awaiting Save    |
+| `apply`   | `id`, `snapshot`, `operations`                 | Updated snapshot; edits save automatically          |
 | `preview` | `id`, optional `snapshot`                      | PNG `data` in base64, ID, revision, and snapshot    |
 
 Snapshots include the published revision, dirty flag, editable scene, selected IDs,
