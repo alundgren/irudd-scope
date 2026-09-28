@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Download, Maximize2, Minimize2, Settings, X, Info, Plus } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { NativeSelect, NativeSelectOption } from "../renderer/components/ui/native-select.tsx";
@@ -34,6 +34,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const [creating, setCreating] = useState<string | null>(null);
   const Creation = pluginTools.find((tool) => tool.id === creating)?.View;
   const [search, setSearch] = useState(false);
+  const [overflow, setOverflow] = useState(false);
   const [query, setQuery] = useState("");
   const [focus, setFocus] = useState(false);
   const [diagramMode, setDiagramMode] = useState<DiagramMode>("edit");
@@ -42,6 +43,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   useEffect(
     () =>
       window.scope.onFullscreenChange((value) => {
+        setOverflow(false);
         setFocus(value);
         if (!value) setDiagramMode("edit");
       }),
@@ -66,9 +68,15 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     openTab,
     addTabs,
     closeTab,
+    moveTabToEnd,
     updateTab,
     updateState,
   } = useWorkspace(setError);
+  // Moving an iframe resets its document, so panel order must be independent of tab order.
+  const paneTabs = useMemo(
+    () => workspace.tabs.toSorted((a, b) => a.id.localeCompare(b.id)),
+    [workspace.tabs],
+  );
   const [receivingArrivals, setReceivingArrivals] = useState(false);
   useEffect(() => {
     if (!workspace.tabs.length) {
@@ -85,8 +93,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const viewing = focus && active?.type === "diagram" && diagramMode !== "edit";
   const presentation = viewing && diagramMode === "present";
   const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
-  const openArtifacts = new Set(workspace.tabs.map(tabArtifactId));
-  const waitingCount = arrivals.filter((artifact) => !openArtifacts.has(artifact.id)).length;
   useEffect(() => {
     if (activeArtifact) markRead(activeArtifact.id);
   }, [activeArtifact?.id, activeArtifact?.revision]);
@@ -122,9 +128,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   useEffect(() => {
     if (!workspaceReady || creating || !arrivals.length || receivingArrivals) return;
     const existing = new Set(workspace.tabs.map(tabArtifactId));
-    const pending = arrivals
-      .filter((artifact) => !existing.has(artifact.id))
-      .slice(0, Math.max(0, 100 - workspace.tabs.length));
+    const pending = arrivals.filter((artifact) => !existing.has(artifact.id));
     const alreadyOpen = arrivals.filter((artifact) => existing.has(artifact.id));
     if (!pending.length && !alreadyOpen.length) return;
     setReceivingArrivals(true);
@@ -202,18 +206,21 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
   }
   function openSettings(filter = "") {
+    setOverflow(false);
     setSettingsQuery(filter);
     setSettings(true);
     setDetails(false);
     setSearch(false);
   }
   function openSearch() {
+    setOverflow(false);
     setSettings(false);
     setDetails(false);
     setQuery("");
     setSearch(true);
   }
   function toggleFocus() {
+    setOverflow(false);
     if (focus) setDiagramMode("edit");
     setFocus(!focus);
   }
@@ -237,7 +244,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       } else if (command && event.key === ",") {
         event.preventDefault();
         openSettings();
-      } else if (search || settings || details) return;
+      } else if (search || settings || details || overflow) return;
       else if (event.key === "Escape" && viewing) {
         event.preventDefault();
         setDiagramMode("edit");
@@ -276,7 +283,14 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           tabButtons={tabButtons}
           controlsButton={controlsButton}
           searchOpen={search}
+          overflowOpen={overflow}
+          onOverflowChange={setOverflow}
+          restoreOverflowFocus={!search && !settings && !details}
           onSelect={select}
+          onReveal={(id) => {
+            moveTabToEnd(id);
+            select(id, true);
+          }}
           onClose={close}
           onSearch={openSearch}
         />
@@ -342,15 +356,9 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             "Reconnecting to the artifact library. Open content remains available."}
         </div>
       )}
-      {workspace.tabs.length === 100 && waitingCount > 0 && (
-        <div className="connection-notice" role="status">
-          {waitingCount} {waitingCount === 1 ? "publication is" : "publications are"} waiting. They
-          will open as tabs close.
-        </div>
-      )}
       {!focus && <UpdateNotice />}
       <div className="workspace-content">
-        {workspace.tabs.map((tab) => {
+        {paneTabs.map((tab) => {
           const { id } = tab;
           const artifact = artifacts.get(tabArtifactId(tab) ?? "");
           return (
@@ -365,6 +373,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             >
               <TabHost
                 tab={tab}
+                active={id === workspace.selected && !creating}
                 artifact={artifact}
                 router={events}
                 updateState={updateState}

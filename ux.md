@@ -32,15 +32,24 @@ live with the desktop.
 
 ## Workspace behavior
 
-Tabs show the artifact title, scroll in one row, and indicate unread updates.
-Selection has both a tinted background and a solid marker. New publications
-open in tabs. The first arrival selects itself when no artifact is open;
-later arrivals keep the current selection and appear unread. Arrivals wait
-while a creation tool is open. Startup restores saved open tabs and opens queued publications when capacity
-allows. Revisions update unread indicators without changing selection. At the 100-tab limit, further arrivals
-wait in the library and a status line shows their count. They remain searchable
-and open automatically as other tabs close, preserving the current selection.
-Continuing to close tabs drains the queue and eventually leaves no tab content.
+Tabs show the artifact title and indicate unread updates. Selection has both a
+tinted background and a solid marker. The strip shows as many tabs as fit at a
+readable width. Overflow lives in a dropdown at the left, with a hidden-tab
+count and unread indicator. It lists hidden tabs immediately; typing searches
+all tab titles and kinds. Selecting a result moves that tab to the right end
+and moves the leftmost visible tab into the dropdown. The selected tab stays
+visible when the window narrows or new publications arrive.
+
+New publications open in tabs without a fixed count limit. The first arrival
+selects itself when no artifact is open; later arrivals keep the current
+selection and appear unread. Arrivals wait while a creation tool is open.
+Startup restores saved tabs and opens queued publications. Revisions update
+unread indicators without changing selection. File content loads when first
+selected and stays mounted afterward to preserve reading position and HTML
+state. Diagram views stay mounted to receive background editing commands.
+The visible tab count does not bound memory used by previously visited content
+or diagrams.
+
 Closing a tab permanently deletes its artifact, draft, conversation, and tab
 state. Normal close controls and Command-W perform deletion directly. There is
 no closed history or reopen action. A failed deletion keeps the tab visible

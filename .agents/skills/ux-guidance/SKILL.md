@@ -22,9 +22,10 @@ distinct. Omit unavailable panel actions.
 Keep the selected tab visible when titles overflow. New publications open in
 tabs, selecting the first arrival only when no artifact is open. Later arrivals
 and background updates keep the current selection and indicate unread content.
-Startup restores saved open tabs and opens queued publications when capacity
-allows. Closing a tab permanently deletes its artifact and draft. Quitting Scope
-preserves tabs left open. Focus keeps the artifact mounted, preserves position,
+Startup restores saved open tabs and opens queued publications. Overflow tabs
+live in the searchable dropdown at the left; selecting a result moves it to
+the right end of the strip. Closing a tab permanently deletes its artifact and
+draft. Quitting Scope preserves tabs left open. Focus keeps the artifact mounted, preserves position,
 hides chat, and exposes a small exit clear of editor controls. Escape dismisses
 the current dialog or editor interaction before leaving focus.
 

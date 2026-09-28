@@ -27,16 +27,22 @@ export function TabHost({
   tab,
   router,
   updateState,
+  active,
   ...display
 }: {
   tab: Tab;
   router: TabEventRouter;
   updateState: (id: string, state: TabState) => void;
+  active: boolean;
   artifact?: Artifact;
   theme: Theme;
   focus: boolean;
   viewing: boolean;
 }) {
+  const [visited, setVisited] = useState(active);
+  useEffect(() => {
+    if (active) setVisited(true);
+  }, [active]);
   const events = useMemo(() => router.forTab(tab.id), [router, tab.id, tab.groupId]);
   const [saves] = useState(() => new Set<() => void>());
   useEffect(
@@ -48,6 +54,8 @@ export function TabHost({
     [events, saves],
   );
   const plugin = findPlugin(tab.type);
+  // Diagram views also handle commands addressed to background tabs.
+  if (tab.type === "file" && !active && !visited) return null;
   if (!plugin)
     return (
       <p role="status" className="empty-state">

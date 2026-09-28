@@ -327,11 +327,6 @@ export class ArtifactStore {
           } else {
             yield* sql`INSERT INTO live_tabs(id, artifact_id, opened, created_at) VALUES (${id}, NULL, 0, ${Date.now()}) ON CONFLICT(id) DO NOTHING`;
           }
-          const [{ count }] = yield* sql<{
-            count: number;
-          }>`SELECT count(*) AS count FROM live_tabs WHERE opened = 1 AND id != ${id}`;
-          if (count >= 100)
-            return yield* Effect.fail(new ScopeError(409, "Close a tab before opening another."));
           const opened = { ...tab, id };
           const rows =
             yield* sql`UPDATE live_tabs SET opened = 1, document = ${JSON.stringify(opened)},

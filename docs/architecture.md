@@ -109,9 +109,11 @@ one local workspace group. Group indicators and agent-facing group selection
 are not exposed. `source.sessionId` remains publication provenance.
 
 `workspace/` owns navigation, selection, closing, saved records, and event
-routing. `workspace/tab-host.tsx` supplies `TabContext` and keeps inactive tabs
-mounted. Its error boundary contains a failed view. Unknown plugin types and
-unsupported saved state remain stored and display an unavailable view.
+routing. `workspace/tab-host.tsx` supplies `TabContext`. File views load on first
+selection and remain mounted across tab switches. Diagram views mount immediately
+to receive editing commands. The error boundary in `tab-host.tsx` contains a
+failed view. Unknown plugin types and unsupported saved state remain stored and
+display an unavailable view.
 
 Each directory under `plugins/` owns one built-in implementation. `file/`
 keeps the existing image, Markdown, HTML, text, and download fallback views
@@ -201,9 +203,10 @@ Closing an individual tab and deleting an artifact use the same tab-owned
 deletion. Foreign keys remove metadata, content references, and drafts in one
 transaction. Shared bytes survive until their last tab reference disappears.
 Queued uploads expire after fifteen minutes without publication; successful
-overflow publications stay queued and open as workspace capacity becomes available,
-including after restart. Startup and maintenance reclaim
-expired staging references. There is no deletion log or retained closed history.
+publications open automatically, including after restart. Open tabs have no fixed
+count limit; navigation shows overflow in a searchable dropdown. Startup and
+maintenance reclaim expired staging references. There is no deletion log or
+retained closed history.
 
 The store serializes publication and deletion commits with their SSE notifications,
 so a delayed close response cannot announce a deletion after explicit recreation.

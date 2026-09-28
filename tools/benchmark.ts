@@ -473,7 +473,7 @@ async function main() {
     const selectedTabStates: Record<string, unknown> = {};
     for (const kind of kinds) {
       const title = artifactTitles.get(kind)!;
-      await activePage.getByRole("tab", { name: title, exact: true }).click();
+      await openArtifact(activePage, title, kind);
       selectedTabStates[kind] = await sampleProcessState(activeApplication, cpuSampleSeconds);
     }
 
@@ -497,7 +497,7 @@ async function main() {
 
     const textUpdateSamples: Array<{ cliMs: number; visibleMs: number; marker: string }> = [];
     const textTitle = artifactTitles.get("text")!;
-    await activePage.getByRole("tab", { name: textTitle, exact: true }).click();
+    await openArtifact(activePage, textTitle, "text");
     for (let index = 0; index < sampleCount; index++) {
       const marker = `Small text update ${index}`;
       const path = join(scratch, `small-update-${index}.txt`);
@@ -544,7 +544,7 @@ async function main() {
       await openArtifact(activePage, title, "text");
     }
     const manyTabsState = await sampleProcessState(activeApplication, cpuSampleSeconds);
-    const openTabCount = await activePage.getByRole("tab").count();
+    const openTabCount = (await activePage.evaluate(() => window.scope.workspace()))!.tabs.length;
 
     await activeApplication.close();
     application = undefined;
@@ -558,7 +558,8 @@ async function main() {
       .getByRole("tabpanel", { name: extraTabs.at(-1)!.title, exact: true })
       .locator("pre")
       .waitFor({ state: "visible" });
-    const restoredTabCount = await reopenedPage.getByRole("tab").count();
+    const restoredTabCount = (await reopenedPage.evaluate(() => window.scope.workspace()))!.tabs
+      .length;
     const restoredRenderMs = performance.now() - reopenStarted;
     const restoredState = await sampleProcessState(reopened, cpuSampleSeconds);
 

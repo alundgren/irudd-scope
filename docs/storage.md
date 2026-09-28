@@ -41,17 +41,20 @@ Late workspace and draft saves cannot insert a missing tab. Shared bytes remain
 while any tab references them. There is no deletion history or pending-deletion
 log. Workspace selection and groups remain separate application preferences.
 
+Profiles with more than 100 open tabs require a version that supports tab
+overflow. Older builds reject those workspaces; close tabs to 100 or fewer
+before downgrading.
+
 ## Reclaiming disk space
 
 Uploads and unsuccessful updates retain content references for fifteen minutes
 after upload. This covers the gap before metadata publication, including content
 shared with another tab that closes in the meantime. An abandoned publication's
 queued tab expires after its staging references expire. Successful publications
-that exceed the 100-open-tab limit stay queued in the library and open
-automatically as other tabs close, including after restart. Closing each tab,
-including those opened from the queue, removes all published content. Cleanup
-runs at startup, during shrink, and at one-minute maintenance checks. A shrink receipt reports bytes still protected
-by staging; it does not claim those bytes were reclaimed.
+open automatically, including after restart, without a fixed tab count limit.
+Closing each tab removes all published content. Cleanup runs at startup, during
+shrink, and at one-minute maintenance checks. A shrink receipt reports bytes
+still protected by staging; it does not claim those bytes were reclaimed.
 
 Automatic shrinking applies independently to `scope.db`, `desktop.db`, and a
 paired hub's `hub.db`. A database is eligible when its main file plus WAL is

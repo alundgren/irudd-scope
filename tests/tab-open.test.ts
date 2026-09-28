@@ -52,6 +52,45 @@ async function holdOpen(application: ElectronApplication, phase: "before" | "aft
   };
 }
 
+test("switching between open tabs does not wait for an arriving publication", async () => {
+  const f = await desktopFixture();
+  const application = await f.launch();
+  let gate: Awaited<ReturnType<typeof holdOpen>> | undefined;
+  try {
+    const page = await application.firstWindow();
+    const client = await f.connect();
+    const publish = (id: string) =>
+      client.publish(
+        id,
+        {
+          title: id,
+          kind: "text",
+          mediaType: "text/plain",
+          fileName: "note.txt",
+          expectedRevision: 0,
+        },
+        Buffer.from(`${id} content`),
+      );
+    await publish("First");
+    await publish("Second");
+    await page.getByRole("tab", { name: "Second", exact: true }).click();
+    await page.getByText("Second content", { exact: true }).waitFor();
+    gate = await holdOpen(application, "before");
+    await publish("Arriving");
+    await expect.poll(gate.started).toBe(true);
+    await page.getByRole("tab", { name: "First", exact: true }).click();
+    await page.getByText("First content", { exact: true }).waitFor({ timeout: 5000 });
+    expect(await gate.finished()).toBe(false);
+    await gate.release();
+    await page.getByRole("tab", { name: "Arriving", exact: true }).waitFor();
+    expect(await page.getByRole("tab", { selected: true }).textContent()).toBe("First");
+  } finally {
+    await gate?.release().catch(() => {});
+    await application.close();
+    await rm(f.directory, { recursive: true, force: true });
+  }
+});
+
 test.for(["before", "after"] as const)(
   "deletion and recreation while an open waits %s its real IPC handler cannot restore the old tab",
   async (phase) => {

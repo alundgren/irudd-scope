@@ -26,7 +26,7 @@ export type Tab = typeof Tab.Type;
 export const Workspace = Schema.Struct({
   version: Schema.Literal(3),
   groups: Schema.Array(TabGroup),
-  tabs: Schema.Array(Tab).check(Schema.isMaxLength(100)),
+  tabs: Schema.Array(Tab),
   selected: Schema.NullOr(Uuid),
 });
 export type Workspace = typeof Workspace.Type;
