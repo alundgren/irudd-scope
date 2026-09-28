@@ -34,8 +34,15 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const [focus, setFocus] = useState(false);
   const [details, setDetails] = useState(false);
   const [error, setError] = useState("");
-  const { snapshot, unread, arrivals, acknowledgeArrivals, markRead, recordPublication } =
-    useArtifactLibrary(setError);
+  const {
+    snapshot,
+    unread,
+    arrivals,
+    queueArrivals,
+    acknowledgeArrivals,
+    markRead,
+    recordPublication,
+  } = useArtifactLibrary(setError);
   const {
     workspace,
     ready: workspaceReady,
@@ -46,7 +53,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     updateTab,
     updateState,
   } = useWorkspace(setError);
-  const receivingArrivals = useRef(false);
+  const [receivingArrivals, setReceivingArrivals] = useState(false);
   useEffect(() => {
     if (!workspace.tabs.length) setFocus(false);
   }, [workspace.tabs.length]);
@@ -55,6 +62,8 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const artifacts = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const active = workspace.tabs.find((tab) => tab.id === workspace.selected);
   const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
+  const openArtifacts = new Set(workspace.tabs.map(tabArtifactId));
+  const waitingCount = arrivals.filter((artifact) => !openArtifacts.has(artifact.id)).length;
   useEffect(() => {
     if (activeArtifact) markRead(activeArtifact.id);
   }, [activeArtifact?.id, activeArtifact?.revision]);
@@ -82,41 +91,57 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     }
   }, [snapshot.artifacts, workspace.tabs]);
   useEffect(() => {
-    if (!workspaceReady || creating || !arrivals.length || receivingArrivals.current) return;
-    receivingArrivals.current = true;
+    if (!workspaceReady || snapshot.connection !== "connected") return;
+    // A replacement publication can arrive before the old tab's close notification.
+    const open = new Set(workspace.tabs.map(tabArtifactId));
+    queueArrivals(snapshot.artifacts.filter((artifact) => !open.has(artifact.id)));
+  }, [snapshot.artifacts, snapshot.connection, workspace.tabs, workspaceReady]);
+  useEffect(() => {
+    if (!workspaceReady || creating || !arrivals.length || receivingArrivals) return;
     const existing = new Set(workspace.tabs.map(tabArtifactId));
-    const tabs = arrivals.flatMap((id) => {
-      const artifact = artifacts.get(id);
-      if (!artifact || existing.has(id)) return [];
+    const pending = arrivals
+      .filter((artifact) => !existing.has(artifact.id))
+      .slice(0, Math.max(0, 100 - workspace.tabs.length));
+    const alreadyOpen = arrivals.filter((artifact) => existing.has(artifact.id));
+    if (!pending.length && !alreadyOpen.length) return;
+    setReceivingArrivals(true);
+    const tabs = pending.map((artifact) => {
       const plugin = pluginForArtifact(artifact);
-      return [
-        {
+      return {
+        tab: {
           id: crypto.randomUUID(),
           groupId: workspace.groups[0].id,
           type: plugin.type,
           title: artifact.title,
           state: plugin.publication!.state(artifact),
         },
-      ];
+        artifactRevision: artifact.revision,
+      };
     });
     void addTabs(tabs)
-      .then((selected) => {
-        const selectedArtifact = tabs.find((tab) => tab.id === selected);
-        if (selectedArtifact) markRead(tabArtifactId(selectedArtifact)!);
-        acknowledgeArrivals(arrivals);
+      .then((handled) => {
+        const ids = new Set(handled.map(tabArtifactId));
+        acknowledgeArrivals([
+          ...alreadyOpen,
+          ...pending.filter((artifact) => ids.has(artifact.id)),
+        ]);
       })
+      .catch(() => setError("Could not open arriving artifacts."))
       .finally(() => {
-        receivingArrivals.current = false;
+        setReceivingArrivals(false);
       });
-  }, [arrivals, snapshot.artifacts, workspace, workspaceReady, creating]);
+  }, [arrivals, workspace, workspaceReady, creating, receivingArrivals]);
   useEffect(() => {
     tabButtons.current
       .get(workspace.selected ?? "")
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [workspace.selected, workspace.tabs, focus]);
 
-  async function activate(tab: Tab, keyboard = false) {
-    if (!(await openTab(tab))) return;
+  async function activate(tab: Tab, keyboard = false, artifactRevision?: number) {
+    if (
+      !(await openTab(tab, artifactRevision ?? artifacts.get(tabArtifactId(tab) ?? "")?.revision))
+    )
+      return;
     const artifactId = tabArtifactId(tab);
     if (artifactId) markRead(artifactId);
     setSearch(false);
@@ -261,6 +286,12 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             "Reconnecting to the artifact library. Open content remains available."}
         </div>
       )}
+      {workspace.tabs.length === 100 && waitingCount > 0 && (
+        <div className="connection-notice" role="status">
+          {waitingCount} {waitingCount === 1 ? "publication is" : "publications are"} waiting. They
+          will open as tabs close.
+        </div>
+      )}
       {!focus && <UpdateNotice />}
       <div className="workspace-content">
         {workspace.tabs.map((tab) => {
@@ -294,11 +325,15 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                 onClose={() => setCreating(null)}
                 onCreated={({ artifact, ...tab }) => {
                   if (artifact) recordPublication(artifact);
-                  void activate({
-                    ...tab,
-                    id: crypto.randomUUID(),
-                    groupId: active?.groupId ?? workspace.groups[0].id,
-                  });
+                  void activate(
+                    {
+                      ...tab,
+                      id: crypto.randomUUID(),
+                      groupId: active?.groupId ?? workspace.groups[0].id,
+                    },
+                    false,
+                    artifact?.revision,
+                  );
                 }}
               />
             </Suspense>

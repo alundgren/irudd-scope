@@ -53,6 +53,7 @@ test("tab-owned drafts and plugin state survive restart, then close deletes them
       title: "Future tool",
       state: { version: 5, data: { prompt: "Keep me" } },
     });
+    if (!tab) throw new Error("Expected the saved tab to open.");
     await lifecycle.saveWorkspace({ ...workspace, tabs: [tab], selected: tab.id });
     await artifacts.saveDiagramDraft(tab.id, draft);
     await expect(

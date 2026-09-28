@@ -137,7 +137,9 @@ export function DiagramView({
         },
       });
       if (data.files) api.addFiles(Object.values(data.files));
-      if (!viewport) api.scrollToContent(undefined, { fitToContent: true });
+      // Empty documents have no bounds to fit and can produce an invalid zoom.
+      if (!viewport && data.elements.some((element) => !element.isDeleted))
+        api.scrollToContent(data.elements, { fitToContent: true });
       readyRef.current = true;
       setReady(true);
     } catch {

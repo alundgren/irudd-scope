@@ -39,7 +39,7 @@ export type ScopeBridge = {
   settings: () => Promise<SettingsView>;
   diagramSettings: () => Promise<SettingsView>;
   saveSettings: (input: SettingsUpdate) => Promise<SettingsView>;
-  openTab: (tab: Tab) => Promise<Tab>;
+  openTab: (tab: Tab, artifactRevision?: number) => Promise<Tab | null>;
   closeTab: (id: string) => Promise<void>;
   onTabsClosed: (listener: (ids: string[]) => void) => () => void;
   workspace: () => Promise<Workspace | null>;

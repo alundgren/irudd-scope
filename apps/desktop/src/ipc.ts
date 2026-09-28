@@ -8,7 +8,7 @@ import type { ArtifactLibrary } from "./library/library.ts";
 import { decodeSettingsUpdate } from "./settings.ts";
 import { registerMainPlugins } from "./plugins/registry.main.ts";
 import type { DesktopLifecycle } from "./lifecycle.ts";
-import { Uuid } from "./workspace/contract.ts";
+import { Tab, Uuid } from "./workspace/contract.ts";
 import { TabEventEnvelope } from "./plugins/events.ts";
 import type { AgentTools } from "./agent-tools.ts";
 import type { AppUpdates } from "./updates.ts";
@@ -123,7 +123,13 @@ export function registerDesktopIpc({
     }
   });
   handle("scope:settings", () => store.settings());
-  handle("scope:open-tab", (input) => lifecycle.openTab(input));
+  handle("scope:open-tab", (input) => {
+    const { tab, artifactRevision } = decode(
+      Schema.Struct({ tab: Tab, artifactRevision: Schema.optional(Revision) }),
+      input,
+    );
+    return lifecycle.openTab(tab, artifactRevision);
+  });
   handle("scope:close-tab", async (input) => {
     await lifecycle.closeTab(decode(Uuid, input));
   });

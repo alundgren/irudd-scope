@@ -201,7 +201,8 @@ Closing an individual tab and deleting an artifact use the same tab-owned
 deletion. Foreign keys remove metadata, content references, and drafts in one
 transaction. Shared bytes survive until their last tab reference disappears.
 Queued uploads expire after fifteen minutes without publication; successful
-overflow publications stay in the library. Startup and maintenance reclaim
+overflow publications stay queued and open as workspace capacity becomes available,
+including after restart. Startup and maintenance reclaim
 expired staging references. There is no deletion log or retained closed history.
 
 The store serializes publication and deletion commits with their SSE notifications,
@@ -209,7 +210,9 @@ so a delayed close response cannot announce a deletion after explicit recreation
 Desktop main replaces its list on
 reconnection and applies events received during the refresh. Deleted content
 leaves the cache and cancels pending loads. Saving a tab or draft updates an
-existing tab only, so a late callback cannot recreate a deleted tab.
+existing tab only, so a late callback cannot recreate a deleted tab. Opening a
+publication checks its revision in the same transaction that opens its tab;
+an obsolete request cannot open a replacement published under the same ID.
 
 On shutdown, main asks the renderer to flush pending writes for tabs left open.
 If flushing fails, the user can keep Scope open or explicitly quit without

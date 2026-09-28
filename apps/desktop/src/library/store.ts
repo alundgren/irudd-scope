@@ -301,30 +301,46 @@ export class ArtifactStore {
     );
   }
 
-  async openTab(value: Tab): Promise<Tab> {
+  async openTab(value: Tab, artifactRevision?: number): Promise<Tab | null> {
     const tab = decode(Tab, value);
+    if (artifactRevision !== undefined) decode(Revision, artifactRevision);
     const artifactId = tabArtifactId(tab);
-    let id = tab.id;
-    if (artifactId) {
-      const [row] = await this.run(
-        this.sql<{ tab_id: string }>`SELECT tab_id FROM artifacts WHERE id = ${artifactId}`,
-      );
-      if (!row) throw new ScopeError(404, "This artifact was deleted.");
-      id = row.tab_id;
-    } else {
-      await this.run(
-        this
-          .sql`INSERT INTO live_tabs(id, artifact_id, opened, created_at) VALUES (${id}, NULL, 0, ${Date.now()}) ON CONFLICT(id) DO NOTHING`,
-      );
-    }
-    const opened = { ...tab, id };
-    const rows = await this.run(
-      this.sql`UPDATE live_tabs SET opened = 1, document = ${JSON.stringify(opened)},
+    const sql = this.sql;
+    return this.run(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          let id = tab.id;
+          if (artifactId) {
+            const [row] = yield* sql<{
+              tab_id: string;
+              revision: number;
+            }>`SELECT tab_id, revision FROM artifacts WHERE id = ${artifactId}`;
+            // A delayed open must not adopt a replacement with the same artifact ID.
+            if (
+              !row ||
+              (artifactRevision === undefined
+                ? row.tab_id !== tab.id
+                : row.revision !== artifactRevision)
+            )
+              return null;
+            id = row.tab_id;
+          } else {
+            yield* sql`INSERT INTO live_tabs(id, artifact_id, opened, created_at) VALUES (${id}, NULL, 0, ${Date.now()}) ON CONFLICT(id) DO NOTHING`;
+          }
+          const [{ count }] = yield* sql<{
+            count: number;
+          }>`SELECT count(*) AS count FROM live_tabs WHERE opened = 1 AND id != ${id}`;
+          if (count >= 100)
+            return yield* Effect.fail(new ScopeError(409, "Close a tab before opening another."));
+          const opened = { ...tab, id };
+          const rows =
+            yield* sql`UPDATE live_tabs SET opened = 1, document = ${JSON.stringify(opened)},
           position = CASE WHEN opened = 0 THEN (SELECT coalesce(max(position), -1) + 1 FROM live_tabs WHERE opened = 1) ELSE position END
-          WHERE id = ${id} AND artifact_id IS ${artifactId ?? null} RETURNING id`,
+          WHERE id = ${id} AND artifact_id IS ${artifactId ?? null} RETURNING id`;
+          return rows.length ? opened : null;
+        }),
+      ),
     );
-    if (!rows.length) throw new ScopeError(404, "This tab is closed.");
-    return opened;
   }
 
   async saveTabs(tabs: readonly Tab[]): Promise<void> {
