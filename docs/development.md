@@ -124,12 +124,15 @@ isolated Keychain and disables helper permission dialogs during verification.
 Keep validation results and screenshots
 in review evidence, outside durable documentation.
 
-Electron tests keep their windows and Mac Dock icons hidden by default. They
-still run the real main process, renderer, IPC, and database operations. Hidden
-windows disable background throttling so UI timers continue running. Use
-`SCOPE_TEST_SHOW_WINDOWS=1 vp run test tests/workspace.test.ts` for visible checks.
-Unexpected native dialogs fail hidden tests, with diagnostics, instead of
-waiting for someone to dismiss them. Installed apps are unaffected.
+Electron tests keep Mac windows and Dock icons hidden by default. Hidden windows
+disable background throttling so UI timers continue running. Linux test windows
+remain visible because Chromium stalls CSS animations in hidden windows, which
+prevents dialogs from closing and restoring focus. The runner uses Xvfb when no
+display is available. Tests run the real main process, renderer, IPC, and database
+operations. Unexpected native dialogs fail tests with diagnostics instead of
+waiting for someone to dismiss them. Use
+`SCOPE_TEST_SHOW_WINDOWS=1 vp run test tests/workspace.test.ts` to show Mac windows
+and allow native dialogs during manual checks. Installed apps are unaffected.
 
 ### Lifecycle pressure test
 

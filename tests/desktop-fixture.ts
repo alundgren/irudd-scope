@@ -12,6 +12,7 @@ const require = createRequire(new URL("../apps/desktop/package.json", import.met
 const exec = promisify(execFile);
 
 export async function desktopFixture(options: { disableGpu?: boolean; showWindow?: boolean } = {}) {
+  const showWindow = options.showWindow ?? process.env.SCOPE_TEST_SHOW_WINDOWS === "1";
   const directory = await mkdtemp(join(tmpdir(), "scope-desktop-"));
   const settingsDirectory = join(directory, "desktop");
   const connectionFile = join(directory, "connection.json");
@@ -22,8 +23,8 @@ export async function desktopFixture(options: { disableGpu?: boolean; showWindow
     SCOPE_DATA_DIR: join(settingsDirectory, "artifacts"),
     SCOPE_PORT: "0",
     SCOPE_SESSION_CREDENTIALS: "1",
-    SCOPE_TEST_HIDE_WINDOW:
-      (options.showWindow ?? process.env.SCOPE_TEST_SHOW_WINDOWS === "1") ? "0" : "1",
+    // Hidden Linux windows stall CSS animations and prevent dialogs from closing.
+    SCOPE_TEST_HIDE_WINDOW: showWindow || process.platform === "linux" ? "0" : "1",
   };
   // Electron-based development tools can pass their Node-only mode to children.
   delete env.ELECTRON_RUN_AS_NODE;
@@ -44,7 +45,7 @@ export async function desktopFixture(options: { disableGpu?: boolean; showWindow
       diagnostics.push(data.toString());
       if (diagnostics.length > 100) diagnostics.shift();
     });
-    if (env.SCOPE_TEST_HIDE_WINDOW === "1") {
+    if (!showWindow) {
       await application.evaluate(({ dialog }) => {
         dialog.showMessageBox = async (windowOrOptions, options?: Electron.MessageBoxOptions) => {
           const message = options ?? (windowOrOptions as Electron.MessageBoxOptions);
