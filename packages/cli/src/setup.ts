@@ -182,32 +182,41 @@ function selectLocalPort(
 ) {
   let port = Number(requested ?? configured?.port ?? DEFAULT_PORT);
   if (requested || configured) return port;
+  const reserved = serveTargets(serve);
+  while (reserved.has(`http://127.0.0.1:${port}`) && port < 65535) port++;
+  return port;
+}
+
+function serveTargets(serve: typeof ServeStatus.Type) {
   const reserved = new Set<string>();
   for (const value of Object.values(serve.Web ?? {})) {
     const web = Schema.decodeUnknownSync(ServeWeb)(value);
     for (const handler of Object.values(web.Handlers))
       if (handler.Proxy) reserved.add(handler.Proxy);
   }
-  while (reserved.has(`http://127.0.0.1:${port}`) && port < 65535) port++;
-  return port;
+  return reserved;
 }
 
-function selectSetupPorts(
-  options: SetupOptions,
+function selectHttpsPort(
+  requested: string | undefined,
   configured: HubStatus | undefined,
-  hostname: string,
   serve: typeof ServeStatus.Type,
 ) {
   const oldPort = configured?.endpoint ? new URL(configured.endpoint).port || "443" : undefined;
-  const port = selectLocalPort(options.port, configured, serve);
-  let httpsPort = Number(options.httpsPort ?? oldPort ?? 8450);
-  const explicitPort = Boolean(options.httpsPort || oldPort);
+  let httpsPort = Number(requested ?? oldPort ?? 8450);
+  const explicitPort = Boolean(requested || oldPort);
   if (!explicitPort) while (serve.TCP?.[String(httpsPort)] && httpsPort < 65535) httpsPort++;
-  for (const value of [port, httpsPort])
-    if (!Number.isInteger(value) || value < 1 || value > 65535)
-      throw new Error("Ports must be whole numbers from 1 to 65535.");
-  const endpoint = `https://${hostname}:${httpsPort}`;
-  const target = `http://127.0.0.1:${port}`;
+  return httpsPort;
+}
+
+function validateServeRoute(
+  configured: HubStatus | undefined,
+  serve: typeof ServeStatus.Type,
+  endpoint: string,
+  target: string,
+  hostname: string,
+  httpsPort: number,
+) {
   if (serve.TCP?.[String(httpsPort)]) {
     const web = Schema.decodeUnknownSync(ServeWeb)(serve.Web?.[`${hostname}:${httpsPort}`]);
     if (
@@ -217,6 +226,22 @@ function selectSetupPorts(
     )
       throw new Error("That Tailscale Serve port is already in use. Choose another --https-port.");
   }
+}
+
+function selectSetupPorts(
+  options: SetupOptions,
+  configured: HubStatus | undefined,
+  hostname: string,
+  serve: typeof ServeStatus.Type,
+) {
+  const port = selectLocalPort(options.port, configured, serve);
+  const httpsPort = selectHttpsPort(options.httpsPort, configured, serve);
+  for (const value of [port, httpsPort])
+    if (!Number.isInteger(value) || value < 1 || value > 65535)
+      throw new Error("Ports must be whole numbers from 1 to 65535.");
+  const endpoint = `https://${hostname}:${httpsPort}`;
+  const target = `http://127.0.0.1:${port}`;
+  validateServeRoute(configured, serve, endpoint, target, hostname, httpsPort);
   return { port, httpsPort, endpoint, target };
 }
 
