@@ -124,7 +124,12 @@ async function checkContent(page: Page, example: (typeof examples)[number], focu
       break;
     case "excalidraw":
       await pane.locator(".excalidraw canvas").first().waitFor();
-      if (!focused) await pane.getByRole("button", { name: "Ask agent", exact: true }).waitFor();
+      if (!focused) await pane.getByTestId("main-menu-trigger").waitFor();
+      expect(await pane.getByRole("button", { name: "Save", exact: true }).count()).toBe(0);
+      expect(await pane.getByRole("button", { name: "Ask agent", exact: true }).count()).toBe(0);
+      expect(await pane.getByRole("complementary", { name: "Diagram agent" }).isVisible()).toBe(
+        false,
+      );
       break;
   }
 }
@@ -200,7 +205,7 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
           expect(width - bounds!.x - bounds!.width).toBeLessThanOrEqual(12);
           expect(bounds!.y).toBeLessThanOrEqual(12);
           expect(await mode.inputValue()).toBe("edit");
-          await page.getByRole("button", { name: "Ask agent", exact: true }).waitFor();
+          await page.getByTestId("main-menu-trigger").waitFor();
           await page
             .getByRole("dialog", { name: "Search and controls" })
             .waitFor({ state: "hidden" });

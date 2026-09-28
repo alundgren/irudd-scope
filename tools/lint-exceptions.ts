@@ -114,13 +114,6 @@ export const lintExceptions: readonly LintException[] = [
   },
   {
     file: "apps/desktop/src/plugins/diagram/view.tsx",
-    at: "async function save(copy = false) {",
-    limits: { complexity: 11 },
-    reason:
-      "Saving a revision and saving a copy share serialization but differ in IDs and draft bookkeeping. The post-save comparison must retain edits made while the publication was pending.",
-  },
-  {
-    file: "apps/desktop/src/plugins/diagram/view.tsx",
     at: "export function DiagramView({",
     limits: { "max-lines-per-function": 380 },
     reason:

@@ -25,21 +25,21 @@ Use the same names in code, documentation, diagrams, issues, and reviews.
 Folders name the work they own. Names in saved records, commands, and wire
 formats are compatibility contracts.
 
-| Name              | Meaning                                                                                                 | Owner                                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Artifact          | Latest published metadata and content for one stable ID.                                                | `packages/protocol/src/index.ts` defines the contract; `apps/desktop/src/library/` stores and serves it.  |
-| Revision          | Increasing integer for an artifact; writers supply the revision they read.                              | Artifact protocol and desktop artifact store.                                                             |
-| Blob              | Immutable bytes identified by SHA-256, stored in SQLite.                                                | `apps/desktop/src/library/store.ts`.                                                                      |
-| Source            | Optional publication provenance, such as host, repository, or agent. Unknown values stay absent.        | Protocol contract; `packages/cli` collects available values.                                              |
-| Artifact library  | Published artifact metadata and the desktop's connection status.                                        | `apps/desktop/src/library/library.ts`; `library/use-library.ts` tracks unread updates.                    |
-| Workspace         | Open and queued tab records, group membership, and selected tab ID. Closing deletes tab content.        | `apps/desktop/src/workspace/contract.ts` defines the contract; `workspace/use-workspace.ts` manages tabs. |
-| Settings          | Appearance, provider configuration, and credential presence.                                            | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.               |
-| Semantic scene    | Diagram nodes, text, connections, and groups with stable IDs.                                           | `apps/desktop/src/plugins/diagram/contract.ts` and `scene.ts`.                                            |
-| Diagram operation | A validated change to a semantic scene, such as moving a node or adding a connection.                   | `apps/desktop/src/plugins/diagram/contract.ts`; `scene.ts` applies operations.                            |
-| Canvas            | The editable Excalidraw document and its view state.                                                    | `apps/desktop/src/plugins/diagram/canvas.ts` converts scenes; `plugins/diagram/view.tsx` owns editing.    |
-| Diagram draft     | Unpublished canvas, conversation, prompt, panel state, and view position based on an artifact revision. | `apps/desktop/src/plugins/diagram/draft.ts` defines the contract; `library/store.ts` stores drafts.       |
-| Diagram provider  | Generates validated diagram operations from an intent and semantic scene.                               | `apps/desktop/src/plugins/diagram/contract.ts`; `openrouter.ts` owns the external API format.             |
-| Publishing token  | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                          | Desktop discovery file; CLI and optional hub use it.                                                      |
+| Name              | Meaning                                                                                             | Owner                                                                                                     |
+| ----------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Artifact          | Latest published metadata and content for one stable ID.                                            | `packages/protocol/src/index.ts` defines the contract; `apps/desktop/src/library/` stores and serves it.  |
+| Revision          | Increasing integer for an artifact; writers supply the revision they read.                          | Artifact protocol and desktop artifact store.                                                             |
+| Blob              | Immutable bytes identified by SHA-256, stored in SQLite.                                            | `apps/desktop/src/library/store.ts`.                                                                      |
+| Source            | Optional publication provenance, such as host, repository, or agent. Unknown values stay absent.    | Protocol contract; `packages/cli` collects available values.                                              |
+| Artifact library  | Published artifact metadata and the desktop's connection status.                                    | `apps/desktop/src/library/library.ts`; `library/use-library.ts` tracks unread updates.                    |
+| Workspace         | Open and queued tab records, group membership, and selected tab ID. Closing deletes tab content.    | `apps/desktop/src/workspace/contract.ts` defines the contract; `workspace/use-workspace.ts` manages tabs. |
+| Settings          | Appearance, provider configuration, and credential presence.                                        | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.               |
+| Semantic scene    | Diagram nodes, text, connections, and groups with stable IDs.                                       | `apps/desktop/src/plugins/diagram/contract.ts` and `scene.ts`.                                            |
+| Diagram operation | A validated change to a semantic scene, such as moving a node or adding a connection.               | `apps/desktop/src/plugins/diagram/contract.ts`; `scene.ts` applies operations.                            |
+| Canvas            | The editable Excalidraw document and its view state.                                                | `apps/desktop/src/plugins/diagram/canvas.ts` converts scenes; `plugins/diagram/view.tsx` owns editing.    |
+| Diagram draft     | Working canvas, conversation, prompt, panel state, and view position based on an artifact revision. | `apps/desktop/src/plugins/diagram/draft.ts` defines the contract; `library/store.ts` stores drafts.       |
+| Diagram provider  | Generates validated diagram operations from an intent and semantic scene.                           | `apps/desktop/src/plugins/diagram/contract.ts`; `openrouter.ts` owns the external API format.             |
+| Publishing token  | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                      | Desktop discovery file; CLI and optional hub use it.                                                      |
 
 `packages/protocol` owns shared schemas, wire formats, limits, the discovery
 contract, and the HTTP client. It imports no app, filesystem, Electron, or
@@ -260,6 +260,10 @@ in main. Saving and removing keys also require generation to be enabled.
 Create diagram and Ask agent invoke the provider explicitly, one request
 at a time, with cancellation. The provider returns validated semantic
 operations and usage. The renderer applies those operations to Excalidraw.
+The diagram editor automatically saves canvas changes through the existing
+revision-checked publication API. It writes the draft first so a failed
+publication retains the working canvas. Conversation and viewport changes do
+not publish new artifact revisions.
 Concurrent edits and new artifact revisions retain the working canvas and
 offer recovery choices. The HTTP API accepts finished artifacts, not
 generation jobs. Scope does not run or coordinate coding sessions.
