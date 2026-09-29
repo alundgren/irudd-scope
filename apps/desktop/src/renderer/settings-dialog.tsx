@@ -119,8 +119,8 @@ export function SettingsDialog({
     );
   }
 
-  function finish() {
-    interaction.current = null;
+  function finish(event: PointerEvent) {
+    if (interaction.current?.pointerId === event.pointerId) interaction.current = null;
   }
 
   function keyboard(event: KeyboardEvent, adjustment: Adjustment) {
@@ -146,7 +146,10 @@ export function SettingsDialog({
       finalFocus={finalFocus}
       style={bounds}
       onPointerMove={move}
-      onPointerUp={finish}
+      onPointerUp={(event) => {
+        move(event);
+        finish(event);
+      }}
       onPointerCancel={finish}
       onLostPointerCapture={finish}
     >

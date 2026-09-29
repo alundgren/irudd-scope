@@ -12,6 +12,13 @@ async function bounds(dialog: Locator) {
 
 async function drag(page: Page, x: number, y: number, deltaX: number, deltaY: number) {
   await page.mouse.move(x, y);
+  // The next press must target the dialog's painted position after a previous drag.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
   await page.mouse.down();
   await page.mouse.move(x + deltaX, y + deltaY, { steps: 5 });
   await page.mouse.up();
@@ -32,7 +39,7 @@ test("Settings opens large and supports dragging and resizing without losing for
   try {
     const page = await application.firstWindow();
     await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
-    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.keyboard.press("ControlOrMeta+,");
     const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
     const search = dialog.getByLabel("Search settings");
@@ -42,9 +49,9 @@ test("Settings opens large and supports dragging and resizing without losing for
     await expect.poll(() => dialog.evaluate((element) => element.getAnimations().length)).toBe(0);
     const initial = await bounds(dialog);
     expect(initial.width).toBeGreaterThan(1000);
-    expect(initial.height).toBeGreaterThan(800);
+    expect(initial.height).toBeGreaterThan(700);
     expect(initial.x + initial.width / 2).toBeCloseTo(720);
-    expect(initial.y + initial.height / 2).toBeCloseTo(500);
+    expect(initial.y + initial.height / 2).toBeCloseTo(450);
     await search.fill("color scheme");
     await dialog.getByLabel("Appearance", { exact: true }).selectOption("light");
     await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe("light");
@@ -187,6 +194,63 @@ test("Settings supports keyboard adjustments and stays reachable in a smaller wi
     await screenshot(page, "settings-remotes-small-dark.png");
     await close.click();
     await dialog.waitFor({ state: "hidden" });
+  } finally {
+    await application.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Settings uses the release position when a pointer move is missing", async () => {
+  const { directory, launch } = await desktopFixture();
+  const application = await launch();
+  try {
+    const page = await application.firstWindow();
+    await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+    await page.setViewportSize({ width: 1280, height: 820 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.keyboard.press("ControlOrMeta+,");
+    const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+    await dialog.getByLabel("Search settings").waitFor();
+    const mouse = await page.context().newCDPSession(page);
+    const adjustments = [
+      { handle: dialog.getByRole("heading", { name: "Settings", exact: true }), x: -40, y: -20 },
+      { handle: dialog.getByRole("button", { name: "Resize Settings" }), x: 80, y: 20 },
+    ];
+    for (const { handle, x, y } of adjustments) {
+      await handle.hover();
+      const before = await bounds(dialog);
+      const target = await bounds(handle);
+      const start = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
+      await mouse.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...start });
+      await mouse.send("Input.dispatchMouseEvent", {
+        type: "mousePressed",
+        ...start,
+        button: "left",
+        buttons: 1,
+        clickCount: 1,
+      });
+      await mouse.send("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: start.x + x / 5,
+        y: start.y + y / 5,
+        button: "left",
+        buttons: 1,
+      });
+      await mouse.send("Input.dispatchMouseEvent", {
+        type: "mouseReleased",
+        x: start.x + x,
+        y: start.y + y,
+        button: "left",
+        buttons: 0,
+        clickCount: 1,
+      });
+      const expected =
+        x < 0
+          ? { ...before, x: before.x + x, y: before.y + y }
+          : { ...before, width: before.width + x, height: before.height + y };
+      await expect.poll(() => bounds(dialog)).toEqual(expected);
+    }
+    await mouse.detach();
   } finally {
     await application.close();
     await rm(directory, { recursive: true, force: true });
