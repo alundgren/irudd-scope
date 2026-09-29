@@ -83,6 +83,7 @@ export function TabHost({
       >
         <View
           tab={tab}
+          active={active}
           {...display}
           context={{
             tabId: tab.id,

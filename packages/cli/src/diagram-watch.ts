@@ -253,6 +253,7 @@ export async function watchDiagram(
             version: status.version,
           });
         lastVersion = status.version;
+        process.stderr.write(`Listening to ${name}. Stop this process to disconnect.\n`);
         return;
       } catch (error) {
         if (
@@ -266,7 +267,6 @@ export async function watchDiagram(
       }
     }
   }
-  process.stderr.write(`Listening to ${name}. Stop this process to disconnect.\n`);
   try {
     while (!signal.aborted) {
       try {

@@ -8,6 +8,7 @@ import type { DiagramRequest, DiagramResult } from "./plugins/diagram/contract.t
 import type { DiagramDraft } from "./plugins/diagram/draft.ts";
 import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
+import type { DiagramMenuAction, DiagramMenuState } from "./menu-contract.ts";
 
 export type ArtifactLibrarySnapshot = {
   artifacts: Artifact[];
@@ -18,6 +19,8 @@ export type ArtifactContent = { artifact: Artifact; bytes: Uint8Array };
 import type { TabEventEnvelope } from "./plugins/events.ts";
 
 export type ScopeBridge = {
+  setDiagramMenu: (state: DiagramMenuState) => Promise<void>;
+  onDiagramMenuAction: (listener: (action: DiagramMenuAction) => void) => () => void;
   onDiagramCommand: (listener: (input: DiagramCommandRequest) => void) => () => void;
   onDiagramCommandCancel: (listener: (id: string) => void) => () => void;
   diagramCommandResult: (response: DiagramCommandResponse) => Promise<void>;

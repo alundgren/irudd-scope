@@ -12,6 +12,7 @@ export type TabContext = {
   onBeforeClose: (save: () => Promise<void>) => () => void;
 };
 export type TabProps = {
+  active: boolean;
   tab: Tab;
   context: TabContext;
   theme: Theme;

@@ -4,8 +4,15 @@ import type { ScopeBridge, ArtifactLibrarySnapshot } from "./bridge.ts";
 import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
 import type { RetainedTab } from "./workspace/retention.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
+import type { DiagramMenuAction } from "./menu-contract.ts";
 
 const bridge: ScopeBridge = {
+  setDiagramMenu: (state) => ipcRenderer.invoke("scope:set-diagram-menu", state),
+  onDiagramMenuAction: (listener) => {
+    const receive = (_event: unknown, action: DiagramMenuAction) => listener(action);
+    ipcRenderer.on("scope:diagram-menu-action", receive);
+    return () => ipcRenderer.removeListener("scope:diagram-menu-action", receive);
+  },
   onDiagramCommand: (listener) => {
     const receive = (_event: unknown, input: DiagramCommandRequest) => listener(input);
     ipcRenderer.on("scope:diagram-command", receive);

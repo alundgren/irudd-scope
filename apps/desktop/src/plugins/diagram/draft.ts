@@ -7,6 +7,7 @@ const Viewport = Schema.Struct({
   scrollX: Schema.Finite,
   scrollY: Schema.Finite,
 });
+export type DiagramViewport = typeof Viewport.Type;
 
 export const DiagramDraft = Schema.Struct({
   version: Schema.Literal(1),
@@ -26,6 +27,6 @@ export const DiagramDraft = Schema.Struct({
   proposal: Schema.optionalKey(DiagramProposal),
   proposalViewport: Schema.optionalKey(Viewport),
   conversationTarget: Schema.optionalKey(Schema.Literals(["external", "embedded"])),
-  viewport: Viewport,
+  viewport: Schema.optionalKey(Viewport),
 });
 export type DiagramDraft = typeof DiagramDraft.Type;
