@@ -1,9 +1,16 @@
-import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+} from "react";
 import type { Artifact } from "@irudd-scope/protocol";
 import { Search, X } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { tabArtifactId } from "../plugins/registry.renderer.ts";
 import type { Tab } from "./contract.ts";
+import { TabOverflow } from "./tab-overflow.tsx";
 
 export function TabBar({
   tabs,
@@ -14,7 +21,11 @@ export function TabBar({
   tabButtons,
   controlsButton,
   searchOpen,
+  overflowOpen,
+  onOverflowChange,
+  restoreOverflowFocus,
   onSelect,
+  onReveal,
   onClose,
   onSearch,
 }: {
@@ -26,10 +37,47 @@ export function TabBar({
   tabButtons: RefObject<Map<string, HTMLButtonElement>>;
   controlsButton: RefObject<HTMLButtonElement | null>;
   searchOpen: boolean;
+  overflowOpen: boolean;
+  onOverflowChange: (open: boolean) => void;
+  restoreOverflowFocus: boolean;
   onSelect: (id: string, keyboard?: boolean) => void;
+  onReveal: (id: string) => void;
   onClose: (id: string) => Promise<void>;
   onSearch: () => void;
 }) {
+  const navigation = useRef<HTMLElement>(null);
+  const [capacity, setCapacity] = useState({ full: 1, overflow: 1 });
+  useLayoutEffect(() => {
+    const element = navigation.current;
+    if (!element) return;
+    const measure = () => {
+      const style = getComputedStyle(element);
+      const gap = parseFloat(style.columnGap);
+      const width =
+        element.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) + gap;
+      const tabWidth = parseFloat(style.getPropertyValue("--tab-min-width")) + gap;
+      const pickerWidth = parseFloat(style.getPropertyValue("--tab-picker-width")) + gap;
+      setCapacity({
+        full: Math.floor(width / tabWidth),
+        overflow: Math.floor((width - pickerWidth) / tabWidth),
+      });
+    };
+    const resize = new ResizeObserver(measure);
+    measure();
+    resize.observe(element);
+    return () => resize.disconnect();
+  }, []);
+  const count = Math.max(1, tabs.length <= capacity.full ? capacity.full : capacity.overflow);
+  let visibleTabs = tabs.slice(-count);
+  const selected = tabs.find((tab) => tab.id === selectedId);
+  if (selected && !visibleTabs.includes(selected))
+    visibleTabs = [selected, ...visibleTabs.slice(1)];
+  const visibleIds = new Set(visibleTabs.map((tab) => tab.id));
+  const hiddenIds = new Set(tabs.filter((tab) => !visibleIds.has(tab.id)).map((tab) => tab.id));
+  const openArtifacts = new Set(tabs.map(tabArtifactId));
+  useLayoutEffect(() => {
+    if (!hiddenIds.size) onOverflowChange(false);
+  }, [hiddenIds.size, onOverflowChange]);
   function navigateTabs(event: ReactKeyboardEvent) {
     const index = tabs.findIndex((tab) => tab.id === selectedId);
     const target =
@@ -48,9 +96,22 @@ export function TabBar({
   }
   return (
     <header className="workspace-bar">
-      <nav className="tabs" aria-label="Open artifacts">
+      <nav className="tabs" aria-label="Open artifacts" ref={navigation}>
+        {hiddenIds.size > 0 && (
+          <TabOverflow
+            tabs={tabs}
+            hiddenIds={hiddenIds}
+            artifacts={artifacts}
+            unread={unread}
+            tabButtons={tabButtons}
+            onSelect={onReveal}
+            open={overflowOpen}
+            onOpenChange={onOverflowChange}
+            restoreFocus={restoreOverflowFocus}
+          />
+        )}
         <div className="contents" role="tablist" aria-label="Artifacts" onKeyDown={navigateTabs}>
-          {tabs.map((tab) => {
+          {visibleTabs.map((tab) => {
             const { id } = tab;
             const artifactId = tabArtifactId(tab);
             const artifact = artifacts.get(artifactId ?? "");
@@ -109,7 +170,7 @@ export function TabBar({
         onClick={onSearch}
       >
         <Search />
-        {[...unread].some((id) => !tabs.some((tab) => tabArtifactId(tab) === id)) && (
+        {[...unread].some((id) => !openArtifacts.has(id)) && (
           <span className="unread-dot" aria-label="New artifacts" role="img" />
         )}
       </Button>

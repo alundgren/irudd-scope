@@ -18,6 +18,7 @@ export function DiagramChat({
   onIntentChange,
   onSend,
   onCancel,
+  name,
   target,
   onTargetChange,
   agentStatus,
@@ -27,20 +28,22 @@ export function DiagramChat({
   messages: DiagramDraft["messages"];
   intent: string;
   busy: "generation" | "connected" | "saving" | null;
-  target: "embedded" | "connected";
-  onTargetChange: (target: "embedded" | "connected") => void;
   agentStatus: DiagramAgentStatus;
   ready: boolean;
   onClose: () => void;
   onIntentChange: (intent: string) => void;
   onSend: () => void;
   onCancel: () => void;
+  name?: string;
+  target: "external" | "connected" | "embedded";
+  onTargetChange: (target: "external" | "connected" | "embedded") => void;
 }) {
   const preferences = useContext(SettingsContext);
+  const external = Boolean(name) && target === "external";
   const enabled =
     target === "connected"
       ? agentStatus.phase !== "disconnected"
-      : (preferences?.settings?.diagramGenerationEnabled ?? false);
+      : external || (preferences?.settings?.diagramGenerationEnabled ?? false);
   const pending = busy === "generation" || busy === "connected";
   const history = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
@@ -54,22 +57,21 @@ export function DiagramChat({
     <aside className="diagram-chat" aria-label="Diagram agent" hidden={!open || focus}>
       <div className="chat-heading">
         <div>
-          <h2>Diagram agent</h2>
-          <NativeSelect
-            aria-label="Diagram agent"
-            value={target}
-            disabled={busy !== null}
-            onChange={(event) => onTargetChange(event.target.value as "embedded" | "connected")}
-          >
-            <NativeSelectOption value="embedded">Embedded agent</NativeSelectOption>
-            <NativeSelectOption value="connected">Connected agent</NativeSelectOption>
-          </NativeSelect>
+          <h2>
+            {external
+              ? "Your coding agent"
+              : target === "connected"
+                ? "Connected agent"
+                : "Diagram agent"}
+          </h2>
           <p className="secondary" role="status">
-            {target === "embedded"
-              ? "Gemini 3.8 Flash · OpenRouter"
-              : agentStatus.phase === "disconnected"
-                ? "No agent connected"
-                : `${agentStatus.name} · ${agentStatus.phase === "waiting" ? "Waiting for a request" : "Working"}`}
+            {external
+              ? name
+              : target === "embedded"
+                ? "Gemini 3.8 Flash · OpenRouter"
+                : agentStatus.phase === "disconnected"
+                  ? "No agent connected"
+                  : `${agentStatus.name} · ${agentStatus.phase === "waiting" ? "Waiting for a request" : "Working"}`}
           </p>
         </div>
         <Button
@@ -82,6 +84,32 @@ export function DiagramChat({
           <X />
         </Button>
       </div>
+      <div className="chat-target">
+        <label>
+          Send to{" "}
+          <NativeSelect
+            disabled={busy !== null}
+            aria-label="Conversation recipient"
+            value={target}
+            onChange={(event) =>
+              onTargetChange(event.target.value as "external" | "connected" | "embedded")
+            }
+          >
+            {name && <NativeSelectOption value="external">Your coding agent</NativeSelectOption>}
+            <NativeSelectOption value="connected">Connected agent</NativeSelectOption>
+            <NativeSelectOption value="embedded">Scope diagram agent</NativeSelectOption>
+          </NativeSelect>
+        </label>
+        {name && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void navigator.clipboard.writeText(name)}
+          >
+            Copy name
+          </Button>
+        )}
+      </div>
       <div
         className="chat-history"
         role="log"
@@ -91,13 +119,20 @@ export function DiagramChat({
       >
         {!messages.length && (
           <p className="secondary">
-            Describe a change to this diagram. You can edit the result on the canvas. Changes save
-            automatically.
+            {external
+              ? "Keep your coding agent's Scope listener running to receive messages and canvas edits. Use this name to reconnect in another session."
+              : "Describe a change to this diagram. You can edit the result on the canvas. Changes save automatically."}
           </p>
         )}
         {messages.map((message, index) => (
           <div className={`chat-message${message.role === "user" ? " from-user" : ""}`} key={index}>
-            <strong>{message.role === "user" ? "You" : "Diagram agent"}</strong>
+            <strong>
+              {message.role === "user"
+                ? "You"
+                : message.agent === "external"
+                  ? "Your coding agent"
+                  : "Diagram agent"}
+            </strong>
             <p>{message.text}</p>
             {message.details && <p className="secondary">{message.details}</p>}
           </div>
@@ -137,7 +172,7 @@ export function DiagramChat({
             aria-label="Change diagram"
             placeholder="Describe a change…"
             value={intent}
-            maxLength={16000}
+            maxLength={external ? 4000 : 16000}
             disabled={pending}
             onChange={(event) => onIntentChange(event.target.value)}
             onKeyDown={(event) => {

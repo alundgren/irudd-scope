@@ -32,7 +32,7 @@ test.each([false, true])(
       await page.getByTestId("main-menu-trigger").click();
       await page.getByRole("button", { name: "Ask agent", exact: true }).click();
       await page
-        .getByRole("combobox", { name: "Diagram agent", exact: true })
+        .getByRole("combobox", { name: "Conversation recipient", exact: true })
         .selectOption("connected");
       await page.getByText("No agent connected", { exact: true }).waitFor();
       expect(
@@ -145,8 +145,11 @@ test.each([false, true])(
       await page.getByText("Reloading agent · Waiting for a request", { exact: true }).waitFor();
       await page.reload();
       await reloadRejected;
+      await expect
+        .poll(() => page.getByRole("combobox", { name: "Conversation recipient" }).inputValue())
+        .toBe("embedded");
       await page
-        .getByRole("combobox", { name: "Diagram agent", exact: true })
+        .getByRole("combobox", { name: "Conversation recipient", exact: true })
         .selectOption("connected");
       await page.getByText("No agent connected", { exact: true }).waitFor();
       const closed = client.diagramAgent({

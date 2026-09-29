@@ -52,12 +52,6 @@ export const lintExceptions: readonly LintException[] = [
   },
   {
     file: "apps/desktop/src/library/store.ts",
-    limits: { "max-lines": 501 },
-    reason:
-      "This store owns tab records, artifacts, content references, and drafts in the same SQLite database. Their transactions and foreign-key cleanup belong together; extracting tables into independent stores would obscure atomic ownership changes.",
-  },
-  {
-    file: "apps/desktop/src/library/store.ts",
     at: "Effect.gen(function* () {\nconst imported = yield* sql`SELECT 1 FROM lifecycle WHERE name = 'workspace_imported'`;",
     limits: { complexity: 15 },
     reason:
@@ -83,13 +77,6 @@ export const lintExceptions: readonly LintException[] = [
     limits: { complexity: 11 },
     reason:
       "One chat panel renders empty history, generation progress, opt-in recovery, and send or cancel controls. Its short conditional JSX keeps each action beside the state that enables it.",
-  },
-  {
-    file: "apps/desktop/src/plugins/diagram/main.ts",
-    at: 'handle("scope:save-diagram", async (value) => {',
-    limits: { complexity: 11 },
-    reason:
-      "Saving a diagram checks the external document before reading a revision and publishing it. Keep the short validation and provenance fallback beside the IPC operation they protect.",
   },
   {
     file: "apps/desktop/src/plugins/diagram/openrouter.ts",
@@ -180,34 +167,62 @@ export const lintExceptions: readonly LintException[] = [
     at: "const task = opening.current.then(async () => {",
     limits: { complexity: 14 },
     reason:
-      "The serialized open loop distinguishes handled requests from opened tabs, enforces capacity, and checks close notifications both before and after IPC. Keeping those guards together prevents delayed opens from restoring closed tabs.",
+      "The serialized open loop distinguishes handled requests from opened tabs and checks close notifications both before and after IPC. Keeping those guards together prevents delayed opens from restoring closed tabs.",
   },
   {
     file: "apps/desktop/src/workspace/use-workspace.ts",
     at: "export function useWorkspace(onError: (message: string) => void) {",
-    limits: { "max-lines-per-function": 183 },
+    limits: { "max-lines-per-function": 191 },
     reason:
       "Tab mutations share a current-state ref, an opening queue, and one autosave lifecycle. Keep restoration, serialized opens, deletion handling, and state updates in the same hook to avoid stale membership writes.",
   },
   {
     file: "apps/desktop/src/workspace/workspace.tsx",
-    limits: { "max-lines": 502 },
+    limits: { "max-lines": 565 },
     reason:
       "This file composes one workspace window from existing tab, search, and settings components. Its local callbacks coordinate the same selection, arrival queue, and dialog state; keep that window ownership in one place.",
   },
   {
     file: "apps/desktop/src/workspace/workspace.tsx",
     at: "const keyboard = (event: KeyboardEvent) => {",
-    limits: { complexity: 20 },
+    limits: { complexity: 23 },
     reason:
-      "Shortcut precedence must honor prevented events, open dialogs, and focus mode before closing tabs. Keeping the five shortcuts in one ordered handler makes that priority visible.",
+      "Shortcut precedence must honor prevented events, open dialogs, the tab picker, and focus mode before closing tabs. Keeping the shortcuts in one ordered handler makes that priority visible.",
   },
   {
     file: "apps/desktop/src/workspace/workspace.tsx",
     at: "export function App({ initialSettings }: { initialSettings: SettingsView | undefined }) {",
-    limits: { complexity: 41, "max-lines-per-function": 480 },
+    limits: { complexity: 51, "max-lines-per-function": 540 },
     reason:
       "One window owns selection, publication arrivals, focus, and dialog coordination. TabBar, TabHost, search, and settings already own their views; keep the connecting callbacks with their shared state so navigation preserves mounted tabs.",
+  },
+  {
+    file: "apps/desktop/src/workspace/tab-bar.tsx",
+    at: "export function TabBar({",
+    limits: { "max-lines-per-function": 165 },
+    reason:
+      "The strip measures available space, keeps the selected tab visible, and composes the picker and tab controls. These decisions share the same tab order and focus references; extracting the short layout calculation would add another interface without a separate responsibility.",
+  },
+  {
+    file: "apps/desktop/src/workspace/tab-overflow.tsx",
+    at: "export function TabOverflow({",
+    limits: { "max-lines-per-function": 162 },
+    reason:
+      "The picker shares its query, chosen tab, and focus targets between the trigger, search field, and results. Keeping this small popup together makes dismissal and focus restoration visible beside selection.",
+  },
+  {
+    file: "apps/desktop/src/workspace/tab-overflow.tsx",
+    at: "function navigate(event: KeyboardEvent) {",
+    limits: { complexity: 13 },
+    reason:
+      "The keyboard handler distinguishes entry from the search field, wrapping through results in either direction, and Enter activation. These short branches implement one focus movement and exclude unrelated controls.",
+  },
+  {
+    file: "tests/tab-overflow.test.ts",
+    at: 'test("150 tabs use a searchable overflow picker, move to the right, and survive restart", async () => {',
+    limits: { complexity: 12 },
+    reason:
+      "One Electron scenario checks publication, keyboard selection, both appearances, restart, and deletion against the same 150-tab workspace. Conditional fixture titles and optional screenshot capture belong with the complete user flow.",
   },
   {
     file: "apps/hub/src/paired-server.ts",
@@ -225,7 +240,7 @@ export const lintExceptions: readonly LintException[] = [
   },
   {
     file: "apps/hub/src/paired-server.ts",
-    at: "export async function startPairedHub(state: HubState, port = state.configuration().port) {",
+    at: "export async function startPairedHub(",
     limits: { "max-lines-per-function": 296 },
     reason:
       "The paired listener owns a desktop connection and bounded pending transfers. Local handlers share disconnect, cancellation, timers, and shutdown; moving them out would require exposing that mutable request state.",

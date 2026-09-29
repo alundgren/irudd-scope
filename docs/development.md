@@ -157,8 +157,8 @@ and allow native dialogs during manual checks. Installed apps are unaffected.
 After building, run `vp run test tests/lifecycle-pressure.test.ts --maxWorkers=1`.
 The standard test uses generated content, a temporary desktop profile, and a
 paired hub on loopback. Four publishers, two direct and two through the hub,
-exercise all six artifact kinds, shared bytes, 120 publications crossing the
-100-tab limit, automatic queue draining, drafts, and restart. It then runs two
+exercise all six artifact kinds, shared bytes, 120 publications with
+tab overflow, drafts, and restart. It then runs two
 12-artifact create/update/delete cycles. It verifies content bytes, deletion,
 database integrity, empty content tables, and physical reclamation in all three
 databases. `tests/tab-open.test.ts` holds real IPC requests before and after
@@ -447,7 +447,8 @@ Install the standalone CLI on the remote with the root `install-cli.sh`. It
 builds only the CLI and hub packages, copies the managed Node runtime into
 the installation, and links `~/.local/bin/irudd-scope`. It does not install
 the desktop. Linux and macOS can install the CLI; managed hub setup currently
-requires Linux, a working systemd user service manager, and user lingering.
+requires Linux, `flock` from util-linux, a working systemd user service manager,
+and user lingering.
 Tailscale must already be installed and connected, with permission to configure
 Serve. Setup reports missing prerequisites before changing the service.
 
@@ -493,8 +494,30 @@ removes only its service and Serve route, preserving the CLI, skill, and
 settings. It requires the hub to be running. Logs are available through
 `journalctl --user -u irudd-scope-hub.service`.
 
-Re-run the standalone installer to update its payload, then run setup to
-restart the hub with the new version. Completed builds live in
+The installed Mac app requests remote updates after it is running the new
+version. Enabled remotes update on connection, including after being offline.
+The requested commit is the running Mac's commit, never a prepared update or
+whatever happens to be latest on `main`. The remote verifies that commit is on
+the repository's `main` history and refuses a downgrade or a different history.
+Development launches do not request updates.
+
+The hub starts `irudd-scope-update.service` as a separate transient systemd
+user service. It fetches and builds while the existing hub keeps serving, then
+switches the CLI, skill, and hub together and restarts the hub. Publication is
+briefly unavailable during restart; active transfers can fail and are not
+replayed. The worker checks the replacement's running commit and restores the
+previous build if startup fails. Pairing, discovery, and Serve configuration
+stay in place. An accepted update can finish after the Mac disconnects.
+
+Settings → Remotes shows progress and Retry update on failure. Failed attempts
+are retained in `hub.db` and do not repeat automatically for the same commit.
+Worker logs are in `journalctl --user -u irudd-scope-update.service`. Linux
+installation locks release when the updater exits, including after a crash.
+
+Older hubs cannot receive update requests. Re-run the standalone installer and
+`irudd-scope setup` once on each such remote. This remains the manual recovery
+procedure for an unavailable hub. The installer updates its payload; setup
+restarts the hub. Completed builds live in
 `~/.local/share/irudd-scope-cli/builds`; `current` and `previous` select builds.
 `SCOPE_CLI_INSTALL_ROOT`, `SCOPE_CLI_BIN_DIR`, and `SCOPE_VP` override installer
 paths. `SCOPE_CLI_SOURCE` builds an existing absolute checkout without fetching
@@ -555,3 +578,54 @@ cannot reach the desktop before sending response headers; interrupted streams
 close. Both paths require an awake Mac running Scope. Do not expose either
 listener through a public listener or funnel. Provider keys belong only to
 desktop main.
+
+### Diagram edit benchmark
+
+After building, run the native Excalidraw comparison against an isolated real
+desktop:
+
+```sh
+vp exec node tools/diagram-benchmark.ts /tmp/scope-diagram-benchmark.json
+```
+
+`SCOPE_DIAGRAM_BENCH_EDITS` selects 10–5000 edits per case (default 300). The
+script compares identical native edit traces for 24, 240, and 1200 objects, plus
+an image-heavy document. Both modes use optimistic versions; one sends field
+deltas and the other sends the full native document. Each trace includes
+competing updates and conflict retries. It verifies equivalent final content
+and that deleting each tab removes its content blobs.
+
+The JSON report separates initialization, median/p95 request latency, total
+editing time, request bodies, HTTP headers, response bodies, and retained blob
+bytes. Counts include failed stale requests, refreshes, and retries. They exclude
+TCP/TLS framing, simulated human traffic, and deletion. API timing excludes
+model inference and CLI process startup; response bytes are not model token
+usage. Run it without concurrent builds or tests. Its temporary profile is
+removed on completion.
+
+### Concurrent diagram editing
+
+After building, run `vp run test tests/diagram-pressure.test.ts --maxWorkers=1`.
+Four fake agents compete over one named diagram through the HTTP API while
+Playwright draws and types in the real editor. Three agents send deltas and one
+sends full documents. Each operation increments a shared counter, updates its
+agent's progress, and edits native objects. The test checks every acknowledged
+increment and human drawing, text, additions, deletions, images, stale proposal
+rejection, restart recovery, and deletion during incoming writes. Reusing the
+name must reject a write carrying the deleted tab's version.
+
+The default run uses 40 edits per agent and eight pairs of human drawings and
+text entries. For a longer session:
+
+```sh
+SCOPE_DIAGRAM_PRESSURE_EDITS=250 SCOPE_DIAGRAM_PRESSURE_HUMAN=80 \
+SCOPE_DIAGRAM_PRESSURE_SEED=7294 \
+SCOPE_DIAGRAM_PRESSURE_OUTPUT=/tmp/scope-diagram-pressure.json \
+vp run test tests/diagram-pressure.test.ts --maxWorkers=1
+```
+
+The optional report records elapsed time, accepted edits, version conflicts,
+busy retries, full reads, renderer errors, and database content counts before
+and after tab deletion. The seed controls the edit sequence and retry delays;
+operating-system scheduling still varies. No live agent, account, or installed
+profile is used. Temporary profiles and processes are removed on completion.

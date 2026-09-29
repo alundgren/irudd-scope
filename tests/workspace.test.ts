@@ -39,7 +39,10 @@ test("new CLI publications open visible tabs and preserve reading and saved sele
       await page.keyboard.press("ControlOrMeta+,");
       await page.getByRole("button", { name: "Appearance", exact: true }).click();
       await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await page
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
       await page
         .getByRole("dialog", { name: "Settings", exact: true })
         .waitFor({ state: "hidden" });
@@ -109,7 +112,7 @@ test("publications wait while a diagram is being composed", async () => {
     await page.getByRole("switch", { name: "Enable diagram generation" }).click();
     await page
       .getByRole("dialog", { name: "Settings", exact: true })
-      .getByRole("button", { name: "Done", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
       .click();
     await page
       .getByLabel("What should the diagram show?")
@@ -122,7 +125,10 @@ test("publications wait while a diagram is being composed", async () => {
     expect(await page.getByLabel("What should the diagram show?").inputValue()).toBe(
       "Keep this unsent diagram request.",
     );
-    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page
+      .getByRole("region", { name: "Create diagram" })
+      .getByRole("button", { name: "Done", exact: true })
+      .click();
     await page.getByText("The publication arrived while composing.", { exact: true }).waitFor();
     expect(await page.getByRole("tab", { selected: true }).textContent()).toBe(
       "Publication while composing",
@@ -192,6 +198,7 @@ test("the compact workspace preserves reading position, supports overflowing tab
       await page.keyboard.press("Enter");
       await page.getByRole("heading", { name: `Report ${index + 1}`, exact: true }).waitFor();
     }
+    await controls.waitFor({ state: "hidden" });
     await page.setViewportSize({ width: 900, height: 700 });
     const navigation = page.getByRole("navigation", { name: "Open artifacts" });
     const last = navigation.getByRole("tab", { name: titles[11] });
@@ -200,6 +207,15 @@ test("the compact workspace preserves reading position, supports overflowing tab
     await expect
       .poll(() => navigation.getByRole("tab", { selected: true }).textContent())
       .toBe(titles[0]);
+    await expect
+      .poll(
+        () =>
+          navigation
+            .getByRole("tab", { name: titles[0] })
+            .evaluate((element) => element === document.activeElement),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
     await page.keyboard.press("End");
     await expect
       .poll(() => navigation.getByRole("tab", { selected: true }).textContent())
@@ -261,7 +277,10 @@ test("the compact workspace preserves reading position, supports overflowing tab
     );
     expect(await page.getByLabel("OpenRouter API key").isVisible()).toBe(false);
     expect(await page.getByLabel("Appearance", { exact: true }).isVisible()).toBe(false);
-    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     expect(await pane.evaluate((element) => element.scrollTop)).toBe(scroll);
 
     await client.publish(
@@ -279,7 +298,9 @@ test("the compact workspace preserves reading position, supports overflowing tab
     expect(await navigation.getByRole("tab", { selected: true }).textContent()).toBe(titles[11]);
     await searchTrigger.click();
     await currentTab.getByRole("button", { name: "Close tab", exact: true }).click();
-    await expect.poll(() => navigation.getByRole("tab").count()).toBe(11);
+    await expect
+      .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
+      .toBe(11);
     await searchTrigger.click();
     expect(await currentTab.getByText(titles[10], { exact: true }).isVisible()).toBe(true);
     expect(
@@ -300,47 +321,9 @@ test("the compact workspace preserves reading position, supports overflowing tab
     await reopened.getByRole("heading", { name: "Report 11", exact: true }).waitFor();
     await reopened.keyboard.press("ControlOrMeta+Shift+t");
     expect(await reopened.getByRole("tab", { selected: true }).textContent()).toBe(titles[10]);
-    expect(await reopened.getByRole("tab").count()).toBe(11);
+    expect((await reopened.evaluate(() => window.scope.workspace()))?.tabs).toHaveLength(11);
     expect(await reopened.getByRole("heading", { name: "Report 12", exact: true }).count()).toBe(0);
     expect(await reopened.locator("html").getAttribute("data-theme")).toBe("dark");
-  } finally {
-    await application.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-}, 60_000);
-
-test("overflow publications retain queued tabs without evicting any of the hundred open tabs", async () => {
-  const { directory, launch, connect } = await desktopFixture();
-  const application = await launch();
-  try {
-    const page = await application.firstWindow();
-    const client = await connect();
-    for (let index = 0; index < 101; index++) {
-      await client.publish(
-        `overflow-${String(index).padStart(3, "0")}`,
-        {
-          title: `Overflow ${index}`,
-          kind: "text",
-          mediaType: "text/plain",
-          fileName: "note.txt",
-          expectedRevision: 0,
-        },
-        new TextEncoder().encode(`Synthetic ${index}`),
-      );
-    }
-    await expect.poll(() => page.getByRole("tab").count()).toBe(100);
-    expect(await client.list()).toHaveLength(101);
-    expect(await page.getByRole("tab", { selected: true }).textContent()).toBe("Overflow 0");
-    const workspace = await page.evaluate(() => window.scope.workspace());
-    expect(workspace?.tabs).toHaveLength(100);
-    await client.delete("overflow-100");
-    expect(await page.getByRole("tab").count()).toBe(100);
-    await client.delete("overflow-000");
-    await expect.poll(() => page.getByRole("tab").count()).toBe(99);
-    expect(await client.list()).toHaveLength(99);
-    for (const artifact of await client.list()) await client.delete(artifact.id);
-    await expect.poll(() => page.getByRole("tab").count()).toBe(0);
-    expect(await client.list()).toEqual([]);
   } finally {
     await application.close();
     await rm(directory, { recursive: true, force: true });

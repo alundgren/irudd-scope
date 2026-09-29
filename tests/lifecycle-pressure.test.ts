@@ -27,7 +27,7 @@ const output = process.env.SCOPE_PRESSURE_OUTPUT;
 const settleMs = setting("SCOPE_PRESSURE_SETTLE_MS", output ? 2000 : 0, 30_000, 0);
 
 test(
-  "concurrent local and relayed publications drain queued tabs, survive restart, and reclaim content after repeated cycles",
+  "concurrent local and relayed publications open beyond one hundred tabs, survive restart, and reclaim content after repeated cycles",
   async () => {
     const f = await desktopFixture();
     const hub = await pressureHub(f.directory);
@@ -99,7 +99,11 @@ test(
       artifacts.delete(id);
     };
     const waitTabs = (n: number) =>
-      expect.poll(() => page.getByRole("tab").count(), { timeout: 30_000 }).toBe(n);
+      expect
+        .poll(() => page.locator(".artifact-pane[role=tabpanel]").count(), {
+          timeout: 30_000,
+        })
+        .toBe(n);
     const checkEmpty = async () => {
       await waitTabs(0);
       expect(await local.list()).toEqual([]);
@@ -130,7 +134,9 @@ test(
         (await window.scope.workspace())?.tabs.find((tab) => tab.type === "diagram"),
       );
       expect(diagram).toBeDefined();
-      await page.getByRole("tab", { name: diagram!.title, exact: true }).click();
+      await page.keyboard.press("ControlOrMeta+k");
+      await page.getByLabel("Search artifacts", { exact: true }).fill(diagram!.title);
+      await page.keyboard.press("Enter");
       await page
         .getByRole("tabpanel", { name: diagram!.title, exact: true })
         .locator(".excalidraw canvas")
@@ -146,8 +152,8 @@ test(
       await publish(0, 0, 1);
       await waitTabs(1);
       await pressureWorkers(119, (index) => publish(0, index + 1, 1));
-      await waitTabs(100);
-      await page.getByRole("status").filter({ hasText: "20 publications are waiting" }).waitFor();
+      await waitTabs(120);
+      await page.getByRole("button", { name: /^More tabs,/ }).waitFor();
       expect(await page.getByRole("tab", { selected: true }).textContent()).toBe(idFor(0, 0));
       const filled = contentCounts(f.settingsDirectory);
       expect(filled.rows.live_tabs).toBe(120);
@@ -158,14 +164,17 @@ test(
         await page.keyboard.press("ControlOrMeta+,");
         await page.getByLabel("Search settings").fill("appearance");
         await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
-        await page.getByRole("button", { name: "Done", exact: true }).click();
+        await page
+          .getByRole("dialog", { name: "Settings", exact: true })
+          .getByRole("button", { name: "Close", exact: true })
+          .click();
         await page
           .getByRole("dialog", { name: "Settings", exact: true })
           .waitFor({ state: "hidden" });
         await page.setViewportSize(
           appearance === "light" ? { width: 1280, height: 820 } : { width: 700, height: 620 },
         );
-        await page.getByRole("status").filter({ hasText: "20 publications are waiting" }).waitFor();
+        await page.getByRole("button", { name: /^More tabs,/ }).waitFor();
         if (process.env.SCOPE_TEST_SCREENSHOTS) {
           await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
           await page.screenshot({
@@ -179,8 +188,8 @@ test(
       expect(duplicate.blob).toBe(artifacts.get(idFor(0, 0))!.blob);
       await page.getByRole("button", { name: `Close ${idFor(0, 0)}`, exact: true }).click();
       artifacts.delete(idFor(0, 0));
-      await page.getByRole("status").filter({ hasText: "19 publications are waiting" }).waitFor();
-      await waitTabs(100);
+      await page.getByRole("button", { name: /^More tabs,/ }).waitFor();
+      await waitTabs(119);
       expect(contentCounts(f.settingsDirectory).rows.blobs).toBe(filled.rows.blobs);
       expect(Buffer.from(await hub.client.content(duplicate.id))).toEqual(
         pressureContent(1, 0, 1, payloadKiB).bytes,
@@ -211,8 +220,8 @@ test(
       observeErrors();
       local = await f.connect();
       samplingPaused = false;
-      await waitTabs(100);
-      await page.getByRole("status").filter({ hasText: "19 publications are waiting" }).waitFor();
+      await waitTabs(119);
+      await page.getByRole("button", { name: /^More tabs,/ }).waitFor();
       expect(await page.evaluate((id) => window.scope.diagramDraft(id), draftTab.id)).toMatchObject(
         { intent: "Synthetic draft" },
       );
@@ -223,17 +232,23 @@ test(
       await expect
         .poll(() => page.evaluate(async () => (await window.scope.remotes())[0]?.connection))
         .toBe("connected");
-      // Delete only the current visible set. The remaining publications must open themselves.
-      await pressureWorkers(restored!.tabs.length, async (index) => {
+      // Delete the first hundred, then close the remaining tabs through navigation.
+      await pressureWorkers(100, async (index) => {
         const tab = restored!.tabs[index];
         await clientFor(index).delete(tabArtifactId(tab)!);
       });
       await waitTabs(19);
       const remainingArtifacts = await local.list();
       expect(remainingArtifacts.length).toBe(19);
-      // Deletions and queued arrivals update the tab list separately.
+      // Library events and saved workspace updates complete separately.
       await expect
-        .poll(async () => (await page.getByRole("tab").allTextContents()).sort())
+        .poll(async () =>
+          (
+            await page.evaluate(async () =>
+              (await window.scope.workspace())!.tabs.map((tab) => tab.title),
+            )
+          ).sort(),
+        )
         .toEqual(remainingArtifacts.map((artifact) => artifact.title).sort());
       await sample("overflow-drained");
       for (let remaining = 19; remaining > 0; remaining--) {

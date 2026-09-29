@@ -18,16 +18,27 @@ import { exportToBlob, CaptureUpdateAction } from "@excalidraw/excalidraw";
 import { applyOperations } from "./scene.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { DiagramChat } from "./chat.tsx";
-import { BookOpen, ImageDown, MessageSquare, X } from "lucide-react";
+import { ProposalPreview } from "./proposal.tsx";
+import { DiagramHistory } from "./sync-history.ts";
+import {
+  applyDiagramDelta,
+  diagramDelta,
+  parseNativeDiagram,
+  type DiagramSyncCommand,
+  type DiagramSyncReply,
+  type DiagramProposal,
+} from "@irudd-scope/protocol/diagram-sync";
+import type { DiagramEvent } from "@irudd-scope/protocol";
+import { BookOpen, Copy, ImageDown, Maximize, MessageSquare, X } from "lucide-react";
 import type { Theme } from "../../renderer/appearance.ts";
 import type { DiagramDraft } from "./draft.ts";
 import { useAutosave } from "../../workspace/persistence.ts";
+import { fitToCanvas, useDiagramViewport } from "./viewport.ts";
+import { useDiagramMenu } from "./native-menu.ts";
 import "@excalidraw/excalidraw/index.css";
 
 type AutosaveSnapshot = {
   draft: DiagramDraft;
-  sceneVersion: number;
-  settings: string;
   loadId: number;
 };
 
@@ -45,17 +56,18 @@ export function DiagramView({
   context,
   theme,
   viewing,
+  active,
 }: {
   item: ArtifactContent;
   context: TabContext;
   theme: Theme;
   viewing: boolean;
+  active: boolean;
 }) {
   const [api, setApi] = useState<ExcalidrawImperativeAPI>();
   const [dirty, setDirty] = useState(false);
   const dirtyRef = useRef(false);
-  const version = useRef(-1);
-  const savedSettings = useRef("");
+  const publishedContent = useRef<string | null>(null);
   const loaded = useRef(item.artifact.revision);
   const loadId = useRef(0);
   const [revision, setRevision] = useState(item.artifact.revision);
@@ -65,7 +77,7 @@ export function DiagramView({
   const [publishing, setPublishing] = useState(false);
   const [intent, setIntent] = useState("");
   const [messages, setMessages] = useState<DiagramDraft["messages"]>([]);
-  const [agentTarget, setAgentTarget] = useState<"embedded" | "connected">("embedded");
+  const [connectedAgentSelected, setConnectedAgentSelected] = useState(false);
   const [agentStatus, setAgentStatus] = useState<DiagramAgentStatus>({
     id: item.artifact.id,
     phase: "disconnected",
@@ -96,15 +108,47 @@ export function DiagramView({
     };
   }, [item.artifact.id]);
   const [chatOpen, setChatOpen] = useState(false);
+  const [proposal, setProposal] = useState<DiagramProposal>();
+  const [proposalViewport, setProposalViewport] = useState<DiagramDraft["viewport"]>();
+  const proposalRef = useRef(proposal);
+  const [conversationTarget, setConversationTarget] = useState<"external" | "embedded">(
+    item.artifact.name ? "external" : "embedded",
+  );
+  const history = useRef(new DiagramHistory());
+  const agentContent = useRef<string | undefined>(undefined);
   const [restored, setRestored] = useState<DiagramDraft | null>();
   const [restoreError, setRestoreError] = useState(false);
   const [restoreAttempt, setRestoreAttempt] = useState(0);
-  const conversation = useRef({ intent, messages, chatOpen });
-  conversation.current = { intent, messages, chatOpen };
+  const conversation = useRef({
+    intent,
+    messages,
+    chatOpen,
+    proposal,
+    proposalViewport,
+    conversationTarget,
+  });
+  conversation.current = {
+    intent,
+    messages,
+    chatOpen,
+    proposal,
+    proposalViewport,
+    conversationTarget,
+  };
+  proposalRef.current = proposal;
   const request = useRef<{ canceled: boolean; target?: "connected" } | null>(null);
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
   const readyRef = useRef(false);
+  const canvasViewport = useDiagramViewport(api, active, ready);
+  useDiagramMenu({
+    tabId: context.tabId,
+    api,
+    active: active && !proposal,
+    ready,
+    busy: busy !== null,
+    saveCopy,
+  });
   const latest = useRef(item);
   latest.current = item;
   const display = useRef({ theme, viewing });
@@ -143,25 +187,25 @@ export function DiagramView({
   const draftSave = useAutosave<AutosaveSnapshot>(
     () => {
       if (!api || !readyRef.current) return undefined;
-      const state = api.getAppState();
+      const viewport = canvasViewport.read();
+      const { proposal, proposalViewport, ...savedConversation } = conversation.current;
       return {
         draft: {
           version: 1,
           content: documentContent(),
           revision: loaded.current,
           dirty: dirtyRef.current,
-          ...conversation.current,
-          viewport: { zoom: state.zoom.value, scrollX: state.scrollX, scrollY: state.scrollY },
+          ...savedConversation,
+          ...(proposal ? { proposal } : {}),
+          ...(proposalViewport ? { proposalViewport } : {}),
+          ...(viewport ? { viewport } : {}),
         },
-        sceneVersion: getSceneVersion(api.getSceneElements()),
-        settings: canvasSettings(state),
         loadId: loadId.current,
       };
     },
     async (snapshot) => {
       if (snapshot.loadId !== loadId.current) return;
-      const changed =
-        snapshot.sceneVersion !== version.current || snapshot.settings !== savedSettings.current;
+      const changed = snapshot.draft.content !== publishedContent.current;
       const draft = { ...snapshot.draft, revision: loaded.current, dirty: changed };
       await window.scope.saveDiagramDraft(context.tabId, draft);
       if (
@@ -180,16 +224,9 @@ export function DiagramView({
         });
         if (snapshot.loadId !== loadId.current) return;
         loaded.current = saved.revision;
-        version.current = snapshot.sceneVersion;
-        savedSettings.current = snapshot.settings;
+        publishedContent.current = draft.content;
         setRevision(saved.revision);
-        markDirty(
-          Boolean(
-            api &&
-            (getSceneVersion(api.getSceneElements()) !== snapshot.sceneVersion ||
-              canvasSettings(api.getAppState()) !== snapshot.settings),
-          ),
-        );
+        markDirty(Boolean(api && documentContent() !== draft.content));
         await window.scope.saveDiagramDraft(context.tabId, {
           ...draft,
           revision: saved.revision,
@@ -200,6 +237,10 @@ export function DiagramView({
           resource: { kind: "artifact", id: saved.id },
           revision: saved.revision,
         });
+        if (item.artifact.name && draft.content !== agentContent.current) {
+          const current = await history.current.capture(draft.content, context.tabId);
+          await emitDiagramEvent("changed", current.version);
+        }
       } finally {
         setPublishing(false);
       }
@@ -216,6 +257,11 @@ export function DiagramView({
         setIntent(draft?.intent ?? "");
         setMessages(draft?.messages ?? []);
         setChatOpen(draft?.chatOpen ?? false);
+        setProposal(draft?.proposal);
+        setProposalViewport(draft?.proposalViewport);
+        setConversationTarget(
+          draft?.conversationTarget ?? (item.artifact.name ? "external" : "embedded"),
+        );
         setRestored(draft);
       })
       .catch(() => {
@@ -227,7 +273,173 @@ export function DiagramView({
   }, [item.artifact.id, restoreAttempt]);
   useEffect(() => {
     if (ready) draftSave.schedule();
-  }, [intent, messages, chatOpen, ready, revision]);
+  }, [intent, messages, chatOpen, proposal, proposalViewport, conversationTarget, ready, revision]);
+
+  async function emitDiagramEvent(
+    event: DiagramEvent["event"],
+    currentVersion: string,
+    text?: string,
+  ) {
+    if (!item.artifact.name) return;
+    await window.scope.diagramEvent({
+      type: "diagram",
+      id: item.artifact.id,
+      name: item.artifact.name,
+      event,
+      version: currentVersion,
+      ...(text ? { text } : {}),
+    });
+  }
+  function updateProposal(value: DiagramProposal | undefined) {
+    if (value?.id !== proposalRef.current?.id) {
+      conversation.current = { ...conversation.current, proposalViewport: undefined };
+      setProposalViewport(undefined);
+    }
+    proposalRef.current = value;
+    conversation.current = { ...conversation.current, proposal: value };
+    setProposal(value);
+    draftSave.schedule();
+  }
+  async function nativeSnapshot() {
+    const content = documentContent();
+    const current = await history.current.capture(content, context.tabId);
+    if (documentContent() !== content) throw new Error("The canvas changed. Retry the request.");
+    return current;
+  }
+  function requireFinishedEdit() {
+    const state = api?.getAppState();
+    if (
+      state &&
+      (state.cursorButton === "down" ||
+        state.newElement ||
+        state.multiElement ||
+        state.editingTextElement ||
+        state.editingFrame)
+    )
+      throw new Error("Finish the current drawing or text edit before applying agent changes.");
+  }
+  async function applyNative(content: string, expectedVersion: string, signal?: AbortSignal) {
+    if (!api) throw new Error("Diagram is still opening.");
+    // Excalidraw's import removes unfinished zero-size objects and replaces drag references.
+    requireFinishedEdit();
+    const data = await loadFromBlob(new Blob([content]), null, null);
+    const current = await nativeSnapshot();
+    requireFinishedEdit();
+    if (current.version !== expectedVersion) return false;
+    signal?.throwIfAborted();
+    if (latest.current.artifact.revision > loaded.current)
+      throw new Error("Resolve the incoming publication in Scope before editing.");
+    const previous = new Map(api.getSceneElements().map((element) => [element.id, element]));
+    const elements = data.elements.map((element) => {
+      const old = previous.get(element.id);
+      if (old && JSON.stringify(old) === JSON.stringify(element)) return old;
+      return {
+        ...element,
+        version: Math.max(element.version, old?.version ?? 0) + 1,
+        versionNonce: Math.floor(Math.random() * 2 ** 31),
+        updated: Date.now(),
+      };
+    });
+    if (!api.getSceneElements().length) canvasViewport.requestFit();
+    api.updateScene({
+      elements,
+      appState: {
+        viewBackgroundColor: data.appState?.viewBackgroundColor,
+        gridSize: data.appState?.gridSize,
+        gridStep: data.appState?.gridStep,
+        gridModeEnabled: data.appState?.gridModeEnabled,
+      },
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+    if (data.files) api.addFiles(Object.values(data.files));
+    serialized.current = null;
+    agentContent.current = documentContent();
+    markDirty(true);
+    draftSave.schedule();
+    await draftSave.flush();
+    return true;
+  }
+  async function syncDiagram(
+    command: DiagramSyncCommand,
+    signal: AbortSignal,
+  ): Promise<DiagramSyncReply> {
+    if (!item.artifact.name || item.artifact.name !== command.name)
+      throw new Error("Two-way editing requires this diagram's unique name.");
+    let current = await nativeSnapshot();
+    signal.throwIfAborted();
+    const receipt = () => ({
+      name: command.name,
+      version: current.version,
+      revision: loaded.current,
+    });
+    const conflict = (): DiagramSyncReply => ({
+      type: "conflict",
+      ...receipt(),
+      ...("expectedVersion" in command && history.current.since(command.expectedVersion)
+        ? { delta: history.current.since(command.expectedVersion)! }
+        : {}),
+    });
+    if (command.action === "read") {
+      const delta = command.since ? history.current.since(command.since) : undefined;
+      return delta
+        ? { type: "delta", ...receipt(), delta }
+        : { type: "full", ...receipt(), document: current.document };
+    }
+    if (command.action === "proposal")
+      return { type: "proposal", ...receipt(), proposal: proposalRef.current ?? null };
+    if (command.action === "status") return { type: "status", ...receipt() };
+    if (command.action === "message") {
+      const next = [
+        ...conversation.current.messages,
+        { role: "assistant" as const, text: command.text, agent: "external" as const },
+      ];
+      conversation.current = { ...conversation.current, messages: next, chatOpen: true };
+      setMessages(next);
+      setChatOpen(true);
+      await draftSave.flush();
+      return { type: "message", ...receipt() };
+    }
+    if (command.expectedVersion !== current.version) return conflict();
+    const next =
+      command.action === "replace"
+        ? parseNativeDiagram(command.document)
+        : applyDiagramDelta(current.document, command.delta);
+    if (command.action === "propose") {
+      requireFinishedEdit();
+      if (proposalRef.current)
+        throw new Error(
+          "A proposal is awaiting a decision. Read it before proposing another change.",
+        );
+      const candidate = {
+        id: crypto.randomUUID(),
+        baseVersion: current.version,
+        content: JSON.stringify(next),
+        note: command.note,
+      };
+      updateProposal(candidate);
+      await draftSave.flush();
+      return { type: "proposal", ...receipt(), proposal: candidate };
+    }
+    const before = next;
+    if (!(await applyNative(JSON.stringify(next), current.version, signal))) {
+      current = await nativeSnapshot();
+      return conflict();
+    }
+    current = await nativeSnapshot();
+    return { type: "applied", ...receipt(), delta: diagramDelta(before, current.document) };
+  }
+  async function decideProposal(accept: boolean) {
+    const candidate = proposalRef.current;
+    if (!candidate) return;
+    if (accept && !(await applyNative(candidate.content, candidate.baseVersion)))
+      throw new Error(
+        "The original diagram changed. Reject this proposal and ask the agent to reconcile it again.",
+      );
+    updateProposal(undefined);
+    await draftSave.flush();
+    const current = await nativeSnapshot();
+    await emitDiagramEvent(accept ? "accepted" : "rejected", current.version);
+  }
 
   function markDirty(value: boolean) {
     dirtyRef.current = value;
@@ -251,11 +463,10 @@ export function DiagramView({
       );
       if (currentLoad !== loadId.current) return;
       serialized.current = null;
-      version.current = changed ? -1 : getSceneVersion(data.elements);
-      savedSettings.current = canvasSettings(data.appState ?? {});
       loaded.current = nextRevision;
       setRevision(nextRevision);
       markDirty(changed);
+      canvasViewport.restore(viewport);
       api.updateScene({
         elements: data.elements,
         appState: {
@@ -274,9 +485,7 @@ export function DiagramView({
         },
       });
       if (data.files) api.addFiles(Object.values(data.files));
-      // Empty documents have no bounds to fit and can produce an invalid zoom.
-      if (!viewport && data.elements.some((element) => !element.isDeleted))
-        api.scrollToContent(data.elements, { fitToContent: true });
+      publishedContent.current = changed ? null : documentContent();
       readyRef.current = true;
       setReady(true);
     } catch {
@@ -309,23 +518,40 @@ export function DiagramView({
     if (dirtyRef.current) draftSave.schedule();
     else void load(new TextDecoder().decode(item.bytes), item.artifact.revision);
   }, [item.artifact.revision, api, ready, dirty]);
+  async function publishCopy(content: string) {
+    const saved = await window.scope.saveDiagram({
+      id: crypto.randomUUID(),
+      title: `${latest.current.artifact.title} copy`,
+      expectedRevision: 0,
+      content,
+    });
+    context.events.emit({
+      type: "resource.saved",
+      resource: { kind: "artifact", id: saved.id },
+      revision: saved.revision,
+    });
+  }
+  async function saveCopy(content = documentContent()) {
+    if (busyRef.current) return;
+    busyRef.current = "saving";
+    setBusy("saving");
+    try {
+      await publishCopy(content);
+      setNotice("Saved a separate copy. Find it in the tab strip.");
+    } catch (failure) {
+      setNotice(failure instanceof Error ? failure.message : "Could not save a copy. Try again.");
+    } finally {
+      busyRef.current = null;
+      setBusy(null);
+    }
+  }
   async function keepBoth() {
     if (!api) return;
     setBusy("saving");
     const savedVersion = getSceneVersion(api.getSceneElements());
     const nextSettings = canvasSettings(api.getAppState());
     try {
-      const saved = await window.scope.saveDiagram({
-        id: crypto.randomUUID(),
-        title: `${item.artifact.title} copy`,
-        expectedRevision: 0,
-        content: documentContent(),
-      });
-      context.events.emit({
-        type: "resource.saved",
-        resource: { kind: "artifact", id: saved.id },
-        revision: saved.revision,
-      });
+      await publishCopy(documentContent());
       if (
         getSceneVersion(api.getSceneElements()) === savedVersion &&
         canvasSettings(api.getAppState()) === nextSettings
@@ -362,6 +588,7 @@ export function DiagramView({
           {
             role: "assistant",
             text: result.message,
+            agent: "external",
             details: agentStatus.name,
           },
         ]);
@@ -371,6 +598,7 @@ export function DiagramView({
         ...previous,
         {
           role: "assistant",
+          agent: "external",
           text: current.canceled
             ? "Request canceled. Read the canvas before retrying if a reply was already arriving."
             : error instanceof Error
@@ -385,6 +613,18 @@ export function DiagramView({
   }
   async function change() {
     if (!api || !intent.trim() || busy || request.current) return;
+    if (item.artifact.name && conversationTarget === "external") {
+      const prompt = intent.trim().slice(0, 4000);
+      try {
+        const current = await nativeSnapshot();
+        await emitDiagramEvent("message", current.version, prompt);
+        setMessages((previous) => [...previous, { role: "user", text: prompt }]);
+        setIntent("");
+      } catch (failure) {
+        setNotice(failure instanceof Error ? failure.message : "Could not send this message.");
+      }
+      return;
+    }
     const current = { canceled: false };
     request.current = current;
     setBusy("generation");
@@ -410,6 +650,7 @@ export function DiagramView({
         throw new Error(
           "The canvas changed during generation. Your edits were kept. Try the request again.",
         );
+      if (!api.getSceneElements().length) canvasViewport.requestFit();
       api.updateScene({
         captureUpdate: CaptureUpdateAction.IMMEDIATELY,
         elements: updateCanvasElements(
@@ -477,11 +718,13 @@ export function DiagramView({
       )
         throw new Error("The diagram is busy. Retry after the current operation finishes.");
       if (command.action === "create") throw new Error("Use the diagram creation command.");
+      if (command.action === "sync") return syncDiagram(command.request, combined);
       const current = await snapshot();
       combined.throwIfAborted();
       if ("snapshot" in command && command.snapshot && command.snapshot !== current.snapshot)
         throw new Error("The canvas changed since it was read. Read it again before editing.");
       if (command.action === "apply") {
+        requireFinishedEdit();
         if (
           (busyRef.current && busyRef.current !== "connected") ||
           (request.current && request.current.target !== "connected") ||
@@ -501,7 +744,9 @@ export function DiagramView({
           api.getSceneElements(),
         );
         combined.throwIfAborted();
+        if (!api.getSceneElements().length) canvasViewport.requestFit();
         api.updateScene({ elements, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+        agentContent.current = documentContent();
         markDirty(true);
         draftSave.schedule();
         await draftSave.flush();
@@ -623,59 +868,118 @@ export function DiagramView({
       )}
       <div className="diagram-body">
         <div className="diagram-canvas">
-          <Excalidraw
-            excalidrawAPI={setApi}
-            theme={theme}
-            zenModeEnabled={viewing}
-            viewModeEnabled={viewing}
-            onLinkOpen={(_element, event) => event.preventDefault()}
-            validateEmbeddable={false}
-            aiEnabled={false}
-            UIOptions={{
-              canvasActions: {
-                export: false,
-                saveToActiveFile: false,
-                loadScene: false,
-                toggleTheme: false,
-              },
-            }}
-            onChange={(elements, appState) => {
-              if (readyRef.current) {
-                markDirty(
-                  getSceneVersion(elements) !== version.current ||
-                    canvasSettings(appState) !== savedSettings.current,
-                );
-                draftSave.schedule();
-              }
-            }}
+          <div
+            className="diagram-original"
+            inert={Boolean(proposal)}
+            aria-hidden={proposal ? true : undefined}
           >
-            <MainMenu>
-              <MainMenu.Item
-                icon={<ImageDown />}
-                onSelect={() =>
-                  api?.updateScene({ appState: { openDialog: { name: "imageExport" } } })
+            <Excalidraw
+              excalidrawAPI={setApi}
+              theme={theme}
+              zenModeEnabled={viewing}
+              viewModeEnabled={viewing}
+              onLinkOpen={(_element, event) => event.preventDefault()}
+              validateEmbeddable={false}
+              aiEnabled={false}
+              UIOptions={{
+                canvasActions: {
+                  export: false,
+                  saveToActiveFile: false,
+                  loadScene: false,
+                  toggleTheme: false,
+                },
+              }}
+              onChange={(_elements, state) => {
+                if (readyRef.current) {
+                  canvasViewport.observe(state);
+                  markDirty(documentContent() !== publishedContent.current);
+                  draftSave.schedule();
                 }
-              >
-                Export
-              </MainMenu.Item>
-              <MainMenu.DefaultItems.SearchMenu />
-              <MainMenu.Item
-                icon={<BookOpen />}
-                onSelect={() => api?.toggleSidebar({ name: "default", tab: "library" })}
-              >
-                Library
-              </MainMenu.Item>
-              <MainMenu.Item
-                icon={<MessageSquare />}
-                onSelect={() => setChatOpen((value) => !value)}
-              >
-                Ask agent
-              </MainMenu.Item>
-            </MainMenu>
-          </Excalidraw>
+              }}
+            >
+              <MainMenu>
+                <MainMenu.Item
+                  icon={<Copy />}
+                  disabled={!ready || busy !== null}
+                  onSelect={() => void saveCopy()}
+                >
+                  Save a copy
+                </MainMenu.Item>
+                <MainMenu.Item
+                  icon={<Maximize />}
+                  disabled={!ready}
+                  onSelect={() => api && fitToCanvas(api)}
+                >
+                  Fit to canvas
+                </MainMenu.Item>
+                <MainMenu.Item
+                  icon={<ImageDown />}
+                  onSelect={() =>
+                    api?.updateScene({ appState: { openDialog: { name: "imageExport" } } })
+                  }
+                >
+                  Export
+                </MainMenu.Item>
+                <MainMenu.DefaultItems.SearchMenu />
+                <MainMenu.Item
+                  icon={<BookOpen />}
+                  onSelect={() => api?.toggleSidebar({ name: "default", tab: "library" })}
+                >
+                  Library
+                </MainMenu.Item>
+                <MainMenu.Item
+                  icon={<MessageSquare />}
+                  onSelect={() => setChatOpen((value) => !value)}
+                >
+                  Ask agent
+                </MainMenu.Item>
+              </MainMenu>
+            </Excalidraw>
+          </div>
+          {proposal && (
+            <ProposalPreview
+              key={proposal.id}
+              proposal={proposal}
+              theme={theme}
+              viewing={viewing}
+              active={active}
+              tabId={context.tabId}
+              saving={busy !== null}
+              onSaveCopy={saveCopy}
+              viewport={proposalViewport}
+              onViewportChange={(viewport) => {
+                const previous = conversation.current.proposalViewport;
+                if (
+                  previous?.zoom === viewport.zoom &&
+                  previous.scrollX === viewport.scrollX &&
+                  previous.scrollY === viewport.scrollY
+                )
+                  return;
+                conversation.current = { ...conversation.current, proposalViewport: viewport };
+                setProposalViewport(viewport);
+                draftSave.schedule();
+              }}
+              onDiscuss={() => {
+                setConnectedAgentSelected(false);
+                setConversationTarget("external");
+                setChatOpen(true);
+              }}
+              onEdit={(content) => {
+                if (proposalRef.current) updateProposal({ ...proposalRef.current, content });
+              }}
+              onAccept={() => decideProposal(true)}
+              onReject={() => decideProposal(false)}
+            />
+          )}
         </div>
         <DiagramChat
           open={chatOpen}
+          name={item.artifact.name}
+          target={connectedAgentSelected ? "connected" : conversationTarget}
+          onTargetChange={(target) => {
+            setConnectedAgentSelected(target === "connected");
+            if (target !== "connected") setConversationTarget(target);
+          }}
           focus={viewing}
           messages={messages}
           intent={intent}
@@ -683,10 +987,8 @@ export function DiagramView({
           ready={ready}
           onClose={() => setChatOpen(false)}
           onIntentChange={setIntent}
-          target={agentTarget}
-          onTargetChange={setAgentTarget}
           agentStatus={agentStatus}
-          onSend={() => void (agentTarget === "connected" ? changeConnected() : change())}
+          onSend={() => void (connectedAgentSelected ? changeConnected() : change())}
           onCancel={() => void cancel()}
         />
       </div>

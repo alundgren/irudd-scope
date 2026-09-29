@@ -4,6 +4,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { ScopeBridge, ArtifactLibrarySnapshot } from "./bridge.ts";
 import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
+import type { DiagramMenuAction } from "./menu-contract.ts";
 
 const bridge: ScopeBridge = {
   diagramAgentStatus: (id) => ipcRenderer.invoke("scope:diagram-agent-status", id),
@@ -16,6 +17,12 @@ const bridge: ScopeBridge = {
   },
   requestDiagramAgent: (request) => ipcRenderer.invoke("scope:request-diagram-agent", request),
   cancelDiagramAgent: (id) => ipcRenderer.invoke("scope:cancel-diagram-agent", id),
+  setDiagramMenu: (state) => ipcRenderer.invoke("scope:set-diagram-menu", state),
+  onDiagramMenuAction: (listener) => {
+    const receive = (_event: unknown, action: DiagramMenuAction) => listener(action);
+    ipcRenderer.on("scope:diagram-menu-action", receive);
+    return () => ipcRenderer.removeListener("scope:diagram-menu-action", receive);
+  },
   onDiagramCommand: (listener) => {
     const receive = (_event: unknown, input: DiagramCommandRequest) => listener(input);
     ipcRenderer.on("scope:diagram-command", receive);
@@ -43,6 +50,7 @@ const bridge: ScopeBridge = {
   setRemoteEnabled: (id, enabled) =>
     ipcRenderer.invoke("scope:set-remote-enabled", { id, enabled }),
   removeRemote: (id) => ipcRenderer.invoke("scope:remove-remote", id),
+  retryRemoteUpdate: (id) => ipcRenderer.invoke("scope:retry-remote-update", id),
   onRemotesChange: (listener) => {
     const receive = (_event: unknown, status: RemoteStatus[]) => listener(status);
     ipcRenderer.on("scope:remotes-changed", receive);
@@ -96,6 +104,7 @@ const bridge: ScopeBridge = {
   saveWorkspace: (input) => ipcRenderer.invoke("scope:save-workspace", input),
   diagramDraft: (id) => ipcRenderer.invoke("scope:diagram-draft", id),
   saveDiagramDraft: (id, draft) => ipcRenderer.invoke("scope:save-diagram-draft", { id, draft }),
+  diagramEvent: (event) => ipcRenderer.invoke("scope:diagram-event", event),
   onBeforeClose: (listener) => {
     const flush = () => {
       void listener().then(

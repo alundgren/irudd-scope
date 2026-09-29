@@ -27,6 +27,7 @@ async function fixture(
   options: {
     shrinkDelayMs?: number;
     diagram?: Parameters<typeof startArtifactServer>[0]["diagram"];
+    syncDiagram?: Parameters<typeof startArtifactServer>[0]["syncDiagram"];
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "scope-remotes-"));
@@ -48,6 +49,7 @@ async function fixture(
   const desktop = await startArtifactServer({
     directory: join(directory, "artifacts"),
     diagram: options.diagram,
+    syncDiagram: options.syncDiagram,
     token,
     port: 0,
     initialize: async (artifacts) => {
@@ -363,4 +365,51 @@ test("paired forwarding carries bounded diagram commands and rejects browser cal
   ).toBe(400);
   await f.remotes.setEnabled(f.remotes.snapshot()[0].id, false);
   await expect(f.client.diagram(command)).rejects.toMatchObject({ status: 503 });
+});
+
+test("paired hubs forward named native edits larger than metadata and compact human events", async () => {
+  const version = "a".repeat(64);
+  let received = 0;
+  const f = await fixture({
+    syncDiagram: async (command) => {
+      received = Buffer.byteLength(JSON.stringify(command));
+      return { type: "status", name: command.name, version, revision: 1 };
+    },
+  });
+  await f.remotes.pair(f.state.pairUrl());
+  await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
+  const file = join(f.directory, "named.excalidraw");
+  await writeFile(
+    file,
+    JSON.stringify({ type: "excalidraw", version: 2, elements: [], appState: {}, files: {} }),
+  );
+  const artifact = JSON.parse(
+    (await f.cli("add", file, "--named", "--title", "Remote native")).stdout,
+  );
+  expect((await f.client.named(artifact.name)).id).toBe(artifact.id);
+  await f.client.syncDiagram({
+    action: "write",
+    name: artifact.name,
+    expectedVersion: version,
+    delta: { elements: [], deleted: [], files: { image: { dataURL: "x".repeat(600_000) } } },
+  });
+  expect(received).toBeGreaterThan(512 * 1024);
+  const events: string[] = [];
+  const controller = new AbortController();
+  const watching = f.client
+    .watch((event) => events.push(event.type), controller.signal)
+    .catch(() => {});
+  cleanup.push(async () => {
+    controller.abort();
+    await watching;
+  });
+  await expect.poll(() => events).toContain("ready");
+  f.desktop.store.onChanged({
+    type: "diagram",
+    name: artifact.name,
+    id: artifact.id,
+    event: "changed",
+    version,
+  });
+  await expect.poll(() => events).toContain("diagram");
 });

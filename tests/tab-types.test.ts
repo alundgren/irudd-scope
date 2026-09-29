@@ -169,7 +169,10 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
         .click();
       await page.getByRole("button", { name: "Appearance", exact: true }).click();
       await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await page
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
       await page.setViewportSize(
         appearance === "light" ? { width: 1280, height: 820 } : { width: 700, height: 620 },
       );
@@ -244,14 +247,14 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
             .poll(() => page.evaluate((id) => window.scope.diagramDraft(id), tabId))
             .not.toMatchObject({ viewport: initialViewport });
           const pannedZoom = (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))!
-            .viewport.zoom;
+            .viewport!.zoom;
           await page.keyboard.down("Control");
           await page.mouse.wheel(0, -200);
           await page.keyboard.up("Control");
           await expect
             .poll(
               async () =>
-                (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))?.viewport.zoom,
+                (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))?.viewport?.zoom,
             )
             .not.toBe(pannedZoom);
           if (process.env.SCOPE_TEST_SCREENSHOTS) {
@@ -305,11 +308,9 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
     const visibleIds = await page
       .getByRole("tab")
       .evaluateAll((tabs) => tabs.map((tab) => tab.id.slice(4)));
-    await expect
-      .poll(async () =>
-        (await page.evaluate(() => window.scope.workspace()))?.tabs.map((tab) => tab.id),
-      )
-      .toEqual(visibleIds);
+    expect(
+      (await page.evaluate(() => window.scope.workspace()))?.tabs.map((tab) => tab.id),
+    ).toEqual(expect.arrayContaining(visibleIds));
     const before = await page.evaluate(() => window.scope.workspace());
     expect(before?.tabs.every((tab) => tab.id !== tab.state.data.artifactId)).toBe(true);
     expect(before?.tabs.find((tab) => tab.state.data.artifactId === "drawing")?.type).toBe(
@@ -334,21 +335,30 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
     application = await launch();
     page = await application.firstWindow();
     page.on("pageerror", (error) => failures.push(error.message));
-    await expect.poll(() => page.getByRole("tab").count()).toBe(examples.length);
+    await expect
+      .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
+      .toBe(examples.length);
     expect(
       (await page.evaluate(() => window.scope.workspace()))?.tabs.map((tab) => tab.id),
     ).toEqual(before?.tabs.map((tab) => tab.id));
     for (const example of examples) {
-      await page.getByRole("tab", { name: example.title, exact: true }).click();
+      await page.getByRole("button", { name: "Search and controls" }).click();
+      await page.getByLabel("Search artifacts", { exact: true }).fill(example.title);
+      await page.keyboard.press("Enter");
       await checkContent(page, example);
     }
     const client = await connect();
     for (const [index, example] of examples.entries()) {
       const tab = page.getByRole("tab", { name: example.title, exact: true });
-      await tab.click();
+      await page.getByRole("button", { name: "Search and controls" }).click();
+      await page.getByLabel("Search artifacts", { exact: true }).fill(example.title);
+      await page.keyboard.press("Enter");
+      await tab.waitFor();
       const id = (await tab.getAttribute("id"))!.slice(4);
       await page.keyboard.press("ControlOrMeta+w");
-      await expect.poll(() => page.getByRole("tab").count()).toBe(examples.length - index - 1);
+      await expect
+        .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
+        .toBe(examples.length - index - 1);
       await expect(client.get(example.id)).rejects.toMatchObject({ status: 404 });
       expect(await page.evaluate((tabId) => window.scope.diagramDraft(tabId), id)).toBeNull();
     }

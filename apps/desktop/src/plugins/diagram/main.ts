@@ -1,6 +1,6 @@
 import { hostname } from "node:os";
 import { Schema } from "effect";
-import { ArtifactId, Revision, decode } from "@irudd-scope/protocol";
+import { ArtifactId, DiagramEvent, Revision, decode } from "@irudd-scope/protocol";
 import { Uuid } from "../../workspace/contract.ts";
 import { DiagramRequest } from "./contract.ts";
 import { DiagramDraft } from "./draft.ts";
@@ -18,6 +18,13 @@ export function registerDiagramIpc({
   let generationTab: string | undefined;
   handle("scope:diagram-settings", () => store.diagramSettings());
   handle("scope:diagram-draft", (input) => artifacts.diagramDraft(decode(Uuid, input)));
+  handle("scope:diagram-event", async (input) => {
+    const event = decode(DiagramEvent, input);
+    const artifact = await artifacts.get(event.id);
+    if (!artifact.name || artifact.name !== event.name || artifact.kind !== "excalidraw")
+      throw new Error("Two-way events require a named diagram.");
+    artifacts.onChanged(event);
+  });
   const SaveDraft = Schema.Struct({ id: Uuid, draft: DiagramDraft });
   handle("scope:save-diagram-draft", (input) => {
     const { id, draft } = decode(SaveDraft, input);
@@ -71,7 +78,13 @@ export function registerDiagramIpc({
       document.elements.length > 10_000
     )
       throw new Error("Invalid Excalidraw document.");
-    const previous = input.expectedRevision ? await client.get(input.id) : undefined;
+    if (input.expectedRevision)
+      return artifacts.replaceContent(
+        input.id,
+        input.expectedRevision,
+        input.title,
+        new TextEncoder().encode(input.content),
+      );
     return client.publish(
       input.id,
       {
@@ -80,7 +93,7 @@ export function registerDiagramIpc({
         mediaType: "application/vnd.excalidraw+json",
         fileName: `${input.id}.excalidraw`,
         expectedRevision: input.expectedRevision,
-        source: previous?.source ?? { host: hostname(), agent: "scope" },
+        source: { host: hostname(), agent: "scope" },
       },
       new TextEncoder().encode(input.content),
     );

@@ -4,14 +4,14 @@ Electron main owns Scope's persistent data. Defaults below apply on macOS.
 Use the [development environment variables](development.md#isolated-development)
 to select separate directories for development.
 
-| Data                | Location                                                       | Contents                                                                                             |
-| ------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Open and queued tabs, published metadata, content references, bytes, and diagram drafts.             |
-| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, and remote configuration.             |
-| Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                            |
-| Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                        |
-| CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                       |
-| Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, private endpoint, local listener configuration, credential hashes, and pairing expiry. |
+| Data                | Location                                                       | Contents                                                                                                                   |
+| ------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Open and queued tabs, published metadata, content references, bytes, and diagram drafts.                                   |
+| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, and remote configuration.                                   |
+| Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                                                  |
+| Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                              |
+| CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                                             |
+| Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, private endpoint, local listener configuration, credential hashes, pairing expiry, and remote update status. |
 
 Scope creates database directories with mode `0700` and database files with
 mode `0600`. Treat the whole profile and discovery file as private. Explicit
@@ -30,6 +30,8 @@ state, and zoom and pan. Autosave writes the draft before updating the artifact
 revision. Conversation and viewport changes update only the draft. If a newer
 artifact arrives before pending canvas edits are published, the draft retains
 those edits until the user chooses which version to keep.
+An unviewed diagram draft can omit its viewport so Scope fits it when first
+displayed. Existing drafts with a viewport retain their saved zoom and pan.
 Quitting Scope, closing its last window, updating, and restarting preserve tabs
 that remain open. Pending edits flush before application shutdown.
 
@@ -41,17 +43,25 @@ Late workspace and draft saves cannot insert a missing tab. Shared bytes remain
 while any tab references them. There is no deletion history or pending-deletion
 log. Workspace selection and groups remain separate application preferences.
 
+Profiles with more than 100 open tabs require a version that supports tab
+overflow. Older builds reject those workspaces; close tabs to 100 or fewer
+before downgrading.
+
 ## Reclaiming disk space
 
 Uploads and unsuccessful updates retain content references for fifteen minutes
 after upload. This covers the gap before metadata publication, including content
 shared with another tab that closes in the meantime. An abandoned publication's
 queued tab expires after its staging references expire. Successful publications
-that exceed the 100-open-tab limit stay queued in the library and open
-automatically as other tabs close, including after restart. Closing each tab,
-including those opened from the queue, removes all published content. Cleanup
-runs at startup, during shrink, and at one-minute maintenance checks. A shrink receipt reports bytes still protected
-by staging; it does not claim those bytes were reclaimed.
+open automatically, including after restart, without a fixed tab count limit.
+Closing each tab removes all published content. Cleanup runs at startup, during
+shrink, and at one-minute maintenance checks. A shrink receipt reports bytes
+still protected by staging; it does not claim those bytes were reclaimed.
+
+Editor saves replace content and metadata in one transaction. Replaced editor
+snapshots are released immediately. External uploads still receive their
+fifteen-minute staging protection, including an initial native-file import or
+an upload that shares bytes with an editor snapshot.
 
 Automatic shrinking applies independently to `scope.db`, `desktop.db`, and a
 paired hub's `hub.db`. A database is eligible when its main file plus WAL is
@@ -109,6 +119,12 @@ Hub state contains no artifact bytes. Back up its database and discovery file
 together if you need to retain pairings. Installation builds and skill files
 contain program code and live separately from this state.
 
+Remote build metadata records its commit and installation paths alongside the
+bundled code. The hub's SQLite update record retains the target commit, phase,
+and failure message across restarts. Updating the remote tools does not replace
+its database or discovery file. The updater retains the previous build for
+startup recovery. This restores program files, not the hub database.
+
 Quit Scope before copying `scope.db` and `desktop.db`, or use SQLite's online
 backup API for each database. Copying only a database file while Scope runs
 can omit committed data in its WAL file. Restore both databases with Scope
@@ -121,10 +137,23 @@ token. The library and preferences remain intact.
 
 ## Supported data imports
 
-Scope reads artifact schema version 3, desktop schema version 6, and hub schema
+Scope reads artifact schema version 4, desktop schema version 6, and hub schema
 version 2. It rejects
 newer schema versions. Back up the complete data directories before an upgrade
 when you need the option to return to an older desktop.
+
+Artifact schema 4 adds a unique index for optional tab names. Diagram drafts may
+also contain an editable proposal and the selected conversation recipient.
+Drafts without a viewport require a desktop that supports fitting on first
+display; older desktops cannot open those drafts.
+Closing the tab removes these with its ordinary content. Delta history is bounded
+in renderer memory and disappears on restart. The hub stores no diagram model.
+
+An agent's explicit `diagram pull --output FILE` export is a disposable working
+file in its worktree. It contains a base, current native document, and optimistic
+version; image data is stored once, with hashes in the base. Removing the worktree
+removes these files. Another session can pull the same name to a new file while
+the Scope tab exists. There is no global agent cache to collect.
 
 For an artifact directory containing a database and a `blobs/` directory,
 Scope verifies hashes, sizes, and referenced content before importing bytes

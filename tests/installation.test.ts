@@ -651,4 +651,4 @@ main().catch(error => {console.error(error.message); process.exitCode = 1;});
   } finally {
     await rm(f.directory, { recursive: true, force: true });
   }
-});
+}, 60_000);

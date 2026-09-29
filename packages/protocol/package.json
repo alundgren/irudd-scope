@@ -9,7 +9,8 @@
     "./remote": "./src/remote.ts",
     "./maintenance": "./src/maintenance.ts",
     "./diagram": "./src/diagram.ts",
-    "./diagram-agent": "./src/diagram-agent.ts"
+    "./diagram-agent": "./src/diagram-agent.ts",
+    "./diagram-sync": "./src/diagram-sync.ts"
   },
   "dependencies": {
     "effect": "catalog:"

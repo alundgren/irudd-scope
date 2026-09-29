@@ -32,15 +32,24 @@ live with the desktop.
 
 ## Workspace behavior
 
-Tabs show the artifact title, scroll in one row, and indicate unread updates.
-Selection has both a tinted background and a solid marker. New publications
-open in tabs. The first arrival selects itself when no artifact is open;
-later arrivals keep the current selection and appear unread. Arrivals wait
-while a creation tool is open. Startup restores saved open tabs and opens queued publications when capacity
-allows. Revisions update unread indicators without changing selection. At the 100-tab limit, further arrivals
-wait in the library and a status line shows their count. They remain searchable
-and open automatically as other tabs close, preserving the current selection.
-Continuing to close tabs drains the queue and eventually leaves no tab content.
+Tabs show the artifact title and indicate unread updates. Selection has both a
+tinted background and a solid marker. The strip shows as many tabs as fit at a
+readable width. Overflow lives in a dropdown at the left, with a hidden-tab
+count and unread indicator. It lists hidden tabs immediately; typing searches
+all tab titles and kinds. Selecting a result moves that tab to the right end
+and moves the leftmost visible tab into the dropdown. The selected tab stays
+visible when the window narrows or new publications arrive.
+
+New publications open in tabs without a fixed count limit. The first arrival
+selects itself when no artifact is open; later arrivals keep the current
+selection and appear unread. Arrivals wait while a creation tool is open.
+Startup restores saved tabs and opens queued publications. Revisions update
+unread indicators without changing selection. File content loads when first
+selected and stays mounted afterward to preserve reading position and HTML
+state. Diagram views stay mounted to receive background editing commands.
+The visible tab count does not bound memory used by previously visited content
+or diagrams.
+
 Closing a tab permanently deletes its artifact, draft, conversation, and tab
 state. Normal close controls and Command-W perform deletion directly. There is
 no closed history or reopen action. A failed deletion keeps the tab visible
@@ -57,6 +66,10 @@ strip, without a separate title bar. The application menu stays available for
 native editing shortcuts. Windows and Linux hide the menu bar until Alt is
 pressed. The macOS menu bar belongs to the system and follows its fullscreen
 visibility setting.
+File offers Save a copy for the active diagram, creating a separate tab with
+the current canvas, including unpublished edits. View offers Fit to canvas.
+Both actions target the visible proposal when one is open and are unavailable
+on file tabs.
 
 Fullscreen in the search panel enters native fullscreen, keeps the selected
 artifact mounted, and hides workspace navigation. Other artifact tabs leave a
@@ -87,15 +100,16 @@ Settings opens with its search input focused and its sections collapsed.
 Each section has a short description and can be expanded with the mouse or
 keyboard. Search opens matching sections; clearing it returns to the compact
 overview. Fields keep unsaved input when collapsed or filtered out. The search
-field and Done button stay visible while the sections scroll. Empty results
+field and top-right close button stay visible while the sections scroll. Empty results
 offer Clear search and return focus to the search field.
 Appearance saves when changed. The API key has its own Save key action inside
 Diagram generation.
 Diagram generation is off by default, including for existing profiles. Its
 switch saves immediately. Turning it off retains the saved key and diagram
 drafts. Create diagram offers a link to its Settings section while it is off.
-Ask agent and the conversation panel are hidden until generation is enabled;
-existing diagrams remain editable.
+Ask agent and the embedded conversation are hidden until generation is enabled,
+except that named diagrams always offer their external coding-agent conversation.
+Existing diagrams remain editable.
 The diagram provider, model, and API key stay together. OpenRouter with Gemini
 3.8 Flash is the supported configuration. Saving a key clears the input;
 saved secrets are never displayed. Keychain errors remain visible while
@@ -141,32 +155,60 @@ the hub; when the hub is unreachable, Scope keeps a disconnected record with
 a retryable error. Pairing and connection errors leave the workspace usable.
 Publishing needs an awake Mac with Scope open. Offline work is not queued.
 
+The installed Mac updates connected remotes to its running version after it
+restarts. Offline remotes catch up on connection; disconnected remotes remain
+off. Each remote shows update progress separately from its connection status.
+Failures offer Retry update without interrupting the workspace. Older hubs
+explain the one-time installer and setup step needed for automatic updates.
+An accepted remote update can finish after disconnecting from the Mac.
+
 Create diagram is available in the empty workspace and search panel.
 An existing diagram has an Ask agent conversation, closed by default.
 It sits beside the canvas at desktop widths and overlays it in a narrow
 window. Enter sends, Shift+Enter adds a line, and a pending request offers
 Cancel. Canvas edits save automatically to the artifact in SQLite, alongside
 the conversation and view position. The editor has no Save button.
-Its left menu contains Export, Find on canvas, Library, and Ask agent. The menu
-replaces the separate Library and Ask agent controls on the right.
+Its left menu contains Save a copy, Fit to canvas, Export, Find on canvas, Library, and Ask agent. The menu replaces the separate Library and
+Ask agent controls on the right.
+
+Named diagrams default their conversation recipient to Your coding agent. The
+panel displays the stable name with Copy name and can switch to Scope diagram
+agent. An external coding session receives human messages and canvas-edit
+notices through a separately connected listener. A disconnected listener does
+not prevent editing. Scope's embedded generation acts on the human's behalf.
+
+An external agent can propose a reconciled diagram. Its editable preview covers
+the original canvas and provides Accept proposal and Reject proposal. Accept
+uses the edited preview and checks that the original has not changed. A stale
+proposal stays visible with an explanation and can be rejected before the agent
+reconciles again. The original canvas stays mounted underneath. Proposals and
+the selected recipient persist with the tab and are deleted when it closes.
 The editor's bottom-right help button is hidden because its shortcut reference
 includes commands unavailable in Scope.
 
-The conversation has an agent selector. Embedded agent uses the configured
+The conversation has one Send to selector. Scope diagram agent uses the configured
 model. Connected agent sends requests to a publisher that has explicitly
 connected and is waiting, even when embedded generation is off. Ask agent stays
 available in that case so the person can choose Connected agent. The panel
 shows the connection name and waiting or working state. With no connected agent
 it explains how to make one available. Replies appear in the conversation and
 canvas edits save automatically. Cancel ends that request and invalidates late
-replies. The selector returns to Embedded agent on restart; connection state
-does not survive restart.
+replies. Selecting Connected agent is temporary. Restart returns to the last
+saved Your coding agent or Scope diagram agent choice; connection state does
+not survive restart.
 
 SQLite retains the conversation, unsent prompt, working canvas, and zoom and
 pan across restarts for tabs that remain open. Incoming revisions preserve pending
 edits and offer Use incoming version or Keep both. Failed saves retain the canvas
 and offer Retry. Scope provides diagram conversation,
 not general chat or agent orchestration.
+
+New diagrams fit and center when first displayed. Background publication and
+editing can continue before a canvas has visible dimensions. A draft without a
+viewport fits on first display, including after restart. Adding the first agent
+objects to an empty diagram also fits them. Later navigation and ordinary edits
+keep the saved view. Fit to canvas recovers a view that was saved offscreen.
+The editor's 10% minimum zoom still applies to very large drawings.
 
 English text, keyboard navigation, visible focus, labeled icon controls, and
 readable contrast apply throughout the workspace. Check long titles and more

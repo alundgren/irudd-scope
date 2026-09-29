@@ -96,7 +96,7 @@ export class ArtifactLibrary {
           } else if (event.type === "deleted") {
             changes?.set(event.id, null);
             this.remove(event.id);
-          } else {
+          } else if (event.type === "artifact") {
             changes?.set(event.artifact.id, event.artifact);
             this.invalidate(event.artifact.id);
             const artifacts = new Map(

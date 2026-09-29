@@ -4,6 +4,11 @@
 
 An artifact is the latest content and metadata for one stable ID. A revision is an increasing integer for that ID. A blob is immutable content addressed by its SHA-256 digest. An absent source field means unknown; it never blocks publication.
 
+An optional `name` is a second unique, immutable key (lowercase letters, digits,
+and dashes, at most 128 characters). Existing writers that omit it preserve it.
+`GET /v1/names/:name` resolves the current artifact. Only named tabs support
+external-agent conversations and native versioned diagram synchronization.
+
 The desktop owns the API and persistent library. `LocalConnection` defines the version 1 discovery file with `endpoint` and `token`, validated as loopback HTTP. Its default path is `~/.config/irudd-scope/desktop.json`, overridable through `SCOPE_CONNECTION_FILE`. Desktop main writes it with mode `0600`; the CLI reads it when no endpoint or token override is supplied. Explicit endpoints require explicit credentials and never receive the discovered local token implicitly.
 
 The optional hub forwards the same requests and responses without storing artifacts. An unavailable desktop causes a connection error directly or a 503 through the hub. No publication is queued or replayed. A failed response does not prove a write was rolled back; read the artifact before retrying an uncertain update.
@@ -83,6 +88,21 @@ No request survives reconnection. The local management endpoints generate
 pairing links, report status, and revoke access. Removing a paired remote
 uses authenticated `DELETE /v1/relay/disconnect` to revoke its credential.
 
+The paired Mac can read `GET /v1/relay/update` and request
+`POST /v1/relay/update` with `{ commit, retry? }`. `commit` is a full lowercase
+Git SHA from the running Mac app. The local publishing credential cannot call
+these endpoints. Bodies are limited to 1 KiB, browser-origin requests are
+rejected, and the hub accepts no command, repository URL, or installation path
+from the request.
+
+`HubUpdateStatus` reports support, phase, running commit, target commit, and a
+bounded message with optional build output. A POST returns 202 with the current status; it does not mean
+the build has completed. Repeated requests for a running update reuse it, and
+failed attempts for the same commit require `retry: true`. A missing endpoint
+on an older hub requires a manual installation update. The optional `commit`
+on local `HubStatus` identifies the running build for restart verification.
+Existing pairing, relay events, and publication contracts remain compatible.
+
 Local management `POST /v1/hub/shrink` accepts the same `{ timeoutMs }` request
 and returns a hub receipt. `GET /v1/hub/maintenance` reads the latest hub result.
 Both require the local publishing credential. They work without a connected
@@ -146,3 +166,49 @@ renderer reload, and desktop shutdown invalidate them. After delivery, the agent
 may compute its reply without keeping an HTTP request open, within that deadline.
 There is no offline request queue, automatic resume, replay, or agent launch.
 Lost reply responses are ambiguous: inspect the draft before retrying.
+
+## Native diagram synchronization
+
+`src/diagram-sync.ts` defines `POST /v1/diagrams/sync`. The desktop uses the loaded
+native Excalidraw canvas, including pending human edits. Requests require a
+unique `name`. The optional hub forwards them, with the same authentication,
+cancellation, and 32 MiB request bound. The 20-second diagram deadline and
+one-command-per-artifact limit also apply.
+
+| Action     | Input besides `name`               | Result                                            |
+| ---------- | ---------------------------------- | ------------------------------------------------- |
+| `read`     | Optional `since` version           | Full native document, or combined delta           |
+| `status`   | None                               | Version and published revision                    |
+| `write`    | `expectedVersion`, `delta`         | `applied` with normalization delta, or `conflict` |
+| `replace`  | `expectedVersion`, `document`      | Same check, transmitting the full document        |
+| `propose`  | `expectedVersion`, `delta`, `note` | Editable proposal for human acceptance            |
+| `proposal` | None                               | Pending proposal, or null                         |
+| `message`  | `text`                             | Assistant message in the named tab's conversation |
+
+Versions hash the tab UUID and serialized native document. They include unsaved
+canvas changes, while publication revisions describe persisted artifact updates.
+Every write checks the version again after asynchronous document restoration.
+A conflict is a typed `conflict` response, with the current version and a delta
+when its base remains available. It is not an accepted write. The CLI exits 2.
+While the human is drawing or editing text, mutations return HTTP 409 without
+applying the request. Retry after that edit finishes; the version check still
+applies. Reads remain available during the edit.
+
+Deltas contain element property assignments/removals, deleted IDs, optional
+element order, canvas settings, and changed assets. New elements replace their
+entire record; existing objects receive property changes. Native Excalidraw
+versions and required defaults are normalized by the editor. An `applied`
+response's delta is relative to the submitted candidate, so clients update
+their model without pulling it again.
+
+The renderer retains at most 128 deltas and 2 MiB of delta history per tab.
+Restart or history eviction causes a full `read` fallback. The native document
+and a pending proposal persist in the tab's SQLite draft. Accepting a proposal
+checks its base version; intervening edits require a new reconciliation.
+Rejecting leaves the original document intact.
+
+SSE adds `diagram` events with artifact ID, name, version, and an event kind:
+`changed`, `message`, `proposal`, `accepted`, or `rejected`. Human edits and
+embedded generation are on the human side; external agent writes do not echo.
+These notices carry no full diagram. They are transient; reconnecting clients
+check the version and rebase. There is no exclusive agent lease or model polling.

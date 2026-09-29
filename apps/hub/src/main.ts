@@ -5,6 +5,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { DEFAULT_CONNECTION_FILE } from "@irudd-scope/protocol";
+import { readInstallation } from "./installation.ts";
+import { HubUpdates } from "./updates.ts";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -18,12 +20,10 @@ if (
   (positionals[0] && !["configure", "info", "run"].includes(positionals[0]))
 )
   throw new Error("Use configure, info, or run for the hub executable.");
+const directory = process.env.SCOPE_HUB_DATA_DIR ?? join(homedir(), ".local/share/irudd-scope/hub");
+const installation = await readInstallation();
 const state =
-  process.env.SCOPE_ENDPOINT && !positionals.length
-    ? undefined
-    : await HubState.open(
-        process.env.SCOPE_HUB_DATA_DIR ?? join(homedir(), ".local/share/irudd-scope/hub"),
-      );
+  process.env.SCOPE_ENDPOINT && !positionals.length ? undefined : await HubState.open(directory);
 if (positionals[0] === "configure") {
   try {
     await state!.configure({
@@ -39,13 +39,13 @@ if (positionals[0] === "configure") {
   }
 } else if (positionals[0] === "info") {
   try {
-    console.log(JSON.stringify(state!.status()));
+    console.log(JSON.stringify({ ...state!.status(), commit: installation?.commit }));
   } finally {
     state!.close();
   }
 } else {
   const hub = state
-    ? await startPairedHub(state)
+    ? await startPairedHub(state, undefined, new HubUpdates(state, installation, directory))
     : await startHub({
         endpoint: process.env.SCOPE_ENDPOINT!,
         token: process.env.SCOPE_TOKEN ?? "",

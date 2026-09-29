@@ -23,7 +23,10 @@ test("Settings finds agent tools and shows update progress, retry, and restart w
       true,
     );
     expect(await page.getByLabel("Search settings").inputValue()).toBe("cli");
-    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
 
     await application.evaluate(({ ipcMain, BrowserWindow }) => {
       const updates = {
@@ -98,7 +101,10 @@ test("Settings finds agent tools and shows update progress, retry, and restart w
       .getByRole("dialog")
       .getByRole("button", { name: "Restart to update", exact: true })
       .waitFor();
-    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     await page.getByText("Keep this artifact open", { exact: true }).waitFor();
     await page.getByRole("dialog").waitFor({ state: "hidden" });
     await page.getByRole("button", { name: "Restart to update", exact: true }).waitFor();

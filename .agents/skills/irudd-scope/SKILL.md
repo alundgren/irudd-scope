@@ -39,10 +39,47 @@ HTML previews run interactive prototypes and mockups, including scripts, externa
 
 ### Diagrams
 
+For ongoing collaboration, create a **named** diagram with `--named` and announce
+the returned `name` to the person. It remains usable across agents and sessions
+while its tab exists. `--name NAME` selects an exact unique name; names cannot
+be changed. Closing the tab deletes the diagram and its proposals.
+
+Use the native working model when editing existing Excalidraw objects, including
+images, freehand, frames, bound text, groups, and elbow arrows:
+
+```sh
+irudd-scope add design.excalidraw --named --title "Service design"
+irudd-scope diagram pull NAME --output design.scope.json
+```
+
+Edit `document.elements` by native ID, `document.appState`, or `document.files`
+in that working file. Keep `base`, `version`, `id`, and `name` intact. Use small
+scripts to select and update objects; keep the full model out of conversation
+context when a targeted read is enough. `diagram push design.scope.json` sends
+changed properties and assets, then updates the local base and version. Its
+receipt is sufficient after success. Store working files in the worktree so
+they disappear with it; image data occurs once, with hashes in the base.
+
+A stale push exits 2 and preserves local edits. Run `diagram rebase FILE` to
+merge independent changes and list conflicting fields. Judge small nudges and
+obvious additions yourself, then use `diagram push FILE --resolved`. For an
+unclear choice, use `diagram propose FILE --resolved --note "Is this what you
+meant?"` and discuss it with the person. Scope shows an editable preview with
+Accept and Reject. Acceptance still checks the current version. After a
+decision, rebase before more edits. `diagram reply NAME TEXT` replies in Scope.
+For missing or broken local state, pull to a new file. After an uncertain
+timeout, rebase before retrying; do not replay a write blindly.
+If Scope says to finish the current drawing or text edit, the write was not
+applied. Keep the working file and retry after the human finishes that edit.
+
+For push delivery to an active coding session, read [agent connections](references/agent-connections.md).
+Run the listener in the background; its event connection does not keep a model
+turn waiting. A named diagram alone does not start a listener.
+
 Use `diagram guide` once for the drawing conventions, command syntax, and exact JSON operation schema. For a new diagram, write a JSON array of operations and run:
 
 ```sh
-irudd-scope diagram create operations.json --id app-overview --title "App overview"
+irudd-scope diagram create operations.json --id app-overview --title "App overview" --named
 irudd-scope diagram read app-overview
 irudd-scope diagram preview app-overview --output app-overview.png
 ```
@@ -89,7 +126,7 @@ the normal publishing credential, never provenance fields such as `sessionId`.
 
 With no explicit endpoint or token override, the CLI reads `SCOPE_CONNECTION_FILE` or `~/.config/irudd-scope/desktop.json`. Scope must be open on an awake Mac to accept publication. An explicit endpoint from `--endpoint` or `SCOPE_ENDPOINT` requires explicit credentials from `--token-file`, `SCOPE_TOKEN_FILE`, or `SCOPE_TOKEN`; the CLI never borrows the token from local discovery. Keep token values private.
 
-A successful command confirms that Scope persisted a tab and its artifact record. It does not confirm that the desktop opened a tab or rendered the content. New publications appear in tabs, selecting the first arrival in an empty workspace and preserving the current selection otherwise. At the 100-open-tab limit, further publications remain queued in the library. When the task requires a visual check, inspect the artifact in Scope. Closing a tab permanently deletes its content and draft. Quitting or restarting Scope preserves tabs left open.
+A successful command confirms that Scope persisted a tab and its artifact record. It does not confirm that the desktop opened a tab or rendered the content. New publications appear in tabs, selecting the first arrival in an empty workspace and preserving the current selection otherwise. Tabs beyond the visible strip remain available in its searchable overflow dropdown. When the task requires a visual check, inspect the artifact in Scope. Closing a tab permanently deletes its content and draft. Quitting or restarting Scope preserves tabs left open.
 
 CLI requests share a 10-second deadline. Use `--timeout-ms 60000` when a large remote upload needs more time. A timeout can leave a completed write without a receipt; keep the artifact ID for recovery.
 

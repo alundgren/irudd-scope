@@ -1,6 +1,7 @@
 import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
 import type { TabAgentRequest } from "./plugins/diagram/connected-agent.ts";
 import type { DiagramCommandRequest, DiagramCommandResponse } from "./plugins/diagram/commands.ts";
+import type { DiagramEvent } from "@irudd-scope/protocol";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { SettingsUpdate, SettingsView } from "./settings.ts";
 import type { Tab, Workspace } from "./workspace/contract.ts";
@@ -8,6 +9,7 @@ import type { DiagramRequest, DiagramResult } from "./plugins/diagram/contract.t
 import type { DiagramDraft } from "./plugins/diagram/draft.ts";
 import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
+import type { DiagramMenuAction, DiagramMenuState } from "./menu-contract.ts";
 
 export type ArtifactLibrarySnapshot = {
   artifacts: Artifact[];
@@ -22,6 +24,8 @@ export type ScopeBridge = {
   onDiagramAgentStatus: (listener: (status: DiagramAgentStatus) => void) => () => void;
   requestDiagramAgent: (request: typeof TabAgentRequest.Type) => Promise<{ message: string }>;
   cancelDiagramAgent: (id: string) => Promise<void>;
+  setDiagramMenu: (state: DiagramMenuState) => Promise<void>;
+  onDiagramMenuAction: (listener: (action: DiagramMenuAction) => void) => () => void;
   onDiagramCommand: (listener: (input: DiagramCommandRequest) => void) => () => void;
   onDiagramCommandCancel: (listener: (id: string) => void) => () => void;
   diagramCommandResult: (response: DiagramCommandResponse) => Promise<void>;
@@ -32,6 +36,7 @@ export type ScopeBridge = {
   pairRemote: (url: string) => Promise<void>;
   setRemoteEnabled: (id: string, enabled: boolean) => Promise<void>;
   removeRemote: (id: string) => Promise<void>;
+  retryRemoteUpdate: (id: string) => Promise<void>;
   onRemotesChange: (listener: (status: RemoteStatus[]) => void) => () => void;
   updates: () => Promise<UpdateStatus>;
   checkForUpdates: () => Promise<void>;
@@ -59,6 +64,7 @@ export type ScopeBridge = {
   saveWorkspace: (input: Workspace) => Promise<void>;
   diagramDraft: (id: string) => Promise<DiagramDraft | null>;
   saveDiagramDraft: (id: string, draft: DiagramDraft) => Promise<void>;
+  diagramEvent: (event: DiagramEvent) => Promise<void>;
   onBeforeClose: (listener: () => Promise<void>) => () => void;
   artifactLibrary: () => Promise<ArtifactLibrarySnapshot>;
   content: (id: string, revision: number) => Promise<ArtifactContent>;

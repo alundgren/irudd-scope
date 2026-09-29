@@ -27,7 +27,10 @@ test("the CLI commits artifacts while diagram generation is pending and the rend
     await page.getByLabel("OpenRouter API key").fill("synthetic-pending-key");
     await page.getByRole("button", { name: "Save key" }).click();
     await page.getByText("Settings saved.").waitFor();
-    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     await expect.poll(() => page.getByRole("dialog").count()).toBe(0);
     await page.getByRole("button", { name: "Create diagram", exact: true }).click();
     await page.getByLabel("What should the diagram show?").fill("A request that stays pending.");
@@ -89,7 +92,10 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     await page.getByRole("button", { name: "Appearance", exact: true }).click();
     await page.getByLabel("Appearance", { exact: true }).selectOption("dark");
     await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe("dark");
-    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     await expect
       .poll(() => page.locator('[data-slot="dialog-content"]').count(), { timeout: 5000 })
       .toBe(0);
@@ -151,7 +157,10 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
       const enable = page.getByRole("switch", { name: "Enable diagram generation" });
       await enable.click();
       await expect.poll(() => enable.getAttribute("aria-checked")).toBe(String(enabled));
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await page
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
       await expect.poll(() => page.getByRole("dialog").count()).toBe(0);
       await page.getByTestId("main-menu-trigger").click();
       expect(await page.getByRole("button", { name: "Ask agent", exact: true }).count()).toBe(1);
@@ -160,7 +169,9 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
         true,
       );
       expect(
-        await page.getByRole("combobox", { name: "Diagram agent", exact: true }).isVisible(),
+        await page
+          .getByRole("combobox", { name: "Conversation recipient", exact: true })
+          .isVisible(),
       ).toBe(true);
       expect(await page.getByLabel("Change diagram", { exact: true }).count()).toBe(
         enabled ? 1 : 0,
@@ -288,12 +299,12 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     await page.getByText("A newer version arrived. Your edits are still here.").waitFor();
     expect(await page.getByRole("button", { name: "Save", exact: true }).count()).toBe(0);
     const previousViewport = (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))!
-      .viewport;
+      .viewport!;
     await page.getByRole("button", { name: "Zoom out", exact: true }).click();
     await expect
       .poll(
         async () =>
-          (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))?.viewport.zoom,
+          (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))?.viewport?.zoom,
       )
       .toBeLessThan(previousViewport.zoom);
     const zoomedViewport = (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))!
@@ -306,7 +317,7 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
       )
       .not.toEqual(zoomedViewport);
     const viewport = (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))!.viewport;
-    expect(viewport.zoom).toBeLessThan(previousViewport.zoom);
+    expect(viewport!.zoom).toBeLessThan(previousViewport.zoom);
     // Quit immediately after typing, before the periodic draft write is due.
     await page
       .getByLabel("Change diagram", { exact: true })
@@ -498,7 +509,10 @@ test("Electron receives and reopens interactive HTML and keeps development keys 
     expect(await page.evaluate(() => localStorage.getItem("scope.workspace.v1"))).toBeNull();
     await page.getByRole("button", { name: "Remove key" }).click();
     await page.getByText("No key saved").waitFor();
-    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     expect(failures).toEqual([]);
     await application.close();
     application = undefined;
