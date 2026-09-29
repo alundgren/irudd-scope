@@ -28,11 +28,13 @@ import {
   type DiagramProposal,
 } from "@irudd-scope/protocol/diagram-sync";
 import type { DiagramEvent } from "@irudd-scope/protocol";
-import { BookOpen, ImageDown, MessageSquare, X } from "lucide-react";
+import { BookOpen, Copy, ImageDown, Maximize, MessageSquare, X } from "lucide-react";
 import type { Theme } from "../../renderer/appearance.ts";
 import type { DiagramDraft } from "./draft.ts";
 import { useAutosave } from "../../workspace/persistence.ts";
 import { SettingsContext } from "../../renderer/settings-context.tsx";
+import { fitToCanvas, useDiagramViewport } from "./viewport.ts";
+import { useDiagramMenu } from "./native-menu.ts";
 import "@excalidraw/excalidraw/index.css";
 
 type AutosaveSnapshot = {
@@ -54,11 +56,13 @@ export function DiagramView({
   context,
   theme,
   viewing,
+  active,
 }: {
   item: ArtifactContent;
   context: TabContext;
   theme: Theme;
   viewing: boolean;
+  active: boolean;
 }) {
   const preferences = useContext(SettingsContext);
   const enabled = preferences?.settings?.diagramGenerationEnabled ?? false;
@@ -108,6 +112,15 @@ export function DiagramView({
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
   const readyRef = useRef(false);
+  const canvasViewport = useDiagramViewport(api, active, ready);
+  useDiagramMenu({
+    tabId: context.tabId,
+    api,
+    active: active && !proposal,
+    ready,
+    busy: busy !== null,
+    saveCopy,
+  });
   const latest = useRef(item);
   latest.current = item;
   const display = useRef({ theme, viewing });
@@ -146,7 +159,7 @@ export function DiagramView({
   const draftSave = useAutosave<AutosaveSnapshot>(
     () => {
       if (!api || !readyRef.current) return undefined;
-      const state = api.getAppState();
+      const viewport = canvasViewport.read();
       const { proposal, proposalViewport, ...savedConversation } = conversation.current;
       return {
         draft: {
@@ -157,7 +170,7 @@ export function DiagramView({
           ...savedConversation,
           ...(proposal ? { proposal } : {}),
           ...(proposalViewport ? { proposalViewport } : {}),
-          viewport: { zoom: state.zoom.value, scrollX: state.scrollX, scrollY: state.scrollY },
+          ...(viewport ? { viewport } : {}),
         },
         loadId: loadId.current,
       };
@@ -299,6 +312,7 @@ export function DiagramView({
         updated: Date.now(),
       };
     });
+    if (!api.getSceneElements().length) canvasViewport.requestFit();
     api.updateScene({
       elements,
       appState: {
@@ -424,6 +438,7 @@ export function DiagramView({
       loaded.current = nextRevision;
       setRevision(nextRevision);
       markDirty(changed);
+      canvasViewport.restore(viewport);
       api.updateScene({
         elements: data.elements,
         appState: {
@@ -443,9 +458,6 @@ export function DiagramView({
       });
       if (data.files) api.addFiles(Object.values(data.files));
       publishedContent.current = changed ? null : documentContent();
-      // Empty documents have no bounds to fit and can produce an invalid zoom.
-      if (!viewport && data.elements.some((element) => !element.isDeleted))
-        api.scrollToContent(data.elements, { fitToContent: true });
       readyRef.current = true;
       setReady(true);
     } catch {
@@ -478,23 +490,40 @@ export function DiagramView({
     if (dirtyRef.current) draftSave.schedule();
     else void load(new TextDecoder().decode(item.bytes), item.artifact.revision);
   }, [item.artifact.revision, api, ready, dirty]);
+  async function publishCopy(content: string) {
+    const saved = await window.scope.saveDiagram({
+      id: crypto.randomUUID(),
+      title: `${latest.current.artifact.title} copy`,
+      expectedRevision: 0,
+      content,
+    });
+    context.events.emit({
+      type: "resource.saved",
+      resource: { kind: "artifact", id: saved.id },
+      revision: saved.revision,
+    });
+  }
+  async function saveCopy(content = documentContent()) {
+    if (busyRef.current) return;
+    busyRef.current = "saving";
+    setBusy("saving");
+    try {
+      await publishCopy(content);
+      setNotice("Saved a separate copy. Find it in the tab strip.");
+    } catch (failure) {
+      setNotice(failure instanceof Error ? failure.message : "Could not save a copy. Try again.");
+    } finally {
+      busyRef.current = null;
+      setBusy(null);
+    }
+  }
   async function keepBoth() {
     if (!api) return;
     setBusy("saving");
     const savedVersion = getSceneVersion(api.getSceneElements());
     const nextSettings = canvasSettings(api.getAppState());
     try {
-      const saved = await window.scope.saveDiagram({
-        id: crypto.randomUUID(),
-        title: `${item.artifact.title} copy`,
-        expectedRevision: 0,
-        content: documentContent(),
-      });
-      context.events.emit({
-        type: "resource.saved",
-        resource: { kind: "artifact", id: saved.id },
-        revision: saved.revision,
-      });
+      await publishCopy(documentContent());
       if (
         getSceneVersion(api.getSceneElements()) === savedVersion &&
         canvasSettings(api.getAppState()) === nextSettings
@@ -549,6 +578,7 @@ export function DiagramView({
         throw new Error(
           "The canvas changed during generation. Your edits were kept. Try the request again.",
         );
+      if (!api.getSceneElements().length) canvasViewport.requestFit();
       api.updateScene({
         captureUpdate: CaptureUpdateAction.IMMEDIATELY,
         elements: updateCanvasElements(
@@ -634,6 +664,7 @@ export function DiagramView({
           api.getSceneElements(),
         );
         combined.throwIfAborted();
+        if (!api.getSceneElements().length) canvasViewport.requestFit();
         api.updateScene({ elements, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
         markDirty(true);
         draftSave.schedule();
@@ -775,14 +806,29 @@ export function DiagramView({
                   toggleTheme: false,
                 },
               }}
-              onChange={() => {
+              onChange={(_elements, state) => {
                 if (readyRef.current) {
+                  canvasViewport.observe(state);
                   markDirty(documentContent() !== publishedContent.current);
                   draftSave.schedule();
                 }
               }}
             >
               <MainMenu>
+                <MainMenu.Item
+                  icon={<Copy />}
+                  disabled={!ready || busy !== null}
+                  onSelect={() => void saveCopy()}
+                >
+                  Save a copy
+                </MainMenu.Item>
+                <MainMenu.Item
+                  icon={<Maximize />}
+                  disabled={!ready}
+                  onSelect={() => api && fitToCanvas(api)}
+                >
+                  Fit to canvas
+                </MainMenu.Item>
                 <MainMenu.Item
                   icon={<ImageDown />}
                   onSelect={() =>
@@ -815,6 +861,10 @@ export function DiagramView({
               proposal={proposal}
               theme={theme}
               viewing={viewing}
+              active={active}
+              tabId={context.tabId}
+              saving={busy !== null}
+              onSaveCopy={saveCopy}
               viewport={proposalViewport}
               onViewportChange={(viewport) => {
                 const previous = conversation.current.proposalViewport;

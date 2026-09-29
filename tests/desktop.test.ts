@@ -293,12 +293,12 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     await page.getByText("A newer version arrived. Your edits are still here.").waitFor();
     expect(await page.getByRole("button", { name: "Save", exact: true }).count()).toBe(0);
     const previousViewport = (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))!
-      .viewport;
+      .viewport!;
     await page.getByRole("button", { name: "Zoom out", exact: true }).click();
     await expect
       .poll(
         async () =>
-          (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))?.viewport.zoom,
+          (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))?.viewport?.zoom,
       )
       .toBeLessThan(previousViewport.zoom);
     const zoomedViewport = (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))!
@@ -311,7 +311,7 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
       )
       .not.toEqual(zoomedViewport);
     const viewport = (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))!.viewport;
-    expect(viewport.zoom).toBeLessThan(previousViewport.zoom);
+    expect(viewport!.zoom).toBeLessThan(previousViewport.zoom);
     // Quit immediately after typing, before the periodic draft write is due.
     await page
       .getByLabel("Change diagram", { exact: true })
