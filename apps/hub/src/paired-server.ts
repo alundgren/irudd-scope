@@ -277,7 +277,7 @@ export async function startPairedHub(
       await pipeline(
         item.request,
         bounded(
-          item.request.url === "/v1/diagrams"
+          ["/v1/diagrams", "/v1/diagram-agents"].includes(item.request.url ?? "")
             ? MAX_DIAGRAM_REQUEST_BYTES
             : item.request.url?.endsWith("/blobs") || item.request.url === "/v1/diagrams/sync"
               ? MAX_CONTENT_BYTES

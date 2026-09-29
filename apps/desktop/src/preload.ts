@@ -1,3 +1,4 @@
+import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
 import type { DiagramCommandRequest } from "./plugins/diagram/commands.ts";
 import { contextBridge, ipcRenderer } from "electron";
 import type { ScopeBridge, ArtifactLibrarySnapshot } from "./bridge.ts";
@@ -7,6 +8,16 @@ import type { RemoteStatus } from "./remote-contract.ts";
 import type { DiagramMenuAction } from "./menu-contract.ts";
 
 const bridge: ScopeBridge = {
+  diagramAgentStatus: (id) => ipcRenderer.invoke("scope:diagram-agent-status", id),
+  onDiagramAgentStatus: (listener) => {
+    const receive = (_event: unknown, status: DiagramAgentStatus) => listener(status);
+    ipcRenderer.on("scope:diagram-agent-status", receive);
+    return () => {
+      ipcRenderer.removeListener("scope:diagram-agent-status", receive);
+    };
+  },
+  requestDiagramAgent: (request) => ipcRenderer.invoke("scope:request-diagram-agent", request),
+  cancelDiagramAgent: (id) => ipcRenderer.invoke("scope:cancel-diagram-agent", id),
   setDiagramMenu: (state) => ipcRenderer.invoke("scope:set-diagram-menu", state),
   onDiagramMenuAction: (listener) => {
     const receive = (_event: unknown, action: DiagramMenuAction) => listener(action);

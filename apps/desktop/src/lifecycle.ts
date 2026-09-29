@@ -116,8 +116,8 @@ export class DesktopLifecycle {
   closeTab(id: string): Promise<void> {
     return this.enqueue(async () => {
       const ids = await this.artifacts.trashTab(id);
-      await this.notifyRetention();
       this.onRemoved(ids);
+      await this.notifyRetention();
       this.onClosed(ids);
     });
   }
@@ -133,8 +133,8 @@ export class DesktopLifecycle {
   emptyTrash(entries: readonly TrashEntry[]): Promise<void> {
     return this.enqueue(async () => {
       const ids = await this.artifacts.emptyTrash(entries);
-      await this.notifyRetention();
       this.onRemoved(ids);
+      await this.notifyRetention();
       this.onClosed(ids);
     });
   }
@@ -143,10 +143,11 @@ export class DesktopLifecycle {
     return this.enqueue(async () => {
       await this.artifacts.markTabsVisible(visibleIds, now);
       const trashed = await this.artifacts.expireTemporaryTabs(now);
+      if (trashed.length) this.onRemoved(trashed);
       const deleted = await this.artifacts.emptyTrash(await this.artifacts.expiredTrash(now));
+      if (deleted.length) this.onRemoved(deleted);
       if (trashed.length || deleted.length) {
         await this.notifyRetention();
-        this.onRemoved([...trashed, ...deleted]);
         this.onClosed([...trashed, ...deleted]);
       }
     });

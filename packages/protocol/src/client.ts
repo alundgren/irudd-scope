@@ -1,3 +1,4 @@
+import { DiagramAgentCommand, DiagramAgentReply } from "./diagram-agent.ts";
 import { DiagramSyncCommand, DiagramSyncReply } from "./diagram-sync.ts";
 import {
   DiagramCommand,
@@ -72,6 +73,23 @@ export class ScopeClient {
       throw new ScopeError(response.status, message);
     }
     return response;
+  }
+
+  async diagramAgent(input: DiagramAgentCommand): Promise<DiagramAgentReply> {
+    const body = JSON.stringify(decode(DiagramAgentCommand, input));
+    if (new TextEncoder().encode(body).byteLength > MAX_DIAGRAM_REQUEST_BYTES)
+      throw new Error("Agent request exceeds 512 KiB.");
+    return decode(
+      DiagramAgentReply,
+      await readRemoteJson(
+        await this.request("/v1/diagram-agents", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }),
+        MAX_DIAGRAM_REPLY_BYTES,
+      ),
+    );
   }
 
   async diagram(input: DiagramCommand): Promise<DiagramReply> {

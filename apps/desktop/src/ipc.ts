@@ -1,3 +1,4 @@
+import { connectedDiagramAgents } from "./plugins/diagram/connected-agent.ts";
 import { diagramCommands } from "./plugins/diagram/command-main.ts";
 import { dialog, ipcMain, nativeTheme, type BrowserWindow } from "electron";
 import { writeFile } from "node:fs/promises";
@@ -9,8 +10,8 @@ import type { ArtifactLibrary } from "./library/library.ts";
 import { decodeSettingsUpdate } from "./settings.ts";
 import { registerMainPlugins } from "./plugins/registry.main.ts";
 import type { DesktopLifecycle } from "./lifecycle.ts";
+import { Tab, Uuid, tabArtifactId } from "./workspace/contract.ts";
 import { TrashEntry } from "./workspace/retention.ts";
-import { Tab, Uuid } from "./workspace/contract.ts";
 import { TabEventEnvelope } from "./plugins/events.ts";
 import type { AgentTools } from "./agent-tools.ts";
 import type { AppUpdates } from "./updates.ts";
@@ -73,6 +74,34 @@ export function registerDesktopIpc({
       if (!window.isDestroyed()) window.webContents.send("scope:diagram-command-cancel", id);
     },
     client,
+  );
+  const connectedAgents = connectedDiagramAgents(
+    async (command, signal) => decode(DiagramReply, await diagrams.run(command, signal)),
+    (status) => {
+      if (!window.isDestroyed()) window.webContents.send("scope:diagram-agent-status", status);
+    },
+    async (id) => (await lifecycle.workspace()).tabs.find((tab) => tabArtifactId(tab) === id)?.id,
+  );
+  const rendererUnavailable = () => {
+    diagrams.cancelAll();
+    connectedAgents.close();
+  };
+  const navigating = (
+    _event: Electron.Event,
+    _url: string,
+    inPlace: boolean,
+    mainFrame: boolean,
+  ) => {
+    if (mainFrame && !inPlace) rendererUnavailable();
+  };
+  window.webContents.on("render-process-gone", rendererUnavailable);
+  window.webContents.on("did-start-navigation", navigating);
+  handle("scope:diagram-agent-status", (input) =>
+    connectedAgents.status(decode(ArtifactId, input)),
+  );
+  handle("scope:request-diagram-agent", (input) => connectedAgents.request(input));
+  handle("scope:cancel-diagram-agent", (input) =>
+    connectedAgents.cancel(decode(ArtifactId, input)),
   );
   handle("scope:diagram-command-result", (input) => diagrams.reply(input));
   handle("scope:set-diagram-menu", (input) => setDiagramMenu(decode(DiagramMenuState, input)));
@@ -201,6 +230,8 @@ export function registerDesktopIpc({
   });
 
   return {
+    diagramAgent: (command: Parameters<typeof connectedAgents.run>[0], signal: AbortSignal) =>
+      connectedAgents.run(command, signal),
     diagram: async (command: DiagramCommand, signal: AbortSignal) =>
       decode(DiagramReply, await diagrams.run(command, signal)),
     syncDiagram: async (request: DiagramSyncCommand, id: string, signal: AbortSignal) =>
@@ -208,13 +239,20 @@ export function registerDesktopIpc({
     cancelPending: () => {
       plugins.cancelPending();
       diagrams.cancelAll();
+      connectedAgents.close();
     },
-    cancelTabs: (ids: string[]) => plugins.cancelTabs(ids),
+    cancelTabs: (ids: string[]) => {
+      plugins.cancelTabs(ids);
+      connectedAgents.cancelTabs(ids);
+    },
     dispose: () => {
+      window.webContents.removeListener("render-process-gone", rendererUnavailable);
+      window.webContents.removeListener("did-start-navigation", navigating);
       window.removeListener("enter-full-screen", enteredFullscreen);
       window.removeListener("leave-full-screen", leftFullscreen);
       plugins.cancelPending();
       diagrams.cancelAll();
+      connectedAgents.close();
       eventListeners.clear();
     },
     onTabEvent: (listener: (event: TabEventEnvelope) => void | Promise<void>) => {

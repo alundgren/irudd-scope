@@ -1,3 +1,4 @@
+import { DiagramAgentCommand, DiagramAgentReply } from "@irudd-scope/protocol/diagram-agent";
 import {
   DiagramCommand,
   DiagramReply,
@@ -27,6 +28,7 @@ import { DiagramSyncCommand, DiagramSyncReply } from "@irudd-scope/protocol/diag
 import { ArtifactName } from "@irudd-scope/protocol";
 
 export async function startArtifactServer(options: {
+  diagramAgent?: (command: DiagramAgentCommand, signal: AbortSignal) => Promise<DiagramAgentReply>;
   diagram?: (command: DiagramCommand, signal: AbortSignal) => Promise<DiagramReply>;
   syncDiagram?: (
     command: DiagramSyncCommand,
@@ -100,6 +102,10 @@ export async function startArtifactServer(options: {
     }
     authenticate(request, options.token);
 
+    if (route === "POST /v1/diagram-agents" && !url.search) {
+      await handleDiagramAgent(request, response);
+      return;
+    }
     if (route === "POST /v1/diagrams/sync" && !url.search) {
       if (!options.syncDiagram) throw new ScopeError(503, "The diagram editor is unavailable.");
       const body = await readJson(request, MAX_CONTENT_BYTES, "Diagram request exceeds 32 MiB.");
@@ -166,6 +172,28 @@ export async function startArtifactServer(options: {
     if (!match) throw new ScopeError(404, "Endpoint not found.");
     const id = validate(() => decode(ArtifactId, decodeURIComponent(match[1])));
     await handleArtifact(request, response, url, id, match[2]);
+  }
+
+  async function handleDiagramAgent(request: IncomingMessage, response: ServerResponse) {
+    if (!options.diagramAgent) throw new ScopeError(503, "The diagram editor is unavailable.");
+    const body = await readJson(
+      request,
+      MAX_DIAGRAM_REQUEST_BYTES,
+      "Diagram request exceeds 512 KiB.",
+    );
+    const command = validate(() => decode(DiagramAgentCommand, body));
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    response.once("close", cancel);
+    try {
+      json(
+        response,
+        200,
+        decode(DiagramAgentReply, await options.diagramAgent(command, controller.signal)),
+      );
+    } finally {
+      response.off("close", cancel);
+    }
   }
 
   async function handleDiagram(request: IncomingMessage, response: ServerResponse) {

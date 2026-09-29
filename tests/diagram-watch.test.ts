@@ -181,7 +181,7 @@ test.for(["initialize", "thread/read"])(
   },
 );
 
-test("human edits push to T3 with idempotent retry; agent edits do not echo, and deletion stops the listener", async () => {
+test("human edits push to T3 with idempotent retry; connected replies do not echo, and deletion stops the listener", async () => {
   const fixture = await desktopFixture();
   const application = await fixture.launch();
   const requests: { commandId: string; threadId: string; message: { text: string } }[] = [];
@@ -283,6 +283,38 @@ test("human edits push to T3 with idempotent retry; agent edits do not echo, and
     expect(requests[2].message.text).toContain("Move the new label left.");
     await fixture.cli("diagram", "reply", artifact.name, "Received your diagram change.");
     await page.getByText("Received your diagram change.", { exact: true }).waitFor();
+    const recipient = page.getByRole("combobox", { name: "Conversation recipient" });
+    expect(await recipient.count()).toBe(1);
+    await recipient.selectOption("connected");
+    const waiting = client.diagramAgent({ action: "wait", id: artifact.id, name: "Waiting agent" });
+    await page.getByText("Waiting agent · Waiting for a request", { exact: true }).waitFor();
+    await page.getByRole("textbox", { name: "Change diagram" }).fill("Rename the first object.");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    const request = await waiting;
+    if (request.type !== "request") throw new Error("Expected a connected-agent request");
+    expect(request.intent).toBe("Rename the first object.");
+    await client.diagramAgent({
+      action: "reply",
+      id: artifact.id,
+      requestId: request.requestId,
+      token: request.token,
+      snapshot: request.diagram.snapshot,
+      message: "Renamed through the waiting connection.",
+      operations: [{ type: "setLabel", id: request.diagram.scene.nodes[0].id, label: "Renamed" }],
+    });
+    await page.getByText("Renamed through the waiting connection.", { exact: true }).waitFor();
+    const updated = await client.syncDiagram({ action: "read", name: artifact.name });
+    if (updated.type !== "full") throw new Error("Expected the updated native diagram");
+    expect(updated.document.elements.some((element) => element.originalText === "Renamed")).toBe(
+      true,
+    );
+    await delay(1000);
+    expect(requests).toHaveLength(3);
+    await recipient.selectOption("external");
+    await page.getByRole("textbox", { name: "Change diagram" }).fill("Back to the host listener.");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect.poll(() => requests.length, { timeout: 5000 }).toBe(4);
+    expect(requests[3].message.text).toContain("Back to the host listener.");
     await client.delete(artifact.id);
     await expect.poll(() => listener!.exitCode).toBe(0);
   } finally {

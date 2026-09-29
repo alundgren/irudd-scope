@@ -1,3 +1,5 @@
+import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
+import { NativeSelect, NativeSelectOption } from "../../renderer/components/ui/native-select.tsx";
 import { useContext, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { Button } from "../../renderer/components/ui/button.tsx";
@@ -19,24 +21,30 @@ export function DiagramChat({
   name,
   target,
   onTargetChange,
+  agentStatus,
 }: {
   open: boolean;
   focus: boolean;
   messages: DiagramDraft["messages"];
   intent: string;
-  busy: "generation" | "saving" | null;
+  busy: "generation" | "connected" | "saving" | null;
+  agentStatus: DiagramAgentStatus;
   ready: boolean;
   onClose: () => void;
   onIntentChange: (intent: string) => void;
   onSend: () => void;
   onCancel: () => void;
   name?: string;
-  target: "external" | "embedded";
-  onTargetChange: (target: "external" | "embedded") => void;
+  target: "external" | "connected" | "embedded";
+  onTargetChange: (target: "external" | "connected" | "embedded") => void;
 }) {
   const preferences = useContext(SettingsContext);
   const external = Boolean(name) && target === "external";
-  const enabled = external || (preferences?.settings?.diagramGenerationEnabled ?? false);
+  const enabled =
+    target === "connected"
+      ? agentStatus.phase !== "disconnected"
+      : external || (preferences?.settings?.diagramGenerationEnabled ?? false);
+  const pending = busy === "generation" || busy === "connected";
   const history = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -49,8 +57,22 @@ export function DiagramChat({
     <aside className="diagram-chat" aria-label="Diagram agent" hidden={!open || focus}>
       <div className="chat-heading">
         <div>
-          <h2>{external ? "Your coding agent" : "Diagram agent"}</h2>
-          <p className="secondary">{external ? name : "Gemini 3.8 Flash · OpenRouter"}</p>
+          <h2>
+            {external
+              ? "Your coding agent"
+              : target === "connected"
+                ? "Connected agent"
+                : "Diagram agent"}
+          </h2>
+          <p className="secondary" role="status">
+            {external
+              ? name
+              : target === "embedded"
+                ? "Gemini 3.8 Flash · OpenRouter"
+                : agentStatus.phase === "disconnected"
+                  ? "No agent connected"
+                  : `${agentStatus.name} · ${agentStatus.phase === "waiting" ? "Waiting for a request" : "Working"}`}
+          </p>
         </div>
         <Button
           variant="ghost"
@@ -62,19 +84,23 @@ export function DiagramChat({
           <X />
         </Button>
       </div>
-      {name && (
-        <div className="chat-target">
-          <label>
-            Send to{" "}
-            <select
-              aria-label="Conversation recipient"
-              value={target}
-              onChange={(event) => onTargetChange(event.target.value as "external" | "embedded")}
-            >
-              <option value="external">Your coding agent</option>
-              <option value="embedded">Scope diagram agent</option>
-            </select>
-          </label>
+      <div className="chat-target">
+        <label>
+          Send to{" "}
+          <NativeSelect
+            disabled={busy !== null}
+            aria-label="Conversation recipient"
+            value={target}
+            onChange={(event) =>
+              onTargetChange(event.target.value as "external" | "connected" | "embedded")
+            }
+          >
+            {name && <NativeSelectOption value="external">Your coding agent</NativeSelectOption>}
+            <NativeSelectOption value="connected">Connected agent</NativeSelectOption>
+            <NativeSelectOption value="embedded">Scope diagram agent</NativeSelectOption>
+          </NativeSelect>
+        </label>
+        {name && (
           <Button
             size="sm"
             variant="ghost"
@@ -82,8 +108,8 @@ export function DiagramChat({
           >
             Copy name
           </Button>
-        </div>
-      )}
+        )}
+      </div>
       <div
         className="chat-history"
         role="log"
@@ -111,18 +137,27 @@ export function DiagramChat({
             {message.details && <p className="secondary">{message.details}</p>}
           </div>
         ))}
-        {busy === "generation" && (
+        {pending && (
           <p role="status" className="secondary">
-            Updating diagram…
+            {target === "connected" ? "Waiting for your publishing agent…" : "Updating diagram…"}
           </p>
         )}
       </div>
       {!enabled ? (
         <div className="chat-form">
-          <p>Enable diagram generation in Settings to ask the diagram agent.</p>
-          <Button onClick={() => preferences?.openSettings("diagram generation")}>
-            Open diagram settings
-          </Button>
+          {target === "connected" ? (
+            <p>
+              Ask the agent that published this diagram to connect and wait for requests. Keep that
+              agent running, then send your message here.
+            </p>
+          ) : (
+            <>
+              <p>Enable diagram generation in Settings to ask the diagram agent.</p>
+              <Button onClick={() => preferences?.openSettings("diagram generation")}>
+                Open diagram settings
+              </Button>
+            </>
+          )}
         </div>
       ) : (
         <form
@@ -138,7 +173,7 @@ export function DiagramChat({
             placeholder="Describe a change…"
             value={intent}
             maxLength={external ? 4000 : 16000}
-            disabled={busy === "generation"}
+            disabled={pending}
             onChange={(event) => onIntentChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -149,7 +184,7 @@ export function DiagramChat({
           />
           <div className="chat-actions">
             <span className="secondary">Shift + Enter for a new line</span>
-            {busy === "generation" ? (
+            {pending ? (
               <Button type="button" size="sm" variant="secondary" onClick={onCancel}>
                 Cancel
               </Button>

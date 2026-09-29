@@ -163,12 +163,18 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
         .click();
       await expect.poll(() => page.getByRole("dialog").count()).toBe(0);
       await page.getByTestId("main-menu-trigger").click();
-      expect(await page.getByRole("button", { name: "Ask agent", exact: true }).count()).toBe(
-        enabled ? 1 : 0,
-      );
+      expect(await page.getByRole("button", { name: "Ask agent", exact: true }).count()).toBe(1);
       await page.getByTestId("main-menu-trigger").click();
       expect(await page.getByRole("complementary", { name: "Diagram agent" }).isVisible()).toBe(
-        enabled,
+        true,
+      );
+      expect(
+        await page
+          .getByRole("combobox", { name: "Conversation recipient", exact: true })
+          .isVisible(),
+      ).toBe(true);
+      expect(await page.getByLabel("Change diagram", { exact: true }).count()).toBe(
+        enabled ? 1 : 0,
       );
     }
     expect(await page.getByLabel("Change diagram", { exact: true }).inputValue()).toBe(

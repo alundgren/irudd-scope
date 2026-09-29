@@ -100,6 +100,30 @@ For an existing `.excalidraw` file, use `add FILE` or `update ID FILE`. Native f
 
 These commands require an updated desktop, CLI, and hub. Embedded diagram generation remains a separate opt-in setting and is unnecessary for CLI-authored diagrams.
 
+### Wait for requests from your tab
+
+When asked to stay available for diagram feedback, use `diagram-agent guide` and
+then `diagram-agent wait ID --agent NAME`. Keep your current agent session running.
+The wait lasts up to 20 seconds and returns `idle` or a tab request containing
+intent, recent conversation, current diagram, and a private request credential.
+Repeat after `idle` while you remain available. The person chooses Connected agent
+in the tab. Embedded generation and a model API key are unnecessary.
+
+For a request, write a reply JSON file with `id`, `requestId`, `token`,
+`snapshot` from `diagram.snapshot`, `message`, and `operations`. Run
+`diagram-agent reply FILE`. An empty operation array sends an explanation without
+editing. A stale snapshot rejects edits; read the current diagram and reconsider
+before trying a new snapshot. Do not replay an uncertain reply automatically.
+Keep request credentials out of logs, source control, and published artifacts.
+Use `diagram-agent release FILE` with `id`, `requestId`, and `token` if you cannot
+answer. After a successful reply, wait again for another request.
+
+Scope does not start or resume agent sessions. A wait disconnect ends its
+availability. Delivered requests expire after five minutes, cancellation,
+renderer reload, tab closure, or reply. Connection state and request credentials
+exist only in desktop memory. The name is a display label; authentication uses
+the normal publishing credential, never provenance fields such as `sessionId`.
+
 ## Connection and confirmation
 
 With no explicit endpoint or token override, the CLI reads `SCOPE_CONNECTION_FILE` or `~/.config/irudd-scope/desktop.json`. Scope must be open on an awake Mac to accept publication. An explicit endpoint from `--endpoint` or `SCOPE_ENDPOINT` requires explicit credentials from `--token-file`, `SCOPE_TOKEN_FILE`, or `SCOPE_TOKEN`; the CLI never borrows the token from local discovery. Keep token values private.

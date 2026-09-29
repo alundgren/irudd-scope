@@ -293,7 +293,7 @@ checks key presence through its own named IPC operation; generation reads the
 key just before calling OpenRouter. Both operations enforce the enabled setting
 in main. Saving and removing keys also require generation to be enabled.
 
-Create diagram and Ask agent invoke the provider explicitly, one request
+Create diagram and the Scope diagram agent recipient invoke the provider explicitly, one request
 at a time, with cancellation. The provider returns validated semantic
 operations and usage. The renderer applies those operations to Excalidraw.
 The diagram editor automatically saves canvas changes through the existing
@@ -316,3 +316,109 @@ The CLI owns file input and explicit PNG output. The hub only forwards requests.
 Embedded generation receives bounded recent conversation, current selection,
 and read-only object summaries as well as the editable scene. Supported imported
 and manually drawn objects use stable native aliases in semantic operations.
+
+### Coding session notifications
+
+Codex, Claude Code, or the enclosing host owns the coding session, its tools,
+and its lifetime. Scope's desktop and hub do not launch those processes or
+retain their transcripts. A named diagram identifies the document; the listener's
+explicit host and thread arguments select the session. Publication provenance
+such as `source.sessionId` does not establish a connection.
+
+```text
+Human sends a message or edits a named diagram
+  |
+  v
+Scope editor (renderer)
+  | scope:diagram-event IPC
+  v
+Scope desktop main -- GET /v1/events (SSE) -- [optional paired hub]
+  |                                                        |
+  +-------------------- direct or relayed ------------------+
+                              |
+                              v
+               irudd-scope diagram watch NAME
+               filter by artifact; coalesce for 800 ms
+                              |
+             +----------------+------------------+
+             |                |                  |
+       --codex-thread    --claude-channel     --t3-thread
+             |                |                  |
+       WebSocket RPC     MCP over stdio     authenticated HTTP
+             |                |                  |
+       Codex App Server  Claude Code host   T3 orchestration
+       thread/read       notification:      thread.turn.start
+       idle: turn/start  claude/channel     (host owns queue)
+       busy: turn/steer       |                  |
+             |                |                  v
+             +----------------+----------> existing agent session
+```
+
+The adapters live in `packages/cli/src/diagram-watch.ts`. The Codex listener
+connects to the App Server that owns the existing thread, initializes its RPC
+connection, and reads that thread before delivering notices. For an active turn
+it supplies the expected turn ID when steering. An unrelated App Server cannot
+reach a terminal session owned by another process. T3 sessions use the T3
+adapter and T3 thread ID, rather than the provider's Codex thread ID.
+
+For Claude, the direction of process ownership is reversed: Claude starts the
+configured Scope CLI as a stdio MCP child, initializes its channel, and receives
+`notifications/claude/channel`. Closing the input pipe stops the listener. The
+channel requires support and enablement in that Claude host. Scope cannot wake
+a closed Claude session. The [agent connection instructions](../.agents/skills/irudd-scope/references/agent-connections.md)
+contain the commands and host configuration.
+
+Notices carry message text and diagram versions, not full diagrams. The agent
+uses `diagram rebase` to read changes, edits its working file, then uses
+`diagram push` or `diagram propose` for visual review. `diagram reply` adds its
+response to the conversation. These calls use `POST /v1/diagrams/sync`, through
+the optional hub, then main-to-renderer IPC to the loaded editor. Writes check
+the current version and autosave through the artifact API. External writes do
+not echo back as human edits; embedded generation does notify listeners.
+
+A listener reconnects after a Scope event-stream disconnect and checks the
+current version. Missed canvas edits can be recovered with a rebase; missed
+messages are not replayed. Stop it when the task ends. Tab deletion or loss of
+its working directory also stops it. A host delivery error ends the listener
+with a diagnostic; inspect the session before retrying uncertain delivery.
+
+### Connected diagram agents
+
+An authenticated publisher can explicitly wait for a request from its diagram
+tab through `POST /v1/diagram-agents`. Desktop main owns bounded, temporary
+connection records. The tab sends intent, recent conversation, and a current
+snapshot only to an active waiter. A request-specific credential authorizes the
+reply; semantic edits use the same snapshot validation and automatic publication as
+other diagram commands. Connection records and reply credentials never enter
+SQLite. Renderer reload, tab close, cancellation, expiry, and desktop shutdown
+end them. The hub only forwards the HTTP traffic.
+
+Moving a tab to Trashcan ends its connection through the desktop lifecycle.
+Restoring that same tab UUID preserves its document and conversation, but does
+not restore requests or credentials. Permanent deletion and a later publication
+under the same artifact ID also require a fresh connection.
+
+This path needs no host adapter. Codex and Claude both receive the request as
+the result of a tool command they explicitly ran in their existing session:
+
+```text
+Running agent -- tool: diagram-agent wait ID --> desktop holds HTTP request
+                                                      ^
+Human -- Connected agent / Send --> renderer -- IPC ---+
+                                                      |
+Running agent <-- tool result: intent + canvas + token -+
+      |
+      +-- reasons and prepares operations
+      |
+      +-- tool: diagram-agent reply FILE --> desktop checks request + snapshot
+                                                      |
+Human <-- reply text + autosaved canvas <-- renderer ---+
+```
+
+An idle wait returns after 20 seconds. The agent explicitly waits again while
+it remains available, and after each accepted reply. A delivered request has
+a five-minute reply deadline. The CLI exits after returning each result; the
+agent host continues its existing tool loop. Running a wait command outside
+that loop does not attach it to a model. This mode does not resume an idle or
+closed host session. Connected-agent selection is temporary; existing named
+or embedded recipient preferences remain in the draft.

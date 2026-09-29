@@ -1,5 +1,6 @@
+import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
 import type { TabContext } from "../api.ts";
-import { useContext, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Excalidraw,
   MainMenu,
@@ -32,7 +33,6 @@ import { BookOpen, Copy, ImageDown, Maximize, MessageSquare, X } from "lucide-re
 import type { Theme } from "../../renderer/appearance.ts";
 import type { DiagramDraft } from "./draft.ts";
 import { useAutosave } from "../../workspace/persistence.ts";
-import { SettingsContext } from "../../renderer/settings-context.tsx";
 import { fitToCanvas, useDiagramViewport } from "./viewport.ts";
 import { useDiagramMenu } from "./native-menu.ts";
 import "@excalidraw/excalidraw/index.css";
@@ -64,8 +64,6 @@ export function DiagramView({
   viewing: boolean;
   active: boolean;
 }) {
-  const preferences = useContext(SettingsContext);
-  const enabled = preferences?.settings?.diagramGenerationEnabled ?? false;
   const [api, setApi] = useState<ExcalidrawImperativeAPI>();
   const [dirty, setDirty] = useState(false);
   const dirtyRef = useRef(false);
@@ -73,12 +71,41 @@ export function DiagramView({
   const loaded = useRef(item.artifact.revision);
   const loadId = useRef(0);
   const [revision, setRevision] = useState(item.artifact.revision);
-  const [busy, setBusy] = useState<"generation" | "saving" | null>(null);
+  const [busy, setBusy] = useState<"generation" | "connected" | "saving" | null>(null);
   const busyRef = useRef(busy);
   busyRef.current = busy;
   const [publishing, setPublishing] = useState(false);
   const [intent, setIntent] = useState("");
   const [messages, setMessages] = useState<DiagramDraft["messages"]>([]);
+  const [connectedAgentSelected, setConnectedAgentSelected] = useState(false);
+  const [agentStatus, setAgentStatus] = useState<DiagramAgentStatus>({
+    id: item.artifact.id,
+    phase: "disconnected",
+    name: "",
+  });
+  useEffect(() => {
+    let active = true;
+    const receive = (status: DiagramAgentStatus) => {
+      if (active && status.id === item.artifact.id) setAgentStatus(status);
+    };
+    let receivedEvent = false;
+    const remove = window.scope.onDiagramAgentStatus((status) => {
+      if (status.id === item.artifact.id) {
+        receivedEvent = true;
+        receive(status);
+      }
+    });
+    void window.scope
+      .diagramAgentStatus(item.artifact.id)
+      .then((status) => {
+        if (!receivedEvent) receive(status);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      remove();
+    };
+  }, [item.artifact.id]);
   const [chatOpen, setChatOpen] = useState(false);
   const [proposal, setProposal] = useState<DiagramProposal>();
   const [proposalViewport, setProposalViewport] = useState<DiagramDraft["viewport"]>();
@@ -108,7 +135,7 @@ export function DiagramView({
     conversationTarget,
   };
   proposalRef.current = proposal;
-  const request = useRef<{ canceled: boolean } | null>(null);
+  const request = useRef<{ canceled: boolean; target?: "connected" } | null>(null);
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
   const readyRef = useRef(false);
@@ -481,7 +508,8 @@ export function DiagramView({
     return () => {
       if (request.current) {
         request.current.canceled = true;
-        void window.scope.cancelDiagramGeneration().catch(() => {});
+        if (request.current.target !== "connected")
+          void window.scope.cancelDiagramGeneration().catch(() => {});
       }
     };
   }, [api, item.artifact.id]);
@@ -536,6 +564,45 @@ export function DiagramView({
     } catch (failure) {
       setNotice(failure instanceof Error ? failure.message : "Could not save the diagram.");
     } finally {
+      setBusy(null);
+    }
+  }
+  async function changeConnected() {
+    if (!api || !intent.trim() || busy || request.current || agentStatus.phase !== "waiting")
+      return;
+    const current = { canceled: false, target: "connected" as const };
+    request.current = current;
+    setBusy("connected");
+    const prompt = intent.trim();
+    setMessages((previous) => [...previous, { role: "user", text: prompt }]);
+    try {
+      const result = await window.scope.requestDiagramAgent({
+        id: item.artifact.id,
+        intent: prompt,
+        history: messages.slice(-12).map(({ role, text }) => ({ role, text: text.slice(0, 4000) })),
+      });
+      if (!current.canceled) {
+        setIntent("");
+        setMessages((previous) => [
+          ...previous,
+          {
+            role: "assistant",
+            text: result.message,
+            agent: "external",
+            details: agentStatus.name,
+          },
+        ]);
+      }
+    } catch (error) {
+      setNotice(
+        current.canceled
+          ? "Request canceled. Read the canvas before retrying if a reply was already arriving."
+          : error instanceof Error
+            ? error.message
+            : "The connected agent did not reply. Connect again and retry.",
+      );
+    } finally {
+      if (request.current === current) request.current = null;
       setBusy(null);
     }
   }
@@ -639,7 +706,11 @@ export function DiagramView({
     }
     const unregister = registerDiagramCommands(item.artifact.id, async (command, signal) => {
       const combined = AbortSignal.any([signal, lifetime.signal]);
-      if (busy || request.current || !readyRef.current)
+      if (
+        (busyRef.current && busyRef.current !== "connected") ||
+        (request.current && request.current.target !== "connected") ||
+        !readyRef.current
+      )
         throw new Error("The diagram is busy. Retry after the current operation finishes.");
       if (command.action === "create") throw new Error("Use the diagram creation command.");
       if (command.action === "sync") return syncDiagram(command.request, combined);
@@ -649,7 +720,11 @@ export function DiagramView({
         throw new Error("The canvas changed since it was read. Read it again before editing.");
       if (command.action === "apply") {
         requireFinishedEdit();
-        if (busyRef.current || request.current || !readyRef.current)
+        if (
+          (busyRef.current && busyRef.current !== "connected") ||
+          (request.current && request.current.target !== "connected") ||
+          !readyRef.current
+        )
           throw new Error(
             "The diagram is busy. Read it again after the current operation finishes.",
           );
@@ -666,6 +741,7 @@ export function DiagramView({
         combined.throwIfAborted();
         if (!api.getSceneElements().length) canvasViewport.requestFit();
         api.updateScene({ elements, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+        agentContent.current = documentContent();
         markDirty(true);
         draftSave.schedule();
         await draftSave.flush();
@@ -703,12 +779,14 @@ export function DiagramView({
       lifetime.abort();
       unregister();
     };
-  }, [api, ready, busy, item.artifact.id]);
+  }, [api, ready, item.artifact.id]);
   async function cancel() {
     if (!request.current) return;
     request.current.canceled = true;
     try {
-      await window.scope.cancelDiagramGeneration();
+      if (request.current.target === "connected")
+        await window.scope.cancelDiagramAgent(item.artifact.id);
+      else await window.scope.cancelDiagramGeneration();
     } catch {
       setNotice("Could not reach the provider to cancel. Its result will not change the canvas.");
     }
@@ -730,7 +808,7 @@ export function DiagramView({
     <div
       className={`diagram-view${viewing ? " diagram-viewing" : ""}`}
       onKeyDown={(event) => {
-        if (event.key === "Escape" && chatOpen && (enabled || item.artifact.name) && !viewing) {
+        if (event.key === "Escape" && chatOpen && !viewing) {
           event.stopPropagation();
           setChatOpen(false);
         }
@@ -844,14 +922,12 @@ export function DiagramView({
                 >
                   Library
                 </MainMenu.Item>
-                {(enabled || item.artifact.name) && (
-                  <MainMenu.Item
-                    icon={<MessageSquare />}
-                    onSelect={() => setChatOpen((value) => !value)}
-                  >
-                    Ask agent
-                  </MainMenu.Item>
-                )}
+                <MainMenu.Item
+                  icon={<MessageSquare />}
+                  onSelect={() => setChatOpen((value) => !value)}
+                >
+                  Ask agent
+                </MainMenu.Item>
               </MainMenu>
             </Excalidraw>
           </div>
@@ -879,6 +955,7 @@ export function DiagramView({
                 draftSave.schedule();
               }}
               onDiscuss={() => {
+                setConnectedAgentSelected(false);
                 setConversationTarget("external");
                 setChatOpen(true);
               }}
@@ -891,10 +968,13 @@ export function DiagramView({
           )}
         </div>
         <DiagramChat
-          open={chatOpen && (enabled || Boolean(item.artifact.name))}
+          open={chatOpen}
           name={item.artifact.name}
-          target={conversationTarget}
-          onTargetChange={setConversationTarget}
+          target={connectedAgentSelected ? "connected" : conversationTarget}
+          onTargetChange={(target) => {
+            setConnectedAgentSelected(target === "connected");
+            if (target !== "connected") setConversationTarget(target);
+          }}
           focus={viewing}
           messages={messages}
           intent={intent}
@@ -902,7 +982,8 @@ export function DiagramView({
           ready={ready}
           onClose={() => setChatOpen(false)}
           onIntentChange={setIntent}
-          onSend={() => void change()}
+          agentStatus={agentStatus}
+          onSend={() => void (connectedAgentSelected ? changeConnected() : change())}
           onCancel={() => void cancel()}
         />
       </div>

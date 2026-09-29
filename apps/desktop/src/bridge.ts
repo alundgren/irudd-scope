@@ -1,3 +1,5 @@
+import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
+import type { TabAgentRequest } from "./plugins/diagram/connected-agent.ts";
 import type { DiagramCommandRequest, DiagramCommandResponse } from "./plugins/diagram/commands.ts";
 import type { DiagramEvent } from "@irudd-scope/protocol";
 import type { Artifact } from "@irudd-scope/protocol";
@@ -19,6 +21,10 @@ export type ArtifactContent = { artifact: Artifact; bytes: Uint8Array };
 import type { TabEventEnvelope } from "./plugins/events.ts";
 
 export type ScopeBridge = {
+  diagramAgentStatus: (id: string) => Promise<DiagramAgentStatus>;
+  onDiagramAgentStatus: (listener: (status: DiagramAgentStatus) => void) => () => void;
+  requestDiagramAgent: (request: typeof TabAgentRequest.Type) => Promise<{ message: string }>;
+  cancelDiagramAgent: (id: string) => Promise<void>;
   setDiagramMenu: (state: DiagramMenuState) => Promise<void>;
   onDiagramMenuAction: (listener: (action: DiagramMenuAction) => void) => () => void;
   onDiagramCommand: (listener: (input: DiagramCommandRequest) => void) => () => void;

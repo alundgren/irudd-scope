@@ -200,8 +200,7 @@ It sits beside the canvas at desktop widths and overlays it in a narrow
 window. Enter sends, Shift+Enter adds a line, and a pending request offers
 Cancel. Canvas edits save automatically to the artifact in SQLite, alongside
 the conversation and view position. The editor has no Save button.
-Its left menu contains Save a copy, Fit to canvas, Export, Find on canvas, and Library, plus Ask agent when
-diagram generation is enabled. The menu replaces the separate Library and
+Its left menu contains Save a copy, Fit to canvas, Export, Find on canvas, Library, and Ask agent. The menu replaces the separate Library and
 Ask agent controls on the right.
 
 Named diagrams default their conversation recipient to Your coding agent. The
@@ -218,6 +217,21 @@ reconciles again. The original canvas stays mounted underneath. Proposals and
 the selected recipient persist with the tab through Trashcan and are removed on permanent deletion.
 The editor's bottom-right help button is hidden because its shortcut reference
 includes commands unavailable in Scope.
+
+The conversation has one Send to selector. Scope diagram agent uses the configured
+model. Connected agent sends requests to a publisher that has explicitly
+connected and is waiting, even when embedded generation is off. Ask agent stays
+available in that case so the person can choose Connected agent. The panel
+shows the connection name and waiting or working state. With no connected agent
+it explains how to make one available. Replies appear in the conversation and
+canvas edits save automatically. Cancel ends that request and invalidates late
+replies. Selecting Connected agent is temporary. Restart returns to the last
+saved Your coding agent or Scope diagram agent choice; connection state does
+not survive restart.
+
+Scope reports connected-request failures and cancellation above the canvas,
+separate from agent replies in the conversation. Moving a diagram to Trashcan
+ends its connection. Restoring the saved diagram requires a fresh connection.
 
 SQLite retains the conversation, unsent prompt, working canvas, and zoom and
 pan across restarts for tabs that remain open. Incoming revisions preserve pending
