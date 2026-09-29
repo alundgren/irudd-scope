@@ -38,6 +38,11 @@ against adjoining backgrounds. Test the rendered control, including opacity
 and compositing. Tint alone does not identify the selected tab. Keep the
 solid marker and keyboard focus visible.
 
+Excalidraw control labels use Scope's primary text token. Editor hints and
+keyboard shortcuts use its secondary text token at full opacity. Keep these
+overrides in `style.css` so both the editor and proposal preview follow the
+shared contrast choices without changing drawing colors.
+
 Use the token weights and spacing to establish hierarchy before adding larger
 headings. Monospace is for code, paths, and identifiers. Ordinary artifact
 content needs no card or shadow. Keep authored HTML colors, image pixels, and
