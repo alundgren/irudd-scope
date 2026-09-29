@@ -149,7 +149,9 @@ overview. Fields keep unsaved input when collapsed or filtered out. The search
 field and top-right close button stay visible while the sections scroll. Empty results
 offer Clear search and return focus to the search field.
 Appearance saves when changed. Diagram generation and Voice generation are
-separate searchable sections, both off by default. Each switch saves immediately
+separate searchable sections, both off by default. Each uses a sliding switch
+beside a fixed setting name, with adjacent On or Off text showing the current
+state. Thumb position and color also distinguish the states. Each switch saves immediately
 and turning either off retains the shared key and leaves the other feature's
 switch unchanged. Voice generation shows the fixed Gemini 3.8 Flash TTS model
 and Kore voice and explains that submitted requests may still incur a charge.

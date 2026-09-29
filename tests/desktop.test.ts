@@ -23,7 +23,7 @@ test("the CLI commits artifacts while diagram generation is pending and the rend
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "Diagram generation", exact: true }).click();
-    await page.getByRole("switch", { name: "Enable diagram generation" }).click();
+    await page.getByRole("switch", { name: "Diagram generation", exact: true }).click();
     await page.getByRole("button", { name: "OpenRouter", exact: true }).click();
     await page.getByLabel("OpenRouter API key").fill("synthetic-pending-key");
     await page.getByRole("button", { name: "Save key" }).click();
@@ -86,7 +86,7 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "Diagram generation", exact: true }).click();
-    await page.getByRole("switch", { name: "Enable diagram generation" }).click();
+    await page.getByRole("switch", { name: "Diagram generation", exact: true }).click();
     await page.getByRole("button", { name: "OpenRouter", exact: true }).click();
     await page.getByLabel("OpenRouter API key").fill("synthetic-diagram-key");
     await page.getByRole("button", { name: "Save key" }).click();
@@ -156,7 +156,7 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     for (const enabled of [false, true]) {
       await page.keyboard.press("ControlOrMeta+,");
       await page.getByLabel("Search settings").fill("diagram generation");
-      const enable = page.getByRole("switch", { name: "Enable diagram generation" });
+      const enable = page.getByRole("switch", { name: "Diagram generation", exact: true });
       await enable.click();
       await expect.poll(() => enable.getAttribute("aria-checked")).toBe(String(enabled));
       await page
@@ -502,7 +502,7 @@ test("Electron receives and reopens interactive HTML and keeps development keys 
     expect(await page.getByText("Hub connection", { exact: true }).count()).toBe(0);
     expect(await page.getByLabel("Hub token").count()).toBe(0);
     await page.getByRole("button", { name: "Diagram generation", exact: true }).click();
-    await page.getByRole("switch", { name: "Enable diagram generation" }).click();
+    await page.getByRole("switch", { name: "Diagram generation", exact: true }).click();
     await page.getByRole("button", { name: "OpenRouter", exact: true }).click();
     await page.getByLabel("OpenRouter API key").fill("synthetic-desktop-api-key");
     await page.getByRole("button", { name: "Save key" }).click();

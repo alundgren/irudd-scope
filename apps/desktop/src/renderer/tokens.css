@@ -37,6 +37,10 @@
   --scope-radius-tab: 8px;
   --scope-radius-dialog: 12px;
   --scope-control: 32px;
+  --scope-switch-width: 48px;
+  --scope-switch-height: 28px;
+  --scope-switch-thumb: 20px;
+  --scope-switch-inset: 3px;
   --scope-strip-height: 44px;
   --scope-focus-width: 2px;
   --scope-focus-offset: 2px;

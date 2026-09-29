@@ -781,12 +781,78 @@ h2 {
   display: grid;
   gap: var(--scope-space-3);
 }
-.settings-section-content .appearance-setting,
-.diagram-generation-setting {
+.settings-section-content .appearance-setting {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
+}
+.setting-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--scope-space-6);
+}
+.setting-switch > label {
+  min-width: 0;
+  cursor: pointer;
+}
+.setting-switch-control {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--scope-space-3);
+}
+.setting-switch-state {
+  width: 3ch;
+  text-align: right;
+  color: var(--scope-muted);
+  font-weight: var(--scope-weight-medium);
+}
+.setting-switch-control:has([aria-checked="true"]) .setting-switch-state {
+  color: var(--scope-text);
+}
+.setting-switch-button {
+  position: relative;
+  width: var(--scope-switch-width);
+  height: var(--scope-switch-height);
+  padding: 0;
+  border: 1px solid var(--scope-outline);
+  border-radius: var(--scope-switch-height);
+  background: var(--scope-strip);
+  transition:
+    background var(--scope-motion),
+    border-color var(--scope-motion);
+}
+.setting-switch-thumb {
+  position: absolute;
+  width: var(--scope-switch-thumb);
+  height: var(--scope-switch-thumb);
+  left: var(--scope-switch-inset);
+  top: var(--scope-switch-inset);
+  border-radius: 50%;
+  background: var(--scope-muted);
+  transition:
+    transform var(--scope-motion),
+    background var(--scope-motion);
+}
+.setting-switch-button[aria-checked="true"] {
+  background: var(--scope-accent);
+  border-color: var(--scope-accent);
+}
+.setting-switch-button[aria-checked="true"] .setting-switch-thumb {
+  transform: translateX(calc(var(--scope-switch-width) - var(--scope-switch-height)));
+  background: var(--scope-on-accent);
+}
+.setting-switch-button:hover:not(:disabled) {
+  border-color: var(--scope-text);
+}
+.setting-switch-button[aria-checked="true"]:hover:not(:disabled) {
+  background: var(--scope-accent-hover);
+  border-color: var(--scope-accent-hover);
+}
+.setting-switch-button:disabled {
+  opacity: 0.5;
 }
 .settings-notice {
   display: grid;
