@@ -24,7 +24,7 @@ test("dragging tabs preserves filtered order and HTML state, supports recovery, 
       );
     const order = () =>
       page.evaluate(async () => (await window.scope.workspace())?.tabs.map((tab) => tab.title));
-    const picker = () => page.getByRole("button", { name: /^More tabs,/ });
+    const picker = () => page.getByRole("button", { name: /^Tabs and Trashcan,/ });
     const drawer = () => page.locator(".tab-overflow-popup");
     const row = (title: string) =>
       drawer()
@@ -43,12 +43,14 @@ test("dragging tabs preserves filtered order and HTML state, supports recovery, 
         .click();
     expect(await page.getByRole("tab", { selected: true }).textContent()).toBe("Alpha");
     await drawer().getByRole("button", { name: "Permanent", exact: true }).click();
-    await row("Delta").dragTo(row("Bravo"), { targetPosition: { x: 80, y: 3 } });
+    // Native drops need pointer movement to deliver dragover before releasing the mouse.
+    await row("Delta").dragTo(row("Bravo"), { targetPosition: { x: 80, y: 3 }, steps: 8 });
     await expect.poll(order).toEqual(["Alpha", "Delta", "Bravo", "Charlie", "Echo", "Foxtrot"]);
     await drawer().getByRole("button", { name: "All", exact: true }).click();
     const echoBounds = await row("Echo").boundingBox();
     await row("Alpha").dragTo(row("Echo"), {
       targetPosition: { x: 80, y: echoBounds!.height - 3 },
+      steps: 8,
     });
     await expect.poll(order).toEqual(["Delta", "Bravo", "Charlie", "Echo", "Alpha", "Foxtrot"]);
     const charlie = drawer().getByRole("button", { name: "Charlie html", exact: true });
@@ -63,6 +65,7 @@ test("dragging tabs preserves filtered order and HTML state, supports recovery, 
       .getByRole("tab", { name: "Foxtrot", exact: true })
       .dragTo(page.getByRole("tab", { name: "Delta", exact: true }), {
         targetPosition: { x: 3, y: 16 },
+        steps: 8,
       });
     await expect.poll(order).toEqual(["Foxtrot", "Delta", "Bravo", "Charlie", "Echo", "Alpha"]);
     expect(await frame!.evaluate((element) => element.isConnected)).toBe(true);
@@ -98,7 +101,9 @@ test("dragging tabs preserves filtered order and HTML state, supports recovery, 
 
     // Dropping outside a target and dropping foreign data must leave the saved order intact.
     await picker().click();
-    await row("Bravo").dragTo(drawer().getByRole("button", { name: "All", exact: true }));
+    await row("Bravo").dragTo(drawer().getByRole("button", { name: "All", exact: true }), {
+      steps: 8,
+    });
     const foreign = await page.evaluateHandle(() => {
       const data = new DataTransfer();
       data.setData("application/x-scope-tab", document.querySelector('[role="tab"]')!.id.slice(4));

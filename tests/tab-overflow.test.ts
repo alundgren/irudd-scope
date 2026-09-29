@@ -36,7 +36,7 @@ test("150 tabs use a searchable overflow picker, keep their order, and survive r
     expect(await page.locator(".artifact-pane pre").count()).toBe(1);
     await page.getByRole("tab", { name: "Overflow 149", exact: true }).click();
     const leftmost = await page.getByRole("tab").first().textContent();
-    const picker = () => page.getByRole("button", { name: /^More tabs,/ });
+    const picker = () => page.getByRole("button", { name: /^Tabs and Trashcan,/ });
     await picker().click();
     await expect
       .poll(() =>
@@ -162,7 +162,7 @@ test("overflow preserves visited HTML, hands focus to dialogs, and remains avail
     await page.getByRole("tab", { name: "Background 11", exact: true }).click();
     await page.getByText("Background content 11", { exact: true }).waitFor();
     expect(await page.getByRole("tab", { name: "Interactive notes", exact: true }).count()).toBe(0);
-    const picker = page.getByRole("button", { name: /^More tabs,/ });
+    const picker = page.getByRole("button", { name: /^Tabs and Trashcan,/ });
     await picker.click();
     await page.getByLabel("Search tabs", { exact: true }).fill("INTERACTIVE");
     await page.keyboard.press("Enter");

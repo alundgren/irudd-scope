@@ -84,6 +84,7 @@ export function TabOverflow({
   const hasUnread = tabs.some(
     (tab) => hiddenIds.has(tab.id) && unread.has(tabArtifactId(tab) ?? ""),
   );
+  const drawerLabel = `Tabs and Trashcan, ${tabs.length} active ${tabs.length === 1 ? "tab" : "tabs"}`;
   const trashEntries = trash.map((entry) => ({ id: entry.tab.id, trashedAt: entry.trashedAt! }));
 
   function navigate(event: KeyboardEvent) {
@@ -131,12 +132,12 @@ export function TabOverflow({
     <Popover.Root open={open} modal="trap-focus" onOpenChange={changeOpen}>
       <Popover.Trigger
         render={<Button variant="ghost" className="tab-overflow-trigger" />}
-        aria-label={`More tabs, ${hiddenIds.size} hidden`}
-        title="Tabs and Trashcan"
+        aria-label={drawerLabel}
+        title={drawerLabel}
         {...drag.drawerTrigger(() => changeOpen(true))}
       >
         <ChevronDown aria-hidden="true" />
-        <span>{hiddenIds.size}</span>
+        <span>{tabs.length}</span>
         {hasUnread && <span className="unread-dot" role="img" aria-label="Updated artifact" />}
       </Popover.Trigger>
       <Popover.Portal>
