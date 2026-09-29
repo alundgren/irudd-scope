@@ -40,7 +40,7 @@ test("shared key and independent switches work in Electron, and Chromium decodes
       hasApiKey: true,
     });
     await search.fill("voice generation");
-    const voice = page.getByRole("switch", { name: "Enable voice generation" });
+    const voice = page.getByRole("switch", { name: "Voice generation", exact: true });
     await voice.focus();
     await page.keyboard.press("Space");
     await expect.poll(() => voice.getAttribute("aria-checked")).toBe("true");
@@ -70,7 +70,7 @@ test("shared key and independent switches work in Electron, and Chromium decodes
       );
     }
     await search.fill("diagram generation");
-    await page.getByRole("switch", { name: "Enable diagram generation" }).click();
+    await page.getByRole("switch", { name: "Diagram generation", exact: true }).click();
     await search.fill("voice generation");
     await voice.click();
     await expect.poll(() => voice.getAttribute("aria-checked")).toBe("false");

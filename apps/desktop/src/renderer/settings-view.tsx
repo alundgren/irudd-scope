@@ -4,6 +4,7 @@ import type { Appearance } from "./appearance.ts";
 import { Button } from "./components/ui/button.tsx";
 import { Input } from "./components/ui/input.tsx";
 import { NativeSelect, NativeSelectOption } from "./components/ui/native-select.tsx";
+import { Switch } from "./components/ui/switch.tsx";
 import { InstallationSettings } from "./installation-settings.tsx";
 import { RemoteSettings } from "./remote-settings.tsx";
 import { ProviderSettings } from "./provider-settings.tsx";
@@ -109,22 +110,16 @@ export function SettingsViewPanel({
           <p className="secondary">System follows your Mac's appearance.</p>
         </SettingsSection>
         <SettingsSection id="model" query={query}>
-          <div className="diagram-generation-setting">
-            <span>Enable diagram generation</span>
-            <Button
-              role="switch"
-              aria-label="Enable diagram generation"
-              aria-checked={settings?.diagramGenerationEnabled ?? false}
-              variant={settings?.diagramGenerationEnabled ? "default" : "secondary"}
-              disabled={busy || !settings}
-              onClick={() =>
-                void save({ diagramGenerationEnabled: !settings?.diagramGenerationEnabled })
-              }
-            >
-              {settings?.diagramGenerationEnabled ? "On" : "Off"}
-            </Button>
-          </div>
-          <p className="secondary">Create diagrams and edit them with the Scope diagram agent.</p>
+          <Switch
+            label="Diagram generation"
+            checked={settings?.diagramGenerationEnabled ?? false}
+            disabled={busy || !settings}
+            describedBy="diagram-generation-description"
+            onCheckedChange={(enabled) => void save({ diagramGenerationEnabled: enabled })}
+          />
+          <p className="secondary" id="diagram-generation-description">
+            Create diagrams and edit them with the Scope diagram agent.
+          </p>
           <dl className="provider-details">
             <div>
               <dt>Provider</dt>
@@ -137,22 +132,14 @@ export function SettingsViewPanel({
           </dl>
         </SettingsSection>
         <SettingsSection id="voice" query={query}>
-          <div className="diagram-generation-setting">
-            <span>Enable voice generation</span>
-            <Button
-              role="switch"
-              aria-label="Enable voice generation"
-              aria-checked={settings?.voiceGenerationEnabled ?? false}
-              variant={settings?.voiceGenerationEnabled ? "default" : "secondary"}
-              disabled={busy || !settings}
-              onClick={() =>
-                void save({ voiceGenerationEnabled: !settings?.voiceGenerationEnabled })
-              }
-            >
-              {settings?.voiceGenerationEnabled ? "On" : "Off"}
-            </Button>
-          </div>
-          <p className="secondary">
+          <Switch
+            label="Voice generation"
+            checked={settings?.voiceGenerationEnabled ?? false}
+            disabled={busy || !settings}
+            describedBy="voice-generation-description"
+            onCheckedChange={(enabled) => void save({ voiceGenerationEnabled: enabled })}
+          />
+          <p className="secondary" id="voice-generation-description">
             Coding agents use your shared OpenRouter key to generate narration audio. Turning this
             off blocks new generations. Submitted requests may still finish and incur a charge.
           </p>

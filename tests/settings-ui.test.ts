@@ -31,7 +31,7 @@ test("Settings starts with folded sections, opens search matches, and preserves 
     expect(await settings.getByLabel("Appearance", { exact: true }).isVisible()).toBe(false);
 
     await diagram.click();
-    const enable = settings.getByRole("switch", { name: "Enable diagram generation" });
+    const enable = settings.getByRole("switch", { name: "Diagram generation", exact: true });
     expect(await enable.getAttribute("aria-checked")).toBe("false");
     expect(await key.isVisible()).toBe(false);
     await enable.focus();
@@ -154,7 +154,7 @@ test("shared key checks require an open OpenRouter section and failed access can
     await page.getByRole("button", { name: "Open diagram settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings", exact: true });
     const search = settings.getByLabel("Search settings");
-    const enable = settings.getByRole("switch", { name: "Enable diagram generation" });
+    const enable = settings.getByRole("switch", { name: "Diagram generation", exact: true });
     const key = settings.getByLabel("OpenRouter API key");
     expect(await enable.getAttribute("aria-checked")).toBe("false");
     expect(await key.isVisible()).toBe(false);
@@ -222,6 +222,112 @@ test("shared key checks require an open OpenRouter section and failed access can
     expect(await page.getByLabel("What should the diagram show?").inputValue()).toBe(
       "Keep this prompt while generation is off.",
     );
+  } finally {
+    await application.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("generation switches show confirmed state and allow retry after a failed save", async () => {
+  const { directory, launch } = await desktopFixture();
+  const application = await launch();
+  try {
+    const page = await application.firstWindow();
+    await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+    await page.keyboard.press("ControlOrMeta+,");
+    const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+    const search = settings.getByLabel("Search settings");
+    await search.fill("generation");
+    const diagram = settings.getByRole("switch", { name: "Diagram generation", exact: true });
+    const voice = settings.getByRole("switch", { name: "Voice generation", exact: true });
+    const diagramRow = settings.locator(".setting-switch").filter({
+      has: page.getByRole("switch", { name: "Diagram generation", exact: true }),
+    });
+    const voiceRow = settings.locator(".setting-switch").filter({
+      has: page.getByRole("switch", { name: "Voice generation", exact: true }),
+    });
+    await diagram.waitFor();
+    await voice.waitFor();
+    expect(await diagram.getAttribute("aria-checked")).toBe("false");
+    expect(await diagramRow.getByText("Off", { exact: true }).isVisible()).toBe(true);
+    await voice.focus();
+    await page.keyboard.press("Space");
+    await expect.poll(() => voice.getAttribute("aria-checked")).toBe("true");
+    expect(await voiceRow.getByText("On", { exact: true }).isVisible()).toBe(true);
+
+    const initial = await page.evaluate(() => window.scope.settings());
+    await application.evaluate(({ ipcMain }, saved) => {
+      const state = {
+        saved,
+        failNext: true,
+        reject: undefined as (() => void) | undefined,
+      };
+      Object.assign(globalThis, { scopeTestSwitchSave: state });
+      ipcMain.removeHandler("scope:save-settings");
+      ipcMain.handle("scope:save-settings", (_event, input) => {
+        if (state.failNext) {
+          return new Promise<never>((_resolve, reject) => {
+            state.reject = () => {
+              state.failNext = false;
+              reject(new Error("Synthetic settings save failure."));
+            };
+          });
+        }
+        state.saved = { ...state.saved, ...input };
+        return state.saved;
+      });
+    }, initial);
+    await diagramRow.locator("label").click();
+    await expect.poll(() => diagram.isDisabled()).toBe(true);
+    expect(await voice.isDisabled()).toBe(true);
+    expect(await diagram.getAttribute("aria-checked")).toBe("false");
+    expect(await diagramRow.getByText("Off", { exact: true }).isVisible()).toBe(true);
+    await application.evaluate(() => {
+      (
+        globalThis as unknown as { scopeTestSwitchSave: { reject: () => void } }
+      ).scopeTestSwitchSave.reject();
+    });
+    await settings
+      .getByRole("status")
+      .filter({ hasText: "Synthetic settings save failure." })
+      .waitFor();
+    expect(await diagram.isEnabled()).toBe(true);
+    expect(await voice.isEnabled()).toBe(true);
+    expect(await diagram.getAttribute("aria-checked")).toBe("false");
+    expect(await diagramRow.getByText("Off", { exact: true }).isVisible()).toBe(true);
+    await diagramRow.locator("label").click();
+    await expect.poll(() => diagram.getAttribute("aria-checked")).toBe("true");
+    expect(await diagramRow.getByText("On", { exact: true }).isVisible()).toBe(true);
+    await diagram.focus();
+    await page.keyboard.press("Enter");
+    await expect.poll(() => diagram.getAttribute("aria-checked")).toBe("false");
+
+    for (const theme of ["light", "dark"]) {
+      await search.fill("appearance");
+      await settings.getByLabel("Appearance", { exact: true }).selectOption(theme);
+      await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe(theme);
+      await search.fill("generation");
+      await page.setViewportSize(
+        theme === "light" ? { width: 1280, height: 820 } : { width: 480, height: 680 },
+      );
+      await diagram.focus();
+      expect(await diagram.evaluate((element) => element === document.activeElement)).toBe(true);
+      expect(await diagramRow.getByText("Off", { exact: true }).isVisible()).toBe(true);
+      expect(await voiceRow.getByText("On", { exact: true }).isVisible()).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
+        false,
+      );
+      expect(await settings.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
+        false,
+      );
+      if (process.env.SCOPE_TEST_SCREENSHOTS) {
+        await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
+        await page.screenshot({
+          path: join(process.env.SCOPE_TEST_SCREENSHOTS, `generation-switches-${theme}.png`),
+          animations: "disabled",
+        });
+      }
+    }
   } finally {
     await application.close();
     await rm(directory, { recursive: true, force: true });
