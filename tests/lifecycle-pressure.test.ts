@@ -153,7 +153,7 @@ test(
       await waitTabs(1);
       await pressureWorkers(119, (index) => publish(0, index + 1, 1));
       await waitTabs(120);
-      await page.getByRole("button", { name: /^More tabs,/ }).waitFor();
+      await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).waitFor();
       expect(await page.getByRole("tab", { selected: true }).textContent()).toBe(idFor(0, 0));
       const filled = contentCounts(f.settingsDirectory);
       expect(filled.rows.live_tabs).toBe(120);
@@ -174,7 +174,7 @@ test(
         await page.setViewportSize(
           appearance === "light" ? { width: 1280, height: 820 } : { width: 700, height: 620 },
         );
-        await page.getByRole("button", { name: /^More tabs,/ }).waitFor();
+        await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).waitFor();
         if (process.env.SCOPE_TEST_SCREENSHOTS) {
           await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
           await page.screenshot({
@@ -189,7 +189,7 @@ test(
       await page.getByRole("button", { name: `Close ${idFor(0, 0)}`, exact: true }).click();
       await local.delete(idFor(0, 0));
       artifacts.delete(idFor(0, 0));
-      await page.getByRole("button", { name: /^More tabs,/ }).waitFor();
+      await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).waitFor();
       await waitTabs(119);
       expect(contentCounts(f.settingsDirectory).rows.blobs).toBe(filled.rows.blobs);
       expect(Buffer.from(await hub.client.content(duplicate.id))).toEqual(
@@ -222,7 +222,7 @@ test(
       local = await f.connect();
       samplingPaused = false;
       await waitTabs(119);
-      await page.getByRole("button", { name: /^More tabs,/ }).waitFor();
+      await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).waitFor();
       expect(await page.evaluate((id) => window.scope.diagramDraft(id), draftTab.id)).toMatchObject(
         { intent: "Synthetic draft" },
       );

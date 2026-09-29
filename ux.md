@@ -34,10 +34,12 @@ live with the desktop.
 
 Tabs show the artifact title and indicate unread updates. Selection has both a
 tinted background and a solid marker. The strip shows as many tabs as fit at a
-readable width. The left drawer starts with title/name/kind search and All,
-Permanent, and Temporary filters. It lists active tabs in saved strip order,
-without a heading, repeated status icons, or per-row trash actions. A subdued
-Trashcan link sits below the list without a count, since recovery is infrequent.
+readable width. The left drawer button counts all active tabs, including those
+outside the strip, and excludes tabs in Trashcan. The drawer starts with
+title/name/kind search and All, Permanent, and Temporary filters. It lists active
+tabs in saved strip order, without a heading, repeated status icons, or per-row
+trash actions. A subdued Trashcan link sits below the list without a count,
+since recovery is infrequent.
 The drawer remains available even when every tab fits or no active tabs remain.
 Selecting a result keeps its saved position. The selected tab stays visible
 when the window narrows or new publications arrive.
@@ -93,11 +95,13 @@ published items in its local workspace group. File views and the diagram editor
 are built-in plugins; existing image, Markdown, HTML, text, and download views
 remain together. The explicit CLI/API delete command still deletes permanently.
 
-The Mac window combines its native window buttons and tabs in one draggable
-strip, without a separate title bar. The application menu stays available for
-native editing shortcuts. Windows and Linux hide the menu bar until Alt is
-pressed. The macOS menu bar belongs to the system and follows its fullscreen
-visibility setting.
+The Mac window starts maximized to fill the available desktop area, keeping
+the menu bar and Dock available. It uses one draggable tab strip without a
+separate title bar. Native window buttons are hidden so their space is available
+for tabs. The application menu keeps window commands and native editing
+shortcuts available. Windows and Linux hide the menu bar until Alt is pressed.
+The macOS menu bar belongs to the system and follows its fullscreen visibility
+setting.
 File offers Save a copy for the active diagram, creating a separate tab with
 the current canvas, including unpublished edits. View offers Fit to canvas.
 Both actions target the visible proposal when one is open and are unavailable

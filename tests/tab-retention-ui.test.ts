@@ -36,7 +36,7 @@ test("retention drawer keeps Trashcan secondary, restores tabs, and requires two
     await page
       .getByRole("button", { name: `Keep permanently: ${firstTitle}`, exact: true })
       .click();
-    const picker = () => page.getByRole("button", { name: /^More tabs,/ });
+    const picker = () => page.getByRole("button", { name: /^Tabs and Trashcan,/ });
     const drawer = () => page.locator(".tab-overflow-popup");
     await picker().click();
     await page.getByLabel("Search tabs", { exact: true }).waitFor();

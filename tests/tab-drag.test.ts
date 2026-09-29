@@ -24,7 +24,7 @@ test("dragging tabs preserves filtered order and HTML state, supports recovery, 
       );
     const order = () =>
       page.evaluate(async () => (await window.scope.workspace())?.tabs.map((tab) => tab.title));
-    const picker = () => page.getByRole("button", { name: /^More tabs,/ });
+    const picker = () => page.getByRole("button", { name: /^Tabs and Trashcan,/ });
     const drawer = () => page.locator(".tab-overflow-popup");
     const row = (title: string) =>
       drawer()
