@@ -121,15 +121,7 @@ export function RemoteSettings({ query }: { query: string }) {
           </div>
         </div>
       ))}
-      <p className="secondary">
-        After the Mac app updates and restarts, connected remotes update their hub, CLI, and skill
-        to match. Offline remotes catch up when they reconnect. An update already in progress
-        finishes if you disconnect.
-      </p>
-      <p className="secondary">
-        Enabled remotes reconnect while Scope is open. Disconnect keeps a remote off until you
-        connect it again. Removal revokes its pairing.
-      </p>
+      <p className="secondary">Connected remotes are updated automatically.</p>
     </SettingsSection>
   );
 }

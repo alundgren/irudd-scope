@@ -1,4 +1,4 @@
-import { _electron as electron } from "@playwright/test";
+import { _electron as electron, type ElectronApplication } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdtemp, readFile } from "node:fs/promises";
@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { decodeLocalConnection } from "@irudd-scope/protocol";
 import { ScopeClient } from "@irudd-scope/protocol/client";
+import { testDisplay } from "../tools/test-display.ts";
 
 const require = createRequire(new URL("../apps/desktop/package.json", import.meta.url));
 const exec = promisify(execFile);
@@ -31,32 +32,38 @@ export async function desktopFixture(options: { disableGpu?: boolean; showWindow
   delete env.SCOPE_ENDPOINT;
   delete env.SCOPE_TOKEN;
   delete env.SCOPE_TOKEN_FILE;
+  const args = [
+    resolve("apps/desktop"),
+    ...((options.disableGpu ?? true) ? ["--disable-gpu"] : []),
+  ];
   const launch = async () => {
-    const application = await electron.launch({
-      executablePath: require("electron") as string,
-      args: [resolve("apps/desktop"), ...((options.disableGpu ?? true) ? ["--disable-gpu"] : [])],
-      env: Object.fromEntries(
-        Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
-      ),
-    });
+    // Parallel Linux windows can steal focus and release another test's pointer capture.
+    const display = process.platform === "linux" && !showWindow ? await testDisplay() : undefined;
+    let application: ElectronApplication;
+    try {
+      application = await electron.launch({
+        executablePath: require("electron") as string,
+        args,
+        env: Object.fromEntries(
+          Object.entries({ ...env, ...(display && { DISPLAY: display.display }) }).filter(
+            (entry): entry is [string, string] => entry[1] !== undefined,
+          ),
+        ),
+      });
+    } catch (error) {
+      await display?.close(false);
+      throw error;
+    }
     const diagnostics: string[] = [];
     const child = application.process();
     child.stderr?.on("data", (data: Buffer) => {
       diagnostics.push(data.toString());
       if (diagnostics.length > 100) diagnostics.shift();
     });
-    if (!showWindow) {
-      await application.evaluate(({ dialog }) => {
-        dialog.showMessageBox = async (windowOrOptions, options?: Electron.MessageBoxOptions) => {
-          const message = options ?? (windowOrOptions as Electron.MessageBoxOptions);
-          console.error(`Unexpected test dialog: ${message.message}`);
-          return { response: 1, checkboxChecked: false };
-        };
-      });
-    }
     const close = application.close.bind(application);
     application.close = async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let succeeded = false;
       try {
         await Promise.race([
           close(),
@@ -69,6 +76,7 @@ export async function desktopFixture(options: { disableGpu?: boolean; showWindow
         ]);
         if (diagnostics.some((line) => line.includes("Unexpected test dialog:")))
           throw new Error("Electron reported a dialog during the test.");
+        succeeded = true;
       } catch (error) {
         child.kill("SIGKILL");
         throw new Error(
@@ -76,9 +84,19 @@ export async function desktopFixture(options: { disableGpu?: boolean; showWindow
         );
       } finally {
         clearTimeout(timer);
+        await display?.close(succeeded);
       }
     };
     try {
+      if (!showWindow) {
+        await application.evaluate(({ dialog }) => {
+          dialog.showMessageBox = async (windowOrOptions, options?: Electron.MessageBoxOptions) => {
+            const message = options ?? (windowOrOptions as Electron.MessageBoxOptions);
+            console.error(`Unexpected test dialog: ${message.message}`);
+            return { response: 1, checkboxChecked: false };
+          };
+        });
+      }
       await application.firstWindow();
       return application;
     } catch (error) {

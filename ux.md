@@ -132,7 +132,12 @@ are omitted. Workspace controls and current-tab actions have distinct areas.
 Artifact results appear only after typing, alongside matching actions and
 specific settings. Trashed tabs appear only in the left drawer.
 The panel scrolls in short windows and stacks its controls in narrow windows.
-Settings opens with its search input focused and its sections collapsed.
+Settings opens in a large dialog that uses most of the window height, with its
+search input focused and its sections collapsed. Drag its title bar to move it
+and its edges or corners to resize it. The title-bar grip and bottom-right resize
+control also accept arrow keys, with Shift for larger steps. The dialog stays
+inside the window, including when the window gets smaller, and keeps its adjusted
+size and position when reopened during the same app session.
 Each section has a short description and can be expanded with the mouse or
 keyboard. Search opens matching sections; clearing it returns to the compact
 overview. Fields keep unsaved input when collapsed or filtered out. The search

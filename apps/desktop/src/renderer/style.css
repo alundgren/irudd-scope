@@ -641,15 +641,96 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 0;
-  width: 640px;
-  max-height: min(620px, calc(100vh - 32px));
-  max-width: calc(100vw - 32px);
+  max-width: none;
+  translate: none;
+  transition-property: none;
   padding: 0;
   overflow: hidden;
 }
 .settings-dialog > [data-slot="dialog-header"] {
-  padding: var(--scope-space-6) var(--scope-space-6) var(--scope-space-4);
+  flex-direction: row;
+  align-items: center;
+  padding: var(--scope-space-4) var(--scope-space-6) var(--scope-space-3);
+  padding-right: calc(var(--scope-control) + var(--scope-space-6));
   flex: 0 0 auto;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.settings-dialog-move {
+  cursor: grab;
+  color: var(--scope-muted);
+}
+.settings-dialog > [data-slot="dialog-header"]:active,
+.settings-dialog-move:active {
+  cursor: grabbing;
+}
+.settings-dialog > [data-slot="dialog-close"] {
+  top: var(--scope-space-4);
+  right: var(--scope-space-4);
+}
+.settings-dialog-footer {
+  flex: 0 0 var(--scope-control);
+}
+.settings-dialog-resize {
+  position: absolute;
+  touch-action: none;
+  user-select: none;
+}
+.settings-dialog-resize[data-edge="n"],
+.settings-dialog-resize[data-edge="s"] {
+  left: var(--scope-space-4);
+  right: var(--scope-space-4);
+  height: var(--scope-space-2);
+  cursor: ns-resize;
+}
+.settings-dialog-resize[data-edge="e"],
+.settings-dialog-resize[data-edge="w"] {
+  top: var(--scope-space-4);
+  bottom: var(--scope-space-4);
+  width: var(--scope-space-2);
+  cursor: ew-resize;
+}
+.settings-dialog-resize[data-edge="ne"],
+.settings-dialog-resize[data-edge="nw"],
+.settings-dialog-resize[data-edge="sw"] {
+  width: var(--scope-space-4);
+  height: var(--scope-space-4);
+}
+.settings-dialog-resize[data-edge="n"],
+.settings-dialog-resize[data-edge="ne"],
+.settings-dialog-resize[data-edge="nw"] {
+  top: 0;
+}
+.settings-dialog-resize[data-edge="e"],
+.settings-dialog-resize[data-edge="ne"],
+.settings-dialog-resize[data-edge="se"] {
+  right: 0;
+}
+.settings-dialog-resize[data-edge="s"],
+.settings-dialog-resize[data-edge="se"],
+.settings-dialog-resize[data-edge="sw"] {
+  bottom: 0;
+}
+.settings-dialog-resize[data-edge="w"],
+.settings-dialog-resize[data-edge="nw"],
+.settings-dialog-resize[data-edge="sw"] {
+  left: 0;
+}
+.settings-dialog-resize[data-edge="ne"],
+.settings-dialog-resize[data-edge="sw"] {
+  cursor: nesw-resize;
+}
+.settings-dialog-resize[data-edge="nw"],
+.settings-dialog-resize[data-edge="se"] {
+  cursor: nwse-resize;
+}
+.settings-dialog-resize[data-edge="se"] {
+  color: var(--scope-muted);
+  border-radius: var(--scope-radius-control) 0 var(--scope-radius-dialog) 0;
+}
+.settings-dialog-resize[data-edge="se"]:focus-visible {
+  outline-offset: calc(-1 * var(--scope-focus-width));
 }
 .settings-search {
   padding: 0 var(--scope-space-6) var(--scope-space-4);
@@ -660,6 +741,8 @@ h2 {
   min-height: 0;
   overflow: auto;
   padding: 0 var(--scope-space-6);
+  padding-right: calc(var(--scope-space-6) - var(--scope-space-2));
+  margin-right: var(--scope-space-2);
   scrollbar-width: thin;
   scrollbar-color: var(--scope-outline) var(--scope-panel);
 }

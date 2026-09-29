@@ -30,7 +30,9 @@ test("dragging tabs preserves filtered order and HTML state, supports recovery, 
       drawer()
         .locator(".tab-drawer-row")
         .filter({ has: page.getByRole("button", { name: `${title} html`, exact: true }) });
-    await expect.poll(order).toEqual(["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot"]);
+    await expect
+      .poll(order, { timeout: 6000 })
+      .toEqual(["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot"]);
     const html = page.frameLocator('iframe[title="Alpha"]');
     await html.getByLabel("Draft").fill("Keep my unsaved input through dragging");
     const frame = await page.locator('iframe[title="Alpha"]').elementHandle();

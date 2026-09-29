@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 import { emptyScene } from "../apps/desktop/src/plugins/diagram/contract.ts";
 
-test("Settings starts compact, opens search matches, and preserves input across folded sections", async () => {
+test("Settings starts with folded sections, opens search matches, and preserves input", async () => {
   const { directory, launch } = await desktopFixture();
   const application = await launch();
   try {
