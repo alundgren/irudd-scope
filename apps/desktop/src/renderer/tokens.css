@@ -3,8 +3,8 @@
   --scope-canvas: light-dark(#ffffff, #121212);
   --scope-panel: light-dark(#ffffff, #232329);
   --scope-strip: light-dark(#f6f6f9, #1b1b1f);
-  --scope-text: light-dark(#1b1b1f, #e3e3e8);
-  --scope-muted: light-dark(#626271, #aaaab5);
+  --scope-text: light-dark(#1b1b1f, #f1f1f4);
+  --scope-muted: light-dark(#535360, #c2c2cd);
   --scope-line: light-dark(#e6e6ed, #3d3d49);
   --scope-outline: light-dark(#767680, #8e8d9c);
   --scope-accent: light-dark(#6965db, #a8a5ff);

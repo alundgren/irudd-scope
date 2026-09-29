@@ -16,7 +16,7 @@ const elementId = (id: string) => `agent:${id}`;
 const labelId = (id: string) => `agent:${id}:label`;
 const nativeGroupId = (id: string) => `agent-group:${id}`;
 const defaults = {
-  strokeColor: "#334155",
+  strokeColor: "#1b1b1f",
   backgroundColor: "#f1f5f9",
   fillStyle: "solid",
   strokeWidth: 1.5,

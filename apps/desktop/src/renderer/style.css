@@ -1004,6 +1004,23 @@ h2 {
   border: 1px solid var(--scope-line);
   border-radius: var(--scope-radius-sm);
 }
+.diagram-canvas .excalidraw,
+.diagram-canvas .excalidraw.theme--dark {
+  --color-on-surface: var(--scope-text);
+  --color-on-primary-container: var(--scope-text);
+  --popup-text-color: var(--scope-text);
+  --input-label-color: var(--scope-text);
+  --keybinding-color: var(--scope-muted);
+
+  .HintViewer {
+    color: var(--scope-muted);
+  }
+
+  .dropdown-menu .dropdown-menu-item__shortcut {
+    color: var(--scope-muted);
+    opacity: 1;
+  }
+}
 .diagram-canvas .excalidraw .help-icon,
 .diagram-canvas .excalidraw .default-sidebar-trigger {
   display: none;
