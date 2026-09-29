@@ -3,7 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 
-test("150 tabs use a searchable overflow picker, move to the right, and survive restart", async () => {
+test("150 tabs use a searchable overflow picker, keep their order, and survive restart", async () => {
   const { directory, launch, connect } = await desktopFixture();
   let application = await launch();
   try {
@@ -45,9 +45,7 @@ test("150 tabs use a searchable overflow picker, move to the right, and survive 
           .evaluate((el) => el === document.activeElement),
       )
       .toBe(true);
-    expect(await page.locator(".tab-overflow-result").count()).toBe(
-      150 - (await page.getByRole("tab", { includeHidden: true }).count()),
-    );
+    expect(await page.locator("[data-tab-result]").count()).toBe(150);
     await page.getByLabel("Search tabs", { exact: true }).fill("missing tab title");
     await page.getByRole("status").filter({ hasText: "No tabs match" }).waitFor();
     await page.getByRole("button", { name: "Clear tab search" }).click();
@@ -57,7 +55,7 @@ test("150 tabs use a searchable overflow picker, move to the right, and survive 
     await expect
       .poll(() => page.getByRole("tab", { selected: true }).textContent())
       .toBe("Overflow 42");
-    expect(await page.getByRole("tab").last().textContent()).toBe("Overflow 42");
+    expect(await page.getByRole("tab").first().textContent()).toBe("Overflow 42");
     expect(await page.getByRole("tab", { name: leftmost!, exact: true }).count()).toBe(0);
     await page.getByText("Synthetic 42", { exact: true }).waitFor();
     await expect
@@ -104,17 +102,17 @@ test("150 tabs use a searchable overflow picker, move to the right, and survive 
     await page.getByText("Synthetic 42", { exact: true }).waitFor();
     const saved = await page.evaluate(() => window.scope.workspace());
     expect(saved?.tabs).toHaveLength(150);
-    expect(saved?.tabs.at(-1)?.title).toBe("Overflow 42");
-    expect(await page.getByRole("tab").last().textContent()).toBe("Overflow 42");
+    expect(saved?.tabs[42]?.title).toBe("Overflow 42");
+    expect(await page.getByRole("tab").first().textContent()).toBe("Overflow 42");
     await picker().click();
     await page.getByLabel("Search tabs", { exact: true }).fill("Overflow 42");
-    await page.getByRole("button", { name: "Overflow 42 In tab bar", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Overflow 42 text", exact: true }).waitFor();
     await page.keyboard.press("Escape");
     await page.keyboard.press("ControlOrMeta+w");
-    await expect(client.get("overflow-42")).rejects.toMatchObject({ status: 404 });
+    expect(await client.get("overflow-42")).toBeDefined();
     for (const artifact of await client.list()) await client.delete(artifact.id);
     await expect.poll(() => page.getByRole("tab").count()).toBe(0);
-    expect(await picker().count()).toBe(0);
+    expect(await picker().count()).toBe(1);
     expect(await page.getByRole("alert").allTextContents()).toEqual([]);
   } finally {
     await application.close();
@@ -122,7 +120,7 @@ test("150 tabs use a searchable overflow picker, move to the right, and survive 
   }
 }, 60_000);
 
-test("overflow preserves visited HTML, hands focus to dialogs, and disappears when tabs fit", async () => {
+test("overflow preserves visited HTML, hands focus to dialogs, and remains available when tabs fit", async () => {
   const f = await desktopFixture();
   const application = await f.launch();
   try {
@@ -171,7 +169,7 @@ test("overflow preserves visited HTML, hands focus to dialogs, and disappears wh
     await html.getByRole("button", { name: "Clicked", exact: true }).waitFor();
     expect(await html.getByLabel("Draft").inputValue()).toBe("Keep this unsaved input");
     expect(await frame!.evaluate((element) => element.isConnected)).toBe(true);
-    expect(await page.getByRole("tab").last().textContent()).toBe("Interactive notes");
+    expect(await page.getByRole("tab").first().textContent()).toBe("Interactive notes");
 
     for (const [shortcut, input] of [
       ["ControlOrMeta+k", "Search artifacts"],
@@ -207,7 +205,7 @@ test("overflow preserves visited HTML, hands focus to dialogs, and disappears wh
     }
     await picker.click();
     await page.getByLabel("Search tabs", { exact: true }).fill("Background 0");
-    await page.locator(".tab-overflow-result").waitFor();
+    await page.locator("[data-tab-result]").waitFor();
     await client.delete("background-0");
     await page.getByRole("status").filter({ hasText: "No tabs match" }).waitFor();
     await page.keyboard.press("Escape");
@@ -215,7 +213,7 @@ test("overflow preserves visited HTML, hands focus to dialogs, and disappears wh
       if (artifact.id !== "interactive") await client.delete(artifact.id);
     }
     await expect.poll(() => page.getByRole("tab").count()).toBe(1);
-    expect(await picker.count()).toBe(0);
+    expect(await picker.count()).toBe(1);
     expect(await html.getByLabel("Draft").inputValue()).toBe("Keep this unsaved input");
     expect(await page.getByRole("alert").allTextContents()).toEqual([]);
   } finally {

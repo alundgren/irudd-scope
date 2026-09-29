@@ -35,7 +35,7 @@ formats are compatibility contracts.
 | Blob                 | Immutable bytes identified by SHA-256, stored in SQLite.                                            | `apps/desktop/src/library/store.ts`.                                                                      |
 | Source               | Optional publication provenance, such as host, repository, or agent. Unknown values stay absent.    | Protocol contract; `packages/cli` collects available values.                                              |
 | Artifact library     | Published artifact metadata and the desktop's connection status.                                    | `apps/desktop/src/library/library.ts`; `library/use-library.ts` tracks unread updates.                    |
-| Workspace            | Open and queued tab records, group membership, and selected tab ID. Closing deletes tab content.    | `apps/desktop/src/workspace/contract.ts` defines the contract; `workspace/use-workspace.ts` manages tabs. |
+| Workspace            | Active, queued, and trashed tab records, retention timestamps, groups, and selection.               | `apps/desktop/src/workspace/contract.ts` defines the contract; `workspace/use-workspace.ts` manages tabs. |
 | Settings             | Appearance, provider configuration, and credential presence.                                        | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.               |
 | Semantic scene       | Diagram nodes, text, connections, and groups with stable IDs.                                       | `packages/protocol/src/diagram.ts`; desktop `scene.ts` validates relationships.                           |
 | Diagram operation    | A validated change to a semantic scene, such as moving a node or adding a connection.               | `packages/protocol/src/diagram.ts`; desktop `scene.ts` applies operations.                                |
@@ -89,8 +89,10 @@ hash, which macOS uses for self-signed Keychain access, across ordinary updates.
 `desktop-store.ts` persists settings, workspace groups, and selection.
 `library/store.ts` persists tabs, artifact metadata, content references, bytes,
 and diagram drafts in `scope.db`. `lifecycle.ts` coordinates opening, closing,
-and legacy imports. A saved tab owns its content and draft through foreign
-keys. Closing deletes all dependent rows in the same SQLite transaction. Their contracts live in `settings.ts`, `workspace/contract.ts`, and
+retention, and legacy imports. A saved tab owns its content and draft through foreign
+keys. Trash preserves those rows; permanent deletion removes them in one SQLite
+transaction. Their contracts live in `settings.ts`, `workspace/contract.ts`,
+`workspace/retention.ts`, and
 `plugins/diagram/draft.ts`, without filesystem or database dependencies. Provider
 configuration lives in `plugins/diagram/provider-settings.ts`; provider requests do
 not depend on desktop storage.
@@ -218,14 +220,26 @@ bytes have a reference for each owning tab. The revision check and metadata
 write share a SQLite transaction. A small revision counter prevents an old
 update from matching an artifact recreated under the same ID.
 
-Closing an individual tab and deleting an artifact use the same tab-owned
-deletion. Foreign keys remove metadata, content references, and drafts in one
-transaction. Shared bytes survive until their last tab reference disappears.
-Queued uploads expire after fifteen minutes without publication; successful
-publications open automatically, including after restart. Open tabs have no fixed
-count limit; navigation shows overflow in a searchable dropdown. Startup and
-maintenance reclaim expired staging references. There is no deletion log or
-retained closed history.
+Closing a tab sets its trash timestamp while retaining its content references,
+metadata, name, and draft. The desktop lifecycle coordinates retention changes
+and notifies the renderer, which removes trashed tabs from its workspace.
+The renderer reports visible strip tabs, or the selected fullscreen tab, and
+flushes pending writes before requesting cleanup. Main validates each request
+and uses its own clock. Temporary tabs outside the strip for 24 hours enter
+Trashcan; permanent tabs skip that step. Seven days in Trashcan or explicit
+emptying deletes the records. Restore retains the UUID and permanence, resets
+visibility time, and appends the tab to the strip.
+
+Permanent deletion cascades through metadata, content references, and drafts.
+Shared bytes survive until their last tab reference disappears. The CLI/API
+delete command retains this immediate deletion behavior. Empty-trash requests
+include tab IDs and trash timestamps so an old confirmation cannot delete a
+restored tab. Trashed names remain reserved and publications reject writes to
+trashed tabs. Publication list and read APIs still include retained artifacts;
+the renderer excludes trash from arrivals and ordinary search. Queued uploads
+expire after fifteen minutes without publication. Successful publications open
+automatically without a fixed tab count limit. Startup and maintenance reclaim
+expired staging references.
 
 The store serializes publication and deletion commits with their SSE notifications,
 so a delayed close response cannot announce a deletion after explicit recreation.
@@ -378,6 +392,11 @@ reply; semantic edits use the same snapshot validation and automatic publication
 other diagram commands. Connection records and reply credentials never enter
 SQLite. Renderer reload, tab close, cancellation, expiry, and desktop shutdown
 end them. The hub only forwards the HTTP traffic.
+
+Moving a tab to Trashcan ends its connection through the desktop lifecycle.
+Restoring that same tab UUID preserves its document and conversation, but does
+not restore requests or credentials. Permanent deletion and a later publication
+under the same artifact ID also require a fresh connection.
 
 This path needs no host adapter. Codex and Claude both receive the request as
 the result of a tool command they explicitly ran in their existing session:

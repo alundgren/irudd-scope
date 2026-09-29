@@ -66,6 +66,9 @@ test("tab-owned drafts and plugin state survive restart, then close deletes them
     expect((await lifecycle.workspace()).tabs).toEqual([tab]);
     expect(await artifacts.diagramDraft(tab.id)).toEqual(draft);
     await lifecycle.closeTab(tab.id);
+    expect(await artifacts.diagramDraft(tab.id)).toEqual(draft);
+    const trashed = (await artifacts.retainedTabs()).find((entry) => entry.tab.id === tab.id)!;
+    await lifecycle.emptyTrash([{ id: tab.id, trashedAt: trashed.trashedAt! }]);
     await lifecycle.saveWorkspace({ ...workspace, tabs: [tab], selected: tab.id });
     await artifacts.saveDiagramDraft(tab.id, draft);
     expect((await lifecycle.workspace()).tabs).toEqual([]);

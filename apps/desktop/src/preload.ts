@@ -3,6 +3,7 @@ import type { DiagramCommandRequest } from "./plugins/diagram/commands.ts";
 import { contextBridge, ipcRenderer } from "electron";
 import type { ScopeBridge, ArtifactLibrarySnapshot } from "./bridge.ts";
 import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
+import type { RetainedTab } from "./workspace/retention.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 import type { DiagramMenuAction } from "./menu-contract.ts";
 
@@ -92,6 +93,18 @@ const bridge: ScopeBridge = {
   saveSettings: (input) => ipcRenderer.invoke("scope:save-settings", input),
   openTab: (tab, artifactRevision) =>
     ipcRenderer.invoke("scope:open-tab", { tab, artifactRevision }),
+  retainedTabs: () => ipcRenderer.invoke("scope:retained-tabs"),
+  onRetentionChanged: (listener) => {
+    const receive = (_event: unknown, tabs: RetainedTab[]) => listener(tabs);
+    ipcRenderer.on("scope:retention-changed", receive);
+    return () => ipcRenderer.removeListener("scope:retention-changed", receive);
+  },
+  setTabPermanent: (id, permanent) =>
+    ipcRenderer.invoke("scope:set-tab-permanent", { id, permanent }),
+  restoreTab: (id) => ipcRenderer.invoke("scope:restore-tab", id),
+  emptyTrash: (entries) => ipcRenderer.invoke("scope:empty-trash", entries),
+  reportVisibleTabs: (ids) => ipcRenderer.invoke("scope:visible-tabs", ids),
+  checkTabRetention: (ids) => ipcRenderer.invoke("scope:check-tab-retention", ids),
   closeTab: (id) => ipcRenderer.invoke("scope:close-tab", id),
   onTabsClosed: (listener) => {
     const receive = (_event: unknown, ids: string[]) => listener(ids);

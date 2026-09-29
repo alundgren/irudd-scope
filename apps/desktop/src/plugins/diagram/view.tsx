@@ -104,7 +104,6 @@ export function DiagramView({
     return () => {
       active = false;
       remove();
-      void window.scope.cancelDiagramAgent(item.artifact.id).catch(() => {});
     };
   }, [item.artifact.id]);
   const [chatOpen, setChatOpen] = useState(false);
@@ -509,7 +508,8 @@ export function DiagramView({
     return () => {
       if (request.current) {
         request.current.canceled = true;
-        void window.scope.cancelDiagramGeneration().catch(() => {});
+        if (request.current.target !== "connected")
+          void window.scope.cancelDiagramGeneration().catch(() => {});
       }
     };
   }, [api, item.artifact.id]);
@@ -594,18 +594,13 @@ export function DiagramView({
         ]);
       }
     } catch (error) {
-      setMessages((previous) => [
-        ...previous,
-        {
-          role: "assistant",
-          agent: "external",
-          text: current.canceled
-            ? "Request canceled. Read the canvas before retrying if a reply was already arriving."
-            : error instanceof Error
-              ? error.message
-              : "The connected agent did not reply. Connect again and retry.",
-        },
-      ]);
+      setNotice(
+        current.canceled
+          ? "Request canceled. Read the canvas before retrying if a reply was already arriving."
+          : error instanceof Error
+            ? error.message
+            : "The connected agent did not reply. Connect again and retry.",
+      );
     } finally {
       if (request.current === current) request.current = null;
       setBusy(null);

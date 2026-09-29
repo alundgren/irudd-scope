@@ -112,6 +112,16 @@ test.each([false, true])(
       const canceledRequest = await canceled;
       await page.getByRole("button", { name: "Cancel", exact: true }).click();
       await page.getByText("No agent connected", { exact: true }).waitFor();
+      await page
+        .locator(".diagram-notice")
+        .getByText("Request canceled.", { exact: false })
+        .waitFor();
+      expect(
+        await page
+          .getByRole("log", { name: "Diagram conversation" })
+          .getByText("Request canceled.", { exact: false })
+          .count(),
+      ).toBe(0);
       await expect(
         client.diagramAgent({
           ...reply,

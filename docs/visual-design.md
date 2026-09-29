@@ -52,7 +52,8 @@ visible focus, and reduced motion when changing controls or animations.
 
 For workspace or editor changes, check position and drafts after focus,
 Settings, tab switches, application restart, and appearance changes. Closing a
-tab must remove its content, draft, and search result.
+tab must remove it from active search while preserving content and drafts in
+Trashcan. Verify Restore and the inline slider-plus-click empty action.
 Exercise generation and cancellation with synthetic responses. Keep screenshots
 and measurements in review evidence so this document remains current guidance.
 

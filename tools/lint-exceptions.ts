@@ -219,7 +219,7 @@ export const lintExceptions: readonly LintException[] = [
   },
   {
     file: "tests/tab-overflow.test.ts",
-    at: 'test("150 tabs use a searchable overflow picker, move to the right, and survive restart", async () => {',
+    at: 'test("150 tabs use a searchable overflow picker, keep their order, and survive restart", async () => {',
     limits: { complexity: 12 },
     reason:
       "One Electron scenario checks publication, keyboard selection, both appearances, restart, and deletion against the same 150-tab workspace. Conditional fixture titles and optional screenshot capture belong with the complete user flow.",
@@ -356,7 +356,7 @@ export const lintExceptions: readonly LintException[] = [
   },
   {
     file: "tests/tab-types.test.ts",
-    at: 'test("the built CLI publishes every tab view through appearance, focus, restart, and permanent close", async () => {',
+    at: 'test("the built CLI publishes every tab view through appearance, focus, restart, trash, and explicit deletion", async () => {',
     limits: { complexity: 15 },
     reason:
       "The viewer matrix covers all artifact kinds in both appearances, focus mode, restart, and permanent close. Branches select kind-specific observable checks while reusing the real desktop session.",
