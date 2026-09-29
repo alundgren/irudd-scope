@@ -231,12 +231,10 @@ export class Remotes {
             token,
             event,
             AbortSignal.any([sessionSignal, controller.signal]),
-          )
-            .catch(() => {})
-            .finally(() => {
-              requests.delete(event.id);
-              tasks.delete(task);
-            });
+          ).finally(() => {
+            requests.delete(event.id);
+            tasks.delete(task);
+          });
           tasks.add(task);
         });
       } catch (error) {
@@ -260,42 +258,143 @@ export class Remotes {
     }
   }
   private async forward(endpoint: string, token: string, event: RelayRequest, signal: AbortSignal) {
-    const headers = { Authorization: `Bearer ${token}` };
-    const base = `${endpoint}/v1/relay/requests/${event.id}`;
-    let body: ReadableStream<Uint8Array> | null | undefined;
-    if (event.method !== "GET") {
-      const input = await fetch(`${base}/body`, { headers, redirect: "error", signal });
-      if (!input.ok) throw new Error("The publication was canceled.");
-      body = input.body;
-    }
-    const init: RequestInit & { duplex: "half" } = {
-      method: event.method,
-      signal,
-      redirect: "error",
-      body,
-      duplex: "half",
-      headers: {
-        Authorization: `Bearer ${this.local.token}`,
-        ...(event.contentType ? { "Content-Type": event.contentType } : {}),
-      },
+    const transfer = new AbortController();
+    signal = AbortSignal.any([signal, transfer.signal]);
+    const started = performance.now();
+    let phase = "received";
+    let phaseStarted = started;
+    let bodyStarted = started;
+    let bodyBytes = 0;
+    let bodyComplete = event.method === "GET";
+    const describe = (error: unknown, depth = 0): unknown => {
+      if (depth > 3) return "Cause depth exceeded.";
+      const clean = (value: string) =>
+        value.replaceAll(token, "[redacted]").replaceAll(this.local.token, "[redacted]");
+      if (!(error instanceof Error)) return clean(String(error));
+      return {
+        name: error.name,
+        message: clean(error.message),
+        ...(error.cause === undefined ? {} : { cause: describe(error.cause, depth + 1) }),
+        ...("code" in error ? { code: clean(String(error.code)) } : {}),
+      };
     };
-    const result = await fetch(`${this.local.url}${event.path}`, init);
-    const responseHeaders = new Headers(headers);
-    responseHeaders.set("scope-response-status", String(result.status));
-    for (const name of ["content-type", "content-disposition", "content-security-policy"]) {
-      const value = result.headers.get(name);
-      if (value) responseHeaders.set(name, value);
-    }
-    const output: RequestInit & { duplex: "half" } = {
-      method: "POST",
-      headers: responseHeaders,
-      body: result.body,
-      duplex: "half",
-      signal,
-      redirect: "error",
+    const report = (stage: string, details: Record<string, unknown> = {}, failure = false) => {
+      if (!failure && process.env.SCOPE_RELAY_TRACE !== "1") return;
+      console.error(
+        "Scope relay",
+        JSON.stringify({
+          time: new Date().toISOString(),
+          requestId: event.id,
+          method: event.method,
+          path: event.path,
+          stage,
+          phase,
+          elapsedMs: performance.now() - started,
+          phaseMs: performance.now() - phaseStarted,
+          bodyBytes,
+          bodyComplete,
+          aborted: signal.aborted,
+          ...details,
+        }),
+      );
     };
-    const delivered = await fetch(`${base}/response`, output);
-    await readRemoteJson(delivered);
+    const canceled = () => report("canceled", { reason: describe(signal.reason) });
+    signal.addEventListener("abort", canceled, { once: true });
+    report("received");
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const base = `${endpoint}/v1/relay/requests/${event.id}`;
+      let body: ReadableStream<Uint8Array> | null | undefined;
+      if (event.method !== "GET") {
+        phase = "body-fetch";
+        bodyStarted = performance.now();
+        phaseStarted = bodyStarted;
+        report("body-started");
+        const input = await fetch(`${base}/body`, { headers, redirect: "error", signal });
+        report("body-headers", { status: input.status });
+        if (!input.ok) throw new Error(`Body retrieval returned HTTP ${input.status}.`);
+        const reader = input.body?.getReader();
+        body = reader
+          ? new ReadableStream<Uint8Array>({
+              async pull(controller) {
+                try {
+                  const next = await reader.read();
+                  if (next.done) {
+                    bodyComplete = true;
+                    report("body-ended", { bodyMs: performance.now() - bodyStarted });
+                    reader.releaseLock();
+                    controller.close();
+                  } else {
+                    bodyBytes += next.value.byteLength;
+                    controller.enqueue(next.value);
+                  }
+                } catch (error) {
+                  report("body-error", { error: describe(error) }, true);
+                  reader.releaseLock();
+                  controller.error(error);
+                }
+              },
+              async cancel(reason) {
+                report("body-canceled");
+                try {
+                  await reader.cancel(reason);
+                } finally {
+                  reader.releaseLock();
+                }
+              },
+            })
+          : null;
+        if (!reader) bodyComplete = true;
+      }
+      const init: RequestInit & { duplex: "half" } = {
+        method: event.method,
+        signal,
+        redirect: "error",
+        body,
+        duplex: "half",
+        headers: {
+          Authorization: `Bearer ${this.local.token}`,
+          ...(event.contentType ? { "Content-Type": event.contentType } : {}),
+        },
+      };
+      phase = "local-http";
+      const localStarted = performance.now();
+      phaseStarted = localStarted;
+      report("local-started");
+      const result = await fetch(`${this.local.url}${event.path}`, init);
+      report("local-response", {
+        status: result.status,
+        localMs: performance.now() - localStarted,
+      });
+      const responseHeaders = new Headers(headers);
+      responseHeaders.set("scope-response-status", String(result.status));
+      for (const name of ["content-type", "content-disposition", "content-security-policy"]) {
+        const value = result.headers.get(name);
+        if (value) responseHeaders.set(name, value);
+      }
+      const output: RequestInit & { duplex: "half" } = {
+        method: "POST",
+        headers: responseHeaders,
+        body: result.body,
+        duplex: "half",
+        signal,
+        redirect: "error",
+      };
+      phase = "response-post";
+      const postStarted = performance.now();
+      phaseStarted = postStarted;
+      report("response-started");
+      const delivered = await fetch(`${base}/response`, output);
+      report("response-headers", { status: delivered.status });
+      if (!delivered.ok) throw new Error(`Response delivery returned HTTP ${delivered.status}.`);
+      await readRemoteJson(delivered);
+      report("response-delivered", { postMs: performance.now() - postStarted });
+    } catch (error) {
+      report("forward-error", { error: describe(error) }, true);
+    } finally {
+      signal.removeEventListener("abort", canceled);
+      transfer.abort();
+    }
   }
   async close() {
     this.closed = true;

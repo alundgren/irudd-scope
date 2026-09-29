@@ -413,3 +413,144 @@ test("paired hubs forward named native edits larger than metadata and compact hu
   });
   await expect.poll(() => events).toContain("diagram");
 });
+
+test.each(["body-fetch", "body-stream", "local-http", "response-post", "response-status"])(
+  "relay diagnostics identify %s failures with a request ID and elapsed time",
+  async (failure) => {
+    const f = await fixture();
+    await f.remotes.pair(f.state.pairUrl());
+    await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
+    const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+    cleanup.push(() => logs.mockRestore());
+    const original = globalThis.fetch;
+    const injected = new Error("Injected forwarding failure", {
+      cause: new Error(`Credential ${f.token}`),
+    });
+    const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      if (url.endsWith("/response") && failure === "response-status")
+        return Response.json({ error: "The publication request has ended." }, { status: 404 });
+      if (url.endsWith("/body") && failure === "body-stream") {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(injected);
+            },
+          }),
+        );
+      }
+      if (
+        (url.endsWith("/body") && failure === "body-fetch") ||
+        (url.startsWith(f.desktop.url) && failure === "local-http") ||
+        (url.endsWith("/response") && failure === "response-post")
+      )
+        throw injected;
+      return original(input, init);
+    });
+    cleanup.push(() => fetcher.mockRestore());
+    const controller = new AbortController();
+    const pending = f.client
+      .publish(
+        "diagnostic-failure",
+        {
+          expectedRevision: 0,
+          title: "Synthetic diagnostic",
+          kind: "html",
+          fileName: "test.html",
+          mediaType: "text/html",
+        },
+        Buffer.from("<html>test</html>"),
+        controller.signal,
+      )
+      .catch(() => {});
+    cleanup.push(async () => {
+      controller.abort();
+      await pending;
+    });
+    const entries = () =>
+      logs.mock.calls
+        .filter(([label]) => label === "Scope relay")
+        .map(([, value]) => JSON.parse(String(value)));
+    await expect.poll(() => entries().some((entry) => entry.stage === "forward-error")).toBe(true);
+    const entry = entries().find((value) => value.stage === "forward-error");
+    expect(entry).toMatchObject({
+      phase:
+        failure === "body-stream"
+          ? "local-http"
+          : failure === "response-status"
+            ? "response-post"
+            : failure,
+      requestId: expect.stringMatching(/^[a-f0-9-]{36}$/),
+      elapsedMs: expect.any(Number),
+      phaseMs: expect.any(Number),
+      error: expect.objectContaining({ message: expect.any(String) }),
+    });
+    expect(JSON.stringify(entries())).not.toContain(f.token);
+    if (failure !== "response-status") expect(JSON.stringify(entries())).toContain("[redacted]");
+    else expect(entry.error.message).toContain("HTTP 404");
+    if (failure === "body-stream")
+      expect(entries()).toContainEqual(
+        expect.objectContaining({
+          stage: "body-error",
+          requestId: entry.requestId,
+          bodyComplete: false,
+        }),
+      );
+  },
+);
+
+test("relay tracing counts a complete 16 MB body without changing its content", async () => {
+  const f = await fixture();
+  await f.remotes.pair(f.state.pairUrl());
+  await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
+  vi.stubEnv("SCOPE_RELAY_TRACE", "1");
+  cleanup.push(() => {
+    vi.unstubAllEnvs();
+  });
+  const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+  cleanup.push(() => logs.mockRestore());
+  const bytes = Buffer.alloc(16_098_814, 65);
+  await f.client.publish(
+    "diagnostic-large",
+    {
+      expectedRevision: 0,
+      title: "Synthetic diagnostic",
+      kind: "html",
+      fileName: "test.html",
+      mediaType: "text/html",
+    },
+    bytes,
+  );
+  const direct = new ScopeClient(f.desktop.url, f.token);
+  expect(Buffer.from(await direct.content("diagnostic-large")).equals(bytes)).toBe(true);
+  const entries = () =>
+    logs.mock.calls
+      .filter(([label]) => label === "Scope relay")
+      .map(([, value]) => JSON.parse(String(value)));
+  const upload = entries().find(
+    (entry) => entry.stage === "body-ended" && entry.bodyBytes === bytes.length,
+  );
+  expect(upload).toMatchObject({ bodyComplete: true, bodyMs: expect.any(Number) });
+  await expect
+    .poll(() =>
+      entries().some(
+        (entry) => entry.requestId === upload.requestId && entry.stage === "response-delivered",
+      ),
+    )
+    .toBe(true);
+  expect(
+    entries()
+      .filter((entry) => entry.requestId === upload.requestId)
+      .map((entry) => entry.stage),
+  ).toEqual(
+    expect.arrayContaining([
+      "received",
+      "body-started",
+      "local-started",
+      "body-ended",
+      "local-response",
+      "response-started",
+      "response-delivered",
+    ]),
+  );
+});
