@@ -97,7 +97,13 @@ test.skipIf(process.platform !== "linux")(
       await f.cli("text", "Publication after failed update", "--id", "failed-update");
       const attempts = f.launches();
       await f.openMac(later);
-      await expect.poll(() => f.status()?.update?.phase).toBe("error");
+      // The hub may still be closing the old relay; the Mac retries after three seconds.
+      await expect
+        .poll(() => f.status(), { timeout: 15_000 })
+        .toMatchObject({
+          connection: "connected",
+          update: { phase: "error", targetCommit: later },
+        });
       expect(f.launches()).toBe(attempts);
       await rm(join(f.directory, "fail-build"));
       await f.retry();
