@@ -150,7 +150,7 @@ export function TabBar({
                   tabIndex={id === selectedId ? 0 : -1}
                   title={title}
                   aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight Delete"
-                  aria-description="Drag to reorder. Hold over More tabs to open the drawer and drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
+                  aria-description="Drag to reorder. Hold over Tabs and Trashcan to open the drawer and drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
                   onKeyDown={(event) =>
                     drag.keyboard(
                       event,

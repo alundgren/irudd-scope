@@ -93,7 +93,7 @@ async function main() {
     minWidth: 640,
     minHeight: 480,
     title: "Scope",
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
     autoHideMenuBar: true,
     icon,
     show: false,
@@ -107,6 +107,7 @@ async function main() {
       backgroundThrottling: !hideTestWindow,
     },
   });
+  if (process.platform === "darwin") window.setWindowButtonVisibility(false);
   const client = new ScopeClient(artifacts.url, artifacts.token);
   const setDiagramMenu = createApplicationMenu(window);
   const remotes = new Remotes(
@@ -221,7 +222,9 @@ async function main() {
   serveRendererContent(fileURLToPath(new URL("./renderer", import.meta.url)));
   window.on("close", requestClose);
   window.once("ready-to-show", () => {
-    if (!hideTestWindow) window.show();
+    if (hideTestWindow) return;
+    window.maximize();
+    window.show();
   });
   void window.loadURL("scope://app/index.html");
   void library.connect();

@@ -189,12 +189,15 @@ fetch('http://127.0.0.1:${servicePort}/'+encodeURIComponent(JSON.stringify({comm
       exec(join(bin, "irudd-scope"), args, { env, timeout: 30_000 });
     await cli("skill", "install");
     await startHub();
+    // Checking readiness also starts a CLI process, which can take longer under load.
     await expect
-      .poll(async () =>
-        cli("hub", "status").then(
-          () => true,
-          () => false,
-        ),
+      .poll(
+        async () =>
+          cli("hub", "status").then(
+            () => true,
+            () => false,
+          ),
+        { timeout: 15_000 },
       )
       .toBe(true);
     await remotes.start();

@@ -134,7 +134,6 @@ svg.lucide {
   background: var(--scope-strip);
 }
 :root[data-platform="darwin"] .workspace-bar {
-  padding-left: 80px;
   app-region: drag;
 }
 :root[data-platform="darwin"] .workspace-bar :is(button, [draggable="true"]) {

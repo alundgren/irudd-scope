@@ -82,7 +82,7 @@ test.each(["trash", "delete"] as const)(
       ).rejects.toThrow("Open this diagram tab");
       if (action === "trash") {
         expect((await client.get("reused")).id).toBe("reused");
-        await page.getByRole("button", { name: /^More tabs,/ }).click();
+        await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
         await page.getByRole("button", { name: "Trashcan", exact: true }).click();
         await page.locator(".tab-overflow-popup [data-tab-result]").click();
       } else await create();

@@ -45,15 +45,20 @@ test.skipIf(process.platform !== "linux")(
       const next = await f.commitSkill("Updated publishing skill");
       expect(f.launches()).toBe(0);
       await writeFile(join(f.directory, "unmanaged-service"), "0");
+      // The hub may still be closing the old relay; the Mac retries after three seconds.
       await f.openMac(next);
-      await expect.poll(() => f.status()?.update?.message).toContain("managed hub service");
+      await expect
+        .poll(() => f.status()?.update?.message, { timeout: 15_000 })
+        .toContain("managed hub service");
       expect(f.launches()).toBe(0);
       await rm(join(f.directory, "unmanaged-service"));
       await f.openMac(undefined);
-      await expect.poll(() => f.status()?.connection).toBe("connected");
+      await expect.poll(() => f.status()?.connection, { timeout: 15_000 }).toBe("connected");
       expect(f.launches()).toBe(0);
       await f.openMac(f.initialCommit);
-      await expect.poll(() => f.status()?.update?.currentCommit).toBe(f.initialCommit);
+      await expect
+        .poll(() => f.status()?.update?.currentCommit, { timeout: 15_000 })
+        .toBe(f.initialCommit);
       expect(f.launches()).toBe(0);
       await f.enable(false);
       await f.openMac(next);
@@ -97,7 +102,6 @@ test.skipIf(process.platform !== "linux")(
       await f.cli("text", "Publication after failed update", "--id", "failed-update");
       const attempts = f.launches();
       await f.openMac(later);
-      // The hub may still be closing the old relay; the Mac retries after three seconds.
       await expect
         .poll(() => f.status(), { timeout: 15_000 })
         .toMatchObject({

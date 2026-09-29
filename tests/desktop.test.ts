@@ -412,7 +412,7 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     await expect.poll(async () => (await client.list()).length).toBe(2);
     expect(await page.evaluate((id) => window.scope.diagramDraft(id), tabId)).not.toBeNull();
     expect(await client.get(artifacts[0].id)).toBeDefined();
-    await page.getByRole("button", { name: /^More tabs,/ }).click();
+    await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
     await page.getByRole("button", { name: "Trashcan", exact: true }).click();
     await page.locator(".tab-overflow-result").filter({ hasText: artifacts[0].title }).click();
     await page.getByRole("textbox", { name: "Change diagram", exact: true }).waitFor();
