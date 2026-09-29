@@ -24,6 +24,7 @@ import { readInstallation } from "./installation-files.ts";
 import { AppUpdates } from "./updates.ts";
 import { AgentTools } from "./agent-tools.ts";
 import { Remotes } from "./remotes.ts";
+import { createApplicationMenu } from "./menu.ts";
 
 app.setName("irudd-scope");
 if (process.env.SCOPE_DESKTOP_DATA_DIR)
@@ -106,6 +107,7 @@ async function main() {
     },
   });
   const client = new ScopeClient(artifacts.url, artifacts.token);
+  const setDiagramMenu = createApplicationMenu(window);
   const remotes = new Remotes(
     store,
     artifacts,
@@ -135,6 +137,7 @@ async function main() {
     updates,
     agentTools,
     remotes,
+    setDiagramMenu,
     onRestartToUpdate: async () => {
       if (updates.snapshot().phase !== "ready") throw new Error("No update is ready.");
       if (agentTools.isBusy()) throw new Error("Wait for the agent tools installation to finish.");

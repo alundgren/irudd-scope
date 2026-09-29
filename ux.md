@@ -66,6 +66,10 @@ strip, without a separate title bar. The application menu stays available for
 native editing shortcuts. Windows and Linux hide the menu bar until Alt is
 pressed. The macOS menu bar belongs to the system and follows its fullscreen
 visibility setting.
+File offers Save a copy for the active diagram, creating a separate tab with
+the current canvas, including unpublished edits. View offers Fit to canvas.
+Both actions target the visible proposal when one is open and are unavailable
+on file tabs.
 
 Fullscreen in the search panel enters native fullscreen, keeps the selected
 artifact mounted, and hides workspace navigation. Other artifact tabs leave a
@@ -164,7 +168,7 @@ It sits beside the canvas at desktop widths and overlays it in a narrow
 window. Enter sends, Shift+Enter adds a line, and a pending request offers
 Cancel. Canvas edits save automatically to the artifact in SQLite, alongside
 the conversation and view position. The editor has no Save button.
-Its left menu contains Export, Find on canvas, and Library, plus Ask agent when
+Its left menu contains Save a copy, Fit to canvas, Export, Find on canvas, and Library, plus Ask agent when
 diagram generation is enabled. The menu replaces the separate Library and
 Ask agent controls on the right.
 
@@ -188,6 +192,13 @@ pan across restarts for tabs that remain open. Incoming revisions preserve pendi
 edits and offer Use incoming version or Keep both. Failed saves retain the canvas
 and offer Retry. Scope provides diagram conversation,
 not general chat or agent orchestration.
+
+New diagrams fit and center when first displayed. Background publication and
+editing can continue before a canvas has visible dimensions. A draft without a
+viewport fits on first display, including after restart. Adding the first agent
+objects to an empty diagram also fits them. Later navigation and ordinary edits
+keep the saved view. Fit to canvas recovers a view that was saved offscreen.
+The editor's 10% minimum zoom still applies to very large drawings.
 
 English text, keyboard navigation, visible focus, labeled icon controls, and
 readable contrast apply throughout the workspace. Check long titles and more

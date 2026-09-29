@@ -18,6 +18,7 @@ import { RemoteId } from "@irudd-scope/protocol/remote";
 import { openKeychainAccess } from "./signing.ts";
 import { DiagramCommand, DiagramReply } from "@irudd-scope/protocol/diagram";
 import { DiagramSyncCommand, DiagramSyncReply } from "@irudd-scope/protocol/diagram-sync";
+import { DiagramMenuState } from "./menu-contract.ts";
 
 export function registerDesktopIpc({
   window,
@@ -30,6 +31,7 @@ export function registerDesktopIpc({
   agentTools,
   remotes,
   onRestartToUpdate,
+  setDiagramMenu,
 }: {
   lifecycle: DesktopLifecycle;
   window: BrowserWindow;
@@ -41,6 +43,7 @@ export function registerDesktopIpc({
   agentTools: AgentTools;
   remotes: Remotes;
   onRestartToUpdate: () => Promise<void>;
+  setDiagramMenu: (state: DiagramMenuState) => void;
 }) {
   const eventListeners = new Set<(event: TabEventEnvelope) => void | Promise<void>>();
 
@@ -71,6 +74,7 @@ export function registerDesktopIpc({
     client,
   );
   handle("scope:diagram-command-result", (input) => diagrams.reply(input));
+  handle("scope:set-diagram-menu", (input) => setDiagramMenu(decode(DiagramMenuState, input)));
   handle("scope:set-fullscreen", (input) => {
     window.setFullScreen(decode(Schema.Boolean, input));
   });
