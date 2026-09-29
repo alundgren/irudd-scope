@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { VoiceGuide } from "@irudd-scope/protocol/voice";
+import { voiceCommand, voiceHelp } from "./voice.ts";
 import { DiagramAgentCommand } from "@irudd-scope/protocol/diagram-agent";
 import { Schema } from "effect";
 import {
@@ -42,6 +44,7 @@ irudd-scope diagram rebase WORKING.json
 irudd-scope diagram propose WORKING.json --note TEXT [--resolved]
 irudd-scope diagram reply NAME TEXT
 irudd-scope diagram watch NAME [--claude-channel | --t3-thread ID | --codex-thread ID] [--watch-edits]
+irudd-scope voice generate|status|result|cancel|guide [FILE_OR_ID]
 irudd-scope list
 irudd-scope get ID
 irudd-scope delete ID
@@ -160,6 +163,10 @@ function parseOptions() {
       "codex-thread": { type: "string" },
       "codex-url": { type: "string" },
       output: { type: "string" },
+      receipt: { type: "string" },
+      "request-id": { type: "string" },
+      instructions: { type: "string" },
+      "refresh-billing": { type: "boolean" },
       status: { type: "boolean" },
       help: { type: "boolean", short: "h" },
       title: { type: "string" },
@@ -332,7 +339,7 @@ async function preparePublication(
 async function main() {
   const { values, positionals } = parseOptions();
   if (values.help || !positionals.length) {
-    process.stdout.write(help);
+    process.stdout.write(positionals[0] === "voice" ? voiceHelp : help);
     return;
   }
   const [command, argument, replacement] = positionals;
@@ -357,6 +364,15 @@ async function main() {
     if (argument !== "install" && argument !== "remove")
       throw new Error("Use irudd-scope skill install or remove.");
     await installSkill(argument === "remove");
+    return;
+  }
+  if (command === "voice") {
+    if (argument === "guide") {
+      console.log(JSON.stringify(VoiceGuide, null, 2));
+      return;
+    }
+    const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"] ?? "330000"));
+    await voiceCommand(argument, replacement, values, () => connect(values, signal), signal);
     return;
   }
   if (command === "diagram-agent") {

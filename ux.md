@@ -148,21 +148,25 @@ keyboard. Search opens matching sections; clearing it returns to the compact
 overview. Fields keep unsaved input when collapsed or filtered out. The search
 field and top-right close button stay visible while the sections scroll. Empty results
 offer Clear search and return focus to the search field.
-Appearance saves when changed. The API key has its own Save key action inside
-Diagram generation.
-Diagram generation is off by default, including for existing profiles. Its
-switch saves immediately. Turning it off retains the saved key and diagram
-drafts. Create diagram offers a link to its Settings section while it is off.
-Ask agent and the embedded conversation are hidden until generation is enabled,
-except that named diagrams always offer their external coding-agent conversation.
-Existing diagrams remain editable.
-The diagram provider, model, and API key stay together. OpenRouter with Gemini
-3.8 Flash is the supported configuration. Saving a key clears the input;
-saved secrets are never displayed. Keychain errors remain visible while
-Settings stays usable and offer Retry key access. Scope reads the provider
-key only for a generation request, key changes, or when the enabled Diagram
-generation section opens, including through search. Startup, folded or filtered
-sections, and unrelated preference changes do not check provider credentials.
+Appearance saves when changed. Diagram generation and Voice generation are
+separate searchable sections, both off by default. Each switch saves immediately
+and turning either off retains the shared key and leaves the other feature's
+switch unchanged. Voice generation shows the fixed Gemini 3.8 Flash TTS model
+and Kore voice and explains that submitted requests may still incur a charge.
+Create diagram offers a link to its Settings section while it is off.
+Ask agent and the embedded conversation are hidden until diagram generation is
+enabled, except that named diagrams always offer their external coding-agent
+conversation. Existing diagrams remain editable.
+
+OpenRouter is a separate searchable Settings section for the shared API key.
+It remains usable when both generation features are off. Saving a key clears the
+input; saved secrets are never displayed. Removing the key affects both
+features. Keychain errors remain visible while Settings stays usable and offer
+Retry key access. Scope reads the provider key for generation, billing lookup,
+key changes, or when the OpenRouter section opens, including through search.
+Startup, folded or filtered sections, and unrelated preference changes do not
+check provider credentials. Feature sections display their fixed provider and
+model, while the shared-key section explains which features use the key.
 
 App updates and Agent tools are searchable Settings sections. Installed apps
 check `main` when opened and build changed commits locally in the background.

@@ -13,11 +13,19 @@ flowchart LR
     Hub -->|requests on existing relay| Desktop
     Hub --> HubSettings[hub.db: configuration and credential hashes]
     Desktop --> Artifacts[scope.db: tabs, artifacts, drafts, and bytes]
-    Desktop --> Preferences[desktop.db: settings and workspace layout]
+    Desktop --> Preferences[desktop.db: settings, workspace layout, and speech requests]
     Desktop --> Keychain[macOS Keychain]
     Desktop <-->|validated IPC| UI[Workspace host and built-in tab plugins]
-    Desktop -->|diagram requests| Provider[OpenRouter]
+    Desktop -->|diagram and speech requests| Provider[OpenRouter]
 ```
+
+Speech generation lives in `apps/desktop/src/voice/`. Desktop main submits
+OpenRouter requests using the shared credential store, persists request receipts
+and audio in `desktop.db`, and serves short authenticated submission, status,
+cancellation, billing-refresh, and download requests through the library HTTP
+server. `packages/protocol/src/voice.ts` owns the public contracts; the CLI owns
+explicit audio and receipt exports. The hub forwards the same routes without
+provider calls or speech storage. Speech results are independent of tabs.
 
 ## Names and ownership
 
@@ -288,10 +296,12 @@ content.
 
 Diagram generation requires an explicit opt-in stored with desktop settings.
 Profiles without that preference default to off. Ordinary settings reads and
-writes do not access provider credentials. The enabled diagram settings section
-checks key presence through its own named IPC operation; generation reads the
-key just before calling OpenRouter. Both operations enforce the enabled setting
-in main. Saving and removing keys also require generation to be enabled.
+writes do not access provider credentials. The shared OpenRouter settings section
+checks key presence through a named desktop IPC operation regardless of feature
+switches. Generation reads the key just before calling OpenRouter and checks its
+own feature switch in main. Saving and removing the shared key do not require
+either feature to be enabled. Voice generation has an independent opt-in and
+uses the same credential store.
 
 Create diagram and the Scope diagram agent recipient invoke the provider explicitly, one request
 at a time, with cancellation. The provider returns validated semantic
@@ -302,7 +312,8 @@ publication retains the working canvas. Conversation and viewport changes do
 not publish new artifact revisions.
 Concurrent edits and new artifact revisions retain the working canvas and
 offer recovery choices. The HTTP API accepts finished artifacts and semantic diagram operations. It
-does not accept model generation jobs. Scope does not run or coordinate coding sessions.
+also accepts narrow speech-generation requests. It does not expose arbitrary
+provider requests. Scope does not run or coordinate coding sessions.
 
 ### Diagram authoring
 

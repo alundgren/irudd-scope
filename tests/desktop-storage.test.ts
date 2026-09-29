@@ -146,7 +146,7 @@ test("Linux development credentials disappear when the process store is recreate
     reopened = new DesktopStore(directory);
     await reopened.load();
     expect(reopened.settings()).toMatchObject({ hasApiKey: null });
-    expect(await reopened.diagramSettings()).toMatchObject({ hasApiKey: false });
+    expect(await reopened.providerSettings()).toMatchObject({ hasApiKey: false });
   } finally {
     await reopened?.close();
     await store.close();
@@ -212,16 +212,16 @@ test("a locked or failing Keychain remains visible and cannot silently remove a 
   try {
     await store.load();
     await store.saveSettings({ diagramGenerationEnabled: true });
-    await store.diagramSettings();
+    await store.providerSettings();
     locked = true;
     await expect(store.saveSettings({ removeApiKey: true })).rejects.toThrow("Keychain locked");
-    const view = await store.diagramSettings();
+    const view = await store.providerSettings();
     expect(view.credentialError).toContain("Key status is unavailable");
     expect(view.hasApiKey).toBe(true);
     expect(secrets.apiKey).toBe("existing-provider-key");
     await expect(store.secret("apiKey")).rejects.toThrow("Keychain locked");
     locked = false;
-    const retried = await store.diagramSettings();
+    const retried = await store.providerSettings();
     expect(retried.credentialError).toBeUndefined();
     expect(retried.hasApiKey).toBe(true);
     expect(await store.secret("apiKey")).toBe("existing-provider-key");

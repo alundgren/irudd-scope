@@ -273,9 +273,9 @@ test("the compact workspace preserves reading position, supports overflowing tab
     await page.getByRole("button", { name: "Clear search" }).click();
     await page.getByLabel("Search settings").fill("credentials");
     expect(await page.getByRole("switch", { name: "Enable diagram generation" }).isVisible()).toBe(
-      true,
+      false,
     );
-    expect(await page.getByLabel("OpenRouter API key").isVisible()).toBe(false);
+    expect(await page.getByLabel("OpenRouter API key").isVisible()).toBe(true);
     expect(await page.getByLabel("Appearance", { exact: true }).isVisible()).toBe(false);
     await page
       .getByRole("dialog", { name: "Settings", exact: true })

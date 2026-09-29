@@ -7,7 +7,7 @@ to select separate directories for development.
 | Data                | Location                                                       | Contents                                                                                                                   |
 | ------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, and diagram drafts. |
-| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, and remote configuration.                                   |
+| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, remote configuration, and retained speech receipts/audio.   |
 | Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                                                  |
 | Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                              |
 | CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                                             |
@@ -151,7 +151,7 @@ token. The library and preferences remain intact.
 
 ## Supported data imports
 
-Scope reads artifact schema version 5, desktop schema version 6, and hub schema
+Scope reads artifact schema version 5, desktop schema version 7, and hub schema
 version 2. It rejects
 newer schema versions. Back up the complete data directories before an upgrade
 when you need the option to return to an older desktop.
@@ -183,7 +183,7 @@ a nonempty library or run two stores against it.
 Settings JSON versions 1 and 2 import into `desktop.db`. Diagram generation
 defaults to off when its preference is absent. Existing Keychain keys are
 retained. Encrypted provider keys in legacy JSON require macOS secure storage
-and migrate directly to Keychain on the first enabled diagram key operation.
+and migrate directly to Keychain on the first shared-key operation.
 Startup imports ordinary preferences without accessing credentials. The legacy
 JSON remains until its key has migrated, including across restarts and failed
 access attempts. It is removed only after the replacement is saved. Obsolete
@@ -206,3 +206,27 @@ hub together. CLI publication commands retain their syntax.
 These import paths support existing data. New writes use the stores listed
 above. Restore the complete backup before using a desktop that cannot read
 the upgraded schema.
+
+## Speech requests
+
+The desktop-main `voice/` module owns `voice_requests` in `desktop.db`. Each row
+contains a caller request ID, SHA-256 of normalized narration and speech settings,
+expiration time, validated JSON receipt, and optional WAV bytes. Narration itself
+is not retained. The receipt retains OpenRouter's generation ID when returned.
+Credentials remain in Keychain on macOS and process memory on Linux.
+
+Requests, receipts, and audio expire 24 hours after submission. Scope retains at
+most 16 unexpired requests and rejects new submissions when full. There is no
+separate database byte quota. Provider responses and downloads are bounded to
+16 MiB each. Expired rows are deleted on startup, submission, and once a minute
+while running. The normal desktop database maintenance reclaims deleted bytes;
+expiry is logical deletion, not secure erasure. Backups can retain expired data.
+Audio and receipt files written by the CLI are explicit agent exports.
+
+Completed requests survive restart. A saved generating request becomes
+`interrupted` at startup, preserving its ID and known generation metadata without
+resubmitting to OpenRouter. A crash after provider acceptance can leave the charge
+unknown and the audio unavailable. Scope never automatically regenerates.
+Schema version 7 adds the table and the optional, default-off
+`voiceGenerationEnabled` setting without changing existing preference fields.
+Older desktops reject this newer database; restore a compatible backup to downgrade.

@@ -10,7 +10,8 @@
     "./maintenance": "./src/maintenance.ts",
     "./diagram": "./src/diagram.ts",
     "./diagram-agent": "./src/diagram-agent.ts",
-    "./diagram-sync": "./src/diagram-sync.ts"
+    "./diagram-sync": "./src/diagram-sync.ts",
+    "./voice": "./src/voice.ts"
   },
   "dependencies": {
     "effect": "catalog:"

@@ -1,3 +1,4 @@
+import { VoiceService } from "./voice/service.ts";
 import {
   app,
   BrowserWindow,
@@ -59,9 +60,12 @@ async function main() {
       : undefined,
   );
   await store.load();
+  const voice = new VoiceService(store);
+  await voice.start();
   nativeTheme.themeSource = store.settings().appearance;
   let lifecycle: DesktopLifecycle;
   const artifacts = await startLocalArtifacts({
+    voice,
     diagramAgent: (command, signal) => desktopIpc.diagramAgent(command, signal),
     diagram: (command, signal) => desktopIpc.diagram(command, signal),
     syncDiagram: (command, id, signal) => desktopIpc.syncDiagram(command, id, signal),
@@ -79,6 +83,7 @@ async function main() {
     connectionFile: process.env.SCOPE_CONNECTION_FILE ?? join(homedir(), DEFAULT_CONNECTION_FILE),
     port: process.env.SCOPE_PORT ? Number(process.env.SCOPE_PORT) : undefined,
   }).catch(async (error: unknown) => {
+    await voice.close();
     await store.close();
     throw error;
   });
@@ -200,6 +205,7 @@ async function main() {
     desktopIpc.dispose();
     library.close();
     await remotes.close();
+    await voice.close();
     await Promise.all([artifacts.close(), store.close()]);
     closed = true;
     app.quit();

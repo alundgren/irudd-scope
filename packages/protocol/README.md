@@ -215,3 +215,75 @@ SSE adds `diagram` events with artifact ID, name, version, and an event kind:
 embedded generation are on the human side; external agent writes do not echo.
 These notices carry no full diagram. They are transient; reconnecting clients
 check the version and rebase. There is no exclusive agent lease or model polling.
+
+## Agent speech generation
+
+`src/voice.ts` defines speech contracts and bounds. These additive routes use the
+publishing bearer token and reject browser origins. Local access and paired hubs
+use the same API. Scope must run on an awake Mac. The hub only forwards requests.
+
+| Method and path                     | Action                                                                                  |
+| ----------------------------------- | --------------------------------------------------------------------------------------- |
+| `POST /v1/voice`                    | Submit `{ requestId, text, instructions?, voice?: "Kore" }`; returns 202 and a receipt. |
+| `GET /v1/voice/:requestId`          | Read the existing receipt.                                                              |
+| `GET /v1/voice/:requestId/result`   | Download completed WAV with `audio/wav`; otherwise 409.                                 |
+| `DELETE /v1/voice/:requestId`       | Cancel active local generation and return its receipt.                                  |
+| `POST /v1/voice/:requestId/billing` | Start a generation lookup and return 202 immediately; read status later.                |
+
+`ScopeClient` exposes `submitVoice`, `voiceStatus`, `voiceResult`, `cancelVoice`,
+and `refreshVoiceBilling`. Billing refresh performs no speech submission. It is
+coalesced while running and limited to one lookup per request per five seconds.
+Generation lookup uses OpenRouter `data.total_cost`, `model`, and `provider_name`.
+A missing cost stays null with `billingStatus: "pending"`; missing generation ID
+means `unavailable`. Actual model and provider stay null until metadata arrives;
+`requestedModel` identifies the fixed requested model. A confirmed zero is valid
+only when the provider reports zero. Downloads do not wait for billing.
+
+Receipts include request ID, state, submission/expiry timestamps, generation ID,
+requested and actual model, actual provider, voice, audio format/media type,
+sample rate/channels/sample width, measured duration, elapsed generation time,
+cost USD, billing status, and a bounded failure message when relevant. Audio is
+24 kHz mono signed 16-bit little-endian PCM wrapped in WAV. Unexpected provider
+formats fail rather than being mislabeled. Scope sends only supplied narration
+and speech settings to OpenRouter, never artifacts, workspace data, provenance,
+or credentials in the request body. Delivery instructions use documented
+`speech_metadata.style` provider options, separate from verbatim narration.
+
+Narration is limited to 16 KiB UTF-8, delivery instructions to 2048 characters,
+and the complete JSON body to 128 KiB. Two generations may run at once; additional
+requests return 429 without queuing. Scope retains 16 requests for 24 hours from
+submission, including failed and canceled IDs. Audio transfers are limited to
+16 MiB. Capacity rejects new submissions without evicting unexpired IDs.
+
+A request ID is committed in SQLite before a paid call. Repeating the same ID
+and normalized payload returns the existing receipt, including when voice is
+disabled. Different payloads return 409. After expiry the ID is no longer
+protected and can produce another paid request. Record the ID before submission.
+HTTP timeout, a lost reply, CLI exit, or hub disconnection leaves accepted
+generation running. Inspect that ID before taking further action; never choose
+a new ID automatically after an uncertain outcome. Generation has a five-minute
+deadline. Cancellation aborts local work but does not promise provider cancellation
+or refund. Turning voice off blocks new generations and does not cancel accepted
+work, delete the shared key, or disable diagram generation.
+
+Completed audio and receipts survive desktop restart. Unfinished requests become
+`interrupted`, never queued, resumed, or regenerated. A crash after acceptance may
+lose audio or generation metadata even when a charge occurred. Known generation
+IDs still permit billing lookup for failed, canceled, and interrupted requests.
+The local/hub request deadline remains short; each operation returns separately.
+
+Agents can inspect `irudd-scope voice guide` or use:
+
+```sh
+irudd-scope voice generate narration.txt --request-id narration-unique-id \
+  --instructions "warm and friendly" --output narration.wav --receipt narration.json
+irudd-scope voice status narration-unique-id
+irudd-scope voice result narration-unique-id --output recovered.wav --receipt narration.json
+irudd-scope voice status narration-unique-id --refresh-billing --receipt narration.json
+irudd-scope voice cancel narration-unique-id
+```
+
+The generation CLI polls short status requests, with a 330000 ms default command
+timeout. Other voice commands share that default and accept `--timeout-ms`.
+Audio export requires a new `.wav` file. Receipt exports may be refreshed in place.
+Agents own their exported files, scripts, HTML, synchronization, and playback.

@@ -1,3 +1,4 @@
+import { MAX_VOICE_REQUEST_BYTES } from "@irudd-scope/protocol/voice";
 import { MAX_DIAGRAM_REQUEST_BYTES } from "@irudd-scope/protocol/diagram";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
@@ -277,11 +278,13 @@ export async function startPairedHub(
       await pipeline(
         item.request,
         bounded(
-          ["/v1/diagrams", "/v1/diagram-agents"].includes(item.request.url ?? "")
-            ? MAX_DIAGRAM_REQUEST_BYTES
-            : item.request.url?.endsWith("/blobs") || item.request.url === "/v1/diagrams/sync"
-              ? MAX_CONTENT_BYTES
-              : MAX_METADATA_BYTES,
+          item.request.url === "/v1/voice"
+            ? MAX_VOICE_REQUEST_BYTES
+            : ["/v1/diagrams", "/v1/diagram-agents"].includes(item.request.url ?? "")
+              ? MAX_DIAGRAM_REQUEST_BYTES
+              : item.request.url?.endsWith("/blobs") || item.request.url === "/v1/diagrams/sync"
+                ? MAX_CONTENT_BYTES
+                : MAX_METADATA_BYTES,
         ),
         response,
         { signal: item.controller.signal },

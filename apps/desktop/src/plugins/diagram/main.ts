@@ -16,7 +16,6 @@ export function registerDiagramIpc({
 }: MainPluginContext) {
   let generation: AbortController | undefined;
   let generationTab: string | undefined;
-  handle("scope:diagram-settings", () => store.diagramSettings());
   handle("scope:diagram-draft", (input) => artifacts.diagramDraft(decode(Uuid, input)));
   handle("scope:diagram-event", async (input) => {
     const event = decode(DiagramEvent, input);
