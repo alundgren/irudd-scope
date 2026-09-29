@@ -326,7 +326,7 @@ explicit host and thread arguments select the session. Publication provenance
 such as `source.sessionId` does not establish a connection.
 
 ```text
-Human sends a message or edits a named diagram
+Human edits, sends a message, or decides a proposal
   |
   v
 Scope editor (renderer)
@@ -339,6 +339,8 @@ Scope desktop main -- GET /v1/events (SSE) -- [optional paired hub]
                               v
                irudd-scope diagram watch NAME
                filter by artifact; coalesce for 800 ms
+               host: messages and proposal decisions
+               --watch-edits also sends canvas edits
                               |
              +----------------+------------------+
              |                |                  |
@@ -360,6 +362,10 @@ connection, and reads that thread before delivering notices. For an active turn
 it supplies the expected turn ID when steering. An unrelated App Server cannot
 reach a terminal session owned by another process. T3 sessions use the T3
 adapter and T3 thread ID, rather than the provider's Codex thread ID.
+The T3 adapter uses its host environment defaults or an explicit endpoint. It
+allows HTTP to loopback and numeric addresses assigned to the same machine;
+other machines require HTTPS. The host or a service manager owns the listener
+process so it can outlive the tool call that launches it.
 
 For Claude, the direction of process ownership is reversed: Claude starts the
 configured Scope CLI as a stdio MCP child, initializes its channel, and receives
@@ -368,7 +374,9 @@ channel requires support and enablement in that Claude host. Scope cannot wake
 a closed Claude session. The [agent connection instructions](../.agents/skills/irudd-scope/references/agent-connections.md)
 contain the commands and host configuration.
 
-Notices carry message text and diagram versions, not full diagrams. The agent
+Host listeners send human messages and proposal decisions by default.
+`--watch-edits` also sends canvas changes; plain stdout observers receive all
+events. Notices carry message text and diagram versions, not full diagrams. The agent
 uses `diagram rebase` to read changes, edits its working file, then uses
 `diagram push` or `diagram propose` for visual review. `diagram reply` adds its
 response to the conversation. These calls use `POST /v1/diagrams/sync`, through
