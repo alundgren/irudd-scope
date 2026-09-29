@@ -198,6 +198,7 @@ test("the compact workspace preserves reading position, supports overflowing tab
       await page.keyboard.press("Enter");
       await page.getByRole("heading", { name: `Report ${index + 1}`, exact: true }).waitFor();
     }
+    await controls.waitFor({ state: "hidden" });
     await page.setViewportSize({ width: 900, height: 700 });
     const navigation = page.getByRole("navigation", { name: "Open artifacts" });
     const last = navigation.getByRole("tab", { name: titles[11] });
@@ -206,6 +207,15 @@ test("the compact workspace preserves reading position, supports overflowing tab
     await expect
       .poll(() => navigation.getByRole("tab", { selected: true }).textContent())
       .toBe(titles[0]);
+    await expect
+      .poll(
+        () =>
+          navigation
+            .getByRole("tab", { name: titles[0] })
+            .evaluate((element) => element === document.activeElement),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
     await page.keyboard.press("End");
     await expect
       .poll(() => navigation.getByRole("tab", { selected: true }).textContent())

@@ -240,7 +240,7 @@ export const lintExceptions: readonly LintException[] = [
   },
   {
     file: "apps/hub/src/paired-server.ts",
-    at: "export async function startPairedHub(state: HubState, port = state.configuration().port) {",
+    at: "export async function startPairedHub(",
     limits: { "max-lines-per-function": 296 },
     reason:
       "The paired listener owns a desktop connection and bounded pending transfers. Local handlers share disconnect, cancellation, timers, and shutdown; moving them out would require exposing that mutable request state.",

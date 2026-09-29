@@ -13,6 +13,8 @@ import {
 import { isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 const source = resolve(import.meta.dirname, "..");
 const root = process.env.SCOPE_CLI_INSTALL_ROOT ?? join(homedir(), ".local/share/irudd-scope-cli");
@@ -28,6 +30,11 @@ const existing = await readlink(command).catch(async (error: NodeJS.ErrnoExcepti
 if (existing !== undefined && existing !== target)
   throw new Error(`${command} belongs to another installation. Move it aside before installing.`);
 const build = join(root, "builds", randomUUID());
+const exec = promisify(execFile);
+const commit = (await exec("git", ["rev-parse", "HEAD"], { cwd: source })).stdout.trim();
+const vp = process.env.SCOPE_VP;
+if (!/^[0-9a-f]{40}$/.test(commit) || !vp || !isAbsolute(vp))
+  throw new Error("The CLI build needs a Git commit and an absolute Vite+ path.");
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 await mkdir(build, { recursive: true });
 try {
@@ -38,22 +45,32 @@ try {
   await cp(process.execPath, join(build, "runtime/node"));
   await chmod(join(build, "runtime/node"), 0o755);
   await cp(join(source, "LICENSE"), join(build, "LICENSE"));
+  await cp(join(source, "install-cli.sh"), join(build, "install-cli.sh"));
+  await writeFile(
+    join(build, "package.json"),
+    JSON.stringify({ type: "module", scopeInstallation: { root, commit, vp, bin } }),
+  );
   await mkdir(join(build, "bin"));
   await writeFile(
     join(build, "bin/irudd-scope"),
-    `#!/bin/sh\nexport SCOPE_CLI_ROOT=${quote(join(root, "current"))}\nexec "$SCOPE_CLI_ROOT/runtime/node" "$SCOPE_CLI_ROOT/cli/main.mjs" "$@"\n`,
+    `#!/bin/sh\nexport SCOPE_CLI_ROOT=${quote(join(root, "current"))}\nexec ${quote(join(build, "runtime/node"))} ${quote(join(build, "cli/main.mjs"))} "$@"\n`,
     { mode: 0o755 },
   );
   await writeFile(
     join(build, "bin/irudd-scope-hub"),
-    `#!/bin/sh\nexec ${quote(join(root, "current/runtime/node"))} ${quote(join(root, "current/hub/main.mjs"))} run\n`,
+    `#!/bin/sh\nexec ${quote(join(build, "runtime/node"))} ${quote(join(build, "hub/main.mjs"))} run\n`,
     { mode: 0o755 },
   );
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
-  await promisify(execFile)(join(build, "runtime/node"), [join(build, "cli/main.mjs"), "--help"], {
+  await exec(join(build, "runtime/node"), [join(build, "cli/main.mjs"), "--help"], {
     timeout: 30_000,
   });
+  if (process.env.SCOPE_CLI_PREPARE === "1") {
+    const next = join(root, `.prepared-${randomUUID()}`);
+    await symlink(build, next);
+    await rename(next, join(root, "prepared"));
+    console.log(`Prepared ${build}`);
+    process.exit(0);
+  }
   const current = join(root, "current");
   const old = await readlink(current).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT") throw error;

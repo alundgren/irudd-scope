@@ -18,8 +18,8 @@ const settingsSections = [
   {
     id: "remotes",
     title: "Remotes",
-    description: "Pair and manage remote connections",
-    terms: "hub pairing tailnet tailscale disconnect",
+    description: "Pair remotes and manage connections and updates",
+    terms: "hub pairing tailnet tailscale disconnect cli skill version retry",
   },
   {
     id: "updates",

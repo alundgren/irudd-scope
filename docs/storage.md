@@ -11,7 +11,7 @@ to select separate directories for development.
 | Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                                                  |
 | Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                              |
 | CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                                             |
-| Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, private endpoint, local listener configuration, credential hashes, and pairing expiry.                       |
+| Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, private endpoint, local listener configuration, credential hashes, pairing expiry, and remote update status. |
 
 Scope creates database directories with mode `0700` and database files with
 mode `0600`. Treat the whole profile and discovery file as private. Explicit
@@ -132,6 +132,12 @@ and a desktop on the same host. Set `SCOPE_CONNECTION_FILE` to separate paths.
 Hub state contains no artifact bytes. Back up its database and discovery file
 together if you need to retain pairings. Installation builds and skill files
 contain program code and live separately from this state.
+
+Remote build metadata records its commit and installation paths alongside the
+bundled code. The hub's SQLite update record retains the target commit, phase,
+and failure message across restarts. Updating the remote tools does not replace
+its database or discovery file. The updater retains the previous build for
+startup recovery. This restores program files, not the hub database.
 
 Quit Scope before copying `scope.db` and `desktop.db`, or use SQLite's online
 backup API for each database. Copying only a database file while Scope runs

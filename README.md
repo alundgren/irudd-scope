@@ -59,6 +59,13 @@ can connect to several hubs independently. Disconnect and removal are in
 Settings; service commands and prerequisites are in
 [remote access](docs/development.md#remote-access).
 
+After the installed Mac app updates and restarts, it updates connected remotes
+to the same commit. Each remote builds its hub, CLI, and skill together before
+restarting the hub. Offline remotes catch up when they reconnect. Settings →
+Remotes shows progress and failed updates with Retry. Older installations need
+one manual run of the standalone installer and `irudd-scope setup` to enable
+this behavior.
+
 ## Development
 
 Install the Vite+ version in the [workspace catalog](pnpm-workspace.yaml), then run:

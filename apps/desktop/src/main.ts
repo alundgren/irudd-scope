@@ -108,9 +108,14 @@ async function main() {
   });
   const client = new ScopeClient(artifacts.url, artifacts.token);
   const setDiagramMenu = createApplicationMenu(window);
-  const remotes = new Remotes(store, artifacts, (status) => {
-    if (!window.isDestroyed()) window.webContents.send("scope:remotes-changed", status);
-  });
+  const remotes = new Remotes(
+    store,
+    artifacts,
+    (status) => {
+      if (!window.isDestroyed()) window.webContents.send("scope:remotes-changed", status);
+    },
+    installation?.commit,
+  );
   await remotes.start();
   const updates = new AppUpdates(installation, join(app.getAppPath(), "install.sh"), (status) => {
     if (!window.isDestroyed()) window.webContents.send("scope:updates-changed", status);

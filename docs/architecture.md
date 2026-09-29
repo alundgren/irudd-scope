@@ -172,6 +172,22 @@ configure hub-owned state. `install-cli.sh` and `tools/package-cli.ts` install
 the standalone CLI with its runtime and hub payload. They do not install the
 desktop or operate another machine over SSH.
 
+The installed Mac's `remote-updates.ts` requests the running app's exact commit
+through an authenticated hub update endpoint after connection. It never uses a
+prepared desktop build. The hub's `updates.ts` owns update requests and status
+in `hub.db`. Its `update-runner.ts` runs in a separate systemd user service,
+builds the requested commit, activates the remote tools together, and checks
+the restarted hub. It restores the previous build after a failed restart.
+Only commits on the fixed repository's `main` history that descend from the
+installed remote commit are eligible. Remote update status is independent of
+artifact forwarding, and failed publications are never replayed.
+
+The update endpoint is additive. Older hubs keep forwarding and report a
+missing endpoint, which the Mac explains as requiring a manual installation
+update. Mac versions must continue to work with the previous remote protocol
+while remotes build or remain offline. Persisted update status adds a settings
+entry without changing existing hub configuration or credential fields.
+
 Dependencies point from each app and CLI toward the protocol. Apps do not
 import one another's source. Keep responsibilities together until splitting
 them solves a concrete problem. Do not add generic service or adapter layers

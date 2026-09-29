@@ -80,7 +80,28 @@ export function RemoteSettings({ query }: { query: string }) {
           <strong>{remote.name}</strong>
           <p className="secondary installation-path">{remote.endpoint}</p>
           <p role="status">{remote.message}</p>
+          {remote.enabled && remote.update && (
+            <p role={remote.update.phase === "error" ? "alert" : "status"}>
+              {remote.update.message}
+            </p>
+          )}
+          {remote.enabled && remote.update?.output && (
+            <details className="installation-output">
+              <summary>Update details</summary>
+              <pre>{remote.update.output}</pre>
+            </details>
+          )}
           <div className="installation-actions">
+            {remote.enabled && remote.update?.phase === "error" && remote.update.supported && (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy || remote.connection !== "connected"}
+                onClick={() => run(() => window.scope.retryRemoteUpdate(remote.id))}
+              >
+                Retry update
+              </Button>
+            )}
             <Button
               type="button"
               variant="secondary"
@@ -100,6 +121,11 @@ export function RemoteSettings({ query }: { query: string }) {
           </div>
         </div>
       ))}
+      <p className="secondary">
+        After the Mac app updates and restarts, connected remotes update their hub, CLI, and skill
+        to match. Offline remotes catch up when they reconnect. An update already in progress
+        finishes if you disconnect.
+      </p>
       <p className="secondary">
         Enabled remotes reconnect while Scope is open. Disconnect keeps a remote off until you
         connect it again. Removal revokes its pairing.

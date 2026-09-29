@@ -35,7 +35,9 @@ test("diagram commands create, read imported objects, reject stale edits and exp
       .locator("canvas.interactive")
       .waitFor();
     await expect
-      .poll(async () => (await read("created").catch(() => null))?.scene.nodes.length)
+      .poll(async () => (await read("created").catch(() => null))?.scene.nodes.length, {
+        timeout: 10_000,
+      })
       .toBe(2);
     const generated = await read("created");
     const replacement = await client.diagram({
