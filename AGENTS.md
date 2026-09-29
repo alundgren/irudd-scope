@@ -17,6 +17,7 @@ only what differs from its parents.
 | `apps/desktop/src/renderer/`  | Renderer startup, shared controls, settings, and design tokens.      |
 | `apps/desktop/src/`           | Electron lifecycle, named IPC, desktop preferences, and credentials. |
 | `apps/hub/`                   | Optional authenticated forwarding to the desktop.                    |
+| `apps/sharing/`               | Standalone public snapshots, connectors, containment, and SQLite.    |
 | `packages/cli/`               | File detection, provenance, and publication commands.                |
 | `packages/sqlite/`            | SQLite shrinking and maintenance scheduling.                         |
 | `packages/protocol/`          | Shared validated artifact contracts and HTTP client.                 |

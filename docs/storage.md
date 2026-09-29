@@ -1,5 +1,20 @@
 # Storage and recovery
 
+The optional sharing service stores copies and pairing hashes in
+`/data/sharing.sqlite` inside the dedicated `irudd-scope-sharing-data` Docker
+volume. It uses SQLite WAL and schema version 1. This volume is independent
+of the desktop and hub databases. Stopped, expired, failed, and interrupted
+copies lose their content bytes. On restart, prior active copies become
+interrupted. Removal through `irudd-scope sharing remove` deletes the volume.
+Do not copy a running SQLite database without its journal state.
+
+Desktop pairing metadata, last observed shares, and pending stops are stored
+in the `sharing` preference in `desktop.db`. Service bearer credentials use
+the `sharingTokens` map in the profile's Keychain entry, or session memory on
+Linux. Native export and public upload do not copy provider credentials or
+the ordinary artifact database into the service. Docker labels record the
+owned private endpoint so removal can clean up a stopped installation.
+
 Electron main owns Scope's persistent data. Defaults below apply on macOS.
 Use the [development environment variables](development.md#isolated-development)
 to select separate directories for development.

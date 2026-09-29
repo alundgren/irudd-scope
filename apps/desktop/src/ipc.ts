@@ -19,6 +19,8 @@ import { openKeychainAccess } from "./signing.ts";
 import { DiagramCommand, DiagramReply } from "@irudd-scope/protocol/diagram";
 import { DiagramSyncCommand, DiagramSyncReply } from "@irudd-scope/protocol/diagram-sync";
 import { DiagramMenuState } from "./menu-contract.ts";
+import type { Sharing } from "./sharing.ts";
+import { sharingIpc } from "./sharing-ipc.ts";
 
 export function registerDesktopIpc({
   window,
@@ -30,6 +32,7 @@ export function registerDesktopIpc({
   updates,
   agentTools,
   remotes,
+  sharing,
   onRestartToUpdate,
   setDiagramMenu,
 }: {
@@ -42,6 +45,7 @@ export function registerDesktopIpc({
   updates: AppUpdates;
   agentTools: AgentTools;
   remotes: Remotes;
+  sharing: Sharing;
   onRestartToUpdate: () => Promise<void>;
   setDiagramMenu: (state: DiagramMenuState) => void;
 }) {
@@ -74,6 +78,7 @@ export function registerDesktopIpc({
     client,
   );
   handle("scope:diagram-command-result", (input) => diagrams.reply(input));
+  sharingIpc(handle, sharing, window, lifecycle, client, library, diagrams);
   handle("scope:set-diagram-menu", (input) => setDiagramMenu(decode(DiagramMenuState, input)));
   handle("scope:set-fullscreen", (input) => {
     window.setFullScreen(decode(Schema.Boolean, input));

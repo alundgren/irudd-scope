@@ -21,7 +21,7 @@ test("Settings starts compact, opens search matches, and preserves input across 
       .toBe(true);
     expect(await settings.getByLabel("Appearance", { exact: true }).isVisible()).toBe(false);
     expect(await key.isVisible()).toBe(false);
-    expect(await settings.getByLabel("Pairing URL").isVisible()).toBe(false);
+    expect(await settings.getByLabel("Pairing URL", { exact: true }).isVisible()).toBe(false);
 
     await page.keyboard.press("Tab");
     expect(await appearance.evaluate((element) => element === document.activeElement)).toBe(true);

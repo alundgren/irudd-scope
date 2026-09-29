@@ -17,6 +17,10 @@ flowchart LR
     Desktop --> Keychain[macOS Keychain]
     Desktop <-->|validated IPC| UI[Workspace host and built-in tab plugins]
     Desktop -->|diagram requests| Provider[OpenRouter]
+    Desktop -->|confirmed snapshot over private authenticated HTTP| Sharing[apps/sharing]
+    Sharing --> SharingData[sharing.sqlite: copies and pairing hashes]
+    Public[Viewer with link] --> Quick[Cloudflare Quick Tunnel per copy]
+    Quick -->|GET or HEAD| Sharing
 ```
 
 ## Names and ownership
@@ -24,6 +28,16 @@ flowchart LR
 Use the same names in code, documentation, diagrams, issues, and reviews.
 Folders name the work they own. Names in saved records, commands, and wire
 formats are compatibility contracts.
+
+`apps/sharing` owns optional public copies, its separate SQLite database,
+private management API, public read-only listeners, and connector processes.
+It imports shared contracts from `packages/protocol/src/sharing.ts` and has no
+dependency on the desktop or hub. `packages/cli/src/sharing-setup.ts` owns its
+explicit Docker installation and private Tailscale route. The desktop owns
+snapshot export, native confirmation, pairing credentials, and pending stop
+records. Public sharing is absent from the agent artifact API and ordinary
+publication commands. See [public sharing](sharing.md) for its operating
+limits and containment checks.
 
 | Name                 | Meaning                                                                                             | Owner                                                                                                     |
 | -------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |

@@ -7,6 +7,8 @@ import type { DiagramRequest, DiagramResult } from "./plugins/diagram/contract.t
 import type { DiagramDraft } from "./plugins/diagram/draft.ts";
 import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
+import type { SharingView } from "./sharing-contract.ts";
+import type { Share } from "@irudd-scope/protocol/sharing";
 import type { DiagramMenuAction, DiagramMenuState } from "./menu-contract.ts";
 
 export type ArtifactLibrarySnapshot = {
@@ -18,6 +20,13 @@ export type ArtifactContent = { artifact: Artifact; bytes: Uint8Array };
 import type { TabEventEnvelope } from "./plugins/events.ts";
 
 export type ScopeBridge = {
+  sharing: () => Promise<SharingView[]>;
+  pairSharing: (url: string) => Promise<void>;
+  refreshSharingStatus: (id: string) => Promise<void>;
+  removeSharing: (id: string) => Promise<void>;
+  shareTab: (destinationId: string, tabId: string, refreshId?: string) => Promise<Share | null>;
+  stopShare: (destinationId: string, shareId: string) => Promise<void>;
+  onSharingChange: (listener: (status: SharingView[]) => void) => () => void;
   setDiagramMenu: (state: DiagramMenuState) => Promise<void>;
   onDiagramMenuAction: (listener: (action: DiagramMenuAction) => void) => () => void;
   onDiagramCommand: (listener: (input: DiagramCommandRequest) => void) => () => void;

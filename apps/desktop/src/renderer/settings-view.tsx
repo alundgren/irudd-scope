@@ -6,6 +6,7 @@ import { Input } from "./components/ui/input.tsx";
 import { NativeSelect, NativeSelectOption } from "./components/ui/native-select.tsx";
 import { InstallationSettings } from "./installation-settings.tsx";
 import { RemoteSettings } from "./remote-settings.tsx";
+import { SharingSettings } from "./sharing-settings.tsx";
 import { ModelSettings } from "./model-settings.tsx";
 import { matchingSettings, SettingsSection } from "./settings-section.tsx";
 
@@ -123,6 +124,7 @@ export function SettingsViewPanel({
           )}
         </SettingsSection>
         <RemoteSettings query={query} />
+        <SharingSettings query={query} />
         <InstallationSettings query={query} />
       </div>
     </>

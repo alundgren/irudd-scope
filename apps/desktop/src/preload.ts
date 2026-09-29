@@ -3,9 +3,27 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { ScopeBridge, ArtifactLibrarySnapshot } from "./bridge.ts";
 import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
+import type { SharingView } from "./sharing-contract.ts";
 import type { DiagramMenuAction } from "./menu-contract.ts";
 
 const bridge: ScopeBridge = {
+  sharing: () => ipcRenderer.invoke("scope:sharing"),
+  pairSharing: (url) => ipcRenderer.invoke("scope:pair-sharing", url),
+  refreshSharingStatus: (id) => ipcRenderer.invoke("scope:sharing-status", id),
+  removeSharing: (id) => ipcRenderer.invoke("scope:remove-sharing", id),
+  shareTab: (destinationId, tabId, refreshId) =>
+    ipcRenderer.invoke("scope:share-tab", {
+      destinationId,
+      tabId,
+      ...(refreshId ? { refreshId } : {}),
+    }),
+  stopShare: (destinationId, shareId) =>
+    ipcRenderer.invoke("scope:stop-share", { destinationId, shareId }),
+  onSharingChange: (listener) => {
+    const receive = (_event: unknown, status: SharingView[]) => listener(status);
+    ipcRenderer.on("scope:sharing-changed", receive);
+    return () => ipcRenderer.removeListener("scope:sharing-changed", receive);
+  },
   setDiagramMenu: (state) => ipcRenderer.invoke("scope:set-diagram-menu", state),
   onDiagramMenuAction: (listener) => {
     const receive = (_event: unknown, action: DiagramMenuAction) => listener(action);

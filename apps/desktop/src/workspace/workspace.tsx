@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Download, Maximize2, Minimize2, Settings, X, Info, Plus } from "lucide-react";
+import { Download, Maximize2, Minimize2, Settings, X, Info, Plus, Share2 } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { NativeSelect, NativeSelectOption } from "../renderer/components/ui/native-select.tsx";
 import {
@@ -22,6 +22,7 @@ import { TabBar } from "./tab-bar.tsx";
 import { TabHost } from "./tab-host.tsx";
 import { TabEventRouter } from "./events.ts";
 import { PresentationPointer } from "./presentation-pointer.tsx";
+import { SharingDialog, useSharing } from "../renderer/sharing-view.tsx";
 import { pluginTools, pluginForArtifact, tabArtifactId } from "../plugins/registry.renderer.ts";
 
 type DiagramMode = "edit" | "view" | "present";
@@ -39,6 +40,10 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const [focus, setFocus] = useState(false);
   const [diagramMode, setDiagramMode] = useState<DiagramMode>("edit");
   const [details, setDetails] = useState(false);
+  const [sharingDialog, setSharingDialog] = useState<{ tabId?: string; title?: string } | null>(
+    null,
+  );
+  const { services: sharingServices } = useSharing();
   const [error, setError] = useState("");
   useEffect(
     () =>
@@ -93,6 +98,15 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const viewing = focus && active?.type === "diagram" && diagramMode !== "edit";
   const presentation = viewing && diagramMode === "present";
   const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
+  const canShare =
+    sharingServices.length > 0 &&
+    activeArtifact &&
+    ["html", "text", "markdown", "image", "excalidraw"].includes(activeArtifact.kind);
+  const openSharing = () => {
+    if (!active || !canShare) return;
+    setSearch(false);
+    setSharingDialog({ tabId: active.id, title: activeArtifact.title });
+  };
   useEffect(() => {
     if (activeArtifact) markRead(activeArtifact.id);
   }, [activeArtifact?.id, activeArtifact?.revision]);
@@ -285,7 +299,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           searchOpen={search}
           overflowOpen={overflow}
           onOverflowChange={setOverflow}
-          restoreOverflowFocus={!search && !settings && !details}
+          restoreOverflowFocus={!search && !settings && !details && !sharingDialog}
           onSelect={select}
           onReveal={(id) => {
             moveTabToEnd(id);
@@ -297,6 +311,17 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       )}
       {focus && (
         <div className="focus-controls">
+          {canShare && (
+            <Button
+              variant="secondary"
+              size="icon-xs"
+              aria-label="Share tab"
+              title="Share tab"
+              onClick={openSharing}
+            >
+              <Share2 />
+            </Button>
+          )}
           {active?.type === "diagram" ? (
             <NativeSelect
               size="sm"
@@ -441,8 +466,22 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         artifacts={snapshot.artifacts}
         onOpenArtifact={open}
         onOpenSettings={openSettings}
-        finalFocus={settings || details ? false : returnFocus}
+        finalFocus={settings || details || sharingDialog ? false : returnFocus}
         actions={[
+          ...(sharingServices.length
+            ? [
+                {
+                  id: "public-shares",
+                  title: "Public shares",
+                  keywords: "shared links stop qr",
+                  icon: Share2,
+                  onSelect: () => {
+                    setSearch(false);
+                    setSharingDialog({});
+                  },
+                },
+              ]
+            : []),
           {
             id: "settings",
             title: "Settings",
@@ -484,6 +523,17 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             ? {
                 title: activeArtifact?.title ?? active.title,
                 actions: [
+                  ...(canShare
+                    ? [
+                        {
+                          id: "share",
+                          title: "Share tab",
+                          keywords: "public link qr snapshot",
+                          icon: Share2,
+                          onSelect: openSharing,
+                        },
+                      ]
+                    : []),
                   ...(activeArtifact
                     ? [
                         {
@@ -521,6 +571,15 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             : undefined
         }
       />
+      {sharingDialog && (
+        <SharingDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setSharingDialog(null);
+          }}
+          {...sharingDialog}
+        />
+      )}
       <Dialog open={settings} onOpenChange={setSettings}>
         <DialogContent className="settings-dialog" finalFocus={search ? false : returnFocus}>
           <DialogHeader>

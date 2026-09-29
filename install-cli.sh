@@ -30,9 +30,10 @@ scope_install_cli() (
   fi
   export PATH="$(dirname "$vp"):$PATH" SCOPE_CLI_INSTALL_ROOT="$root"
   cd "$source"
-  "$vp" install --frozen-lockfile --filter @irudd-scope/cli... --filter hub...
+  "$vp" install --frozen-lockfile --filter @irudd-scope/cli... --filter hub... --filter sharing...
   (cd packages/cli && "$vp" run build)
   (cd apps/hub && "$vp" run build)
+  (cd apps/sharing && "$vp" run build)
   "$vp" exec node tools/package-cli.ts
 )
 

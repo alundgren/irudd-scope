@@ -29,6 +29,7 @@ import { ScopeClient } from "@irudd-scope/protocol/client";
 import { setup, manageHub, installSkill, printPairing } from "./setup.ts";
 import { pullDiagram, pushDiagram, rebaseDiagram } from "./diagram-working.ts";
 import { watchDiagram } from "./diagram-watch.ts";
+import { manageSharing } from "./sharing-setup.ts";
 
 const help = `irudd-scope add FILE [--title TITLE] [--id ID] [--named | --name NAME]
 irudd-scope text TEXT [--title TITLE] [--id ID] [--kind text|markdown]
@@ -48,6 +49,8 @@ irudd-scope setup [--yes] [--https-port PORT] [--port PORT] [--no-pair]
 irudd-scope pair
 irudd-scope hub start|stop|status|unpair|remove
 irudd-scope hub shrink [--status]
+irudd-scope sharing setup [--yes] [--port PORT] [--https-port PORT] [--name NAME] [--no-pair]
+irudd-scope sharing pair|status|start|stop|unpair|update|remove [--yes]
 irudd-scope skill install|remove
 
 Options: --endpoint URL, --token-file PATH, --agent NAME, --session-id ID, --timeout-ms MS
@@ -333,6 +336,16 @@ async function main() {
     return;
   }
   const [command, argument, replacement] = positionals;
+  if (command === "sharing") {
+    await manageSharing(argument, {
+      yes: values.yes,
+      port: values.port,
+      httpsPort: values["https-port"],
+      name: values.name,
+      noPair: values["no-pair"],
+    });
+    return;
+  }
   if (command === "setup") {
     await setup({
       yes: values.yes,

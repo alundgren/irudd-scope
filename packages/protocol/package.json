@@ -9,7 +9,8 @@
     "./remote": "./src/remote.ts",
     "./maintenance": "./src/maintenance.ts",
     "./diagram": "./src/diagram.ts",
-    "./diagram-sync": "./src/diagram-sync.ts"
+    "./diagram-sync": "./src/diagram-sync.ts",
+    "./sharing": "./src/sharing.ts"
   },
   "dependencies": {
     "effect": "catalog:"

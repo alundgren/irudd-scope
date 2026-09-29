@@ -24,6 +24,7 @@ import { readInstallation } from "./installation-files.ts";
 import { AppUpdates } from "./updates.ts";
 import { AgentTools } from "./agent-tools.ts";
 import { Remotes } from "./remotes.ts";
+import { Sharing } from "./sharing.ts";
 import { createApplicationMenu } from "./menu.ts";
 
 app.setName("irudd-scope");
@@ -112,6 +113,10 @@ async function main() {
     if (!window.isDestroyed()) window.webContents.send("scope:remotes-changed", status);
   });
   await remotes.start();
+  const sharing = new Sharing(store, (status) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:sharing-changed", status);
+  });
+  await sharing.start();
   const updates = new AppUpdates(installation, join(app.getAppPath(), "install.sh"), (status) => {
     if (!window.isDestroyed()) window.webContents.send("scope:updates-changed", status);
   });
@@ -132,6 +137,7 @@ async function main() {
     updates,
     agentTools,
     remotes,
+    sharing,
     setDiagramMenu,
     onRestartToUpdate: async () => {
       if (updates.snapshot().phase !== "ready") throw new Error("No update is ready.");
@@ -190,6 +196,7 @@ async function main() {
     desktopIpc.dispose();
     library.close();
     await remotes.close();
+    await sharing.close();
     await Promise.all([artifacts.close(), store.close()]);
     closed = true;
     app.quit();

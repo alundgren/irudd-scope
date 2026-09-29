@@ -89,6 +89,24 @@ Published HTML is trusted agent output. Prototypes run their scripts, load
 external resources, submit forms, and open links without a trust prompt or
 preview restrictions. The document keeps its own styling and browser behavior.
 
+Public sharing is off until a person explicitly installs and pairs a separate
+sharing service in Settings. Supported tabs then offer Share tab in Search
+and controls and a Share button in fullscreen. The desktop prepares a frozen
+snapshot and asks for native confirmation naming the content and destination
+before upload. The share dialog shows its public URL and QR code on demand.
+The URL grants read access without viewer accounts. Copies last at most 24
+hours and can end sooner; there is no duration picker.
+
+Share tab reopens an existing copy. Refresh shared content requires another
+native confirmation and keeps its URL and original expiry. Viewers reload to
+see the replacement. Closing a source tab keeps its shared copy running.
+Public shares remains available in Search and controls to stop copies after
+their tabs close. A failed stop remains visibly pending and retries after
+reconnection. Removing a service keeps its record until revocation is
+acknowledged. Connection loss shows the last observed state, without claiming
+that the public link stopped. See [public sharing](docs/sharing.md) for the
+service's setup and operating limits.
+
 Search opens with labeled icon controls for Settings, Fullscreen, creation
 tools. A tinted current-tab area shows the title
 and its Download, Artifact details, and Close tab actions. Unavailable actions

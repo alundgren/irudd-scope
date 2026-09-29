@@ -33,6 +33,9 @@ await mkdir(build, { recursive: true });
 try {
   await cp(join(source, "packages/cli/dist"), join(build, "cli"), { recursive: true });
   await cp(join(source, "apps/hub/dist"), join(build, "hub"), { recursive: true });
+  await cp(join(source, "apps/sharing/dist"), join(build, "sharing/dist"), { recursive: true });
+  await cp(join(source, "apps/sharing/Dockerfile"), join(build, "sharing/Dockerfile"));
+  await cp(join(source, "apps/sharing/resolv.conf"), join(build, "sharing/resolv.conf"));
   await cp(join(source, ".agents/skills/irudd-scope"), join(build, "skill"), { recursive: true });
   await mkdir(join(build, "runtime"));
   await cp(process.execPath, join(build, "runtime/node"));

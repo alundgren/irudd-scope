@@ -28,6 +28,12 @@ const settingsSections = [
     terms: "install installation version main commit build",
   },
   {
+    id: "sharing",
+    title: "Public sharing",
+    description: "Pair a service for temporary read-only links",
+    terms: "qr cloudflare tunnel share snapshot service vm",
+  },
+  {
     id: "tools",
     title: "Agent tools",
     description: "Install the CLI and publishing skill",

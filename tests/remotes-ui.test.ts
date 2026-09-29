@@ -33,14 +33,14 @@ test("Settings pairs a remote, shows publications, disconnects, and removes its 
     await page.getByLabel("Search artifacts", { exact: true }).fill("pair");
     await page.getByRole("button", { name: "Remotes Setting" }).click();
     await page.getByText("No remotes paired.").waitFor();
-    await page.getByLabel("Pairing URL").fill("invalid");
+    await page.getByLabel("Pairing URL", { exact: true }).fill("invalid");
     await page.getByRole("button", { name: "Pair remote", exact: true }).click();
     await page.getByText("Paste the complete pairing URL", { exact: false }).waitFor();
-    await page.getByLabel("Pairing URL").fill(state.pairUrl());
+    await page.getByLabel("Pairing URL", { exact: true }).fill(state.pairUrl());
     await page.getByText(`Pair with ${hub.url}`).waitFor();
     await page.getByRole("button", { name: "Pair remote", exact: true }).click();
     await page.getByText("Connected. Publications arrive while Scope is open.").waitFor();
-    expect(await page.getByLabel("Pairing URL").inputValue()).toBe("");
+    expect(await page.getByLabel("Pairing URL", { exact: true }).inputValue()).toBe("");
     await cli(
       "text",
       "A publication from the paired remote",

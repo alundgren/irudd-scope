@@ -18,13 +18,15 @@ manifests, catalog, and lockfile together through Vite+.
 
 ## Validation and tests
 
-`vp run ready` builds the CLI, hub, and desktop, runs `vp run check`, then runs
+`vp run ready` builds the CLI, hub, sharing service, and desktop, runs `vp run check`, then runs
 the tests. The check script verifies formatting, lint, and types with compact
 lint diagnostics. [CI](../.github/workflows/check.yml) uses that same command. It must pass
 on the finished changes before completion and every push, including the first
 push and documentation changes. Further edits require another successful run
 before completion or pushing. CI after a push does not replace this local check.
 Validation does not rewrite source or the lockfile. Do not install validation hooks.
+The suite runs test files sequentially. The Electron pressure tests already
+launch multiple competing publishers.
 
 Keep successful tests quiet. The minimal reporter prints totals without listing
 passing tests and shows console logs only for failures. The display runner also

@@ -310,10 +310,34 @@ svg.lucide {
   scrollbar-color: var(--scope-outline) var(--scope-canvas);
 }
 .focus-controls {
+  display: flex;
+  gap: var(--scope-space-2);
   position: fixed;
   right: var(--scope-space-2);
   top: var(--scope-space-2);
   z-index: 40;
+}
+.sharing-dialog {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+.shared-copy {
+  display: grid;
+  gap: var(--scope-space-3);
+  min-width: 0;
+  padding-bottom: var(--scope-space-4);
+  border-bottom: 1px solid var(--scope-line);
+}
+.sharing-title {
+  overflow-wrap: anywhere;
+}
+.share-qr {
+  display: flex;
+  justify-content: center;
+}
+.share-qr svg {
+  width: min(256px, 100%);
+  height: auto;
 }
 .focus-controls [data-slot="button"],
 .diagram-mode-select {

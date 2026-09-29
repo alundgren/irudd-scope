@@ -22,6 +22,8 @@ import {
 import { DIAGRAM_MODEL, DIAGRAM_PROVIDER } from "./plugins/diagram/provider-settings.ts";
 import { Remote, Remotes } from "./remote-contract.ts";
 import { RemoteToken } from "@irudd-scope/protocol/remote";
+import { SharingToken } from "@irudd-scope/protocol/sharing";
+import { SharingDestination, SharingDestinations } from "./sharing-contract.ts";
 
 const SavedSettings = Schema.Struct({
   version: Schema.Literal(2),
@@ -301,6 +303,72 @@ export class DesktopStore {
       this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'workspace'`,
     );
     return row ? importWorkspace(JSON.parse(row.document)) : null;
+  }
+
+  async sharingDestinations(): Promise<SharingDestination[]> {
+    await this.pending;
+    const [row] = await this.run(
+      this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'sharing'`,
+    );
+    return row ? [...decode(SharingDestinations, JSON.parse(row.document))] : [];
+  }
+
+  async sharingToken(id: string): Promise<string | undefined> {
+    await this.pending;
+    return (await this.credentials.read()).sharingTokens?.[id];
+  }
+
+  saveSharing(value: SharingDestination, token?: string): Promise<void> {
+    const { id, name, endpoint, shares, pendingStops, removing } = value;
+    const destination = decode(SharingDestination, {
+      id,
+      name,
+      endpoint,
+      shares,
+      pendingStops,
+      removing,
+    });
+    if (token !== undefined) decode(SharingToken, token);
+    return this.enqueue(async () => {
+      const [row] = await this.run(
+        this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'sharing'`,
+      );
+      const existing = row ? [...decode(SharingDestinations, JSON.parse(row.document))] : [];
+      const next = decode(SharingDestinations, [
+        ...existing.filter((item) => item.id !== destination.id),
+        destination,
+      ]);
+      if (token !== undefined) {
+        const secrets = await this.credentials.read();
+        await this.credentials.write({
+          ...secrets,
+          sharingTokens: { ...secrets.sharingTokens, [destination.id]: token },
+        });
+      }
+      await this.run(
+        this
+          .sql!`INSERT INTO preferences(name, document) VALUES ('sharing', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+      );
+    });
+  }
+
+  removeSharing(id: string): Promise<void> {
+    return this.enqueue(async () => {
+      const [row] = await this.run(
+        this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'sharing'`,
+      );
+      const existing = row ? [...decode(SharingDestinations, JSON.parse(row.document))] : [];
+      const secrets = await this.credentials.read();
+      const sharingTokens = { ...secrets.sharingTokens };
+      delete sharingTokens[id];
+      await this.run(
+        this
+          .sql!`UPDATE preferences SET document = ${JSON.stringify(existing.filter((item) => item.id !== id))} WHERE name = 'sharing'`,
+      );
+      // The service has acknowledged revocation. A leftover revoked Keychain entry
+      // is recoverable; deleting the only credential before this write is not.
+      await this.credentials.write({ ...secrets, sharingTokens });
+    });
   }
 
   async closedArtifacts(): Promise<string[]> {

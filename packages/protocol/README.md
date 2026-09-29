@@ -169,3 +169,31 @@ SSE adds `diagram` events with artifact ID, name, version, and an event kind:
 embedded generation are on the human side; external agent writes do not echo.
 These notices carry no full diagram. They are transient; reconnecting clients
 check the version and rebase. There is no exclusive agent lease or model polling.
+
+## Separate sharing protocol
+
+`@irudd-scope/protocol/sharing` defines frozen public copy metadata, bounded
+snapshot uploads, pairing receipts, and service status. These routes belong
+only to the separately installed sharing service. The artifact API, hub, and
+publishing CLI do not expose share creation or refresh.
+
+| Private route           | Behavior                                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------------------------------------- |
+| `POST /v1/pair`         | Exchange a single-use ten-minute pairing credential for a desktop credential.                            |
+| `GET /v1/shares`        | Return this service's identity and recent share states.                                                  |
+| `PUT /v1/shares/:id`    | Create a copy or refresh the expected revision after native desktop confirmation.                        |
+| `DELETE /v1/shares/:id` | Stop the copy; reject later uploads to that ID.                                                          |
+| `DELETE /v1/pair`       | Revoke desktop access and stop all copies. Repeat removal can acknowledge an already revoked credential. |
+
+All management requests need bearer authentication and reject browser Origin
+headers. Pairing and management tokens are distinct from public read tokens
+and ordinary artifact credentials. Redirects are refused. Uploaded bytes are
+base64 encoded, at most 32 MiB decoded. An operation UUID supports retry
+identification; refreshing requires the current revision and retains the
+copy's URL and original expiry. Responses and request bodies are bounded.
+
+Each public origin exposes only exact `GET /:token` and `HEAD /:token` content
+reads, without query strings or request bodies. It has no management routes,
+form handler, uploads, or protocol upgrades. Expiry is checked on every read
+and periodically closes active transfers and the connector. See
+[public sharing](../../docs/sharing.md) for runtime restrictions and limits.
