@@ -3,11 +3,80 @@ import { createServer } from "node:http";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
+import { ScopeClient } from "@irudd-scope/protocol/client";
+import { startArtifactServer } from "../apps/desktop/src/library/server.ts";
 import { desktopFixture } from "./desktop-fixture.ts";
 import { nativeDiagram } from "./fixtures/native-diagram.ts";
+
+test("diagram watch reports listening after the event stream and initial version check are ready", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "scope-watch-ready-"));
+  const token = "synthetic-watch-readiness-token";
+  const status = Promise.withResolvers<void>();
+  let checking = false;
+  const server = await startArtifactServer({
+    directory,
+    token,
+    port: 0,
+    syncDiagram: async (command) => {
+      checking = true;
+      await status.promise;
+      return { type: "status", name: command.name, version: "a".repeat(64), revision: 1 };
+    },
+  });
+  let listener: ReturnType<typeof spawn> | undefined;
+  let closed: Promise<unknown> | undefined;
+  try {
+    const client = new ScopeClient(server.url, token);
+    await client.publish(
+      "watch-ready",
+      {
+        name: "watch-ready",
+        title: "Watch readiness",
+        kind: "excalidraw",
+        mediaType: "application/vnd.excalidraw+json",
+        fileName: "drawing.excalidraw",
+        expectedRevision: 0,
+      },
+      Buffer.from(JSON.stringify(nativeDiagram(1))),
+    );
+    listener = spawn(
+      process.execPath,
+      [resolve("packages/cli/dist/main.mjs"), "diagram", "watch", "watch-ready"],
+      {
+        cwd: directory,
+        env: {
+          ...process.env,
+          SCOPE_ENDPOINT: server.url,
+          SCOPE_TOKEN: token,
+          SCOPE_TOKEN_FILE: undefined,
+          SCOPE_CONNECTION_FILE: undefined,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    closed = once(listener, "exit");
+    let diagnostics = "";
+    listener.stderr!.on("data", (data) => {
+      diagnostics += data;
+    });
+    await expect.poll(() => checking, { timeout: 5000 }).toBe(true);
+    expect(diagnostics).not.toContain("Listening");
+    status.resolve();
+    await expect.poll(() => diagnostics, { timeout: 5000 }).toContain("Listening to watch-ready.");
+    await client.delete("watch-ready");
+    await expect.poll(() => listener!.exitCode, { timeout: 5000 }).toBe(0);
+  } finally {
+    status.resolve();
+    listener?.kill();
+    await closed;
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 function rejectingAppServer(rejectMethod: string) {
   const server = createServer();
