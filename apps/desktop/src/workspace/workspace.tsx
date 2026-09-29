@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "../renderer/components/ui/dialog.tsx";
 import { SettingsViewPanel } from "../renderer/settings-view.tsx";
+import { SettingsDialog } from "../renderer/settings-dialog.tsx";
 import { UpdateNotice } from "../renderer/installation-settings.tsx";
 import { useAppearance } from "../renderer/appearance.ts";
 import { SettingsContext } from "../renderer/settings-context.tsx";
@@ -587,10 +588,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         }
       />
       <Dialog open={settings} onOpenChange={setSettings}>
-        <DialogContent className="settings-dialog" finalFocus={search ? false : returnFocus}>
-          <DialogHeader>
-            <DialogTitle>Settings</DialogTitle>
-          </DialogHeader>
+        <SettingsDialog finalFocus={search ? false : returnFocus}>
           <SettingsViewPanel
             key={settingsQuery}
             initialQuery={settingsQuery}
@@ -599,7 +597,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
               setAppearance(value.appearance);
             }}
           />
-        </DialogContent>
+        </SettingsDialog>
       </Dialog>
       <Dialog open={details} onOpenChange={setDetails}>
         <DialogContent finalFocus={search ? false : returnFocus}>
