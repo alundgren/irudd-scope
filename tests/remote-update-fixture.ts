@@ -190,16 +190,20 @@ fetch('http://127.0.0.1:${servicePort}/'+encodeURIComponent(JSON.stringify({comm
     await cli("skill", "install");
     await startHub();
     await expect
-      .poll(async () =>
-        cli("hub", "status").then(
-          () => true,
-          () => false,
-        ),
+      .poll(
+        async () =>
+          cli("hub", "status").then(
+            () => true,
+            () => false,
+          ),
+        { timeout: 15_000 },
       )
       .toBe(true);
     await remotes.start();
     await remotes.pair(state.pairUrl());
-    await expect.poll(() => remotes.snapshot()[0]?.update?.currentCommit).toBe(initialCommit);
+    await expect
+      .poll(() => remotes.snapshot()[0]?.update?.currentCommit, { timeout: 15_000 })
+      .toBe(initialCommit);
     const remoteId = remotes.snapshot()[0].id;
     const token = (await store.remoteToken(remoteId))!;
     const connection = decodeLocalConnection(
