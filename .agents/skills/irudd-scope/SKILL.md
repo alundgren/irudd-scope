@@ -1,6 +1,6 @@
 ---
 name: irudd-scope
-description: Publish or update artifacts and create, inspect, or edit Excalidraw diagrams in Scope with its CLI when a task asks for an artifact the person can inspect.
+description: Publish or update artifacts, create or edit Excalidraw diagrams, and generate narration speech through Scope with its CLI. Use for inspectable artifacts or agent-owned text-to-speech using the desktop OpenRouter key.
 ---
 
 # Use Scope CLI
@@ -140,11 +140,11 @@ the normal publishing credential, never provenance fields such as `sessionId`.
 
 With no explicit endpoint or token override, the CLI reads `SCOPE_CONNECTION_FILE` or `~/.config/irudd-scope/desktop.json`. Scope must be open on an awake Mac to accept publication. An explicit endpoint from `--endpoint` or `SCOPE_ENDPOINT` requires explicit credentials from `--token-file`, `SCOPE_TOKEN_FILE`, or `SCOPE_TOKEN`; the CLI never borrows the token from local discovery. Keep token values private.
 
-A successful command confirms that Scope persisted a tab and its artifact record. It does not confirm that the desktop opened a tab or rendered the content. New publications appear in tabs, selecting the first arrival in an empty workspace and preserving the current selection otherwise. Tabs beyond the visible strip remain available in its searchable overflow dropdown. When the task requires a visual check, inspect the artifact in Scope. Closing a tab moves it to Trashcan and retains its content and draft for seven days. Temporary tabs also enter Trashcan after a day outside the visible strip; the user can keep them permanently with the bookmark control. Quitting or restarting Scope preserves tabs left open.
+A successful publication command confirms that Scope persisted a tab and its artifact record. It does not confirm that the desktop opened a tab or rendered the content. New publications appear in tabs, selecting the first arrival in an empty workspace and preserving the current selection otherwise. Tabs beyond the visible strip remain available in its searchable overflow dropdown. When the task requires a visual check, inspect the artifact in Scope. Closing a tab moves it to Trashcan and retains its content and draft for seven days. Temporary tabs also enter Trashcan after a day outside the visible strip; the user can keep them permanently with the bookmark control. Quitting or restarting Scope preserves tabs left open.
 
-CLI requests share a 10-second deadline. Use `--timeout-ms 60000` when a large remote upload needs more time. A timeout can leave a completed write without a receipt; keep the artifact ID for recovery.
+Publication commands share a 10-second deadline. Use `--timeout-ms 60000` when a large remote upload needs more time. A timeout can leave a completed write without a receipt; keep the artifact ID for recovery.
 
-Requests are not queued or replayed. If Scope is unavailable, open it and retry once. After a failed response that may have followed a write, run `get ID` before retrying; inspect the content in Scope when the record's revision alone cannot resolve whether it changed. On a 409 conflict, check the current record and decide whether replacing it again still matches the requested change. Do not repeat an update automatically.
+Publication requests are not queued or replayed. If Scope is unavailable, open it and retry once. After a failed response that may have followed a write, run `get ID` before retrying; inspect the content in Scope when the record's revision alone cannot resolve whether it changed. On a 409 conflict, check the current record and decide whether replacing it again still matches the requested change. Do not repeat an update automatically.
 
 ## Delete and reclaim space
 
@@ -165,3 +165,39 @@ After a caller timeout, inspect `shrink --status` or `hub shrink --status`
 before retrying maintenance. Upgrade the desktop, CLI, and hub together for
 the tab-first publication protocol. The CLI performs the required tab creation
 before uploading content or metadata.
+
+## Generate speech for agent-owned playback
+
+Use `irudd-scope voice guide` for the machine-readable agent guide and
+`irudd-scope voice --help` for syntax. Save a unique request ID before submitting:
+
+```sh
+irudd-scope voice generate narration.txt --request-id unique-narration-id \
+  --instructions "warm and friendly" --output narration.wav --receipt narration.json
+```
+
+Scope uses the desktop's shared OpenRouter key, Gemini 3.8 Flash TTS, and Kore.
+The person must enable Voice generation in Settings first. Supply verbatim
+narration and separate delivery instructions; Scope sends those instructions
+through Google's speech metadata options. Agents own scripts, HTML, timing,
+playback, and explicit audio/receipt exports.
+
+After a timeout or lost response, inspect `voice status ID` and retrieve
+`voice result ID --output recovered.wav --receipt narration.json`. Reusing the
+same ID and payload never resubmits during its 24-hour lifetime; different payloads
+conflict. Never automatically switch to a new ID after an uncertain outcome.
+The CLI prints a generated ID before contacting Scope if `--request-id` is omitted.
+
+Audio can finish before billing. `voice status ID --refresh-billing` starts an
+actual OpenRouter lookup; inspect status later and refresh the receipt file.
+Unknown cost is null, never an estimate or zero. Downloads and billing lookups
+never regenerate. `voice cancel ID` stops local work without promising a refund.
+A five-minute desktop deadline ends unfinished generation. Completed results
+survive restart; unfinished requests become interrupted without retry.
+
+Scope must run on an awake Mac. Narration is limited to 16 KiB UTF-8 and style
+instructions to 2048 characters. There are two active generation slots and 16
+retained requests. Requests, receipts, and results expire after 24 hours from
+submission. Audio transfers are bounded to 16 MiB. Export to a new `.wav` path;
+receipt files can be refreshed in place. After expiry an old ID may trigger a
+new paid request, so inspect uncertain outcomes within that lifetime.

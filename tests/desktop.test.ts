@@ -24,6 +24,7 @@ test("the CLI commits artifacts while diagram generation is pending and the rend
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "Diagram generation", exact: true }).click();
     await page.getByRole("switch", { name: "Enable diagram generation" }).click();
+    await page.getByRole("button", { name: "OpenRouter", exact: true }).click();
     await page.getByLabel("OpenRouter API key").fill("synthetic-pending-key");
     await page.getByRole("button", { name: "Save key" }).click();
     await page.getByText("Settings saved.").waitFor();
@@ -86,6 +87,7 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "Diagram generation", exact: true }).click();
     await page.getByRole("switch", { name: "Enable diagram generation" }).click();
+    await page.getByRole("button", { name: "OpenRouter", exact: true }).click();
     await page.getByLabel("OpenRouter API key").fill("synthetic-diagram-key");
     await page.getByRole("button", { name: "Save key" }).click();
     await page.getByText("Settings saved.").waitFor();
@@ -501,6 +503,7 @@ test("Electron receives and reopens interactive HTML and keeps development keys 
     expect(await page.getByLabel("Hub token").count()).toBe(0);
     await page.getByRole("button", { name: "Diagram generation", exact: true }).click();
     await page.getByRole("switch", { name: "Enable diagram generation" }).click();
+    await page.getByRole("button", { name: "OpenRouter", exact: true }).click();
     await page.getByLabel("OpenRouter API key").fill("synthetic-desktop-api-key");
     await page.getByRole("button", { name: "Save key" }).click();
     await page.getByText("Settings saved.").waitFor();

@@ -84,7 +84,7 @@ shared tab host with persistent groups and events limited to each group.
 Development launches run from the checkout and do not update themselves.
 
 The [Scope CLI skill](.agents/skills/irudd-scope/SKILL.md) guides agents through
-publishing artifacts, updating existing IDs, and handling uncertain results.
+publishing artifacts, updating existing IDs, generating narration audio, and handling uncertain results.
 
 See [development and launch commands](docs/development.md),
 [architecture and ownership](docs/architecture.md),

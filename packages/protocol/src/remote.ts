@@ -74,6 +74,13 @@ export function artifactRequest(method: string, path: string): boolean {
   if (path.length > 2048 || !path.startsWith("/v1/") || /[\r\n#]/.test(path)) return false;
   const url = new URL(path, "http://127.0.0.1");
   if (method === "GET" && ["/v1/events", "/v1/artifacts"].includes(url.pathname)) return true;
+  if (method === "POST" && path === "/v1/voice") return true;
+  if (/^\/v1\/voice\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(path))
+    return method === "GET" || method === "DELETE";
+  if (method === "GET" && /^\/v1\/voice\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}\/result$/.test(path))
+    return true;
+  if (method === "POST" && /^\/v1\/voice\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}\/billing$/.test(path))
+    return true;
   if (method === "GET" && path === "/v1/maintenance/status") return true;
   if (method === "POST" && ["/v1/diagrams", "/v1/diagram-agents"].includes(path)) return true;
   if (method === "POST" && path === "/v1/diagrams/sync") return true;

@@ -177,6 +177,7 @@ export function registerDesktopIpc({
     }
   });
   handle("scope:settings", () => store.settings());
+  handle("scope:provider-settings", () => store.providerSettings());
   handle("scope:open-tab", (input) => {
     const { tab, artifactRevision } = decode(
       Schema.Struct({ tab: Tab, artifactRevision: Schema.optional(Revision) }),

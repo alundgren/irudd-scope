@@ -12,8 +12,20 @@ const settingsSections = [
   {
     id: "model",
     title: "Diagram generation",
-    description: "Enable generation, provider, model, and API key",
-    terms: "openrouter gemini credentials",
+    description: "Enable diagram generation and view its model",
+    terms: "openrouter gemini",
+  },
+  {
+    id: "voice",
+    title: "Voice generation",
+    description: "Let coding agents generate narration audio",
+    terms: "speech tts text audio gemini kore openrouter",
+  },
+  {
+    id: "credentials",
+    title: "OpenRouter",
+    description: "Save, replace, or remove the shared API key",
+    terms: "provider credentials key keychain gemini diagram voice speech tts",
   },
   {
     id: "remotes",

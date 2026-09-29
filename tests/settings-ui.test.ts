@@ -36,10 +36,12 @@ test("Settings starts with folded sections, opens search matches, and preserves 
     expect(await key.isVisible()).toBe(false);
     await enable.focus();
     await page.keyboard.press("Space");
+    const provider = settings.getByRole("button", { name: "OpenRouter", exact: true });
+    await provider.click();
     await key.fill("synthetic-unsaved-key");
-    await diagram.click();
+    await provider.click();
     expect(await key.isVisible()).toBe(false);
-    await diagram.click();
+    await provider.click();
     expect(await key.inputValue()).toBe("synthetic-unsaved-key");
     await search.fill("theme");
     await settings.getByLabel("Appearance", { exact: true }).waitFor();
@@ -112,7 +114,7 @@ test("Settings starts with folded sections, opens search matches, and preserves 
   }
 });
 
-test("diagram key checks require an open enabled section and failed access can be retried", async () => {
+test("shared key checks require an open OpenRouter section and failed access can be retried", async () => {
   const { directory, launch } = await desktopFixture();
   const application = await launch();
   try {
@@ -128,8 +130,8 @@ test("diagram key checks require an open enabled section and failed access can b
     await application.evaluate(({ ipcMain }, settings) => {
       const access = { checks: 0, fail: true, hasApiKey: false };
       Object.assign(globalThis, { scopeTestDiagramAccess: access });
-      ipcMain.removeHandler("scope:diagram-settings");
-      ipcMain.handle("scope:diagram-settings", () => {
+      ipcMain.removeHandler("scope:provider-settings");
+      ipcMain.handle("scope:provider-settings", () => {
         access.checks++;
         return {
           ...settings,
@@ -166,6 +168,8 @@ test("diagram key checks require an open enabled section and failed access can b
     }
 
     await enable.click();
+    expect(await checks()).toBe(0);
+    await search.fill("credentials");
     await settings.getByText("Key status unavailable", { exact: true }).waitFor();
     expect(await checks()).toBe(1);
     expect(await settings.getByText("No key saved", { exact: true }).isVisible()).toBe(false);
@@ -202,6 +206,7 @@ test("diagram key checks require an open enabled section and failed access can b
     await search.fill("credentials");
     await settings.getByText("Key saved", { exact: true }).waitFor();
     expect(await checks()).toBe(3);
+    await search.fill("diagram generation");
     await enable.click();
     await expect.poll(() => enable.getAttribute("aria-checked")).toBe("false");
     expect(await key.isVisible()).toBe(false);
@@ -211,6 +216,7 @@ test("diagram key checks require an open enabled section and failed access can b
     await settings.getByRole("button", { name: "Close", exact: true }).click();
     await page.getByRole("button", { name: "Open diagram settings" }).click();
     await enable.click();
+    await search.fill("credentials");
     await settings.getByText("Key saved", { exact: true }).waitFor();
     await settings.getByRole("button", { name: "Close", exact: true }).click();
     expect(await page.getByLabel("What should the diagram show?").inputValue()).toBe(

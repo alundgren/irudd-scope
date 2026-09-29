@@ -1,3 +1,10 @@
+import {
+  VoiceRequest,
+  VoiceRequestId,
+  VoiceReceipt,
+  MAX_VOICE_REQUEST_BYTES,
+} from "@irudd-scope/protocol/voice";
+import type { VoiceService } from "../voice/service.ts";
 import { DiagramAgentCommand, DiagramAgentReply } from "@irudd-scope/protocol/diagram-agent";
 import {
   DiagramCommand,
@@ -28,6 +35,7 @@ import { DiagramSyncCommand, DiagramSyncReply } from "@irudd-scope/protocol/diag
 import { ArtifactName } from "@irudd-scope/protocol";
 
 export async function startArtifactServer(options: {
+  voice?: VoiceService;
   diagramAgent?: (command: DiagramAgentCommand, signal: AbortSignal) => Promise<DiagramAgentReply>;
   diagram?: (command: DiagramCommand, signal: AbortSignal) => Promise<DiagramReply>;
   syncDiagram?: (
@@ -102,6 +110,40 @@ export async function startArtifactServer(options: {
     }
     authenticate(request, options.token);
 
+    if (route === "POST /v1/voice" && !url.search) {
+      if (!options.voice) throw new ScopeError(503, "Voice generation is unavailable.");
+      const body = await readJson(
+        request,
+        MAX_VOICE_REQUEST_BYTES,
+        "Speech request exceeds 128 KiB.",
+      );
+      const input = validate(() => decode(VoiceRequest, body));
+      json(response, 202, decode(VoiceReceipt, await options.voice.submit(input)));
+      return;
+    }
+    const speech = /^\/v1\/voice\/([^/]+)(\/result|\/billing)?$/.exec(url.pathname);
+    if (speech && !url.search) {
+      if (!options.voice) throw new ScopeError(503, "Voice generation is unavailable.");
+      const id = validate(() => decode(VoiceRequestId, speech[1]));
+      if (request.method === "GET" && speech[2] === "/result") {
+        const bytes = await options.voice.result(id);
+        response.writeHead(200, {
+          "Content-Type": "audio/wav",
+          "Content-Length": bytes.byteLength,
+          "Content-Disposition": "attachment",
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        });
+        response.end(bytes);
+      } else if (request.method === "GET" && !speech[2]) {
+        json(response, 200, await options.voice.status(id));
+      } else if (request.method === "DELETE" && !speech[2]) {
+        json(response, 200, await options.voice.cancel(id));
+      } else if (request.method === "POST" && speech[2] === "/billing") {
+        json(response, 202, await options.voice.refreshBilling(id));
+      } else throw new ScopeError(405, "Method not supported.");
+      return;
+    }
     if (route === "POST /v1/diagram-agents" && !url.search) {
       await handleDiagramAgent(request, response);
       return;

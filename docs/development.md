@@ -238,11 +238,11 @@ the checkout. Pass `--help` to the chosen command for options. The
 [CLI skill](../.agents/skills/irudd-scope/SKILL.md) describes publication and recovery.
 
 Publication returns a JSON record after storage commits. Rendering and diagram
-generation in the desktop run independently of that receipt. The CLI publishes
-finished files; it does not start model requests. Optional Git provenance has a
+generation in the desktop run independently of that receipt. Publication commands
+publish finished files. Optional Git provenance has a
 short time limit and stays absent if it cannot be collected.
 
-CLI requests share a 10-second deadline, including uploads and response bodies.
+Publication commands share a 10-second deadline, including uploads and response bodies.
 Use `--timeout-ms 60000` for a slow remote transfer. If a command times out after
 publication starts, check its artifact ID with `get` before retrying, since the
 write may have committed without a receipt.
@@ -256,12 +256,12 @@ Open Settings from the search panel or Command-comma. The search button and
 Command-K open workspace controls, current-tab actions, and artifact search.
 Search also finds appearance and diagram generation settings. Appearance follows
 System unless Light or Dark is selected. Diagram generation uses OpenRouter and Gemini 3.8
-Flash. Enable it in Settings → Diagram generation, then add its key. It is off
-by default, including for existing profiles. On macOS keys live in Keychain;
-Linux development keeps them in memory. Scope reads the provider key for a
-generation request or when that enabled section opens. Saving or removing a
-key also accesses Keychain. Startup and other settings changes do not read it.
-Turning generation off retains the saved key. Enabled remotes still access
+Flash. Enable it in Settings → Diagram generation and add the shared key in
+Settings → OpenRouter. Generation is off by default, including for existing
+profiles. On macOS keys live in Keychain; Linux development keeps them in memory.
+Scope reads the key for generation, billing lookup, key changes, or when the
+OpenRouter section opens. Startup and other settings changes do not read it.
+Diagram and voice generation have independent switches that retain the key. Enabled remotes still access
 their Keychain credentials when connecting at startup.
 
 Use Create diagram in the empty workspace or search panel. A
@@ -652,3 +652,16 @@ input-stream failure, not a storage failure. Correlate `body-error` and
 `canceled` records by request ID before attributing the delay. A missing final
 record alone does not establish whether a write committed. Read the artifact
 before retrying an uncertain publication.
+
+## Speech generation
+
+Enable Voice generation in desktop Settings and save the shared key in the
+OpenRouter section. Diagram generation and voice generation have independent
+switches, both off by default. Turning either off preserves the key. The desktop
+uses `google/gemini-3.8-flash-tts` with Kore through OpenRouter's speech endpoint.
+The agent workflow and recovery rules are in the
+[protocol guide](../packages/protocol/README.md#agent-speech-generation) and
+`irudd-scope voice guide`; `irudd-scope voice --help` lists the commands.
+
+Standard speech tests use a fake external provider through real HTTP, the built
+CLI, paired-hub relay, and desktop settings. They require no live key or model.

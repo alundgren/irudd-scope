@@ -1,3 +1,10 @@
+import {
+  VoiceRequest,
+  VoiceRequestId,
+  VoiceReceipt,
+  MAX_VOICE_AUDIO_BYTES,
+  MAX_VOICE_REQUEST_BYTES,
+} from "./voice.ts";
 import { DiagramAgentCommand, DiagramAgentReply } from "./diagram-agent.ts";
 import { DiagramSyncCommand, DiagramSyncReply } from "./diagram-sync.ts";
 import {
@@ -73,6 +80,78 @@ export class ScopeClient {
       throw new ScopeError(response.status, message);
     }
     return response;
+  }
+
+  async submitVoice(input: VoiceRequest): Promise<VoiceReceipt> {
+    const body = JSON.stringify(decode(VoiceRequest, input));
+    if (new TextEncoder().encode(body).byteLength > MAX_VOICE_REQUEST_BYTES)
+      throw new Error("Speech request exceeds 128 KiB.");
+    return decode(
+      VoiceReceipt,
+      await readRemoteJson(
+        await this.request("/v1/voice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }),
+      ),
+    );
+  }
+
+  async voiceStatus(requestId: string): Promise<VoiceReceipt> {
+    return decode(
+      VoiceReceipt,
+      await readRemoteJson(await this.request(`/v1/voice/${decode(VoiceRequestId, requestId)}`)),
+    );
+  }
+
+  async refreshVoiceBilling(requestId: string): Promise<VoiceReceipt> {
+    return decode(
+      VoiceReceipt,
+      await readRemoteJson(
+        await this.request(`/v1/voice/${decode(VoiceRequestId, requestId)}/billing`, {
+          method: "POST",
+        }),
+      ),
+    );
+  }
+
+  async cancelVoice(requestId: string): Promise<VoiceReceipt> {
+    return decode(
+      VoiceReceipt,
+      await readRemoteJson(
+        await this.request(`/v1/voice/${decode(VoiceRequestId, requestId)}`, { method: "DELETE" }),
+      ),
+    );
+  }
+
+  async voiceResult(requestId: string): Promise<Uint8Array> {
+    const response = await this.request(`/v1/voice/${decode(VoiceRequestId, requestId)}/result`);
+    if (response.headers.get("content-type") !== "audio/wav")
+      throw new Error("Scope returned an unexpected speech media type.");
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Scope returned no audio.");
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) break;
+        size += next.value.byteLength;
+        if (size > MAX_VOICE_AUDIO_BYTES) throw new Error("Speech result exceeds 16 MiB.");
+        chunks.push(next.value);
+      }
+    } finally {
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return bytes;
   }
 
   async diagramAgent(input: DiagramAgentCommand): Promise<DiagramAgentReply> {

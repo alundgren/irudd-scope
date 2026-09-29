@@ -128,13 +128,6 @@ export const lintExceptions: readonly LintException[] = [
       "Update and signing progress share the same build phases. The conditional JSX directly expresses which retry, cancel, and restart actions are available for each phase.",
   },
   {
-    file: "apps/desktop/src/renderer/model-settings.tsx",
-    at: "export function ModelSettings({",
-    limits: { complexity: 26, "max-lines-per-function": 160 },
-    reason:
-      "The opt-in switch, lazy key-status request, replacement form, and key-access retry form one settings task. Keep key access dependent on both visibility and opt-in, with status and recovery beside the form.",
-  },
-  {
     file: "apps/desktop/src/renderer/signing-settings.tsx",
     at: "export function SigningSettings({",
     limits: { complexity: 22, "max-lines-per-function": 172 },

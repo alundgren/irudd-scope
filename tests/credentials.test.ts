@@ -121,7 +121,7 @@ test("legacy keys migrate on first use when the native Keychain entry does not e
     expect(store.settings()).toMatchObject({ diagramGenerationEnabled: false, hasApiKey: null });
     expect(await credentials.read()).toEqual({});
     await store.saveSettings({ diagramGenerationEnabled: true });
-    await store.diagramSettings();
+    await store.providerSettings();
     expect(store.settings()).toMatchObject({ hasApiKey: true, keyStorage: "keychain" });
     expect(store.settings().credentialError).toBeUndefined();
     expect(await credentials.read()).toEqual({ apiKey: "synthetic-migrated-key" });
@@ -134,46 +134,39 @@ test("legacy keys migrate on first use when the native Keychain entry does not e
   }
 });
 
-test("diagram credentials are read only for enabled key settings or a provider request, including after restart", async () => {
+test("shared credentials are lazy and independent of both generation switches across restart", async () => {
   const directory = await mkdtemp(join(tmpdir(), "scope-lazy-credentials-"));
   const entry = keychainEntry(JSON.stringify({ apiKey: "existing-synthetic-key" }));
   const read = vi.spyOn(entry, "getPassword");
   let store = new DesktopStore(directory, keychainCredentials(entry));
   try {
     await store.load();
-    expect(store.settings()).toMatchObject({ diagramGenerationEnabled: false, hasApiKey: null });
+    expect(store.settings()).toMatchObject({
+      diagramGenerationEnabled: false,
+      voiceGenerationEnabled: false,
+      hasApiKey: null,
+    });
     await store.saveSettings({ appearance: "dark" });
-    await store.diagramSettings();
-    await expect(store.secret("apiKey")).rejects.toThrow("Enable diagram generation");
-    await expect(store.saveSettings({ apiKey: "replacement" })).rejects.toThrow(
-      "Enable diagram generation",
-    );
+    await store.saveSettings({ voiceGenerationEnabled: true });
     expect(read).not.toHaveBeenCalled();
-
-    await store.saveSettings({ diagramGenerationEnabled: true });
-    expect(read).not.toHaveBeenCalled();
+    expect(await store.providerSettings()).toMatchObject({ hasApiKey: true });
+    expect(await store.secret("apiKey")).toBe("existing-synthetic-key");
+    await store.saveSettings({ diagramGenerationEnabled: true, voiceGenerationEnabled: false });
+    expect(await store.secret("apiKey")).toBe("existing-synthetic-key");
+    await store.saveSettings({ diagramGenerationEnabled: false });
+    expect(await store.providerSettings()).toMatchObject({ hasApiKey: true });
+    await store.saveSettings({ apiKey: "replacement" });
     await store.close();
     store = new DesktopStore(directory, keychainCredentials(entry));
     await store.load();
     expect(store.settings()).toMatchObject({
-      diagramGenerationEnabled: true,
+      diagramGenerationEnabled: false,
+      voiceGenerationEnabled: false,
       hasApiKey: null,
-      appearance: "dark",
     });
-    await store.saveSettings({ appearance: "light" });
-    expect(read).not.toHaveBeenCalled();
-
-    expect(await store.diagramSettings()).toMatchObject({ hasApiKey: true });
-    expect(read).toHaveBeenCalledTimes(1);
-    expect(await store.secret("apiKey")).toBe("existing-synthetic-key");
-    expect(read).toHaveBeenCalledTimes(2);
-    await store.saveSettings({ appearance: "system" });
-    await store.saveSettings({ diagramGenerationEnabled: false });
-    expect(await store.diagramSettings()).toMatchObject({ hasApiKey: null });
-    await expect(store.secret("apiKey")).rejects.toThrow("Enable diagram generation");
-    expect(read).toHaveBeenCalledTimes(2);
-    await store.saveSettings({ diagramGenerationEnabled: true });
-    expect(await store.secret("apiKey")).toBe("existing-synthetic-key");
+    expect(await store.secret("apiKey")).toBe("replacement");
+    await store.saveSettings({ removeApiKey: true });
+    expect(await store.secret("apiKey")).toBeUndefined();
   } finally {
     await store.close();
     await rm(directory, { recursive: true, force: true });

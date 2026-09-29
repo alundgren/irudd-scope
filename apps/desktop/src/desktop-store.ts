@@ -27,6 +27,7 @@ const SavedSettings = Schema.Struct({
   version: Schema.Literal(2),
   appearance: Schema.optionalKey(Appearance),
   diagramGenerationEnabled: Schema.optionalKey(Schema.Boolean),
+  voiceGenerationEnabled: Schema.optionalKey(Schema.Boolean),
   provider: Schema.Literal(DIAGRAM_PROVIDER),
   model: Schema.Literal(DIAGRAM_MODEL),
 });
@@ -73,7 +74,7 @@ export class DesktopStore {
       const [{ user_version: version }] = await this.run(
         sql<{ user_version: number }>`PRAGMA user_version`,
       );
-      if (version > 6) throw new Error("The desktop database requires a newer Scope version.");
+      if (version > 7) throw new Error("The desktop database requires a newer Scope version.");
       await this.run(
         sql`CREATE TABLE IF NOT EXISTS preferences (
           name TEXT PRIMARY KEY, document TEXT NOT NULL CHECK (json_valid(document))
@@ -98,6 +99,7 @@ export class DesktopStore {
           model: saved.model,
           appearance: saved.appearance ?? "system",
           diagramGenerationEnabled: saved.diagramGenerationEnabled ?? false,
+          voiceGenerationEnabled: saved.voiceGenerationEnabled ?? false,
         };
       }
       const document = JSON.stringify(this.saved);
@@ -127,7 +129,14 @@ export class DesktopStore {
                 yield* sql`UPDATE preferences SET document = ${JSON.stringify({ ...imported, version: 2, closed })} WHERE name = 'workspace'`;
               }
             }
-            yield* sql`PRAGMA user_version = 6`;
+            yield* sql`CREATE TABLE IF NOT EXISTS voice_requests (
+              request_id TEXT PRIMARY KEY,
+              payload_hash TEXT NOT NULL,
+              expires_at INTEGER NOT NULL,
+              receipt TEXT NOT NULL CHECK (json_valid(receipt)),
+              audio BLOB
+            ) STRICT`;
+            yield* sql`PRAGMA user_version = 7`;
           }),
         ),
       );
@@ -146,7 +155,7 @@ export class DesktopStore {
     return this.runtime.runPromise(effect);
   }
 
-  private async readDiagramCredentials() {
+  private async readProviderCredentials() {
     const secrets = { ...(await this.credentials.read()) };
     if (this.legacyApiKey) {
       if (!secrets.apiKey) {
@@ -165,14 +174,12 @@ export class DesktopStore {
     return secrets;
   }
 
-  diagramSettings(): Promise<SettingsView> {
+  providerSettings(): Promise<SettingsView> {
     return this.enqueue(async () => {
-      if (this.saved.diagramGenerationEnabled) {
-        try {
-          await this.readDiagramCredentials();
-        } catch {
-          this.credentialError = "Key status is unavailable. Retry to request access again.";
-        }
+      try {
+        await this.readProviderCredentials();
+      } catch {
+        this.credentialError = "Key status is unavailable. Retry to request access again.";
       }
       return this.settings();
     });
@@ -182,6 +189,7 @@ export class DesktopStore {
     return {
       appearance: this.saved.appearance ?? "system",
       diagramGenerationEnabled: this.saved.diagramGenerationEnabled ?? false,
+      voiceGenerationEnabled: this.saved.voiceGenerationEnabled ?? false,
       provider: this.saved.provider,
       model: this.saved.model,
       hasApiKey: this.hasApiKey,
@@ -192,9 +200,7 @@ export class DesktopStore {
 
   secret(name: "apiKey"): Promise<string | undefined> {
     return this.enqueue(async () => {
-      if (!this.saved.diagramGenerationEnabled)
-        throw new Error("Enable diagram generation in Settings first.");
-      return (await this.readDiagramCredentials())[name];
+      return (await this.readProviderCredentials())[name];
     });
   }
 
@@ -214,12 +220,12 @@ export class DesktopStore {
       if (input.appearance !== undefined) next.appearance = input.appearance;
       if (input.diagramGenerationEnabled !== undefined)
         next.diagramGenerationEnabled = input.diagramGenerationEnabled;
+      if (input.voiceGenerationEnabled !== undefined)
+        next.voiceGenerationEnabled = input.voiceGenerationEnabled;
       if (input.removeApiKey && input.apiKey)
         throw new Error("Choose either replacing or removing the key.");
       if (input.apiKey !== undefined || input.removeApiKey) {
-        if (!next.diagramGenerationEnabled)
-          throw new Error("Enable diagram generation in Settings first.");
-        const secrets = await this.readDiagramCredentials();
+        const secrets = await this.readProviderCredentials();
         if (input.removeApiKey) delete secrets.apiKey;
         const secret = input.apiKey?.trim();
         if (secret !== undefined) {
@@ -234,11 +240,55 @@ export class DesktopStore {
           .sql!`UPDATE preferences SET document = ${JSON.stringify(next)} WHERE name = 'settings'`,
       );
       this.saved = next;
-      if (!next.diagramGenerationEnabled) {
-        this.hasApiKey = null;
-        this.credentialError = undefined;
-      }
       return this.settings();
+    });
+  }
+
+  voiceRows(): Promise<
+    readonly { request_id: string; payload_hash: string; expires_at: number; receipt: string }[]
+  > {
+    return this.enqueue(() =>
+      this.run(
+        this.sql!<{
+          request_id: string;
+          payload_hash: string;
+          expires_at: number;
+          receipt: string;
+        }>`SELECT request_id, payload_hash, expires_at, receipt FROM voice_requests`,
+      ),
+    );
+  }
+
+  saveVoice(
+    requestId: string,
+    payloadHash: string,
+    expiresAt: number,
+    receipt: string,
+    audio?: Buffer,
+  ): Promise<void> {
+    return this.enqueue(async () => {
+      await this.run(this
+        .sql!`INSERT INTO voice_requests(request_id, payload_hash, expires_at, receipt, audio)
+        VALUES (${requestId}, ${payloadHash}, ${expiresAt}, ${receipt}, ${audio ?? null})
+        ON CONFLICT(request_id) DO UPDATE SET receipt = excluded.receipt,
+        audio = COALESCE(excluded.audio, voice_requests.audio)`);
+    });
+  }
+
+  voiceAudio(requestId: string): Promise<Uint8Array | null> {
+    return this.enqueue(async () => {
+      const [row] = await this.run(
+        this.sql!<{
+          audio: Uint8Array | null;
+        }>`SELECT audio FROM voice_requests WHERE request_id = ${requestId}`,
+      );
+      return row?.audio ?? null;
+    });
+  }
+
+  expireVoice(now: number): Promise<void> {
+    return this.enqueue(async () => {
+      await this.run(this.sql!`DELETE FROM voice_requests WHERE expires_at <= ${now}`);
     });
   }
 
