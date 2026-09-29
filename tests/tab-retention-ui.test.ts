@@ -129,7 +129,9 @@ test("retention drawer keeps Trashcan secondary, restores tabs, and requires two
       await page.getByRole("button", { name: "Delete 1 tab forever", exact: true }).isDisabled(),
     ).toBe(true);
     const slider = page.getByRole("slider", { name: "Slide to enable deletion" });
-    await slider.focus();
+    await expect
+      .poll(() => slider.evaluate((element) => element === document.activeElement))
+      .toBe(true);
     await page.keyboard.press("End");
     expect(
       await page.getByRole("button", { name: "Delete 1 tab forever", exact: true }).isEnabled(),
@@ -140,11 +142,20 @@ test("retention drawer keeps Trashcan secondary, restores tabs, and requires two
         path: join(process.env.SCOPE_TEST_SCREENSHOTS, "retention-trash.png"),
       });
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
-    await page.getByRole("button", { name: "Empty Trashcan…", exact: true }).click();
+    await expect
+      .poll(() =>
+        page
+          .getByRole("button", { name: "Empty Trashcan…", exact: true })
+          .evaluate((element) => element === document.activeElement),
+      )
+      .toBe(true);
+    await page.keyboard.press("Enter");
     expect(
       await page.getByRole("button", { name: "Delete 1 tab forever", exact: true }).isDisabled(),
     ).toBe(true);
-    await slider.focus();
+    await expect
+      .poll(() => slider.evaluate((element) => element === document.activeElement))
+      .toBe(true);
     await page.keyboard.press("End");
     await page.getByRole("button", { name: "Delete 1 tab forever", exact: true }).click();
     await page.getByText("Trashcan is empty.", { exact: true }).waitFor();

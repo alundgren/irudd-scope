@@ -81,6 +81,7 @@ one-day allowance for temporary tabs. Trashcan sorts newest first and shows the
 remaining retention time. It permanently deletes tabs after seven days there.
 Empty Trashcan expands an inline warning, requires a slider and a separate
 Delete button, and resets when canceled, closed, or the trash contents change.
+Opening the confirmation focuses its slider; Cancel returns focus to Empty Trashcan.
 The confirmation covers the whole trash, even when search hides some entries.
 A failed save or retention action leaves a visible error and a retry path.
 

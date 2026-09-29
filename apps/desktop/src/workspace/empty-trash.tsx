@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
 import type { TrashEntry } from "./retention.ts";
@@ -8,6 +8,15 @@ export function EmptyTrash({ entries }: { entries: readonly TrashEntry[] }) {
   const [unlocked, setUnlocked] = useState(0);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const trigger = useRef<HTMLButtonElement>(null);
+  const slider = useRef<HTMLInputElement>(null);
+  const previousExpanded = useRef(false);
+  useLayoutEffect(() => {
+    if (previousExpanded.current === expanded) return;
+    previousExpanded.current = expanded;
+    // Focus before the popover handles the removed button, or it can pull focus off the slider.
+    (expanded ? slider.current : trigger.current)?.focus();
+  }, [expanded]);
   async function empty() {
     setPending(true);
     setError("");
@@ -25,6 +34,7 @@ export function EmptyTrash({ entries }: { entries: readonly TrashEntry[] }) {
     <div className="empty-trash">
       {!expanded ? (
         <Button
+          ref={trigger}
           variant="ghost"
           size="sm"
           disabled={!entries.length}
@@ -41,6 +51,7 @@ export function EmptyTrash({ entries }: { entries: readonly TrashEntry[] }) {
           <label className="trash-unlock">
             <span>{unlocked === 100 ? "Ready to delete" : "Slide to enable deletion"}</span>
             <input
+              ref={slider}
               type="range"
               min="0"
               max="100"
