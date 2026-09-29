@@ -632,3 +632,23 @@ busy retries, full reads, renderer errors, and database content counts before
 and after tab deletion. The seed controls the edit sequence and retry delays;
 operating-system scheduling still varies. No live agent, account, or installed
 profile is used. Temporary profiles and processes are removed on completion.
+
+### Relay diagnostics
+
+Forwarding failures are written to desktop stderr as `Scope relay` JSON records.
+They include the relay request ID, method, path, active phase, elapsed times,
+received body bytes, body completion, cancellation state, and error causes.
+Set `SCOPE_RELAY_TRACE=1` when launching a diagnostic desktop to also record
+successful phase transitions. Capture that process's stderr explicitly; a
+Finder-launched app may have stdout and stderr connected to `/dev/null`.
+Diagnostics omit credentials, headers, and artifact contents.
+
+Body retrieval streams into local HTTP, so their durations overlap. `body-headers`
+only means the hub sent response headers; `body-ended` means the full input
+stream arrived. `local-response` includes body transfer and local API/storage
+work, while `response-delivered` includes the hub's acknowledgement. A
+`forward-error` in `local-http` with `bodyComplete: false` can therefore be an
+input-stream failure, not a storage failure. Correlate `body-error` and
+`canceled` records by request ID before attributing the delay. A missing final
+record alone does not establish whether a write committed. Read the artifact
+before retrying an uncertain publication.
