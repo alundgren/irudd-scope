@@ -28,7 +28,9 @@ Validation does not rewrite source or the lockfile. Do not install validation ho
 
 Keep successful tests quiet. The minimal reporter prints totals without listing
 passing tests and shows console logs only for failures. The display runner also
-holds Xvfb diagnostics unless the run fails. For detailed investigation, use
+holds Xvfb diagnostics unless the run fails. On failure, it counts repeated
+nonfatal XF86 keysym warnings and repeated libEGL permission warnings. It keeps
+the first libEGL warning and all other Xvfb diagnostics. For detailed investigation, use
 `vp run test --reporter=verbose --silent=false`.
 Preserve failed exit codes and useful failure diagnostics. Keep successful
 validation output brief and distinguish meaningful advisories from failed checks.
