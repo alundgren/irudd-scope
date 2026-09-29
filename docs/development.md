@@ -145,12 +145,13 @@ in review evidence, outside durable documentation.
 Electron tests keep Mac windows and Dock icons hidden by default. Hidden windows
 disable background throttling so UI timers continue running. Linux test windows
 remain visible because Chromium stalls CSS animations in hidden windows, which
-prevents dialogs from closing and restoring focus. The runner uses Xvfb when no
-display is available. Tests run the real main process, renderer, IPC, and database
+prevents dialogs from closing and restoring focus. Each automated Linux Electron
+session uses its own Xvfb display so parallel windows cannot steal pointer capture
+or interrupt drag gestures. Tests run the real main process, renderer, IPC, and database
 operations. Unexpected native dialogs fail tests with diagnostics instead of
 waiting for someone to dismiss them. Use
-`SCOPE_TEST_SHOW_WINDOWS=1 vp run test tests/workspace.test.ts` to show Mac windows
-and allow native dialogs during manual checks. Installed apps are unaffected.
+`SCOPE_TEST_SHOW_WINDOWS=1 vp run test tests/workspace.test.ts` to show windows
+on the current display and allow native dialogs during manual checks. Installed apps are unaffected.
 
 ### Lifecycle pressure test
 
