@@ -80,6 +80,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     addTabs,
     closeTab,
     moveTabToEnd,
+    moveTab,
     updateTab,
     updateState,
   } = useWorkspace(setError);
@@ -346,10 +347,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           onOverflowChange={setOverflow}
           restoreOverflowFocus={!search && !settings && !details}
           onSelect={select}
-          onReveal={(id) => {
-            moveTabToEnd(id);
-            select(id, true);
-          }}
+          onReorder={moveTab}
           onClose={close}
           onSearch={openSearch}
         />

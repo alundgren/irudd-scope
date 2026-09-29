@@ -10,6 +10,7 @@ import {
 } from "./contract.ts";
 import { validateTabState } from "../plugins/registry.ts";
 import { discardTabSaves, flushWorkspace, useAutosave } from "./persistence.ts";
+import type { TabDropEdge } from "./use-tab-drag.ts";
 
 function legacyWorkspace(): Workspace {
   try {
@@ -197,6 +198,17 @@ export function useWorkspace(onError: (message: string) => void) {
       replace({ ...previous, tabs: [...previous.tabs.filter((entry) => entry.id !== id), tab] });
   }
 
+  function moveTab(id: string, targetId: string, edge: TabDropEdge): void {
+    if (id === targetId) return;
+    const previous = current.current;
+    const tab = previous.tabs.find((entry) => entry.id === id);
+    const tabs = previous.tabs.filter((entry) => entry.id !== id);
+    const targetIndex = tabs.findIndex((entry) => entry.id === targetId);
+    if (!tab || targetIndex < 0) return;
+    tabs.splice(targetIndex + (edge === "after" ? 1 : 0), 0, tab);
+    replace({ ...previous, tabs });
+  }
+
   function updateTab(id: string, patch: Partial<Pick<Tab, "state" | "type" | "title">>): void {
     const previous = current.current;
     const update = (tab: Tab) => {
@@ -221,6 +233,7 @@ export function useWorkspace(onError: (message: string) => void) {
     addTabs,
     closeTab,
     moveTabToEnd,
+    moveTab,
     createGroup,
     updateTab,
     updateState,

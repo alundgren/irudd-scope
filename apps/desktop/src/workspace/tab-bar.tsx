@@ -13,6 +13,7 @@ import { tabArtifactId } from "../plugins/registry.renderer.ts";
 import type { Tab } from "./contract.ts";
 import type { RetainedTab } from "./retention.ts";
 import { TabOverflow } from "./tab-overflow.tsx";
+import { useTabDrag, type ReorderTab } from "./use-tab-drag.ts";
 
 export function TabBar({
   tabs,
@@ -31,7 +32,7 @@ export function TabBar({
   onOverflowChange,
   restoreOverflowFocus,
   onSelect,
-  onReveal,
+  onReorder,
   onClose,
   onSearch,
 }: {
@@ -51,11 +52,12 @@ export function TabBar({
   onOverflowChange: (open: boolean) => void;
   restoreOverflowFocus: boolean;
   onSelect: (id: string, keyboard?: boolean) => void;
-  onReveal: (id: string) => void;
+  onReorder: ReorderTab;
   onClose: (id: string) => Promise<void>;
   onSearch: () => void;
 }) {
   const navigation = useRef<HTMLElement>(null);
+  const drag = useTabDrag(onReorder, onClose);
   const [capacity, setCapacity] = useState(1);
   useLayoutEffect(() => {
     const element = navigation.current;
@@ -87,6 +89,7 @@ export function TabBar({
     onVisible(visibleKey ? visibleKey.split(",") : []);
   }, [visibleKey, onVisible]);
   function navigateTabs(event: ReactKeyboardEvent) {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
     const index = tabs.findIndex((tab) => tab.id === selectedId);
     const target =
       event.key === "ArrowRight"
@@ -110,12 +113,12 @@ export function TabBar({
           retainedTabs={retainedTabs}
           onPermanent={onPermanent}
           onRestore={onRestore}
-          onClose={onClose}
+          drag={drag}
           hiddenIds={hiddenIds}
           artifacts={artifacts}
           unread={unread}
           tabButtons={tabButtons}
-          onSelect={onReveal}
+          onSelect={(id) => onSelect(id, true)}
           open={overflowOpen}
           onOpenChange={onOverflowChange}
           restoreFocus={restoreOverflowFocus}
@@ -129,7 +132,11 @@ export function TabBar({
             const permanent = retainedTabs.find((entry) => entry.tab.id === id)?.permanent ?? false;
             const isSelected = id === selectedId && !creating;
             return (
-              <div className={`artifact-tab${isSelected ? " selected" : ""}`} key={id}>
+              <div
+                className={`artifact-tab${isSelected ? " selected" : ""}`}
+                key={id}
+                {...drag.row(id, "horizontal")}
+              >
                 <button
                   ref={(element) => {
                     if (element) tabButtons.current.set(id, element);
@@ -142,6 +149,16 @@ export function TabBar({
                   aria-controls={`pane-${id}`}
                   tabIndex={id === selectedId ? 0 : -1}
                   title={title}
+                  aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight Delete"
+                  aria-description="Drag to reorder. Hold over More tabs to open the drawer and drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
+                  onKeyDown={(event) =>
+                    drag.keyboard(
+                      event,
+                      id,
+                      tabs.map((entry) => entry.id),
+                      "horizontal",
+                    )
+                  }
                   onClick={() => onSelect(id)}
                 >
                   {title}
@@ -158,6 +175,7 @@ export function TabBar({
                   variant="ghost"
                   size="icon-xs"
                   className={`tab-permanent${permanent ? " is-permanent" : ""}`}
+                  data-tab-drag-ignore
                   aria-label={`${permanent ? "Make temporary" : "Keep permanently"}: ${title}`}
                   aria-pressed={permanent}
                   title={permanent ? "Permanent · Make temporary" : "Keep permanently"}
@@ -169,6 +187,7 @@ export function TabBar({
                   variant="ghost"
                   size="icon-xs"
                   className="tab-close"
+                  data-tab-drag-ignore
                   aria-label={`Close ${title}`}
                   title="Move to Trashcan"
                   onClick={() => onClose(id)}

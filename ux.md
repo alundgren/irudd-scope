@@ -34,14 +34,20 @@ live with the desktop.
 
 Tabs show the artifact title and indicate unread updates. Selection has both a
 tinted background and a solid marker. The strip shows as many tabs as fit at a
-readable width. The left drawer opens on Active with a count, title/name/kind search, and All,
-Permanent, and Temporary filters. Hidden tabs come first in reverse strip order;
-visible tabs follow in the same order, marked In tab bar. A subdued Trashcan
-link sits below the active list without a count, since recovery is infrequent.
+readable width. The left drawer starts with title/name/kind search and All,
+Permanent, and Temporary filters. It lists active tabs in saved strip order,
+without a heading, repeated status icons, or per-row trash actions. A subdued
+Trashcan link sits below the list without a count, since recovery is infrequent.
 The drawer remains available even when every tab fits or no active tabs remain.
-Selecting a result moves it to the right end and moves the leftmost visible tab
-into the drawer. The selected tab stays visible when the window narrows or new
-publications arrive. Permanence does not change tab order.
+Selecting a result keeps its saved position. The selected tab stays visible
+when the window narrows or new publications arrive.
+
+Drag tabs in the strip or drawer to reorder them. An insertion line marks the
+drop position. Both use one saved order; filtering does not change other tabs'
+relative order. Holding a dragged tab over the drawer button opens it. Dropping
+onto the Trashcan link moves the tab there. A focused title also supports Alt
+and arrow keys to reorder, or Delete to move to Trashcan. Selecting a tab or
+changing its permanence does not reorder it.
 
 New publications open in tabs without a fixed count limit. The first arrival
 selects itself when no artifact is open; later arrivals keep the current
@@ -56,7 +62,9 @@ or diagrams.
 New tabs are temporary, including named tabs. A small bookmark button keeps a
 tab permanently; a filled bookmark indicates permanence. It appears on hover,
 keyboard focus, and the selected tab, and stays visible on permanent tabs. The
-same toggle is available in Active and in the current-tab search controls.
+drawer places this toggle beside the title, showing it on hover or keyboard
+focus and keeping permanent bookmarks visible. The toggle is also available
+in the current-tab search controls.
 Turning permanence off starts a fresh one-day allowance.
 
 Temporary tabs move to Trashcan after 24 hours outside the visible strip. The

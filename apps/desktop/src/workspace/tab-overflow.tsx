@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { Popover } from "@base-ui/react/popover";
-import { ArrowLeft, Bookmark, ChevronDown, File, RotateCcw, Search, Trash2, X } from "lucide-react";
+import { ArrowLeft, Bookmark, ChevronDown, RotateCcw, Search, Trash2, X } from "lucide-react";
 import type { Artifact } from "@irudd-scope/protocol";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { Input } from "../renderer/components/ui/input.tsx";
@@ -8,6 +8,7 @@ import { tabArtifactId } from "../plugins/registry.renderer.ts";
 import type { Tab } from "./contract.ts";
 import { TRASH_RETENTION_MS, type RetainedTab } from "./retention.ts";
 import { EmptyTrash } from "./empty-trash.tsx";
+import type { TabDrag } from "./use-tab-drag.ts";
 
 export function TabOverflow({
   tabs,
@@ -19,7 +20,7 @@ export function TabOverflow({
   onSelect,
   onPermanent,
   onRestore,
-  onClose,
+  drag,
   open,
   onOpenChange,
   restoreFocus,
@@ -33,7 +34,7 @@ export function TabOverflow({
   onSelect: (id: string) => void;
   onPermanent: (id: string, permanent: boolean) => Promise<void>;
   onRestore: (id: string) => Promise<void>;
-  onClose: (id: string) => Promise<void>;
+  drag: TabDrag;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   restoreFocus: boolean;
@@ -57,12 +58,7 @@ export function TabOverflow({
   const trash = retainedTabs
     .filter((entry) => entry.trashedAt !== null)
     .toSorted((a, b) => b.trashedAt! - a.trashedAt! || a.tab.id.localeCompare(b.tab.id));
-  const ordered =
-    section === "trash"
-      ? trash.map((entry) => entry.tab)
-      : tabs
-          .toReversed()
-          .toSorted((a, b) => Number(hiddenIds.has(b.id)) - Number(hiddenIds.has(a.id)));
+  const ordered = section === "trash" ? trash.map((entry) => entry.tab) : tabs;
   const entries = ordered.flatMap((tab) => {
     const entry = retention.get(tab.id);
     const artifactId = tabArtifactId(tab);
@@ -82,8 +78,6 @@ export function TabOverflow({
         name,
         permanent,
         trashedAt: entry?.trashedAt ?? null,
-        hidden: hiddenIds.has(tab.id),
-        updated: Boolean(artifactId && unread.has(artifactId)),
       },
     ];
   });
@@ -93,6 +87,7 @@ export function TabOverflow({
   const trashEntries = trash.map((entry) => ({ id: entry.tab.id, trashedAt: entry.trashedAt! }));
 
   function navigate(event: KeyboardEvent) {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
     if (!["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
     const buttons = Array.from(
       results.current?.querySelectorAll<HTMLButtonElement>("[data-tab-result]") ?? [],
@@ -123,23 +118,22 @@ export function TabOverflow({
     }
   }
 
+  function changeOpen(value: boolean) {
+    onOpenChange(value);
+    if (value) {
+      setQuery("");
+      setSection("active");
+      chosen.current = null;
+    }
+  }
+
   return (
-    <Popover.Root
-      open={open}
-      modal="trap-focus"
-      onOpenChange={(value) => {
-        onOpenChange(value);
-        if (value) {
-          setQuery("");
-          setSection("active");
-          chosen.current = null;
-        }
-      }}
-    >
+    <Popover.Root open={open} modal="trap-focus" onOpenChange={changeOpen}>
       <Popover.Trigger
         render={<Button variant="ghost" className="tab-overflow-trigger" />}
         aria-label={`More tabs, ${hiddenIds.size} hidden`}
         title="Tabs and Trashcan"
+        {...drag.drawerTrigger(() => changeOpen(true))}
       >
         <ChevronDown aria-hidden="true" />
         <span>{hiddenIds.size}</span>
@@ -156,32 +150,30 @@ export function TabOverflow({
         >
           <Popover.Popup
             className="tab-overflow-popup"
-            initialFocus={input}
+            initialFocus={drag.draggingId ? false : input}
             finalFocus={() =>
               restoreFocus &&
               (chosen.current ? (tabButtons.current.get(chosen.current) ?? false) : true)
             }
             onKeyDown={navigate}
           >
-            <div className="tab-overflow-heading">
-              <Popover.Title>
-                {section === "active" ? `Active · ${tabs.length}` : "Trashcan"}
-              </Popover.Title>
-              <span>
-                {section === "active" ? (
-                  `${hiddenIds.size} hidden · ${tabs.length - hiddenIds.size} in tab bar`
-                ) : (
+            {section === "active" ? (
+              <Popover.Title className="sr-only">Active tabs</Popover.Title>
+            ) : (
+              <div className="tab-overflow-heading">
+                <Popover.Title>Trashcan</Popover.Title>
+                <span>
                   <Button variant="ghost" size="sm" onClick={() => setSection("active")}>
                     <ArrowLeft /> Active
                   </Button>
-                )}
-              </span>
-              <Popover.Close
-                render={<Button variant="ghost" size="icon-xs" aria-label="Close tab picker" />}
-              >
-                <X />
-              </Popover.Close>
-            </div>
+                </span>
+                <Popover.Close
+                  render={<Button variant="ghost" size="icon-xs" aria-label="Close tab picker" />}
+                >
+                  <X />
+                </Popover.Close>
+              </div>
+            )}
             <div className="workspace-search-field">
               <Search aria-hidden="true" />
               <Input
@@ -225,28 +217,17 @@ export function TabOverflow({
               </p>
             )}
             <div className="tab-overflow-results" ref={results}>
-              {entries.map(({ tab, title, kind, name, hidden, updated, permanent, trashedAt }) => (
-                <div className="tab-drawer-row" key={tab.id}>
+              {entries.map(({ tab, title, kind, name, permanent, trashedAt }) =>
+                trashedAt !== null ? (
                   <button
+                    key={tab.id}
                     className="tab-overflow-result"
                     data-tab-result
                     title={title}
                     disabled={pending === tab.id}
-                    onClick={() => {
-                      if (trashedAt !== null) {
-                        void restore(tab.id);
-                        return;
-                      }
-                      chosen.current = tab.id;
-                      onSelect(tab.id);
-                      onOpenChange(false);
-                    }}
+                    onClick={() => void restore(tab.id)}
                   >
-                    {trashedAt !== null ? (
-                      <RotateCcw aria-hidden="true" />
-                    ) : (
-                      <File aria-hidden="true" />
-                    )}
+                    <RotateCcw aria-hidden="true" />
                     <span className="tab-drawer-title">
                       <span>{title}</span>
                       <small>
@@ -254,26 +235,45 @@ export function TabOverflow({
                         {kind}
                       </small>
                     </span>
-                    {trashedAt !== null ? (
-                      <small
-                        title={`Deletes ${new Date(trashedAt + TRASH_RETENTION_MS).toLocaleString()}`}
-                      >
-                        {pending === tab.id
-                          ? "Restoring…"
-                          : `Restore · ${Math.max(1, Math.ceil((trashedAt + TRASH_RETENTION_MS - now) / 86_400_000))}d left`}
-                      </small>
-                    ) : (
-                      !hidden && <small>In tab bar</small>
-                    )}
-                    {updated && trashedAt === null && (
-                      <span className="unread-dot" role="img" aria-label="Updated artifact" />
-                    )}
+                    <small
+                      title={`Deletes ${new Date(trashedAt + TRASH_RETENTION_MS).toLocaleString()}`}
+                    >
+                      {pending === tab.id
+                        ? "Restoring…"
+                        : `Restore · ${Math.max(1, Math.ceil((trashedAt + TRASH_RETENTION_MS - now) / 86_400_000))}d left`}
+                    </small>
                   </button>
-                  {trashedAt === null && (
-                    <>
+                ) : (
+                  <div className="tab-drawer-row" key={tab.id} {...drag.row(tab.id, "vertical")}>
+                    <div className="tab-drawer-label">
+                      <button
+                        className="tab-drawer-select"
+                        data-tab-result
+                        aria-label={`${title} ${name ? `${name} · ` : ""}${kind}`}
+                        aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Delete"
+                        aria-description="Drag to reorder or drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
+                        title={title}
+                        onKeyDown={(event) =>
+                          drag.keyboard(
+                            event,
+                            tab.id,
+                            entries.map((entry) => entry.tab.id),
+                            "vertical",
+                          )
+                        }
+                        onClick={() => {
+                          chosen.current = tab.id;
+                          onSelect(tab.id);
+                          onOpenChange(false);
+                        }}
+                      >
+                        {title}
+                      </button>
                       <Button
                         variant="ghost"
                         size="icon-xs"
+                        className={`tab-permanent${permanent ? " is-permanent" : ""}`}
+                        data-tab-drag-ignore
                         aria-pressed={permanent}
                         aria-label={`${permanent ? "Make temporary" : "Keep permanently"}: ${title}`}
                         title={permanent ? "Permanent · Make temporary" : "Keep permanently"}
@@ -281,19 +281,14 @@ export function TabOverflow({
                       >
                         <Bookmark fill={permanent ? "currentColor" : "none"} />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={`Trash ${title}`}
-                        title="Move to Trashcan"
-                        onClick={() => void onClose(tab.id)}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </>
-                  )}
-                </div>
-              ))}
+                    </div>
+                    <small>
+                      {name ? `${name} · ` : ""}
+                      {kind}
+                    </small>
+                  </div>
+                ),
+              )}
               {!entries.length && (
                 <p className="search-empty" role="status">
                   {needle
@@ -308,10 +303,12 @@ export function TabOverflow({
             </div>
             {section === "active" ? (
               <div className="tab-drawer-footer">
-                <p className="retention-note">
-                  Temporary tabs move to Trashcan after 1 day outside the tab bar.
-                </p>
-                <Button variant="ghost" size="sm" onClick={() => setSection("trash")}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSection("trash")}
+                  {...drag.trash}
+                >
                   <Trash2 /> Trashcan
                 </Button>
               </div>

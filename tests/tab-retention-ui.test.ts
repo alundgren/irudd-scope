@@ -39,13 +39,14 @@ test("retention drawer keeps Trashcan secondary, restores tabs, and requires two
     const picker = () => page.getByRole("button", { name: /^More tabs,/ });
     const drawer = () => page.locator(".tab-overflow-popup");
     await picker().click();
-    await page.getByRole("heading", { name: "Active · 12", exact: true }).waitFor();
+    await page.getByLabel("Search tabs", { exact: true }).waitFor();
+    expect(await drawer().locator(".tab-overflow-heading").count()).toBe(0);
     expect(await page.getByRole("button", { name: "Trashcan", exact: true }).count()).toBe(1);
     expect(await page.locator(".tab-retention-sections").count()).toBe(0);
     await page.getByRole("button", { name: "Permanent", exact: true }).click();
-    expect(await drawer().locator(".tab-overflow-result").count()).toBe(1);
+    expect(await drawer().locator("[data-tab-result]").count()).toBe(1);
     await page.getByLabel("Search tabs", { exact: true }).fill("release-review-0");
-    expect(await drawer().locator(".tab-overflow-result").count()).toBe(1);
+    expect(await drawer().locator("[data-tab-result]").count()).toBe(1);
     await page.getByRole("button", { name: "Temporary", exact: true }).click();
     await page.getByRole("status").filter({ hasText: "No tabs match" }).waitFor();
     await page.getByRole("button", { name: "Clear tab search" }).click();
@@ -78,14 +79,15 @@ test("retention drawer keeps Trashcan secondary, restores tabs, and requires two
         });
       }
     }
-    await page.getByRole("button", { name: `Trash ${firstTitle}`, exact: true }).click();
+    await drawer().locator("[data-tab-result]").first().focus();
+    await page.keyboard.press("Delete");
     await expect
       .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
       .toBe(11);
     await page.getByRole("button", { name: "Trashcan", exact: true }).click();
     await page.getByRole("heading", { name: "Trashcan", exact: true }).waitFor();
-    expect(await drawer().locator(".tab-overflow-result").count()).toBe(1);
-    await drawer().locator(".tab-overflow-result").click();
+    expect(await drawer().locator("[data-tab-result]").count()).toBe(1);
+    await drawer().locator("[data-tab-result]").click();
     await page.getByRole("tab", { name: firstTitle, selected: true }).waitFor();
     expect(await page.getByRole("tab").last().textContent()).toBe(firstTitle);
     expect(
