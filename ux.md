@@ -214,9 +214,12 @@ Ask agent controls on the right.
 
 Named diagrams default their conversation recipient to Your coding agent. The
 panel displays the stable name with Copy name and can switch to Scope diagram
-agent. An external coding session receives human messages and canvas-edit
-notices through a separately connected listener. A disconnected listener does
-not prevent editing. Scope's embedded generation acts on the human's behalf.
+agent. An external coding session receives human messages and proposal decisions
+through a separately connected listener. Canvas edits wait until a request, when
+the agent reads the latest document. This avoids extra agent turns after each
+drag; live edit notifications require an explicit listener option. A disconnected
+listener does not prevent editing. Scope's embedded generation acts on the
+human's behalf.
 
 An external agent can propose a reconciled diagram. Its editable preview covers
 the original canvas and provides Accept proposal and Reject proposal. Accept

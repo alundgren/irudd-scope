@@ -233,6 +233,7 @@ test("human edits push to T3 with idempotent retry; connected replies do not ech
         artifact.name,
         "--t3-thread",
         "test-thread",
+        "--watch-edits",
         "--t3-endpoint",
         `http://127.0.0.1:${address.port}`,
         "--t3-token-file",

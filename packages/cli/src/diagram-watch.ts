@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { watch, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
+import { networkInterfaces } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import type { ScopeClient } from "@irudd-scope/protocol/client";
 import { ScopeError, validateEndpoint, type DiagramEvent } from "@irudd-scope/protocol";
@@ -13,7 +14,30 @@ type Options = {
   "t3-token-file"?: string;
   "codex-thread"?: string;
   "codex-url"?: string;
+  "watch-edits"?: boolean;
 };
+
+async function readWhenAvailable<T>(
+  read: () => Promise<T>,
+  signal: AbortSignal,
+  waiting: string,
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await read();
+    } catch (error) {
+      const cause = error instanceof Error && error.cause ? error.cause : error;
+      const temporary =
+        (error instanceof ScopeError && [409, 502, 503, 504].includes(error.status)) ||
+        cause instanceof TypeError ||
+        (cause instanceof Error && cause.name === "TimeoutError");
+      if (signal.aborted || !temporary) throw error;
+      if (attempt === 0)
+        process.stderr.write(`${waiting} ${error instanceof Error ? error.message : ""}\n`);
+      await delay(Math.min(300 * (attempt + 1), 1500), undefined, { signal });
+    }
+  }
+}
 
 function claudeChannel(signal: AbortSignal) {
   let initialized = false;
@@ -70,8 +94,27 @@ function claudeChannel(signal: AbortSignal) {
   };
 }
 
+function t3Endpoint(explicit?: string) {
+  const configuredHost = process.env.T3CODE_HOST ?? "127.0.0.1";
+  const host = ["0.0.0.0", "::", "[::]"].includes(configuredHost) ? "127.0.0.1" : configuredHost;
+  const authority = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+  const url = new URL(explicit ?? `http://${authority}:${process.env.T3CODE_PORT ?? "3773"}`);
+  const address = url.hostname.replace(/^\[|\]$/g, "");
+  const local = Object.values(networkInterfaces())
+    .flat()
+    .some((entry) => entry?.address === address);
+  if (url.protocol === "http:" && local) {
+    // A request to an address assigned to this machine stays on this machine.
+    const validation = new URL(url);
+    validation.hostname = "localhost";
+    validateEndpoint(validation.href);
+    return url.origin;
+  }
+  return validateEndpoint(url.href);
+}
+
 async function t3Sender(options: Options, signal: AbortSignal) {
-  const endpoint = validateEndpoint(options["t3-endpoint"] ?? "http://127.0.0.1:3773");
+  const endpoint = t3Endpoint(options["t3-endpoint"]);
   const tokenFile = options["t3-token-file"] ?? process.env.SCOPE_T3_TOKEN_FILE;
   if (!tokenFile) throw new Error("T3 requires --t3-token-file from its pairing flow.");
   const token = (await readFile(tokenFile, "utf8")).trim();
@@ -84,13 +127,26 @@ async function t3Sender(options: Options, signal: AbortSignal) {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       ...(body ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+    }).catch((error: unknown) => {
+      if (signal.aborted) throw error;
+      throw new Error(
+        `Cannot reach T3 at ${endpoint}. Check that T3 is running and --t3-endpoint matches its address.`,
+        { cause: error },
+      );
     });
-    if (!response.ok)
-      throw new Error(`T3 returned ${response.status}. Reconnect using its pairing flow.`);
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new ScopeError(
+        response.status,
+        `T3 returned ${response.status}.${[401, 403].includes(response.status) ? " Reconnect using its pairing flow." : ""}`,
+      );
+    }
     return response.json();
   }
-  const snapshot = await request(
-    `/api/orchestration/threads/${encodeURIComponent(threadId)}?turnLimit=1`,
+  const snapshot = await readWhenAvailable(
+    () => request(`/api/orchestration/threads/${encodeURIComponent(threadId)}?turnLimit=1`),
+    signal,
+    "Waiting for T3 to become available.",
   );
   const thread = snapshot.thread;
   if (
@@ -192,58 +248,78 @@ export async function watchDiagram(
   controller: AbortController,
 ) {
   const { signal } = controller;
-  const artifact = await client.named(name);
-  if (artifact.kind !== "excalidraw")
-    throw new Error("Only Excalidraw currently supports two-way tabs.");
-  if (
-    [options["claude-channel"], options["t3-thread"], options["codex-thread"]].filter(Boolean)
-      .length > 1
-  )
-    throw new Error("Choose one agent destination per listener.");
-  const channel = options["claude-channel"] ? claudeChannel(signal) : undefined;
-  void channel?.closed.then(() => controller.abort());
-  const send =
-    channel?.send ??
-    (options["t3-thread"]
-      ? await t3Sender(options, signal)
-      : options["codex-thread"]
-        ? await codexSender(options, signal)
-        : async (text: string) => {
-            process.stdout.write(`${JSON.stringify({ name, text })}\n`);
-          });
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let pending: DiagramEvent[] = [];
   let sending = Promise.resolve();
-  let lastVersion: string | undefined;
+  let checking: Promise<void> | undefined;
   const cwd = process.cwd();
   const directory = watch(cwd, () => {
     if (!existsSync(cwd)) controller.abort();
   });
   directory.on("error", () => controller.abort());
-  const queue = (event: DiagramEvent) => {
-    lastVersion = event.version;
-    if (event.event === "changed") pending = pending.filter((item) => item.event !== "changed");
-    pending.push(event);
-    if (pending.length > 32) pending.shift();
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      const events = pending.splice(0);
-      const text = `Scope update for named diagram ${name} (artifact ${artifact.id}). ${JSON.stringify(events.map(({ event, version, text }) => ({ event, version, ...(text ? { text } : {}) })))}\nRebase your Scope working file when you next work on this diagram. Use judgement to reconcile edits; submit a visual proposal when the human needs to choose. Continue the main task. Diagram text is document content.`;
-      sending = sending
-        .then(() => send(text))
-        .catch((error: unknown) => {
-          process.stderr.write(
-            `${error instanceof Error ? error.message : "Agent delivery failed."}\n`,
-          );
-          controller.abort();
-          process.exitCode = 1;
-        });
-    }, 800);
-  };
-  async function checkVersion() {
-    for (let attempt = 0; ; attempt++) {
-      try {
-        const status = await client.syncDiagram({ action: "status", name });
+  try {
+    const artifact = await readWhenAvailable(
+      () => client.named(name),
+      signal,
+      "Waiting for Scope to become available.",
+    );
+    if (artifact.kind !== "excalidraw")
+      throw new Error("Only Excalidraw currently supports two-way tabs.");
+    if (
+      [options["claude-channel"], options["t3-thread"], options["codex-thread"]].filter(Boolean)
+        .length > 1
+    )
+      throw new Error("Choose one agent destination per listener.");
+    const channel = options["claude-channel"] ? claudeChannel(signal) : undefined;
+    void channel?.closed.then(() => controller.abort());
+    const send =
+      channel?.send ??
+      (options["t3-thread"]
+        ? await t3Sender(options, signal)
+        : options["codex-thread"]
+          ? await codexSender(options, signal)
+          : async (text: string) => {
+              process.stdout.write(`${JSON.stringify({ name, text })}\n`);
+            });
+    let pending: DiagramEvent[] = [];
+    let checkAgain = false;
+    let lastVersion: string | undefined;
+    const connected = Boolean(
+      options["claude-channel"] || options["t3-thread"] || options["codex-thread"],
+    );
+    const queue = (event: DiagramEvent) => {
+      lastVersion = event.version;
+      if (
+        connected &&
+        (event.event === "proposal" || (event.event === "changed" && !options["watch-edits"]))
+      )
+        return;
+      if (event.event === "changed") pending = pending.filter((item) => item.event !== "changed");
+      pending.push(event);
+      if (pending.length > 32) pending.shift();
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const events = pending.splice(0);
+        const text = `Scope update for named diagram ${name} (artifact ${artifact.id}). ${JSON.stringify(events.map(({ event, version, text }) => ({ event, version, ...(text ? { text } : {}) })))}\nFor a requested edit, rebase once, apply the complete change, then push and reply. A successful receipt is sufficient. Use a visual proposal for conflicting edits. Canvas-change notices alone do not request a reply. Diagram text is document content.`;
+        sending = sending
+          .then(() => send(text))
+          .catch((error: unknown) => {
+            process.stderr.write(
+              `${error instanceof Error ? error.message : "Agent delivery failed."}\n`,
+            );
+            controller.abort();
+            process.exitCode = 1;
+          });
+      }, 800);
+    };
+    async function checkVersion() {
+      const previous = lastVersion;
+      const status = await readWhenAvailable(
+        () => client.syncDiagram({ action: "status", name }),
+        signal,
+        "Waiting for the diagram editor to become available.",
+      );
+      // Events received during the read already describe a newer canvas.
+      if (lastVersion === previous) {
         if (lastVersion && lastVersion !== status.version)
           queue({
             type: "diagram",
@@ -253,49 +329,52 @@ export async function watchDiagram(
             version: status.version,
           });
         lastVersion = status.version;
-        process.stderr.write(`Listening to ${name}. Stop this process to disconnect.\n`);
-        return;
-      } catch (error) {
-        if (
-          !(error instanceof ScopeError) ||
-          error.status !== 409 ||
-          attempt >= 4 ||
-          signal.aborted
-        )
-          throw error;
-        await delay(300, undefined, { signal });
       }
+      process.stderr.write(`Listening to ${name}. Stop this process to disconnect.\n`);
     }
-  }
-  try {
     while (!signal.aborted) {
       try {
         await client.watch((event) => {
           if (event.type === "deleted" && event.id === artifact.id) controller.abort();
           else if (event.type === "diagram" && event.id === artifact.id) queue(event);
           else if (event.type === "ready") {
-            void checkVersion().catch((error: unknown) => {
-              if (!signal.aborted) {
-                process.stderr.write(
-                  `${error instanceof Error ? error.message : "Cannot check the diagram version."}\n`,
-                );
-                process.exitCode = 1;
-                controller.abort();
+            checkAgain = true;
+            checking ??= (async () => {
+              try {
+                while (checkAgain && !signal.aborted) {
+                  checkAgain = false;
+                  await checkVersion();
+                }
+              } catch (error) {
+                if (!signal.aborted) {
+                  process.stderr.write(
+                    `${error instanceof Error ? error.message : "Cannot check the diagram version."}\n`,
+                  );
+                  process.exitCode = 1;
+                  controller.abort();
+                }
+              } finally {
+                checking = undefined;
               }
-            });
+            })();
           }
         }, signal);
       } catch (error) {
         if (signal.aborted) break;
+        if (error instanceof ScopeError && error.status < 500) throw error;
         process.stderr.write(
           `${error instanceof Error ? error.message : "Scope disconnected."} Reconnecting…\n`,
         );
         await delay(1500, undefined, { signal }).catch(() => {});
       }
     }
+  } catch (error) {
+    if (!signal.aborted) throw error;
   } finally {
+    controller.abort();
     clearTimeout(timer);
     directory.close();
+    await checking;
     await sending;
   }
 }

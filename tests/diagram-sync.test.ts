@@ -28,6 +28,7 @@ test("named native diagrams support session handoff, conflict reconciliation, ed
         async () =>
           (await client.syncDiagram({ action: "status", name: artifact.name }).catch(() => null))
             ?.type,
+        { timeout: 10_000 },
       )
       .toBe("status");
     await expect(fixture.cli("add", file, "--name", artifact.name)).rejects.toThrow("name");

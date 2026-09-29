@@ -75,8 +75,16 @@ If Scope says to finish the current drawing or text edit, the write was not
 applied. Keep the working file and retry after the human finishes that edit.
 
 For push delivery to an active coding session, read [agent connections](references/agent-connections.md).
-Run the listener in the background; its event connection does not keep a model
-turn waiting. A named diagram alone does not start a listener.
+Use the host's process manager to keep the listener alive after the launching
+tool call ends. It wakes the agent for messages and proposal decisions; canvas
+edits wait for a request unless `--watch-edits` is enabled. A named diagram alone
+does not start a listener. Do not hold a model turn open waiting for events.
+
+For each requested edit, rebase the working file once, apply the complete change,
+then push and reply in Scope. Group related commands in one tool call when they
+can run safely in sequence. Trust a successful receipt; read again only to answer
+a new question or recover from a conflict. Preview when layout needs a visual
+check. Canvas-change notices alone need no acknowledgement or repeated rebase.
 
 Use `diagram guide` once for the drawing conventions, command syntax, and exact JSON operation schema. For a new diagram, write a JSON array of operations and run:
 
@@ -101,6 +109,10 @@ For an existing `.excalidraw` file, use `add FILE` or `update ID FILE`. Native f
 These commands require an updated desktop, CLI, and hub. Embedded diagram generation remains a separate opt-in setting and is unnecessary for CLI-authored diagrams.
 
 ### Wait for requests from your tab
+
+Prefer host push delivery above when the session has a supported wake endpoint.
+The wait command below is for an explicitly waiting agent without that endpoint;
+it keeps the current session occupied and needs another tool call after each wait.
 
 When asked to stay available for diagram feedback, use `diagram-agent guide` and
 then `diagram-agent wait ID --agent NAME`. Keep your current agent session running.
