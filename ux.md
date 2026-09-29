@@ -155,6 +155,13 @@ the hub; when the hub is unreachable, Scope keeps a disconnected record with
 a retryable error. Pairing and connection errors leave the workspace usable.
 Publishing needs an awake Mac with Scope open. Offline work is not queued.
 
+The installed Mac updates connected remotes to its running version after it
+restarts. Offline remotes catch up on connection; disconnected remotes remain
+off. Each remote shows update progress separately from its connection status.
+Failures offer Retry update without interrupting the workspace. Older hubs
+explain the one-time installer and setup step needed for automatic updates.
+An accepted remote update can finish after disconnecting from the Mac.
+
 Create diagram is available in the empty workspace and search panel.
 An existing diagram has an Ask agent conversation, closed by default.
 It sits beside the canvas at desktop widths and overlays it in a narrow

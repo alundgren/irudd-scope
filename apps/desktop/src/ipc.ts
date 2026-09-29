@@ -99,6 +99,7 @@ export function registerDesktopIpc({
     return remotes.setEnabled(id, enabled);
   });
   handle("scope:remove-remote", (input) => remotes.remove(decode(RemoteId, input)));
+  handle("scope:retry-remote-update", (input) => remotes.retryUpdate(decode(RemoteId, input)));
   handle("scope:updates", () => updates.snapshot());
   handle("scope:check-for-updates", () => {
     if (agentTools.isBusy()) throw new Error("Wait for the agent tools installation to finish.");

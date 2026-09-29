@@ -13,9 +13,11 @@ import {
   artifactRequest,
   maintenanceRequest,
   PairRequest,
+  HubUpdateRequest,
   type RelayEvent,
 } from "@irudd-scope/protocol/remote";
 import type { HubState } from "./state.ts";
+import type { HubUpdates } from "./updates.ts";
 
 type Pending = {
   request: IncomingMessage;
@@ -46,7 +48,39 @@ function bounded(limit: number) {
   });
 }
 
-export async function startPairedHub(state: HubState, port = state.configuration().port) {
+async function handleUpdate(
+  request: IncomingMessage,
+  response: ServerResponse,
+  updates?: HubUpdates,
+) {
+  if (!updates) {
+    json(response, 200, {
+      supported: false,
+      phase: "idle",
+      message: "This hub uses an unmanaged installation. Update it on the remote.",
+    });
+    return;
+  }
+  if (request.method === "GET") {
+    json(response, 200, await updates.snapshot());
+    return;
+  }
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > 1024) throw new Error("Update request too large.");
+    chunks.push(chunk);
+  }
+  const input = decode(HubUpdateRequest, JSON.parse(Buffer.concat(chunks).toString()));
+  json(response, 202, await updates.request(input));
+}
+
+export async function startPairedHub(
+  state: HubState,
+  port = state.configuration().port,
+  updates?: HubUpdates,
+) {
   let desktop: ServerResponse | undefined;
   const pending = new Map<string, Pending>();
   function forget(id: string) {
@@ -162,7 +196,11 @@ export async function startPairedHub(state: HubState, port = state.configuration
       return;
     }
     if (url.pathname === "/v1/hub/status" && request.method === "GET") {
-      json(response, 200, { ...state.status(), connected: Boolean(desktop) });
+      json(response, 200, {
+        ...state.status(),
+        connected: Boolean(desktop),
+        commit: updates?.installation?.commit,
+      });
       return;
     }
     if (url.pathname === "/v1/hub/pair" && request.method === "POST") {
@@ -193,6 +231,12 @@ export async function startPairedHub(state: HubState, port = state.configuration
       json(response, 401, { error: "Pair this Mac with the hub again." });
       return;
     }
+    if (
+      url.pathname === "/v1/relay/update" &&
+      !url.search &&
+      ["GET", "POST"].includes(request.method ?? "")
+    )
+      return handleUpdate(request, response, updates);
     if (url.pathname === "/v1/relay/disconnect" && request.method === "DELETE") {
       state.unpair();
       disconnect();
@@ -344,6 +388,7 @@ export async function startPairedHub(state: HubState, port = state.configuration
   return {
     url: `http://127.0.0.1:${address.port}`,
     close: async () => {
+      await updates?.close();
       await state.maintenance.close();
       disconnect();
       server.closeAllConnections();
