@@ -134,7 +134,7 @@ async function checkContent(page: Page, example: (typeof examples)[number], focu
   }
 }
 
-test("the built CLI publishes every tab view through appearance, focus, restart, and permanent close", async () => {
+test("the built CLI publishes every tab view through appearance, focus, restart, trash, and explicit deletion", async () => {
   const { directory, launch, cli, connect } = await desktopFixture();
   let application = await launch();
   const failures: string[] = [];
@@ -359,7 +359,8 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
       await expect
         .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
         .toBe(examples.length - index - 1);
-      await expect(client.get(example.id)).rejects.toMatchObject({ status: 404 });
+      expect(await client.get(example.id)).toBeDefined();
+      await client.delete(example.id);
       expect(await page.evaluate((tabId) => window.scope.diagramDraft(tabId), id)).toBeNull();
     }
     expect(await client.list()).toEqual([]);

@@ -135,7 +135,7 @@ test.for(["before", "after"] as const)(
       await page.keyboard.press("ControlOrMeta+w");
       await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
       expect(await page.getByRole("alert").allTextContents()).toEqual([]);
-      expect(await client.list()).toEqual([]);
+      expect(await client.list()).toHaveLength(1);
     } finally {
       await gate.release().catch(() => {});
       await application.close();

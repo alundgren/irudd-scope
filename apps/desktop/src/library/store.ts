@@ -16,6 +16,12 @@ import {
   validateArtifactContent,
 } from "@irudd-scope/protocol";
 import { Tab, Uuid, tabArtifactId } from "../workspace/contract.ts";
+import {
+  TEMPORARY_RETENTION_MS,
+  TRASH_RETENTION_MS,
+  type RetainedTab,
+  type TrashEntry,
+} from "../workspace/retention.ts";
 import { DiagramDraft } from "../plugins/diagram/draft.ts";
 
 const databaseRuntime = (filename: string) => ManagedRuntime.make(SqliteClient.layer({ filename }));
@@ -27,6 +33,9 @@ export type LiveTab = {
   opened: number;
   document: string | null;
   position: number;
+  permanent: number;
+  last_visible_at: number;
+  trashed_at: number | null;
 };
 
 export class ArtifactStore {
@@ -56,6 +65,7 @@ export class ArtifactStore {
       await store.initialize(directory);
       await store.initializeLifecycle();
       await store.initializeNames();
+      await store.initializeRetention();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -69,10 +79,14 @@ export class ArtifactStore {
     return this.runtime.runPromise(effect);
   }
 
-  private mutate<A, E>(effect: Effect.Effect<A, E>, event: (result: A) => LiveEvent): Promise<A> {
+  private mutate<A, E>(
+    effect: Effect.Effect<A, E>,
+    event: (result: A) => LiveEvent | LiveEvent[],
+  ): Promise<A> {
     const task = this.pendingMutations.then(async () => {
       const result = await this.run(effect);
-      this.onChanged(event(result));
+      const events = event(result);
+      for (const item of Array.isArray(events) ? events : [events]) this.onChanged(item);
       return result;
     });
     this.pendingMutations = task.then(
@@ -87,7 +101,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 4) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 5) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");
@@ -219,6 +233,8 @@ export class ArtifactStore {
 
   private async initializeNames(): Promise<void> {
     const sql = this.sql;
+    const [{ user_version }] = await this.run(sql<{ user_version: number }>`PRAGMA user_version`);
+    if (user_version >= 4) return;
     await this.run(
       sql.withTransaction(
         Effect.gen(function* () {
@@ -229,11 +245,117 @@ export class ArtifactStore {
     );
   }
 
-  async tabs(): Promise<readonly LiveTab[]> {
+  private async initializeRetention(): Promise<void> {
+    const sql = this.sql;
+    const [{ user_version }] = await this.run(sql<{ user_version: number }>`PRAGMA user_version`);
+    if (user_version >= 5) return;
+    await this.run(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`ALTER TABLE live_tabs ADD COLUMN permanent INTEGER NOT NULL DEFAULT 0 CHECK (permanent IN (0, 1))`;
+          yield* sql`ALTER TABLE live_tabs ADD COLUMN last_visible_at INTEGER NOT NULL DEFAULT 0`;
+          yield* sql`ALTER TABLE live_tabs ADD COLUMN trashed_at INTEGER`;
+          yield* sql`UPDATE live_tabs SET last_visible_at = ${Date.now()}`;
+          yield* sql`PRAGMA user_version = 5`;
+        }),
+      ),
+    );
+  }
+
+  async retainedTabs(): Promise<RetainedTab[]> {
+    return (await this.tabs()).flatMap((row) =>
+      row.opened && row.document
+        ? [
+            {
+              tab: decode(Tab, JSON.parse(row.document)),
+              permanent: Boolean(row.permanent),
+              lastVisibleAt: row.last_visible_at,
+              trashedAt: row.trashed_at,
+            },
+          ]
+        : [],
+    );
+  }
+
+  async markTabsVisible(ids: readonly string[], now = Date.now()): Promise<void> {
+    if (!ids.length) return;
+    await this.run(
+      this
+        .sql`UPDATE live_tabs SET last_visible_at = max(last_visible_at, ${now}) WHERE ${this.sql.in("id", ids)} AND trashed_at IS NULL`,
+    );
+  }
+
+  async setTabPermanent(id: string, permanent: boolean, now = Date.now()): Promise<void> {
+    const rows = await this.run(
+      this
+        .sql`UPDATE live_tabs SET permanent = ${Number(permanent)}, last_visible_at = ${now} WHERE id = ${id} AND trashed_at IS NULL RETURNING id`,
+    );
+    if (!rows.length) throw new Error("This tab is no longer active.");
+  }
+
+  async trashTab(id: string, now = Date.now()): Promise<string[]> {
+    const rows = await this.run(
+      this.sql<{
+        id: string;
+      }>`UPDATE live_tabs SET trashed_at = ${now} WHERE id = ${id} AND opened = 1 AND trashed_at IS NULL RETURNING id`,
+    );
+    return rows.map((row) => row.id);
+  }
+
+  async restoreTab(id: string, now = Date.now()): Promise<Tab> {
+    const rows = await this.run(
+      this.sql<{
+        document: string;
+      }>`UPDATE live_tabs SET trashed_at = NULL, last_visible_at = ${now}, position = (SELECT coalesce(max(position), -1) + 1 FROM live_tabs) WHERE id = ${id} AND trashed_at IS NOT NULL AND document IS NOT NULL RETURNING document`,
+    );
+    if (!rows.length) throw new Error("This tab is no longer in Trashcan.");
+    return decode(Tab, JSON.parse(rows[0].document));
+  }
+
+  async expireTemporaryTabs(now = Date.now()): Promise<string[]> {
+    const rows = await this.run(
+      this.sql<{
+        id: string;
+      }>`UPDATE live_tabs SET trashed_at = ${now} WHERE opened = 1 AND permanent = 0 AND trashed_at IS NULL AND last_visible_at <= ${now - TEMPORARY_RETENTION_MS} RETURNING id`,
+    );
+    return rows.map((row) => row.id);
+  }
+
+  async expiredTrash(now = Date.now()): Promise<readonly TrashEntry[]> {
     return this.run(
       this
-        .sql<LiveTab>`SELECT id, artifact_id, opened, document, position FROM live_tabs ORDER BY position, rowid`,
+        .sql<TrashEntry>`SELECT id, trashed_at AS trashedAt FROM live_tabs WHERE trashed_at <= ${now - TRASH_RETENTION_MS}`,
     );
+  }
+
+  async emptyTrash(entries: readonly TrashEntry[]): Promise<string[]> {
+    const sql = this.sql;
+    const removed = await this.mutate(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const removed: { id: string; artifact_id: string | null }[] = [];
+          for (const entry of entries) {
+            const rows = yield* sql<{
+              id: string;
+              artifact_id: string | null;
+            }>`DELETE FROM live_tabs WHERE id = ${entry.id} AND trashed_at = ${entry.trashedAt} RETURNING id, artifact_id`;
+            removed.push(...rows);
+          }
+          if (removed.length)
+            yield* sql`UPDATE lifecycle SET value = (SELECT value + 1 FROM lifecycle WHERE name = 'max_revision') WHERE name = 'revision_floor'`;
+          return removed;
+        }),
+      ),
+      (rows) =>
+        rows.flatMap((row): LiveEvent[] =>
+          row.artifact_id ? [{ type: "deleted", id: row.artifact_id }] : [],
+        ),
+    );
+    return removed.map((row) => row.id);
+  }
+
+  async tabs(): Promise<readonly LiveTab[]> {
+    return this.run(this.sql<LiveTab>`SELECT * FROM live_tabs ORDER BY position, rowid`);
   }
 
   async importTabs(
@@ -260,8 +382,8 @@ export class ArtifactStore {
                 }>`SELECT tab_id FROM artifacts WHERE id = ${artifactId}`
               : [];
             if (artifactId && !artifact) continue;
-            yield* sql`INSERT INTO live_tabs(id, artifact_id, opened, document, position, created_at)
-          VALUES (${tab.id}, ${artifactId ?? null}, 1, ${JSON.stringify(tab)}, ${position}, ${Date.now()}) ON CONFLICT(id) DO NOTHING`;
+            yield* sql`INSERT INTO live_tabs(id, artifact_id, opened, document, position, created_at, last_visible_at)
+          VALUES (${tab.id}, ${artifactId ?? null}, 1, ${JSON.stringify(tab)}, ${position}, ${Date.now()}, ${Date.now()}) ON CONFLICT(id) DO NOTHING`;
             if (artifact && artifact.tab_id !== tab.id) {
               yield* sql`INSERT INTO tab_blobs SELECT ${tab.id}, blob_id, staged_until FROM tab_blobs WHERE tab_id = ${artifact.tab_id}`;
               yield* sql`UPDATE artifacts SET tab_id = ${tab.id} WHERE id = ${artifactId!}`;
@@ -301,8 +423,16 @@ export class ArtifactStore {
             );
           const [existing] = yield* sql<{
             id: string;
-          }>`SELECT id FROM live_tabs WHERE artifact_id = ${id} LIMIT 1`;
+            trashed_at: number | null;
+          }>`SELECT id, trashed_at FROM live_tabs WHERE artifact_id = ${id} LIMIT 1`;
           if (existing) {
+            if (existing.trashed_at !== null)
+              return yield* Effect.fail(
+                new ScopeError(
+                  409,
+                  "This tab is in Trashcan. Restore it in Scope before updating.",
+                ),
+              );
             yield* sql`UPDATE live_tabs SET created_at = ${Date.now()} WHERE id = ${existing.id}`;
             return artifact?.tab_id ?? existing.id;
           }
@@ -343,8 +473,9 @@ export class ArtifactStore {
           const opened = { ...tab, id };
           const rows =
             yield* sql`UPDATE live_tabs SET opened = 1, document = ${JSON.stringify(opened)},
+          last_visible_at = CASE WHEN opened = 0 THEN ${Date.now()} ELSE last_visible_at END,
           position = CASE WHEN opened = 0 THEN (SELECT coalesce(max(position), -1) + 1 FROM live_tabs WHERE opened = 1) ELSE position END
-          WHERE id = ${id} AND artifact_id IS ${artifactId ?? null} RETURNING id`;
+          WHERE id = ${id} AND trashed_at IS NULL AND artifact_id IS ${artifactId ?? null} RETURNING id`;
           return rows.length ? opened : null;
         }),
       ),
@@ -357,7 +488,7 @@ export class ArtifactStore {
       sql.withTransaction(
         Effect.gen(function* () {
           for (const [position, tab] of tabs.entries()) {
-            yield* sql`UPDATE live_tabs SET document = ${JSON.stringify(tab)}, position = ${position} WHERE id = ${tab.id} AND opened = 1 AND artifact_id IS ${tabArtifactId(tab) ?? null}`;
+            yield* sql`UPDATE live_tabs SET document = ${JSON.stringify(tab)}, position = ${position} WHERE id = ${tab.id} AND opened = 1 AND trashed_at IS NULL AND artifact_id IS ${tabArtifactId(tab) ?? null}`;
           }
         }),
       ),
@@ -380,16 +511,6 @@ export class ArtifactStore {
       ),
       () => ({ type: "deleted", id }),
     );
-  }
-
-  async removeTab(id: string): Promise<string | null> {
-    const [tab] = await this.run(this.sql<LiveTab>`SELECT * FROM live_tabs WHERE id = ${id}`);
-    if (tab?.artifact_id) {
-      await this.removeArtifact(tab.artifact_id);
-      return tab.artifact_id;
-    }
-    await this.run(this.sql`DELETE FROM live_tabs WHERE id = ${id}`);
-    return null;
   }
 
   async diagramDraft(id: string): Promise<DiagramDraft | null> {
@@ -427,7 +548,8 @@ export class ArtifactStore {
   async upload(tabId: string, chunks: AsyncIterable<Uint8Array>): Promise<string> {
     decode(Uuid, tabId);
     const rows = await this.run(
-      this.sql`UPDATE live_tabs SET created_at = ${Date.now()} WHERE id = ${tabId} RETURNING id`,
+      this
+        .sql`UPDATE live_tabs SET created_at = ${Date.now()} WHERE id = ${tabId} AND trashed_at IS NULL RETURNING id`,
     );
     if (!rows.length) throw new ScopeError(404, "Create the tab before uploading content.");
     const parts: Buffer[] = [];
@@ -445,7 +567,8 @@ export class ArtifactStore {
     await this.run(
       sql.withTransaction(
         Effect.gen(function* () {
-          const alive = yield* sql`SELECT id FROM live_tabs WHERE id = ${tabId}`;
+          const alive =
+            yield* sql`SELECT id FROM live_tabs WHERE id = ${tabId} AND trashed_at IS NULL`;
           if (!alive.length) return yield* Effect.fail(new ScopeError(404, "This tab is closed."));
           yield* sql`INSERT INTO blobs(id, content) VALUES (${id}, ${bytes}) ON CONFLICT(id) DO NOTHING`;
           yield* sql`INSERT INTO tab_blobs VALUES (${tabId}, ${id}, ${Date.now() + UPLOAD_GRACE_MS}) ON CONFLICT(tab_id, blob_id) DO UPDATE SET staged_until = excluded.staged_until`;
@@ -499,7 +622,7 @@ export class ArtifactStore {
       sql.withTransaction(
         Effect.gen(function* () {
           const [tab] =
-            yield* sql`SELECT id FROM live_tabs WHERE id = ${input.tabId} AND artifact_id = ${id}`;
+            yield* sql`SELECT id FROM live_tabs WHERE id = ${input.tabId} AND artifact_id = ${id} AND trashed_at IS NULL`;
           if (!tab)
             return yield* Effect.fail(
               new ScopeError(409, "This tab was closed. Create a new publication explicitly."),
@@ -567,7 +690,7 @@ export class ArtifactStore {
           const [row] = yield* sql<{
             document: string;
             tab_id: string;
-          }>`SELECT document, tab_id FROM artifacts WHERE id = ${id}`;
+          }>`SELECT artifacts.document, tab_id FROM artifacts JOIN live_tabs ON live_tabs.id = artifacts.tab_id WHERE artifacts.id = ${id} AND live_tabs.trashed_at IS NULL`;
           if (!row) return yield* Effect.fail(new ScopeError(404, "This tab is closed."));
           const previous = decode(Artifact, JSON.parse(row.document));
           if (previous.revision !== expectedRevision)

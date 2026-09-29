@@ -9,6 +9,7 @@ import type { ArtifactLibrary } from "./library/library.ts";
 import { decodeSettingsUpdate } from "./settings.ts";
 import { registerMainPlugins } from "./plugins/registry.main.ts";
 import type { DesktopLifecycle } from "./lifecycle.ts";
+import { TrashEntry } from "./workspace/retention.ts";
 import { Tab, Uuid } from "./workspace/contract.ts";
 import { TabEventEnvelope } from "./plugins/events.ts";
 import type { AgentTools } from "./agent-tools.ts";
@@ -154,6 +155,21 @@ export function registerDesktopIpc({
     );
     return lifecycle.openTab(tab, artifactRevision);
   });
+  handle("scope:retained-tabs", () => lifecycle.artifacts.retainedTabs());
+  handle("scope:set-tab-permanent", (input) => {
+    const { id, permanent } = decode(Schema.Struct({ id: Uuid, permanent: Schema.Boolean }), input);
+    return lifecycle.setTabPermanent(id, permanent);
+  });
+  handle("scope:restore-tab", (input) => lifecycle.restoreTab(decode(Uuid, input)));
+  handle("scope:empty-trash", (input) =>
+    lifecycle.emptyTrash(decode(Schema.Array(TrashEntry), input)),
+  );
+  const visibleTabs = (input: unknown) => {
+    const ids = decode(Schema.Array(Uuid), input);
+    return window.isVisible() && !window.isMinimized() ? ids : [];
+  };
+  handle("scope:visible-tabs", (input) => lifecycle.reportVisibleTabs(visibleTabs(input)));
+  handle("scope:check-tab-retention", (input) => lifecycle.checkRetention(visibleTabs(input)));
   handle("scope:close-tab", async (input) => {
     await lifecycle.closeTab(decode(Uuid, input));
   });
