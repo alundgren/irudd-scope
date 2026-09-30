@@ -154,7 +154,10 @@ beside a fixed setting name, with adjacent On or Off text showing the current
 state. Thumb position and color also distinguish the states. Each switch saves immediately
 and turning either off retains the shared key and leaves the other feature's
 switch unchanged. Voice generation shows the fixed Gemini 3.8 Flash TTS model
-and Kore voice and explains that submitted requests may still incur a charge.
+and the default Aoede voice and explains that submitted requests may still incur
+a charge. New requests use restrained conversational solo delivery. The agent
+guide also provides a two-speaker conversation with Aoede leading and Leda
+replying; agents choose each turn's voice and instructions and join the exports.
 Create diagram offers a link to its Settings section while it is off.
 Ask agent and the embedded conversation are hidden until diagram generation is
 enabled, except that named diagrams always offer their external coding-agent

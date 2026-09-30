@@ -1,7 +1,14 @@
 import { Schema } from "effect";
 
 export const VOICE_MODEL = "google/gemini-3.8-flash-tts";
-export const VOICE = "Kore";
+export const VOICE = "Aoede";
+export const VoiceName = Schema.Literals(["Aoede", "Leda", "Kore"]);
+export const VOICE_SOLO_INSTRUCTIONS =
+  "An experienced developer talking through a first impression with a familiar colleague. Dry, low-key delivery. Let easy phrases run together, briefly hesitate at a question, and emphasize only the point being worked out. Incidental asides. Keep the performance restrained. Let the mood follow the content.";
+export const VOICE_CONVERSATION_PRIMARY_INSTRUCTIONS =
+  "Thinking aloud to a colleague. Dry, low-key delivery. Ordinary conversational volume, uneven pacing, restrained emphasis. Let the mood follow the content.";
+export const VOICE_CONVERSATION_SECONDARY_INSTRUCTIONS =
+  "Curious and matter-of-fact, replying to a colleague. Casual conversational volume, light questioning inflection, understated delivery. Let the mood follow the content.";
 export const MAX_VOICE_TEXT_BYTES = 16 * 1024;
 export const MAX_VOICE_REQUEST_BYTES = 128 * 1024;
 export const MAX_VOICE_AUDIO_BYTES = 16 * 1024 * 1024;
@@ -17,7 +24,7 @@ export const VoiceRequest = Schema.Struct({
   requestId: VoiceRequestId,
   text: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(MAX_VOICE_TEXT_BYTES)),
   instructions: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(2048))),
-  voice: Schema.optionalKey(Schema.Literal(VOICE)),
+  voice: Schema.optionalKey(VoiceName),
 });
 export type VoiceRequest = typeof VoiceRequest.Type;
 
@@ -32,7 +39,7 @@ export const VoiceReceipt = Schema.Struct({
   generationId: Schema.NullOr(identifier),
   model: Schema.NullOr(identifier),
   provider: Schema.NullOr(identifier),
-  voice: Schema.Literal(VOICE),
+  voice: VoiceName,
   audioFormat: Schema.NullOr(Schema.Literal("wav")),
   mediaType: Schema.NullOr(Schema.Literal("audio/wav")),
   sampleRate: Schema.NullOr(Schema.Literal(24000)),
@@ -48,7 +55,17 @@ export type VoiceReceipt = typeof VoiceReceipt.Type;
 
 export const VoiceGuide = {
   generate:
-    "voice generate TEXT.txt --request-id ID --output AUDIO.wav --receipt RECEIPT.json [--instructions TEXT]. Uses Gemini 3.8 Flash TTS and Kore. Only supplied narration and speech settings go to OpenRouter. Enable Voice generation and save the shared OpenRouter key in desktop Settings first.",
+    "voice generate TEXT.txt --request-id ID --output AUDIO.wav --receipt RECEIPT.json [--voice Aoede|Leda|Kore] [--instructions TEXT]. Uses Gemini 3.8 Flash TTS. New requests default to Aoede with restrained conversational delivery; omitted or blank instructions use the solo style. Only supplied narration and speech settings go to OpenRouter. Enable Voice generation and save the shared OpenRouter key in desktop Settings first.",
+  styles: {
+    solo: { voice: VOICE, instructions: VOICE_SOLO_INSTRUCTIONS },
+    conversation: {
+      primary: { voice: VOICE, instructions: VOICE_CONVERSATION_PRIMARY_INSTRUCTIONS },
+      secondary: { voice: "Leda", instructions: VOICE_CONVERSATION_SECONDARY_INSTRUCTIONS },
+      gapMs: 180,
+      workflow:
+        "Generate each speaker turn separately with its role's voice and instructions and a recorded unique request ID. Join exported WAVs in script order with 180 ms silence between turns. This is assembled dialogue, without native overlap. Write responses that answer or question the preceding point, not alternating monologues. See the Scope skill's podcast reference and join-wav.py helper.",
+    },
+  },
   recovery:
     "Choose and record a unique request ID before submission. generate prints the ID to stderr before contacting Scope. After a lost response or timeout, use voice status ID, then voice result ID --output AUDIO.wav --receipt RECEIPT.json. Repeating generate with the same ID and identical payload returns the existing request for 24 hours. Conflicting reuse is rejected. Never choose a new ID automatically after an uncertain outcome. After expiry, even an old ID can cause a new paid call.",
   billing:

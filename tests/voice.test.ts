@@ -5,9 +5,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createHash } from "node:crypto";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { decodeLocalConnection } from "@irudd-scope/protocol";
-import { VOICE_LIFETIME_MS, MAX_VOICE_AUDIO_BYTES } from "@irudd-scope/protocol/voice";
+import { VOICE_LIFETIME_MS, MAX_VOICE_AUDIO_BYTES, VoiceGuide } from "@irudd-scope/protocol/voice";
 import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
 import { memoryCredentials } from "../apps/desktop/src/credentials.ts";
 import { VoiceService } from "../apps/desktop/src/voice/service.ts";
@@ -186,6 +187,163 @@ async function finished(client: ScopeClient, id: string) {
   return client.voiceStatus(id);
 }
 
+test("default and blank styles send Aoede/C, with conflicting voice reuse rejected", async () => {
+  const f = await fixture();
+  for (const [requestId, instructions] of [
+    ["default", undefined],
+    ["blank", "  "],
+  ] as const) {
+    await f.client.submitVoice({
+      requestId,
+      text: "Thinking this through.",
+      ...(instructions === undefined ? {} : { instructions }),
+    });
+    expect(await finished(f.client, requestId)).toMatchObject({
+      voice: "Aoede",
+      state: "succeeded",
+    });
+    expect(f.requests.at(-1)).toMatchObject({
+      voice: "Aoede",
+      provider: {
+        options: {
+          "google-ai-studio": { speech_metadata: { style: VoiceGuide.styles.solo.instructions } },
+        },
+      },
+    });
+  }
+  await expect(
+    f.client.submitVoice({ requestId: "default", text: "Thinking this through.", voice: "Kore" }),
+  ).rejects.toMatchObject({ status: 409 });
+  await f.client.submitVoice({
+    requestId: "explicit-kore",
+    text: "An explicit choice.",
+    voice: "Kore",
+    instructions: "Quiet",
+  });
+  await finished(f.client, "explicit-kore");
+  await expect(
+    f.client.submitVoice({
+      requestId: "explicit-kore",
+      text: "An explicit choice.",
+      instructions: "Quiet",
+    }),
+  ).rejects.toMatchObject({ status: 409 });
+  await f.restart();
+  expect(
+    (await f.client.submitVoice({ requestId: "default", text: "Thinking this through." })).voice,
+  ).toBe("Aoede");
+  expect(f.calls).toBe(3);
+});
+
+for (const state of ["succeeded", "generating"] as const) {
+  test(`old Kore ${state} records recover omitted settings after restart without another call`, async () => {
+    const f = await fixture();
+    await f.client.submitVoice({ requestId: "seed", text: "Original narration.", voice: "Kore" });
+    const seed = await finished(f.client, "seed");
+    const receipt = { ...seed, requestId: "legacy", state };
+    const hash = createHash("sha256")
+      .update(
+        JSON.stringify({
+          text: "Original narration.",
+          instructions: "",
+          voice: "Kore",
+          model: seed.requestedModel,
+        }),
+      )
+      .digest("hex");
+    const audio =
+      state === "succeeded" ? Buffer.from(await f.client.voiceResult("seed")) : undefined;
+    await f.store.saveVoice(
+      "legacy",
+      hash,
+      Date.parse(receipt.expiresAt),
+      JSON.stringify(receipt),
+      audio,
+    );
+    await f.restart();
+    for (const voice of [undefined, "Kore"] as const) {
+      expect(
+        await f.client.submitVoice({
+          requestId: "legacy",
+          text: "Original narration.",
+          ...(voice ? { voice } : {}),
+        }),
+      ).toMatchObject({
+        voice: "Kore",
+        state: state === "generating" ? "interrupted" : "succeeded",
+      });
+    }
+    if (audio) expect(await f.client.voiceResult("legacy")).toEqual(new Uint8Array(audio));
+    await expect(
+      f.client.submitVoice({ requestId: "legacy", text: "Original narration.", voice: "Aoede" }),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      f.client.submitVoice({ requestId: "legacy", text: "Changed narration." }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(f.calls).toBe(1);
+  });
+}
+
+test("built CLI generates E roles and the skill helper preserves PCM with a 180 ms turn gap", async () => {
+  const f = await fixture();
+  const guide = JSON.parse((await f.cli(f.desktop.url, f.token, "guide")).stdout);
+  const paths: string[] = [];
+  for (const [index, role] of [
+    guide.styles.conversation.primary,
+    guide.styles.conversation.secondary,
+  ].entries()) {
+    const text = join(f.directory, `turn-${index}.txt`);
+    const audio = join(f.directory, `turn-${index}.wav`);
+    await writeFile(text, index ? "What changes for us?" : "This could be useful.");
+    await f.cli(
+      f.desktop.url,
+      f.token,
+      "generate",
+      text,
+      "--request-id",
+      `turn-${index}`,
+      "--voice",
+      role.voice,
+      "--instructions",
+      role.instructions,
+      "--output",
+      audio,
+    );
+    expect(f.requests.at(-1)).toMatchObject({
+      voice: role.voice,
+      provider: {
+        options: { "google-ai-studio": { speech_metadata: { style: role.instructions } } },
+      },
+    });
+    paths.push(audio);
+  }
+  expect(guide.styles.conversation.primary.voice).toBe("Aoede");
+  expect(guide.styles.conversation.secondary.voice).toBe("Leda");
+  const output = join(f.directory, "conversation.wav");
+  const helper = resolve(".agents/skills/irudd-scope/scripts/join-wav.py");
+  await exec("python3", [helper, output, ...paths]);
+  const [joined, first, second] = await Promise.all(
+    [output, ...paths].map((path) => readFile(path)),
+  );
+  expect(joined.subarray(44)).toEqual(
+    Buffer.concat([first.subarray(44), Buffer.alloc(8640), second.subarray(44)]),
+  );
+  expect(joined.readUInt32LE(40)).toBe(joined.length - 44);
+  await expect(exec("python3", [helper, output, ...paths])).rejects.toMatchObject({ code: 1 });
+  expect(await readFile(output)).toEqual(joined);
+  const truncated = join(f.directory, "truncated.wav");
+  await writeFile(truncated, first.subarray(0, first.length - 2));
+  const badOutput = join(f.directory, "bad.wav");
+  await expect(exec("python3", [helper, badOutput, truncated])).rejects.toMatchObject({ code: 2 });
+  await expect(readFile(badOutput)).rejects.toMatchObject({ code: "ENOENT" });
+  const text = join(f.directory, "invalid.txt");
+  await writeFile(text, "No provider call.");
+  await expect(
+    f.cli(f.desktop.url, f.token, "generate", text, "--voice", "Unknown", "--output", badOutput),
+  ).rejects.toMatchObject({ code: 1 });
+  expect(f.calls).toBe(2);
+});
+
 test("built CLI exports playable WAV and a receipt, then refreshes delayed actual billing without speech", async () => {
   const f = await fixture();
   const text = join(f.directory, "narration.txt");
@@ -231,7 +389,7 @@ test("built CLI exports playable WAV and a receipt, then refreshes delayed actua
     {
       model: "google/gemini-3.8-flash-tts",
       input: "Hello from the agent.",
-      voice: "Kore",
+      voice: "Aoede",
       response_format: "pcm",
       provider: {
         order: ["google-ai-studio"],
@@ -308,7 +466,7 @@ test("lost submission response, duplicate IDs and canceled requests never make a
   await expect.poll(() => f.calls).toBe(1);
   const duplicates = await Promise.all(
     Array.from({ length: 8 }, () =>
-      f.client.submitVoice({ requestId: "lost", text: "hold", voice: "Kore" }),
+      f.client.submitVoice({ requestId: "lost", text: "hold", voice: "Aoede" }),
     ),
   );
   expect(duplicates.every((receipt) => receipt.state === "generating")).toBe(true);

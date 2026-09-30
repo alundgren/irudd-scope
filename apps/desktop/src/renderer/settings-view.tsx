@@ -153,10 +153,14 @@ export function SettingsViewPanel({
               <dd>Gemini 3.8 Flash TTS</dd>
             </div>
             <div>
-              <dt>Voice</dt>
-              <dd>Kore</dd>
+              <dt>Default voice</dt>
+              <dd>Aoede</dd>
             </div>
           </dl>
+          <p className="secondary">
+            Restrained conversational delivery by default. For two speakers, agents use Aoede to
+            lead and Leda to reply.
+          </p>
         </SettingsSection>
         <SettingsSection id="credentials" query={query}>
           {(active) => (

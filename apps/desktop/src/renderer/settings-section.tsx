@@ -19,7 +19,7 @@ const settingsSections = [
     id: "voice",
     title: "Voice generation",
     description: "Let coding agents generate narration audio",
-    terms: "speech tts text audio gemini kore openrouter",
+    terms: "speech tts text audio gemini aoede leda kore conversational podcast openrouter",
   },
   {
     id: "credentials",

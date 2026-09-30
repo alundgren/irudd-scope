@@ -4,6 +4,7 @@ import {
   VoiceRequest,
   VoiceReceipt,
   VOICE,
+  VOICE_SOLO_INSTRUCTIONS,
   VOICE_MODEL,
   VOICE_LIFETIME_MS,
   VOICE_GENERATION_TIMEOUT_MS,
@@ -114,21 +115,25 @@ export class VoiceService {
     if (!input.text.trim()) throw new ScopeError(400, "Narration must contain text.");
     if (Buffer.byteLength(input.text, "utf8") > MAX_VOICE_TEXT_BYTES)
       throw new ScopeError(413, "Narration exceeds 16 KiB UTF-8.");
-    const hash = createHash("sha256")
-      .update(
-        JSON.stringify({
-          text: input.text,
-          instructions: input.instructions ?? "",
-          voice: input.voice ?? VOICE,
-          model: VOICE_MODEL,
-        }),
-      )
-      .digest("hex");
+    const settings = {
+      instructions: input.instructions?.trim() ? input.instructions : VOICE_SOLO_INSTRUCTIONS,
+      voice: input.voice ?? VOICE,
+    };
+    const payloadHash = (instructions: string, voice: string) =>
+      createHash("sha256")
+        .update(JSON.stringify({ text: input.text, instructions, voice, model: VOICE_MODEL }))
+        .digest("hex");
+    const hash = `v2:${payloadHash(settings.instructions, settings.voice)}`;
+    // Old omitted settings meant Kore and empty style. Recover those IDs without a paid call.
+    const legacyHash = payloadHash(input.instructions ?? "", input.voice ?? "Kore");
     return this.exclusive(async () => {
       await this.expire();
       const existing = this.entries.get(input.requestId);
       if (existing) {
-        if (existing.hash !== hash)
+        if (
+          existing.hash !== hash &&
+          !(existing.receipt.voice === "Kore" && existing.hash === legacyHash)
+        )
           throw new ScopeError(
             409,
             "Request ID already has different narration or speech settings.",
@@ -165,7 +170,7 @@ export class VoiceService {
           generationId: null,
           model: null,
           provider: null,
-          voice: VOICE,
+          voice: settings.voice,
           audioFormat: null,
           mediaType: null,
           sampleRate: null,
@@ -185,7 +190,7 @@ export class VoiceService {
         this.entries.delete(input.requestId);
         throw error;
       }
-      this.track(this.generate(entry, input));
+      this.track(this.generate(entry, { ...input, ...settings }));
       return structuredClone(entry.receipt);
     });
   }

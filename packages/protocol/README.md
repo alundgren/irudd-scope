@@ -222,13 +222,25 @@ check the version and rebase. There is no exclusive agent lease or model polling
 publishing bearer token and reject browser origins. Local access and paired hubs
 use the same API. Scope must run on an awake Mac. The hub only forwards requests.
 
-| Method and path                     | Action                                                                                  |
-| ----------------------------------- | --------------------------------------------------------------------------------------- |
-| `POST /v1/voice`                    | Submit `{ requestId, text, instructions?, voice?: "Kore" }`; returns 202 and a receipt. |
-| `GET /v1/voice/:requestId`          | Read the existing receipt.                                                              |
-| `GET /v1/voice/:requestId/result`   | Download completed WAV with `audio/wav`; otherwise 409.                                 |
-| `DELETE /v1/voice/:requestId`       | Cancel active local generation and return its receipt.                                  |
-| `POST /v1/voice/:requestId/billing` | Start a generation lookup and return 202 immediately; read status later.                |
+| Method and path                     | Action                                                                                                      |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `POST /v1/voice`                    | Submit `{ requestId, text, instructions?, voice?: "Aoede", "Leda", or "Kore" }`; returns 202 and a receipt. |
+| `GET /v1/voice/:requestId`          | Read the existing receipt.                                                                                  |
+| `GET /v1/voice/:requestId/result`   | Download completed WAV with `audio/wav`; otherwise 409.                                                     |
+| `DELETE /v1/voice/:requestId`       | Cancel active local generation and return its receipt.                                                      |
+| `POST /v1/voice/:requestId/billing` | Start a generation lookup and return 202 immediately; read status later.                                    |
+
+New requests default to Aoede and the restrained conversational solo instructions
+in `VoiceGuide.styles.solo`. Omitted or blank instructions use that style.
+Explicit `instructions` replace it. `VoiceGuide.styles.conversation` provides
+Aoede's lead instructions, Leda's reply instructions, and a 180 ms joining gap.
+Each turn is a separate request; the agent joins exported WAVs. There is no
+native multi-speaker generation or overlap. Mood follows the script's evidence.
+
+Existing Kore receipts remain readable. During their lifetime, matching old
+requests still recover their original results, including omitted settings;
+they never regenerate under the new defaults. New requests use the new defaults.
+Desktop, CLI, and hub must be updated together to accept the added voices.
 
 `ScopeClient` exposes `submitVoice`, `voiceStatus`, `voiceResult`, `cancelVoice`,
 and `refreshVoiceBilling`. Billing refresh performs no speech submission. It is

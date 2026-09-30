@@ -210,10 +210,17 @@ the upgraded schema.
 ## Speech requests
 
 The desktop-main `voice/` module owns `voice_requests` in `desktop.db`. Each row
-contains a caller request ID, SHA-256 of normalized narration and speech settings,
+contains a caller request ID, a versioned SHA-256 of normalized narration and speech settings,
 expiration time, validated JSON receipt, and optional WAV bytes. Narration itself
 is not retained. The receipt retains OpenRouter's generation ID when returned.
 Credentials remain in Keychain on macOS and process memory on Linux.
+
+New payload hashes have a `v2:` prefix and include the effective Aoede voice
+and conversational instructions when callers omit settings. Existing unprefixed
+Kore hashes still match their original requests for recovery without generation.
+No table migration is required. Receipts now accept Aoede and Leda as well as
+Kore; a desktop that only accepts Kore cannot open those new receipts. Restore
+a backup from before generating with the added voices when downgrading to it.
 
 Requests, receipts, and audio expire 24 hours after submission. Scope retains at
 most 16 unexpired requests and rejects new submissions when full. There is no

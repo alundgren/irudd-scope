@@ -5,6 +5,7 @@ import {
   MAX_VOICE_AUDIO_BYTES,
   VOICE_MODEL,
   VOICE,
+  VOICE_SOLO_INSTRUCTIONS,
   type VoiceRequest,
 } from "@irudd-scope/protocol/voice";
 import { speechWav } from "./audio.ts";
@@ -37,13 +38,19 @@ export function voiceProvider(fetcher: typeof fetch = (...args) => fetch(...args
         body: JSON.stringify({
           model: VOICE_MODEL,
           input: request.text,
-          voice: VOICE,
+          voice: request.voice ?? VOICE,
           response_format: "pcm",
           provider: {
             order: ["google-ai-studio"],
             allow_fallbacks: false,
             options: {
-              "google-ai-studio": { speech_metadata: { style: request.instructions ?? "" } },
+              "google-ai-studio": {
+                speech_metadata: {
+                  style: request.instructions?.trim()
+                    ? request.instructions
+                    : VOICE_SOLO_INSTRUCTIONS,
+                },
+              },
             },
           },
         }),

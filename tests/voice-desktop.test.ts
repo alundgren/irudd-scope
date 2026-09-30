@@ -65,6 +65,12 @@ test("shared key and independent switches work in Electron, and Chromium decodes
       );
       await search.fill("voice generation");
       expect(await voice.isVisible()).toBe(true);
+      expect(await page.getByText("Aoede", { exact: true }).isVisible()).toBe(true);
+      expect(
+        await page
+          .getByText("Restrained conversational delivery by default.", { exact: false })
+          .isVisible(),
+      ).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
         false,
       );
