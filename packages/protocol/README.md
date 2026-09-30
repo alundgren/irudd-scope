@@ -292,9 +292,9 @@ or credentials in the request body. Delivery instructions use documented
 
 Narration is limited to 16 KiB UTF-8, delivery instructions to 2048 characters,
 and the complete JSON body to 128 KiB. Two generations may run at once; additional
-requests return 429 without queuing. Scope retains 16 requests for 24 hours from
-submission, including failed and canceled IDs. Audio transfers are limited to
-16 MiB. Capacity rejects new submissions without evicting unexpired IDs.
+requests return 429 without queuing. Scope retains requests for 24 hours from
+submission, including failed and canceled IDs, with no request count limit.
+Audio transfers are limited to 16 MiB.
 
 A request ID is committed in SQLite before a paid call. Repeating the same ID
 and normalized payload returns the existing receipt, including when voice is

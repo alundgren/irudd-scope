@@ -74,11 +74,9 @@ Recover uncertain turns with the same request ID using `voice status` and
 choose new IDs after uncertainty. Save receipts and actual costs per turn;
 unknown cost stays null. Keep scripts and instructions alongside exports.
 
-Scope retains at most 16 requests for 24 hours, including completed requests.
-Do not plan an hour-long show with dozens of turn requests through this API.
-An assistant's daily podcast pipeline can use the same provider settings with
-its own durable request tracking; Scope's normal artifact publication can still
-display the result. Scope narration itself is capped at 16 KiB UTF-8 per request.
+Scope retains requests for 24 hours with no request count limit. Generate at
+most two turns at once and export each result before it expires. Scope narration
+is capped at 16 KiB UTF-8 per request.
 Split scripts at complete thoughts when limits require it; use consistent roles
 and instructions across chunks. Do not squeeze a show into arbitrary short
 turns just to alternate speakers.

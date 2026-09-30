@@ -239,9 +239,8 @@ No table migration is required. Receipts now accept Aoede and Leda as well as
 Kore; a desktop that only accepts Kore cannot open those new receipts. Restore
 a backup from before generating with the added voices when downgrading to it.
 
-Requests, receipts, and audio expire 24 hours after submission. Scope retains at
-most 16 unexpired requests and rejects new submissions when full. There is no
-separate database byte quota. Provider responses and downloads are bounded to
+Requests, receipts, and audio expire 24 hours after submission. Scope has no
+retained request count limit or separate database byte quota. Provider responses and downloads are bounded to
 16 MiB each. Expired rows are deleted on startup, submission, and once a minute
 while running. The normal desktop database maintenance reclaims deleted bytes;
 expiry is logical deletion, not secure erasure. Backups can retain expired data.
