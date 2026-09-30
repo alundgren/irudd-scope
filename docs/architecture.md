@@ -1,8 +1,9 @@
 # Architecture
 
 Scope stores artifacts from coding agents and displays them in a Mac desktop
-workspace. The desktop owns the library. Publishing requires an awake Mac
-running Scope. A failed publication is not queued or replayed.
+workspace. The desktop owns the library. Direct publication requires an awake
+Mac running Scope. Paired hubs temporarily store offline publications and
+deliver them when the Mac reconnects.
 
 ```mermaid
 flowchart LR
@@ -11,7 +12,7 @@ flowchart LR
     Remote -->|loopback HTTP| Hub[apps/hub]
     Desktop -->|opens private HTTPS relay| Hub
     Hub -->|requests on existing relay| Desktop
-    Hub --> HubSettings[hub.db: configuration and credential hashes]
+    Hub --> HubSettings[hub.db: configuration, credential hashes, and buffered publications]
     Desktop --> Artifacts[scope.db: tabs, artifacts, drafts, and bytes]
     Desktop --> Preferences[desktop.db: settings, workspace layout, and speech requests]
     Desktop --> Keychain[macOS Keychain]
@@ -162,10 +163,13 @@ through the protocol client. It does not read transcripts or launch agents.
 
 `apps/hub` authenticates and forwards requests and event streams. `state.ts`
 owns hub configuration, pairing expiry, and credential hashes in `hub.db`.
-`paired-server.ts` retains only bounded active requests in memory. It owns no
-artifacts, retry queue, or provider credentials. A disconnected desktop
-produces a 503 response before headers are sent. A failure during streaming
-closes the response.
+`paired-server.ts` owns live relay transfers and accepts opted-in offline
+publications through the same tab-first protocol. `publication-queue.ts`
+stores their metadata and bytes in `hub.db`, capped at 50 tabs with a fixed
+48-hour expiry. `publication-delivery.ts` delivers complete entries through
+the existing Mac-initiated relay and retains conflicts for inspection.
+The hub has no provider credentials. Other offline requests return 503;
+a failure during a live stream closes the response.
 
 The Mac's `remotes.ts` opens an authenticated HTTPS event connection to each
 enabled hub. When a local CLI request arrives at a hub, the Mac opens the
@@ -188,7 +192,7 @@ builds the requested commit, activates the remote tools together, and checks
 the restarted hub. It restores the previous build after a failed restart.
 Only commits on the fixed repository's `main` history that descend from the
 installed remote commit are eligible. Remote update status is independent of
-artifact forwarding, and failed publications are never replayed.
+artifact forwarding and buffered delivery.
 
 The update endpoint is additive. Older hubs keep forwarding and report a
 missing endpoint, which the Mac explains as requiring a manual installation

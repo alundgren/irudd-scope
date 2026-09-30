@@ -487,7 +487,17 @@ The Mac opens all relay connections through the remote's Tailscale Serve
 endpoint. The hub only binds to loopback. A tailnet rule permitting Mac-to-remote
 HTTPS is sufficient; remote-to-Mac initiation is unnecessary. CLI publication
 uses its private local discovery file without endpoint flags. The hub streams
-active requests and keeps no offline queue. Scope must be open on an awake Mac.
+active requests. While the paired Mac is offline, CLI `add` and `text`
+publications are buffered in hub SQLite, up to 50 tabs for 48 hours from
+reservation. Complete entries arrive automatically when Scope reconnects.
+A queued JSON receipt reports `id`, `queued: true`, and `expiresAt`; it does
+not mean the Mac has received or rendered the artifact. Inspect with
+`irudd-scope hub queue` and cancel with `irudd-scope hub discard ID`.
+Conflicts remain visible in the queue until discarded or expired. `update`
+needs the current desktop revision and requires a live connection.
+Interactive diagram operations, speech generation, and maintenance are
+never buffered. A live request interrupted by disconnection can fail;
+check the artifact and queue before retrying an uncertain publication.
 
 Enabled remotes reconnect automatically while Scope runs. Disconnect remains
 off until Connect is selected. Remove remote revokes the hub credential;

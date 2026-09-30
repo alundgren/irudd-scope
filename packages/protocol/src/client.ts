@@ -28,8 +28,10 @@ import {
   ArtifactWrite,
   BlobReceipt,
   DeleteReceipt,
+  HubQueue,
   PublicationReceipt,
   PublicationRequest,
+  PublicationResult,
   LiveEvent,
   MAX_CONTENT_BYTES,
   ScopeError,
@@ -64,7 +66,7 @@ export class ScopeClient {
     }).catch((error: unknown) => {
       if (this.signal?.aborted || init.signal?.aborted) throw error;
       throw new Error(
-        `Cannot reach Scope at ${this.endpoint}. Open Scope on the Mac and retry. Requests are not queued.`,
+        `Cannot reach Scope at ${this.endpoint}. Start Scope or the paired hub and retry. Check the artifact or hub queue before retrying an uncertain publication.`,
         { cause: error },
       );
     });
@@ -240,6 +242,17 @@ export class ScopeClient {
     return decode(DeleteReceipt, await response.json());
   }
 
+  async hubQueue(): Promise<HubQueue> {
+    return decode(HubQueue, await readRemoteJson(await this.request("/v1/hub/queue"), 128 * 1024));
+  }
+
+  async discardQueuedPublication(id: string): Promise<DeleteReceipt> {
+    const response = await this.request(`/v1/hub/queue/${decode(ArtifactId, id)}`, {
+      method: "DELETE",
+    });
+    return decode(DeleteReceipt, await response.json());
+  }
+
   async shrink(timeoutMs = MAINTENANCE_TIMEOUT_MS): Promise<ShrinkReceipt> {
     const response = await this.request("/v1/maintenance/shrink", {
       method: "POST",
@@ -263,13 +276,35 @@ export class ScopeClient {
     content: Uint8Array,
     signal?: AbortSignal,
   ): Promise<Artifact> {
+    return decode(Artifact, await this.publishContent(id, metadata, content, signal, false));
+  }
+
+  async publishOrQueue(
+    id: string,
+    metadata: Omit<ArtifactWrite, "blob" | "tabId">,
+    content: Uint8Array,
+    signal?: AbortSignal,
+  ): Promise<PublicationResult> {
+    return this.publishContent(id, metadata, content, signal, true);
+  }
+
+  private async publishContent(
+    id: string,
+    metadata: Omit<ArtifactWrite, "blob" | "tabId">,
+    content: Uint8Array,
+    signal: AbortSignal | undefined,
+    buffer: boolean,
+  ): Promise<PublicationResult> {
     decode(ArtifactId, id);
     if (content.byteLength > MAX_CONTENT_BYTES)
       throw new Error("Artifact exceeds the 32 MiB limit.");
     const reservation = await this.request(`/v1/artifacts/${id}/tab`, {
       method: "POST",
       signal,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(buffer ? { "Scope-Buffer-Publication": "1" } : {}),
+      },
       body: JSON.stringify(
         decode(PublicationRequest, { expectedRevision: metadata.expectedRevision }),
       ),
@@ -288,7 +323,7 @@ export class ScopeClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(decode(ArtifactWrite, { ...metadata, blob, tabId })),
     });
-    return decode(Artifact, await response.json());
+    return decode(PublicationResult, await response.json());
   }
 
   async content(id: string, revision?: number, signal?: AbortSignal): Promise<Uint8Array> {

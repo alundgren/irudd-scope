@@ -240,7 +240,7 @@ export const lintExceptions: readonly LintException[] = [
   },
   {
     file: "apps/hub/src/paired-server.ts",
-    at: "function forwardArtifact(request: IncomingMessage, response: ServerResponse, token: string) {",
+    at: "async function forwardArtifact(",
     limits: { complexity: 11 },
     reason:
       "The short admission sequence rejects unauthenticated, invalid, offline, oversized, and excess requests before registering cancellation and timeout handlers. Each branch protects the same forwarded request.",

@@ -7,6 +7,7 @@ import { hostname } from "node:os";
 import { Schema } from "effect";
 import { decode, decodeLocalConnection, validateEndpoint } from "@irudd-scope/protocol";
 import { RemoteId, RemoteName, pairingUrl, HubUpdateStatus } from "@irudd-scope/protocol/remote";
+import { PublicationQueue } from "./publication-queue.ts";
 
 const Configuration = Schema.Struct({
   id: RemoteId,
@@ -20,25 +21,36 @@ const hash = (value: string) => createHash("sha256").update(value).digest("hex")
 const secret = () => randomBytes(32).toString("base64url");
 
 export class HubState {
+  readonly queue: PublicationQueue;
   private constructor(
     private readonly database: DatabaseSync,
     readonly maintenance: DatabaseMaintenance,
-  ) {}
+    now: () => number,
+  ) {
+    this.queue = new PublicationQueue(database, now);
+  }
 
-  static async open(directory: string) {
+  static async open(directory: string, now = Date.now) {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const filename = join(directory, "hub.db");
     const database = new DatabaseSync(filename);
     await chmod(filename, 0o600);
     database.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 50;");
     const version = database.prepare("PRAGMA user_version").get()!.user_version;
-    if (version !== 0 && version !== 1 && version !== 2) {
+    if (version !== 0 && version !== 1 && version !== 2 && version !== 3) {
       database.close();
       throw new Error("The hub database requires a newer Scope version.");
     }
     database.exec(`CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
-      PRAGMA user_version = 2;`);
-    return new HubState(database, new DatabaseMaintenance(filename, "hub.db"));
+      CREATE TABLE IF NOT EXISTS publication_queue (
+        id TEXT PRIMARY KEY, tab_id TEXT NOT NULL UNIQUE, expected_revision INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL, blob TEXT, content BLOB, document TEXT,
+        writing INTEGER NOT NULL DEFAULT 0, error TEXT
+      ) STRICT;
+      PRAGMA user_version = 3;`);
+    const state = new HubState(database, new DatabaseMaintenance(filename, "hub.db"), now);
+    state.queue.expire();
+    return state;
   }
 
   private get(name: string): string | undefined {
@@ -139,6 +151,7 @@ export class HubState {
     return { id, name: hubName, token: credential };
   }
   unpair() {
+    this.queue.clear();
     this.database
       .prepare(
         "DELETE FROM settings WHERE name IN ('desktop', 'desktopName', 'pair', 'pairExpires')",

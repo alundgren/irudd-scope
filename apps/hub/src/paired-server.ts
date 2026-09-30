@@ -4,7 +4,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { randomUUID } from "node:crypto";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { decode, MAX_CONTENT_BYTES, MAX_METADATA_BYTES } from "@irudd-scope/protocol";
+import {
+  decode,
+  MAX_CONTENT_BYTES,
+  MAX_METADATA_BYTES,
+  ScopeError,
+  ArtifactId,
+} from "@irudd-scope/protocol";
 import {
   ShrinkRequest,
   ShrinkReceipt,
@@ -19,10 +25,13 @@ import {
 } from "@irudd-scope/protocol/remote";
 import type { HubState } from "./state.ts";
 import type { HubUpdates } from "./updates.ts";
+import { BufferedPublication, readBody } from "./buffered-publication.ts";
+import { PublicationDelivery, type RelayCall } from "./publication-delivery.ts";
 
 type Pending = {
-  request: IncomingMessage;
-  response: ServerResponse;
+  path: string;
+  request: IncomingMessage | Buffer;
+  response: ServerResponse | ((error: unknown, value?: unknown) => void);
   bodyRead: boolean;
   answered: boolean;
   controller: AbortController;
@@ -96,7 +105,9 @@ export async function startPairedHub(
   function finish(id: string, error?: string) {
     const item = forget(id);
     if (!item) return;
-    if (error) json(item.response, 503, { error });
+    if (typeof item.response === "function")
+      item.response(new ScopeError(503, error ?? "Buffered delivery interrupted."));
+    else if (error) json(item.response, 503, { error });
     item.controller.abort();
     send({ type: "cancel", id });
   }
@@ -107,14 +118,59 @@ export async function startPairedHub(
     for (const id of pending.keys())
       finish(
         id,
-        "Scope on the Mac disconnected. Requests are not queued. Check the artifact before retrying an uncertain write.",
+        "Scope on the Mac disconnected. Check the artifact before retrying an uncertain write.",
       );
   }
+  const relay: RelayCall = (method, path, body, signal) =>
+    new Promise((resolve, reject) => {
+      if (!desktop || pending.size >= 16 || signal.aborted) {
+        reject(new ScopeError(503, "The desktop relay is unavailable or busy."));
+        return;
+      }
+      const id = randomUUID();
+      const abort = () => finish(id);
+      const item: Pending = {
+        path,
+        request: body,
+        response: (error, value) => {
+          signal.removeEventListener("abort", abort);
+          if (error) reject(error);
+          else resolve(value);
+        },
+        bodyRead: false,
+        answered: false,
+        controller: new AbortController(),
+        timer: setTimeout(() => finish(id, "The Mac did not respond in time."), 30_000),
+      };
+      pending.set(id, item);
+      signal.addEventListener("abort", abort, { once: true });
+      send({
+        type: "request",
+        id,
+        method,
+        path,
+        contentType: path.endsWith("/blobs") ? "application/octet-stream" : "application/json",
+      });
+    });
+  const delivery = new PublicationDelivery(state.queue, relay, () => Boolean(desktop));
+  const buffered = new BufferedPublication(state.queue, json);
+  const queueTimer = setInterval(() => {
+    try {
+      state.queue.expire();
+      delivery.start();
+    } catch {
+      /* A busy database is retried on the next check. */
+    }
+  }, 3000);
+  queueTimer.unref();
   const server = createServer(
     { requestTimeout: 0, headersTimeout: 10_000, maxHeaderSize: 16 * 1024 },
     (request, response) => {
-      void handle(request, response).catch(() => {
-        json(response, 400, { error: "The hub could not complete the request." });
+      void handle(request, response).catch((error: unknown) => {
+        json(response, error instanceof ScopeError ? error.status : 400, {
+          error:
+            error instanceof ScopeError ? error.message : "The hub could not complete the request.",
+        });
       });
     },
   );
@@ -131,7 +187,7 @@ export async function startPairedHub(
       return handlePair(request, response, token);
     if (url.pathname.startsWith("/v1/hub/")) return handleHub(request, response, url, token);
     if (url.pathname.startsWith("/v1/relay/")) return handleRelay(request, response, url, token);
-    forwardArtifact(request, response, token);
+    await forwardArtifact(request, response, token);
   }
 
   async function handlePair(request: IncomingMessage, response: ServerResponse, token: string) {
@@ -204,6 +260,17 @@ export async function startPairedHub(
       });
       return;
     }
+    if (url.pathname === "/v1/hub/queue" && request.method === "GET" && !url.search) {
+      json(response, 200, state.queue.snapshot());
+      return;
+    }
+    const queued = /^\/v1\/hub\/queue\/([^/]+)$/.exec(url.pathname);
+    if (queued && request.method === "DELETE" && !url.search) {
+      const id = decode(ArtifactId, queued[1]);
+      delivery.cancel(id);
+      json(response, 200, { id, deleted: state.queue.remove(id) });
+      return;
+    }
     if (url.pathname === "/v1/hub/pair" && request.method === "POST") {
       try {
         json(response, 200, { url: state.pairUrl(), expiresInMinutes: 10 });
@@ -213,6 +280,7 @@ export async function startPairedHub(
       return;
     }
     if (url.pathname === "/v1/hub/unpair" && request.method === "POST") {
+      delivery.cancel();
       state.unpair();
       disconnect();
       json(response, 200, { unpaired: true });
@@ -239,6 +307,7 @@ export async function startPairedHub(
     )
       return handleUpdate(request, response, updates);
     if (url.pathname === "/v1/relay/disconnect" && request.method === "DELETE") {
+      delivery.cancel();
       state.unpair();
       disconnect();
       json(response, 200, { unpaired: true });
@@ -255,6 +324,7 @@ export async function startPairedHub(
         "Cache-Control": "no-store",
       });
       send({ type: "ready" });
+      delivery.start();
       const timer = setInterval(() => send({ type: "ready" }), 10_000);
       response.on("close", () => {
         clearInterval(timer);
@@ -275,14 +345,18 @@ export async function startPairedHub(
         "Cache-Control": "no-store",
       });
       response.flushHeaders();
+      if (Buffer.isBuffer(item.request)) {
+        response.end(item.request);
+        return;
+      }
       await pipeline(
         item.request,
         bounded(
-          item.request.url === "/v1/voice"
+          item.path === "/v1/voice"
             ? MAX_VOICE_REQUEST_BYTES
-            : ["/v1/diagrams", "/v1/diagram-agents"].includes(item.request.url ?? "")
+            : ["/v1/diagrams", "/v1/diagram-agents"].includes(item.path)
               ? MAX_DIAGRAM_REQUEST_BYTES
-              : item.request.url?.endsWith("/blobs") || item.request.url === "/v1/diagrams/sync"
+              : item.path.endsWith("/blobs") || item.path === "/v1/diagrams/sync"
                 ? MAX_CONTENT_BYTES
                 : MAX_METADATA_BYTES,
         ),
@@ -298,6 +372,29 @@ export async function startPairedHub(
       if (!Number.isInteger(status) || status < 200 || status > 599)
         throw new Error("Invalid response status.");
       item.answered = true;
+      if (typeof item.response === "function") {
+        try {
+          const body = JSON.parse((await readBody(request, MAX_METADATA_BYTES)).toString());
+          if (!pending.has(match[1])) {
+            json(response, 404, { error: "The buffered delivery was canceled." });
+            return;
+          }
+          forget(match[1]);
+          if (status >= 400)
+            item.response(
+              new ScopeError(
+                status,
+                typeof body.error === "string" ? body.error : `Scope returned ${status}.`,
+              ),
+            );
+          else item.response(null, body);
+          json(response, 200, { delivered: true });
+        } catch {
+          finish(match[1], "The desktop returned an invalid buffered delivery response.");
+          json(response, 502, { error: "Invalid desktop response." });
+        }
+        return;
+      }
       clearTimeout(item.timer);
       const headers: Record<string, string> = {
         "Cache-Control": "no-store",
@@ -324,7 +421,11 @@ export async function startPairedHub(
     return;
   }
 
-  function forwardArtifact(request: IncomingMessage, response: ServerResponse, token: string) {
+  async function forwardArtifact(
+    request: IncomingMessage,
+    response: ServerResponse,
+    token: string,
+  ) {
     if (!state.authenticate(token, "local")) {
       json(response, 401, { error: "A valid publishing token is required." });
       return;
@@ -333,10 +434,14 @@ export async function startPairedHub(
       json(response, 404, { error: "Artifact endpoint not found." });
       return;
     }
+    if (await buffered.handle(request, response, !desktop, Boolean(state.status().pairedMac))) {
+      delivery.start();
+      return;
+    }
     if (!desktop) {
       json(response, 503, {
         error:
-          "Scope on the paired Mac is disconnected. Open Scope and connect this remote. Requests are not queued.",
+          "Scope on the paired Mac is disconnected. Open Scope and connect this remote. Only publications that request buffering can be queued.",
       });
       return;
     }
@@ -354,6 +459,7 @@ export async function startPairedHub(
     request.setTimeout(timeoutMs);
     const id = randomUUID();
     const item: Pending = {
+      path: request.url!,
       request,
       response,
       bodyRead: false,
@@ -391,6 +497,8 @@ export async function startPairedHub(
   return {
     url: `http://127.0.0.1:${address.port}`,
     close: async () => {
+      clearInterval(queueTimer);
+      await delivery.close();
       await updates?.close();
       await state.maintenance.close();
       disconnect();

@@ -51,7 +51,8 @@ irudd-scope delete ID
 irudd-scope shrink [--status]
 irudd-scope setup [--yes] [--https-port PORT] [--port PORT] [--no-pair]
 irudd-scope pair
-irudd-scope hub start|stop|status|unpair|remove
+irudd-scope hub start|stop|status|unpair|remove|queue
+irudd-scope hub discard ID
 irudd-scope hub shrink [--status]
 irudd-scope skill install|remove
 
@@ -60,7 +61,8 @@ The command timeout defaults to 10000 ms. Use --timeout-ms 120000 for shrinking 
 Open Scope on this Mac to publish locally without connection setup.
 Environment: SCOPE_CONNECTION_FILE, or SCOPE_ENDPOINT with SCOPE_TOKEN_FILE or SCOPE_TOKEN
 Output is JSON. Updates read the current revision and reject concurrent changes.
-Unavailable desktops return an error. Requests are not queued or replayed.
+Paired hubs buffer publications while the Mac is offline, up to 50 tabs for 48 hours.
+Queued publications return an expiry receipt. Use hub queue to inspect them or hub discard ID to cancel.
 `;
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -358,6 +360,21 @@ async function main() {
     return;
   }
   if (command === "hub") {
+    if (argument === "queue" || argument === "discard") {
+      if (argument === "discard" && !replacement)
+        throw new Error("Provide the buffered artifact ID to discard.");
+      const client = await connect(values, AbortSignal.timeout(parseTimeout(values["timeout-ms"])));
+      console.log(
+        JSON.stringify(
+          argument === "queue"
+            ? await client.hubQueue()
+            : await client.discardQueuedPublication(replacement!),
+          null,
+          2,
+        ),
+      );
+      return;
+    }
     await manageHub(argument, parseTimeout(values["timeout-ms"]), values.status);
     return;
   }
@@ -597,12 +614,16 @@ async function main() {
       commandDeadline,
     );
     publicationId = publication.id;
-    const artifact = await client.publish(publication.id, publication.input, publication.content);
+    const artifact = await client.publishOrQueue(
+      publication.id,
+      publication.input,
+      publication.content,
+    );
     console.log(JSON.stringify(artifact, null, 2));
   } catch (error) {
     if (!signal.aborted) throw error;
     const outcome = publicationId
-      ? ` Artifact ${publicationId} may have been published; read it before retrying.`
+      ? ` Artifact ${publicationId} may have been published or buffered; read it or inspect hub queue before retrying.`
       : "";
     throw new Error(`Scope command timed out after ${timeoutMs} ms.${outcome}`, { cause: error });
   }
