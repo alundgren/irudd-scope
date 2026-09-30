@@ -92,7 +92,7 @@ async function fixture(
   };
 }
 
-test("a Mac pairs once, receives CLI publications over connections it opens, and disconnects without replay", async () => {
+test("a Mac pairs once and receives live and buffered CLI publications over connections it opens", async () => {
   const f = await fixture();
   await expect(f.client.list()).rejects.toMatchObject({ status: 503 });
   const link = f.state.pairUrl();
@@ -127,13 +127,15 @@ test("a Mac pairs once, receives CLI publications over connections it opens, and
   const direct = new ScopeClient(f.desktop.url, f.token);
   expect(new TextDecoder().decode(await direct.content("remote-review"))).toBe("Remote finding");
   await f.remotes.setEnabled(id, false);
-  await expect(f.cli("text", "Do not replay", "--id", "offline")).rejects.toMatchObject({
-    stderr: expect.stringContaining("disconnected"),
-  });
+  expect(
+    JSON.parse((await f.cli("text", "Buffered report", "--id", "offline")).stdout),
+  ).toMatchObject({ id: "offline", queued: true });
   expect((await f.store.remotes())[0].enabled).toBe(false);
   await f.remotes.setEnabled(id, true);
   await expect.poll(() => f.remotes.snapshot()[0].connection).toBe("connected");
-  expect((await f.client.list()).map((artifact) => artifact.id)).not.toContain("offline");
+  await expect
+    .poll(async () => (await f.client.list()).map((artifact) => artifact.id))
+    .toContain("offline");
   await f.cli("update", "remote-review", file);
   expect((await f.client.get("remote-review")).revision).toBe(2);
 });

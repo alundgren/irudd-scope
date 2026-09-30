@@ -1,8 +1,9 @@
 # Forwarding hub
 
 The hub authenticates and forwards the artifact API to the desktop. It owns
-its configuration and credential hashes in `hub.db`, but no artifacts, retry
-queue, or model execution. Keep dependencies on the shared protocol; do not
+its configuration, credential hashes, and bounded publication queue in `hub.db`.
+The queue temporarily owns content and metadata until delivery or expiry;
+the desktop owns delivered artifacts. The hub does not execute models. Keep dependencies on the shared protocol; do not
 import desktop or CLI internals.
 
 The Mac opens the relay connection and every transfer. Local publishing and
@@ -10,8 +11,12 @@ desktop relay credentials have separate roles. Pairing links expire and can
 be used once. Revocation closes the connection and all current requests.
 
 Bind to loopback. Preserve authentication, browser-origin rejection, bounded
-requests, streaming, and cancellation when either connection closes. A
-desktop outage must fail the request without replay after reconnection.
+requests, streaming, and cancellation when either connection closes. Opted-in publications may reserve a buffered tab while the paired Mac is offline.
+Keep the queue durable, capped at 50 tabs including incomplete uploads, and
+expire entries 48 hours after reservation. Deliver complete publications on
+reconnect, preserve revision checks, and recover uncertain acknowledgements
+without overwriting newer desktop content. Other requests fail during outages.
+Revocation clears the queue so another Mac cannot receive previous content.
 
 Verify changes through the forwarding cases in `../../tests/artifacts.test.ts`,
 and pairing cases in `../../tests/remotes.test.ts`, including unavailable

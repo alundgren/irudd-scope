@@ -380,7 +380,9 @@ export async function manageHub(
     return;
   }
   if (!["start", "stop", "remove"].includes(action ?? ""))
-    throw new Error("Use irudd-scope hub start, stop, status, unpair, remove, or shrink.");
+    throw new Error(
+      "Use irudd-scope hub start, stop, status, unpair, remove, shrink, queue, or discard ID.",
+    );
   const unit = await fileText(serviceFile());
   if (!unit?.startsWith(unitMarker))
     throw new Error("No Scope-managed hub service is installed. Run irudd-scope setup.");

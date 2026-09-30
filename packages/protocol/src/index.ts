@@ -89,6 +89,29 @@ export const Artifact = Schema.Struct({
   size: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: MAX_CONTENT_BYTES })),
 });
 export type Artifact = typeof Artifact.Type;
+export const MAX_BUFFERED_TABS = 50;
+export const BUFFERED_TAB_TTL_MS = 48 * 60 * 60 * 1000;
+export const QueuedPublication = Schema.Struct({
+  id: ArtifactId,
+  queued: Schema.Literal(true),
+  expiresAt: Schema.String,
+});
+export type QueuedPublication = typeof QueuedPublication.Type;
+export const PublicationResult = Schema.Union([Artifact, QueuedPublication]);
+export type PublicationResult = typeof PublicationResult.Type;
+export const HubQueue = Schema.Struct({
+  limit: Schema.Literal(MAX_BUFFERED_TABS),
+  items: Schema.Array(
+    Schema.Struct({
+      id: ArtifactId,
+      expiresAt: Schema.String,
+      title: Schema.optionalKey(Schema.String),
+      status: Schema.Literals(["staging", "queued", "blocked"]),
+      error: Schema.optionalKey(Schema.String),
+    }),
+  ),
+});
+export type HubQueue = typeof HubQueue.Type;
 export const ArtifactPage = Schema.Struct({
   items: Schema.Array(Artifact),
   next: Schema.NullOr(ArtifactId),

@@ -4,14 +4,14 @@ Electron main owns Scope's persistent data. Defaults below apply on macOS.
 Use the [development environment variables](development.md#isolated-development)
 to select separate directories for development.
 
-| Data                | Location                                                       | Contents                                                                                                                   |
-| ------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, and diagram drafts. |
-| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, remote configuration, and retained speech receipts/audio.   |
-| Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                                                  |
-| Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                              |
-| CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                                             |
-| Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, private endpoint, local listener configuration, credential hashes, pairing expiry, and remote update status. |
+| Data                | Location                                                       | Contents                                                                                                                                |
+| ------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, and diagram drafts.              |
+| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, remote configuration, and retained speech receipts/audio.                |
+| Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                                                               |
+| Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                                           |
+| CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                                                          |
+| Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, listener configuration, credential hashes, pairing expiry, remote update status, and buffered publication bytes/metadata. |
 
 Scope creates database directories with mode `0700` and database files with
 mode `0600`. Treat the whole profile and discovery file as private. Explicit
@@ -129,8 +129,19 @@ development keeps connection tokens in memory; after restart, re-pair using
 The hub uses the same private discovery format as local desktop publishing,
 with its own publishing token. Do not share one discovery file between a hub
 and a desktop on the same host. Set `SCOPE_CONNECTION_FILE` to separate paths.
-Hub state contains no artifact bytes. Back up its database and discovery file
-together if you need to retain pairings. Installation builds and skill files
+Hub state includes undelivered publication bytes and metadata. Back up its
+database and discovery file together if you need to retain pairings and
+pending publications. The paired hub retains at most 50 entries including
+incomplete uploads, with at most 32 MiB content each. Full queues reject new
+entries. Expiry is fixed at 48 hours from reservation, and retries do not
+extend it. Cleanup runs at startup, on queue access, and every three seconds
+while the hub runs. A stopped hub cleans up when restarted. Delivery, explicit
+discard, expiry, and unpairing delete the queued row and bytes. Deletion is
+logical, not secure erasure; SQLite maintenance reclaims freed pages and
+backups can retain expired content. A lost delivery acknowledgement is
+reconciled against the desktop before retrying; conflicts retain the queued
+content and an error for inspection. Never restore an old hub backup against
+a different Mac pairing. Installation builds and skill files
 contain program code and live separately from this state.
 
 Remote build metadata records its commit and installation paths alongside the
@@ -152,9 +163,15 @@ token. The library and preferences remain intact.
 ## Supported data imports
 
 Scope reads artifact schema version 5, desktop schema version 7, and hub schema
-version 2. It rejects
+version 3. It rejects
 newer schema versions. Back up the complete data directories before an upgrade
 when you need the option to return to an older desktop.
+
+Hub schema 3 adds buffered publication storage and preserves existing
+configuration and pairing hashes. Older hubs reject schema 3; restore a
+pre-upgrade backup to downgrade. The relay protocol remains compatible
+with older Macs. Older clients do not opt into offline buffering and keep
+returning an outage error.
 
 Artifact schema 5 adds retention columns to the tab table. Existing tabs keep
 their IDs, order, names, and drafts and begin as temporary with a fresh visibility

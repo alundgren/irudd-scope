@@ -208,7 +208,11 @@ Enabled remotes connect when Scope starts and reconnect after a lost connection.
 Disconnect persists until Connect is chosen. Remove remote revokes access on
 the hub; when the hub is unreachable, Scope keeps a disconnected record with
 a retryable error. Pairing and connection errors leave the workspace usable.
-Publishing needs an awake Mac with Scope open. Offline work is not queued.
+Direct publication needs an awake Mac with Scope open. Paired hubs buffer
+offline file and text publications for up to 48 hours, capped at 50 tabs.
+Queued receipts identify pending delivery and expiry. The CLI can inspect or
+discard queued entries. Conflicts remain inspectable and never overwrite
+newer desktop content. Interactive operations still require a connected Mac.
 
 The installed Mac updates connected remotes to its running version after it
 restarts. Offline remotes catch up on connection; disconnected remotes remain

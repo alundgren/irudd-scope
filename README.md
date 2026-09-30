@@ -2,11 +2,11 @@
 
 # irudd-scope
 
-A private workspace where coding agents leave things for a human to inspect. An Electron app stores and displays artifacts on the Mac. Local publishing works while Scope is open, without a VM. An optional hub forwards remote requests and fails when the Mac is unavailable. Codex and Claude can publish through the same CLI.
+A private workspace where coding agents leave things for a human to inspect. An Electron app stores and displays artifacts on the Mac. Local publishing works while Scope is open, without a VM. An optional paired hub forwards remote requests and buffers offline publications until the Mac reconnects. Codex and Claude can publish through the same CLI.
 
 The repository is public. Artifact data and credentials stay private. Remote access belongs on a private tailnet.
 
-SQLite stores artifact contents, metadata, ordinary settings, and workspace preferences. Mac provider and remote connection credentials live directly in Keychain. The private discovery file holds the CLI publishing token. Artifacts stay on the Mac; publishing requires Scope to be running.
+SQLite stores artifact contents, metadata, ordinary settings, and workspace preferences. Mac provider and remote connection credentials live directly in Keychain. The private discovery file holds the CLI publishing token. The Mac owns delivered artifacts. Direct publishing requires Scope to be running; paired hubs buffer up to 50 offline publications for 48 hours.
 
 ## Install on macOS
 

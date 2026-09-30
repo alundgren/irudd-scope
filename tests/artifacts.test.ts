@@ -351,7 +351,7 @@ test("the CLI deadline aborts while reading the publication response body", asyn
   ).rejects.toMatchObject({
     code: 1,
     stderr: expect.stringContaining(
-      "Scope command timed out after 1200 ms. Artifact slow-update may have been published; read it before retrying.",
+      "Scope command timed out after 1200 ms. Artifact slow-update may have been published or buffered; read it or inspect hub queue before retrying.",
     ),
   });
   expect(server.updateWasReceived()).toBe(true);
