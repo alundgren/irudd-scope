@@ -1,6 +1,6 @@
 ---
 name: irudd-scope
-description: Publish or update artifacts, create or edit Excalidraw diagrams, and generate narration speech through Scope with its CLI. Use for inspectable artifacts or agent-owned text-to-speech using the desktop OpenRouter key.
+description: Publish or update artifacts, create or edit Excalidraw diagrams, and generate conversational solo or two-speaker narration through Scope with its CLI. Use for inspectable artifacts or agent-owned text-to-speech using the desktop OpenRouter key.
 ---
 
 # Use Scope CLI
@@ -173,10 +173,17 @@ Use `irudd-scope voice guide` for the machine-readable agent guide and
 
 ```sh
 irudd-scope voice generate narration.txt --request-id unique-narration-id \
-  --instructions "warm and friendly" --output narration.wav --receipt narration.json
+  --output narration.wav --receipt narration.json
 ```
 
-Scope uses the desktop's shared OpenRouter key, Gemini 3.8 Flash TTS, and Kore.
+Scope uses the desktop's shared OpenRouter key and Gemini 3.8 Flash TTS.
+New requests default to Aoede with restrained conversational delivery (selected
+style C), including when instructions are blank. For two speakers (selected
+style E), Aoede leads and Leda replies. Use the instructions returned by
+`voice guide` and read [podcast delivery](references/podcast.md) for script writing,
+turn generation, and the WAV joining helper. Explicit `--voice` and
+`--instructions` override the defaults; do not replace these preferences with
+a generic announcer, commercial, or documentary delivery unless requested.
 The person must enable Voice generation in Settings first. Supply verbatim
 narration and separate delivery instructions; Scope sends those instructions
 through Google's speech metadata options. Agents own scripts, HTML, timing,

@@ -12,12 +12,14 @@ import {
 } from "@irudd-scope/protocol/voice";
 
 export const voiceHelp = `irudd-scope voice generate TEXT.txt --output AUDIO.wav [--receipt RECEIPT.json]
-  [--request-id ID] [--instructions TEXT] [--timeout-ms MS]
+  [--request-id ID] [--voice Aoede|Leda|Kore] [--instructions TEXT] [--timeout-ms MS]
 irudd-scope voice status ID [--refresh-billing] [--receipt RECEIPT.json]
 irudd-scope voice result ID --output AUDIO.wav [--receipt RECEIPT.json]
 irudd-scope voice cancel ID
 irudd-scope voice guide
 
+Default: Aoede with restrained conversational delivery (solo style C).
+Use voice guide for the two-speaker style E: Aoede leads, Leda replies.
 Generation waits up to 330000 ms by default using short submission/status/download requests.
 Record --request-id before calling. Otherwise the CLI prints a new ID to stderr before submission.
 Timeout or disconnection leaves generation running. Inspect the same ID; never regenerate automatically.
@@ -33,6 +35,7 @@ type VoiceOptions = {
   receipt?: string;
   "request-id"?: string;
   instructions?: string;
+  voice?: string;
   "refresh-billing"?: boolean;
 };
 
@@ -75,6 +78,7 @@ export async function voiceCommand(
       const input = decode(VoiceRequest, {
         requestId,
         text,
+        ...(options.voice === undefined ? {} : { voice: options.voice }),
         ...(options.instructions === undefined ? {} : { instructions: options.instructions }),
       });
       console.error(`Speech request ID: ${requestId}`);

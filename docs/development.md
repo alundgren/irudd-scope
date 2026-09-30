@@ -658,7 +658,9 @@ before retrying an uncertain publication.
 Enable Voice generation in desktop Settings and save the shared key in the
 OpenRouter section. Diagram generation and voice generation have independent
 switches, both off by default. Turning either off preserves the key. The desktop
-uses `google/gemini-3.8-flash-tts` with Kore through OpenRouter's speech endpoint.
+uses `google/gemini-3.8-flash-tts` through OpenRouter's speech endpoint. New requests default to Aoede with restrained
+conversational delivery; two-speaker scripts use Aoede to lead and Leda to reply.
+Agents generate turns separately and assemble the exported WAVs.
 The agent workflow and recovery rules are in the
 [protocol guide](../packages/protocol/README.md#agent-speech-generation) and
 `irudd-scope voice guide`; `irudd-scope voice --help` lists the commands.

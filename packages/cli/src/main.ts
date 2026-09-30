@@ -166,6 +166,7 @@ function parseOptions() {
       receipt: { type: "string" },
       "request-id": { type: "string" },
       instructions: { type: "string" },
+      voice: { type: "string" },
       "refresh-billing": { type: "boolean" },
       status: { type: "boolean" },
       help: { type: "boolean", short: "h" },
