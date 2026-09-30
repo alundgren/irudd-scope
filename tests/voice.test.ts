@@ -653,7 +653,7 @@ test.for(["error", "bad-format", "odd", "large"])(
   },
 );
 
-test("feature switches are independent and input, concurrency, retention and lifetime are bounded", async () => {
+test("speech keeps concurrency and expiry limits without a retained request count limit", async () => {
   const f = await fixture();
   await f.store.saveSettings({ voiceGenerationEnabled: false, diagramGenerationEnabled: true });
   await expect(f.client.submitVoice({ requestId: "off", text: "Hello" })).rejects.toMatchObject({
@@ -677,20 +677,27 @@ test("feature switches are independent and input, concurrency, retention and lif
   f.release();
   await finished(f.client, "one");
   await finished(f.client, "two");
-  for (let i = (await f.store.voiceRows()).length; i < 16; i++) {
+  for (let i = 2; i < 20; i++) {
     const id = `retained-${i}`;
     await f.client.submitVoice({ requestId: id, text: "Hello" });
-    await finished(f.client, id);
+    expect((await finished(f.client, id)).state).toBe("succeeded");
   }
-  await expect(f.client.submitVoice({ requestId: "full", text: "Hello" })).rejects.toMatchObject({
-    status: 429,
-  });
+  expect((await f.store.voiceRows()).length).toBe(20);
+  const firstAudio = await f.client.voiceResult("one");
+  await f.restart();
+  expect(await f.client.voiceResult("one")).toEqual(firstAudio);
+  expect((await f.client.submitVoice({ requestId: "one", text: "hold" })).state).toBe("succeeded");
+  expect(f.calls).toBe(20);
+  await f.client.submitVoice({ requestId: "after-restart", text: "Hello" });
+  expect((await finished(f.client, "after-restart")).state).toBe("succeeded");
+  expect((await f.client.voiceResult("after-restart")).byteLength).toBeGreaterThan(44);
+  expect((await f.store.voiceRows()).length).toBe(21);
   const calls = f.calls;
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(Date.now() + VOICE_LIFETIME_MS + 1);
   await expect(f.client.voiceStatus("one")).rejects.toMatchObject({ status: 404 });
-  await f.client.submitVoice({ requestId: "full", text: "Hello" });
-  await finished(f.client, "full");
+  await f.client.submitVoice({ requestId: "after-expiry", text: "Hello" });
+  await finished(f.client, "after-expiry");
   expect((await f.store.voiceRows()).length).toBe(1);
   expect(f.calls).toBe(calls + 1);
 });

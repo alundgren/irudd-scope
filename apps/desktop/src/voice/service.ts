@@ -9,7 +9,6 @@ import {
   VOICE_LIFETIME_MS,
   VOICE_GENERATION_TIMEOUT_MS,
   MAX_VOICE_CONCURRENT,
-  MAX_VOICE_REQUESTS,
   MAX_VOICE_TEXT_BYTES,
 } from "@irudd-scope/protocol/voice";
 import type { DesktopStore } from "../desktop-store.ts";
@@ -143,11 +142,6 @@ export class VoiceService {
       if (this.closing) throw new ScopeError(503, "Scope is shutting down.");
       if (!this.store.settings().voiceGenerationEnabled)
         throw new ScopeError(403, "Enable voice generation in desktop Settings first.");
-      if (this.entries.size >= MAX_VOICE_REQUESTS)
-        throw new ScopeError(
-          429,
-          "Speech request retention is full. Wait for a request to expire.",
-        );
       if (
         [...this.entries.values()].filter((entry) => entry.controller).length >=
         MAX_VOICE_CONCURRENT

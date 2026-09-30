@@ -13,7 +13,6 @@ export const MAX_VOICE_TEXT_BYTES = 16 * 1024;
 export const MAX_VOICE_REQUEST_BYTES = 128 * 1024;
 export const MAX_VOICE_AUDIO_BYTES = 16 * 1024 * 1024;
 export const VOICE_LIFETIME_MS = 24 * 60 * 60 * 1000;
-export const MAX_VOICE_REQUESTS = 16;
 export const MAX_VOICE_CONCURRENT = 2;
 export const VOICE_GENERATION_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -73,5 +72,5 @@ export const VoiceGuide = {
   cancellation:
     "voice cancel ID stops local generation if still active. CLI timeout, exit, lost responses, and hub disconnection do not cancel generation. Cancellation and provider failures may still incur a charge. A generation has a five-minute desktop deadline. Interrupted requests after desktop restart never resume or regenerate; completed results survive restart.",
   limits:
-    "Scope must be running on an awake Mac. No offline queue. Narration: 16 KiB UTF-8; instructions: 2048 characters; two concurrent generations; 16 retained requests; 16 MiB per WAV; 24 hours from submission for IDs, receipts, and results. Capacity rejects new requests without evicting unexpired IDs. Download and billing refresh never generate speech. Agents own exported files, scripts, HTML, synchronization, and playback.",
+    "Scope must be running on an awake Mac. No offline queue. Narration: 16 KiB UTF-8; instructions: 2048 characters; two concurrent generations; no retained request count limit; 16 MiB per WAV; 24 hours from submission for IDs, receipts, and results. Download and billing refresh never generate speech. Agents own exported files, scripts, HTML, synchronization, and playback.",
 };

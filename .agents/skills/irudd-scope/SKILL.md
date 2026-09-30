@@ -203,8 +203,8 @@ A five-minute desktop deadline ends unfinished generation. Completed results
 survive restart; unfinished requests become interrupted without retry.
 
 Scope must run on an awake Mac. Narration is limited to 16 KiB UTF-8 and style
-instructions to 2048 characters. There are two active generation slots and 16
-retained requests. Requests, receipts, and results expire after 24 hours from
+instructions to 2048 characters. There are two active generation slots and no
+retained request count limit. Requests, receipts, and results expire after 24 hours from
 submission. Audio transfers are bounded to 16 MiB. Export to a new `.wav` path;
 receipt files can be refreshed in place. After expiry an old ID may trigger a
 new paid request, so inspect uncertain outcomes within that lifetime.
