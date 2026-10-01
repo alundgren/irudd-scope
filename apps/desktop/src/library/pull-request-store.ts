@@ -398,13 +398,6 @@ export class PullRequestStore {
                 local.snoozeVersion++;
                 break;
               case "review":
-                if (command.headOid !== facts.headOid)
-                  return yield* Effect.fail(
-                    new ScopeError(
-                      409,
-                      "Pull request commit changed. Read the current snapshot before marking it reviewed.",
-                    ),
-                  );
                 local[command.baseline] = {
                   headOid: command.headOid,
                   at: new Date().toISOString(),

@@ -720,3 +720,80 @@ test("complete inventories above SQLite's bind parameter limit commit every row 
   expect(reduced.prs.some((pr) => pr.number === 42 || pr.number === 99_999)).toBe(false);
   expect(reduced.prs.find((pr) => pr.nodeId === "PR_1")?.local.note).toBe("Retained current PR");
 }, 120_000);
+
+test("review baselines retain the inspected commit when synchronization finds a newer head", async () => {
+  const f = await fixture();
+  await f.configure();
+  const initial = await f.read();
+  await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [facts()],
+    completedAt: now,
+  });
+  await f.client.pullRequests({
+    action: "review",
+    name,
+    tabId: initial.tabId,
+    nodeId: "PR_1",
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    baseline: "inspected",
+    headOid: head,
+  });
+  const newerHead = "c".repeat(40);
+  const updated = {
+    ...facts(),
+    headOid: newerHead,
+    merge: { ...facts().merge, headOid: newerHead },
+  };
+  await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [updated],
+    completedAt: now,
+  });
+  const marked = snapshot(
+    await f.client.pullRequests({
+      action: "review",
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 1,
+      baseline: "reviewed",
+      headOid: head,
+    }),
+  );
+  expect(marked.prs[0]).toMatchObject({
+    headOid: newerHead,
+    local: { inspected: { headOid: head }, reviewed: { headOid: head }, reviewVersion: 2 },
+  });
+  expect(marked.prs[0].headOid !== marked.prs[0].local.reviewed?.headOid).toBe(true);
+  await expect(
+    f.client.pullRequests({
+      action: "review",
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 1,
+      baseline: "reviewed",
+      headOid: newerHead,
+    }),
+  ).rejects.toMatchObject({ status: 409 });
+  const current = snapshot(
+    await f.client.pullRequests({
+      action: "review",
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 2,
+      baseline: "reviewed",
+      headOid: newerHead,
+    }),
+  );
+  expect(current.prs[0].local.reviewed?.headOid).toBe(newerHead);
+  expect(current.prs[0].headOid !== current.prs[0].local.reviewed?.headOid).toBe(false);
+});
