@@ -624,3 +624,80 @@ test("relay tracing counts a complete 16 MB body without changing its content", 
     ]),
   );
 });
+
+test("paired hubs forward pull request snapshots and local writes, and reject oversized or offline commands", async () => {
+  const f = await fixture();
+  await f.remotes.pair(f.state.pairUrl());
+  await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
+  const html = join(f.directory, "inbox.html");
+  await writeFile(html, "<h1>PR inbox</h1>");
+  await f.cli("add", html, "--pull-requests", "--name", "remote-inbox");
+  await f.cli("pull-requests", "configure", "remote-inbox", "example/project");
+  const read = await f.client.pullRequests({ action: "read", name: "remote-inbox" });
+  if (read.type !== "snapshot") throw new Error("Expected snapshot");
+  const head = "a".repeat(40),
+    base = "b".repeat(40),
+    now = "2026-09-30T12:00:00.000Z";
+  await f.desktop.store.pullRequests.commitInventory(read.snapshot.tabId, {
+    repository: { owner: "example", name: "project" },
+    viewer: "viewer",
+    completedAt: now,
+    prs: [
+      {
+        nodeId: "PR_remote",
+        number: 1,
+        title: "Remote PR",
+        author: "alice",
+        labels: [],
+        headOid: head,
+        headRefName: "feature",
+        baseOid: base,
+        draft: true,
+        additions: 0,
+        deletions: 0,
+        changedFiles: 0,
+        url: "https://github.com/example/project/pull/1",
+        merge: { status: "unknown", headOid: head, baseOid: base, observedAt: now },
+        checks: { status: "unknown", headOid: null, observedAt: now },
+        hasUnresolvedConversations: null,
+        createdAt: now,
+        updatedAt: now,
+        requestedReviewers: [],
+      },
+    ],
+  });
+  const text = "n".repeat(19_000);
+  const written = await f.client.pullRequests({
+    action: "note",
+    name: "remote-inbox",
+    tabId: read.snapshot.tabId,
+    nodeId: "PR_remote",
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    text,
+  });
+  if (written.type !== "snapshot") throw new Error("Expected snapshot");
+  expect(written.snapshot.prs[0].local.note).toBe(text);
+  const oversized = await fetch(`${f.hub.url}/v1/pull-requests`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${f.local.token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "x".repeat(256 * 1024) }),
+  });
+  expect(oversized.status).toBe(413);
+  const browser = await fetch(`${f.hub.url}/v1/pull-requests`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${f.local.token}`, Origin: "https://example.com" },
+    body: "{}",
+  });
+  expect(browser.status).toBe(403);
+  await f.remotes.setEnabled(f.remotes.snapshot()[0].id, false);
+  await expect(
+    f.client.pullRequests({
+      action: "sync",
+      name: "remote-inbox",
+      tabId: read.snapshot.tabId,
+      requestId: randomUUID(),
+    }),
+  ).rejects.toMatchObject({ status: 503 });
+  expect((await f.client.hubQueue()).items).toHaveLength(0);
+});

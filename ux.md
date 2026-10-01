@@ -322,3 +322,33 @@ the resulting revision. Seeing a response, resolving a comment and approving a
 revision are separate actions. A response leaves the current reading page in
 place until the person chooses another revision. Restoring history creates a
 new latest revision and retains the previous versions.
+
+## Pull request inboxes
+
+Each inbox is a permanent named HTML app for one GitHub repository. The initial
+app presents a flat list and named views, with no search or sort controls.
+Agents can replace its HTML and JavaScript while Scope preserves the current
+PR data, notes, snoozes, and review decisions. Closing uses ordinary Trashcan
+retention. Permanently deleting the tab deletes its repository review data.
+
+Selecting the tab syncs current open PRs, including drafts. Sync is also an
+explicit icon action. A failed GitHub read keeps the cached list and places a
+small error indicator on that icon. Its tooltip explains the failure, and
+clicking retries. There is no polling, cache expiry prompt, or closed PR history.
+Unknown checks or conversation state remain visibly unknown. Any unresolved
+GitHub review conversation means the author's turn in the initial app.
+
+Opening a PR captures its ordered review queue and displayed commit. Background
+refreshes update the list and local state without moving the person to another PR or changing
+the displayed code. A newer head offers Load latest commit. Next and Previous
+use the captured queue, including after a snooze removes the row from a view.
+Opening records inspection; Mark this commit reviewed is explicit and records
+the displayed commit. New code can therefore remain in Changed after review.
+
+Notes retain unsaved text through refresh and failed writes. An edit begun
+before another client changes the saved note conflicts and offers Use saved
+note or Keep my note. Snoozes support presets, a custom date, optional wake on
+new commits, and Undo. Undo cannot erase a later snooze from another client.
+Pending local edits flush before closing or replacing the HTML; a failed flush
+keeps the app open. These local actions never write to GitHub. Open on GitHub
+handles public comments, reviews, and merges.

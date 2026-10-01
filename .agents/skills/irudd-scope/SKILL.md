@@ -37,6 +37,32 @@ Publication commands print a JSON artifact record with its ID and revision. Trea
 
 HTML previews run interactive prototypes and mockups, including scripts, external styles, fonts, images, network requests, forms, and popups. Publish a complete document with embedded resources or reachable URLs. Adjacent files are not uploaded; use absolute resource URLs or set the document's base URL. Normal browser rules such as CORS apply. For Markdown, raw HTML is omitted and links and image descriptions appear as text.
 
+### Pull request inbox apps
+
+Publish trusted HTML as a named PR inbox, then bind its repository:
+
+```sh
+irudd-scope add inbox.html --pull-requests --name repository-inbox --title "PR inbox"
+irudd-scope pull-requests configure repository-inbox OWNER/REPO
+irudd-scope pull-requests guide
+irudd-scope pull-requests read repository-inbox
+```
+
+Scope injects `window.scope.pullRequests` before authored scripts. Use its
+`watch` callback to render the current immutable PR array as a flat list with
+named views. Use SDK operations for notes, snoozes, details, and local review
+marks. `pull-requests guide` documents the SDK and validated agent commands.
+Scope persists these values separately from HTML
+and runs the desktop user's `gh` for open-PR reads. Tab selection and Sync
+refresh GitHub; there is no polling, closed PR archive, or GitHub mutation.
+
+`update NAME inbox.html` replaces the app while keeping repository state.
+The initial repository binding is permanent; publish another named tab for
+another repository. For agent mutations, export the current snapshot, retain
+its `tabId` and the relevant version, and submit a validated command file with
+`pull-requests apply FILE`. Retry an uncertain write with its original UUID
+request ID and payload. A conflict requires reading and reconsidering the edit.
+
 ### HTML plans
 
 For requests such as "make a plan", "create a plan", or "plan this feature",

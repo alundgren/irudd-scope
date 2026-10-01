@@ -92,6 +92,38 @@ flowchart LR
     DB --> Review[Response overlay and revision navigation]
 ```
 
+## Pull request inboxes
+
+A pull request inbox is a permanent named `pull-requests` HTML artifact bound
+to one GitHub repository. `packages/protocol/src/pull-requests.ts` owns its
+validated commands and snapshots. `library/pull-request-store.ts` owns the
+repository binding, current open PR facts, local notes and snoozes, review
+baselines, and current agent assessments in `scope.db`. These records belong
+to the tab UUID. Publishing another HTML revision preserves them.
+
+`plugins/pull-requests/gh-process.ts` runs the installed `gh` executable without
+a shell, using the desktop user's existing login. `gh.ts` reads GitHub facts
+and on-demand details. `sync.ts` coalesces refreshes per tab and cancels work
+when the tab is removed or the desktop shuts down. A complete inventory commits
+in one transaction and removes PRs no longer open. Failed or incomplete reads
+preserve the previous inventory. Local and agent records have separate version
+checks and do not get replaced by GitHub facts.
+
+`plugins/pull-requests/view.tsx` hosts trusted authored HTML and injects
+`window.scope.pullRequests` before its scripts run. The HTML receives immutable
+arrays and issues validated operations through the host, rather than accessing
+SQLite or credentials. The host subscribes before its first snapshot read and
+reloads durable state after invalidation or reconnect. Refreshing PR state
+preserves the iframe; publishing a new HTML revision replaces it after pending
+local edits finish saving. Transient notices carry no replay history.
+
+The tab syncs when selected and through the app's Sync action. There is no
+background polling. Native creation publishes the built-in flat-list app;
+agents can publish their own HTML with named JavaScript views. GitHub access is
+read-only. Review submission and merges remain on GitHub. Authenticated HTTP
+commands work without the tab being mounted. Paired hubs forward them and keep
+no PR state.
+
 ## Names and ownership
 
 Use the same names in code, documentation, diagrams, issues, and reviews.

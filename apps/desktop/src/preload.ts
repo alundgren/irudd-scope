@@ -8,8 +8,21 @@ import type { RemoteStatus } from "./remote-contract.ts";
 import type { DiagramMenuAction } from "./menu-contract.ts";
 
 import type { PlanEvent } from "@irudd-scope/protocol/plan";
+import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
 
 const bridge: ScopeBridge = {
+  createPullRequests: (input) => ipcRenderer.invoke("scope:create-pull-requests", input),
+  pullRequestsCommand: (input) => ipcRenderer.invoke("scope:pull-requests-command", input),
+  onPullRequestsReconnected: (listener) => {
+    const receive = () => listener();
+    ipcRenderer.on("scope:pull-requests-reconnected", receive);
+    return () => ipcRenderer.removeListener("scope:pull-requests-reconnected", receive);
+  },
+  onPullRequestsChanged: (listener) => {
+    const receive = (_event: unknown, event: PullRequestsEvent) => listener(event);
+    ipcRenderer.on("scope:pull-requests-changed", receive);
+    return () => ipcRenderer.removeListener("scope:pull-requests-changed", receive);
+  },
   createPlan: (input) => ipcRenderer.invoke("scope:create-plan", input),
   planCommand: (input) => ipcRenderer.invoke("scope:plan-command", input),
   planImage: (input) => ipcRenderer.invoke("scope:plan-image", input),

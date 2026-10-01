@@ -22,8 +22,23 @@ import type { TabEventEnvelope } from "./plugins/events.ts";
 
 import type { PlanCommand, PlanReply, PlanEvent } from "@irudd-scope/protocol/plan";
 import type { PlanDraft } from "./plugins/plan/draft.ts";
+import type {
+  PullRequestsCommand,
+  PullRequestsReply,
+  PullRequestsRepository,
+  PullRequestsEvent,
+} from "@irudd-scope/protocol/pull-requests";
 
 export type ScopeBridge = {
+  createPullRequests: (input: {
+    name: string;
+    title: string;
+    html: string;
+    repository: PullRequestsRepository;
+  }) => Promise<Artifact>;
+  pullRequestsCommand: (command: PullRequestsCommand) => Promise<PullRequestsReply>;
+  onPullRequestsReconnected: (listener: () => void) => () => void;
+  onPullRequestsChanged: (listener: (event: PullRequestsEvent) => void) => () => void;
   createPlan: (input: { name: string; title: string; html: string }) => Promise<Artifact>;
   planCommand: (command: PlanCommand) => Promise<PlanReply>;
   planImage: (input: { name: string; id: string }) => Promise<Uint8Array>;

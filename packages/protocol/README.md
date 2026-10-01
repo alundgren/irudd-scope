@@ -343,6 +343,104 @@ timeout. Other voice commands share that default and accept `--timeout-ms`.
 Audio export requires a new `.wav` file. Receipt exports may be refreshed in place.
 Agents own their exported files, scripts, HTML, synchronization, and playback.
 
+## Named pull request inboxes
+
+Publish a named `pull-requests` artifact with `text/html` content. Its name and
+kind are immutable, and a new inbox starts permanent. HTML updates retain the
+repository binding and current review data. `POST /v1/pull-requests` accepts
+the commands defined in `src/pull-requests.ts`; `ScopeClient.pullRequests`
+validates requests and replies. Normal publishing credentials and connected
+desktop requirements apply. Paired hubs forward the route without storing PRs.
+
+`read` looks up a named tab and returns a complete snapshot with `tabId`,
+`generation`, repository, viewer, sync status, and a flat `prs` array. All other
+commands require that `tabId`, the immutable name, and a UUID `requestId`.
+Repository configuration can be repeated with the same repository, but changing
+it requires another tab. `sync` uses the desktop user's installed `gh` and
+returns the current snapshot. Simultaneous refreshes of one tab share work.
+Sync request IDs identify calls; they do not retain an inventory history.
+
+PR facts include title, author, labels, draft status, requested reviewers, size,
+commit IDs, merge status, aggregate checks, and
+`hasUnresolvedConversations`. That flag is true when any GitHub review thread is
+unresolved, false after a complete read finds none, and null when unavailable.
+Checks and merge status identify their observed commits. Unknown values are
+distinct from success or absence. A complete sync removes records no longer
+open. Failed and partial reads preserve cached facts and local values.
+
+`note`, `snooze`, `review`, and `assessment` mutations use independent current
+versions. `expectedVersion` selects `local.noteVersion`, `local.snoozeVersion`,
+`local.reviewVersion`, or `agent.version`, respectively. Inspection and review
+have separate commit baselines and share the review version. Opening a PR
+records inspection only; an explicit local review mark records the supplied
+commit, including a commit inspected before newer changes arrived.
+Assessments identify their author, covered commit, and evidence. Custom fields
+have typed values and unique keys. Agent mutations replace current agent values,
+without replacing GitHub facts or local state.
+
+Identical local mutation payloads under the same request ID recover without
+applying twice. Different payloads under that ID return 409. Receipts last for
+the owning PR or tab lifetime. A conflict requires reading current state and
+reconsidering the edit. A tab UUID check also prevents an old command modifying
+a newly created tab that reuses the old name.
+
+`detail` selects a PR node ID and returns its commit-bound body, review bodies,
+files, and diff separately from the array. Changes during retrieval require
+retrying against the current commit. No detail history is stored. Command JSON
+is limited to 256 KiB and replies to 32 MiB. Inventories have no PR count cap;
+an oversized complete snapshot fails rather than silently trimming the list.
+Detail replies also limit diff text to 2,097,152 characters and files and
+reviews to 10,000 records each. Oversized details fail the read; Open on GitHub
+remains available from the cached PR row.
+Live events contain the artifact ID, name, and generation. They are transient
+invalidations. Read a complete snapshot after reconnect or remount.
+
+The CLI provides `pull-requests guide`, `read`, `configure`, `sync`, `detail`, and
+`apply`. `apply` submits a validated JSON command file unchanged. Exported
+snapshots and command files remain explicit local files.
+
+### Authored HTML SDK
+
+The host installs `window.scope.pullRequests` before authored scripts execute.
+`watch(callback)` receives `(prs, context, sync)` initially and whenever the
+durable snapshot or theme changes. It returns an unsubscribe function. Arrays
+and their nested records are frozen. Context includes the tab name, repository,
+GitHub viewer, and theme. Keep app UI state in memory and derive named views
+with ordinary JavaScript predicates.
+
+```js
+const inbox = window.scope.pullRequests;
+inbox.watch((prs, context, sync) => {
+  const forMe = prs.filter((pr) => pr.requestedReviewers.includes(context.viewer));
+  render(forMe, sync);
+});
+```
+
+`sync()` requests refresh. `detail(nodeId, section)` returns the complete
+commit-bound detail object; `section` is an app hint and does not limit that
+reply. Local mutation methods require the version the user acted on:
+
+| Method                                                           | Version argument         |
+| ---------------------------------------------------------------- | ------------------------ |
+| `saveNote(nodeId, text, expectedVersion)`                        | `pr.local.noteVersion`   |
+| `setSnooze(nodeId, { until, wakeOnNewCommit }, expectedVersion)` | `pr.local.snoozeVersion` |
+| `inspect(nodeId, displayedHeadOid, expectedVersion)`             | `pr.local.reviewVersion` |
+| `markReviewed(nodeId, displayedHeadOid, expectedVersion)`        | `pr.local.reviewVersion` |
+
+These methods resolve to `{ version }` after a successful write and reject on
+conflict. Use `until: null` to clear a snooze. The host supplies the tab UUID
+and current snooze commit. Capture a note's version when editing begins, retain
+the dirty text after failure, and let the user reconcile a newer saved note.
+An Undo should use the preceding operation's returned version, so it cannot
+erase a later edit from another client. Keep review navigation IDs and the
+displayed commit stable when incoming arrays change; offer an explicit action
+to load newer code.
+
+`beforeClose(asyncCallback)` registers pending edit flushes and returns a
+cleanup function. The host awaits them and already issued local mutations
+before closing or replacing the HTML revision. A rejected flush keeps the app
+open with its in-memory edits. Scope does not persist arbitrary renderer drafts.
+
 ## Named HTML plan review
 
 Plans publish through the normal artifact API using `kind: "plan"`,
