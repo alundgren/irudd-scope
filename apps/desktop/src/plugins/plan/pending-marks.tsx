@@ -1,7 +1,10 @@
 import { useEffect, useState, type RefObject } from "react";
-import type { PlanSnapshot, PlanViewport } from "@irudd-scope/protocol/plan";
+import type { PlanCommand, PlanSnapshot, PlanViewport } from "@irudd-scope/protocol/plan";
 import type { PlanDraft } from "./draft.ts";
 import { AnnotationMarks } from "./annotation.tsx";
+import { PinPopover } from "./pin.tsx";
+import { CommentThread } from "./comment-thread.tsx";
+import { Button } from "../../renderer/components/ui/button.tsx";
 
 export function readDocumentViewport(iframe: HTMLIFrameElement): PlanViewport | undefined {
   try {
@@ -24,12 +27,19 @@ export function PendingMarks({
   snapshot,
   revision,
   draft,
+  command,
+  busy,
+  onResume,
 }: {
   iframe: RefObject<HTMLIFrameElement | null>;
   snapshot?: PlanSnapshot;
   revision: number;
   draft: PlanDraft | null;
+  command: (command: PlanCommand) => Promise<boolean>;
+  busy: boolean;
+  onResume: () => void;
 }) {
+  const [selected, setSelected] = useState<string>();
   const [viewport, setViewport] = useState<PlanViewport>();
   useEffect(() => {
     const frame = iframe.current;
@@ -75,29 +85,84 @@ export function PendingMarks({
       comment.annotations.length > 0,
   );
   return (
-    <svg
-      className="plan-pending-marks"
-      role="img"
-      aria-label="Pending comment marks"
-      viewBox={`0 0 ${viewport.width} ${viewport.height}`}
+    <div
+      className="plan-pin-layer"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && selected) {
+          event.stopPropagation();
+          setSelected(undefined);
+        }
+      }}
     >
-      {marks.map((comment) => (
-        <svg
-          key={"id" in comment ? comment.id : comment.requestId}
-          x={comment.viewport!.scrollX - viewport.scrollX}
-          y={comment.viewport!.scrollY - viewport.scrollY}
-          width={comment.viewport!.width}
-          height={comment.viewport!.height}
-          viewBox={`0 0 ${comment.viewport!.width} ${comment.viewport!.height}`}
-          overflow="visible"
-        >
-          <AnnotationMarks
-            annotations={comment.annotations}
+      <svg
+        className="plan-pending-marks"
+        role="img"
+        aria-label="Pending comment marks"
+        viewBox={`0 0 ${viewport.width} ${viewport.height}`}
+      >
+        {marks.map((comment) => (
+          <svg
+            key={"id" in comment ? comment.id : comment.requestId}
+            x={comment.viewport!.scrollX - viewport.scrollX}
+            y={comment.viewport!.scrollY - viewport.scrollY}
             width={comment.viewport!.width}
             height={comment.viewport!.height}
-          />
-        </svg>
-      ))}
-    </svg>
+            viewBox={`0 0 ${comment.viewport!.width} ${comment.viewport!.height}`}
+            overflow="visible"
+          >
+            <AnnotationMarks
+              annotations={comment.annotations}
+              width={comment.viewport!.width}
+              height={comment.viewport!.height}
+            />
+          </svg>
+        ))}
+      </svg>
+      {marks.map((comment) => {
+        const mark = comment.annotations[0];
+        const point = mark.type === "pin" ? mark.at : mark.from;
+        const x =
+          (point.x * comment.viewport!.width + comment.viewport!.scrollX - viewport.scrollX) /
+          viewport.width;
+        const y =
+          (point.y * comment.viewport!.height + comment.viewport!.scrollY - viewport.scrollY) /
+          viewport.height;
+        if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+        const id = "id" in comment ? comment.id : comment.requestId;
+        const number =
+          "id" in comment
+            ? (snapshot?.comments.findIndex((entry) => entry.id === id) ?? 0) + 1
+            : "+";
+        return (
+          <div key={id}>
+            <Button
+              className="plan-comment-pin"
+              size="icon-sm"
+              variant="outline"
+              aria-label={"id" in comment ? `Comment: ${comment.text}` : "Open draft comment"}
+              aria-expanded={selected === id}
+              title={comment.text || "Resume comment"}
+              style={{ left: `${x * 100}%`, top: `${y * 100}%` }}
+              onClick={() =>
+                "id" in comment ? setSelected(selected === id ? undefined : id) : onResume()
+              }
+            >
+              {number}
+            </Button>
+            {selected === id && "id" in comment && snapshot && (
+              <PinPopover x={x} y={y}>
+                <CommentThread
+                  comment={comment}
+                  snapshot={snapshot}
+                  command={command}
+                  busy={busy}
+                  onClose={() => setSelected(undefined)}
+                />
+              </PinPopover>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
