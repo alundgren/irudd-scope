@@ -287,6 +287,12 @@ Closing the tab preserves this data in Trashcan. Permanent deletion removes it
 through foreign-key cascades. A successful complete sync removes PRs no longer
 open and their associated local records and receipts. Failed or partial syncs
 keep the cached list. Scope retains no closed PR archive or earlier PR snapshots.
+When a complete sync observes a different commit for the same PR, it clears a
+snooze that has wake-on-new-commit enabled and increments the snooze version.
+Ordinary snoozes and updates on the same commit remain unchanged. The commit
+comparison uses the snooze's captured commit and the latest saved local state
+inside the inventory transaction, so notes and review baselines stay intact
+and an older Undo cannot restore a cleared snooze over newer state.
 Startup turns an interrupted saved refresh into an error with a retry action,
 preserving the cache and last successful sync time.
 
