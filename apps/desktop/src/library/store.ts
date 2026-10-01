@@ -1,3 +1,4 @@
+import { PullRequestStore, initializePullRequestsTab } from "./pull-request-store.ts";
 import { DatabaseMaintenance } from "@irudd-scope/sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, chmod, readFile, readdir, rm } from "node:fs/promises";
@@ -42,6 +43,7 @@ export type LiveTab = {
 export class ArtifactStore {
   maintenance!: DatabaseMaintenance;
   plans!: PlanStore;
+  pullRequests!: PullRequestStore;
   onChanged: (event: LiveEvent) => void = () => {};
   private pendingMutations = Promise.resolve();
   private constructor(
@@ -74,6 +76,12 @@ export class ArtifactStore {
         mutate: (effect, events) => store.mutate(effect, events),
       });
       await store.plans.initialize();
+      store.pullRequests = new PullRequestStore({
+        sql,
+        run: (effect) => store.run(effect),
+        mutate: (effect, events) => store.mutate(effect, events),
+      });
+      await store.pullRequests.initialize();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -109,7 +117,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 6) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 7) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");
@@ -648,6 +656,12 @@ export class ArtifactStore {
             return yield* Effect.fail(
               new ScopeError(409, "Artifact changed. Read the current revision before updating."),
             );
+          if (previous?.kind === "pull-requests" && input.kind !== "pull-requests")
+            return yield* Effect.fail(
+              new ScopeError(409, "A pull request tab's kind cannot change."),
+            );
+          if (input.kind === "pull-requests" && !(previous?.name ?? input.name))
+            return yield* Effect.fail(new ScopeError(400, "Pull request tabs require a name."));
           if (previous?.kind === "plan" && input.kind !== "plan")
             return yield* Effect.fail(new ScopeError(409, "A plan's kind cannot change."));
           if (input.kind === "plan" && !(previous?.name ?? input.name))
@@ -680,7 +694,11 @@ export class ArtifactStore {
           yield* sql`INSERT INTO artifacts(id, revision, document, tab_id, blob_id) VALUES (${id}, ${revision}, ${JSON.stringify(artifact)}, ${tabId}, ${input.blob})
         ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, document = excluded.document, blob_id = excluded.blob_id`;
           yield* recordPlanRevision(sql, tabId, artifact);
-          if (artifact.kind === "plan" && !previous)
+          yield* initializePullRequestsTab(sql, tabId, artifact);
+          if (
+            (artifact.kind === "plan" && !previous) ||
+            (artifact.kind === "pull-requests" && previous?.kind !== "pull-requests")
+          )
             yield* sql`UPDATE live_tabs SET permanent = 1 WHERE id = ${tabId}`;
           return artifact;
         }),
