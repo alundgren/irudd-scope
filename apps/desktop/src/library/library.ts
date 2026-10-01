@@ -3,8 +3,25 @@ import type { ScopeClient } from "@irudd-scope/protocol/client";
 import type { ArtifactContent, ArtifactLibrarySnapshot } from "../bridge.ts";
 
 import type { PlanEvent } from "@irudd-scope/protocol/plan";
+import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
 
 export class ArtifactLibrary {
+  private pullRequestsListeners = new Set<(event: PullRequestsEvent) => void>();
+  private pullRequestsReconnectListeners = new Set<() => void>();
+
+  onPullRequestsReconnected(listener: () => void): () => void {
+    this.pullRequestsReconnectListeners.add(listener);
+    return () => {
+      this.pullRequestsReconnectListeners.delete(listener);
+    };
+  }
+
+  onPullRequestsChanged(listener: (event: PullRequestsEvent) => void): () => void {
+    this.pullRequestsListeners.add(listener);
+    return () => {
+      this.pullRequestsListeners.delete(listener);
+    };
+  }
   private planListeners = new Set<(event: PlanEvent) => void>();
   private planReconnectListeners = new Set<() => void>();
 
@@ -95,6 +112,13 @@ export class ArtifactLibrary {
                 console.error("A plan reconnect listener failed.");
               }
             }
+            for (const listener of this.pullRequestsReconnectListeners) {
+              try {
+                listener();
+              } catch {
+                console.error("A pull request reconnect listener failed.");
+              }
+            }
             void this.client
               .list(active.signal)
               .then((artifacts) => {
@@ -118,6 +142,14 @@ export class ArtifactLibrary {
                     error: "Could not refresh the artifact list.",
                   });
               });
+          } else if (event.type === "pull-requests") {
+            for (const listener of this.pullRequestsListeners) {
+              try {
+                listener(event);
+              } catch {
+                console.error("A pull request update listener failed.");
+              }
+            }
           } else if (event.type === "plan") {
             for (const listener of this.planListeners) {
               try {
@@ -170,5 +202,7 @@ export class ArtifactLibrary {
     this.cache.clear();
     this.planListeners.clear();
     this.planReconnectListeners.clear();
+    this.pullRequestsListeners.clear();
+    this.pullRequestsReconnectListeners.clear();
   }
 }
