@@ -126,6 +126,13 @@ export async function startPairedHub(
         "Scope on the Mac disconnected. Check the artifact before retrying an uncertain write.",
       );
   }
+  function requestTimedOut(id: string, receivingDesktop: ServerResponse, error: string) {
+    const item = pending.get(id);
+    if (!item) return;
+    const unstartedWrite = item.method !== "GET" && !item.bodyRead;
+    finish(id, error);
+    if (unstartedWrite && desktop === receivingDesktop) disconnect();
+  }
   const relay: RelayCall = (method, path, body, signal) =>
     new Promise((resolve, reject) => {
       if (!desktop || pending.size >= 16 || signal.aborted) {
@@ -133,6 +140,7 @@ export async function startPairedHub(
         return;
       }
       const id = randomUUID();
+      const receivingDesktop = desktop;
       const abort = () => finish(id);
       const item: Pending = {
         method,
@@ -146,7 +154,10 @@ export async function startPairedHub(
         bodyRead: false,
         answered: false,
         controller: new AbortController(),
-        timer: setTimeout(() => finish(id, "The Mac did not respond in time."), 30_000),
+        timer: setTimeout(
+          () => requestTimedOut(id, receivingDesktop, "The Mac did not respond in time."),
+          30_000,
+        ),
       };
       pending.set(id, item);
       signal.addEventListener("abort", abort, { once: true });
@@ -506,6 +517,7 @@ export async function startPairedHub(
       : 30_000;
     request.setTimeout(timeoutMs);
     const id = randomUUID();
+    const receivingDesktop = desktop;
     const item: Pending = {
       method: request.method!,
       path: request.url!,
@@ -515,7 +527,12 @@ export async function startPairedHub(
       answered: false,
       controller: new AbortController(),
       timer: setTimeout(
-        () => finish(id, "The Mac did not respond in time. Check the artifact before retrying."),
+        () =>
+          requestTimedOut(
+            id,
+            receivingDesktop,
+            "The Mac did not respond in time. Check the artifact before retrying.",
+          ),
         timeoutMs,
       ),
     };
