@@ -139,7 +139,7 @@ export const PullRequestsSnapshot = Schema.Struct({
 });
 export type PullRequestsSnapshot = typeof PullRequestsSnapshot.Type;
 const Named = { name: ArtifactName };
-const Write = { ...Named, requestId: PublicationTabId };
+const Write = { ...Named, tabId: PublicationTabId, requestId: PublicationTabId };
 const Versioned = { ...Write, nodeId: PullRequestNodeId, expectedVersion: Revision };
 export const PullRequestsCommand = Schema.Union([
   Schema.Struct({ ...Named, action: Schema.Literal("read") }),
