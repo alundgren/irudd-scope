@@ -145,101 +145,107 @@ test("built plan CLI exports durable visual feedback, commits a response and kee
   }
 });
 
-test("plan watcher wakes T3 for submitted rounds, recovers pending rounds and ignores comments/responses", async () => {
-  const f = await fixture();
-  const requests: { message: { text: string } }[] = [];
-  const t3 = createServer(async (request, response) => {
-    if (request.headers.authorization !== "Bearer synthetic-t3-plan-token") {
-      response.writeHead(401).end();
-      return;
-    }
-    response.setHeader("Content-Type", "application/json");
-    if (request.method === "GET")
-      response.end(
-        JSON.stringify({
-          thread: { id: "plan-thread", runtimeMode: "full-access", interactionMode: "default" },
-        }),
+test.for(["approval-required", "auto-accept-edits", "auto", "full-access"])(
+  "plan watcher delivers pending and new rounds to T3 in %s mode without echoing comments/responses",
+  async (runtimeMode) => {
+    const f = await fixture();
+    const requests: { runtimeMode: string; interactionMode: string; message: { text: string } }[] =
+      [];
+    const t3 = createServer(async (request, response) => {
+      if (request.headers.authorization !== "Bearer synthetic-t3-plan-token") {
+        response.writeHead(401).end();
+        return;
+      }
+      response.setHeader("Content-Type", "application/json");
+      if (request.method === "GET")
+        response.end(
+          JSON.stringify({
+            thread: { id: "plan-thread", runtimeMode, interactionMode: "default" },
+          }),
+        );
+      else {
+        let body = "";
+        for await (const chunk of request) body += chunk;
+        requests.push(JSON.parse(body));
+        response.end("{}");
+      }
+    });
+    t3.listen(0, "127.0.0.1");
+    await once(t3, "listening");
+    const address = t3.address();
+    if (!address || typeof address === "string") throw new Error("Missing address");
+    const tokenFile = join(f.directory, "t3-token");
+    await writeFile(tokenFile, "synthetic-t3-plan-token", { mode: 0o600 });
+    let child: ReturnType<typeof spawn> | undefined;
+    let closed: Promise<unknown> | undefined;
+    try {
+      const artifact = JSON.parse(
+        (await f.cli("add", f.html, "--plan", "--name", "cli-plan")).stdout,
       );
-    else {
-      let body = "";
-      for await (const chunk of request) body += chunk;
-      requests.push(JSON.parse(body));
-      response.end("{}");
+      const first = await addComment(f.client, artifact.revision);
+      await f.client.plan({
+        action: "submit",
+        name: "cli-plan",
+        requestId: randomUUID(),
+        commentIds: [first.id],
+      });
+      child = spawn(
+        process.execPath,
+        [
+          executable,
+          "plan",
+          "watch",
+          "cli-plan",
+          "--t3-thread",
+          "plan-thread",
+          "--t3-endpoint",
+          `http://127.0.0.1:${address.port}`,
+          "--t3-token-file",
+          tokenFile,
+        ],
+        { env: f.env, cwd: f.directory },
+      );
+      closed = once(child, "exit");
+      let diagnostics = "";
+      child.stderr!.on("data", (data) => {
+        diagnostics += data;
+      });
+      await expect.poll(() => diagnostics).toContain("Listening");
+      await expect.poll(() => requests.length).toBe(1);
+      expect(requests[0]).toMatchObject({ runtimeMode, interactionMode: "default" });
+      expect(requests[0].message.text).toContain((await read(f.client)).rounds[0].id);
+      const second = await addComment(f.client, artifact.revision);
+      await delay(200);
+      expect(requests).toHaveLength(1);
+      await f.client.plan({
+        action: "submit",
+        name: "cli-plan",
+        requestId: randomUUID(),
+        commentIds: [second.id],
+      });
+      await expect.poll(() => requests.length).toBe(2);
+      expect(requests[1]).toMatchObject({ runtimeMode, interactionMode: "default" });
+      const snapshot = await read(f.client);
+      await f.client.plan({
+        action: "respond",
+        name: "cli-plan",
+        requestId: randomUUID(),
+        roundId: snapshot.rounds[1].id,
+        expectedRevision: artifact.revision,
+        summary: "Answered",
+        replies: [{ commentId: second.id, text: "Confirmed" }],
+      });
+      await delay(200);
+      expect(requests).toHaveLength(2);
+    } finally {
+      child?.kill();
+      await closed;
+      t3.closeAllConnections();
+      await new Promise<void>((resolveClose) => t3.close(() => resolveClose()));
+      await f.close();
     }
-  });
-  t3.listen(0, "127.0.0.1");
-  await once(t3, "listening");
-  const address = t3.address();
-  if (!address || typeof address === "string") throw new Error("Missing address");
-  const tokenFile = join(f.directory, "t3-token");
-  await writeFile(tokenFile, "synthetic-t3-plan-token", { mode: 0o600 });
-  let child: ReturnType<typeof spawn> | undefined;
-  let closed: Promise<unknown> | undefined;
-  try {
-    const artifact = JSON.parse(
-      (await f.cli("add", f.html, "--plan", "--name", "cli-plan")).stdout,
-    );
-    const first = await addComment(f.client, artifact.revision);
-    await f.client.plan({
-      action: "submit",
-      name: "cli-plan",
-      requestId: randomUUID(),
-      commentIds: [first.id],
-    });
-    child = spawn(
-      process.execPath,
-      [
-        executable,
-        "plan",
-        "watch",
-        "cli-plan",
-        "--t3-thread",
-        "plan-thread",
-        "--t3-endpoint",
-        `http://127.0.0.1:${address.port}`,
-        "--t3-token-file",
-        tokenFile,
-      ],
-      { env: f.env, cwd: f.directory },
-    );
-    closed = once(child, "exit");
-    let diagnostics = "";
-    child.stderr!.on("data", (data) => {
-      diagnostics += data;
-    });
-    await expect.poll(() => diagnostics).toContain("Listening");
-    await expect.poll(() => requests.length).toBe(1);
-    expect(requests[0].message.text).toContain((await read(f.client)).rounds[0].id);
-    const second = await addComment(f.client, artifact.revision);
-    await delay(200);
-    expect(requests).toHaveLength(1);
-    await f.client.plan({
-      action: "submit",
-      name: "cli-plan",
-      requestId: randomUUID(),
-      commentIds: [second.id],
-    });
-    await expect.poll(() => requests.length).toBe(2);
-    const snapshot = await read(f.client);
-    await f.client.plan({
-      action: "respond",
-      name: "cli-plan",
-      requestId: randomUUID(),
-      roundId: snapshot.rounds[1].id,
-      expectedRevision: artifact.revision,
-      summary: "Answered",
-      replies: [{ commentId: second.id, text: "Confirmed" }],
-    });
-    await delay(200);
-    expect(requests).toHaveLength(2);
-  } finally {
-    child?.kill();
-    await closed;
-    t3.closeAllConnections();
-    await new Promise<void>((resolveClose) => t3.close(() => resolveClose()));
-    await f.close();
-  }
-});
+  },
+);
 
 test("hub plan route allowlist accepts bounded read and image paths", () => {
   expect(artifactRequest("POST", "/v1/plans")).toBe(true);

@@ -136,6 +136,15 @@ test("a plan keeps interactive HTML while captured comments, feedback, replies, 
     await page.getByRole("button", { name: "Send feedback (1)" }).click();
     await page.getByText("Awaiting agent · 1 comment").waitFor();
     const submitted = await snapshot();
+    await page.getByRole("button", { name: "Copy agent request", exact: true }).click();
+    await page.getByRole("button", { name: "Copied agent request", exact: true }).waitFor();
+    const agentRequest = await application.evaluate(({ clipboard }) => clipboard.readText());
+    expect(agentRequest).toContain(
+      `irudd-scope plan feedback ${artifact.name} ${submitted.rounds[0].id} --output NEW_DIRECTORY`,
+    );
+    expect(agentRequest).toContain("packet.json");
+    expect(agentRequest).toContain("annotated PNGs");
+    expect(agentRequest).toContain("irudd-scope plan respond");
     const response = await restartedClient.plan({
       action: "respond",
       name: artifact.name!,

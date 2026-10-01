@@ -86,13 +86,23 @@ response IDs equal `requestId`. Reads are bounded pages: continue a returned
 Restart if its review version changed. Feedback export retrieves only the
 selected round.
 
-`plan watch NAME` uses the same supported host flags described in
-[agent connections](references/agent-connections.md) and notifies only submitted
-rounds. Keep it alive under the host's process manager. Pending rounds recover
-after reconnect; notices may repeat after restart. Read durable round IDs and
-use stable response IDs. Scope does not launch agents. Without a listener,
-retrieve pending feedback manually. Review commands need the desktop online;
-initial plan publications can use the ordinary offline hub queue.
+Before handing a published plan back for review, read
+[agent connections](references/agent-connections.md) and connect
+`plan watch NAME` to the current supported host session. Keep it alive under
+the host's process manager and verify `Listening for submitted feedback on NAME`
+in its log before reporting that feedback is connected. Publishing a plan alone
+does not connect the agent. A watcher without a host destination only prints
+notices to stdout and cannot wake the agent. Use the T3 destination for Claude
+or Codex running inside T3; choose the destination by the session host.
+
+If the host destination, credentials or managed process facility are unavailable,
+say that automatic feedback delivery is unavailable. Tell the person to use
+Copy agent request on a pending round and paste it into this session. Read
+pending rounds with `plan read NAME` when continuing the plan task.
+Do not hold a model turn open waiting for feedback. Pending rounds recover after
+reconnect; notices may repeat after restart. Read durable round IDs and use stable
+response IDs. Scope does not launch agents. Review commands need the desktop
+online; initial plan publications can use the ordinary offline hub queue.
 
 Use an approved HTML revision and its feedback decisions as implementation
 instructions. Report implementation results, validation and remaining work in

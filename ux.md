@@ -309,7 +309,10 @@ Discard comment removes it and returns to the same live page.
 
 The person explicitly sends queued comments as a feedback round. Awaiting agent
 means feedback is saved for an external agent; Scope does not claim one is
-running. Responses appear in Feedback with the original comments and a link to
+running. Pending rounds explain that automatic delivery requires an agent
+listener and offer Copy agent request. Pasting that request into a coding
+session lets the agent retrieve the saved round and its screenshots even when
+no listener is connected. Responses appear in Feedback with the original comments and a link to
 the resulting revision. Seeing a response, resolving a comment and approving a
 revision are separate actions. A response leaves the current reading page in
 place until the person chooses another revision. Restoring history creates a
