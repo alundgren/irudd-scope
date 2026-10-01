@@ -63,7 +63,8 @@ function frameCommand(
 export function PullRequestsView({ artifact, active, theme, context }: TabProps) {
   const name = artifact?.name;
   const [content, setContent] = useState<{ html: string; revision: number }>();
-  const [error, setError] = useState("");
+  const [readError, setReadError] = useState("");
+  const [contentError, setContentError] = useState("");
   const [retry, setRetry] = useState(0);
   const iframe = useRef<HTMLIFrameElement>(null);
   const snapshot = useRef<PullRequestsSnapshot | undefined>(undefined);
@@ -140,10 +141,10 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
             ) {
               snapshot.current = reply.snapshot;
               sendSnapshot();
-              setError("");
+              setReadError("");
             }
           } catch (error) {
-            if (mounted) setError(failureMessage(error));
+            if (mounted) setReadError(failureMessage(error));
           }
         } while (mounted && read !== requested);
       })().finally(() => {
@@ -182,7 +183,7 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
         }
       })
       .catch((error: unknown) => {
-        if (mounted) setError(failureMessage(error));
+        if (mounted) setContentError(failureMessage(error));
       });
     return () => {
       mounted = false;
@@ -329,9 +330,9 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
   }, [active, name, context.tabId]);
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      {error && (
+      {(contentError || readError) && (
         <div role="alert">
-          {error}{" "}
+          {contentError || readError}{" "}
           <Button variant="ghost" onClick={() => setRetry((value) => value + 1)}>
             Retry
           </Button>
@@ -344,6 +345,9 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
           className="html-preview pull-requests-document"
           style={{ flex: 1, minHeight: 0 }}
           srcDoc={document}
+          onLoad={() => {
+            if (content?.revision === artifact?.revision) setContentError("");
+          }}
         />
       )}
     </div>

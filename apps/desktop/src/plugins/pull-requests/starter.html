@@ -532,7 +532,11 @@
             : merge === "clear"
               ? "Mergeable"
               : "Merge unknown",
-          p.hasUnresolvedConversations ? "Author's turn" : null,
+          p.hasUnresolvedConversations === null
+            ? "Conversations unknown"
+            : p.hasUnresolvedConversations
+              ? "Author's turn"
+              : null,
         ]
           .filter(Boolean)
           .join(" · ");
@@ -606,7 +610,11 @@
             .querySelector('[data-open="' + focused.open + '"]')
             ?.focus({ preventScroll: true });
       }
+      function moveToast() {
+        ($("review").hidden ? document.body : $("review")).append($("toast"));
+      }
       function notify(text, undo) {
+        moveToast();
         $("toast-text").textContent = text;
         undoAction = undo;
         $("undo").hidden = !undo;
@@ -688,6 +696,7 @@
         origin = id;
         section = "body";
         $("review").hidden = false;
+        moveToast();
         renderReview(true);
         $("close-review").focus();
       }
@@ -695,6 +704,7 @@
         const p = current();
         if (p && draft(p).dirty) void saveNote(p);
         $("review").hidden = true;
+        moveToast();
         document.querySelector('[data-open="' + origin + '"]')?.focus({ preventScroll: true });
       }
       function navigate(step) {

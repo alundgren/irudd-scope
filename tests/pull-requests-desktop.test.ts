@@ -442,7 +442,11 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
   try {
     await mkdir(evidence, { recursive: true });
     const { artifact, tabId } = await createStarterInbox(app);
-    await installCommands(app, snapshot(artifact, tabId));
+    const initial = {
+      ...snapshot(artifact, tabId),
+      prs: [pr(1), { ...pr(2), hasUnresolvedConversations: null }],
+    };
+    await installCommands(app, initial);
     await sendChange(app, "reconnect");
     const page = await app.firstWindow(),
       frame = page.frameLocator(".pull-requests-document");
@@ -451,7 +455,12 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
       .waitFor();
     expect(
       await frame.getByText("CI unknown · Merge unknown · Author's turn", { exact: true }).count(),
-    ).toBe(2);
+    ).toBe(1);
+    expect(
+      await frame
+        .getByText("CI unknown · Merge unknown · Conversations unknown", { exact: true })
+        .count(),
+    ).toBe(1);
     await page.screenshot({ path: join(evidence, "inbox-light.png") });
     await frame
       .getByRole("button", { name: "Keep the current review stable 1", exact: true })
@@ -513,7 +522,13 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
     await frame.getByRole("heading", { name: "Keep the current review stable 2" }).waitFor();
     await frame.getByRole("button", { name: "Previous pull request" }).click();
     await frame.getByRole("heading", { name: "New head while inspecting" }).waitFor();
-    await frame.getByRole("button", { name: "Undo", exact: true }).click();
+    await frame.getByRole("button", { name: "Snooze pull request", exact: true }).focus();
+    await page.keyboard.press("Tab");
+    const undo = frame
+      .getByRole("dialog", { name: "Inspect pull request" })
+      .getByRole("button", { name: "Undo", exact: true });
+    expect(await undo.evaluate((element) => element === document.activeElement)).toBe(true);
+    await page.keyboard.press("Enter");
     await frame.getByText("In your inbox", { exact: true }).waitFor();
     await page.screenshot({ path: join(evidence, "review-light.png") });
     await frame.getByRole("button", { name: "Back to inbox" }).click();
@@ -583,6 +598,65 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
     await frame.getByRole("button", { name: "Next pull request" }).click();
     await frame.getByRole("heading", { name: "Keep the current review stable 2" }).waitFor();
   } finally {
+    await app.close();
+    await rm(fixture.directory, { recursive: true, force: true });
+    await rm(fixture.ghDirectory, { recursive: true, force: true });
+  }
+});
+
+test("a failed HTML replacement keeps Retry after note recovery until the new app loads", async () => {
+  const fixture = await offlineFixture();
+  const app = await fixture.launch();
+  try {
+    const { artifact, tabId } = await createStarterInbox(app);
+    await installCommands(app, snapshot(artifact, tabId));
+    await sendChange(app, "reconnect");
+    const page = await app.firstWindow(),
+      frame = page.frameLocator(".pull-requests-document");
+    await frame
+      .getByRole("button", { name: "Keep the current review stable 1", exact: true })
+      .click();
+    await sendChange(app, "note-error");
+    await frame.getByLabel("Your notes").fill("Keep my draft during the app update");
+    const html = (await readFile("apps/desktop/src/plugins/pull-requests/starter.html", "utf8"))
+      .replace("/* SCOPE_TOKENS */", await readFile("apps/desktop/src/renderer/tokens.css", "utf8"))
+      .replace("<body>", '<body><p id="revision-two">Updated inbox app</p>');
+    const client = await fixture.connect();
+    await client.publish(
+      artifact.id,
+      {
+        name: artifact.name!,
+        title: artifact.title,
+        kind: "pull-requests",
+        mediaType: "text/html",
+        fileName: "inbox.html",
+        expectedRevision: artifact.revision,
+      },
+      Buffer.from(html),
+    );
+    const retry = page.getByRole("alert").getByRole("button", { name: "Retry", exact: true });
+    await retry.waitFor();
+    expect(await frame.getByLabel("Your notes").inputValue()).toBe(
+      "Keep my draft during the app update",
+    );
+    expect(await frame.locator("#revision-two").count()).toBe(0);
+    await sendChange(app, "note-ok");
+    await frame.getByRole("button", { name: "Save note", exact: true }).click();
+    await frame.getByText("Saved", { exact: true }).waitFor();
+    // Note recovery refreshes the snapshot, but only loading the pending HTML can clear Retry.
+    await sendChange(app, "new-head");
+    await frame.getByRole("button", { name: "New head while inspecting", exact: true }).waitFor();
+    await retry.waitFor();
+    expect(await frame.locator("#revision-two").count()).toBe(0);
+    await retry.click();
+    await frame.getByText("Updated inbox app", { exact: true }).waitFor();
+    await expect.poll(() => page.getByRole("alert").count()).toBe(0);
+    await frame.getByRole("button", { name: "New head while inspecting", exact: true }).click();
+    expect(await frame.getByLabel("Your notes").inputValue()).toBe(
+      "Keep my draft during the app update",
+    );
+  } finally {
+    await sendChange(app, "note-ok");
     await app.close();
     await rm(fixture.directory, { recursive: true, force: true });
     await rm(fixture.ghDirectory, { recursive: true, force: true });
