@@ -289,28 +289,33 @@ tabs than fit on a Mac laptop or external monitor.
 Plans always have an immutable unique name and start permanent. Later updates
 respect the person's permanence choice. Ordinary trusted HTML remains the
 content, including scripts and external resources. The reading page uses the
-available width. Compact Comment and Feedback controls occupy a bottom row
-that remains accessible while Feedback is open; focus mode hides the row.
-Feedback is an overlay that closes completely rather
-than a reserved column. The page stays mounted when controls toggle, a comment
-is canceled, or an agent responds.
+available width and height. A small floating pin control starts a comment;
+Copy and Send appear beside it when feedback is collected. Focus mode hides
+these controls. Feedback and version history open in a compact overlay on
+request, with no reserved column or comment list. The page stays mounted when
+controls toggle, a comment is canceled, or an agent responds.
 
-Comment freezes the visible page at its current revision. Box and pin
-marks attach feedback to that captured image. A separate text field records the
-question or requested change. The original image, marked image, geometry and
-text stay together. Box is the default marking tool. Unresolved comment marks,
-including unsent drafts, remain over the live page and move with document scrolling.
-They never intercept page interactions. Marks appear only on their captured
-revision at the captured viewport width; Scope does not guess a new location
-after HTML changes or responsive reflow. Existing comments without capture
-position metadata retain their marked screenshots in Feedback.
+The pin control freezes the visible page at its current revision. Clicking the
+capture places one pin, with a small comment editor beside it. Adding a comment
+saves it for the next feedback round. Enter adds it; Shift+Enter adds a line.
+The original image, marked image, geometry and text stay together. Unresolved
+pins, including unsent drafts, remain over the live page and move with document
+scrolling. Clicking a saved pin opens its comment and replies beside the pin.
+Only the pin and its open comment intercept page interactions. Existing box
+and arrow annotations remain visible in their captured screenshots. Marks
+appear only on their captured revision at the captured viewport width; Scope does not guess a new location
+after HTML changes or responsive reflow. Captured pins in Feedback provide
+access to saved comments and screenshots when their live pins are unavailable, including comments without capture
+position metadata.
 Unfinished comments persist across restart. Back to plan retains the draft;
 Discard comment removes it and returns to the same live page.
 
 The person explicitly sends queued comments as a feedback round. Awaiting agent
 means feedback is saved for an external agent; Scope does not claim one is
-running. Pending rounds explain that automatic delivery requires an agent
-listener and offer Copy agent request. Pasting that request into a coding
+running. Send submits collected comments together, up to 100 per round. Copy submits
+the collected comments and copies an agent request for all pending rounds.
+Pending rounds explain that automatic delivery requires an agent listener and
+also offer a request for the individual round. Pasting that request into a coding
 session lets the agent retrieve the saved round and its screenshots even when
 no listener is connected. Responses appear in Feedback with the original comments and a link to
 the resulting revision. Seeing a response, resolving a comment and approving a
