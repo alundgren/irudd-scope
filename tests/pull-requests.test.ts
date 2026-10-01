@@ -881,3 +881,266 @@ test("review baselines retain the inspected commit when synchronization finds a 
   expect(current.prs[0].local.reviewed?.headOid).toBe(newerHead);
   expect(current.prs[0].headOid !== current.prs[0].local.reviewed?.headOid).toBe(false);
 });
+
+test("complete sync wakes only commit-sensitive snoozes and invalidates stale Undo", async () => {
+  const f = await fixture();
+  await f.configure();
+  const initial = await f.read();
+  await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [facts(1), facts(2), facts(3)],
+    completedAt: now,
+  });
+  const snooze = {
+    action: "snooze" as const,
+    name,
+    tabId: initial.tabId,
+    nodeId: "PR_1",
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    snooze: { until: "2026-10-05T12:00:00.000Z", headOid: head, wakeOnNewCommit: true },
+  };
+  await f.client.pullRequests(snooze);
+  await f.client.pullRequests({
+    ...snooze,
+    requestId: randomUUID(),
+    nodeId: "PR_2",
+    snooze: { ...snooze.snooze, wakeOnNewCommit: false },
+  });
+  await f.client.pullRequests({ ...snooze, requestId: randomUUID(), nodeId: "PR_3" });
+  await f.client.pullRequests({
+    action: "note",
+    name,
+    tabId: initial.tabId,
+    nodeId: "PR_1",
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    text: "Retain my note",
+  });
+  await f.client.pullRequests({
+    action: "review",
+    name,
+    tabId: initial.tabId,
+    nodeId: "PR_1",
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    baseline: "inspected",
+    headOid: head,
+  });
+  await f.client.pullRequests({
+    action: "assessment",
+    name,
+    tabId: initial.tabId,
+    nodeId: "PR_1",
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    assessment: {
+      text: "Captured commit assessment",
+      author: "agent",
+      headOid: head,
+      evidenceIds: [],
+      discussionUpdatedAt: null,
+      createdAt: now,
+    },
+    customFields: [],
+  });
+  const newerHead = "c".repeat(40);
+  const changed = (number: number) => ({
+    ...facts(number),
+    headOid: newerHead,
+    merge: { ...facts(number).merge, headOid: newerHead },
+  });
+  f.server.store.pullRequests.setHandlers({
+    sync: (tabId) =>
+      f.server.store.pullRequests.commitInventory(tabId, {
+        repository,
+        viewer: "viewer",
+        prs: [
+          changed(1),
+          changed(2),
+          {
+            ...facts(3),
+            title: "Comments and base changed, same head",
+            baseOid: newerHead,
+            merge: { ...facts(3).merge, baseOid: newerHead },
+            hasUnresolvedConversations: true,
+          },
+        ],
+        completedAt: now,
+      }),
+    detail: async () => {
+      throw new Error("Not needed");
+    },
+  });
+  const sync = { action: "sync" as const, name, tabId: initial.tabId, requestId: randomUUID() };
+  const updated = snapshot(await f.client.pullRequests(sync));
+  const first = updated.prs.find((pr) => pr.nodeId === "PR_1")!;
+  expect(first).toMatchObject({
+    headOid: newerHead,
+    local: {
+      snooze: null,
+      snoozeVersion: 2,
+      note: "Retain my note",
+      noteVersion: 1,
+      inspected: { headOid: head },
+      reviewed: null,
+      reviewVersion: 1,
+    },
+    agent: { version: 1, assessment: { headOid: head } },
+  });
+  expect(updated.prs.find((pr) => pr.nodeId === "PR_2")?.local).toMatchObject({
+    snooze: { ...snooze.snooze, wakeOnNewCommit: false },
+    snoozeVersion: 1,
+  });
+  expect(updated.prs.find((pr) => pr.nodeId === "PR_3")?.local).toMatchObject({
+    snooze: snooze.snooze,
+    snoozeVersion: 1,
+  });
+  await expect(
+    f.client.pullRequests({ ...snooze, requestId: randomUUID(), expectedVersion: 1, snooze: null }),
+  ).rejects.toMatchObject({ status: 409 });
+  expect(
+    snapshot(await f.client.pullRequests(snooze)).prs.find((pr) => pr.nodeId === "PR_1")?.local,
+  ).toEqual(first.local);
+  expect(
+    snapshot(await f.client.pullRequests({ ...sync, requestId: randomUUID() })).prs.find(
+      (pr) => pr.nodeId === "PR_1",
+    )?.local,
+  ).toEqual(first.local);
+});
+
+test.each([false, true])(
+  "sync uses the latest in-flight snooze with wake=%s",
+  async (wakeOnNewCommit) => {
+    const f = await fixture();
+    await f.configure();
+    const initial = await f.read();
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
+      repository,
+      viewer: "viewer",
+      prs: [facts()],
+      completedAt: now,
+    });
+    const snooze = {
+      action: "snooze" as const,
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      snooze: { until: "2026-10-05T12:00:00.000Z", headOid: head, wakeOnNewCommit: true },
+    };
+    await f.client.pullRequests(snooze);
+    let release!: () => void, entered!: () => void;
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const newerHead = "c".repeat(40);
+    f.server.store.pullRequests.setHandlers({
+      sync: async (tabId) => {
+        entered();
+        await hold;
+        return f.server.store.pullRequests.commitInventory(tabId, {
+          repository,
+          viewer: "viewer",
+          completedAt: now,
+          prs: [
+            { ...facts(), headOid: newerHead, merge: { ...facts().merge, headOid: newerHead } },
+          ],
+        });
+      },
+      detail: async () => {
+        throw new Error("Not needed");
+      },
+    });
+    const syncing = f.client.pullRequests({
+      action: "sync",
+      name,
+      tabId: initial.tabId,
+      requestId: randomUUID(),
+    });
+    const latest = { ...snooze.snooze, until: "2026-10-06T12:00:00.000Z", wakeOnNewCommit };
+    try {
+      await started;
+      await f.client.pullRequests({
+        ...snooze,
+        requestId: randomUUID(),
+        expectedVersion: 1,
+        snooze: latest,
+      });
+      await f.client.pullRequests({
+        action: "note",
+        name,
+        tabId: initial.tabId,
+        nodeId: "PR_1",
+        requestId: randomUUID(),
+        expectedVersion: 0,
+        text: "Written during fetch",
+      });
+    } finally {
+      release();
+    }
+    expect(snapshot(await syncing).prs[0].local).toMatchObject({
+      snooze: wakeOnNewCommit ? null : latest,
+      snoozeVersion: wakeOnNewCommit ? 3 : 2,
+      note: "Written during fetch",
+      noteVersion: 1,
+    });
+  },
+);
+
+test("failed, invalid and cancelled inventories preserve commit-sensitive snoozes", async () => {
+  const f = await fixture();
+  await f.configure();
+  const initial = await f.read();
+  await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [facts()],
+    completedAt: now,
+  });
+  await f.client.pullRequests({
+    action: "snooze",
+    name,
+    tabId: initial.tabId,
+    nodeId: "PR_1",
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    snooze: { until: "2026-10-05T12:00:00.000Z", headOid: head, wakeOnNewCommit: true },
+  });
+  const saved = await f.read();
+  f.server.store.pullRequests.setHandlers({
+    sync: async () => {
+      throw new Error("Synthetic incomplete inventory");
+    },
+    detail: async () => {
+      throw new Error("Not needed");
+    },
+  });
+  await expect(
+    f.client.pullRequests({ action: "sync", name, tabId: initial.tabId, requestId: randomUUID() }),
+  ).rejects.toThrow();
+  const newerHead = "c".repeat(40);
+  const inventory = {
+    repository,
+    viewer: "viewer",
+    completedAt: now,
+    prs: [{ ...facts(), headOid: newerHead, merge: { ...facts().merge, headOid: newerHead } }],
+  };
+  await expect(
+    f.server.store.pullRequests.commitInventory(initial.tabId, {
+      ...inventory,
+      prs: [...inventory.prs, facts()],
+    }),
+  ).rejects.toThrow();
+  const controller = new AbortController();
+  controller.abort();
+  await expect(
+    f.server.store.pullRequests.commitInventory(initial.tabId, inventory, controller.signal),
+  ).rejects.toThrow();
+  expect(await f.read()).toEqual(saved);
+});
