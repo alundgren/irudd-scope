@@ -1365,25 +1365,31 @@ h2 {
   background: var(--scope-canvas);
 }
 .plan-controls {
+  position: absolute;
+  z-index: 2;
+  right: var(--scope-space-3);
+  top: var(--scope-space-3);
   display: flex;
-  flex-shrink: 0;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: var(--scope-space-2);
-  padding: var(--scope-space-2) var(--scope-space-4);
+  align-items: center;
+  gap: var(--scope-space-1);
+  padding: var(--scope-space-1);
   background: var(--scope-panel);
-  border-top: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-control);
+  box-shadow: var(--scope-shadow);
 }
 .plan-review {
   position: absolute;
   z-index: 2;
-  inset: 0 0 0 auto;
-  width: min(390px, 100%);
+  right: var(--scope-space-3);
+  top: calc(var(--scope-control) + var(--scope-space-6));
+  width: min(360px, calc(100% - var(--scope-space-6)));
+  max-height: calc(100% - var(--scope-control) - var(--scope-space-8));
+  border-radius: var(--scope-radius-control);
   display: flex;
   flex-direction: column;
   background: var(--scope-panel);
   color: var(--scope-text);
-  border-left: 1px solid var(--scope-line);
+  border: 1px solid var(--scope-line);
   box-shadow: var(--scope-shadow);
 }
 .plan-review-heading {
@@ -1409,17 +1415,13 @@ h2 {
   gap: var(--scope-space-2);
 }
 .plan-version-controls,
-.plan-send,
-.plan-response,
-.plan-comment {
+.plan-response {
   padding-block: var(--scope-space-3);
 }
-.plan-response,
-.plan-comment {
+.plan-response {
   border-top: 1px solid var(--scope-line);
 }
-.plan-version-controls label,
-.plan-capture-controls label {
+.plan-version-controls label {
   display: flex;
   flex-direction: column;
   gap: var(--scope-space-1);
@@ -1458,11 +1460,6 @@ h2 {
   border-radius: var(--scope-radius-control);
   margin-block: var(--scope-space-2);
 }
-.plan-queue-choice {
-  display: flex;
-  align-items: center;
-  gap: var(--scope-space-1);
-}
 .plan-reply {
   margin-block: var(--scope-space-3);
 }
@@ -1492,14 +1489,57 @@ h2 {
   cursor: crosshair;
   touch-action: none;
 }
-.plan-capture-controls {
-  display: flex;
-  flex-direction: column;
-  gap: var(--scope-space-2);
-  max-height: 55%;
+.plan-pin-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.plan-comment-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  color: var(--scope-danger);
+  border-color: var(--scope-danger);
+  border-radius: 50%;
+}
+.plan-pin-popover {
+  position: absolute;
+  z-index: 1;
+  width: min(320px, calc(100% - var(--scope-space-4)));
+  max-height: calc(100% - var(--scope-space-4));
   overflow-y: auto;
-  padding: var(--scope-space-3) var(--scope-space-4);
-  border-top: 1px solid var(--scope-line);
+  pointer-events: auto;
+  padding: var(--scope-space-2);
+  background: var(--scope-panel);
+  color: var(--scope-text);
+  border: 1px solid var(--scope-outline);
+  border-radius: var(--scope-radius-control);
+  box-shadow: var(--scope-shadow);
+}
+.plan-pin-heading,
+.plan-pin-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--scope-space-1);
+}
+.plan-pin-heading {
+  margin-bottom: var(--scope-space-1);
+}
+.plan-pin-heading > svg {
+  width: var(--scope-space-4);
+  height: var(--scope-space-4);
+  color: var(--scope-muted);
+}
+.plan-pin-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: var(--scope-space-1);
+}
+.plan-pin-popover textarea {
+  min-height: 64px;
+  max-height: 160px;
+  font-size: var(--scope-text-ui);
 }
 .plan-notice {
   position: absolute;
@@ -1528,4 +1568,24 @@ h2 {
   inset: 0;
   visibility: hidden;
   pointer-events: none;
+}
+
+.plan-view[data-focus="true"] .plan-comment-pin,
+.plan-view[data-focus="true"] .plan-pin-popover {
+  display: none;
+}
+
+.plan-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--scope-space-1);
+}
+.plan-feedback-actions [role="alert"] {
+  color: var(--scope-danger);
+  font-size: var(--scope-text-ui);
+}
+
+.plan-view:has(.plan-pin-layer .plan-pin-popover) .plan-controls > .plan-feedback-actions {
+  display: none;
 }

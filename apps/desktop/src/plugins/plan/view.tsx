@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { PlanCommand, PlanSnapshot } from "@irudd-scope/protocol/plan";
 import { readPlanSnapshot } from "@irudd-scope/protocol/plan";
-import { MessageSquare, Plus } from "lucide-react";
+import { MessageSquare, Pin } from "lucide-react";
 import type { TabProps } from "../api.ts";
 import type { PlanDraft } from "./draft.ts";
 import { CommentCapture, markedScreenshot } from "./annotation.tsx";
 import { PlanReview } from "./review.tsx";
+import { FeedbackActions } from "./feedback-actions.tsx";
 import { useDocumentScroll } from "./document-scroll.ts";
 import { PendingMarks, readDocumentViewport } from "./pending-marks.tsx";
 import { Button } from "../../renderer/components/ui/button.tsx";
@@ -185,7 +186,7 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
         ...result,
         text: "",
         page,
-        annotations: [],
+        annotations: [{ type: "pin", at: { x: 0.25, y: 0.25 } }],
         ...(viewport && { viewport }),
         requestId: crypto.randomUUID(),
         ...(selectedText && { selectedText }),
@@ -223,7 +224,7 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
         changeDraft(null);
         await persistence.flush();
         setCaptureOpen(false);
-        showReview(true);
+        showReview(false);
       }
     } catch (failure) {
       setError(message(failure));
@@ -232,7 +233,7 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
     }
   }
   return (
-    <div className="plan-view">
+    <div className="plan-view" data-focus={focus}>
       <div className="plan-page">
         <iframe
           key={content?.revision}
@@ -243,7 +244,15 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
           onLoad={observeDocument}
         />
         {!capturing && !loading && content?.revision === revision && (
-          <PendingMarks iframe={iframe} snapshot={snapshot} revision={revision} draft={draft} />
+          <PendingMarks
+            iframe={iframe}
+            snapshot={snapshot}
+            revision={revision}
+            draft={draft}
+            command={command}
+            busy={busy}
+            onResume={() => setCaptureOpen(true)}
+          />
         )}
         {loading && (
           <p className="plan-notice" role="status">
@@ -264,23 +273,37 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
       {!focus && (
         <div
           className="plan-controls"
-          style={{ visibility: capturing || captureOpen ? "hidden" : undefined }}
+          style={{ display: capturing || captureOpen ? "none" : undefined }}
         >
           <Button
             variant="outline"
+            size="icon-sm"
+            aria-label={draft ? "Resume comment" : "Comment"}
+            title={draft ? "Resume comment" : "Pin a comment"}
             disabled={loading || busy || !draftLoaded}
             onClick={() => void capture()}
           >
-            <Plus />
-            {draft ? "Resume comment" : "Comment"}
+            <Pin />
           </Button>
+          {snapshot && (
+            <FeedbackActions
+              snapshot={snapshot}
+              revision={revision}
+              command={command}
+              busy={busy}
+            />
+          )}
           <Button
             variant="outline"
+            size="icon-sm"
+            aria-label={
+              snapshot?.responses.some((response) => !response.seen) ? "Feedback · new" : "Feedback"
+            }
+            title="Feedback and versions"
             aria-expanded={reviewOpen && !focus}
             onClick={() => showReview(!reviewOpen)}
           >
             <MessageSquare />
-            Feedback{snapshot?.responses.some((response) => !response.seen) ? " · new" : ""}
           </Button>
         </div>
       )}

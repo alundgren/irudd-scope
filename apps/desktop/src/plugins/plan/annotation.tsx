@@ -1,11 +1,12 @@
-import { useRef, useState, type PointerEvent } from "react";
+import { useRef, type PointerEvent } from "react";
+import { Check, Pin, Trash2, X } from "lucide-react";
 import type { PlanAnnotation } from "@irudd-scope/protocol/plan";
 import type { PlanDraft } from "./draft.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
-import { Input } from "../../renderer/components/ui/input.tsx";
 import { Textarea } from "../../renderer/components/ui/textarea.tsx";
 
-type Point = { x: number; y: number };
+import { PinPopover } from "./pin.tsx";
+
 export async function markedScreenshot(draft: PlanDraft): Promise<string> {
   const image = new Image();
   image.src = `data:image/png;base64,${draft.image}`;
@@ -123,26 +124,25 @@ export function CommentCapture({
   busy: boolean;
 }) {
   const svg = useRef<SVGSVGElement>(null);
-  const [tool, setTool] = useState<"box" | "pin">("box");
-  const [start, setStart] = useState<Point>();
-  const [preview, setPreview] = useState<PlanAnnotation>();
-  function point(event: PointerEvent<SVGSVGElement>): Point {
+  const mark = draft.annotations.find((annotation) => annotation.type === "pin");
+  const at = mark?.at ?? { x: 0.25, y: 0.25 };
+  function placePin(event: PointerEvent<SVGSVGElement>) {
+    if (busy) return;
     const matrix = svg.current?.getScreenCTM();
-    if (!matrix) return { x: 0, y: 0 };
-    const value = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
-    return {
-      x: Math.max(0, Math.min(1, value.x / draft.width)),
-      y: Math.max(0, Math.min(1, value.y / draft.height)),
-    };
-  }
-  function finish(event: PointerEvent<SVGSVGElement>) {
-    if (!start) return;
-    const at = point(event);
-    const mark: PlanAnnotation =
-      tool === "pin" ? { type: "pin", at } : { type: tool, from: start, to: at };
-    onChange({ ...draft, annotations: [...draft.annotations, mark] });
-    setStart(undefined);
-    setPreview(undefined);
+    if (!matrix) return;
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    onChange({
+      ...draft,
+      annotations: [
+        {
+          type: "pin",
+          at: {
+            x: Math.max(0, Math.min(1, point.x / draft.width)),
+            y: Math.max(0, Math.min(1, point.y / draft.height)),
+          },
+        },
+      ],
+    });
   }
   return (
     <div
@@ -163,24 +163,8 @@ export function CommentCapture({
           role="img"
           aria-label="Frozen plan screenshot, draw annotations here"
           viewBox={`0 0 ${draft.width} ${draft.height}`}
-          onPointerDown={(event) => {
-            if (busy || draft.annotations.length >= 50) return;
-            event.currentTarget.setPointerCapture(event.pointerId);
-            setStart(point(event));
-          }}
-          onPointerMove={(event) => {
-            if (start)
-              setPreview(
-                tool === "pin"
-                  ? { type: "pin", at: point(event) }
-                  : { type: tool, from: start, to: point(event) },
-              );
-          }}
-          onPointerUp={finish}
-          onPointerCancel={() => {
-            setStart(undefined);
-            setPreview(undefined);
-          }}
+          preserveAspectRatio="none"
+          onPointerDown={placePin}
         >
           <image
             href={`data:image/png;base64,${draft.image}`}
@@ -188,74 +172,61 @@ export function CommentCapture({
             height={draft.height}
           />
           <AnnotationMarks
-            annotations={preview ? [...draft.annotations, preview] : draft.annotations}
+            annotations={draft.annotations}
             width={draft.width}
             height={draft.height}
           />
         </svg>
       </div>
-      <section className="plan-capture-controls">
-        <div className="plan-actions" role="group" aria-label="Annotation tools">
-          {(["box", "pin"] as const).map((value) => (
+      <PinPopover x={at.x} y={at.y}>
+        <div className="plan-pin-heading">
+          <Pin aria-hidden="true" />
+          <div className="plan-actions">
             <Button
-              key={value}
+              size="icon-xs"
+              variant="ghost"
+              aria-label="Discard comment"
+              title="Discard comment"
               disabled={busy}
-              variant={tool === value ? "secondary" : "ghost"}
-              aria-pressed={tool === value}
-              onClick={() => setTool(value)}
+              onClick={onDiscard}
             >
-              {value[0].toUpperCase() + value.slice(1)}
+              <Trash2 />
             </Button>
-          ))}
-          <Button
-            variant="ghost"
-            disabled={!draft.annotations.length || busy}
-            onClick={() => onChange({ ...draft, annotations: draft.annotations.slice(0, -1) })}
-          >
-            Undo mark
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={!draft.annotations.length || busy}
-            onClick={() => onChange({ ...draft, annotations: [] })}
-          >
-            Clear marks
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label="Back to plan"
+              title="Back to plan, keep draft"
+              disabled={busy}
+              onClick={onCancel}
+            >
+              <X />
+            </Button>
+          </div>
+        </div>
+        <Textarea
+          aria-label="Comment"
+          placeholder="Add a comment…"
+          autoFocus
+          disabled={busy}
+          maxLength={16_384}
+          rows={2}
+          value={draft.text}
+          onChange={(event) => onChange({ ...draft, text: event.target.value })}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              if (!busy && draft.text.trim()) onSave();
+            }
+          }}
+        />
+        <div className="plan-pin-actions">
+          <Button size="xs" variant="ghost" disabled={busy || !draft.text.trim()} onClick={onSave}>
+            <Check />
+            {busy ? "Saving…" : "Add comment"}
           </Button>
         </div>
-        <label>
-          Comment
-          <Textarea
-            aria-label="Comment"
-            autoFocus
-            disabled={busy}
-            maxLength={16_384}
-            rows={3}
-            value={draft.text}
-            onChange={(event) => onChange({ ...draft, text: event.target.value })}
-          />
-        </label>
-        <label>
-          Page label, optional
-          <Input
-            disabled={busy}
-            maxLength={512}
-            value={draft.page}
-            onChange={(event) => onChange({ ...draft, page: event.target.value })}
-          />
-        </label>
-        <div className="plan-actions">
-          <Button disabled={busy || !draft.text.trim()} onClick={onSave}>
-            {busy ? "Adding…" : "Add comment"}
-          </Button>
-          <Button variant="ghost" disabled={busy} onClick={onCancel}>
-            Back to plan
-          </Button>
-          <Button variant="destructive" disabled={busy} onClick={onDiscard}>
-            Discard comment
-          </Button>
-          <span className="secondary">Captured version {draft.revision}</span>
-        </div>
-      </section>
+      </PinPopover>
     </div>
   );
 }
