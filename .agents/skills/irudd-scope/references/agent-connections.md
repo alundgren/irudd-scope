@@ -9,6 +9,14 @@ Plan rounds are durable. Notices may repeat after listener restart, so identify
 work by round ID and keep response request IDs stable. The listener reports
 `Listening for submitted feedback on NAME`. Scope does not start agent sessions.
 
+Connect the listener before handing a plan back for review. Verify that readiness
+message in the managed process log. A successful publication or feedback
+submission saves data but does not establish an agent connection. Without host
+flags, `plan watch` prints notices to stdout only. If automatic delivery is
+unavailable, the person can use Copy agent request in the plan's Feedback panel
+and paste the request into their coding session. It identifies the saved round
+so the agent can retrieve its comments and screenshots.
+
 The following diagram-specific version and working-file rules remain for
 `diagram watch`; host setup, credentials and process lifetime apply to both.
 
@@ -39,6 +47,12 @@ loop. Start it under the session host or a service manager that survives tool
 cleanup; shell backgrounding and `nohup` alone may not survive that cleanup.
 
 ## T3 Code
+
+Use the T3 destination for every agent running inside T3, including Claude and
+Codex. `--claude-channel` is for a direct Claude Code channel, and
+`--codex-thread` is for a direct Codex App Server session. Neither connects a T3
+thread. The T3 listener preserves the thread's permission and interaction modes,
+including Auto and Accept edits.
 
 Use T3's normal `t3 pair` flow to obtain a scoped bearer, stored in a private
 token file. The required scopes are `orchestration:read` and
@@ -75,6 +89,10 @@ task ends, run `systemctl --user stop scope-diagram-NAME`. Do not enable automat
 restart after a host delivery error: inspect the thread before reconnecting so
 an uncertain request is not repeated. On other hosts, use their managed process
 facility with the same lifetime and cleanup rules.
+
+For a plan, replace `diagram watch` with `plan watch` and use a unit such as
+`scope-plan-NAME`. Verify `Listening for submitted feedback on NAME`, and stop
+that unit when the plan task ends. Reconnecting recovers saved pending rounds.
 
 T3 receives a user follow-up through its authenticated orchestration API.
 Delivery while busy follows T3's queue behavior. Its command ID remains the

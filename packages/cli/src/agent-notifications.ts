@@ -152,7 +152,9 @@ async function t3Sender(options: AgentNotificationOptions, signal: AbortSignal) 
   const thread = snapshot.thread;
   if (
     thread?.id !== threadId ||
-    !["approval-required", "full-access"].includes(thread.runtimeMode) ||
+    !["approval-required", "auto-accept-edits", "auto", "full-access"].includes(
+      thread.runtimeMode,
+    ) ||
     !["default", "plan"].includes(thread.interactionMode)
   )
     throw new Error("T3 returned an unexpected thread contract.");

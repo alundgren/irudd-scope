@@ -69,6 +69,8 @@ export function PlanReview({
     (comment) => !comment.resolved && !submitted.has(comment.id) && comment.revision === revision,
   );
   const [selected, setSelected] = useState<string[]>([]);
+  const [copiedRound, setCopiedRound] = useState("");
+  const [copyError, setCopyError] = useState("");
   useEffect(() => setSelected([]), [revision]);
   const validSelection = queued
     .filter((comment) => selected.includes(comment.id))
@@ -83,6 +85,18 @@ export function PlanReview({
       await command({ action: "submit", name, requestId: crypto.randomUUID(), commentIds: sendIds })
     )
       setSelected([]);
+  }
+  async function copyRequest(roundId: string) {
+    setCopyError("");
+    setCopiedRound("");
+    try {
+      await navigator.clipboard.writeText(
+        `Please review my submitted feedback for Scope plan ${name}, round ${roundId}. Run irudd-scope plan feedback ${name} ${roundId} --output NEW_DIRECTORY using a new output directory. Read packet.json and inspect the annotated PNGs, then address each comment and reply using irudd-scope plan respond. Use irudd-scope plan guide for the response contract.`,
+      );
+      setCopiedRound(roundId);
+    } catch {
+      setCopyError("Could not copy the agent request. Try again.");
+    }
   }
   return (
     <aside className="plan-review" aria-label="Plan feedback">
@@ -182,11 +196,21 @@ export function PlanReview({
         {snapshot.rounds
           .filter((round) => round.status === "pending")
           .map((round) => (
-            <p role="status" key={round.id} className="plan-awaiting">
-              Awaiting agent · {round.commentIds.length}{" "}
-              {round.commentIds.length === 1 ? "comment" : "comments"}
-            </p>
+            <section key={round.id} className="plan-awaiting" aria-label="Pending feedback round">
+              <p role="status">
+                Awaiting agent · {round.commentIds.length}{" "}
+                {round.commentIds.length === 1 ? "comment" : "comments"}
+              </p>
+              <p className="secondary">
+                Feedback is saved. Automatic delivery requires a connected agent. You can also copy
+                this request and paste it into your agent's conversation.
+              </p>
+              <Button size="xs" variant="ghost" onClick={() => void copyRequest(round.id)}>
+                {copiedRound === round.id ? "Copied agent request" : "Copy agent request"}
+              </Button>
+            </section>
           ))}
+        {copyError && <p role="alert">{copyError}</p>}
         {snapshot.responses.map((response) => (
           <section key={response.id} className="plan-response" aria-label="Agent response">
             <div className="plan-actions">
