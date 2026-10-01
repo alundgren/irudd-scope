@@ -12,7 +12,8 @@
     "./diagram-agent": "./src/diagram-agent.ts",
     "./diagram-sync": "./src/diagram-sync.ts",
     "./voice": "./src/voice.ts",
-    "./plan": "./src/plan.ts"
+    "./plan": "./src/plan.ts",
+    "./pull-requests": "./src/pull-requests.ts"
   },
   "dependencies": {
     "effect": "catalog:"
