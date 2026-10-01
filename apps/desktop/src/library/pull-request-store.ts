@@ -81,7 +81,7 @@ export class PullRequestStore {
         Effect.gen(function* () {
           yield* sql`CREATE TABLE pull_requests_state(tab_id TEXT PRIMARY KEY REFERENCES live_tabs(id) ON DELETE CASCADE, generation INTEGER NOT NULL CHECK(generation >= 0), repository TEXT CHECK(repository IS NULL OR json_valid(repository)), viewer TEXT, sync TEXT NOT NULL CHECK(json_valid(sync))) STRICT`;
           yield* sql`CREATE TABLE pull_requests_current(tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE, node_id TEXT NOT NULL, facts TEXT NOT NULL CHECK(json_valid(facts)), local TEXT NOT NULL CHECK(json_valid(local)), agent TEXT NOT NULL CHECK(json_valid(agent)), PRIMARY KEY(tab_id, node_id)) STRICT`;
-          yield* sql`CREATE TABLE pull_requests_receipts(tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE, request_id TEXT NOT NULL, node_id TEXT, payload TEXT NOT NULL, sequence INTEGER NOT NULL, PRIMARY KEY(tab_id, request_id), FOREIGN KEY(tab_id, node_id) REFERENCES pull_requests_current(tab_id, node_id) ON DELETE CASCADE) STRICT`;
+          yield* sql`CREATE TABLE pull_requests_receipts(tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE, request_id TEXT NOT NULL, node_id TEXT, payload TEXT NOT NULL, PRIMARY KEY(tab_id, request_id), FOREIGN KEY(tab_id, node_id) REFERENCES pull_requests_current(tab_id, node_id) ON DELETE CASCADE) STRICT`;
           const existing = yield* sql<{
             tab_id: string;
             document: string;
@@ -169,7 +169,11 @@ export class PullRequestStore {
     );
   }
 
-  async setSyncStatus(tabId: string, value: PullRequestsSync): Promise<PullRequestsSnapshot> {
+  async setSyncStatus(
+    tabId: string,
+    value: PullRequestsSync,
+    signal?: AbortSignal,
+  ): Promise<PullRequestsSnapshot> {
     const sync = decode(PullRequestsSync, value);
     const { sql, mutate } = this.database;
     const owner = this.owner.bind(this),
@@ -179,8 +183,12 @@ export class PullRequestStore {
       sql.withTransaction(
         Effect.gen(function* () {
           yield* active(yield* owner(tabId, true));
+          yield* Effect.sync(() => signal?.throwIfAborted());
           yield* sql`UPDATE pull_requests_state SET sync = ${JSON.stringify(sync)}, generation = generation + 1 WHERE tab_id = ${tabId}`;
-          return yield* read(yield* owner(tabId, true));
+          yield* Effect.sync(() => signal?.throwIfAborted());
+          const snapshot = yield* read(yield* owner(tabId, true));
+          yield* Effect.sync(() => signal?.throwIfAborted());
+          return snapshot;
         }),
       ),
       (snapshot) => this.event(snapshot),
@@ -190,6 +198,7 @@ export class PullRequestStore {
   async commitInventory(
     tabId: string,
     value: PullRequestsInventory,
+    signal?: AbortSignal,
   ): Promise<PullRequestsSnapshot> {
     const repository = decode(PullRequestsRepository, value.repository);
     const prs = value.prs.map((pr) => decode(PullRequestFacts, pr));
@@ -234,16 +243,15 @@ export class PullRequestStore {
             return yield* Effect.fail(
               new ScopeError(409, "The repository changed during synchronization."),
             );
+          yield* Effect.sync(() => signal?.throwIfAborted());
           for (const pr of prs)
             yield* sql`INSERT INTO pull_requests_current(tab_id, node_id, facts, local, agent) VALUES (${tabId}, ${pr.nodeId}, ${JSON.stringify(pr)}, ${JSON.stringify(emptyLocal)}, ${JSON.stringify(emptyAgent)}) ON CONFLICT(tab_id, node_id) DO UPDATE SET facts = excluded.facts`;
-          if (prs.length)
-            yield* sql`DELETE FROM pull_requests_current WHERE tab_id = ${tabId} AND NOT ${sql.in(
-              "node_id",
-              prs.map((pr) => pr.nodeId),
-            )}`;
-          else yield* sql`DELETE FROM pull_requests_current WHERE tab_id = ${tabId}`;
+          yield* sql`DELETE FROM pull_requests_current WHERE tab_id = ${tabId} AND node_id NOT IN (SELECT value FROM json_each(${JSON.stringify(prs.map((pr) => pr.nodeId))}))`;
           yield* sql`UPDATE pull_requests_state SET viewer = ${value.viewer}, sync = ${JSON.stringify(sync)}, generation = generation + 1 WHERE tab_id = ${tabId}`;
-          return yield* read(yield* owner(tabId, true));
+          yield* Effect.sync(() => signal?.throwIfAborted());
+          const snapshot = yield* read(yield* owner(tabId, true));
+          yield* Effect.sync(() => signal?.throwIfAborted());
+          return snapshot;
         }),
       ),
       (snapshot) => this.event(snapshot),
@@ -255,8 +263,25 @@ export class PullRequestStore {
     if (command.action === "read")
       return { type: "snapshot", snapshot: await this.snapshot(command.name) };
     if (command.action === "sync" || command.action === "detail") {
-      const pinned = await this.snapshot(command.name);
-      await this.database.run(this.active(await this.database.run(this.owner(pinned.tabId, true))));
+      const owner = this.owner.bind(this),
+        active = this.active.bind(this),
+        read = this.read.bind(this);
+      const pinned = await this.database.run(
+        this.database.sql.withTransaction(
+          Effect.gen(function* () {
+            const current = yield* owner(command.name);
+            if (current.tab_id !== command.tabId)
+              return yield* Effect.fail(
+                new ScopeError(
+                  409,
+                  "This command belongs to a previous tab. Read the current snapshot before retrying.",
+                ),
+              );
+            yield* active(current);
+            return yield* read(current);
+          }),
+        ),
+      );
       if (!pinned.repository)
         throw new ScopeError(409, "Configure a repository before synchronizing.");
       if (!this.handlers) throw new ScopeError(503, "Pull request synchronization is unavailable.");
@@ -297,6 +322,13 @@ export class PullRequestStore {
       sql.withTransaction(
         Effect.gen(function* () {
           const current = yield* owner(command.name);
+          if (current.tab_id !== command.tabId)
+            return yield* Effect.fail(
+              new ScopeError(
+                409,
+                "This command belongs to a previous tab. Read the current snapshot before retrying.",
+              ),
+            );
           yield* active(current);
           const tabId = current.tab_id;
           const [receipt] = yield* sql<{
@@ -396,8 +428,7 @@ export class PullRequestStore {
           }
           yield* sql`UPDATE pull_requests_state SET generation = generation + 1 WHERE tab_id = ${tabId}`;
           const updated = yield* owner(tabId, true);
-          yield* sql`INSERT INTO pull_requests_receipts(tab_id, request_id, node_id, payload, sequence) VALUES (${tabId}, ${command.requestId}, ${command.action === "configure" ? null : command.nodeId}, ${payload}, ${updated.generation})`;
-          yield* sql`DELETE FROM pull_requests_receipts WHERE tab_id = ${tabId} AND request_id NOT IN (SELECT request_id FROM pull_requests_receipts WHERE tab_id = ${tabId} ORDER BY sequence DESC LIMIT 256)`;
+          yield* sql`INSERT INTO pull_requests_receipts(tab_id, request_id, node_id, payload) VALUES (${tabId}, ${command.requestId}, ${command.action === "configure" ? null : command.nodeId}, ${payload})`;
           return { snapshot: yield* read(updated), changed: true };
         }),
       ),
