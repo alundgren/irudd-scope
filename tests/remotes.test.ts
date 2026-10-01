@@ -670,6 +670,7 @@ test("paired hubs forward pull request snapshots and local writes, and reject ov
   const written = await f.client.pullRequests({
     action: "note",
     name: "remote-inbox",
+    tabId: read.snapshot.tabId,
     nodeId: "PR_remote",
     requestId: randomUUID(),
     expectedVersion: 0,
@@ -691,7 +692,12 @@ test("paired hubs forward pull request snapshots and local writes, and reject ov
   expect(browser.status).toBe(403);
   await f.remotes.setEnabled(f.remotes.snapshot()[0].id, false);
   await expect(
-    f.client.pullRequests({ action: "sync", name: "remote-inbox", requestId: randomUUID() }),
+    f.client.pullRequests({
+      action: "sync",
+      name: "remote-inbox",
+      tabId: read.snapshot.tabId,
+      requestId: randomUUID(),
+    }),
   ).rejects.toMatchObject({ status: 503 });
   expect((await f.client.hubQueue()).items).toHaveLength(0);
 });
