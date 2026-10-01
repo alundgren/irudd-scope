@@ -1,0 +1,912 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>PR inbox</title>
+    <style>
+      /* SCOPE_TOKENS */
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--scope-canvas);
+        color: var(--scope-text);
+        font: var(--scope-text-ui)/var(--scope-leading-ui) var(--scope-font-ui);
+      }
+      button,
+      input,
+      textarea {
+        font: inherit;
+        color: inherit;
+      }
+      button,
+      a,
+      input,
+      textarea {
+        outline-offset: var(--scope-focus-offset);
+      }
+      :focus-visible {
+        outline: var(--scope-focus-width) solid var(--scope-accent);
+      }
+      button {
+        cursor: pointer;
+        border: 1px solid transparent;
+        border-radius: var(--scope-radius-control);
+        background: transparent;
+        padding: 6px 12px;
+      }
+      button:hover {
+        background: var(--scope-strip);
+      }
+      button:disabled {
+        cursor: default;
+        opacity: 0.5;
+      }
+      a {
+        color: var(--scope-accent);
+      }
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: var(--scope-text-title);
+        line-height: var(--scope-leading-title);
+        font-weight: var(--scope-weight-strong);
+      }
+      h2 {
+        font-size: var(--scope-text-reading);
+        font-weight: var(--scope-weight-strong);
+      }
+      .muted,
+      .meta {
+        color: var(--scope-muted);
+        font-size: var(--scope-text-detail);
+      }
+      .primary {
+        background: var(--scope-accent);
+        color: var(--scope-on-accent);
+      }
+      .primary:hover {
+        background: var(--scope-accent-hover);
+      }
+      .outline {
+        border-color: var(--scope-outline);
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 24px;
+        border-bottom: 1px solid var(--scope-line);
+        gap: 12px;
+      }
+      #sync {
+        position: relative;
+        min-width: 32px;
+        font-size: 20px;
+      }
+      #sync[data-failed="true"]:after {
+        content: "!";
+        position: absolute;
+        right: 0;
+        top: 0;
+        font-size: 11px;
+        line-height: 14px;
+        width: 14px;
+        border-radius: 50%;
+        background: var(--scope-danger);
+        color: var(--scope-canvas);
+      }
+      nav {
+        display: flex;
+        gap: 20px;
+        overflow: auto;
+        padding: 0 24px;
+        border-bottom: 1px solid var(--scope-line);
+        scrollbar-width: thin;
+      }
+      nav button {
+        white-space: nowrap;
+        border-radius: 0;
+        padding: 16px 0;
+        color: var(--scope-muted);
+      }
+      nav button[aria-pressed="true"] {
+        color: var(--scope-text);
+        border-bottom: 3px solid var(--scope-accent);
+        font-weight: var(--scope-weight-strong);
+      }
+      main {
+        max-width: 1250px;
+        margin: auto;
+        padding: 24px;
+      }
+      #intro {
+        margin-bottom: 20px;
+      }
+      #intro p {
+        margin-top: 8px;
+        color: var(--scope-muted);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 20px 0;
+        border-bottom: 1px solid var(--scope-line);
+      }
+      .row-info {
+        min-width: 0;
+      }
+      .pr-title {
+        font-size: var(--scope-text-reading);
+        font-weight: var(--scope-weight-strong);
+        text-align: left;
+        padding: 0;
+        white-space: normal;
+      }
+      .pr-title:hover {
+        background: transparent;
+        color: var(--scope-accent);
+      }
+      .meta {
+        margin-top: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .actions {
+        display: flex;
+        gap: 4px;
+        flex-shrink: 0;
+      }
+      .status {
+        margin-top: 8px;
+        font-size: var(--scope-text-detail);
+        color: var(--scope-muted);
+      }
+      .danger {
+        color: var(--scope-danger);
+      }
+      #empty {
+        padding: 56px 0;
+        color: var(--scope-muted);
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .review {
+        position: fixed;
+        inset: 0;
+        background: var(--scope-canvas);
+        overflow: auto;
+      }
+      .review > header {
+        position: sticky;
+        top: 0;
+        background: var(--scope-canvas);
+        z-index: 2;
+      }
+      .review-heading {
+        padding: 24px;
+        border-bottom: 1px solid var(--scope-line);
+      }
+      .review-heading h1 {
+        margin-top: 8px;
+        overflow-wrap: anywhere;
+      }
+      .review-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 310px;
+      }
+      .review-content {
+        padding: 0 24px 24px;
+        min-width: 0;
+      }
+      .review-content nav {
+        padding: 0;
+      }
+      .content {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font: var(--scope-text-ui)/24px var(--scope-font-ui);
+        padding: 24px 0;
+      }
+      .diff {
+        font-family: var(--scope-font-mono);
+        font-size: var(--scope-text-detail);
+      }
+      aside {
+        background: var(--scope-strip);
+        border-left: 1px solid var(--scope-line);
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      aside p {
+        margin: 8px 0;
+      }
+      textarea,
+      input {
+        background: var(--scope-canvas);
+        border: 1px solid var(--scope-outline);
+        border-radius: var(--scope-radius-control);
+        padding: 8px;
+        width: 100%;
+      }
+      textarea {
+        min-height: 160px;
+        resize: vertical;
+        margin: 8px 0;
+      }
+      code {
+        font-family: var(--scope-font-mono);
+        font-size: var(--scope-text-detail);
+        overflow-wrap: anywhere;
+      }
+      dialog {
+        background: var(--scope-panel);
+        color: var(--scope-text);
+        border: 1px solid var(--scope-outline);
+        border-radius: var(--scope-radius-dialog);
+        width: min(440px, calc(100% - 32px));
+        padding: 24px;
+      }
+      dialog::backdrop {
+        background: var(--scope-overlay);
+      }
+      dialog h2 {
+        margin-bottom: 16px;
+      }
+      dialog .presets {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 20px;
+      }
+      dialog label {
+        display: block;
+        margin: 12px 0;
+      }
+      dialog input[type="checkbox"] {
+        width: auto;
+      }
+      dialog footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      .toast {
+        position: fixed;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--scope-panel);
+        border: 1px solid var(--scope-outline);
+        border-radius: var(--scope-radius-control);
+        box-shadow: var(--scope-shadow);
+        padding: 12px;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        max-width: calc(100% - 32px);
+      }
+      @media (max-width: 700px) {
+        header {
+          padding: 12px 16px;
+        }
+        nav {
+          padding: 0 16px;
+          gap: 16px;
+        }
+        main {
+          padding: 24px 16px;
+        }
+        .row {
+          gap: 12px;
+        }
+        .row .actions {
+          flex-direction: column;
+        }
+        .review-layout {
+          grid-template-columns: 1fr;
+        }
+        aside {
+          border-left: 0;
+          border-top: 1px solid var(--scope-line);
+        }
+        .review > header {
+          flex-wrap: wrap;
+        }
+        .review-heading,
+        .review-content {
+          padding-left: 16px;
+          padding-right: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong id="repository">PR inbox</strong
+      ><button id="sync" aria-label="Sync pull requests" title="Sync pull requests">↻</button>
+    </header>
+    <nav id="views" aria-label="Inbox views"></nav>
+    <main>
+      <div id="intro">
+        <h1 id="view-title">All open</h1>
+        <p id="view-description">Open pull requests in this repository.</p>
+      </div>
+      <div id="rows"></div>
+      <p id="empty">Loading pull requests…</p>
+    </main>
+    <section
+      class="review"
+      id="review"
+      hidden
+      role="dialog"
+      aria-modal="true"
+      aria-label="Inspect pull request"
+    >
+      <header>
+        <button id="close-review">← Back to inbox</button>
+        <div>
+          <button id="previous" aria-label="Previous pull request">←</button
+          ><span id="position" class="muted"></span
+          ><button id="next" aria-label="Next pull request">→</button>
+        </div>
+        <a id="github" target="_blank" rel="noreferrer">Open on GitHub ↗</a>
+      </header>
+      <div class="review-heading">
+        <span id="review-meta" class="muted"></span>
+        <h1 id="review-title"></h1>
+        <p id="review-status" class="status"></p>
+      </div>
+      <div class="review-layout">
+        <div class="review-content">
+          <nav id="sections" aria-label="Pull request details">
+            <button data-section="body">Body</button
+            ><button data-section="discussion">Discussion</button
+            ><button data-section="checks">Current checks</button
+            ><button data-section="diff">Diff</button>
+          </nav>
+          <div id="content" class="content"></div>
+          <button id="retry-detail" hidden>Retry loading details</button>
+        </div>
+        <aside>
+          <section>
+            <h2>Local review</h2>
+            <p class="muted">Current commit <code id="head"></code></p>
+            <p id="reviewed-state" class="muted"></p>
+            <button id="mark-reviewed" class="primary">Mark current commit reviewed</button>
+          </section>
+          <section>
+            <h2><label for="notes">Your notes</label></h2>
+            <textarea id="notes"></textarea
+            ><button id="save-note" class="outline">Save note</button>
+            <p id="note-state" class="muted" aria-live="polite"></p>
+          </section>
+          <section>
+            <h2>Snooze</h2>
+            <p id="snooze-state" class="muted"></p>
+            <button id="review-snooze" class="outline">Snooze pull request</button>
+          </section>
+          <section id="agent-section" hidden>
+            <h2>Agent assessment</h2>
+            <p id="agent-text"></p>
+            <p id="agent-state" class="muted"></p>
+          </section>
+        </aside>
+      </div>
+    </section>
+    <dialog id="snooze-dialog" aria-labelledby="snooze-title">
+      <h2 id="snooze-title">Snooze pull request</h2>
+      <div class="presets">
+        <button data-hours="2" class="outline">2 hours</button
+        ><button data-hours="24" class="outline">Tomorrow</button
+        ><button data-hours="168" class="outline">Next week</button>
+      </div>
+      <label>Custom date and time<input id="snooze-date" type="datetime-local" /></label
+      ><label><input id="wake" type="checkbox" /> Wake on a new commit</label>
+      <p id="snooze-error" class="danger" role="alert"></p>
+      <footer>
+        <button id="unsnooze">Unsnooze</button><button id="cancel-snooze">Cancel</button
+        ><button id="custom-snooze" class="primary">Snooze</button>
+      </footer>
+    </dialog>
+    <div id="toast" class="toast" hidden role="status">
+      <span id="toast-text"></span><button id="undo">Undo</button
+      ><button id="dismiss-toast" aria-label="Dismiss notification">×</button>
+    </div>
+    <script>
+      "use strict";
+      const api = window.scope.pullRequests,
+        $ = (id) => document.getElementById(id);
+      let prs = [],
+        context = {},
+        sync = {},
+        view = "all",
+        queue = [],
+        index = -1,
+        section = "body",
+        detailRead = 0,
+        snoozeId = null,
+        undoAction = null,
+        origin = null;
+      const drafts = new Map(),
+        details = new Map();
+      const views = [
+        {
+          id: "mine",
+          title: "For me",
+          description: "Pull requests requesting your review.",
+          predicate: (p) =>
+            !sleeping(p) &&
+            !p.draft &&
+            (p.requestedReviewers.includes(context.viewer) ||
+              (p.author === context.viewer && p.hasUnresolvedConversations)),
+        },
+        {
+          id: "others",
+          title: "Others",
+          description: "Open pull requests by other authors.",
+          predicate: (p) => !sleeping(p) && !p.draft && p.author !== context.viewer,
+        },
+        {
+          id: "changed",
+          title: "Changed after review",
+          description: "New commits since you marked the pull request reviewed.",
+          predicate: (p) =>
+            !sleeping(p) && p.local.reviewed?.headOid && p.local.reviewed.headOid !== p.headOid,
+        },
+        {
+          id: "drafts",
+          title: "Drafts",
+          description: "Work in progress.",
+          predicate: (p) => !sleeping(p) && p.draft,
+        },
+        {
+          id: "snoozed",
+          title: "Snoozed",
+          description: "Pull requests you have set aside.",
+          predicate: sleeping,
+        },
+        {
+          id: "all",
+          title: "All open",
+          description: "Open pull requests in this repository.",
+          predicate: (p) => !sleeping(p),
+        },
+      ];
+      function sleeping(p) {
+        return !!p.local.snooze?.until && Date.parse(p.local.snooze?.until) > Date.now();
+      }
+      function current() {
+        return prs.find((p) => p.nodeId === queue[index]);
+      }
+      function node(tag, text, className) {
+        const el = document.createElement(tag);
+        if (text !== undefined) el.textContent = text;
+        if (className) el.className = className;
+        return el;
+      }
+      function filtered() {
+        return prs.filter(views.find((v) => v.id === view).predicate);
+      }
+      function status(p) {
+        const checks = p.checks.headOid === p.headOid ? p.checks.status : "unknown";
+        const merge =
+          p.merge.headOid === p.headOid && p.merge.baseOid === p.baseOid
+            ? p.merge.status
+            : "unknown";
+        return [
+          p.draft ? "Draft" : null,
+          checks === "passing"
+            ? "CI passing"
+            : checks === "failing"
+              ? "CI failing"
+              : checks === "pending"
+                ? "CI pending"
+                : "CI unknown",
+          merge === "conflicting"
+            ? "Merge conflict"
+            : merge === "clear"
+              ? "Mergeable"
+              : "Merge unknown",
+          p.hasUnresolvedConversations ? "Author's turn" : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      }
+      function render() {
+        $("repository").textContent = context.repository
+          ? context.repository.owner + "/" + context.repository.name
+          : "PR inbox";
+        $("sync").disabled = sync.state === "syncing";
+        $("sync").dataset.failed = String(sync.state === "error");
+        $("sync").title =
+          sync.state === "error"
+            ? (sync.error || "Sync failed") + " · Click to retry"
+            : sync.state === "syncing"
+              ? "Syncing pull requests"
+              : "Sync pull requests";
+        const scroll = window.scrollY,
+          focused = document.activeElement?.dataset;
+        const active = views.find((v) => v.id === view);
+        $("view-title").textContent = active.title;
+        $("view-description").textContent = active.description;
+        $("views").replaceChildren(
+          ...views.map((v) => {
+            const b = node("button", v.title + " " + prs.filter(v.predicate).length);
+            b.dataset.view = v.id;
+            b.setAttribute("aria-pressed", String(view === v.id));
+            return b;
+          }),
+        );
+        const visible = filtered();
+        $("empty").hidden = visible.length > 0;
+        $("empty").textContent = prs.length
+          ? "No pull requests in this view."
+          : sync.lastSuccessAt
+            ? "No open pull requests. Sync to refresh."
+            : sync.state === "syncing"
+              ? "Loading pull requests…"
+              : "Pull requests have not loaded yet. Use Sync to try again.";
+        $("rows").replaceChildren(
+          ...visible.map((p) => {
+            const row = node("article", undefined, "row");
+            row.id = "pr-" + p.number;
+            const info = node("div", undefined, "row-info");
+            const title = node("button", p.title, "pr-title");
+            title.dataset.open = p.nodeId;
+            info.append(title);
+            const meta = node("div", undefined, "meta");
+            meta.append(
+              node("span", "#" + p.number + " · " + (p.author || "Unknown author")),
+              node("span", p.labels.join(" · ")),
+              node(
+                "span",
+                "+" + p.additions + " −" + p.deletions + " · " + p.changedFiles + " files",
+              ),
+            );
+            info.append(meta, node("p", status(p), "status"));
+            const actions = node("div", undefined, "actions");
+            const inspect = node("button", "Inspect", "outline");
+            inspect.dataset.open = p.nodeId;
+            const snooze = node("button", "Snooze");
+            snooze.dataset.snooze = p.nodeId;
+            actions.append(inspect, snooze);
+            row.append(info, actions);
+            return row;
+          }),
+        );
+        if (!$("review").hidden) renderReview(false);
+        window.scrollTo(0, scroll);
+        if (focused?.open)
+          document
+            .querySelector('[data-open="' + focused.open + '"]')
+            ?.focus({ preventScroll: true });
+      }
+      function notify(text, undo) {
+        $("toast-text").textContent = text;
+        undoAction = undo;
+        $("undo").hidden = !undo;
+        $("toast").hidden = false;
+      }
+      async function syncNow() {
+        try {
+          await api.sync();
+        } catch (error) {
+          sync = { ...sync, state: "error", error: error.message };
+          render();
+        }
+      }
+      function draft(p) {
+        if (!drafts.has(p.nodeId))
+          drafts.set(p.nodeId, { text: p.local.note, dirty: false, saving: false, error: "" });
+        return drafts.get(p.nodeId);
+      }
+      async function saveNote(p) {
+        const d = draft(p),
+          text = d.text;
+        d.saving = true;
+        d.error = "";
+        renderNote(p);
+        try {
+          await api.saveNote(p.nodeId, text);
+          if (d.text === text) d.dirty = false;
+        } catch (error) {
+          d.error = error.message;
+        } finally {
+          d.saving = false;
+          if (current()?.nodeId === p.nodeId) renderNote(p);
+        }
+      }
+      function renderNote(p) {
+        const d = draft(p);
+        if ($("notes").value !== d.text) $("notes").value = d.text;
+        $("save-note").disabled = d.saving || !d.dirty;
+        $("note-state").textContent = d.error
+          ? d.error + " Your edits are kept here."
+          : d.saving
+            ? "Saving…"
+            : d.dirty
+              ? "Unsaved edits"
+              : "Saved";
+        $("note-state").className = d.error ? "danger" : "muted";
+      }
+      function openReview(id, button) {
+        queue = filtered().map((p) => p.nodeId);
+        index = queue.indexOf(id);
+        origin = id;
+        section = "body";
+        $("review").hidden = false;
+        renderReview(true);
+        $("close-review").focus();
+      }
+      function closeReview() {
+        const p = current();
+        if (p && draft(p).dirty) void saveNote(p);
+        $("review").hidden = true;
+        document.querySelector('[data-open="' + origin + '"]')?.focus({ preventScroll: true });
+      }
+      function navigate(step) {
+        const next = index + step;
+        if (next < 0 || next >= queue.length) return;
+        const p = current();
+        if (p && draft(p).dirty) void saveNote(p);
+        index = next;
+        renderReview(true);
+        $("review").scrollTop = 0;
+      }
+      function renderReview(load) {
+        const p = current();
+        $("previous").disabled = index <= 0;
+        $("next").disabled = index >= queue.length - 1;
+        $("position").textContent = index + 1 + " / " + queue.length;
+        if (!p) {
+          detailRead++;
+          $("review-title").textContent = "This pull request is no longer open";
+          document.querySelector(".review-layout").hidden = true;
+          $("content").textContent = "Use Previous or Next to continue.";
+          return;
+        }
+        document.querySelector(".review-layout").hidden = false;
+        $("review-title").textContent = p.title;
+        $("review-meta").textContent = "#" + p.number + " · " + (p.author || "Unknown author");
+        $("review-status").textContent = status(p);
+        $("github").href = p.url;
+        $("head").textContent = p.headOid.slice(0, 12);
+        $("reviewed-state").textContent =
+          p.local.reviewed?.headOid === p.headOid
+            ? "This commit is marked reviewed."
+            : p.local.reviewed?.headOid
+              ? "Changed since your review of " + p.local.reviewed?.headOid.slice(0, 12)
+              : "No commit marked reviewed.";
+        $("mark-reviewed").disabled = p.local.reviewed?.headOid === p.headOid;
+        renderNote(p);
+        $("snooze-state").textContent = sleeping(p)
+          ? "Snoozed until " + new Date(p.local.snooze?.until).toLocaleString()
+          : "In your inbox";
+        $("agent-section").hidden = !p.agent.assessment;
+        $("agent-text").textContent = p.agent.assessment?.text || "";
+        $("agent-state").textContent =
+          p.agent.assessment?.headOid && p.agent.assessment?.headOid !== p.headOid
+            ? "Assessment refers to an earlier commit."
+            : "";
+        document
+          .querySelectorAll("[data-section]")
+          .forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.section === section)));
+        if (load) {
+          void api.inspect(p.nodeId, p.headOid).catch(() => {});
+          void loadDetail(p);
+        } else if ($("content").dataset.key !== p.nodeId + ":" + p.headOid + ":" + section)
+          void loadDetail(p);
+      }
+      async function loadDetail(p) {
+        const requestedSection = section;
+        const key = p.nodeId + ":" + p.headOid + ":" + requestedSection,
+          read = ++detailRead;
+        $("content").dataset.key = key;
+        $("retry-detail").hidden = true;
+        $("content").className = "content" + (section === "diff" ? " diff" : "");
+        if (details.has(key)) {
+          $("content").textContent = details.get(key);
+          return;
+        }
+        $("content").textContent = "Loading…";
+        try {
+          const result = await api.detail(p.nodeId, section);
+          if (result.headOid !== p.headOid)
+            throw new Error("This pull request changed while loading details. Sync and retry.");
+          const text = detailText(result, requestedSection, p);
+          details.set(key, text);
+          if (read === detailRead && current()?.nodeId === p.nodeId)
+            $("content").textContent = text;
+        } catch (error) {
+          if (read === detailRead) {
+            $("content").textContent = error.message;
+            $("retry-detail").hidden = false;
+          }
+        }
+      }
+      function detailText(result, selectedSection, p) {
+        if (selectedSection === "body") return result.body || "No description.";
+        if (selectedSection === "diff") return result.diff || "No diff available.";
+        if (selectedSection === "discussion")
+          return (
+            result.reviews
+              .map((r) => (r.author || "Unknown author") + " · " + r.state + "\n" + r.body)
+              .join("\n\n") || "No reviews."
+          );
+        return status(p) + "\n\nChecks are reported for the current head commit.";
+      }
+      function openSnooze(id) {
+        snoozeId = id;
+        const p = prs.find((p) => p.nodeId === id);
+        $("snooze-title").textContent = "Snooze #" + p.number;
+        $("wake").checked = p.local.snooze?.wakeOnNewCommit;
+        $("snooze-date").value = "";
+        $("snooze-error").textContent = "";
+        $("unsnooze").hidden = !sleeping(p);
+        $("snooze-dialog").showModal();
+      }
+      async function setSnooze(until) {
+        const p = prs.find((p) => p.nodeId === snoozeId),
+          before = {
+            until: p.local.snooze?.until ?? null,
+            wakeOnNewCommit: p.local.snooze?.wakeOnNewCommit ?? false,
+          };
+        try {
+          await api.setSnooze(p.nodeId, { until, wakeOnNewCommit: $("wake").checked });
+          $("snooze-dialog").close();
+          notify(
+            until ? "#" + p.number + " snoozed" : "#" + p.number + " returned to inbox",
+            async () => {
+              await api.setSnooze(p.nodeId, before);
+            },
+          );
+        } catch (error) {
+          $("snooze-error").textContent = error.message;
+        }
+      }
+      api.beforeClose(async () => {
+        await Promise.all(
+          prs
+            .filter((p) => draft(p).dirty)
+            .map(async (p) => {
+              await saveNote(p);
+              if (draft(p).dirty)
+                throw new Error(draft(p).error || "Your note still has unsaved edits.");
+            }),
+        );
+      });
+      api.watch((incoming, newContext, newSync) => {
+        prs = incoming;
+        context = newContext;
+        sync = newSync;
+        document.documentElement.dataset.theme = context.theme || "light";
+        for (const p of prs) {
+          const d = drafts.get(p.nodeId);
+          if (d && !d.dirty && !d.saving) d.text = p.local.note;
+        }
+        render();
+      });
+      $("sync").onclick = syncNow;
+      $("views").onclick = (e) => {
+        const b = e.target.closest("[data-view]");
+        if (b) {
+          view = b.dataset.view;
+          render();
+          document.querySelector('[data-view="' + view + '"]').focus();
+        }
+      };
+      $("rows").onclick = (e) => {
+        const b = e.target.closest("[data-open]"),
+          s = e.target.closest("[data-snooze]");
+        if (b) openReview(b.dataset.open, b);
+        else if (s) openSnooze(s.dataset.snooze);
+      };
+      $("close-review").onclick = closeReview;
+      $("previous").onclick = () => navigate(-1);
+      $("next").onclick = () => navigate(1);
+      $("sections").onclick = (e) => {
+        const b = e.target.closest("[data-section]");
+        if (b && current()) {
+          section = b.dataset.section;
+          renderReview(true);
+        }
+      };
+      $("retry-detail").onclick = () => void loadDetail(current());
+      $("notes").oninput = (e) => {
+        const p = current(),
+          d = draft(p);
+        d.text = e.target.value;
+        d.dirty = true;
+        renderNote(p);
+      };
+      $("notes").onblur = () => {
+        const p = current();
+        if (p && draft(p).dirty) void saveNote(p);
+      };
+      $("save-note").onclick = () => void saveNote(current());
+      $("review-snooze").onclick = () => openSnooze(current().nodeId);
+      $("mark-reviewed").onclick = async () => {
+        const p = current();
+        try {
+          await api.markReviewed(p.nodeId, p.headOid);
+          notify("#" + p.number + " current commit marked reviewed");
+        } catch (error) {
+          notify(error.message);
+        }
+      };
+      $("cancel-snooze").onclick = () => $("snooze-dialog").close();
+      document
+        .querySelectorAll("[data-hours]")
+        .forEach(
+          (b) =>
+            (b.onclick = () =>
+              void setSnooze(
+                new Date(Date.now() + Number(b.dataset.hours) * 3600000).toISOString(),
+              )),
+        );
+      $("custom-snooze").onclick = () => {
+        const date = new Date($("snooze-date").value);
+        if (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now()) {
+          $("snooze-error").textContent = "Choose a future date and time.";
+          return;
+        }
+        void setSnooze(date.toISOString());
+      };
+      $("unsnooze").onclick = () => void setSnooze(null);
+      $("dismiss-toast").onclick = () => ($("toast").hidden = true);
+      $("undo").onclick = async () => {
+        try {
+          await undoAction?.();
+          $("toast").hidden = true;
+        } catch (error) {
+          notify(error.message, undoAction);
+        }
+      };
+      document.addEventListener("keydown", (e) => {
+        if ($("snooze-dialog").open) return;
+        if (!$("review").hidden) {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            closeReview();
+            return;
+          }
+          if (e.key === "Tab") {
+            const focus = [
+              ...$("review").querySelectorAll("button:not(:disabled),a[href],textarea,input"),
+            ].filter((n) => n.getClientRects().length);
+            if (e.shiftKey && document.activeElement === focus[0]) {
+              e.preventDefault();
+              focus.at(-1).focus();
+            } else if (!e.shiftKey && document.activeElement === focus.at(-1)) {
+              e.preventDefault();
+              focus[0].focus();
+            }
+          }
+          if (["INPUT", "TEXTAREA"].includes(e.target.tagName)) return;
+          if (e.key === "ArrowRight") {
+            e.preventDefault();
+            navigate(1);
+          }
+          if (e.key === "ArrowLeft") {
+            e.preventDefault();
+            navigate(-1);
+          }
+        }
+      });
+    </script>
+  </body>
+</html>

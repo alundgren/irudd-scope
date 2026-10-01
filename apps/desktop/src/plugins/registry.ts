@@ -4,7 +4,9 @@ import { fileContract } from "./file/contract.ts";
 import { diagramTabContract } from "./diagram/contract.ts";
 import { planTabContract } from "./plan/contract.ts";
 
-const contracts = [fileContract, diagramTabContract, planTabContract];
+import { pullRequestsTabContract } from "./pull-requests/contract.ts";
+
+const contracts = [fileContract, diagramTabContract, planTabContract, pullRequestsTabContract];
 export function validateTabState(tab: Tab, preserveFuture = false): void {
   const contract = contracts.find((entry) => entry.type === tab.type);
   if (contract && !(preserveFuture && tab.state.version > contract.version))
