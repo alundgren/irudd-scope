@@ -10,6 +10,7 @@ import { ScopeClient } from "@irudd-scope/protocol/client";
 import { randomUUID } from "node:crypto";
 import { PullRequestsReply } from "@irudd-scope/protocol/pull-requests";
 import { decode } from "@irudd-scope/protocol";
+import { ArtifactStore } from "../apps/desktop/src/library/store.ts";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -30,6 +31,7 @@ async function fakeGh(handler: string, options: { timeoutMs?: number; maxBytes?:
   );
   return {
     process: new GitHubProcess(path, options.timeoutMs ?? 2000, options.maxBytes),
+    release: () => writeFile(`${path}.release`, "ready"),
     calls: async () =>
       (await readFile(log, "utf8"))
         .trim()
@@ -59,7 +61,16 @@ function pr(
     headRefOid: head,
     headRefName: "feature",
     baseRefOid: base,
-    reviewRequests: { nodes: [{ requestedReviewer: { login: "reviewer" } }], pageInfo: complete },
+    reviewRequests: {
+      nodes: [
+        {
+          requestedReviewer: { login: "reviewer" } as
+            | { login: string }
+            | { slug: string; organization: { login: string } },
+        },
+      ],
+      pageInfo: complete,
+    },
     isDraft: options.draft ?? false,
     additions: 0,
     deletions: 0,
@@ -162,19 +173,36 @@ if (args.some(a => a.includes('ScopeOpenPullRequests'))) {
     ).toBe(true);
   });
 
-  test("finishes label and direct reviewer pages before accepting the inventory", async () => {
+  test("retains teams and users across complete label and reviewer pages", async () => {
     const row = pr(1);
     row.labels.pageInfo = { hasNextPage: true, endCursor: "labels-two" };
     row.reviewRequests.pageInfo = { hasNextPage: true, endCursor: "reviewers-two" };
+    row.reviewRequests.nodes.push({
+      requestedReviewer: { slug: "security", organization: { login: "example" } },
+    });
     const gh = await fakeGh(`
 if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([row]))}));
 else if(args.some(a => a.includes('ScopePullRequestLabels'))) console.log(JSON.stringify({data:{repository:{pullRequest:{id:'PR_1',labels:{nodes:[{name:'later-label'}],pageInfo:${JSON.stringify(complete)}}}}}}));
-else if(args.some(a => a.includes('ScopePullRequestReviewers'))) console.log(JSON.stringify({data:{repository:{pullRequest:{id:'PR_1',reviewRequests:{nodes:[{requestedReviewer:{login:'later-reviewer'}}],pageInfo:${JSON.stringify(complete)}}}}}}));
+else if(args.some(a => a.includes('ScopePullRequestReviewers'))) console.log(JSON.stringify({data:{repository:{pullRequest:{id:'PR_1',reviewRequests:{nodes:[{requestedReviewer:{login:'later-reviewer'}},{requestedReviewer:{slug:'maintainers',organization:{login:'another-org'}}}],pageInfo:${JSON.stringify(complete)}}}}}}));
 else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
     const result = await new GitHubPullRequests(gh.process).inventory(repository, signal());
     expect(result.prs[0].labels).toEqual(["bug", "later-label"]);
-    expect(result.prs[0].requestedReviewers).toEqual(["reviewer", "later-reviewer"]);
-    expect(await gh.calls()).toHaveLength(4);
+    expect(result.prs[0].requestedReviewers).toEqual([
+      "reviewer",
+      "example/security",
+      "later-reviewer",
+      "another-org/maintainers",
+    ]);
+    const calls = await gh.calls();
+    expect(calls).toHaveLength(4);
+    for (const args of calls.filter((args) =>
+      args.some(
+        (arg) => arg.includes("ScopeOpenPullRequests") || arg.includes("ScopePullRequestReviewers"),
+      ),
+    ))
+      expect(args.find((arg) => arg.startsWith("query="))).toContain(
+        "... on Team { slug organization { login } }",
+      );
   });
 
   test("head movement while reading threads makes CI and merge status unknown", async () => {
@@ -223,36 +251,45 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
     await expect(gh.calls()).rejects.toThrow();
   });
 
-  test("reads current body, reviews, files and diff through fixed arguments", async () => {
+  test("reads ordinary REST detail responses with extra fields through GitHub.com despite GH_HOST", async () => {
     const view = { id: "PR_1", state: "OPEN", headRefOid: head, body: "Review this change" };
     const gh = await fakeGh(`
+if(process.env.GH_HOST !== 'github.example.com') throw new Error('Expected non-default host');
+if(args[0] === 'pr' && !args.includes('github.com/example/project')) throw new Error('Wrong host');
 if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));
 else if(args[0] === 'pr' && args[1] === 'view') console.log(JSON.stringify(${JSON.stringify(view)}));
 else if(args[0] === 'pr' && args[1] === 'diff') console.log('diff --git a/test b/test');
-else if(args.some(a => a.includes('/files?'))) console.log(JSON.stringify([{filename:'test.ts',additions:0,deletions:0,status:'modified'}]));
-else if(args.some(a => a.includes('/reviews?'))) console.log(JSON.stringify([{id:2,user:{login:'reviewer'},state:'APPROVED',body:'Looks good',submitted_at:'2026-10-01T12:00:00Z',commit_id:'${head}'}]));
+else if(args.some(a => a.includes('/files?'))) console.log(JSON.stringify([{sha:'${head}',filename:'test.ts',additions:0,deletions:0,changes:0,status:'modified',blob_url:'https://github.com/example/project/blob/${head}/test.ts',raw_url:'https://github.com/example/project/raw/${head}/test.ts',contents_url:'https://api.github.com/repos/example/project/contents/test.ts',patch:'@@ -1 +1 @@'}]));
+else if(args.some(a => a.includes('/reviews?'))) console.log(JSON.stringify([{id:2,node_id:'REVIEW_2',user:{login:'reviewer',id:7,node_id:'USER_7',avatar_url:'https://avatars.githubusercontent.com/u/7',type:'User',site_admin:false},state:'APPROVED',body:'Looks good',submitted_at:'2026-10-01T12:00:00Z',commit_id:'${head}',html_url:'https://github.com/example/project/pull/1#pullrequestreview-2',pull_request_url:'https://api.github.com/repos/example/project/pulls/1',author_association:'MEMBER',_links:{html:{href:'https://github.com/example/project/pull/1#pullrequestreview-2'}}}]));
 else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
-    const service = new GitHubPullRequests(gh.process);
-    const current = (await service.inventory(repository, signal())).prs[0];
-    const detail = await service.detail(repository, current, signal());
-    expect(detail).toMatchObject({
-      headOid: head,
-      body: "Review this change",
-      files: [{ path: "test.ts" }],
-      reviews: [{ author: "reviewer", headOid: head }],
-    });
-    expect(detail.diff).toContain("diff --git");
-    const calls = await gh.calls();
-    expect(calls.filter((args) => args[1] === "view")).toHaveLength(2);
-    expect(calls.find((args) => args[1] === "diff")).toEqual([
-      "pr",
-      "diff",
-      "1",
-      "--repo",
-      "example/project",
-      "--color",
-      "never",
-    ]);
+    const previousHost = process.env.GH_HOST;
+    process.env.GH_HOST = "github.example.com";
+    try {
+      const service = new GitHubPullRequests(gh.process);
+      const current = (await service.inventory(repository, signal())).prs[0];
+      const detail = await service.detail(repository, current, signal());
+      expect(detail).toMatchObject({
+        headOid: head,
+        body: "Review this change",
+        files: [{ path: "test.ts" }],
+        reviews: [{ author: "reviewer", headOid: head }],
+      });
+      expect(detail.diff).toContain("diff --git");
+      const calls = await gh.calls();
+      expect(calls.filter((args) => args[1] === "view")).toHaveLength(2);
+      expect(calls.find((args) => args[1] === "diff")).toEqual([
+        "pr",
+        "diff",
+        "1",
+        "--repo",
+        "github.com/example/project",
+        "--color",
+        "never",
+      ]);
+    } finally {
+      if (previousHost === undefined) delete process.env.GH_HOST;
+      else process.env.GH_HOST = previousHost;
+    }
   });
 
   test("refuses detail when the head changes during diff collection", async () => {
@@ -339,7 +376,15 @@ async function inboxFixture(gh: GitHubProcess) {
     return server.store.pullRequests.snapshot("test-inbox");
   }
   const snapshot = await publish();
+  await server.store.openTab({
+    id: snapshot.tabId,
+    type: "file",
+    title: snapshot.artifact.title,
+    groupId: randomUUID(),
+    state: { version: 1, data: { artifactId: snapshot.artifact.id } },
+  });
   return {
+    directory,
     server,
     service,
     snapshot,
@@ -486,6 +531,151 @@ describe("tab-owned GitHub synchronization", () => {
       expect(current.prs).toEqual([]);
       expect(current.sync.state).toBe("idle");
     } finally {
+      await f.close();
+    }
+  });
+
+  test("cancellation clears retained sync status while keeping the cache across restart", async () => {
+    const gh = await fakeGh(
+      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) setTimeout(() => console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})), 150); else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+    );
+    const f = await inboxFixture(gh.process);
+    let closed = false;
+    try {
+      const seeded = await f.service.sync(f.snapshot.tabId);
+      await f.server.store.pullRequests.command({
+        action: "note",
+        name: "test-inbox",
+        tabId: f.snapshot.tabId,
+        requestId: randomUUID(),
+        nodeId: "PR_1",
+        expectedVersion: 0,
+        text: "Retained note",
+      });
+      const refreshing = f.service.sync(f.snapshot.tabId).catch(() => null);
+      await waitForCalls(gh, 3);
+      await f.server.store.trashTab(f.snapshot.tabId);
+      f.service.cancelTabs([f.snapshot.tabId]);
+      expect(await refreshing).toBeNull();
+      const cancelled = await f.server.store.pullRequests.snapshotByTab(f.snapshot.tabId);
+      expect(cancelled.sync).toMatchObject({
+        state: "idle",
+        lastSuccessAt: seeded.sync.lastSuccessAt,
+        error: null,
+      });
+      expect(cancelled.prs[0].local.note).toBe("Retained note");
+      await f.server.store.restoreTab(f.snapshot.tabId);
+      await f.close();
+      closed = true;
+      const reopened = await ArtifactStore.open(f.directory);
+      try {
+        const saved = await reopened.pullRequests.snapshotByTab(f.snapshot.tabId);
+        expect(saved.sync.state).toBe("idle");
+        expect(saved.prs[0].local.note).toBe("Retained note");
+      } finally {
+        await reopened.close();
+      }
+    } finally {
+      if (!closed) await f.close();
+    }
+  });
+
+  test("startup recovers an interrupted sync for active and trashed owners without losing cache", async () => {
+    const gh = await fakeGh(
+      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+    );
+    const f = await inboxFixture(gh.process);
+    let closed = false;
+    try {
+      const seeded = await f.service.sync(f.snapshot.tabId);
+      await f.server.store.pullRequests.setSyncStatus(f.snapshot.tabId, {
+        ...seeded.sync,
+        state: "syncing",
+        updatedAt: "2026-10-01T12:00:00Z",
+      });
+      await f.server.store.trashTab(f.snapshot.tabId);
+      await f.close();
+      closed = true;
+      let reopened = await ArtifactStore.open(f.directory);
+      try {
+        const recovered = await reopened.pullRequests.snapshotByTab(f.snapshot.tabId);
+        expect(recovered.sync).toMatchObject({
+          state: "error",
+          lastSuccessAt: seeded.sync.lastSuccessAt,
+          error: "GitHub refresh was interrupted. Try Sync again.",
+        });
+        expect(recovered.prs).toEqual(seeded.prs);
+        await reopened.restoreTab(f.snapshot.tabId);
+        await reopened.pullRequests.setSyncStatus(f.snapshot.tabId, {
+          ...seeded.sync,
+          state: "syncing",
+          updatedAt: "2026-10-01T12:00:00Z",
+        });
+      } finally {
+        await reopened.close();
+      }
+      reopened = await ArtifactStore.open(f.directory);
+      try {
+        const recovered = await reopened.pullRequests.snapshotByTab(f.snapshot.tabId);
+        expect(recovered.sync.state).toBe("error");
+        expect(recovered.prs).toEqual(seeded.prs);
+      } finally {
+        await reopened.close();
+      }
+    } finally {
+      if (!closed) await f.close();
+    }
+  });
+
+  test("delayed cancellation cleanup cannot clear a newer run's status", async () => {
+    const gh = await fakeGh(
+      `import { existsSync } from 'node:fs';
+if(args.some(a => a.includes('ScopeOpenPullRequests'))) {
+  const timer = setInterval(() => { if(existsSync(process.argv[1] + '.release')) { clearInterval(timer); console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); } }, 10);
+} else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+    );
+    const f = await inboxFixture(gh.process);
+    const cancelSync = f.server.store.pullRequests.cancelSync.bind(f.server.store.pullRequests);
+    let release!: () => void;
+    let entered!: () => void;
+    const waiting = new Promise<void>((done) => {
+      release = done;
+    });
+    const cleanupEntered = new Promise<void>((done) => {
+      entered = done;
+    });
+    f.server.store.pullRequests.cancelSync = async (tabId, stamp) => {
+      entered();
+      await waiting;
+      return cancelSync(tabId, stamp);
+    };
+    try {
+      const cancelled = f.service.sync(f.snapshot.tabId).catch(() => null);
+      await waitForCalls(gh, 1);
+      const oldStatus = await f.server.store.pullRequests.snapshotByTab(f.snapshot.tabId);
+      f.service.cancelTabs([f.snapshot.tabId]);
+      await cleanupEntered;
+      const refreshing = f.service.sync(f.snapshot.tabId);
+      await waitForCalls(gh, 2);
+      const newer = await f.server.store.pullRequests.snapshotByTab(f.snapshot.tabId);
+      expect(newer.sync.state).toBe("syncing");
+      expect(newer.sync.updatedAt).not.toBe(oldStatus.sync.updatedAt);
+      release();
+      expect(await cancelled).toBeNull();
+      const afterCleanup = await f.server.store.pullRequests.snapshotByTab(f.snapshot.tabId);
+      expect(afterCleanup.sync).toEqual(newer.sync);
+      expect(afterCleanup.generation).toBe(newer.generation);
+      await gh.release();
+      expect((await refreshing).sync.state).toBe("idle");
+      await cancelSync(f.snapshot.tabId, oldStatus.sync.updatedAt!);
+      expect((await f.server.store.pullRequests.snapshotByTab(f.snapshot.tabId)).sync.state).toBe(
+        "idle",
+      );
+      await cancelSync(randomUUID(), oldStatus.sync.updatedAt!);
+    } finally {
+      release();
+      await gh.release();
+      f.server.store.pullRequests.cancelSync = cancelSync;
       await f.close();
     }
   });

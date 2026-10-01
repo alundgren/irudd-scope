@@ -12,7 +12,12 @@ const PageInfo = Schema.Struct({
   endCursor: Schema.NullOr(Schema.String),
 });
 const Author = Schema.NullOr(Schema.Struct({ login: Schema.String }));
-const Reviewer = Schema.NullOr(Schema.Struct({ login: Schema.optionalKey(Schema.String) }));
+const Reviewer = Schema.NullOr(
+  Schema.Union([
+    Schema.Struct({ login: Schema.String }),
+    Schema.Struct({ slug: Schema.String, organization: Schema.Struct({ login: Schema.String }) }),
+  ]),
+);
 const LabelsConnection = Schema.Struct({
   nodes: Schema.Array(Schema.Struct({ name: Schema.String })),
   pageInfo: PageInfo,
@@ -92,7 +97,7 @@ const INVENTORY_QUERY = `query ScopeOpenPullRequests($owner: String!, $name: Str
         id number title author { login } headRefOid headRefName baseRefOid isDraft
         additions deletions changedFiles url mergeable updatedAt createdAt
         labels(first: 100) { nodes { name } pageInfo { hasNextPage endCursor } }
-        reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } } } pageInfo { hasNextPage endCursor } }
+        reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } ... on Team { slug organization { login } } } } pageInfo { hasNextPage endCursor } }
         commits(last: 1) { nodes { commit { oid statusCheckRollup { state commit { oid } } } } }
       }
       pageInfo { hasNextPage endCursor }
@@ -114,7 +119,7 @@ const LABELS_QUERY = `query ScopePullRequestLabels($owner: String!, $name: Strin
 }`;
 const REVIEWERS_QUERY = `query ScopePullRequestReviewers($owner: String!, $name: String!, $number: Int!, $cursor: String) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-    id reviewRequests(first: 100, after: $cursor) { nodes { requestedReviewer { ... on User { login } } } pageInfo { hasNextPage endCursor } }
+    id reviewRequests(first: 100, after: $cursor) { nodes { requestedReviewer { ... on User { login } ... on Team { slug organization { login } } } } pageInfo { hasNextPage endCursor } }
   } }
 }`;
 const DetailView = Schema.Struct({
@@ -168,6 +173,22 @@ function validated<S extends Schema.ConstraintDecoder<unknown, never>>(
   }
 }
 
+function githubValue<S extends Schema.ConstraintDecoder<unknown, never>>(
+  schema: S,
+  value: unknown,
+): S["Type"] {
+  try {
+    return Schema.decodeUnknownSync(schema, { onExcessProperty: "ignore" })(value);
+  } catch {
+    throw new GitHubReadError("GitHub returned invalid data. The saved list was kept.");
+  }
+}
+
+function reviewerIdentity(reviewer: typeof Reviewer.Type): string[] {
+  if (!reviewer) return [];
+  return ["login" in reviewer ? reviewer.login : `${reviewer.organization.login}/${reviewer.slug}`];
+}
+
 function nextCursor(info: typeof PageInfo.Type, seen: Set<string>): string | null {
   if (!info.hasNextPage) return null;
   if (!info.endCursor || seen.has(info.endCursor))
@@ -217,7 +238,7 @@ export class GitHubPullRequests {
     let observed = pr;
     try {
       do {
-        const result = validated(
+        const result = githubValue(
           ThreadsPage,
           await this.query(repository, THREADS_QUERY, signal, [
             "-F",
@@ -255,7 +276,7 @@ export class GitHubPullRequests {
   ) {
     const labels = node.labels.nodes.map((label) => label.name);
     const requestedReviewers = node.reviewRequests.nodes.flatMap((request) =>
-      request.requestedReviewer?.login ? [request.requestedReviewer.login] : [],
+      reviewerIdentity(request.requestedReviewer),
     );
     const LabelsPage = Schema.Struct({
       data: Schema.Struct({
@@ -282,7 +303,7 @@ export class GitHubPullRequests {
     const labelCursors = new Set<string>();
     let labelCursor = nextCursor(node.labels.pageInfo, labelCursors);
     while (labelCursor) {
-      const result = validated(
+      const result = githubValue(
         LabelsPage,
         await this.query(repository, LABELS_QUERY, signal, [
           "-F",
@@ -299,7 +320,7 @@ export class GitHubPullRequests {
     const reviewerCursors = new Set<string>();
     let reviewerCursor = nextCursor(node.reviewRequests.pageInfo, reviewerCursors);
     while (reviewerCursor) {
-      const result = validated(
+      const result = githubValue(
         ReviewersPage,
         await this.query(repository, REVIEWERS_QUERY, signal, [
           "-F",
@@ -314,7 +335,7 @@ export class GitHubPullRequests {
         );
       requestedReviewers.push(
         ...result.reviewRequests.nodes.flatMap((request) =>
-          request.requestedReviewer?.login ? [request.requestedReviewer.login] : [],
+          reviewerIdentity(request.requestedReviewer),
         ),
       );
       reviewerCursor = nextCursor(result.reviewRequests.pageInfo, reviewerCursors);
@@ -332,7 +353,7 @@ export class GitHubPullRequests {
     const ids = new Set<string>();
     let viewer: string | undefined;
     do {
-      const page = validated(
+      const page = githubValue(
         InventoryPage,
         await this.query(
           repository,
@@ -414,18 +435,18 @@ export class GitHubPullRequests {
       "view",
       String(pr.number),
       "--repo",
-      `${owner}/${name}`,
+      `github.com/${owner}/${name}`,
       "--json",
       "id,state,headRefOid,body",
     ];
-    const before = validated(DetailView, json(await this.process.run(viewArgs, signal)));
+    const before = githubValue(DetailView, json(await this.process.run(viewArgs, signal)));
     if (before.id !== pr.nodeId || before.state !== "OPEN" || before.headRefOid !== pr.headOid)
       throw new GitHubReadError("This pull request changed. Sync before opening its details.");
     const files: PullRequestDetail["files"][number][] = [];
     const reviews: PullRequestDetail["reviews"][number][] = [];
     const filePaths = new Set<string>();
     for (let page = 1; ; page++) {
-      const result = validated(
+      const result = githubValue(
         Files,
         json(
           await this.process.run(
@@ -460,7 +481,7 @@ export class GitHubPullRequests {
       throw new GitHubReadError("GitHub did not return all changed files. Sync and try again.");
     const reviewIds = new Set<number>();
     for (let page = 1; ; page++) {
-      const result = validated(
+      const result = githubValue(
         Reviews,
         json(
           await this.process.run(
@@ -494,10 +515,18 @@ export class GitHubPullRequests {
       if (result.length < 100) break;
     }
     const diff = await this.process.run(
-      ["pr", "diff", String(pr.number), "--repo", `${owner}/${name}`, "--color", "never"],
+      [
+        "pr",
+        "diff",
+        String(pr.number),
+        "--repo",
+        `github.com/${owner}/${name}`,
+        "--color",
+        "never",
+      ],
       signal,
     );
-    const after = validated(DetailView, json(await this.process.run(viewArgs, signal)));
+    const after = githubValue(DetailView, json(await this.process.run(viewArgs, signal)));
     if (after.id !== before.id || after.state !== "OPEN" || after.headRefOid !== before.headRefOid)
       throw new GitHubReadError("This pull request changed while loading. Sync and open it again.");
     return validated(PullRequestDetail, {
