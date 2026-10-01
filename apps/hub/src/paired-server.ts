@@ -11,6 +11,7 @@ import {
   MAX_METADATA_BYTES,
   ScopeError,
   ArtifactId,
+  UPDATE_BASE_HEADER,
 } from "@irudd-scope/protocol";
 import {
   ShrinkRequest,
@@ -28,8 +29,10 @@ import type { HubState } from "./state.ts";
 import type { HubUpdates } from "./updates.ts";
 import { BufferedPublication, readBody } from "./buffered-publication.ts";
 import { PublicationDelivery, type RelayCall } from "./publication-delivery.ts";
+import { artifactMetadataRequest } from "./artifact-metadata.ts";
 
 type Pending = {
+  method: string;
   path: string;
   request: IncomingMessage | Buffer;
   response: ServerResponse | ((error: unknown, value?: unknown) => void);
@@ -131,6 +134,7 @@ export async function startPairedHub(
       const id = randomUUID();
       const abort = () => finish(id);
       const item: Pending = {
+        method,
         path,
         request: body,
         response: (error, value) => {
@@ -158,6 +162,7 @@ export async function startPairedHub(
   const queueTimer = setInterval(() => {
     try {
       state.queue.expire();
+      state.artifacts.expire();
       delivery.start();
     } catch {
       /* A busy database is retried on the next check. */
@@ -382,6 +387,7 @@ export async function startPairedHub(
             json(response, 404, { error: "The buffered delivery was canceled." });
             return;
           }
+          state.artifacts.observe(item.method, item.path, status, body);
           forget(match[1]);
           if (status >= 400)
             item.response(
@@ -406,6 +412,27 @@ export async function startPairedHub(
       for (const name of ["content-type", "content-disposition", "content-security-policy"]) {
         const value = request.headers[name];
         if (typeof value === "string") headers[name] = value;
+      }
+      if (artifactMetadataRequest(item.method, item.path)) {
+        try {
+          const bytes = await readBody(request, MAX_METADATA_BYTES);
+          if (!pending.has(match[1])) {
+            json(response, 404, { error: "The publication request has ended." });
+            return;
+          }
+          state.artifacts.observe(item.method, item.path, status, JSON.parse(bytes.toString()));
+          forget(match[1]);
+          item.response.writeHead(status, headers);
+          item.response.end(bytes);
+          json(response, 200, { delivered: true });
+        } catch {
+          finish(
+            match[1],
+            "The desktop returned an invalid artifact metadata response. Check the artifact before retrying an uncertain write.",
+          );
+          json(response, 502, { error: "Invalid desktop response." });
+        }
+        return;
       }
       item.response.writeHead(status, headers);
       await pipeline(request, item.response, { signal: item.controller.signal }).then(
@@ -442,6 +469,15 @@ export async function startPairedHub(
       return;
     }
     if (!desktop) {
+      const updateBase = /^\/v1\/(artifacts|names)\/([^/?]+)$/.exec(request.url ?? "");
+      if (
+        request.method === "GET" &&
+        request.headers[UPDATE_BASE_HEADER.toLowerCase()] === "1" &&
+        updateBase
+      ) {
+        json(response, 200, state.artifacts.read(updateBase[2], updateBase[1] === "names"));
+        return;
+      }
       json(response, 503, {
         error:
           "Scope on the paired Mac is disconnected. Open Scope and connect this remote. Only publications that request buffering can be queued.",
@@ -463,6 +499,7 @@ export async function startPairedHub(
     request.setTimeout(timeoutMs);
     const id = randomUUID();
     const item: Pending = {
+      method: request.method!,
       path: request.url!,
       request,
       response,

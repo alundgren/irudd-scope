@@ -8,6 +8,7 @@ import { Schema } from "effect";
 import { decode, decodeLocalConnection, validateEndpoint } from "@irudd-scope/protocol";
 import { RemoteId, RemoteName, pairingUrl, HubUpdateStatus } from "@irudd-scope/protocol/remote";
 import { PublicationQueue } from "./publication-queue.ts";
+import { ArtifactMetadata } from "./artifact-metadata.ts";
 
 const Configuration = Schema.Struct({
   id: RemoteId,
@@ -22,12 +23,14 @@ const secret = () => randomBytes(32).toString("base64url");
 
 export class HubState {
   readonly queue: PublicationQueue;
+  readonly artifacts: ArtifactMetadata;
   private constructor(
     private readonly database: DatabaseSync,
     readonly maintenance: DatabaseMaintenance,
     now: () => number,
   ) {
     this.queue = new PublicationQueue(database, now);
+    this.artifacts = new ArtifactMetadata(database, now);
   }
 
   static async open(directory: string, now = Date.now) {
@@ -37,7 +40,7 @@ export class HubState {
     await chmod(filename, 0o600);
     database.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 50;");
     const version = database.prepare("PRAGMA user_version").get()!.user_version;
-    if (version !== 0 && version !== 1 && version !== 2 && version !== 3) {
+    if (![0, 1, 2, 3, 4].includes(version as number)) {
       database.close();
       throw new Error("The hub database requires a newer Scope version.");
     }
@@ -47,9 +50,15 @@ export class HubState {
         expires_at INTEGER NOT NULL, blob TEXT, content BLOB, document TEXT,
         writing INTEGER NOT NULL DEFAULT 0, error TEXT
       ) STRICT;
-      PRAGMA user_version = 3;`);
+      CREATE TABLE IF NOT EXISTS artifact_metadata (
+        id TEXT PRIMARY KEY, name TEXT, revision INTEGER NOT NULL,
+        document TEXT NOT NULL, observed_at INTEGER NOT NULL
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS artifact_metadata_name ON artifact_metadata(name);
+      PRAGMA user_version = 4;`);
     const state = new HubState(database, new DatabaseMaintenance(filename, "hub.db"), now);
     state.queue.expire();
+    state.artifacts.expire();
     return state;
   }
 
@@ -152,6 +161,7 @@ export class HubState {
   }
   unpair() {
     this.queue.clear();
+    this.artifacts.clear();
     this.database
       .prepare(
         "DELETE FROM settings WHERE name IN ('desktop', 'desktopName', 'pair', 'pairExpires')",

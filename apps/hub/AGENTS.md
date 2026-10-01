@@ -1,7 +1,8 @@
 # Forwarding hub
 
 The hub authenticates and forwards the artifact API to the desktop. It owns
-its configuration, credential hashes, and bounded publication queue in `hub.db`.
+its configuration, credential hashes, bounded publication queue, and saved
+artifact metadata in `hub.db`.
 The queue temporarily owns content and metadata until delivery or expiry;
 the desktop owns delivered artifacts. The hub does not execute models. Keep dependencies on the shared protocol; do not
 import desktop or CLI internals.
@@ -16,7 +17,10 @@ Keep the queue durable, capped at 50 tabs including incomplete uploads, and
 expire entries 48 hours after reservation. Deliver complete publications on
 reconnect, preserve revision checks, and recover uncertain acknowledgements
 without overwriting newer desktop content. Other requests fail during outages.
-Revocation clears the queue so another Mac cannot receive previous content.
+Retain at most 1,000 recently observed artifact metadata records for 48 hours;
+only opted-in update reads can use them offline. Never infer a current desktop
+revision from saved metadata. Revocation clears both metadata and the queue
+so another Mac cannot receive previous content.
 
 Verify changes through the forwarding cases in `../../tests/artifacts.test.ts`,
 and pairing cases in `../../tests/remotes.test.ts`, including unavailable

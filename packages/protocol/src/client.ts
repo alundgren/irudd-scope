@@ -44,6 +44,7 @@ import {
   LiveEvent,
   MAX_CONTENT_BYTES,
   ScopeError,
+  UPDATE_BASE_HEADER,
   decode,
   validateEndpoint,
 } from "./index.ts";
@@ -299,6 +300,25 @@ export class ScopeClient {
   async get(id: string, signal?: AbortSignal): Promise<Artifact> {
     const response = await this.request(`/v1/artifacts/${decode(ArtifactId, id)}`, { signal });
     return decode(Artifact, await response.json());
+  }
+
+  async updateBase(key: string): Promise<Artifact> {
+    const read = async (path: string) =>
+      decode(
+        Artifact,
+        await (await this.request(path, { headers: { [UPDATE_BASE_HEADER]: "1" } })).json(),
+      );
+    try {
+      return await read(`/v1/artifacts/${decode(ArtifactId, key)}`);
+    } catch (error) {
+      if (!(error instanceof ScopeError) || ![404, 503].includes(error.status)) throw error;
+      try {
+        decode(ArtifactName, key);
+      } catch {
+        throw error;
+      }
+      return read(`/v1/names/${key}`);
+    }
   }
 
   async delete(id: string): Promise<DeleteReceipt> {

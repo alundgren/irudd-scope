@@ -9,7 +9,7 @@ Use the installed `irudd-scope` command when available. For repeated calls from 
 
 ## Publish and update
 
-Use `add FILE --id ID` or `text TEXT --id ID` to create an artifact under an ID that can be reused. Without `--id`, the CLI generates a random ID. `add` creates the artifact, so an existing ID conflicts. Use `update ID FILE` for later versions of the same artifact. Updates read the current revision before writing and may return a conflict if another writer changes it at the same time.
+Use `add FILE --id ID` or `text TEXT --id ID` to create an artifact under an ID that can be reused. Without `--id`, the CLI generates a random ID. `add` creates the artifact, so an existing ID conflicts. Use `update ID_OR_NAME FILE` for later versions of the same artifact. Updates read the current revision while connected, or use the paired hub's saved revision offline. They reject concurrent changes, including changes found when a queued update delivers.
 
 For example, with the built entry point:
 
@@ -207,7 +207,7 @@ A publication command returning an Artifact confirms that Scope persisted a tab 
 
 Publication commands share a 10-second deadline. Use `--timeout-ms 60000` when a large remote upload needs more time. A timeout can leave a completed write without a receipt; keep the artifact ID for recovery.
 
-Paired hubs buffer offline `add` and `text` publications automatically. Direct publishing, updates that need a current revision, speech, and interactive diagram operations require Scope to be connected. A full queue rejects new publications, and delivery conflicts remain visible in `hub queue` until discarded or expired. After a failed response that may have followed a write, inspect `hub queue` and run `get ID` when the Mac is connected before retrying; inspect the content in Scope when the record's revision alone cannot resolve whether it changed. On a 409 conflict, check the current record and decide whether replacing it again still matches the requested change. Do not repeat an update automatically.
+Paired hubs buffer offline `add`, `text`, and `update` publications automatically. An offline update needs metadata previously read or published through that hub while connected. The hub retains up to 1,000 recent artifact records for 48 hours after observation, including IDs, names, titles, and revisions. If no saved revision exists, read the tab through the hub once while connected. Updates preserve its saved name and title unless a title is supplied. A changed desktop revision blocks delivery and remains visible in `hub queue`; never discard and replace it automatically. Direct publishing, speech, and interactive diagram operations require Scope to be connected. A full queue rejects new publications, and delivery conflicts remain visible in `hub queue` until discarded or expired. After a failed response that may have followed a write, inspect `hub queue` and run `get ID` when the Mac is connected before retrying; inspect the content in Scope when the record's revision alone cannot resolve whether it changed. On a 409 conflict, check the current record and decide whether replacing it again still matches the requested change. Do not repeat an update automatically.
 
 ## Delete and reclaim space
 
