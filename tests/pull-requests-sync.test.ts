@@ -331,6 +331,7 @@ async function inboxFixture(gh: GitHubProcess) {
     );
     await server.store.pullRequests.command({
       action: "configure",
+      tabId: (await server.store.pullRequests.snapshot("test-inbox")).tabId,
       name: "test-inbox",
       requestId: randomUUID(),
       repository,
@@ -379,12 +380,23 @@ describe("tab-owned GitHub synchronization", () => {
     const f = await inboxFixture(gh.process);
     try {
       await f.service.sync(f.snapshot.tabId);
-      const refresh = f.command({ action: "sync", name: "test-inbox", requestId: randomUUID() });
-      const joined = f.command({ action: "sync", name: "test-inbox", requestId: randomUUID() });
+      const refresh = f.command({
+        action: "sync",
+        name: "test-inbox",
+        tabId: f.snapshot.tabId,
+        requestId: randomUUID(),
+      });
+      const joined = f.command({
+        action: "sync",
+        name: "test-inbox",
+        tabId: f.snapshot.tabId,
+        requestId: randomUUID(),
+      });
       await waitForCalls(gh, 3);
       await f.server.store.pullRequests.command({
         action: "note",
         name: "test-inbox",
+        tabId: f.snapshot.tabId,
         requestId: randomUUID(),
         nodeId: "PR_1",
         expectedVersion: 0,
@@ -393,6 +405,7 @@ describe("tab-owned GitHub synchronization", () => {
       await f.server.store.pullRequests.command({
         action: "snooze",
         name: "test-inbox",
+        tabId: f.snapshot.tabId,
         requestId: randomUUID(),
         nodeId: "PR_1",
         expectedVersion: 0,
@@ -428,6 +441,7 @@ describe("tab-owned GitHub synchronization", () => {
       await f.server.store.pullRequests.command({
         action: "note",
         name: "test-inbox",
+        tabId: f.snapshot.tabId,
         requestId: randomUUID(),
         nodeId: "PR_1",
         expectedVersion: 0,

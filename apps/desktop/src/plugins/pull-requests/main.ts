@@ -33,9 +33,13 @@ export function registerPullRequestsIpc({ handle, artifacts, client }: MainPlugi
       },
       Buffer.from(input.html),
     );
+    const owner = await artifacts.pullRequests.snapshot(input.name);
+    if (owner.artifact.id !== artifact.id || owner.artifact.revision !== artifact.revision)
+      throw new Error("This pull request tab changed while being created. Open the current tab.");
     await artifacts.pullRequests.command({
       action: "configure",
       name: input.name,
+      tabId: owner.tabId,
       requestId: randomUUID(),
       repository: input.repository,
     });
