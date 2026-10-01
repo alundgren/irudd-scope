@@ -1,4 +1,10 @@
 import {
+  PullRequestsCommand,
+  PullRequestsReply,
+  MAX_PULL_REQUESTS_REQUEST_BYTES,
+  MAX_PULL_REQUESTS_REPLY_BYTES,
+} from "./pull-requests.ts";
+import {
   VoiceRequest,
   VoiceRequestId,
   VoiceReceipt,
@@ -92,6 +98,23 @@ export class ScopeClient {
       throw new ScopeError(response.status, message);
     }
     return response;
+  }
+
+  async pullRequests(input: PullRequestsCommand): Promise<PullRequestsReply> {
+    const body = JSON.stringify(decode(PullRequestsCommand, input));
+    if (new TextEncoder().encode(body).byteLength > MAX_PULL_REQUESTS_REQUEST_BYTES)
+      throw new Error("Pull request command exceeds 256 KiB.");
+    return decode(
+      PullRequestsReply,
+      await readRemoteJson(
+        await this.request("/v1/pull-requests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }),
+        MAX_PULL_REQUESTS_REPLY_BYTES,
+      ),
+    );
   }
 
   async plan(input: PlanCommand): Promise<PlanReply> {
