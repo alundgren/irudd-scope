@@ -12,8 +12,12 @@ const failureMessage = (error: unknown) =>
   error instanceof Error ? error.message : "Could not load the PR inbox.";
 type FrameCall = FrameIdentity & { id: string; method: string; args: unknown[] };
 
-function frameCommand(call: FrameCall, snapshot: PullRequestsSnapshot): PullRequestsCommand {
-  const base = { name: snapshot.artifact.name!, requestId: crypto.randomUUID() };
+function frameCommand(
+  call: FrameCall,
+  snapshot: PullRequestsSnapshot,
+  tabId: string,
+): PullRequestsCommand {
+  const base = { name: snapshot.artifact.name!, requestId: crypto.randomUUID(), tabId };
   if (call.method === "sync") return { ...base, action: "sync" };
   const pr = snapshot.prs.find((row) => row.nodeId === call.args[0]);
   if (!pr) throw new Error("This pull request is no longer open. Refresh the inbox.");
@@ -25,7 +29,7 @@ function frameCommand(call: FrameCall, snapshot: PullRequestsSnapshot): PullRequ
       return decode(PullRequestsCommand, {
         ...row,
         action: "note",
-        expectedVersion: pr.local.noteVersion,
+        expectedVersion: call.args[2],
         text: call.args[1],
       });
     case "setSnooze": {
@@ -35,8 +39,11 @@ function frameCommand(call: FrameCall, snapshot: PullRequestsSnapshot): PullRequ
       return decode(PullRequestsCommand, {
         ...row,
         action: "snooze",
-        expectedVersion: pr.local.snoozeVersion,
-        snooze: value.until === null ? null : { ...value, headOid: pr.headOid },
+        expectedVersion: call.args[2],
+        snooze:
+          value.until === null
+            ? null
+            : { ...value, headOid: "headOid" in value ? value.headOid : pr.headOid },
       });
     }
     case "markReviewed":
@@ -44,7 +51,7 @@ function frameCommand(call: FrameCall, snapshot: PullRequestsSnapshot): PullRequ
       return decode(PullRequestsCommand, {
         ...row,
         action: "review",
-        expectedVersion: pr.local.reviewVersion,
+        expectedVersion: call.args[2],
         baseline: call.method === "inspect" ? "inspected" : "reviewed",
         headOid: call.args[1],
       });
@@ -53,7 +60,7 @@ function frameCommand(call: FrameCall, snapshot: PullRequestsSnapshot): PullRequ
   }
 }
 
-export function PullRequestsView({ artifact, tab, active, theme, context }: TabProps) {
+export function PullRequestsView({ artifact, active, theme, context }: TabProps) {
   const name = artifact?.name;
   const [content, setContent] = useState<{ html: string; revision: number }>();
   const [error, setError] = useState("");
@@ -71,8 +78,8 @@ export function PullRequestsView({ artifact, tab, active, theme, context }: TabP
   const sent = useRef("");
   const refresh = useRef<() => Promise<void>>(async () => {});
   const identity = useMemo(
-    () => ({ channel: crypto.randomUUID(), tabId: tab.id }),
-    [tab.id, content?.revision],
+    () => ({ channel: crypto.randomUUID(), tabId: context.tabId }),
+    [context.tabId, content?.revision],
   );
   const identityRef = useRef(identity);
   identityRef.current = identity;
@@ -84,7 +91,7 @@ export function PullRequestsView({ artifact, tab, active, theme, context }: TabP
   );
   function sendSnapshot() {
     const value = snapshot.current;
-    if (!value || !frameReady.current) return;
+    if (!value || value.tabId !== context.tabId || !frameReady.current) return;
     const signature = `${identityRef.current.channel}:${value.generation}:${themeRef.current}`;
     if (sent.current === signature) return;
     sent.current = signature;
@@ -122,9 +129,13 @@ export function PullRequestsView({ artifact, tab, active, theme, context }: TabP
           try {
             const reply = await window.scope.pullRequestsCommand({ action: "read", name: name! });
             if (!mounted) return;
+            if (reply.type !== "snapshot" || reply.snapshot.tabId !== context.tabId)
+              throw new Error(
+                "This PR inbox no longer matches the saved tab. Your app edits are kept here.",
+              );
             if (
               reply.type === "snapshot" &&
-              reply.snapshot.tabId === tab.id &&
+              reply.snapshot.tabId === context.tabId &&
               reply.snapshot.generation >= (snapshot.current?.generation ?? -1)
             ) {
               snapshot.current = reply.snapshot;
@@ -154,7 +165,7 @@ export function PullRequestsView({ artifact, tab, active, theme, context }: TabP
       stopChanges();
       stopReconnect();
     };
-  }, [name, tab.id, retry]);
+  }, [name, context.tabId, retry]);
   useEffect(() => {
     if (!artifact) return;
     let mounted = true;
@@ -201,7 +212,7 @@ export function PullRequestsView({ artifact, tab, active, theme, context }: TabP
       if (
         event.source !== iframe.current?.contentWindow ||
         call?.channel !== identity.channel ||
-        call?.tabId !== tab.id
+        call?.tabId !== context.tabId
       )
         return;
       if (call.type === "scope-pull-requests-flushed") {
@@ -227,6 +238,7 @@ export function PullRequestsView({ artifact, tab, active, theme, context }: TabP
       )
         return;
       commands = commands.then(async () => {
+        if (!mounted) return;
         try {
           if (!snapshot.current) {
             await refresh.current();
@@ -234,11 +246,13 @@ export function PullRequestsView({ artifact, tab, active, theme, context }: TabP
               throw new Error("The inbox is still loading. Retry in a moment.");
           }
           const reply = await window.scope.pullRequestsCommand(
-            frameCommand(call, snapshot.current),
+            frameCommand(call, snapshot.current, context.tabId),
           );
           if (!mounted) return;
-          if ((reply.type === "snapshot" ? reply.snapshot.tabId : reply.tabId) !== tab.id)
+          if ((reply.type === "snapshot" ? reply.snapshot.tabId : reply.tabId) !== context.tabId)
             throw new Error("This reply belongs to another PR inbox.");
+          if (reply.type === "detail" && reply.nodeId !== call.args[0])
+            throw new Error("These details belong to another pull request.");
           if (
             reply.type === "snapshot" &&
             reply.snapshot.generation >= snapshot.current.generation
@@ -246,12 +260,27 @@ export function PullRequestsView({ artifact, tab, active, theme, context }: TabP
             snapshot.current = reply.snapshot;
             sendSnapshot();
           }
+          const local =
+            reply.type === "snapshot"
+              ? reply.snapshot.prs.find((pr) => pr.nodeId === call.args[0])?.local
+              : undefined;
+          const version =
+            call.method === "saveNote"
+              ? local?.noteVersion
+              : call.method === "setSnooze"
+                ? local?.snoozeVersion
+                : local?.reviewVersion;
           iframe.current?.contentWindow?.postMessage(
             {
               ...identity,
               type: "scope-pull-requests-reply",
               id: call.id,
-              value: reply.type === "detail" ? reply.detail : undefined,
+              value:
+                reply.type === "detail"
+                  ? reply.detail
+                  : version === undefined
+                    ? undefined
+                    : { version },
             },
             "*",
           );
@@ -282,17 +311,22 @@ export function PullRequestsView({ artifact, tab, active, theme, context }: TabP
       closeRequests.current.clear();
       window.removeEventListener("message", receive);
     };
-  }, [identity, tab.id]);
+  }, [identity, context.tabId]);
   useEffect(() => {
     sendSnapshot();
   }, [theme]);
   useEffect(() => {
     if (!active || !name) return;
     void window.scope
-      .pullRequestsCommand({ action: "sync", name, requestId: crypto.randomUUID() })
+      .pullRequestsCommand({
+        action: "sync",
+        name,
+        requestId: crypto.randomUUID(),
+        tabId: context.tabId,
+      })
       .then(() => refresh.current())
       .catch(() => refresh.current());
-  }, [active, name]);
+  }, [active, name, context.tabId]);
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       {error && (

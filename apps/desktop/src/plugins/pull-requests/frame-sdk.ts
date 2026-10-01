@@ -87,13 +87,14 @@ function installPullRequestsSDK(identity: FrameIdentity) {
       return () => closing.delete(callback);
     },
     sync: () => send("sync", []),
-    saveNote: (pullRequestId: string, note: string) => send("saveNote", [pullRequestId, note]),
-    setSnooze: (pullRequestId: string, snooze: unknown) =>
-      send("setSnooze", [pullRequestId, snooze]),
-    markReviewed: (pullRequestId: string, headCommit: string) =>
-      send("markReviewed", [pullRequestId, headCommit]),
-    inspect: (pullRequestId: string, headCommit: string) =>
-      send("inspect", [pullRequestId, headCommit]),
+    saveNote: (pullRequestId: string, note: string, expectedVersion: number) =>
+      send("saveNote", [pullRequestId, note, expectedVersion]),
+    setSnooze: (pullRequestId: string, snooze: unknown, expectedVersion: number) =>
+      send("setSnooze", [pullRequestId, snooze, expectedVersion]),
+    markReviewed: (pullRequestId: string, headCommit: string, expectedVersion: number) =>
+      send("markReviewed", [pullRequestId, headCommit, expectedVersion]),
+    inspect: (pullRequestId: string, headCommit: string, expectedVersion: number) =>
+      send("inspect", [pullRequestId, headCommit, expectedVersion]),
     detail: (pullRequestId: string, section: string) => send("detail", [pullRequestId, section]),
   });
   Object.defineProperty(window, "scope", { value: Object.freeze({ pullRequests: sdk }) });

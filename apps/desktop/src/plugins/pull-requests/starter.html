@@ -369,6 +369,9 @@
         <span id="review-meta" class="muted"></span>
         <h1 id="review-title"></h1>
         <p id="review-status" class="status"></p>
+        <button id="load-latest" class="outline" hidden>
+          New commit available · Load latest commit
+        </button>
       </div>
       <div class="review-layout">
         <div class="review-content">
@@ -384,15 +387,18 @@
         <aside>
           <section>
             <h2>Local review</h2>
-            <p class="muted">Current commit <code id="head"></code></p>
+            <p class="muted">Displayed commit <code id="head"></code></p>
             <p id="reviewed-state" class="muted"></p>
-            <button id="mark-reviewed" class="primary">Mark current commit reviewed</button>
+            <button id="mark-reviewed" class="primary">Mark this commit reviewed</button>
           </section>
           <section>
             <h2><label for="notes">Your notes</label></h2>
             <textarea id="notes"></textarea
             ><button id="save-note" class="outline">Save note</button>
             <p id="note-state" class="muted" aria-live="polite"></p>
+            <p id="saved-note" class="muted" hidden></p>
+            <button id="use-saved-note" class="outline" hidden>Use saved note</button
+            ><button id="keep-note" class="outline" hidden>Keep my note</button>
           </section>
           <section>
             <h2>Snooze</h2>
@@ -442,7 +448,9 @@
         undoAction = null,
         origin = null;
       const drafts = new Map(),
-        details = new Map();
+        details = new Map(),
+        captured = new Map();
+      let snoozeIntent;
       const views = [
         {
           id: "mine",
@@ -490,7 +498,10 @@
         return !!p.local.snooze?.until && Date.parse(p.local.snooze?.until) > Date.now();
       }
       function current() {
-        return prs.find((p) => p.nodeId === queue[index]);
+        const latest = prs.find((p) => p.nodeId === queue[index]);
+        if (!latest) return;
+        if (!captured.has(latest.nodeId)) captured.set(latest.nodeId, latest);
+        return { ...captured.get(latest.nodeId), local: latest.local, agent: latest.agent };
       }
       function node(tag, text, className) {
         const el = document.createElement(tag);
@@ -611,22 +622,42 @@
       }
       function draft(p) {
         if (!drafts.has(p.nodeId))
-          drafts.set(p.nodeId, { text: p.local.note, dirty: false, saving: false, error: "" });
+          drafts.set(p.nodeId, {
+            text: p.local.note,
+            version: p.local.noteVersion,
+            dirty: false,
+            saving: false,
+            error: "",
+          });
         return drafts.get(p.nodeId);
       }
       async function saveNote(p) {
         const d = draft(p),
           text = d.text;
+        if (d.saving) return d.pending;
+        let finish;
+        d.pending = new Promise((resolve) => {
+          finish = resolve;
+        });
         d.saving = true;
         d.error = "";
         renderNote(p);
         try {
-          await api.saveNote(p.nodeId, text);
-          if (d.text === text) d.dirty = false;
+          const receipt = await api.saveNote(p.nodeId, text, d.version);
+          d.version = receipt.version;
+          if (d.text === text) {
+            d.dirty = false;
+            const latest = prs.find((row) => row.nodeId === p.nodeId);
+            if (latest && latest.local.noteVersion !== d.version) {
+              d.text = latest.local.note;
+              d.version = latest.local.noteVersion;
+            }
+          }
         } catch (error) {
           d.error = error.message;
         } finally {
           d.saving = false;
+          finish();
           if (current()?.nodeId === p.nodeId) renderNote(p);
         }
       }
@@ -642,9 +673,17 @@
               ? "Unsaved edits"
               : "Saved";
         $("note-state").className = d.error ? "danger" : "muted";
+        const latest = prs.find((row) => row.nodeId === p.nodeId),
+          conflict = !!d.error && latest.local.noteVersion !== d.version;
+        $("saved-note").hidden = $("use-saved-note").hidden = $("keep-note").hidden = !conflict;
+        $("saved-note").textContent = conflict
+          ? "Saved note changed: " + (latest.local.note || "Empty note")
+          : "";
       }
       function openReview(id, button) {
-        queue = filtered().map((p) => p.nodeId);
+        const visible = filtered();
+        queue = visible.map((p) => p.nodeId);
+        captured.clear();
         index = queue.indexOf(id);
         origin = id;
         section = "body";
@@ -675,6 +714,7 @@
         if (!p) {
           detailRead++;
           $("review-title").textContent = "This pull request is no longer open";
+          $("load-latest").hidden = $("github").hidden = true;
           document.querySelector(".review-layout").hidden = true;
           $("content").textContent = "Use Previous or Next to continue.";
           return;
@@ -683,8 +723,10 @@
         $("review-title").textContent = p.title;
         $("review-meta").textContent = "#" + p.number + " · " + (p.author || "Unknown author");
         $("review-status").textContent = status(p);
+        $("github").hidden = false;
         $("github").href = p.url;
         $("head").textContent = p.headOid.slice(0, 12);
+        $("load-latest").hidden = prs.find((row) => row.nodeId === p.nodeId).headOid === p.headOid;
         $("reviewed-state").textContent =
           p.local.reviewed?.headOid === p.headOid
             ? "This commit is marked reviewed."
@@ -700,26 +742,27 @@
         $("agent-text").textContent = p.agent.assessment?.text || "";
         $("agent-state").textContent =
           p.agent.assessment?.headOid && p.agent.assessment?.headOid !== p.headOid
-            ? "Assessment refers to an earlier commit."
+            ? "Assessment refers to another commit."
             : "";
         document
           .querySelectorAll("[data-section]")
           .forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.section === section)));
         if (load) {
-          void api.inspect(p.nodeId, p.headOid).catch(() => {});
+          void api.inspect(p.nodeId, p.headOid, p.local.reviewVersion).catch(() => {});
           void loadDetail(p);
         } else if ($("content").dataset.key !== p.nodeId + ":" + p.headOid + ":" + section)
           void loadDetail(p);
       }
       async function loadDetail(p) {
         const requestedSection = section;
-        const key = p.nodeId + ":" + p.headOid + ":" + requestedSection,
+        const key = p.nodeId + ":" + p.headOid,
+          viewKey = key + ":" + requestedSection,
           read = ++detailRead;
-        $("content").dataset.key = key;
+        $("content").dataset.key = viewKey;
         $("retry-detail").hidden = true;
         $("content").className = "content" + (section === "diff" ? " diff" : "");
         if (details.has(key)) {
-          $("content").textContent = details.get(key);
+          $("content").textContent = detailText(details.get(key), requestedSection, p);
           return;
         }
         $("content").textContent = "Loading…";
@@ -728,7 +771,7 @@
           if (result.headOid !== p.headOid)
             throw new Error("This pull request changed while loading details. Sync and retry.");
           const text = detailText(result, requestedSection, p);
-          details.set(key, text);
+          details.set(key, result);
           if (read === detailRead && current()?.nodeId === p.nodeId)
             $("content").textContent = text;
         } catch (error) {
@@ -757,21 +800,27 @@
         $("snooze-date").value = "";
         $("snooze-error").textContent = "";
         $("unsnooze").hidden = !sleeping(p);
+        snoozeIntent = {
+          nodeId: id,
+          version: p.local.snoozeVersion,
+          before: p.local.snooze ? { ...p.local.snooze } : { until: null, wakeOnNewCommit: false },
+        };
         $("snooze-dialog").showModal();
       }
       async function setSnooze(until) {
-        const p = prs.find((p) => p.nodeId === snoozeId),
-          before = {
-            until: p.local.snooze?.until ?? null,
-            wakeOnNewCommit: p.local.snooze?.wakeOnNewCommit ?? false,
-          };
+        const intent = snoozeIntent,
+          p = prs.find((row) => row.nodeId === intent.nodeId);
         try {
-          await api.setSnooze(p.nodeId, { until, wakeOnNewCommit: $("wake").checked });
+          const receipt = await api.setSnooze(
+            p.nodeId,
+            { until, wakeOnNewCommit: $("wake").checked, headOid: p.headOid },
+            intent.version,
+          );
           $("snooze-dialog").close();
           notify(
             until ? "#" + p.number + " snoozed" : "#" + p.number + " returned to inbox",
             async () => {
-              await api.setSnooze(p.nodeId, before);
+              await api.setSnooze(p.nodeId, intent.before, receipt.version);
             },
           );
         } catch (error) {
@@ -796,7 +845,10 @@
         document.documentElement.dataset.theme = context.theme || "light";
         for (const p of prs) {
           const d = drafts.get(p.nodeId);
-          if (d && !d.dirty && !d.saving) d.text = p.local.note;
+          if (d && !d.dirty && !d.saving) {
+            d.text = p.local.note;
+            d.version = p.local.noteVersion;
+          }
         }
         render();
       });
@@ -829,6 +881,7 @@
       $("notes").oninput = (e) => {
         const p = current(),
           d = draft(p);
+        if (!d.dirty) d.version = p.local.noteVersion;
         d.text = e.target.value;
         d.dirty = true;
         renderNote(p);
@@ -838,12 +891,35 @@
         if (p && draft(p).dirty) void saveNote(p);
       };
       $("save-note").onclick = () => void saveNote(current());
+      $("use-saved-note").onclick = async () => {
+        const p = current(),
+          d = draft(p);
+        if (d.saving) await d.pending;
+        d.text = p.local.note;
+        d.version = p.local.noteVersion;
+        d.dirty = false;
+        d.error = "";
+        renderNote(p);
+      };
+      $("keep-note").onclick = async () => {
+        const p = current(),
+          d = draft(p);
+        if (d.saving) await d.pending;
+        d.version = p.local.noteVersion;
+        d.error = "";
+        void saveNote(p);
+      };
+      $("load-latest").onclick = () => {
+        const latest = prs.find((p) => p.nodeId === queue[index]);
+        captured.set(latest.nodeId, latest);
+        renderReview(true);
+      };
       $("review-snooze").onclick = () => openSnooze(current().nodeId);
       $("mark-reviewed").onclick = async () => {
         const p = current();
         try {
-          await api.markReviewed(p.nodeId, p.headOid);
-          notify("#" + p.number + " current commit marked reviewed");
+          await api.markReviewed(p.nodeId, p.headOid, p.local.reviewVersion);
+          notify("#" + p.number + " displayed commit marked reviewed");
         } catch (error) {
           notify(error.message);
         }
