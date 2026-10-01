@@ -87,6 +87,13 @@ PUT, or DELETE are accepted; the Mac supplies its own local publishing token.
 The hub permits sixteen active requests, bounded request bodies, and one
 connected Mac. Event heartbeats keep the connection active. Disconnecting
 cancels every transfer and returns 503 where headers have not been sent.
+If a non-GET request times out before the Mac fetches its body, the hub closes
+that relay connection. The timed-out request keeps its timeout error; other
+pending requests receive the disconnect warning because other writes may
+have completed. The hub does not replay live requests. Later opted-in
+publications can queue while disconnected. A GET timeout or a timeout after
+body retrieval does not close the relay, so those stalls can still require
+reconnection. Caller cancellation does not close the relay either.
 Live requests end on disconnect. Offline publications can instead opt into
 buffering by sending `Scope-Buffer-Publication: 1` on the tab reservation.
 `ScopeClient.publishOrQueue` uses this option; `publish` retains synchronous
