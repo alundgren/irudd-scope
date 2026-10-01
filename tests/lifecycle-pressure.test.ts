@@ -1,10 +1,13 @@
 import { expect, test } from "vite-plus/test";
+import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { Artifact } from "@irudd-scope/protocol";
 import { desktopFixture } from "./desktop-fixture.ts";
 import { tabArtifactId } from "../apps/desktop/src/workspace/contract.ts";
+import { startArtifactServer } from "../apps/desktop/src/library/server.ts";
+import { ScopeClient } from "@irudd-scope/protocol/client";
 import {
   contentCounts,
   pressureContent,
@@ -25,6 +28,118 @@ const payloadKiB = setting("SCOPE_PRESSURE_KIB", 8, 1024);
 const useCli = process.env.SCOPE_PRESSURE_CLI === "1";
 const output = process.env.SCOPE_PRESSURE_OUTPUT;
 const settleMs = setting("SCOPE_PRESSURE_SETTLE_MS", output ? 2000 : 0, 30_000, 0);
+
+test("pressure cleanup counts include populated plan and pull request content owners", async () => {
+  const f = await desktopFixture();
+  await mkdir(f.settingsDirectory, { recursive: true });
+  const server = await startArtifactServer({
+    directory: join(f.settingsDirectory, "artifacts"),
+    token: "synthetic-pressure-token",
+    port: 0,
+  });
+  const client = new ScopeClient(server.url, "synthetic-pressure-token");
+  try {
+    const plan = await client.publish(
+      "pressure-plan",
+      {
+        name: "pressure-plan",
+        title: "Plan",
+        kind: "plan",
+        mediaType: "text/html",
+        fileName: "plan.html",
+        expectedRevision: 0,
+      },
+      Buffer.from("<h1>Plan</h1>"),
+    );
+    await client.plan({
+      action: "comment",
+      name: "pressure-plan",
+      requestId: randomUUID(),
+      revision: plan.revision,
+      text: "Inspect cleanup",
+      page: "overview",
+      image:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=",
+      annotatedImage:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=",
+      annotations: [],
+    });
+    await client.publish(
+      "pressure-inbox",
+      {
+        name: "pressure-inbox",
+        title: "Inbox",
+        kind: "pull-requests",
+        mediaType: "text/html",
+        fileName: "inbox.html",
+        expectedRevision: 0,
+      },
+      Buffer.from("<h1>Inbox</h1>"),
+    );
+    const inbox = await server.store.pullRequests.snapshot("pressure-inbox");
+    await client.pullRequests({
+      action: "configure",
+      name: "pressure-inbox",
+      tabId: inbox.tabId,
+      requestId: randomUUID(),
+      repository: { owner: "example", name: "project" },
+    });
+    const now = new Date().toISOString(),
+      head = "a".repeat(40),
+      base = "b".repeat(40);
+    await server.store.pullRequests.commitInventory(inbox.tabId, {
+      repository: { owner: "example", name: "project" },
+      viewer: "viewer",
+      completedAt: now,
+      prs: [
+        {
+          nodeId: "PR_pressure",
+          number: 1,
+          title: "Inspect cleanup",
+          author: "author",
+          labels: [],
+          headOid: head,
+          headRefName: "feature",
+          baseOid: base,
+          draft: false,
+          additions: 0,
+          deletions: 0,
+          changedFiles: 0,
+          url: "https://github.com/example/project/pull/1",
+          merge: { status: "unknown", headOid: head, baseOid: base, observedAt: now },
+          checks: { status: "unknown", headOid: null, observedAt: now },
+          hasUnresolvedConversations: null,
+          createdAt: now,
+          updatedAt: now,
+          requestedReviewers: [],
+        },
+      ],
+    });
+    const populated = contentCounts(f.settingsDirectory);
+    for (const table of [
+      "plan_state",
+      "plan_revisions",
+      "plan_images",
+      "plan_records",
+      "plan_receipts",
+      "pull_requests_state",
+      "pull_requests_current",
+      "pull_requests_receipts",
+    ])
+      expect(populated.rows[table]).toBeGreaterThan(0);
+    await client.delete(plan.id);
+    await client.delete("pressure-inbox");
+    const empty = contentCounts(f.settingsDirectory);
+    expect(Object.values(empty.rows).every((rows) => rows === 0)).toBe(true);
+    expect(empty.unreferencedBlobs).toEqual({ rows: 0, bytes: 0 });
+    expect(empty.integrity).toBe("ok");
+    expect(empty.foreignKeys).toEqual([]);
+    expect(Object.keys(empty.tableRows)).toContain("lifecycle");
+  } finally {
+    await server.close();
+    await rm(f.directory, { recursive: true, force: true });
+  }
+});
 
 test(
   "concurrent local and relayed publications open beyond one hundred tabs, survive restart, and reclaim content after repeated cycles",
@@ -110,7 +225,8 @@ test(
       const counts = contentCounts(f.settingsDirectory);
       expect(counts.integrity).toBe("ok");
       expect(counts.foreignKeys).toEqual([]);
-      expect(Object.values(counts.rows)).toEqual([0, 0, 0, 0, 0]);
+      expect(Object.values(counts.rows).every((rows) => rows === 0)).toBe(true);
+      expect(counts.unreferencedBlobs).toEqual({ rows: 0, bytes: 0 });
       expect(await page.getByRole("alert").allTextContents()).toEqual([]);
     };
     const shrink = async () => {

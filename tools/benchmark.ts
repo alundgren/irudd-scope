@@ -135,9 +135,9 @@ async function openArtifact(
   options: { heading?: string; fileName?: string } = {},
 ) {
   const started = performance.now();
-  await page.getByRole("button", { name: "Find artifacts and tools" }).click();
+  await page.keyboard.press("ControlOrMeta+k");
   await page.getByLabel("Search artifacts", { exact: true }).fill(title);
-  await page.getByRole("button", { name: `${title} ${kind}`, exact: true }).click();
+  await page.keyboard.press("Enter");
   const pane = page.getByRole("tabpanel", { name: title, exact: true });
   await pane.waitFor({ state: "visible" });
   switch (kind) {

@@ -68,7 +68,38 @@ export async function pressureHub(directory: string) {
 export function contentCounts(directory: string) {
   const db = new DatabaseSync(join(directory, "artifacts/scope.db"), { readOnly: true });
   try {
-    const tables = ["live_tabs", "artifacts", "tab_blobs", "tab_drafts", "blobs"];
+    const tables = [
+      "live_tabs",
+      "artifacts",
+      "tab_blobs",
+      "tab_drafts",
+      "blobs",
+      "plan_state",
+      "plan_revisions",
+      "plan_images",
+      "plan_records",
+      "plan_receipts",
+      "plan_drafts",
+      "pull_requests_state",
+      "pull_requests_current",
+      "pull_requests_receipts",
+    ];
+    const databaseTables = db
+      .prepare(
+        "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+      )
+      .all() as { name: string }[];
+    const tableRows = Object.fromEntries(
+      databaseTables.map(({ name }) => [
+        name,
+        Number(db.prepare(`SELECT count(*) AS n FROM "${name.replaceAll('"', '""')}"`).get()?.n),
+      ]),
+    );
+    const unreferenced = db
+      .prepare(
+        "SELECT count(*) AS rows, coalesce(sum(length(content)), 0) AS bytes FROM blobs WHERE NOT EXISTS (SELECT 1 FROM tab_blobs WHERE tab_blobs.blob_id = blobs.id)",
+      )
+      .get();
     return {
       integrity: db.prepare("PRAGMA integrity_check").get()?.integrity_check,
       foreignKeys: db.prepare("PRAGMA foreign_key_check").all(),
@@ -78,6 +109,8 @@ export function contentCounts(directory: string) {
           Number(db.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n),
         ]),
       ),
+      tableRows,
+      unreferencedBlobs: { rows: Number(unreferenced?.rows), bytes: Number(unreferenced?.bytes) },
       open: Number(db.prepare("SELECT count(*) AS n FROM live_tabs WHERE opened = 1").get()?.n),
     };
   } finally {
