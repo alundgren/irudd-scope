@@ -56,6 +56,24 @@ export const PullRequestDetail = Schema.Struct({
   headOid: PullRequestCommit,
   body: Schema.String.check(Schema.isMaxLength(256 * 1024)),
   diff: Schema.String.check(Schema.isMaxLength(2 * 1024 * 1024)),
+  reviews: Schema.Array(
+    Schema.Struct({
+      id: ShortText,
+      author: Schema.NullOr(ShortText),
+      state: ShortText,
+      body: Text,
+      submittedAt: Schema.NullOr(Timestamp),
+      headOid: Schema.NullOr(PullRequestCommit),
+    }),
+  ).check(Schema.isMaxLength(10_000)),
+  files: Schema.Array(
+    Schema.Struct({
+      path: Schema.String.check(Schema.isMaxLength(4096)),
+      additions: Revision,
+      deletions: Revision,
+      status: ShortText,
+    }),
+  ).check(Schema.isMaxLength(10_000)),
   fetchedAt: Timestamp,
 });
 export type PullRequestDetail = typeof PullRequestDetail.Type;
