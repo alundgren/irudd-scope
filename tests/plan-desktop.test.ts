@@ -7,12 +7,7 @@ import { desktopFixture } from "./desktop-fixture.ts";
 
 const html = `<!doctype html><html><head><title>Checkout page</title><style>body{margin:0;padding:40px;font:18px system-ui;background:#f3f8f1;color:#182a21}button{font:inherit;padding:12px}section{height:1600px}input{font:inherit}</style></head><body><h1>Interactive checkout</h1><button id="next" onclick="document.querySelector('h1').textContent='Payment details';this.hidden=true">Next step</button><input aria-label="Order reference"><section>Keep this authored page interactive.</section></body></html>`;
 const evidence = "/tmp/scope-plan-ui-evidence";
-async function draw(
-  page: Page,
-  type: "Arrow" | "Box" | "Pin",
-  from: [number, number],
-  to: [number, number],
-) {
+async function draw(page: Page, type: "Box" | "Pin", from: [number, number], to: [number, number]) {
   await page.getByRole("button", { name: type, exact: true }).click();
   const points = await page
     .getByRole("img", { name: "Frozen plan screenshot, draw annotations here" })
@@ -81,7 +76,11 @@ test("a plan keeps interactive HTML while captured comments, feedback, replies, 
     ).toBe(true);
     await page.getByRole("button", { name: "Comment", exact: true }).click();
     await page.getByRole("dialog", { name: "Comment on captured page" }).waitFor();
-    await draw(page, "Arrow", [0.12, 0.12], [0.35, 0.22]);
+    expect(
+      await page.getByRole("button", { name: "Box", exact: true }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(await page.getByRole("button", { name: "Arrow", exact: true }).count()).toBe(0);
+    await draw(page, "Box", [0.12, 0.12], [0.35, 0.22]);
     await draw(page, "Box", [0.2, 0.3], [0.55, 0.5]);
     await draw(page, "Pin", [0.4, 0.4], [0.4, 0.4]);
     await page.getByLabel("Comment", { exact: true }).fill("Make the payment step easier to find.");
@@ -104,7 +103,7 @@ test("a plan keeps interactive HTML while captured comments, feedback, replies, 
       "Make the payment step easier to find.",
     );
     const retained = await page.evaluate((id) => window.scope.loadPlanDraft(id), tab.id);
-    expect(retained?.annotations.map((mark) => mark.type)).toEqual(["arrow", "box", "pin"]);
+    expect(retained?.annotations.map((mark) => mark.type)).toEqual(["box", "box", "pin"]);
     await page.getByRole("button", { name: "Add comment", exact: true }).click();
     await page.getByRole("button", { name: "Send feedback (1)" }).waitFor();
     const restartedClient = await connect();

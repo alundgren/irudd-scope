@@ -285,15 +285,21 @@ tabs than fit on a Mac laptop or external monitor.
 Plans always have an immutable unique name and start permanent. Later updates
 respect the person's permanence choice. Ordinary trusted HTML remains the
 content, including scripts and external resources. The reading page uses the
-available width. Compact Comment and Feedback controls float over the page;
-focus mode hides them. Feedback is an overlay that closes completely rather
+available width. Compact Comment and Feedback controls occupy a bottom row
+that remains accessible while Feedback is open; focus mode hides the row.
+Feedback is an overlay that closes completely rather
 than a reserved column. The page stays mounted when controls toggle, a comment
 is canceled, or an agent responds.
 
-Comment freezes the visible page at its current revision. Arrow, box and pin
+Comment freezes the visible page at its current revision. Box and pin
 marks attach feedback to that captured image. A separate text field records the
 question or requested change. The original image, marked image, geometry and
-text stay together; Scope does not guess a new location after HTML changes.
+text stay together. Box is the default marking tool. Unresolved comment marks,
+including unsent drafts, remain over the live page and move with document scrolling.
+They never intercept page interactions. Marks appear only on their captured
+revision at the captured viewport width; Scope does not guess a new location
+after HTML changes or responsive reflow. Existing comments without capture
+position metadata retain their marked screenshots in Feedback.
 Unfinished comments persist across restart. Back to plan retains the draft;
 Discard comment removes it and returns to the same live page.
 

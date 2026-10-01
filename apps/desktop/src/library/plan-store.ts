@@ -195,6 +195,7 @@ export class PlanStore {
               image,
               originalImage,
               annotations: command.annotations,
+              ...(command.viewport !== undefined ? { viewport: command.viewport } : {}),
               ...(command.selectedText !== undefined ? { selectedText: command.selectedText } : {}),
               ...(command.elementId !== undefined ? { elementId: command.elementId } : {}),
               createdAt: now,

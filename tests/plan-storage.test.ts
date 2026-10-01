@@ -60,6 +60,54 @@ function comment(revision: number): Extract<PlanCommand, { action: "comment" }> 
   };
 }
 
+test("capture positions persist beside legacy comments and drafts without changing existing records", async () => {
+  const f = await fixture();
+  let reopened: ArtifactStore | undefined;
+  try {
+    const artifact = await publish(f.store, "<h1>Capture positions</h1>");
+    const tab = (await f.store.tabs())[0];
+    const viewport = { scrollX: 0, scrollY: 320, width: 1000, height: 700 };
+    const legacy = comment(artifact.revision);
+    await f.store.plans.command(legacy);
+    const positioned = { ...comment(artifact.revision), viewport };
+    await f.store.plans.command(positioned);
+    await expect(
+      f.store.plans.command({ ...comment(artifact.revision), viewport: { ...viewport, width: 0 } }),
+    ).rejects.toThrow();
+    await expect(
+      f.store.plans.command({
+        ...comment(artifact.revision),
+        viewport: { ...viewport, scrollY: Infinity },
+      }),
+    ).rejects.toThrow();
+    const draft = {
+      revision: artifact.revision,
+      image: png,
+      width: 1,
+      height: 1,
+      text: "Draft",
+      page: "overview",
+      annotations: [],
+      requestId: randomUUID(),
+    };
+    await f.store.plans.saveDraft(tab.id, draft);
+    expect(await f.store.plans.draft(tab.id)).toEqual(draft);
+    await f.store.plans.saveDraft(tab.id, { ...draft, viewport });
+    await f.store.close();
+    reopened = await ArtifactStore.open(f.directory);
+    const state = await snapshot(reopened);
+    expect(state.comments).toHaveLength(2);
+    expect(state.comments.find((entry) => entry.id === legacy.requestId)?.viewport).toBeUndefined();
+    expect(state.comments.find((entry) => entry.id === positioned.requestId)?.viewport).toEqual(
+      viewport,
+    );
+    expect(await reopened.plans.draft(tab.id)).toEqual({ ...draft, viewport });
+  } finally {
+    await reopened?.close();
+    await f.close();
+  }
+});
+
 test("plan history survives publication, reclamation, restart and restore while preserving permanence", async () => {
   const f = await fixture();
   let reopened: ArtifactStore | undefined;

@@ -357,7 +357,12 @@ compact `receipt` replies with artifact metadata, review version and an optional
 created `recordId`. Created comment, round and response IDs equal `requestId`.
 A comment has an
 original screenshot, marked screenshot, normalized annotations, text and source
-revision. A submitted round contains distinct comments from one revision.
+revision. Optional `viewport` metadata records `scrollX`, `scrollY`, `width`
+and `height` in CSS pixels for placing marks over the same document revision.
+Comments and drafts saved without this metadata remain readable; no database
+migration is required. The desktop offers boxes and pins for new marks, while
+existing arrow annotations remain supported by the protocol and screenshot renderer.
+A submitted round contains distinct comments from one revision.
 Responses must reply to every comment in that round. Optional HTML replacement
 checks `expectedRevision` and commits with the replies. Text-only responses may
 reference retained older revisions. Restore appends history rather than deleting

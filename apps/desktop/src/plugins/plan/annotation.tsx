@@ -123,7 +123,7 @@ export function CommentCapture({
   busy: boolean;
 }) {
   const svg = useRef<SVGSVGElement>(null);
-  const [tool, setTool] = useState<PlanAnnotation["type"]>("arrow");
+  const [tool, setTool] = useState<"box" | "pin">("box");
   const [start, setStart] = useState<Point>();
   const [preview, setPreview] = useState<PlanAnnotation>();
   function point(event: PointerEvent<SVGSVGElement>): Point {
@@ -196,7 +196,7 @@ export function CommentCapture({
       </div>
       <section className="plan-capture-controls">
         <div className="plan-actions" role="group" aria-label="Annotation tools">
-          {(["arrow", "box", "pin"] as const).map((value) => (
+          {(["box", "pin"] as const).map((value) => (
             <Button
               key={value}
               disabled={busy}

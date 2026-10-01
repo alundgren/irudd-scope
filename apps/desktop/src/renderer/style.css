@@ -1338,9 +1338,24 @@ h2 {
 
 .plan-view {
   position: relative;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100%;
   overflow: hidden;
+}
+.plan-page {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.plan-pending-marks {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 .plan-document {
   display: block;
@@ -1349,16 +1364,15 @@ h2 {
   border: 0;
   background: var(--scope-canvas);
 }
-.plan-floating-controls {
-  position: absolute;
-  right: var(--scope-space-4);
-  bottom: var(--scope-space-4);
+.plan-controls {
   display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: var(--scope-space-2);
-  padding: var(--scope-space-1);
-  border-radius: var(--scope-radius-tab);
+  padding: var(--scope-space-2) var(--scope-space-4);
   background: var(--scope-panel);
-  box-shadow: var(--scope-shadow);
+  border-top: 1px solid var(--scope-line);
 }
 .plan-review {
   position: absolute;

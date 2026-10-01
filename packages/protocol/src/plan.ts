@@ -29,6 +29,13 @@ export const PlanImage = Schema.Struct({
   height: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 8192 })),
 });
 export type PlanImage = typeof PlanImage.Type;
+export const PlanViewport = Schema.Struct({
+  scrollX: Schema.Number.check(Schema.isFinite()),
+  scrollY: Schema.Number.check(Schema.isFinite()),
+  width: Schema.Number.check(Schema.isBetween({ minimum: 1, maximum: 8192 })),
+  height: Schema.Number.check(Schema.isBetween({ minimum: 1, maximum: 8192 })),
+});
+export type PlanViewport = typeof PlanViewport.Type;
 export const PlanComment = Schema.Struct({
   id: PlanRecordId,
   revision: Revision,
@@ -37,6 +44,7 @@ export const PlanComment = Schema.Struct({
   image: PlanImage,
   originalImage: PlanImage,
   annotations: PlanAnnotations,
+  viewport: Schema.optionalKey(PlanViewport),
   selectedText: Schema.optionalKey(Label),
   elementId: Schema.optionalKey(Label),
   createdAt: Schema.String,
@@ -102,6 +110,7 @@ export const PlanCommand = Schema.Union([
       Schema.isMaxLength(Math.ceil(MAX_PLAN_IMAGE_BYTES / 3) * 4),
     ),
     annotations: PlanAnnotations,
+    viewport: Schema.optionalKey(PlanViewport),
     selectedText: Schema.optionalKey(Label),
     elementId: Schema.optionalKey(Label),
   }),

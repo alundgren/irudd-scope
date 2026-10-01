@@ -51,7 +51,7 @@ A plan always has a unique immutable name and starts permanent. Omitting
 preserves the plan kind, name, and history. Avoid custom content blocks. Stable
 HTML IDs can help navigation but are optional.
 
-The human navigates any page, captures its visible state, adds arrows, boxes or
+The human navigates any page, captures its visible state, adds boxes or
 pins and text, then sends a feedback round. Retrieve it with:
 
 ```sh
