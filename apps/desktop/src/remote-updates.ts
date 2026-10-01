@@ -40,13 +40,8 @@ export async function synchronizeRemote(
       let status = await request();
       const busy = status.phase === "building" || status.phase === "restarting";
       if (status.supported && !busy) {
-        if (status.currentCommit === commit) {
-          onChange({
-            ...status,
-            phase: "idle",
-            message: "Remote tools match this Mac.",
-            output: undefined,
-          });
+        if (status.currentCommit === commit && status.phase !== "error" && (!retry || requested)) {
+          onChange(status);
           return;
         }
         if (!requested) {

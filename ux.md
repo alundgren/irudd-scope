@@ -220,6 +220,10 @@ off. Each remote shows update progress separately from its connection status.
 Failures offer Retry update without interrupting the workspace. Older hubs
 explain the one-time installer and setup step needed for automatic updates.
 An accepted remote update can finish after disconnecting from the Mac.
+Skill errors remain visible even when the CLI and hub match the Mac. Details
+identify the conflicting path and recovery commands; Retry update rechecks the
+skill without rebuilding tools already at the requested commit. A completed
+skill update reminds the person to refresh or start a new agent session.
 
 Create diagram is available in the empty workspace and search panel.
 An existing diagram has an Ask agent conversation, closed by default.

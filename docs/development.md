@@ -476,6 +476,11 @@ Setup installs the bundled publishing skill in `~/.agents/skills/irudd-scope`
 and links it for Claude Code. These links follow the standalone CLI's current
 build. Existing unrelated skills or CLI commands are never replaced. Use
 `irudd-scope skill install` or `irudd-scope skill remove` independently.
+`irudd-scope skill check` validates the installed links and skill bytes without
+changing them. `irudd-scope skill sync` repairs links belonging to this standalone
+installation and verifies the result. Both print an `installed` JSON boolean;
+an invalid or separate installation exits nonzero with its path and recovery
+instructions. A pre-existing Codex-specific skill path is checked as well.
 
 Paste the pairing URL into Settings → Remotes in Scope. The secret is in the
 URL fragment. Links expire after ten minutes; generating another invalidates
@@ -519,7 +524,17 @@ user service. It fetches and builds while the existing hub keeps serving, then
 switches the CLI, skill, and hub together and restarts the hub. Publication is
 briefly unavailable during restart; active transfers can fail and are not
 replayed. The worker checks the replacement's running commit and restores the
-previous build if startup fails. Pairing, discovery, and Serve configuration
+previous build if startup fails. It then checks the agent's installed skill and
+repairs links pointing to an older build of the same standalone installation.
+Separate skill copies or links to another installation remain untouched and
+produce an update error with the affected path. The updated CLI and hub stay
+available while that skill error is resolved. Moving the separate copy aside,
+running `irudd-scope skill install` on the remote, and selecting Retry update
+rechecks the skill without rebuilding tools already at the requested commit.
+Removing all skill links explicitly keeps the skill uninstalled across updates.
+Refresh or start a new agent session after updating the skill so its discovery
+description and loaded guidance reflect the new files.
+Pairing, discovery, and Serve configuration
 stay in place. An accepted update can finish after the Mac disconnects.
 
 Settings → Remotes shows progress and Retry update on failure. Failed attempts

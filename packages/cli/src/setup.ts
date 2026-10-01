@@ -1,19 +1,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import {
-  access,
-  chmod,
-  mkdir,
-  readFile,
-  readlink,
-  rename,
-  symlink,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { installSkill, validateSkillLinks } from "./skill.ts";
 import { Schema } from "effect";
 import {
   ShrinkReceipt,
@@ -67,37 +58,6 @@ async function fileText(path: string) {
     return undefined;
   });
 }
-async function checkLink(path: string, target: string) {
-  const existing = await readlink(path).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return undefined;
-    throw new Error(`${path} already exists. Move it aside before installing the Scope skill.`);
-  });
-  if (existing !== undefined && existing !== target)
-    throw new Error(`${path} belongs to another installation. Move it aside before installing.`);
-  return existing;
-}
-function skillLinks(root: string) {
-  const shared = join(userDirectory(), ".agents/skills/irudd-scope");
-  return [
-    [shared, join(root, "skill")],
-    [join(userDirectory(), ".claude/skills/irudd-scope"), shared],
-  ] as const;
-}
-export async function installSkill(remove = false) {
-  const root = installation();
-  await access(join(root, "skill/SKILL.md"));
-  for (const [path, target] of skillLinks(root)) await checkLink(path, target);
-  for (const [path, target] of skillLinks(root)) {
-    if (remove) {
-      if (await checkLink(path, target)) await unlink(path);
-    } else {
-      await mkdir(dirname(path), { recursive: true });
-      if (!(await checkLink(path, target))) await symlink(target, path);
-    }
-  }
-  console.log(remove ? "Scope skill removed." : "Scope skill installed for Codex and Claude Code.");
-}
-
 export function hubRequest(action: "status"): Promise<HubStatus>;
 export function hubRequest(action: "pair"): Promise<{ url: string; expiresInMinutes: number }>;
 export function hubRequest(action: "unpair"): Promise<{ unpaired: true }>;
@@ -303,7 +263,7 @@ export async function setup(options: SetupOptions) {
     throw new Error("An unmanaged hub service already exists. Move it aside before setup.");
   if (configured && existingUnit && (configured.endpoint !== endpoint || configured.port !== port))
     throw new Error("Remove the existing hub before changing its endpoint or ports.");
-  for (const [path, link] of skillLinks(root)) await checkLink(path, link);
+  await validateSkillLinks(root);
   console.log(
     `Scope setup will run the hub as your user, install its skill for Codex and Claude Code, and publish ${endpoint} through Tailscale Serve.\nHub state: ${directory()}\nCLI discovery: ${connectionFile()}\nService: ${serviceFile()}\nExisting Serve routes will be preserved.`,
   );

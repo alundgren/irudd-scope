@@ -247,6 +247,9 @@ dedicated Tailscale Serve route. It invokes the installed hub executable to
 configure hub-owned state. `install-cli.sh` and `tools/package-cli.ts` install
 the standalone CLI with its runtime and hub payload. They do not install the
 desktop or operate another machine over SSH.
+`packages/cli/src/skill.ts` owns standalone skill links, installed-content
+validation, and repair. The hub invokes the installed CLI's `skill check` and
+`skill sync` commands rather than importing CLI internals.
 
 The installed Mac's `remote-updates.ts` requests the running app's exact commit
 through an authenticated hub update endpoint after connection. It never uses a

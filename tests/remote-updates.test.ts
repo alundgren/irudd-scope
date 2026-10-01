@@ -1,5 +1,5 @@
 import { expect, test } from "vite-plus/test";
-import { readFile, readlink, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { remoteUpdateFixture } from "./remote-update-fixture.ts";
 import { createServer } from "node:http";
@@ -127,6 +127,123 @@ test.skipIf(process.platform !== "linux")(
     }
   },
   120_000,
+);
+
+test.skipIf(process.platform !== "linux")(
+  "an updated CLI cannot hide a copied agent skill, and retry fixes it without rebuilding",
+  async () => {
+    const f = await remoteUpdateFixture();
+    try {
+      const agentSkill = join(f.directory, "user/.agents/skills/irudd-scope");
+      await rm(agentSkill);
+      await mkdir(agentSkill);
+      await writeFile(join(agentSkill, "SKILL.md"), "Old independent skill");
+      const next = await f.commitSkill("Skill with plan support");
+      await f.openMac(next);
+      await expect.poll(() => f.status()?.update?.currentCommit, { timeout: 30_000 }).toBe(next);
+      await expect.poll(() => f.state.updateStatus()?.phase).toBe("error");
+      await expect.poll(() => f.status()?.update?.phase, { timeout: 15_000 }).toBe("error");
+      expect(f.status()?.update?.output).toContain(agentSkill);
+      expect(f.status()?.update?.output).toContain("irudd-scope skill install");
+      expect((await f.cli("--help")).stdout).toContain("--plan");
+      expect(await readFile(join(f.root, "current/skill/SKILL.md"), "utf8")).toBe(
+        "Skill with plan support",
+      );
+      expect(await readFile(join(agentSkill, "SKILL.md"), "utf8")).toBe("Old independent skill");
+      const build = await readlink(join(f.root, "current"));
+      const attempts = f.launches();
+      await f.openMac(next);
+      await expect.poll(() => f.status()?.update?.phase, { timeout: 15_000 }).toBe("error");
+      expect(f.launches()).toBe(attempts);
+      await expect(f.cli("skill", "sync")).rejects.toMatchObject({
+        stderr: expect.stringContaining(agentSkill),
+      });
+      await rename(agentSkill, `${agentSkill}.saved`);
+      await f.cli("skill", "install");
+      await f.retry();
+      await expect.poll(() => f.state.updateStatus()?.phase, { timeout: 15_000 }).toBe("idle");
+      await expect.poll(() => f.status()?.update?.phase, { timeout: 15_000 }).toBe("idle");
+      expect(f.launches()).toBe(attempts + 1);
+      expect(await readlink(join(f.root, "current"))).toBe(build);
+      expect(await readFile(join(agentSkill, "SKILL.md"), "utf8")).toBe("Skill with plan support");
+      expect(await readFile(join(`${agentSkill}.saved`, "SKILL.md"), "utf8")).toBe(
+        "Old independent skill",
+      );
+      expect(f.status()?.update?.message).toContain("new agent session");
+    } finally {
+      await f.close();
+    }
+  },
+  60_000,
+);
+
+test.skipIf(process.platform !== "linux")(
+  "updates repair Scope links pinned to an old build and preserve an explicit skill removal",
+  async () => {
+    const f = await remoteUpdateFixture();
+    try {
+      const original = await readlink(join(f.root, "current"));
+      const shared = join(f.directory, "user/.agents/skills/irudd-scope");
+      const claude = join(f.directory, "user/.claude/skills/irudd-scope");
+      const codex = join(f.directory, "user/.codex/skills/irudd-scope");
+      await rm(shared);
+      await symlink(join(original, "skill"), shared);
+      await rm(claude);
+      await mkdir(join(f.directory, "user/.codex/skills"), { recursive: true });
+      await symlink(join(original, "skill"), codex);
+      const next = await f.commitSkill("Current planning skill");
+      await f.openMac(next);
+      await expect.poll(() => f.status()?.update?.currentCommit, { timeout: 30_000 }).toBe(next);
+      await expect.poll(() => f.state.updateStatus()?.phase).toBe("idle");
+      for (const path of [shared, claude, codex])
+        expect(await readFile(join(path, "SKILL.md"), "utf8")).toBe("Current planning skill");
+      expect(JSON.parse((await f.cli("skill", "check")).stdout)).toEqual({ installed: true });
+      const build = await readlink(join(f.root, "current"));
+      await rm(shared);
+      await symlink(join(original, "skill"), shared);
+      await f.openMac(next);
+      await expect.poll(() => f.launches(), { timeout: 15_000 }).toBe(2);
+      await expect.poll(() => f.state.updateStatus()?.phase).toBe("idle");
+      expect(await readlink(join(f.root, "current"))).toBe(build);
+      expect(await readFile(join(shared, "SKILL.md"), "utf8")).toBe("Current planning skill");
+      await expect.poll(() => f.status()?.update?.phase, { timeout: 15_000 }).toBe("idle");
+      await f.cli("skill", "remove");
+      await f.retry();
+      await expect.poll(() => f.launches(), { timeout: 15_000 }).toBe(3);
+      await expect.poll(() => f.state.updateStatus()?.phase).toBe("idle");
+      await expect.poll(() => f.status()?.update?.phase, { timeout: 15_000 }).toBe("idle");
+      expect(JSON.parse((await f.cli("skill", "check")).stdout)).toEqual({ installed: false });
+      expect(f.state.updateStatus()?.message).toContain("not installed");
+    } finally {
+      await f.close();
+    }
+  },
+  60_000,
+);
+
+test.skipIf(process.platform !== "linux")(
+  "a separate Codex skill is reported even when the remote already matches the Mac",
+  async () => {
+    const f = await remoteUpdateFixture();
+    try {
+      const codex = join(f.directory, "user/.codex/skills/irudd-scope");
+      await mkdir(codex, { recursive: true });
+      await writeFile(join(codex, "SKILL.md"), "Old Codex skill");
+      await f.openMac(f.initialCommit);
+      await expect.poll(() => f.state.updateStatus()?.phase, { timeout: 15_000 }).toBe("error");
+      await expect.poll(() => f.status()?.update?.phase, { timeout: 15_000 }).toBe("error");
+      expect(f.status()?.update?.output).toContain(codex);
+      expect(await readFile(join(codex, "SKILL.md"), "utf8")).toBe("Old Codex skill");
+      await rename(codex, `${codex}.saved`);
+      await f.retry();
+      await expect.poll(() => f.state.updateStatus()?.phase, { timeout: 15_000 }).toBe("idle");
+      await expect.poll(() => f.status()?.update?.phase, { timeout: 15_000 }).toBe("idle");
+      expect(await readFile(join(`${codex}.saved`, "SKILL.md"), "utf8")).toBe("Old Codex skill");
+    } finally {
+      await f.close();
+    }
+  },
+  60_000,
 );
 
 test.skipIf(process.platform !== "linux")(

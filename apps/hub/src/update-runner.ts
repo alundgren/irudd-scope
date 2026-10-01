@@ -6,7 +6,13 @@ import { setTimeout as delay } from "node:timers/promises";
 import { decode, decodeLocalConnection } from "@irudd-scope/protocol";
 import { BuildCommit, HubStatus, readRemoteJson } from "@irudd-scope/protocol/remote";
 import { HubState } from "./state.ts";
-import { readInstallation, selectBuild } from "./installation.ts";
+import {
+  InstalledSkillError,
+  readInstallation,
+  runSkillCommand,
+  selectBuild,
+  type Installation,
+} from "./installation.ts";
 
 const exec = promisify(execFile);
 const commit = decode(BuildCommit, process.argv[2]);
@@ -63,11 +69,7 @@ async function waitForCommit(expected: string) {
 
 let previous: string | undefined;
 let activated = false;
-try {
-  previous = await readlink(join(installation.root, "current"));
-  const current = await readInstallation(previous);
-  if (current?.commit !== installation.commit)
-    throw new Error("The installation changed. Reconnect before retrying the update.");
+async function prepareAndRestart(installation: Installation, previous: string) {
   progress("building", "Building the hub, CLI, and skill to match this Mac…");
   const environment: NodeJS.ProcessEnv = {
     ...process.env,
@@ -101,13 +103,30 @@ try {
   activated = true;
   await restart();
   await waitForCommit(commit);
-  progress("idle", "Remote tools are up to date.");
+}
+
+try {
+  previous = await readlink(join(installation.root, "current"));
+  const current = await readInstallation(previous);
+  if (current?.commit !== installation.commit)
+    throw new Error("The installation changed. Reconnect before retrying the update.");
+  if (commit !== installation.commit) await prepareAndRestart(installation, previous);
+  progress("building", "Checking and repairing the installed Scope skill…");
+  const installed = await runSkillCommand(installation, "sync");
+  progress(
+    "idle",
+    installed
+      ? "Remote tools and the installed Scope skill are up to date. Refresh or start a new agent session to reload skill guidance."
+      : "Remote tools are up to date. The Scope skill is not installed. Run irudd-scope skill install on the remote to enable it.",
+  );
 } catch (error) {
   const output = error instanceof Error ? error.message : String(error);
   let message = output.includes("Update the Mac first.")
     ? "The remote has a newer or different version. Update the Mac first."
     : "The remote update failed. Retry the update.";
-  if (activated && previous) {
+  if (error instanceof InstalledSkillError) {
+    message = "The installed Scope skill needs attention. See details, then Retry update.";
+  } else if (activated && previous) {
     try {
       await selectBuild(installation.root, "current", previous);
       await restart();

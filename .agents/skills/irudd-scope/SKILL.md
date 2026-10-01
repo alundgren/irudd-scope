@@ -1,6 +1,6 @@
 ---
 name: irudd-scope
-description: Publish or update artifacts, collaborate on named HTML plans, create or edit Excalidraw diagrams, and generate conversational solo or two-speaker narration through Scope with its CLI. Use for inspectable artifacts or agent-owned text-to-speech using the desktop OpenRouter key.
+description: Create a plan, make a plan, or plan a feature as a named HTML plan in Scope. Also publish or update artifacts, edit Excalidraw diagrams, and generate narration with the desktop OpenRouter key. Honor an explicitly requested planning tool or output format.
 ---
 
 # Use Scope CLI
@@ -38,6 +38,12 @@ Publication commands print a JSON artifact record with its ID and revision. Trea
 HTML previews run interactive prototypes and mockups, including scripts, external styles, fonts, images, network requests, forms, and popups. Publish a complete document with embedded resources or reachable URLs. Adjacent files are not uploaded; use absolute resource URLs or set the document's base URL. Normal browser rules such as CORS apply. For Markdown, raw HTML is omitted and links and image descriptions appear as text.
 
 ### HTML plans
+
+For requests such as "make a plan", "create a plan", or "plan this feature",
+create and publish a named HTML plan for review before implementing it.
+Honor an explicit request for a chat-only answer, another format, or another
+planning tool. A request to plan does not authorize implementation or publication
+to other services. Feature planning needs no custom blocks or diagram format.
 
 Use ordinary HTML for feature plans and interactive walkthroughs. Publish with:
 
