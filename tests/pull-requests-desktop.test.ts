@@ -312,14 +312,39 @@ test("the inbox SDK runs before authored scripts and recovers updates without re
     const count = await actual.evaluate(
       () => (window as unknown as { snapshots: unknown[] }).snapshots.length,
     );
-    await sendChange(app, "reconnect");
+    await actual.evaluate(() => {
+      const frame = window as unknown as {
+        receivedAfterUnsubscribe: boolean;
+        scope: {
+          pullRequests: { watch: (callback: (prs: { title: string }[]) => void) => () => void };
+        };
+      };
+      frame.receivedAfterUnsubscribe = false;
+      frame.scope.pullRequests.watch((prs) => {
+        if (prs[0]?.title === "After unsubscribe") frame.receivedAfterUnsubscribe = true;
+      });
+    });
+    await app.evaluate(({ BrowserWindow }) => {
+      const state = (
+        globalThis as unknown as { prInboxTest: { snapshot: Mutable<PullRequestsSnapshot> } }
+      ).prInboxTest;
+      state.snapshot.prs[0].title = "After unsubscribe";
+      state.snapshot.generation++;
+      BrowserWindow.getAllWindows()[0]!.webContents.send("scope:pull-requests-changed", {
+        type: "pull-requests",
+        name: state.snapshot.artifact.name,
+        id: state.snapshot.artifact.id,
+        generation: state.snapshot.generation,
+      });
+    });
     await expect
-      .poll(async () =>
-        app.evaluate(
-          () => (globalThis as unknown as { prInboxTest: { reads: number } }).prInboxTest.reads,
+      .poll(() =>
+        actual.evaluate(
+          () =>
+            (window as unknown as { receivedAfterUnsubscribe: boolean }).receivedAfterUnsubscribe,
         ),
       )
-      .toBeGreaterThan(2);
+      .toBe(true);
     expect(
       await actual.evaluate(() => (window as unknown as { snapshots: unknown[] }).snapshots.length),
     ).toBe(count);
