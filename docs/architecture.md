@@ -232,6 +232,10 @@ publications through the same tab-first protocol. `publication-queue.ts`
 stores their metadata and bytes in `hub.db`, capped at 50 tabs with a fixed
 48-hour expiry. `publication-delivery.ts` delivers complete entries through
 the existing Mac-initiated relay and retains conflicts for inspection.
+`artifact-metadata.ts` retains up to 1,000 recently observed artifact records
+in hub SQLite for 48 hours. Opted-in update reads can use their saved IDs,
+names, titles, and revisions while offline. Delivery checks the saved revision
+against the desktop before writing. Unpairing clears both metadata and queued content.
 The hub has no provider credentials. Other offline requests return 503;
 a failure during a live stream closes the response.
 

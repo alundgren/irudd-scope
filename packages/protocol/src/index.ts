@@ -91,6 +91,7 @@ export const Artifact = Schema.Struct({
 export type Artifact = typeof Artifact.Type;
 export const MAX_BUFFERED_TABS = 50;
 export const BUFFERED_TAB_TTL_MS = 48 * 60 * 60 * 1000;
+export const UPDATE_BASE_HEADER = "Scope-Update-Base";
 export const QueuedPublication = Schema.Struct({
   id: ArtifactId,
   queued: Schema.Literal(true),

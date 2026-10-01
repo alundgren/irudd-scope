@@ -113,7 +113,21 @@ delivery error. `DELETE /v1/hub/queue/:id` discards pending content and cancels
 its active delivery. Cancellation cannot undo a desktop write that already
 committed; use the normal artifact delete if necessary. Both endpoints require
 the local publishing token and reject browser origins. Unpairing deletes all
-queued content. List, read, interactive diagram operations, speech, and
+queued content and saved artifact metadata.
+
+`ScopeClient.updateBase(ID_OR_NAME)` reads an artifact with
+`Scope-Update-Base: 1`, trying the ID before its name. A connected hub forwards
+the read to the desktop. Offline, the hub can answer these opted-in metadata
+reads from its last observation of a successful artifact GET, named GET, or
+artifact PUT, including buffered delivery. It retains at most 1,000 artifact
+records for 48 hours after observation. The returned revision is the last
+observed revision, not a guarantee of current desktop state. Publishing against
+it through `publishOrQueue` preserves normal revision checks on delivery.
+Missing saved metadata returns 503 with instructions to read or publish through
+the hub while connected. Successful deletes and artifact 404s remove saved
+metadata; unpairing clears it all. Older hubs and direct desktops ignore the
+header and retain their existing read behavior. No artifact wire fields change.
+Ordinary list and read requests, interactive diagram operations, speech, and
 maintenance continue to require a connected desktop.
 
 The local management endpoints generate

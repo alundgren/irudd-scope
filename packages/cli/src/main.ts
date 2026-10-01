@@ -38,7 +38,7 @@ import { watchPlan } from "./plan-watch.ts";
 
 const help = `irudd-scope add FILE [--title TITLE] [--id ID] [--named | --name NAME] [--plan]
 irudd-scope text TEXT [--title TITLE] [--id ID] [--kind text|markdown]
-irudd-scope update ID FILE [--title TITLE]
+irudd-scope update ID_OR_NAME FILE [--title TITLE]
 irudd-scope diagram guide|read|create|apply|preview [ID] [FILE]
 irudd-scope diagram-agent guide|wait|reply|release [ID_OR_FILE] [--agent NAME]
 irudd-scope diagram pull NAME --output WORKING.json
@@ -71,6 +71,7 @@ The command timeout defaults to 10000 ms. Use --timeout-ms 120000 for shrinking 
 Open Scope on this Mac to publish locally without connection setup.
 Environment: SCOPE_CONNECTION_FILE, or SCOPE_ENDPOINT with SCOPE_TOKEN_FILE or SCOPE_TOKEN
 Output is JSON. Updates read the current revision and reject concurrent changes.
+Offline updates use the paired hub's saved revision and block on delivery if the tab changed.
 Paired hubs buffer publications while the Mac is offline, up to 50 tabs for 48 hours.
 Queued publications return an expiry receipt. Use hub queue to inspect them or hub discard ID to cancel.
 `;
@@ -330,7 +331,7 @@ async function preparePublication(
   );
 
   const [current, source, content] = await Promise.all([
-    command === "update" ? client.get(argument!) : Promise.resolve(undefined),
+    command === "update" ? client.updateBase(argument!) : Promise.resolve(undefined),
     provenance(values.agent, values["session-id"], deadline),
     file ? readFile(file, { signal }) : Promise.resolve(new TextEncoder().encode(argument!)),
   ]);
