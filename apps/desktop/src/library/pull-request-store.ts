@@ -269,6 +269,7 @@ export class PullRequestStore {
       if (!pr) throw new ScopeError(404, "Open pull request not found.");
       const detail = decode(PullRequestDetail, await this.handlers.detail(pinned.tabId, pr.nodeId));
       const current = await this.snapshotByTab(pinned.tabId);
+      await this.database.run(this.active(await this.database.run(this.owner(pinned.tabId, true))));
       if (
         detail.headOid !== pr.headOid ||
         current.prs.find((row) => row.nodeId === pr.nodeId)?.headOid !== detail.headOid

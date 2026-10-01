@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { PullRequestsGuide, pullRequestsCommand } from "./pull-requests.ts";
 import { VoiceGuide } from "@irudd-scope/protocol/voice";
 import { voiceCommand, voiceHelp } from "./voice.ts";
 import { DiagramAgentCommand } from "@irudd-scope/protocol/diagram-agent";
@@ -36,7 +37,7 @@ import { watchDiagram } from "./diagram-watch.ts";
 import { PlanGuide, planCommand } from "./plan.ts";
 import { watchPlan } from "./plan-watch.ts";
 
-const help = `irudd-scope add FILE [--title TITLE] [--id ID] [--named | --name NAME] [--plan]
+const help = `irudd-scope add FILE [--title TITLE] [--id ID] [--named | --name NAME] [--plan | --pull-requests]
 irudd-scope text TEXT [--title TITLE] [--id ID] [--kind text|markdown]
 irudd-scope update ID_OR_NAME FILE [--title TITLE]
 irudd-scope diagram guide|read|create|apply|preview [ID] [FILE]
@@ -47,6 +48,7 @@ irudd-scope diagram rebase WORKING.json
 irudd-scope diagram propose WORKING.json --note TEXT [--resolved]
 irudd-scope diagram reply NAME TEXT
 irudd-scope diagram watch NAME [--claude-channel | --t3-thread ID | --codex-thread ID] [--watch-edits]
+irudd-scope pull-requests guide|read|configure|sync|detail|apply [NAME_OR_FILE] [OWNER/REPO_OR_NODE_ID]
 irudd-scope plan guide
 irudd-scope plan read NAME [--since VERSION]
 irudd-scope plan feedback NAME [ROUND_ID] --output NEW_DIRECTORY
@@ -165,6 +167,7 @@ function parseOptions() {
       snapshot: { type: "string" },
       named: { type: "boolean" },
       plan: { type: "boolean" },
+      "pull-requests": { type: "boolean" },
       revision: { type: "string" },
       since: { type: "string" },
       name: { type: "string" },
@@ -338,7 +341,15 @@ async function preparePublication(
   const id = current?.id ?? values.id ?? randomUUID();
   const title = values.title ?? current?.title ?? (command === "text" ? "Note" : fileName);
   if (values.plan && command !== "add") throw new Error("Use --plan when adding an HTML file.");
+  if (values["pull-requests"] && command !== "add")
+    throw new Error("Use --pull-requests when adding an HTML file.");
+  if (values.plan && values["pull-requests"]) throw new Error("Choose one tab kind.");
+  const isPullRequests = values["pull-requests"] || current?.kind === "pull-requests";
   const isPlan = values.plan || current?.kind === "plan";
+  if (isPullRequests && mediaType !== "text/html")
+    throw new Error("Pull request tabs require an HTML file.");
+  if (isPullRequests && !current?.name && !values.name && !values.named)
+    throw new Error("Pull request tabs require --name NAME or --named.");
   if (isPlan && mediaType !== "text/html") throw new Error("Plans require an HTML file.");
   const name =
     current?.name ??
@@ -348,7 +359,7 @@ async function preparePublication(
     input: {
       title,
       ...(name ? { name } : {}),
-      kind: isPlan ? "plan" : kind,
+      kind: isPullRequests ? "pull-requests" : isPlan ? "plan" : kind,
       mediaType,
       fileName,
       source,
@@ -416,6 +427,21 @@ async function main() {
     }
     const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"] ?? "330000"));
     await voiceCommand(argument, replacement, values, () => connect(values, signal), signal);
+    return;
+  }
+  if (command === "pull-requests") {
+    if (argument === "guide") {
+      console.log(JSON.stringify(PullRequestsGuide, null, 2));
+      return;
+    }
+    const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"] ?? "120000"));
+    console.log(
+      JSON.stringify(
+        await pullRequestsCommand(await connect(values, signal), positionals, signal),
+        null,
+        2,
+      ),
+    );
     return;
   }
   if (command === "plan") {
