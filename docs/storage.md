@@ -162,7 +162,7 @@ token. The library and preferences remain intact.
 
 ## Supported data imports
 
-Scope reads artifact schema version 6, desktop schema version 7, and hub schema
+Scope reads artifact schema version 7, desktop schema version 7, and hub schema
 version 4. It rejects
 newer schema versions. Back up the complete data directories before an upgrade
 when you need the option to return to an older desktop.
@@ -273,3 +273,26 @@ profile with an older build. Back up the complete databases using the existing
 backup procedure. Explicit `plan feedback`, `plan content` and `plan image`
 exports are local files, independent of Scope's SQLite records, and refuse to
 overwrite existing output paths.
+
+## Pull request inbox data
+
+Artifact schema 7 adds tab-owned repository state, current open PR records, and
+mutation receipts to `scope.db`. It preserves existing artifacts, plan records,
+and workspace state. Older builds reject this schema. Restore a complete
+pre-upgrade backup to downgrade.
+
+GitHub facts, local notes and snoozes, inspection and review baselines, and
+current agent assessments persist independently of the authored HTML revision.
+Closing the tab preserves this data in Trashcan. Permanent deletion removes it
+through foreign-key cascades. A successful complete sync removes PRs no longer
+open and their associated local records and receipts. Failed or partial syncs
+keep the cached list. Scope retains no closed PR archive or earlier PR snapshots.
+Startup turns an interrupted saved refresh into an error with a retry action,
+preserving the cache and last successful sync time.
+
+Local mutation receipts retain request IDs and payload hashes for the owning
+PR's lifetime, or the tab lifetime for repository configuration. Identical
+retries do not repeat the write; changed payloads under the same ID conflict.
+Every command except a name lookup pins the saved tab UUID, so a command for a
+deleted tab cannot modify a new tab that reuses its name. Exported command and
+snapshot files are explicit copies and are not Scope's persistent store.

@@ -209,6 +209,40 @@ without concurrent builds or tests. Reports contain raw samples and measurement
 definitions. Process memory sums RSS and can count shared pages more than once.
 The benchmark is separate from `ready` and needs no provider key.
 
+## GitHub pull request inboxes
+
+Use Create PR inbox in the desktop and enter `OWNER/REPO`, or publish an HTML
+app from an existing coding session:
+
+```sh
+irudd-scope add inbox.html --pull-requests --name repository-inbox
+irudd-scope pull-requests configure repository-inbox OWNER/REPO
+irudd-scope pull-requests read repository-inbox
+irudd-scope pull-requests sync repository-inbox
+irudd-scope pull-requests guide
+```
+
+The awake desktop runs its installed `gh` using the current user's GitHub login.
+Install and sign in to GitHub CLI on that Mac before syncing. Scope checks the
+process PATH and the usual Homebrew install locations. V1 supports repositories
+on `github.com`. No new GitHub credentials are stored by Scope.
+
+Selecting the tab or clicking Sync refreshes every open PR, including drafts.
+There is no polling or closed PR archive. A failed sync keeps the cached list
+and adds a small error indicator to Sync; its tooltip explains the failure and
+clicking retries. Notes, snoozes, and local review marks never submit GitHub
+comments or reviews. Use Open on GitHub for those actions.
+
+Published HTML runs as trusted agent output. Agents can update the same named
+tab with `irudd-scope update repository-inbox inbox.html`; the repository and
+current review state stay attached to the tab. The injected HTML SDK and
+validated agent commands are documented in the
+[protocol README](../packages/protocol/README.md). Paired hubs forward these
+commands only while the desktop is connected.
+
+Standard PR tests use a fake `gh` and isolated databases. They require no
+GitHub credentials and perform no live GitHub mutations.
+
 ## Run locally
 
 `vp run desktop` builds and opens Electron. Main starts the local publishing
