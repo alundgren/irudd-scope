@@ -127,6 +127,12 @@ export function registerDesktopIpc({
   const stopPlanReconnects = library.onPlanReconnected(() => {
     if (!window.isDestroyed()) window.webContents.send("scope:plan-reconnected");
   });
+  const stopPullRequestsEvents = library.onPullRequestsChanged((event) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:pull-requests-changed", event);
+  });
+  const stopPullRequestsReconnects = library.onPullRequestsReconnected(() => {
+    if (!window.isDestroyed()) window.webContents.send("scope:pull-requests-reconnected");
+  });
   handle("scope:remotes", () => remotes.snapshot());
   handle("scope:pair-remote", (input) =>
     remotes.pair(decode(Schema.String.check(Schema.isMaxLength(4096)), input)),
@@ -246,6 +252,7 @@ export function registerDesktopIpc({
       decode(DiagramSyncReply, await diagrams.run({ action: "sync", id, request }, signal)),
     cancelPending: () => {
       plugins.cancelPending();
+      plugins.cancelPullRequests();
       diagrams.cancelAll();
       connectedAgents.close();
     },
@@ -256,11 +263,14 @@ export function registerDesktopIpc({
     dispose: () => {
       stopPlanEvents();
       stopPlanReconnects();
+      stopPullRequestsEvents();
+      stopPullRequestsReconnects();
       window.webContents.removeListener("render-process-gone", rendererUnavailable);
       window.webContents.removeListener("did-start-navigation", navigating);
       window.removeListener("enter-full-screen", enteredFullscreen);
       window.removeListener("leave-full-screen", leftFullscreen);
       plugins.cancelPending();
+      plugins.dispose();
       diagrams.cancelAll();
       connectedAgents.close();
       eventListeners.clear();
