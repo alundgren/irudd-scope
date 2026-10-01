@@ -29,7 +29,8 @@ import {
 } from "@irudd-scope/protocol";
 import { MAX_MAINTENANCE_TIMEOUT_MS } from "@irudd-scope/protocol/maintenance";
 import { ScopeClient } from "@irudd-scope/protocol/client";
-import { setup, manageHub, installSkill, printPairing } from "./setup.ts";
+import { setup, manageHub, printPairing } from "./setup.ts";
+import { checkSkill, installSkill, syncSkill } from "./skill.ts";
 import { pullDiagram, pushDiagram, rebaseDiagram } from "./diagram-working.ts";
 import { watchDiagram } from "./diagram-watch.ts";
 import { PlanGuide, planCommand } from "./plan.ts";
@@ -63,7 +64,7 @@ irudd-scope pair
 irudd-scope hub start|stop|status|unpair|remove|queue
 irudd-scope hub discard ID
 irudd-scope hub shrink [--status]
-irudd-scope skill install|remove
+irudd-scope skill install|remove|check|sync
 
 Options: --endpoint URL, --token-file PATH, --agent NAME, --session-id ID, --timeout-ms MS
 The command timeout defaults to 10000 ms. Use --timeout-ms 120000 for shrinking or slow uploads.
@@ -396,8 +397,14 @@ async function main() {
     return;
   }
   if (command === "skill") {
+    if (argument === "check" || argument === "sync") {
+      console.log(
+        JSON.stringify({ installed: await (argument === "check" ? checkSkill() : syncSkill()) }),
+      );
+      return;
+    }
     if (argument !== "install" && argument !== "remove")
-      throw new Error("Use irudd-scope skill install or remove.");
+      throw new Error("Use irudd-scope skill install, remove, check, or sync.");
     await installSkill(argument === "remove");
     return;
   }

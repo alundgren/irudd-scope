@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { HubUpdateRequest, type HubUpdateStatus } from "@irudd-scope/protocol/remote";
 import { decode } from "@irudd-scope/protocol";
 import type { HubState } from "./state.ts";
-import type { Installation } from "./installation.ts";
+import { runSkillCommand, type Installation } from "./installation.ts";
 
 const exec = promisify(execFile);
 export const updateUnit = "irudd-scope-update.service";
@@ -46,13 +46,33 @@ export class HubUpdates {
         this.state.saveUpdate(saved);
       }
     }
-    return {
+    const status: HubUpdateStatus = {
       supported: true,
       phase: "idle",
       message: "Remote tools are ready.",
       ...saved,
       currentCommit: this.installation.commit,
     };
+    if (!["building", "restarting"].includes(status.phase)) {
+      try {
+        const installed = await runSkillCommand(this.installation, "check");
+        if (!installed && status.phase === "idle")
+          return {
+            ...status,
+            message:
+              "Remote tools are ready. The Scope skill is not installed. Run irudd-scope skill install on the remote to enable it.",
+          };
+      } catch (error) {
+        return {
+          ...status,
+          phase: "error",
+          message: "The installed Scope skill needs attention. See details, then Retry update.",
+          output:
+            error instanceof Error ? error.message : "Could not check the installed Scope skill.",
+        };
+      }
+    }
+    return status;
   }
 
   request(value: HubUpdateRequest) {
@@ -67,10 +87,12 @@ export class HubUpdates {
 
   private async start(input: HubUpdateRequest) {
     const status = await this.snapshot();
-    if (!status.supported || !this.installation || status.currentCommit === input.commit)
-      return status;
+    if (!status.supported || !this.installation) return status;
     if (["building", "restarting"].includes(status.phase)) return status;
-    if (status.phase === "error" && status.targetCommit === input.commit && !input.retry)
+    if (status.currentCommit === input.commit && status.phase !== "error" && !input.retry)
+      return status;
+    const saved = this.state.updateStatus();
+    if (saved?.phase === "error" && saved.targetCommit === input.commit && !input.retry)
       return status;
     const servicePid = await exec(
       "systemctl",
@@ -92,7 +114,10 @@ export class HubUpdates {
       phase: "building",
       currentCommit: this.installation.commit,
       targetCommit: input.commit,
-      message: "Building the hub, CLI, and skill to match this Mac…",
+      message:
+        status.currentCommit === input.commit
+          ? "Checking and repairing the installed Scope skill…"
+          : "Building the hub, CLI, and skill to match this Mac…",
     };
     this.launching = true;
     this.state.saveUpdate(next);
