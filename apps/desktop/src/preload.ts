@@ -7,7 +7,26 @@ import type { RetainedTab } from "./workspace/retention.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 import type { DiagramMenuAction } from "./menu-contract.ts";
 
+import type { PlanEvent } from "@irudd-scope/protocol/plan";
+
 const bridge: ScopeBridge = {
+  createPlan: (input) => ipcRenderer.invoke("scope:create-plan", input),
+  planCommand: (input) => ipcRenderer.invoke("scope:plan-command", input),
+  planImage: (input) => ipcRenderer.invoke("scope:plan-image", input),
+  planContent: (input) => ipcRenderer.invoke("scope:plan-content", input),
+  capturePlan: (input) => ipcRenderer.invoke("scope:capture-plan", input),
+  loadPlanDraft: (tabId) => ipcRenderer.invoke("scope:load-plan-draft", tabId),
+  savePlanDraft: (input) => ipcRenderer.invoke("scope:save-plan-draft", input),
+  onPlanReconnected: (listener) => {
+    const receive = () => listener();
+    ipcRenderer.on("scope:plan-reconnected", receive);
+    return () => ipcRenderer.removeListener("scope:plan-reconnected", receive);
+  },
+  onPlanChanged: (listener) => {
+    const receive = (_event: unknown, event: PlanEvent) => listener(event);
+    ipcRenderer.on("scope:plan-changed", receive);
+    return () => ipcRenderer.removeListener("scope:plan-changed", receive);
+  },
   diagramAgentStatus: (id) => ipcRenderer.invoke("scope:diagram-agent-status", id),
   onDiagramAgentStatus: (listener) => {
     const receive = (_event: unknown, status: DiagramAgentStatus) => listener(status);

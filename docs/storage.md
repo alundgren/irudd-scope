@@ -162,7 +162,7 @@ token. The library and preferences remain intact.
 
 ## Supported data imports
 
-Scope reads artifact schema version 5, desktop schema version 7, and hub schema
+Scope reads artifact schema version 6, desktop schema version 7, and hub schema
 version 3. It rejects
 newer schema versions. Back up the complete data directories before an upgrade
 when you need the option to return to an older desktop.
@@ -253,3 +253,21 @@ unknown and the audio unavailable. Scope never automatically regenerates.
 Schema version 7 adds the table and the optional, default-off
 `voiceGenerationEnabled` setting without changing existing preference fields.
 Older desktops reject this newer database; restore a compatible backup to downgrade.
+
+## Plan history and feedback
+
+HTML plans use the existing `scope.db` tab ownership and blob tables. Plan
+revision rows retain HTML blobs; plan image rows retain original and marked
+PNGs. Comments, submitted rounds, responses, approval timestamps, idempotency
+receipts and unfinished screenshot drafts belong to the same tab. Closing it
+preserves those records in Trashcan. Permanent deletion or trash expiry cascades
+through their references; normal blob reclamation then removes unused bytes.
+Repeated identical images and HTML share their SHA-256 blob. Revisions and
+feedback have no separate expiry while the tab exists.
+
+The plan migration is additive and preserves existing artifacts and workspace
+records. Older Scope builds reject the newer database version; do not open the
+profile with an older build. Back up the complete databases using the existing
+backup procedure. Explicit `plan feedback`, `plan content` and `plan image`
+exports are local files, independent of Scope's SQLite records, and refuse to
+overwrite existing output paths.

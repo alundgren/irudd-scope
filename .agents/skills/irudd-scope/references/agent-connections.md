@@ -1,5 +1,17 @@
 # Agent connections
 
+For HTML plans, use `irudd-scope plan watch NAME` with the same host flags below.
+It delivers submitted feedback rounds, including pending rounds recovered at
+startup or reconnect. Comments and agent responses do not wake the agent.
+Retrieve each round with `plan feedback NAME ROUND_ID --output NEW_DIRECTORY`
+and reply with `plan respond FILE.json`; use `plan guide` for the exact contract.
+Plan rounds are durable. Notices may repeat after listener restart, so identify
+work by round ID and keep response request IDs stable. The listener reports
+`Listening for submitted feedback on NAME`. Scope does not start agent sessions.
+
+The following diagram-specific version and working-file rules remain for
+`diagram watch`; host setup, credentials and process lifetime apply to both.
+
 `irudd-scope diagram watch NAME` holds one event connection to Scope, including
 through a paired hub. With a host destination, it wakes the agent for human
 messages and proposal acceptance or rejection. Canvas edits wait until the next

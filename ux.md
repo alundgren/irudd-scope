@@ -1,7 +1,7 @@
 # UI decisions
 
 Scope is a Mac workspace for inspecting artifacts left by coding agents and
-editing diagrams. The selected artifact gets the window. One compact strip
+editing diagrams and reviewing HTML plans. The selected artifact gets the window. One compact strip
 contains open tabs and a search button on the right. Search opens a roomy
 control panel so secondary actions take no permanent tab space. Prose has a
 reading width; images, HTML, and diagrams use the available area.
@@ -66,7 +66,7 @@ state. Diagram views stay mounted to receive background editing commands.
 The visible tab count does not bound memory used by previously visited content
 or diagrams.
 
-New tabs are temporary, including named tabs. A small bookmark button keeps a
+New tabs are temporary, including named diagrams. Plans start permanent. A small bookmark button keeps a
 tab permanently; a filled bookmark indicates permanence. It appears on hover,
 keyboard focus, and the selected tab, and stays visible on permanent tabs. The
 drawer places this toggle beside the title, showing it on hover or keyboard
@@ -279,3 +279,28 @@ The editor's 10% minimum zoom still applies to very large drawings.
 English text, keyboard navigation, visible focus, labeled icon controls, and
 readable contrast apply throughout the workspace. Check long titles and more
 tabs than fit on a Mac laptop or external monitor.
+
+## HTML plan feedback
+
+Plans always have an immutable unique name and start permanent. Later updates
+respect the person's permanence choice. Ordinary trusted HTML remains the
+content, including scripts and external resources. The reading page uses the
+available width. Compact Comment and Feedback controls float over the page;
+focus mode hides them. Feedback is an overlay that closes completely rather
+than a reserved column. The page stays mounted when controls toggle, a comment
+is canceled, or an agent responds.
+
+Comment freezes the visible page at its current revision. Arrow, box and pin
+marks attach feedback to that captured image. A separate text field records the
+question or requested change. The original image, marked image, geometry and
+text stay together; Scope does not guess a new location after HTML changes.
+Unfinished comments persist across restart. Back to plan retains the draft;
+Discard comment removes it and returns to the same live page.
+
+The person explicitly sends queued comments as a feedback round. Awaiting agent
+means feedback is saved for an external agent; Scope does not claim one is
+running. Responses appear in Feedback with the original comments and a link to
+the resulting revision. Seeing a response, resolving a comment and approving a
+revision are separate actions. A response leaves the current reading page in
+place until the person chooses another revision. Restoring history creates a
+new latest revision and retains the previous versions.

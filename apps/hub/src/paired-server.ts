@@ -1,4 +1,5 @@
 import { MAX_VOICE_REQUEST_BYTES } from "@irudd-scope/protocol/voice";
+import { MAX_PLAN_REQUEST_BYTES } from "@irudd-scope/protocol/plan";
 import { MAX_DIAGRAM_REQUEST_BYTES } from "@irudd-scope/protocol/diagram";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
@@ -352,13 +353,15 @@ export async function startPairedHub(
       await pipeline(
         item.request,
         bounded(
-          item.path === "/v1/voice"
-            ? MAX_VOICE_REQUEST_BYTES
-            : ["/v1/diagrams", "/v1/diagram-agents"].includes(item.path)
-              ? MAX_DIAGRAM_REQUEST_BYTES
-              : item.path.endsWith("/blobs") || item.path === "/v1/diagrams/sync"
-                ? MAX_CONTENT_BYTES
-                : MAX_METADATA_BYTES,
+          item.path === "/v1/plans"
+            ? MAX_PLAN_REQUEST_BYTES
+            : item.path === "/v1/voice"
+              ? MAX_VOICE_REQUEST_BYTES
+              : ["/v1/diagrams", "/v1/diagram-agents"].includes(item.path)
+                ? MAX_DIAGRAM_REQUEST_BYTES
+                : item.path.endsWith("/blobs") || item.path === "/v1/diagrams/sync"
+                  ? MAX_CONTENT_BYTES
+                  : MAX_METADATA_BYTES,
         ),
         response,
         { signal: item.controller.signal },
@@ -449,8 +452,9 @@ export async function startPairedHub(
       json(response, 503, { error: "The hub is busy. Retry after the current requests finish." });
       return;
     }
-    if (Number(request.headers["content-length"]) > MAX_CONTENT_BYTES) {
-      json(response, 413, { error: "Artifact exceeds the 32 MiB limit." });
+    const limit = request.url === "/v1/plans" ? MAX_PLAN_REQUEST_BYTES : MAX_CONTENT_BYTES;
+    if (Number(request.headers["content-length"]) > limit) {
+      json(response, 413, { error: `Request exceeds the ${limit / (1024 * 1024)} MiB limit.` });
       return;
     }
     const timeoutMs = maintenanceRequest(request.url ?? "")

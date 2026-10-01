@@ -4,7 +4,10 @@ import type { ScopeClient } from "@irudd-scope/protocol/client";
 import type { ArtifactStore } from "../library/store.ts";
 import type { Workspace } from "../workspace/contract.ts";
 
+import type { BrowserWindow } from "electron";
+
 export type MainPluginContext = {
+  window: BrowserWindow;
   handle: (channel: string, action: (input: unknown) => unknown) => void;
   store: DesktopStore;
   artifacts: ArtifactStore;

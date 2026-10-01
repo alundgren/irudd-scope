@@ -8,6 +8,13 @@ import {
 import { DiagramAgentCommand, DiagramAgentReply } from "./diagram-agent.ts";
 import { DiagramSyncCommand, DiagramSyncReply } from "./diagram-sync.ts";
 import {
+  PlanCommand,
+  PlanReply,
+  MAX_PLAN_REQUEST_BYTES,
+  MAX_PLAN_REPLY_BYTES,
+  MAX_PLAN_IMAGE_BYTES,
+} from "./plan.ts";
+import {
   DiagramCommand,
   DiagramReply,
   MAX_DIAGRAM_REPLY_BYTES,
@@ -24,6 +31,8 @@ import {
   Artifact,
   ArtifactId,
   ArtifactName,
+  BlobId,
+  Revision,
   ArtifactPage,
   ArtifactWrite,
   BlobReceipt,
@@ -82,6 +91,63 @@ export class ScopeClient {
       throw new ScopeError(response.status, message);
     }
     return response;
+  }
+
+  async plan(input: PlanCommand): Promise<PlanReply> {
+    const body = JSON.stringify(decode(PlanCommand, input));
+    if (new TextEncoder().encode(body).byteLength > MAX_PLAN_REQUEST_BYTES)
+      throw new Error("Plan request exceeds 48 MiB.");
+    return decode(
+      PlanReply,
+      await readRemoteJson(
+        await this.request("/v1/plans", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }),
+        MAX_PLAN_REPLY_BYTES,
+      ),
+    );
+  }
+
+  async planImage(name: string, id: string): Promise<Uint8Array> {
+    return this.planBytes(
+      `/v1/plans/${encodeURIComponent(decode(ArtifactName, name))}/images/${decode(BlobId, id)}`,
+      MAX_PLAN_IMAGE_BYTES,
+    );
+  }
+
+  async planContent(name: string, revision: number): Promise<Uint8Array> {
+    return this.planBytes(
+      `/v1/plans/${encodeURIComponent(decode(ArtifactName, name))}/revisions/${decode(Revision, revision)}/content`,
+      MAX_CONTENT_BYTES,
+    );
+  }
+
+  private async planBytes(path: string, limit: number): Promise<Uint8Array> {
+    const response = await this.request(path);
+    if (!response.body) throw new Error("Scope returned empty plan content.");
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > limit) throw new Error("Scope returned oversized plan content.");
+        chunks.push(value);
+      }
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
+    const result = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return result;
   }
 
   async submitVoice(input: VoiceRequest): Promise<VoiceReceipt> {

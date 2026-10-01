@@ -2,8 +2,9 @@ import { decode } from "@irudd-scope/protocol";
 import type { Tab } from "../workspace/contract.ts";
 import { fileContract } from "./file/contract.ts";
 import { diagramTabContract } from "./diagram/contract.ts";
+import { planTabContract } from "./plan/contract.ts";
 
-const contracts = [fileContract, diagramTabContract];
+const contracts = [fileContract, diagramTabContract, planTabContract];
 export function validateTabState(tab: Tab, preserveFuture = false): void {
   const contract = contracts.find((entry) => entry.type === tab.type);
   if (contract && !(preserveFuture && tab.state.version > contract.version))

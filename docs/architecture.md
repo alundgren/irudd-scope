@@ -28,6 +28,70 @@ server. `packages/protocol/src/voice.ts` owns the public contracts; the CLI owns
 explicit audio and receipt exports. The hub forwards the same routes without
 provider calls or speech storage. Speech results are independent of tabs.
 
+## HTML plans
+
+`packages/protocol/src/plan.ts` defines review commands, revisions, comments,
+normalized annotation geometry, feedback rounds, responses and bounds. A plan
+is a named `plan` artifact with `text/html` content. The HTML authoring contract
+is unchanged. The library enforces immutable names and kinds, and sets a new
+plan's tab permanent only at initial publication.
+
+`library/plan-store.ts` owns tab-bound history and feedback in `scope.db`, using
+the artifact store's SQL runtime and serialized mutation queue. HTML revisions
+and PNGs reuse content-addressed blobs. Comments retain both original and marked
+PNGs with their originating revision. Writes carry UUID request IDs; a matching
+retry returns a compact receipt without applying the mutation twice. Changed
+payloads under the same ID conflict. Responses that change HTML check the
+current revision and commit HTML, per-comment replies and round status together.
+Answers without HTML may refer to a retained older revision.
+
+`library/plan-read.ts` loads bounded metadata pages using revision and record
+cursors. It queries document byte lengths before fetching JSON. Each page has
+at most 100 revisions and 100 records and stays below the 16 MiB reply bound.
+A cursor checks the review version in the same read transaction; changes
+require restarting the read. Round exports select only that round and its
+comments and responses. Listeners select only pending rounds. Shared protocol
+`readPlanSnapshot` combines pages and retries a changed-version read.
+
+`plugins/plan/main.ts` registers validated draft, review and native screenshot
+IPC. Capture checks the selected active named plan and window bounds before and
+after Electron captures its viewport. `plugins/plan/view.tsx` retains the live
+HTML iframe independently of review state. `annotation.tsx` overlays normalized
+marks on a frozen capture and rasterizes a marked PNG; `review.tsx` displays the
+feedback queue, responses and history. Explicit revision navigation replaces
+the iframe content. Incoming metadata and feedback leave it in place. Reconnected event streams
+refresh durable review state even when the HTML revision did not change.
+
+`library/plan-http.ts` serves authenticated review commands, retained HTML and
+plan-owned images. Hubs forward those routes but store no review data. Review
+commands require the desktop online. Initial publications use the existing
+optional offline publication queue.
+
+The CLI's `plan.ts` exports HTML and a visual feedback packet to explicit files,
+validates response files and submits replies. `plan-watch.ts` recovers pending
+rounds and listens for new submissions. `agent-notifications.ts` contains shared
+T3, Codex and Claude adapters used by both diagram and plan listeners. Listeners
+notify an existing session and hold no model turn open. A durable round is the
+source of truth; SSE and host notices can repeat or be missed during disconnect.
+Scope does not orchestrate agent execution.
+
+```mermaid
+flowchart LR
+    Human[Human reading HTML] --> Capture[Native viewport capture]
+    Capture --> Mark[Arrow, box or pin and comment]
+    Mark --> DB[scope.db: revision, PNGs, geometry, text]
+    Human --> Submit[Submit feedback round]
+    Submit --> DB
+    DB --> Events[Plan round event]
+    Events --> Watch[CLI listener]
+    Watch --> Host[Existing coding session]
+    Host --> Packet[HTML and annotated PNG packet]
+    DB --> Packet
+    Packet --> Reply[Revision-checked HTML and replies]
+    Reply --> DB
+    DB --> Review[Response overlay and revision navigation]
+```
+
 ## Names and ownership
 
 Use the same names in code, documentation, diagrams, issues, and reviews.
