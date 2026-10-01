@@ -249,6 +249,22 @@ test("complete inventories preserve independent local writes and current agent v
     completedAt: now,
   });
   expect((await f.read()).prs).toEqual([]);
+  await expect(
+    f.client.pullRequests({
+      action: "configure",
+      name,
+      requestId: randomUUID(),
+      repository: { owner: "other", name: "repo" },
+    }),
+  ).rejects.toMatchObject({ status: 409 });
+  await expect(
+    f.client.pullRequests({
+      action: "configure",
+      name,
+      requestId: randomUUID(),
+      repository: { owner: "EXAMPLE", name: "PROJECT" },
+    }),
+  ).resolves.toMatchObject({ type: "snapshot" });
 });
 
 test("HTML replacement and Trashcan preserve records, permanent deletion cascades and rejects a pinned old sync", async () => {
