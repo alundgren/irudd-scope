@@ -83,6 +83,10 @@ configured in the desktop. Built-in file and diagram plugins run inside a
 shared tab host with persistent groups and events limited to each group.
 Development launches run from the checkout and do not update themselves.
 
+Pull request inboxes bind to one GitHub repository. Their first successful sync
+normalizes a verified alias to its canonical path; later repository path changes
+require a new inbox. See the [inbox commands](docs/development.md#github-pull-request-inboxes).
+
 The [Scope CLI skill](.agents/skills/irudd-scope/SKILL.md) guides agents through
 publishing artifacts, updating existing IDs, generating narration audio, and handling uncertain results.
 

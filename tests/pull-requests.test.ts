@@ -95,6 +95,90 @@ async function fixture(publish = true) {
   return { directory, server, client, cli, html, read, configure };
 }
 
+test("first verified alias inventory updates the binding atomically and rejects an old queried pin", async () => {
+  const f = await fixture();
+  await f.configure();
+  const initial = await f.read();
+  const canonical = { owner: "canonical-owner", name: "canonical-project" };
+  const row = { ...facts(), url: "https://github.com/canonical-owner/canonical-project/pull/1" };
+  const inventory = {
+    queriedRepository: repository,
+    repository: canonical,
+    viewer: "viewer",
+    prs: [row],
+    completedAt: now,
+  };
+  const aborted = new AbortController();
+  aborted.abort();
+  await expect(
+    f.server.store.pullRequests.commitInventory(initial.tabId, inventory, aborted.signal),
+  ).rejects.toThrow();
+  expect(await f.read()).toEqual(initial);
+  const synced = await f.server.store.pullRequests.commitInventory(initial.tabId, inventory);
+  expect(synced).toMatchObject({
+    tabId: initial.tabId,
+    repository: canonical,
+    sync: { lastSuccessAt: now },
+    prs: [{ nodeId: "PR_1" }],
+  });
+  await expect(
+    f.server.store.pullRequests.commitInventory(initial.tabId, inventory),
+  ).rejects.toMatchObject({ status: 409 });
+  expect(await f.read()).toEqual(synced);
+});
+
+test("a successful empty inventory prevents later canonical rebinding", async () => {
+  const f = await fixture();
+  await f.configure();
+  const initial = await f.read();
+  await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [],
+    completedAt: now,
+  });
+  const before = await f.read();
+  await expect(
+    f.server.store.pullRequests.commitInventory(initial.tabId, {
+      queriedRepository: repository,
+      repository: { owner: "other", name: "project" },
+      viewer: "viewer",
+      prs: [],
+      completedAt: "2026-10-01T12:00:00Z",
+    }),
+  ).rejects.toMatchObject({ status: 409 });
+  expect(await f.read()).toEqual(before);
+});
+
+test("cached rows prevent rebinding even when a success timestamp is missing", async () => {
+  const f = await fixture();
+  await f.configure();
+  const initial = await f.read();
+  await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [facts()],
+    completedAt: now,
+  });
+  await f.server.store.pullRequests.setSyncStatus(initial.tabId, {
+    state: "error",
+    updatedAt: now,
+    lastSuccessAt: null,
+    error: "Earlier sync incomplete",
+  });
+  const before = await f.read();
+  await expect(
+    f.server.store.pullRequests.commitInventory(initial.tabId, {
+      queriedRepository: repository,
+      repository: { owner: "other", name: "project" },
+      viewer: "viewer",
+      prs: [],
+      completedAt: "2026-10-01T12:00:00Z",
+    }),
+  ).rejects.toMatchObject({ status: 409 });
+  expect(await f.read()).toEqual(before);
+});
+
 test("complete inventories preserve independent local writes and current agent values, then prune all removed PR data", async () => {
   const f = await fixture();
   await f.configure();

@@ -51,6 +51,7 @@ export type PullRequestsHandlers = {
 };
 export type PullRequestsInventory = {
   repository: PullRequestsRepository;
+  queriedRepository?: PullRequestsRepository;
   viewer: string | null;
   prs: readonly PullRequestFacts[];
   completedAt: string;
@@ -252,6 +253,10 @@ export class PullRequestStore {
     signal?: AbortSignal,
   ): Promise<PullRequestsSnapshot> {
     const repository = decode(PullRequestsRepository, value.repository);
+    const queriedRepository = decode(
+      PullRequestsRepository,
+      value.queriedRepository ?? value.repository,
+    );
     const prs = value.prs.map((pr) => decode(PullRequestFacts, pr));
     if (
       new Set(prs.map((pr) => pr.nodeId)).size !== prs.length ||
@@ -289,11 +294,26 @@ export class PullRequestStore {
           if (
             !current.repository ||
             JSON.stringify(JSON.parse(current.repository)).toLowerCase() !==
-              JSON.stringify(repository).toLowerCase()
+              JSON.stringify(queriedRepository).toLowerCase()
           )
             return yield* Effect.fail(
               new ScopeError(409, "The repository changed during synchronization."),
             );
+          if (
+            JSON.stringify(JSON.parse(current.repository)).toLowerCase() !==
+            JSON.stringify(repository).toLowerCase()
+          ) {
+            const existing = yield* sql<{
+              count: number;
+            }>`SELECT count(*) AS count FROM pull_requests_current WHERE tab_id = ${tabId}`;
+            if (JSON.parse(current.sync).lastSuccessAt !== null || existing[0].count !== 0)
+              return yield* Effect.fail(
+                new ScopeError(
+                  409,
+                  "The repository resolved to another name after an earlier sync.",
+                ),
+              );
+          }
           yield* Effect.sync(() => signal?.throwIfAborted());
           for (const pr of prs)
             yield* sql`INSERT INTO pull_requests_current(tab_id, node_id, facts, local, agent)
@@ -308,7 +328,7 @@ export class PullRequestStore {
                   ELSE pull_requests_current.local
                 END`;
           yield* sql`DELETE FROM pull_requests_current WHERE tab_id = ${tabId} AND node_id NOT IN (SELECT value FROM json_each(${JSON.stringify(prs.map((pr) => pr.nodeId))}))`;
-          yield* sql`UPDATE pull_requests_state SET viewer = ${value.viewer}, sync = ${JSON.stringify(sync)}, generation = generation + 1 WHERE tab_id = ${tabId}`;
+          yield* sql`UPDATE pull_requests_state SET repository = ${JSON.stringify(repository)}, viewer = ${value.viewer}, sync = ${JSON.stringify(sync)}, generation = generation + 1 WHERE tab_id = ${tabId}`;
           yield* Effect.sync(() => signal?.throwIfAborted());
           const snapshot = yield* read(yield* owner(tabId, true));
           yield* Effect.sync(() => signal?.throwIfAborted());

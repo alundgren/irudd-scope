@@ -57,7 +57,6 @@ export class PullRequestSync {
         tabId,
         {
           ...inventory,
-          repository: current.repository,
           completedAt: new Date().toISOString(),
         },
         signal,
