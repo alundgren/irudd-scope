@@ -695,7 +695,10 @@ export class ArtifactStore {
         ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, document = excluded.document, blob_id = excluded.blob_id`;
           yield* recordPlanRevision(sql, tabId, artifact);
           yield* initializePullRequestsTab(sql, tabId, artifact);
-          if (["plan", "pull-requests"].includes(artifact.kind) && !previous)
+          if (
+            (artifact.kind === "plan" && !previous) ||
+            (artifact.kind === "pull-requests" && previous?.kind !== "pull-requests")
+          )
             yield* sql`UPDATE live_tabs SET permanent = 1 WHERE id = ${tabId}`;
           return artifact;
         }),
