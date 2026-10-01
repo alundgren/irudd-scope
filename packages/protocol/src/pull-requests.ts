@@ -3,7 +3,6 @@ import { Artifact, ArtifactName, PublicationTabId, Revision } from "./index.ts";
 
 export const MAX_PULL_REQUESTS_REQUEST_BYTES = 256 * 1024;
 export const MAX_PULL_REQUESTS_REPLY_BYTES = 32 * 1024 * 1024;
-export const MAX_PULL_REQUESTS = 10_000;
 const Text = Schema.String.check(Schema.isMaxLength(20_000));
 const ShortText = Schema.String.check(Schema.isMaxLength(512));
 export const PullRequestNodeId = Schema.String.check(
@@ -49,6 +48,8 @@ export const PullRequestFacts = Schema.Struct({
     observedAt: Timestamp,
   }),
   hasUnresolvedConversations: Schema.NullOr(Schema.Boolean),
+  createdAt: Timestamp,
+  requestedReviewers: Schema.Array(ShortText),
   updatedAt: Timestamp,
 });
 export type PullRequestFacts = typeof PullRequestFacts.Type;
@@ -134,7 +135,7 @@ export const PullRequestsSnapshot = Schema.Struct({
   repository: Schema.NullOr(PullRequestsRepository),
   viewer: Schema.NullOr(ShortText),
   sync: PullRequestsSync,
-  prs: Schema.Array(PullRequest).check(Schema.isMaxLength(MAX_PULL_REQUESTS)),
+  prs: Schema.Array(PullRequest),
 });
 export type PullRequestsSnapshot = typeof PullRequestsSnapshot.Type;
 const Named = { name: ArtifactName };
