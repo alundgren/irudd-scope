@@ -1,6 +1,11 @@
 import { Schema } from "effect";
 import { Revision } from "@irudd-scope/protocol";
-import { PlanAnnotations, PlanRecordId, MAX_PLAN_IMAGE_BYTES } from "@irudd-scope/protocol/plan";
+import {
+  PlanAnnotations,
+  PlanRecordId,
+  PlanViewport,
+  MAX_PLAN_IMAGE_BYTES,
+} from "@irudd-scope/protocol/plan";
 
 export const PlanDraft = Schema.Struct({
   revision: Revision,
@@ -10,6 +15,7 @@ export const PlanDraft = Schema.Struct({
   text: Schema.String.check(Schema.isMaxLength(16_384)),
   page: Schema.String.check(Schema.isMaxLength(512)),
   annotations: PlanAnnotations,
+  viewport: Schema.optionalKey(PlanViewport),
   requestId: PlanRecordId,
   selectedText: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(512))),
   elementId: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(512))),

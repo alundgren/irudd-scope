@@ -7,6 +7,7 @@ import type { PlanDraft } from "./draft.ts";
 import { CommentCapture, markedScreenshot } from "./annotation.tsx";
 import { PlanReview } from "./review.tsx";
 import { useDocumentScroll } from "./document-scroll.ts";
+import { PendingMarks, readDocumentViewport } from "./pending-marks.tsx";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { useAutosave } from "../../workspace/persistence.ts";
 
@@ -152,6 +153,7 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
     try {
       await nextFrame();
       const bounds = iframe.current.getBoundingClientRect();
+      const viewport = readDocumentViewport(iframe.current);
       const result = await window.scope.capturePlan({
         tabId: tab.id,
         revision,
@@ -162,6 +164,11 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
           height: Math.min(Math.ceil(bounds.height), window.innerHeight - Math.floor(bounds.y)),
         },
       });
+      if (
+        viewport &&
+        JSON.stringify(readDocumentViewport(iframe.current)) !== JSON.stringify(viewport)
+      )
+        throw new Error("The page moved while taking the screenshot. Try again.");
       let page = "",
         selectedText = "",
         elementId = "";
@@ -179,6 +186,7 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
         text: "",
         page,
         annotations: [],
+        ...(viewport && { viewport }),
         requestId: crypto.randomUUID(),
         ...(selectedText && { selectedText }),
         ...(elementId && { elementId }),
@@ -205,6 +213,7 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
           image: draft.image,
           annotatedImage,
           annotations: draft.annotations,
+          ...(draft.viewport && { viewport: draft.viewport }),
           text: draft.text.trim(),
           page: draft.page,
           ...(draft.selectedText && { selectedText: draft.selectedText }),
@@ -224,21 +233,39 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
   }
   return (
     <div className="plan-view">
-      <iframe
-        key={content?.revision}
-        ref={iframe}
-        className="plan-document"
-        title={artifact?.title ?? "Plan"}
-        srcDoc={content?.html}
-        onLoad={observeDocument}
-      />
-      {loading && (
-        <p className="plan-notice" role="status">
-          Loading version {revision}…
-        </p>
-      )}
-      {!focus && !capturing && !captureOpen && (
-        <div className="plan-floating-controls">
+      <div className="plan-page">
+        <iframe
+          key={content?.revision}
+          ref={iframe}
+          className="plan-document"
+          title={artifact?.title ?? "Plan"}
+          srcDoc={content?.html}
+          onLoad={observeDocument}
+        />
+        {!capturing && !loading && content?.revision === revision && (
+          <PendingMarks iframe={iframe} snapshot={snapshot} revision={revision} draft={draft} />
+        )}
+        {loading && (
+          <p className="plan-notice" role="status">
+            Loading version {revision}…
+          </p>
+        )}
+        {reviewOpen && !focus && snapshot && (
+          <PlanReview
+            snapshot={snapshot}
+            revision={revision}
+            onRevision={selectRevision}
+            onClose={() => showReview(false)}
+            command={command}
+            busy={busy}
+          />
+        )}
+      </div>
+      {!focus && (
+        <div
+          className="plan-controls"
+          style={{ visibility: capturing || captureOpen ? "hidden" : undefined }}
+        >
           <Button
             variant="outline"
             disabled={loading || busy || !draftLoaded}
@@ -256,16 +283,6 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
             Feedback{snapshot?.responses.some((response) => !response.seen) ? " · new" : ""}
           </Button>
         </div>
-      )}
-      {reviewOpen && !focus && snapshot && (
-        <PlanReview
-          snapshot={snapshot}
-          revision={revision}
-          onRevision={selectRevision}
-          onClose={() => showReview(false)}
-          command={command}
-          busy={busy}
-        />
       )}
       {captureOpen && draft && active && !focus && (
         <CommentCapture
