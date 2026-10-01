@@ -296,7 +296,17 @@ export class PullRequestStore {
             );
           yield* Effect.sync(() => signal?.throwIfAborted());
           for (const pr of prs)
-            yield* sql`INSERT INTO pull_requests_current(tab_id, node_id, facts, local, agent) VALUES (${tabId}, ${pr.nodeId}, ${JSON.stringify(pr)}, ${JSON.stringify(emptyLocal)}, ${JSON.stringify(emptyAgent)}) ON CONFLICT(tab_id, node_id) DO UPDATE SET facts = excluded.facts`;
+            yield* sql`INSERT INTO pull_requests_current(tab_id, node_id, facts, local, agent)
+              VALUES (${tabId}, ${pr.nodeId}, ${JSON.stringify(pr)}, ${JSON.stringify(emptyLocal)}, ${JSON.stringify(emptyAgent)})
+              ON CONFLICT(tab_id, node_id) DO UPDATE SET facts = excluded.facts,
+                local = CASE
+                  WHEN json_extract(pull_requests_current.local, '$.snooze.wakeOnNewCommit') = 1
+                    AND json_extract(pull_requests_current.local, '$.snooze.headOid') != json_extract(excluded.facts, '$.headOid')
+                  THEN json_set(pull_requests_current.local,
+                    '$.snooze', json('null'),
+                    '$.snoozeVersion', json_extract(pull_requests_current.local, '$.snoozeVersion') + 1)
+                  ELSE pull_requests_current.local
+                END`;
           yield* sql`DELETE FROM pull_requests_current WHERE tab_id = ${tabId} AND node_id NOT IN (SELECT value FROM json_each(${JSON.stringify(prs.map((pr) => pr.nodeId))}))`;
           yield* sql`UPDATE pull_requests_state SET viewer = ${value.viewer}, sync = ${JSON.stringify(sync)}, generation = generation + 1 WHERE tab_id = ${tabId}`;
           yield* Effect.sync(() => signal?.throwIfAborted());
