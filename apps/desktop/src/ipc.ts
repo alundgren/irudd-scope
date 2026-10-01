@@ -114,11 +114,18 @@ export function registerDesktopIpc({
   window.on("leave-full-screen", leftFullscreen);
 
   const plugins = registerMainPlugins({
+    window,
     handle,
     store,
     client,
     artifacts: lifecycle.artifacts,
     workspace: () => lifecycle.workspace(),
+  });
+  const stopPlanEvents = library.onPlanChanged((event) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:plan-changed", event);
+  });
+  const stopPlanReconnects = library.onPlanReconnected(() => {
+    if (!window.isDestroyed()) window.webContents.send("scope:plan-reconnected");
   });
   handle("scope:remotes", () => remotes.snapshot());
   handle("scope:pair-remote", (input) =>
@@ -247,6 +254,8 @@ export function registerDesktopIpc({
       connectedAgents.cancelTabs(ids);
     },
     dispose: () => {
+      stopPlanEvents();
+      stopPlanReconnects();
       window.webContents.removeListener("render-process-gone", rendererUnavailable);
       window.webContents.removeListener("did-start-navigation", navigating);
       window.removeListener("enter-full-screen", enteredFullscreen);

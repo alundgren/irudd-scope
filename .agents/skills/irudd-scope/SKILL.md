@@ -1,6 +1,6 @@
 ---
 name: irudd-scope
-description: Publish or update artifacts, create or edit Excalidraw diagrams, and generate conversational solo or two-speaker narration through Scope with its CLI. Use for inspectable artifacts or agent-owned text-to-speech using the desktop OpenRouter key.
+description: Publish or update artifacts, collaborate on named HTML plans, create or edit Excalidraw diagrams, and generate conversational solo or two-speaker narration through Scope with its CLI. Use for inspectable artifacts or agent-owned text-to-speech using the desktop OpenRouter key.
 ---
 
 # Use Scope CLI
@@ -37,6 +37,63 @@ Publication commands print a JSON artifact record with its ID and revision. Trea
 
 HTML previews run interactive prototypes and mockups, including scripts, external styles, fonts, images, network requests, forms, and popups. Publish a complete document with embedded resources or reachable URLs. Adjacent files are not uploaded; use absolute resource URLs or set the document's base URL. Normal browser rules such as CORS apply. For Markdown, raw HTML is omitted and links and image descriptions appear as text.
 
+### HTML plans
+
+Use ordinary HTML for feature plans and interactive walkthroughs. Publish with:
+
+```sh
+irudd-scope add feature.html --plan --name feature-plan --title "Feature plan"
+irudd-scope plan guide
+```
+
+A plan always has a unique immutable name and starts permanent. Omitting
+`--name` generates one; announce the returned name. `update ID FILE.html`
+preserves the plan kind, name, and history. Avoid custom content blocks. Stable
+HTML IDs can help navigation but are optional.
+
+The human navigates any page, captures its visible state, adds arrows, boxes or
+pins and text, then sends a feedback round. Retrieve it with:
+
+```sh
+irudd-scope plan read NAME
+irudd-scope plan feedback NAME ROUND_ID --output NEW_DIRECTORY
+```
+
+Read `packet.json`, inspect the marked PNGs with an image tool and edit the
+exported `plan.html`. The original screenshot and normalized geometry remain
+available. Feedback is tied to its captured revision; never move old annotation
+coordinates onto new HTML. The packet records the latest revision separately.
+If that revision differs from the captured revision, export it to a new file
+with `plan content NAME --revision N --output NEW_FILE.html` before editing.
+
+Write response JSON using `plan guide`'s exact schema: `action: "respond"`,
+`name`, a stable UUID `requestId`, `roundId`, `expectedRevision`, `summary`, and
+`replies: [{ commentId, text }]` for every comment in the round. Include the
+complete `html` string when changing the plan; omit it for answers only. Run
+`plan respond FILE.json`. HTML updates and replies commit atomically. A 409
+requires reading the current plan and reconsidering edits before a new request.
+After an uncertain outcome, retry the identical payload with the same request
+ID; a different payload under that ID is rejected. Trust a successful receipt.
+Writes return compact artifact/version receipts. Created comment, round and
+response IDs equal `requestId`. Reads are bounded pages: continue a returned
+`next` cursor using a read command through `plan apply`, retaining any filters.
+Restart if its review version changed. Feedback export retrieves only the
+selected round.
+
+`plan watch NAME` uses the same supported host flags described in
+[agent connections](references/agent-connections.md) and notifies only submitted
+rounds. Keep it alive under the host's process manager. Pending rounds recover
+after reconnect; notices may repeat after restart. Read durable round IDs and
+use stable response IDs. Scope does not launch agents. Without a listener,
+retrieve pending feedback manually. Review commands need the desktop online;
+initial plan publications can use the ordinary offline hub queue.
+
+Use an approved HTML revision and its feedback decisions as implementation
+instructions. Report implementation results, validation and remaining work in
+Scope through a response. Response seen state, comment resolution and revision
+approval are separate human actions. Closing a plan retains history and
+feedback in Trashcan; explicit deletion removes them with the tab.
+
 ### Diagrams
 
 For ongoing collaboration, create a **named** diagram with `--named` and announce
@@ -44,7 +101,7 @@ the returned `name` to the person. It remains usable across agents and sessions
 while its tab exists. `--name NAME` selects an exact unique name; names cannot
 be changed. Closing the tab moves the diagram and its proposals to Trashcan. Restore it
 in Scope before sending further edits. Its name stays reserved until permanent
-deletion. New named tabs are temporary, like other arrivals.
+deletion. New named diagrams are temporary, like other ordinary arrivals.
 
 Use the native working model when editing existing Excalidraw objects, including
 images, freehand, frames, bound text, groups, and elbow arrows:

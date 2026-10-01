@@ -22,6 +22,7 @@ import {
   type RetainedTab,
   type TrashEntry,
 } from "../workspace/retention.ts";
+import { PlanStore, recordPlanRevision } from "./plan-store.ts";
 import { DiagramDraft } from "../plugins/diagram/draft.ts";
 
 const databaseRuntime = (filename: string) => ManagedRuntime.make(SqliteClient.layer({ filename }));
@@ -40,6 +41,7 @@ export type LiveTab = {
 
 export class ArtifactStore {
   maintenance!: DatabaseMaintenance;
+  plans!: PlanStore;
   onChanged: (event: LiveEvent) => void = () => {};
   private pendingMutations = Promise.resolve();
   private constructor(
@@ -66,6 +68,12 @@ export class ArtifactStore {
       await store.initializeLifecycle();
       await store.initializeNames();
       await store.initializeRetention();
+      store.plans = new PlanStore({
+        sql,
+        run: (effect) => store.run(effect),
+        mutate: (effect, events) => store.mutate(effect, events),
+      });
+      await store.plans.initialize();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -101,7 +109,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 5) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 6) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");
@@ -534,11 +542,11 @@ export class ArtifactStore {
     return this.run(
       sql.withTransaction(
         Effect.gen(function* () {
-          yield* sql`DELETE FROM tab_blobs WHERE staged_until <= ${now} AND NOT EXISTS (SELECT 1 FROM artifacts WHERE artifacts.tab_id = tab_blobs.tab_id AND artifacts.blob_id = tab_blobs.blob_id)`;
+          yield* sql`DELETE FROM tab_blobs WHERE staged_until <= ${now} AND NOT EXISTS (SELECT 1 FROM artifacts WHERE artifacts.tab_id = tab_blobs.tab_id AND artifacts.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM plan_revisions WHERE plan_revisions.tab_id = tab_blobs.tab_id AND plan_revisions.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM plan_images WHERE plan_images.tab_id = tab_blobs.tab_id AND plan_images.blob_id = tab_blobs.blob_id)`;
           yield* sql`DELETE FROM live_tabs WHERE opened = 0 AND created_at <= ${now - UPLOAD_GRACE_MS} AND NOT EXISTS (SELECT 1 FROM artifacts WHERE artifacts.tab_id = live_tabs.id) AND NOT EXISTS (SELECT 1 FROM tab_blobs WHERE tab_blobs.tab_id = live_tabs.id)`;
           const [row] = yield* sql<{
             bytes: number;
-          }>`SELECT coalesce(sum(length(content)), 0) AS bytes FROM blobs WHERE id NOT IN (SELECT blob_id FROM artifacts)`;
+          }>`SELECT coalesce(sum(length(content)), 0) AS bytes FROM blobs WHERE id NOT IN (SELECT blob_id FROM artifacts UNION SELECT blob_id FROM plan_revisions UNION SELECT blob_id FROM plan_images)`;
           return row.bytes;
         }),
       ),
@@ -640,6 +648,10 @@ export class ArtifactStore {
             return yield* Effect.fail(
               new ScopeError(409, "Artifact changed. Read the current revision before updating."),
             );
+          if (previous?.kind === "plan" && input.kind !== "plan")
+            return yield* Effect.fail(new ScopeError(409, "A plan's kind cannot change."));
+          if (input.kind === "plan" && !(previous?.name ?? input.name))
+            return yield* Effect.fail(new ScopeError(400, "Plans require a tab name."));
           const { expectedRevision, tabId, ...metadata } = input;
           if (previous?.name && input.name && previous.name !== input.name)
             return yield* Effect.fail(new ScopeError(409, "A tab's name cannot change."));
@@ -667,6 +679,9 @@ export class ArtifactStore {
           });
           yield* sql`INSERT INTO artifacts(id, revision, document, tab_id, blob_id) VALUES (${id}, ${revision}, ${JSON.stringify(artifact)}, ${tabId}, ${input.blob})
         ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, document = excluded.document, blob_id = excluded.blob_id`;
+          yield* recordPlanRevision(sql, tabId, artifact);
+          if (artifact.kind === "plan" && !previous)
+            yield* sql`UPDATE live_tabs SET permanent = 1 WHERE id = ${tabId}`;
           return artifact;
         }),
       ),
@@ -711,7 +726,8 @@ export class ArtifactStore {
           yield* sql`INSERT INTO tab_blobs VALUES (${row.tab_id}, ${blob}, 0) ON CONFLICT(tab_id, blob_id) DO NOTHING`;
           yield* sql`UPDATE artifacts SET revision = ${artifact.revision}, document = ${JSON.stringify(artifact)}, blob_id = ${blob} WHERE id = ${id}`;
           yield* sql`UPDATE lifecycle SET value = max(value, ${artifact.revision}) WHERE name = 'max_revision'`;
-          yield* sql`DELETE FROM tab_blobs WHERE tab_id = ${row.tab_id} AND staged_until = 0 AND blob_id <> ${blob}`;
+          yield* recordPlanRevision(sql, row.tab_id, artifact);
+          yield* sql`DELETE FROM tab_blobs WHERE tab_id = ${row.tab_id} AND staged_until = 0 AND blob_id <> ${blob} AND NOT EXISTS (SELECT 1 FROM plan_revisions WHERE plan_revisions.tab_id = tab_blobs.tab_id AND plan_revisions.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM plan_images WHERE plan_images.tab_id = tab_blobs.tab_id AND plan_images.blob_id = tab_blobs.blob_id)`;
           return artifact;
         }),
       ),

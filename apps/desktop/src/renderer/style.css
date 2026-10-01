@@ -1335,3 +1335,183 @@ h2 {
   background: var(--scope-selected);
   outline: 2px solid var(--scope-danger);
 }
+
+.plan-view {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.plan-document {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--scope-canvas);
+}
+.plan-floating-controls {
+  position: absolute;
+  right: var(--scope-space-4);
+  bottom: var(--scope-space-4);
+  display: flex;
+  gap: var(--scope-space-2);
+  padding: var(--scope-space-1);
+  border-radius: var(--scope-radius-tab);
+  background: var(--scope-panel);
+  box-shadow: var(--scope-shadow);
+}
+.plan-review {
+  position: absolute;
+  z-index: 2;
+  inset: 0 0 0 auto;
+  width: min(390px, 100%);
+  display: flex;
+  flex-direction: column;
+  background: var(--scope-panel);
+  color: var(--scope-text);
+  border-left: 1px solid var(--scope-line);
+  box-shadow: var(--scope-shadow);
+}
+.plan-review-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--scope-space-3) var(--scope-space-4);
+}
+.plan-review-heading h2 {
+  font-size: var(--scope-text-ui);
+  font-weight: var(--scope-weight-strong);
+  margin: 0;
+}
+.plan-review-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--scope-space-4) var(--scope-space-8);
+}
+.plan-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--scope-space-2);
+}
+.plan-version-controls,
+.plan-send,
+.plan-response,
+.plan-comment {
+  padding-block: var(--scope-space-3);
+}
+.plan-response,
+.plan-comment {
+  border-top: 1px solid var(--scope-line);
+}
+.plan-version-controls label,
+.plan-capture-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--scope-space-1);
+}
+.plan-version-select {
+  width: 100%;
+  height: var(--scope-control);
+  color: var(--scope-text);
+  background: var(--scope-panel);
+  border: 1px solid var(--scope-outline);
+  border-radius: var(--scope-radius-control);
+  padding-inline: var(--scope-space-2);
+  margin-bottom: var(--scope-space-2);
+}
+.plan-name {
+  overflow-wrap: anywhere;
+}
+.plan-name code {
+  font-family: var(--scope-font-mono);
+}
+.plan-awaiting {
+  color: var(--scope-muted);
+  margin-block: var(--scope-space-3);
+}
+.plan-comment-text,
+.plan-response p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-block: var(--scope-space-2);
+}
+.plan-comment-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-control);
+  margin-block: var(--scope-space-2);
+}
+.plan-queue-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--scope-space-1);
+}
+.plan-reply {
+  margin-block: var(--scope-space-3);
+}
+.plan-reply blockquote {
+  color: var(--scope-muted);
+  border-left: 2px solid var(--scope-outline);
+  padding-left: var(--scope-space-2);
+  margin: 0;
+}
+.plan-capture {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--scope-panel);
+}
+.plan-capture-image {
+  flex: 1;
+  min-height: 0;
+  background: var(--scope-strip);
+}
+.plan-capture-image svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+}
+.plan-capture-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--scope-space-2);
+  max-height: 55%;
+  overflow-y: auto;
+  padding: var(--scope-space-3) var(--scope-space-4);
+  border-top: 1px solid var(--scope-line);
+}
+.plan-notice {
+  position: absolute;
+  z-index: 4;
+  left: var(--scope-space-4);
+  top: var(--scope-space-4);
+  max-width: calc(100% - var(--scope-space-8));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--scope-space-2);
+  padding: var(--scope-space-2) var(--scope-space-3);
+  border-radius: var(--scope-radius-control);
+  background: var(--scope-panel);
+  color: var(--scope-text);
+  box-shadow: var(--scope-shadow);
+}
+.plan-error {
+  color: var(--scope-danger);
+}
+
+/* Keep the authored document's viewport when another tab is selected. */
+.artifact-pane[hidden]:has(.plan-view) {
+  display: block !important;
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+}

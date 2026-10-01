@@ -30,6 +30,7 @@ import {
   ShrinkReceipt,
   type DatabaseShrink,
 } from "@irudd-scope/protocol/maintenance";
+import { handlePlanHttp } from "./plan-http.ts";
 import { ArtifactStore } from "./store.ts";
 import { DiagramSyncCommand, DiagramSyncReply } from "@irudd-scope/protocol/diagram-sync";
 import { ArtifactName } from "@irudd-scope/protocol";
@@ -109,6 +110,7 @@ export async function startArtifactServer(options: {
       return;
     }
     authenticate(request, options.token);
+    if (await handlePlanHttp(request, response, url, store.plans)) return;
 
     if (route === "POST /v1/voice" && !url.search) {
       if (!options.voice) throw new ScopeError(503, "Voice generation is unavailable.");

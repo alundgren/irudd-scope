@@ -2,8 +2,9 @@ import type { Artifact } from "@irudd-scope/protocol";
 import type { Tab } from "../workspace/contract.ts";
 import { filePlugin } from "./file/renderer.tsx";
 import { diagramPlugin } from "./diagram/renderer.tsx";
+import { planPlugin } from "./plan/renderer.tsx";
 
-export const tabPlugins = [diagramPlugin, filePlugin];
+export const tabPlugins = [diagramPlugin, planPlugin, filePlugin];
 export const pluginTools = tabPlugins.flatMap((plugin) => plugin.tools ?? []);
 export const findPlugin = (type: string) => tabPlugins.find((plugin) => plugin.type === type);
 export function pluginForArtifact(artifact: Artifact) {

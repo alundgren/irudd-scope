@@ -32,8 +32,10 @@ import { ScopeClient } from "@irudd-scope/protocol/client";
 import { setup, manageHub, installSkill, printPairing } from "./setup.ts";
 import { pullDiagram, pushDiagram, rebaseDiagram } from "./diagram-working.ts";
 import { watchDiagram } from "./diagram-watch.ts";
+import { PlanGuide, planCommand } from "./plan.ts";
+import { watchPlan } from "./plan-watch.ts";
 
-const help = `irudd-scope add FILE [--title TITLE] [--id ID] [--named | --name NAME]
+const help = `irudd-scope add FILE [--title TITLE] [--id ID] [--named | --name NAME] [--plan]
 irudd-scope text TEXT [--title TITLE] [--id ID] [--kind text|markdown]
 irudd-scope update ID FILE [--title TITLE]
 irudd-scope diagram guide|read|create|apply|preview [ID] [FILE]
@@ -44,6 +46,13 @@ irudd-scope diagram rebase WORKING.json
 irudd-scope diagram propose WORKING.json --note TEXT [--resolved]
 irudd-scope diagram reply NAME TEXT
 irudd-scope diagram watch NAME [--claude-channel | --t3-thread ID | --codex-thread ID] [--watch-edits]
+irudd-scope plan guide
+irudd-scope plan read NAME [--since VERSION]
+irudd-scope plan feedback NAME [ROUND_ID] --output NEW_DIRECTORY
+irudd-scope plan content NAME [--revision N] --output NEW_FILE.html
+irudd-scope plan image NAME HASH --output NEW_FILE.png
+irudd-scope plan respond|apply REQUEST.json
+irudd-scope plan watch NAME [--claude-channel | --t3-thread ID | --codex-thread ID]
 irudd-scope voice generate|status|result|cancel|guide [FILE_OR_ID]
 irudd-scope list
 irudd-scope get ID
@@ -153,6 +162,9 @@ function parseOptions() {
     options: {
       snapshot: { type: "string" },
       named: { type: "boolean" },
+      plan: { type: "boolean" },
+      revision: { type: "string" },
+      since: { type: "string" },
       name: { type: "string" },
       resolved: { type: "boolean" },
       full: { type: "boolean" },
@@ -323,13 +335,18 @@ async function preparePublication(
   ]);
   const id = current?.id ?? values.id ?? randomUUID();
   const title = values.title ?? current?.title ?? (command === "text" ? "Note" : fileName);
-  const name = current?.name ?? artifactName(values, title);
+  if (values.plan && command !== "add") throw new Error("Use --plan when adding an HTML file.");
+  const isPlan = values.plan || current?.kind === "plan";
+  if (isPlan && mediaType !== "text/html") throw new Error("Plans require an HTML file.");
+  const name =
+    current?.name ??
+    artifactName(isPlan && !values.name ? { ...values, named: true } : values, title);
   return {
     id,
     input: {
       title,
       ...(name ? { name } : {}),
-      kind,
+      kind: isPlan ? "plan" : kind,
       mediaType,
       fileName,
       source,
@@ -391,6 +408,34 @@ async function main() {
     }
     const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"] ?? "330000"));
     await voiceCommand(argument, replacement, values, () => connect(values, signal), signal);
+    return;
+  }
+  if (command === "plan") {
+    if (argument === "guide") {
+      console.log(JSON.stringify(PlanGuide, null, 2));
+      return;
+    }
+    if (argument === "watch") {
+      if (!replacement) throw new Error("Provide the plan name.");
+      const controller = new AbortController();
+      const stop = () => controller.abort();
+      process.once("SIGINT", stop);
+      process.once("SIGTERM", stop);
+      try {
+        await watchPlan(await connect(values, controller.signal), replacement, values, controller);
+      } finally {
+        controller.abort();
+      }
+    } else {
+      const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"]));
+      console.log(
+        JSON.stringify(
+          await planCommand(await connect(values, signal), positionals, values, signal),
+          null,
+          2,
+        ),
+      );
+    }
     return;
   }
   if (command === "diagram-agent") {

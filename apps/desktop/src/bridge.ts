@@ -20,7 +20,23 @@ export type ArtifactLibrarySnapshot = {
 export type ArtifactContent = { artifact: Artifact; bytes: Uint8Array };
 import type { TabEventEnvelope } from "./plugins/events.ts";
 
+import type { PlanCommand, PlanReply, PlanEvent } from "@irudd-scope/protocol/plan";
+import type { PlanDraft } from "./plugins/plan/draft.ts";
+
 export type ScopeBridge = {
+  createPlan: (input: { name: string; title: string; html: string }) => Promise<Artifact>;
+  planCommand: (command: PlanCommand) => Promise<PlanReply>;
+  planImage: (input: { name: string; id: string }) => Promise<Uint8Array>;
+  planContent: (input: { name: string; revision: number }) => Promise<Uint8Array>;
+  capturePlan: (input: {
+    tabId: string;
+    revision: number;
+    rect: { x: number; y: number; width: number; height: number };
+  }) => Promise<{ image: string; width: number; height: number }>;
+  loadPlanDraft: (tabId: string) => Promise<PlanDraft | null>;
+  savePlanDraft: (input: { tabId: string; draft: PlanDraft | null }) => Promise<void>;
+  onPlanReconnected: (listener: () => void) => () => void;
+  onPlanChanged: (listener: (event: PlanEvent) => void) => () => void;
   diagramAgentStatus: (id: string) => Promise<DiagramAgentStatus>;
   onDiagramAgentStatus: (listener: (status: DiagramAgentStatus) => void) => () => void;
   requestDiagramAgent: (request: typeof TabAgentRequest.Type) => Promise<{ message: string }>;

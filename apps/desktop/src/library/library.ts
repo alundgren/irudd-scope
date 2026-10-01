@@ -2,7 +2,25 @@ import type { Artifact } from "@irudd-scope/protocol";
 import type { ScopeClient } from "@irudd-scope/protocol/client";
 import type { ArtifactContent, ArtifactLibrarySnapshot } from "../bridge.ts";
 
+import type { PlanEvent } from "@irudd-scope/protocol/plan";
+
 export class ArtifactLibrary {
+  private planListeners = new Set<(event: PlanEvent) => void>();
+  private planReconnectListeners = new Set<() => void>();
+
+  onPlanReconnected(listener: () => void): () => void {
+    this.planReconnectListeners.add(listener);
+    return () => {
+      this.planReconnectListeners.delete(listener);
+    };
+  }
+
+  onPlanChanged(listener: (event: PlanEvent) => void): () => void {
+    this.planListeners.add(listener);
+    return () => {
+      this.planListeners.delete(listener);
+    };
+  }
   private current: ArtifactLibrarySnapshot = { artifacts: [], connection: "connecting" };
   private connection?: AbortController;
   private cache = new Map<string, ArtifactContent>();
@@ -70,6 +88,13 @@ export class ArtifactLibrary {
           if (event.type === "ready") {
             const refresh = ++this.refresh;
             changes = new Map();
+            for (const listener of this.planReconnectListeners) {
+              try {
+                listener();
+              } catch {
+                console.error("A plan reconnect listener failed.");
+              }
+            }
             void this.client
               .list(active.signal)
               .then((artifacts) => {
@@ -93,6 +118,14 @@ export class ArtifactLibrary {
                     error: "Could not refresh the artifact list.",
                   });
               });
+          } else if (event.type === "plan") {
+            for (const listener of this.planListeners) {
+              try {
+                listener(event);
+              } catch {
+                console.error("A plan update listener failed.");
+              }
+            }
           } else if (event.type === "deleted") {
             changes?.set(event.id, null);
             this.remove(event.id);
@@ -135,5 +168,7 @@ export class ArtifactLibrary {
     for (const active of this.loads.keys()) active.abort();
     this.loads.clear();
     this.cache.clear();
+    this.planListeners.clear();
+    this.planReconnectListeners.clear();
   }
 }

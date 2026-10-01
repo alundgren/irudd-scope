@@ -128,11 +128,21 @@ export const DiagramEvent = Schema.Struct({
   text: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(4000))),
 });
 export type DiagramEvent = typeof DiagramEvent.Type;
+export const PlanEvent = Schema.Struct({
+  type: Schema.Literal("plan"),
+  name: ArtifactName,
+  id: ArtifactId,
+  version: Revision,
+  event: Schema.Literals(["comment", "round", "response", "review"]),
+  roundId: Schema.optionalKey(PublicationTabId),
+});
+export type PlanEvent = typeof PlanEvent.Type;
 export const LiveEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("ready") }),
   Schema.Struct({ type: Schema.Literal("artifact"), artifact: Artifact }),
   Schema.Struct({ type: Schema.Literal("deleted"), id: ArtifactId }),
   DiagramEvent,
+  PlanEvent,
 ]);
 export type LiveEvent = typeof LiveEvent.Type;
 
@@ -157,6 +167,7 @@ export function validateArtifactContent(artifact: Pick<Artifact, "kind" | "media
     text: ["text/plain"],
     markdown: ["text/markdown"],
     html: ["text/html"],
+    plan: ["text/html"],
     image: ["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"],
     file: null,
     excalidraw: ["application/vnd.excalidraw+json"],

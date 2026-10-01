@@ -328,3 +328,49 @@ The generation CLI polls short status requests, with a 330000 ms default command
 timeout. Other voice commands share that default and accept `--timeout-ms`.
 Audio export requires a new `.wav` file. Receipt exports may be refreshed in place.
 Agents own their exported files, scripts, HTML, synchronization, and playback.
+
+## Named HTML plan review
+
+Plans publish through the normal artifact API using `kind: "plan"`,
+`mediaType: "text/html"` and a required immutable name. New plans start permanent;
+updates retain later user choices. All plan commands use the normal publishing
+credential and require a connected desktop. Hubs forward these routes.
+
+| Route                                             | Behavior                                      |
+| ------------------------------------------------- | --------------------------------------------- |
+| `POST /v1/plans`                                  | Validated `PlanCommand`; returns `PlanReply`. |
+| `GET /v1/plans/:name/images/:sha256`              | Download a PNG owned by that plan.            |
+| `GET /v1/plans/:name/revisions/:revision/content` | Download retained HTML.                       |
+
+`packages/protocol/src/plan.ts` owns the exact schemas. `read` returns metadata,
+history, comments, rounds and responses in bounded pages; matching `since`
+returns unchanged. A `next` cursor carries the review version and revision/record
+positions. Continue with that cursor and the same filters. A changed version
+returns 409 and requires restarting the read. Each page contains at most 100
+revisions and 100 records, with JSON bytes checked before loading documents.
+`roundId` selects one round and its comments/responses; `pending: true` selects
+only pending rounds. These filters cannot be combined. `readPlanSnapshot`
+collects consistent pages and retries changed-version reads up to twice.
+Every mutation has a UUID `requestId`. The identical payload under that ID is
+idempotent for the tab lifetime; different content returns 409. Writes return
+compact `receipt` replies with artifact metadata, review version and an optional
+created `recordId`. Created comment, round and response IDs equal `requestId`.
+A comment has an
+original screenshot, marked screenshot, normalized annotations, text and source
+revision. A submitted round contains distinct comments from one revision.
+Responses must reply to every comment in that round. Optional HTML replacement
+checks `expectedRevision` and commits with the replies. Text-only responses may
+reference retained older revisions. Restore appends history rather than deleting
+it. Seen, resolved and approved states are independent.
+
+PNG limits are 8 MiB and 8192 pixels per dimension for each image. Command JSON
+is bounded at 48 MiB, HTML at 32 MiB, comment text at 16384 characters, annotations
+at 50, and comments/replies per round at 100. `ScopeClient` exposes `plan`,
+`planImage` and `planContent`, validating replies and bounded byte streams.
+Live events include compact `plan` notices for comments, round submission,
+responses and review updates. Retrieve durable state after reconnect.
+
+The CLI documents the agent workflow and schema with `irudd-scope plan guide`.
+Feedback exports include `packet.json`, originating `plan.html` and both PNGs for
+each comment. Export retrieves only the selected round, not the entire history.
+They are explicit copies; plan storage stays in SQLite.

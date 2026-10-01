@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from "vite-plus/test";
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -414,6 +415,73 @@ test("paired hubs forward named native edits larger than metadata and compact hu
     version,
   });
   await expect.poll(() => events).toContain("diagram");
+});
+
+test("paired hubs forward plan feedback images and response JSON larger than the artifact byte limit", async () => {
+  const f = await fixture();
+  await f.remotes.pair(f.state.pairUrl());
+  await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
+  const artifact = await f.client.publish(
+    "remote-plan",
+    {
+      name: "remote-plan",
+      title: "Remote plan",
+      kind: "plan",
+      mediaType: "text/html",
+      fileName: "plan.html",
+      expectedRevision: 0,
+    },
+    Buffer.from("<h1>Before</h1>"),
+  );
+  const png =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=";
+  const commented = await f.client.plan({
+    action: "comment",
+    name: "remote-plan",
+    requestId: randomUUID(),
+    revision: artifact.revision,
+    page: "main",
+    text: "Clarify the design",
+    image: png,
+    annotatedImage: png,
+    annotations: [{ type: "pin", at: { x: 0.5, y: 0.5 } }],
+  });
+  if (commented.type !== "receipt") throw new Error("Expected receipt");
+  const read = await f.client.plan({ action: "read", name: "remote-plan" });
+  if (read.type !== "snapshot") throw new Error("Expected snapshot");
+  const comment = read.snapshot.comments[0];
+  expect(Buffer.from(await f.client.planImage("remote-plan", comment.image.id))).toEqual(
+    Buffer.from(png, "base64"),
+  );
+  const submitted = await f.client.plan({
+    action: "submit",
+    name: "remote-plan",
+    requestId: randomUUID(),
+    commentIds: [comment.id],
+  });
+  if (submitted.type !== "receipt" || !submitted.recordId)
+    throw new Error("Expected round receipt");
+  const html = `<!--${"\\".repeat(17 * 1024 * 1024)}-->`;
+  const responded = await f.client.plan({
+    action: "respond",
+    name: "remote-plan",
+    requestId: randomUUID(),
+    roundId: submitted.recordId,
+    expectedRevision: artifact.revision,
+    summary: "Revised",
+    replies: [{ commentId: comment.id, text: "Clarified" }],
+    html,
+  });
+  if (responded.type !== "receipt") throw new Error("Expected receipt");
+  expect(responded.artifact.size).toBe(Buffer.byteLength(html));
+  expect(
+    Buffer.from(await f.client.planContent("remote-plan", responded.artifact.revision)).equals(
+      Buffer.from(html),
+    ),
+  ).toBe(true);
+  expect(Buffer.from(await f.client.planContent("remote-plan", artifact.revision)).toString()).toBe(
+    "<h1>Before</h1>",
+  );
 });
 
 test.each(["body-fetch", "body-stream", "local-http", "response-post", "response-status"])(
