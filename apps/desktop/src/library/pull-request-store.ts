@@ -317,13 +317,11 @@ export class PullRequestStore {
               existing &&
               existing.owner.toLowerCase() === command.repository.owner.toLowerCase() &&
               existing.name.toLowerCase() === command.repository.name.toLowerCase();
-            const rows =
-              yield* sql`SELECT 1 FROM pull_requests_current WHERE tab_id = ${tabId} LIMIT 1`;
-            if (existing && !same && rows.length)
+            if (existing && !same)
               return yield* Effect.fail(
                 new ScopeError(
                   409,
-                  "This tab is bound to a repository with open pull requests. Publish another tab.",
+                  "This tab is bound to a repository. Publish another tab to use a different repository.",
                 ),
               );
             if (!same)

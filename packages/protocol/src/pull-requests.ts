@@ -16,7 +16,7 @@ const Timestamp = Schema.String.check(
 );
 export const PullRequestsRepository = Schema.Struct({
   owner: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/)),
-  name: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_.-]{1,100}$/)),
+  name: Schema.String.check(Schema.isPattern(/^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/)),
 });
 export type PullRequestsRepository = typeof PullRequestsRepository.Type;
 export const PullRequestFacts = Schema.Struct({
