@@ -9,6 +9,7 @@ export class PullRequestSync {
     { controller: AbortController; result: Promise<PullRequestsSnapshot> }
   >();
   private readonly details = new Map<AbortController, string>();
+  private lastStart = 0;
 
   constructor(
     private readonly store: PullRequestStore,
@@ -19,44 +20,65 @@ export class PullRequestSync {
     const current = this.syncing.get(tabId);
     if (current) return current.result;
     const controller = new AbortController();
-    const result = this.refresh(tabId, controller.signal).finally(() => {
+    const startedAt = new Date(
+      (this.lastStart = Math.max(Date.now(), this.lastStart + 1)),
+    ).toISOString();
+    const result = this.refresh(tabId, controller.signal, startedAt).finally(() => {
       if (this.syncing.get(tabId)?.controller === controller) this.syncing.delete(tabId);
     });
     this.syncing.set(tabId, { controller, result });
     return result;
   }
 
-  private async refresh(tabId: string, signal: AbortSignal): Promise<PullRequestsSnapshot> {
+  private async refresh(
+    tabId: string,
+    signal: AbortSignal,
+    startedAt: string,
+  ): Promise<PullRequestsSnapshot> {
     const current = await this.store.snapshotByTab(tabId);
     if (!current.repository)
       throw new GitHubReadError("Choose a repository before refreshing pull requests.");
     signal.throwIfAborted();
-    await this.store.setSyncStatus(tabId, {
-      ...current.sync,
-      state: "syncing",
-      updatedAt: new Date().toISOString(),
-      error: null,
-    });
     try {
+      await this.store.setSyncStatus(
+        tabId,
+        {
+          ...current.sync,
+          state: "syncing",
+          updatedAt: startedAt,
+          error: null,
+        },
+        signal,
+      );
       signal.throwIfAborted();
       const inventory = await this.github.inventory(current.repository, signal);
       signal.throwIfAborted();
-      return await this.store.commitInventory(tabId, {
-        ...inventory,
-        repository: current.repository,
-        completedAt: new Date().toISOString(),
-      });
+      return await this.store.commitInventory(
+        tabId,
+        {
+          ...inventory,
+          repository: current.repository,
+          completedAt: new Date().toISOString(),
+        },
+        signal,
+      );
     } catch (error) {
       signal.throwIfAborted();
-      return this.store.setSyncStatus(tabId, {
-        state: "error",
-        updatedAt: new Date().toISOString(),
-        lastSuccessAt: current.sync.lastSuccessAt,
-        error:
-          error instanceof GitHubReadError
-            ? error.message
-            : "Pull requests could not be refreshed. Try Sync again.",
-      });
+      return await this.store.setSyncStatus(
+        tabId,
+        {
+          state: "error",
+          updatedAt: new Date().toISOString(),
+          lastSuccessAt: current.sync.lastSuccessAt,
+          error:
+            error instanceof GitHubReadError
+              ? error.message
+              : "Pull requests could not be refreshed. Try Sync again.",
+        },
+        signal,
+      );
+    } finally {
+      if (signal.aborted) await this.store.cancelSync(tabId, startedAt);
     }
   }
 

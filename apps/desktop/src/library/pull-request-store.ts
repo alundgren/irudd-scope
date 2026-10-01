@@ -75,7 +75,10 @@ export class PullRequestStore {
   async initialize(): Promise<void> {
     const { sql, run } = this.database;
     const [{ user_version }] = await run(sql<{ user_version: number }>`PRAGMA user_version`);
-    if (user_version >= 7) return;
+    if (user_version >= 7) {
+      await this.recoverInterruptedSync();
+      return;
+    }
     await run(
       sql.withTransaction(
         Effect.gen(function* () {
@@ -95,6 +98,27 @@ export class PullRequestStore {
           yield* sql`PRAGMA user_version = 7`;
         }),
       ),
+    );
+    await this.recoverInterruptedSync();
+  }
+
+  private async recoverInterruptedSync(): Promise<void> {
+    const { sql, mutate } = this.database;
+    const owner = this.owner.bind(this),
+      read = this.read.bind(this);
+    const updatedAt = new Date().toISOString();
+    await mutate(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const changed = yield* sql<{
+            tab_id: string;
+          }>`UPDATE pull_requests_state SET sync = json_set(sync, '$.state', 'error', '$.updatedAt', ${updatedAt}, '$.error', 'GitHub refresh was interrupted. Try Sync again.'), generation = generation + 1 WHERE json_extract(sync, '$.state') = 'syncing' RETURNING tab_id`;
+          const snapshots: PullRequestsSnapshot[] = [];
+          for (const row of changed) snapshots.push(yield* read(yield* owner(row.tab_id, true)));
+          return snapshots;
+        }),
+      ),
+      (snapshots) => snapshots.flatMap((snapshot) => this.event(snapshot)),
     );
   }
 
@@ -192,6 +216,33 @@ export class PullRequestStore {
         }),
       ),
       (snapshot) => this.event(snapshot),
+    );
+  }
+
+  async cancelSync(tabId: string, expectedUpdatedAt: string): Promise<void> {
+    const { sql, mutate } = this.database;
+    const owner = this.owner.bind(this),
+      read = this.read.bind(this);
+    await mutate(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const [row] = yield* sql<{
+            sync: string;
+          }>`SELECT pull_requests_state.sync FROM pull_requests_state JOIN artifacts ON artifacts.tab_id = pull_requests_state.tab_id WHERE pull_requests_state.tab_id = ${tabId} AND json_extract(artifacts.document, '$.kind') = 'pull-requests'`;
+          if (!row) return null;
+          const current = decode(PullRequestsSync, JSON.parse(row.sync));
+          if (current.state !== "syncing" || current.updatedAt !== expectedUpdatedAt) return null;
+          const sync: PullRequestsSync = {
+            ...current,
+            state: "idle",
+            updatedAt: new Date().toISOString(),
+            error: null,
+          };
+          yield* sql`UPDATE pull_requests_state SET sync = ${JSON.stringify(sync)}, generation = generation + 1 WHERE tab_id = ${tabId}`;
+          return yield* read(yield* owner(tabId, true));
+        }),
+      ),
+      (snapshot) => (snapshot ? this.event(snapshot) : []),
     );
   }
 
