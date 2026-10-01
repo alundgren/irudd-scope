@@ -227,6 +227,12 @@ Install and sign in to GitHub CLI on that Mac before syncing. Scope checks the
 process PATH and the usual Homebrew install locations. V1 supports repositories
 on `github.com`. No new GitHub credentials are stored by Scope.
 
+The first successful sync resolves GitHub repository aliases and stores the
+verified canonical path. For example, `facebook/react` becomes `react/react`.
+Read the snapshot to see the binding. A successful inventory pins that path,
+including an empty inventory. Later renames or transfers require a new inbox;
+a failed refresh keeps the existing binding and cached data.
+
 Selecting the tab or clicking Sync refreshes every open PR, including drafts.
 There is no polling or closed PR archive. A failed sync keeps the cached list
 and adds a small error indicator to Sync; its tooltip explains the failure and

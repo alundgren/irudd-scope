@@ -356,7 +356,10 @@ desktop requirements apply. Paired hubs forward the route without storing PRs.
 `generation`, repository, viewer, sync status, and a flat `prs` array. All other
 commands require that `tabId`, the immutable name, and a UUID `requestId`.
 Repository configuration can be repeated with the same repository, but changing
-it requires another tab. `sync` uses the desktop user's installed `gh` and
+it requires another tab. The first successful sync can normalize an alias to
+GitHub's verified canonical owner/name, provided there are no cached PR rows
+or previous successful inventory. A successful empty inventory also pins that
+binding. Later renames or transfers require a new inbox. `sync` uses the desktop user's installed `gh` and
 returns the current snapshot. Simultaneous refreshes of one tab share work.
 Sync request IDs identify calls; they do not retain an inventory history.
 

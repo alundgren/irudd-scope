@@ -54,6 +54,7 @@ function pr(
 ) {
   return {
     id: `PR_${number}`,
+    repository: { id: "R_PROJECT" },
     number,
     title: `Pull request ${number}`,
     author: { login: "author" },
@@ -94,9 +95,23 @@ function pr(
     },
   };
 }
-function inventory(nodes: ReturnType<typeof pr>[], pageInfo = complete) {
+function inventory(
+  nodes: ReturnType<typeof pr>[],
+  pageInfo = complete,
+  resolved = repository,
+  id = "R_PROJECT",
+) {
   return {
-    data: { viewer: { login: "viewer" }, repository: { pullRequests: { nodes, pageInfo } } },
+    data: {
+      viewer: { login: "viewer" },
+      repository: {
+        id,
+        owner: { login: resolved.owner },
+        name: resolved.name,
+        nameWithOwner: `${resolved.owner}/${resolved.name}`,
+        pullRequests: { nodes, pageInfo },
+      },
+    },
   };
 }
 function threads(number: number, resolved: boolean[], pageInfo = complete) {
@@ -117,6 +132,44 @@ function threads(number: number, resolved: boolean[], pageInfo = complete) {
 const signal = () => new AbortController().signal;
 
 describe("fixed GitHub reads", () => {
+  test("resolves an alias from one verified repository identity across every open page", async () => {
+    const first = inventory([pr(1)], { hasNextPage: true, endCursor: "two" });
+    const second = inventory([pr(2)]);
+    const gh = await fakeGh(
+      `if(args.some(a=>a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(args.includes('cursor=two')?${JSON.stringify(second)}:${JSON.stringify(first)}));else console.log(JSON.stringify(args.includes('number=1')?${JSON.stringify(threads(1, []))}:${JSON.stringify(threads(2, []))}));`,
+    );
+    const alias = { owner: "previous-owner", name: "previous-project" };
+    const result = await new GitHubPullRequests(gh.process).inventory(alias, signal());
+    expect(result).toMatchObject({ queriedRepository: alias, repository, viewer: "viewer" });
+    expect(result.prs.map((row) => row.number)).toEqual([1, 2]);
+    expect((await gh.calls()).every((args) => args.includes("owner=previous-owner"))).toBe(true);
+  });
+
+  test.each(["node identity", "canonical path", "nameWithOwner", "PR repository", "PR URL"])(
+    "rejects inconsistent %s rather than returning an inventory",
+    async (failure) => {
+      const first = inventory([pr(1)], { hasNextPage: true, endCursor: "two" });
+      const second = inventory([pr(2)]);
+      if (failure === "node identity") second.data.repository.id = "R_OTHER";
+      if (failure === "canonical path") {
+        second.data.repository.owner.login = "other";
+        second.data.repository.nameWithOwner = "other/project";
+      }
+      if (failure === "nameWithOwner") second.data.repository.nameWithOwner = "other/project";
+      if (failure === "PR repository")
+        second.data.repository.pullRequests.nodes[0].repository.id = "R_OTHER";
+      if (failure === "PR URL")
+        second.data.repository.pullRequests.nodes[0].url =
+          "https://github.com/other/project/pull/2";
+      const gh = await fakeGh(
+        `console.log(JSON.stringify(args.includes('cursor=two')?${JSON.stringify(second)}:${JSON.stringify(first)}));`,
+      );
+      await expect(
+        new GitHubPullRequests(gh.process).inventory(repository, signal()),
+      ).rejects.toThrow(/repository/);
+    },
+  );
+
   test("reads all open pages including drafts and later unresolved threads with head-bound checks", async () => {
     const first = inventory([pr(1, { draft: true, mergeable: "MERGEABLE", checkHead: oldHead })], {
       hasNextPage: true,
@@ -342,7 +395,7 @@ describe("GitHub process failures", () => {
   });
 });
 
-async function inboxFixture(gh: GitHubProcess) {
+async function inboxFixture(gh: GitHubProcess, configuredRepository = repository) {
   const directory = await mkdtemp(join(tmpdir(), "scope-pr-sync-"));
   directories.push(directory);
   const token = "synthetic-pull-request-sync-token";
@@ -371,7 +424,7 @@ async function inboxFixture(gh: GitHubProcess) {
       tabId: (await server.store.pullRequests.snapshot("test-inbox")).tabId,
       name: "test-inbox",
       requestId: randomUUID(),
-      repository,
+      repository: configuredRepository,
     });
     return server.store.pullRequests.snapshot("test-inbox");
   }
@@ -418,6 +471,94 @@ async function waitForCalls(gh: Awaited<ReturnType<typeof fakeGh>>, count: numbe
 }
 
 describe("tab-owned GitHub synchronization", () => {
+  test("first HTTP sync canonicalizes an alias and later sync preserves notes, review and agent fields", async () => {
+    const alias = { owner: "previous-owner", name: "previous-project" };
+    const gh = await fakeGh(
+      `if(args.some(a=>a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+    );
+    const f = await inboxFixture(gh.process, alias);
+    try {
+      const first = await f.command({
+        action: "sync",
+        name: "test-inbox",
+        tabId: f.snapshot.tabId,
+        requestId: randomUUID(),
+      });
+      if (first.type !== "snapshot") throw new Error("Expected snapshot");
+      expect(first.snapshot).toMatchObject({
+        tabId: f.snapshot.tabId,
+        repository,
+        sync: { state: "idle" },
+        prs: [{ nodeId: "PR_1" }],
+      });
+      expect(first.snapshot.sync.lastSuccessAt).not.toBeNull();
+      for (const change of [
+        { action: "note", text: "Keep canonical repository note" },
+        { action: "review", baseline: "reviewed", headOid: head },
+        {
+          action: "snooze",
+          snooze: { until: "2099-10-02T12:00:00Z", wakeOnNewCommit: false, headOid: head },
+        },
+        {
+          action: "assessment",
+          assessment: null,
+          customFields: [{ key: "priority", type: "number", value: 2 }],
+        },
+      ])
+        await f.command({
+          ...change,
+          name: "test-inbox",
+          tabId: f.snapshot.tabId,
+          requestId: randomUUID(),
+          nodeId: "PR_1",
+          expectedVersion: 0,
+        });
+      const before = await f.server.store.pullRequests.snapshot("test-inbox");
+      const refreshed = await f.service.sync(f.snapshot.tabId);
+      expect(refreshed.repository).toEqual(repository);
+      expect(refreshed.prs[0].local).toEqual(before.prs[0].local);
+      expect(refreshed.prs[0].agent).toEqual(before.prs[0].agent);
+      const calls = await gh.calls();
+      expect(calls[0]).toContain("owner=previous-owner");
+      expect(calls[2]).toContain("owner=example");
+    } finally {
+      await f.close();
+    }
+  });
+
+  test("a later resolved path change keeps the successful binding and cached local values", async () => {
+    const changed = pr(1);
+    changed.repository.id = "R_TRANSFERRED";
+    changed.url = "https://github.com/other/project/pull/1";
+    const gh = await fakeGh(
+      `import { existsSync } from 'node:fs';if(args.some(a=>a.includes('ScopeOpenPullRequests')))console.log(JSON.stringify(existsSync(process.argv[1]+'.release')?${JSON.stringify(inventory([changed], complete, { owner: "other", name: "project" }, "R_TRANSFERRED"))}:${JSON.stringify(inventory([pr(1)]))}));else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+    );
+    const f = await inboxFixture(gh.process);
+    try {
+      await f.service.sync(f.snapshot.tabId);
+      await f.command({
+        action: "note",
+        name: "test-inbox",
+        tabId: f.snapshot.tabId,
+        requestId: randomUUID(),
+        nodeId: "PR_1",
+        expectedVersion: 0,
+        text: "Keep cached note",
+      });
+      const before = await f.server.store.pullRequests.snapshot("test-inbox");
+      await gh.release();
+      const failed = await f.service.sync(f.snapshot.tabId);
+      expect(failed.sync).toMatchObject({
+        state: "error",
+        lastSuccessAt: before.sync.lastSuccessAt,
+      });
+      expect(failed.repository).toEqual(before.repository);
+      expect(failed.prs).toEqual(before.prs);
+    } finally {
+      await f.close();
+    }
+  });
+
   test("coalesces sync commands through HTTP and preserves newer local edits during refresh", async () => {
     const gh = await fakeGh(
       `if(args.some(a => a.includes('ScopeOpenPullRequests'))) { setTimeout(() => console.log(JSON.stringify(${JSON.stringify(inventory([pr(1, { draft: true })]))})), 150); } else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,

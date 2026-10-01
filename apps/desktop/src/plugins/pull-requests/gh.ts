@@ -34,6 +34,7 @@ const CheckRollup = Schema.NullOr(
 );
 const GitHubPullRequest = Schema.Struct({
   id: Schema.String,
+  repository: Schema.Struct({ id: Schema.String.check(Schema.isMinLength(1)) }),
   number: Schema.Int,
   title: Schema.String,
   author: Author,
@@ -63,6 +64,10 @@ const InventoryPage = Schema.Struct({
     viewer: Schema.Struct({ login: Schema.String }),
     repository: Schema.NullOr(
       Schema.Struct({
+        id: Schema.String.check(Schema.isMinLength(1)),
+        owner: Schema.Struct({ login: Schema.String }),
+        name: Schema.String,
+        nameWithOwner: Schema.String,
         pullRequests: Schema.Struct({ nodes: Schema.Array(GitHubPullRequest), pageInfo: PageInfo }),
       }),
     ),
@@ -92,9 +97,10 @@ const ThreadsPage = Schema.Struct({
 const INVENTORY_QUERY = `query ScopeOpenPullRequests($owner: String!, $name: String!, $cursor: String) {
   viewer { login }
   repository(owner: $owner, name: $name) {
+    id owner { login } name nameWithOwner
     pullRequests(states: OPEN, first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
       nodes {
-        id number title author { login } headRefOid headRefName baseRefOid isDraft
+        id repository { id } number title author { login } headRefOid headRefName baseRefOid isDraft
         additions deletions changedFiles url mergeable updatedAt createdAt
         labels(first: 100) { nodes { name } pageInfo { hasNextPage endCursor } }
         reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } ... on Team { slug organization { login } } } } pageInfo { hasNextPage endCursor } }
@@ -346,12 +352,20 @@ export class GitHubPullRequests {
   async inventory(
     repository: PullRequestsRepository,
     signal: AbortSignal,
-  ): Promise<{ viewer: string; prs: PullRequestFacts[] }> {
+  ): Promise<{
+    queriedRepository: PullRequestsRepository;
+    repository: PullRequestsRepository;
+    viewer: string;
+    prs: PullRequestFacts[];
+  }> {
+    const queriedRepository = validated(PullRequestsRepository, repository);
     let cursor: string | null = null;
     const seen = new Set<string>();
     const prs: PullRequestFacts[] = [];
     const ids = new Set<string>();
     let viewer: string | undefined;
+    let repositoryId: string | undefined;
+    let resolvedRepository: PullRequestsRepository | undefined;
     do {
       const page = githubValue(
         InventoryPage,
@@ -364,10 +378,31 @@ export class GitHubPullRequests {
       ).data;
       if (!page.repository)
         throw new GitHubReadError("Your GitHub CLI account cannot read this repository.");
+      const resolved = validated(PullRequestsRepository, {
+        owner: page.repository.owner.login,
+        name: page.repository.name,
+      });
+      const canonicalPath = `${resolved.owner}/${resolved.name}`.toLowerCase();
+      if (
+        page.repository.nameWithOwner.toLowerCase() !== canonicalPath ||
+        (repositoryId && repositoryId !== page.repository.id) ||
+        (resolvedRepository &&
+          `${resolvedRepository.owner}/${resolvedRepository.name}`.toLowerCase() !== canonicalPath)
+      )
+        throw new GitHubReadError(
+          "GitHub repository identity changed during refresh. Try Sync again.",
+        );
+      repositoryId = page.repository.id;
+      resolvedRepository = resolved;
       if (viewer && viewer !== page.viewer.login)
         throw new GitHubReadError("GitHub CLI account changed during refresh. Try Sync again.");
       viewer = page.viewer.login;
       for (const node of page.repository.pullRequests.nodes) {
+        if (
+          node.repository.id !== repositoryId ||
+          node.url.toLowerCase() !== `https://github.com/${canonicalPath}/pull/${node.number}`
+        )
+          throw new GitHubReadError("GitHub returned a pull request from another repository.");
         if (ids.has(node.id))
           throw new GitHubReadError("GitHub returned duplicate pull requests. Try Sync again.");
         ids.add(node.id);
@@ -421,7 +456,7 @@ export class GitHubPullRequests {
     } while (cursor);
     const observed: PullRequestFacts[] = [];
     for (const pr of prs) observed.push(await this.unresolved(repository, pr, signal));
-    return { viewer: viewer!, prs: observed };
+    return { queriedRepository, repository: resolvedRepository!, viewer: viewer!, prs: observed };
   }
 
   async detail(

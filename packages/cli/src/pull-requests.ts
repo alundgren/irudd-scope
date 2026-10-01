@@ -13,6 +13,8 @@ export const PullRequestsGuide = {
   create:
     "Publish trusted HTML with add inbox.html --pull-requests --name repository-inbox, then run pull-requests configure repository-inbox OWNER/REPO. A partially configured publication can be configured later. Tabs start permanent. Update NAME FILE preserves the app kind, repository, and current PR data.",
   read: "Use pull-requests read NAME for the complete current snapshot and independent local and agent versions. Sync uses the desktop user's current gh login. No credentials or GitHub writes are supplied by the app. All commands require the desktop online, including through a paired hub.",
+  repository:
+    "The first successful sync may normalize a GitHub alias to the verified canonical OWNER/REPO; read the snapshot for the stored binding. This is allowed only before any successful inventory or cached PR rows. A successful empty inventory also pins the binding. Later renames or transfers do not silently change it: create another inbox for the new path. Failed sync keeps the prior binding and data.",
   write:
     "Include the snapshot tabId in every write. Write a validated request JSON file and run pull-requests apply FILE. Keep a stable UUID requestId and the same payload for uncertain retries. expectedVersion is noteVersion for note, snoozeVersion for snooze, reviewVersion for review, and agent.version for assessment. On conflict read the current snapshot and reconsider the change. Assessments and typed custom fields replace only the current agent values. GitHub refresh preserves local and agent values for retained open PRs. A complete refresh removes PRs no longer open and their local values.",
   detail:
