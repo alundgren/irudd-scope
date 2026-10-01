@@ -84,8 +84,14 @@ async function fixture(publish = true) {
       },
     });
   const read = async () => snapshot(await client.pullRequests({ action: "read", name }));
-  const configure = () =>
-    client.pullRequests({ action: "configure", name, requestId: randomUUID(), repository });
+  const configure = async () =>
+    client.pullRequests({
+      action: "configure",
+      name,
+      tabId: (await read()).tabId,
+      requestId: randomUUID(),
+      repository,
+    });
   return { directory, server, client, cli, html, read, configure };
 }
 
@@ -114,6 +120,7 @@ test("complete inventories preserve independent local writes and current agent v
   const note = {
     action: "note" as const,
     name,
+    tabId: initial.tabId,
     nodeId: "PR_1",
     requestId: randomUUID(),
     expectedVersion: 0,
@@ -130,6 +137,7 @@ test("complete inventories preserve independent local writes and current agent v
   await f.client.pullRequests({
     action: "snooze",
     name,
+    tabId: initial.tabId,
     nodeId: "PR_1",
     requestId: randomUUID(),
     expectedVersion: 0,
@@ -138,6 +146,7 @@ test("complete inventories preserve independent local writes and current agent v
   await f.client.pullRequests({
     action: "review",
     name,
+    tabId: initial.tabId,
     nodeId: "PR_1",
     requestId: randomUUID(),
     expectedVersion: 0,
@@ -147,6 +156,7 @@ test("complete inventories preserve independent local writes and current agent v
   await f.client.pullRequests({
     action: "assessment",
     name,
+    tabId: initial.tabId,
     nodeId: "PR_1",
     requestId: randomUUID(),
     expectedVersion: 0,
@@ -183,7 +193,12 @@ test("complete inventories preserve independent local writes and current agent v
       fetchedAt: now,
     }),
   });
-  const syncing = f.client.pullRequests({ action: "sync", name, requestId: randomUUID() });
+  const syncing = f.client.pullRequests({
+    action: "sync",
+    name,
+    tabId: initial.tabId,
+    requestId: randomUUID(),
+  });
   await f.client.pullRequests({
     ...note,
     requestId: randomUUID(),
@@ -205,7 +220,13 @@ test("complete inventories preserve independent local writes and current agent v
     agent: { version: 1, assessment: { text: "Ready" } },
   });
   await expect(
-    f.client.pullRequests({ action: "detail", name, nodeId: "PR_1", requestId: randomUUID() }),
+    f.client.pullRequests({
+      action: "detail",
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+    }),
   ).resolves.toMatchObject({ type: "detail", detail: { diff: "+line" } });
   expect(synced.prs[1]).not.toHaveProperty("detail");
   await expect.poll(() => events).toContain(synced.generation);
@@ -253,6 +274,7 @@ test("complete inventories preserve independent local writes and current agent v
     f.client.pullRequests({
       action: "configure",
       name,
+      tabId: initial.tabId,
       requestId: randomUUID(),
       repository: { owner: "other", name: "repo" },
     }),
@@ -261,6 +283,7 @@ test("complete inventories preserve independent local writes and current agent v
     f.client.pullRequests({
       action: "configure",
       name,
+      tabId: initial.tabId,
       requestId: randomUUID(),
       repository: { owner: "EXAMPLE", name: "PROJECT" },
     }),
@@ -320,6 +343,7 @@ test("HTML replacement and Trashcan preserve records, permanent deletion cascade
     f.client.pullRequests({
       action: "note",
       name,
+      tabId: initial.tabId,
       nodeId: "PR_1",
       requestId: randomUUID(),
       expectedVersion: 0,
@@ -416,6 +440,7 @@ test("built CLI recovers an unconfigured publication and updates HTML without re
     JSON.stringify({
       action: "assessment",
       name,
+      tabId: initial.tabId,
       nodeId: "PR_1",
       requestId: randomUUID(),
       expectedVersion: 0,
@@ -470,3 +495,228 @@ test("version 6 databases migrate additively and reopen current inbox state", as
     check.close();
   }
 });
+
+test("saved write commands reject a recreated named inbox before invoking sync or detail", async () => {
+  const f = await fixture();
+  await f.configure();
+  const old = await f.read();
+  await f.server.store.pullRequests.commitInventory(old.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [facts()],
+    completedAt: now,
+  });
+  const named = { name, tabId: old.tabId, requestId: randomUUID() };
+  const field = { ...named, nodeId: "PR_1", expectedVersion: 0 };
+  const commands = [
+    { ...named, action: "configure" as const, repository },
+    { ...named, action: "sync" as const },
+    { ...named, action: "detail" as const, nodeId: "PR_1" },
+    { ...field, action: "note" as const, text: "Prepared for deleted inbox" },
+    { ...field, action: "snooze" as const, snooze: null },
+    { ...field, action: "review" as const, baseline: "reviewed" as const, headOid: head },
+    { ...field, action: "assessment" as const, assessment: null, customFields: [] },
+  ];
+  await f.client.delete("inbox");
+  await f.client.publish(
+    "inbox",
+    {
+      name,
+      title: "Replacement",
+      kind: "pull-requests",
+      mediaType: "text/html",
+      fileName: "inbox.html",
+      expectedRevision: 0,
+    },
+    Buffer.from("new"),
+  );
+  await f.configure();
+  const current = await f.read();
+  await f.server.store.pullRequests.commitInventory(current.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [facts()],
+    completedAt: now,
+  });
+  let called = 0;
+  f.server.store.pullRequests.setHandlers({
+    sync: async (tabId) => {
+      called++;
+      return f.server.store.pullRequests.snapshotByTab(tabId);
+    },
+    detail: async () => {
+      called++;
+      return { headOid: head, body: "", diff: "", reviews: [], files: [], fetchedAt: now };
+    },
+  });
+  for (const command of commands)
+    await expect(f.client.pullRequests(command)).rejects.toMatchObject({ status: 409 });
+  expect(called).toBe(0);
+  expect((await f.read()).prs[0]).toMatchObject({
+    local: { note: "", snooze: null, reviewed: null },
+    agent: { version: 0 },
+  });
+});
+
+test.each(["inventory", "status"] as const)(
+  "cancelled queued %s writes preserve data after Trashcan restoration",
+  async (kind) => {
+    const f = await fixture();
+    await f.configure();
+    const before = await f.read();
+    await f.server.store.pullRequests.commitInventory(before.tabId, {
+      repository,
+      viewer: "viewer",
+      prs: [facts()],
+      completedAt: now,
+    });
+    await f.client.pullRequests({
+      action: "note",
+      name,
+      tabId: before.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      text: "Retain after cancellation",
+    });
+    await f.server.store.openTab({
+      id: before.tabId,
+      groupId: randomUUID(),
+      type: "file",
+      title: "Inbox",
+      state: { version: 1, data: { artifactId: "inbox" } },
+    });
+    const saved = await f.read();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queue = f.server.store as unknown as { pendingMutations: Promise<void> };
+    queue.pendingMutations = queue.pendingMutations.then(() => gate);
+    const cancel = new AbortController();
+    const pending =
+      kind === "inventory"
+        ? f.server.store.pullRequests.commitInventory(
+            before.tabId,
+            { repository, viewer: "other", prs: [], completedAt: now },
+            cancel.signal,
+          )
+        : f.server.store.pullRequests.setSyncStatus(
+            before.tabId,
+            { state: "error", updatedAt: now, lastSuccessAt: now, error: "Cancelled refresh" },
+            cancel.signal,
+          );
+    const rejected = expect(pending).rejects.toThrow();
+    try {
+      await f.server.store.trashTab(before.tabId, 123);
+      cancel.abort();
+      await f.server.store.restoreTab(before.tabId);
+    } finally {
+      release();
+    }
+    await rejected;
+    expect(await f.read()).toEqual(saved);
+  },
+);
+
+test("request hashes retain retry identity for the current PR lifetime beyond 256 unrelated writes", async () => {
+  const f = await fixture();
+  await f.configure();
+  const initial = await f.read();
+  await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [facts()],
+    completedAt: now,
+  });
+  const note = {
+    action: "note" as const,
+    name,
+    tabId: initial.tabId,
+    nodeId: "PR_1",
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    text: "Uncertain delivery",
+  };
+  await f.client.pullRequests(note);
+  for (let index = 0; index < 260; index++)
+    await f.server.store.pullRequests.command({
+      action: "configure",
+      name,
+      tabId: initial.tabId,
+      requestId: randomUUID(),
+      repository,
+    });
+  const current = await f.read();
+  const retry = snapshot(await f.client.pullRequests(note));
+  expect(retry.generation).toBe(current.generation);
+  expect(retry.prs[0].local).toMatchObject({ note: "Uncertain delivery", noteVersion: 1 });
+  await expect(
+    f.client.pullRequests({ ...note, expectedVersion: 1, text: "Reused UUID" }),
+  ).rejects.toMatchObject({ status: 409 });
+  const db = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
+  try {
+    expect(
+      db
+        .prepare("SELECT payload FROM pull_requests_receipts WHERE request_id = ?")
+        .get(note.requestId)?.payload,
+    ).toMatch(/^[a-f0-9]{64}$/);
+  } finally {
+    db.close();
+  }
+});
+
+test("complete inventories above SQLite's bind parameter limit commit every row and prune only missing PRs", async () => {
+  const f = await fixture();
+  await f.configure();
+  const initial = await f.read();
+  await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [facts(1), facts(99_999)],
+    completedAt: now,
+  });
+  await f.client.pullRequests({
+    action: "note",
+    name,
+    tabId: initial.tabId,
+    nodeId: "PR_1",
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    text: "Retained current PR",
+  });
+  const timestamp = "2026-01-01T00:00:00Z";
+  const inventory = Array.from({ length: 32_768 }, (_, index) => ({
+    ...facts(index + 1),
+    title: "a",
+    author: null,
+    labels: [],
+    headRefName: "",
+    requestedReviewers: [],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    merge: { ...facts().merge, observedAt: timestamp },
+    checks: { ...facts().checks, observedAt: timestamp },
+  }));
+  const committed = await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: inventory,
+    completedAt: now,
+  });
+  expect(Buffer.byteLength(JSON.stringify(committed))).toBeLessThan(32 * 1024 * 1024);
+  expect(committed.prs).toHaveLength(inventory.length);
+  expect(new Set(committed.prs.map((pr) => pr.nodeId))).toEqual(
+    new Set(inventory.map((pr) => pr.nodeId)),
+  );
+  expect(committed.prs.find((pr) => pr.nodeId === "PR_1")?.local.note).toBe("Retained current PR");
+  const reduced = await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: inventory.filter((pr) => pr.number !== 42),
+    completedAt: now,
+  });
+  expect(reduced.prs).toHaveLength(32_767);
+  expect(reduced.prs.some((pr) => pr.number === 42 || pr.number === 99_999)).toBe(false);
+  expect(reduced.prs.find((pr) => pr.nodeId === "PR_1")?.local.note).toBe("Retained current PR");
+}, 120_000);
