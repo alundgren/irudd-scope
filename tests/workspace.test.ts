@@ -169,7 +169,7 @@ test("the compact workspace preserves reading position, supports overflowing tab
     await page.keyboard.press("ArrowUp");
     await expect
       .poll(() => page.evaluate(() => document.activeElement?.textContent))
-      .toBe("Create plan");
+      .toBe("Create PR inbox");
     await page.keyboard.press("Escape");
     await expect
       .poll(() => searchTrigger.evaluate((element) => element === document.activeElement))
