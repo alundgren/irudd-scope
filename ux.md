@@ -362,3 +362,14 @@ new commits, and Undo. Undo cannot erase a later snooze from another client.
 Pending local edits flush before closing or replacing the HTML; a failed flush
 keeps the app open. These local actions never write to GitHub. Open on GitHub
 handles public comments, reviews, and merges.
+
+PR inbox links to HTTP(S) destinations open in the system's default browser,
+including links from agent-authored HTML and direct `window.open` calls. This
+uses the person's existing browser login for private repositories. In-page
+anchors stay in the inbox. Ordinary published HTML retains its own navigation
+and popup behavior.
+
+Scope supplies native stack membership and active review approval in the PR
+model. Agent-authored inboxes decide how to display or filter them. Stack
+readiness depends on all open members being out of draft; approval and CI are
+separate facts.
