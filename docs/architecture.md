@@ -412,7 +412,12 @@ HTML runs unchanged in an iframe with scripts, forms, popups, nested frames,
 and external resources enabled. Scope adds no iframe sandbox, content security
 policy, network filter, or permission denial. The document shares the workspace
 origin and can access its parent. Chromium's normal web rules, including CORS,
-still apply. Markdown omits raw HTML and replaces links and images with text.
+still apply. Desktop main's `external-links.ts` redirects HTTP(S) document
+navigation and popups to the default browser, preserving the artifact in Scope.
+It leaves embedded frame loading, embedded form results, downloads, and in-page
+anchors in the document. PR inbox handlers run first to retain their validated
+link operations and error reporting. Markdown omits raw HTML and replaces links
+and images with text.
 Artifact downloads use a save dialog in main.
 
 OpenRouter is the diagram provider, using the model in `plugins/diagram/provider-settings.ts`. The
