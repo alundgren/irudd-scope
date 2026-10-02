@@ -391,7 +391,7 @@ test("a captured pane rejects a changed base until loading the latest comparison
       .waitFor();
     await sendChange(app, "reconnect");
     await frame
-      .getByRole("button", { name: "New base available · Load latest comparison", exact: true })
+      .getByRole("button", { name: "Base changed · Load latest comparison", exact: true })
       .click();
     await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
