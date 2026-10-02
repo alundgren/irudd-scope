@@ -1,4 +1,4 @@
-import { useRef, type PointerEvent } from "react";
+import { useEffect, useRef, type PointerEvent } from "react";
 import { Check, Pin, Trash2, X } from "lucide-react";
 import type { PlanAnnotation } from "@irudd-scope/protocol/plan";
 import type { PlanDraft } from "./draft.ts";
@@ -124,8 +124,13 @@ export function CommentCapture({
   busy: boolean;
 }) {
   const svg = useRef<SVGSVGElement>(null);
+  const capture = useRef<HTMLDivElement>(null);
   const mark = draft.annotations.find((annotation) => annotation.type === "pin");
   const at = mark?.at ?? { x: 0.25, y: 0.25 };
+  const placed = draft.annotations.length > 0;
+  useEffect(() => {
+    if (!placed) capture.current?.focus();
+  }, [placed]);
   function placePin(event: PointerEvent<SVGSVGElement>) {
     if (busy) return;
     const matrix = svg.current?.getScreenCTM();
@@ -146,9 +151,11 @@ export function CommentCapture({
   }
   return (
     <div
+      ref={capture}
       className="plan-capture"
       role="dialog"
       aria-label="Comment on captured page"
+      tabIndex={-1}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -178,55 +185,62 @@ export function CommentCapture({
           />
         </svg>
       </div>
-      <PinPopover x={at.x} y={at.y}>
-        <div className="plan-pin-heading">
-          <Pin aria-hidden="true" />
-          <div className="plan-actions">
+      {placed && (
+        <PinPopover x={at.x} y={at.y}>
+          <div className="plan-pin-heading">
+            <Pin aria-hidden="true" />
+            <div className="plan-actions">
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Discard comment"
+                title="Discard comment"
+                disabled={busy}
+                onClick={onDiscard}
+              >
+                <Trash2 />
+              </Button>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Back to plan"
+                title="Back to plan, keep draft"
+                disabled={busy}
+                onClick={onCancel}
+              >
+                <X />
+              </Button>
+            </div>
+          </div>
+          <Textarea
+            aria-label="Comment"
+            placeholder="Add a comment…"
+            autoFocus
+            disabled={busy}
+            maxLength={16_384}
+            rows={2}
+            value={draft.text}
+            onChange={(event) => onChange({ ...draft, text: event.target.value })}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                if (!busy && draft.text.trim()) onSave();
+              }
+            }}
+          />
+          <div className="plan-pin-actions">
             <Button
-              size="icon-xs"
+              size="xs"
               variant="ghost"
-              aria-label="Discard comment"
-              title="Discard comment"
-              disabled={busy}
-              onClick={onDiscard}
+              disabled={busy || !draft.text.trim()}
+              onClick={onSave}
             >
-              <Trash2 />
-            </Button>
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label="Back to plan"
-              title="Back to plan, keep draft"
-              disabled={busy}
-              onClick={onCancel}
-            >
-              <X />
+              <Check />
+              {busy ? "Saving…" : "Add comment"}
             </Button>
           </div>
-        </div>
-        <Textarea
-          aria-label="Comment"
-          placeholder="Add a comment…"
-          autoFocus
-          disabled={busy}
-          maxLength={16_384}
-          rows={2}
-          value={draft.text}
-          onChange={(event) => onChange({ ...draft, text: event.target.value })}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              if (!busy && draft.text.trim()) onSave();
-            }
-          }}
-        />
-        <div className="plan-pin-actions">
-          <Button size="xs" variant="ghost" disabled={busy || !draft.text.trim()} onClick={onSave}>
-            <Check />
-            {busy ? "Saving…" : "Add comment"}
-          </Button>
-        </div>
-      </PinPopover>
+        </PinPopover>
+      )}
     </div>
   );
 }

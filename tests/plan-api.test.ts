@@ -132,6 +132,74 @@ test("the authenticated plan HTTP API supports headless review, marked screensho
   }
 });
 
+test("comment deletion rejects other plans and submitted feedback, including a concurrent submission", async () => {
+  const f = await fixture();
+  try {
+    await publish(f.client);
+    await publish(f.client, "other-plan");
+    const comment = {
+      action: "comment" as const,
+      name: "api-plan",
+      requestId: randomUUID(),
+      revision: 1,
+      text: "Queued comment",
+      page: "overview",
+      image: png,
+      annotatedImage: png,
+      annotations: [],
+    };
+    await f.client.plan(comment);
+    const deletion = {
+      action: "delete-comment" as const,
+      name: "api-plan",
+      requestId: randomUUID(),
+      commentId: comment.requestId,
+    };
+    expect((await request(f.server.url, { ...deletion, name: "other-plan" })).status).toBe(409);
+    expect((await request(f.server.url, { ...deletion, commentId: randomUUID() })).status).toBe(
+      409,
+    );
+    expect((await request(f.server.url, { ...deletion, commentId: "invalid" })).status).toBe(400);
+    await f.client.plan({
+      action: "submit",
+      name: "api-plan",
+      requestId: randomUUID(),
+      commentIds: [comment.requestId],
+    });
+    expect((await request(f.server.url, deletion)).status).toBe(409);
+    const queuedId = randomUUID();
+    await f.client.plan({ ...comment, requestId: queuedId });
+    const results = await Promise.all([
+      request(f.server.url, { ...deletion, requestId: randomUUID(), commentId: queuedId }),
+      request(f.server.url, {
+        action: "submit",
+        name: "api-plan",
+        requestId: randomUUID(),
+        commentIds: [queuedId],
+      }),
+    ]);
+    expect(results.map((result) => result.status).sort((a, b) => a - b)).toEqual([200, 409]);
+    const saved = await readPlanSnapshot((command) => f.client.plan(command), "api-plan");
+    expect(saved.comments.some((entry) => entry.id === comment.requestId)).toBe(true);
+    for (const round of saved.rounds)
+      expect(round.commentIds.every((id) => saved.comments.some((entry) => entry.id === id))).toBe(
+        true,
+      );
+    await f.client.plan({
+      action: "respond",
+      name: "api-plan",
+      requestId: randomUUID(),
+      roundId: saved.rounds[0].id,
+      expectedRevision: 1,
+      summary: "Answered",
+      replies: [{ commentId: comment.requestId, text: "Reply" }],
+    });
+    expect((await request(f.server.url, deletion)).status).toBe(409);
+  } finally {
+    await f.close();
+  }
+});
+
 test("plan endpoints reject unauthenticated, browser-origin, invalid image and conflicting publication requests", async () => {
   const f = await fixture();
   try {

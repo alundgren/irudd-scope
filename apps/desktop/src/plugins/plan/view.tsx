@@ -186,7 +186,7 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
         ...result,
         text: "",
         page,
-        annotations: [{ type: "pin", at: { x: 0.25, y: 0.25 } }],
+        annotations: [],
         ...(viewport && { viewport }),
         requestId: crypto.randomUUID(),
         ...(selectedText && { selectedText }),

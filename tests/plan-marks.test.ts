@@ -29,6 +29,17 @@ test("comment pins stay beside the page content through scrolling and restart wi
       name: "Frozen plan screenshot, draw annotations here",
     });
     await screenshot.waitFor();
+    expect(await page.getByRole("textbox", { name: "Comment", exact: true }).count()).toBe(0);
+    expect(await page.locator(".plan-capture .plan-pin-popover").count()).toBe(0);
+    expect(await screenshot.locator("circle").count()).toBe(0);
+    expect(await screenshot.evaluate((element) => getComputedStyle(element).cursor)).toBe(
+      "crosshair",
+    );
+    await page.screenshot({ path: join(evidence, "pin-placement-light.png") });
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Resume comment", exact: true }).click();
+    await screenshot.waitFor();
+    expect(await page.getByRole("textbox", { name: "Comment", exact: true }).count()).toBe(0);
     expect(await page.getByRole("button", { name: "Box", exact: true }).count()).toBe(0);
     const screenshotBounds = (await screenshot.boundingBox())!;
     const pageBounds = (await page.locator(".plan-document").boundingBox())!;
@@ -39,6 +50,7 @@ test("comment pins stay beside the page content through scrolling and restart wi
       .poll(() => page.evaluate((id) => window.scope.loadPlanDraft(id), tab.id))
       .not.toBeNull();
     const draft = (await page.evaluate((id) => window.scope.loadPlanDraft(id), tab.id))!;
+    expect(draft.annotations).toEqual([]);
     const capturePixel = await application.evaluate(({ nativeImage }, bytes) => {
       const image = nativeImage.createFromBuffer(Buffer.from(bytes, "base64"));
       const size = image.getSize();
@@ -158,6 +170,14 @@ test("comment pins stay beside the page content through scrolling and restart wi
     await page.getByRole("dialog", { name: "Settings", exact: true }).waitFor({ state: "hidden" });
     await page.getByRole("button", { name: "Comment", exact: true }).focus();
     await page.keyboard.press("Enter");
+    const narrowScreenshot = page.getByRole("img", {
+      name: "Frozen plan screenshot, draw annotations here",
+    });
+    await narrowScreenshot.waitFor();
+    expect(await page.getByRole("textbox", { name: "Comment", exact: true }).count()).toBe(0);
+    await page.screenshot({ path: join(evidence, "pin-placement-narrow-dark.png") });
+    const narrowCapture = (await narrowScreenshot.boundingBox())!;
+    await page.mouse.click(narrowCapture.x + 120, narrowCapture.y + 150);
     await page
       .getByRole("textbox", { name: "Comment", exact: true })
       .fill("A narrow-window comment.");

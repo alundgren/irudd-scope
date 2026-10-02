@@ -260,10 +260,10 @@ test("plan navigation preserves authored state, historical capture, and unsent w
     await page.getByRole("button", { name: "Hide feedback" }).click();
     await page.getByRole("button", { name: "Comment", exact: true }).click();
     await page.getByRole("dialog", { name: "Comment on captured page" }).waitFor();
+    await draw(page, [0.25, 0.25], [0.25, 0.25]);
     await page
       .getByRole("textbox", { name: "Comment", exact: true })
       .fill("Unsent historical comment");
-    await draw(page, [0.1, 0.1], [0.25, 0.25]);
     await client.publish(
       crypto.randomUUID(),
       {
@@ -289,6 +289,7 @@ test("plan navigation preserves authored state, historical capture, and unsent w
       await frame.locator("body").evaluate((body) => body.ownerDocument.defaultView!.scrollY),
     ).toBe(280);
     await page.getByRole("button", { name: "Comment", exact: true }).click();
+    await draw(page, [0.25, 0.25], [0.25, 0.25]);
     await page
       .getByRole("textbox", { name: "Comment", exact: true })
       .fill("Fresh comment on the original page");
@@ -391,7 +392,7 @@ test("zoomed plan capture includes the full authored viewport with normalized ma
   }
 }, 60_000);
 
-test("resolving a pinned queued comment sends the remaining eligible comments", async () => {
+test("deleting queued comments from their pin and Feedback sends only the remaining comments", async () => {
   const { directory, launch, connect } = await desktopFixture({
     showWindow: process.platform === "darwin",
   });
@@ -421,21 +422,41 @@ test("resolving a pinned queued comment sends the remaining eligible comments", 
         .waitFor();
     }
     await page.getByRole("button", { name: "Comment: First queued comment", exact: true }).click();
-    await page.getByRole("button", { name: "Resolve comment", exact: true }).click();
-    await page.getByRole("button", { name: "Send feedback (2)", exact: true }).click();
+    expect(await page.getByRole("button", { name: "Resolve comment", exact: true }).count()).toBe(
+      0,
+    );
+    await page.getByRole("button", { name: "Delete comment", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Comment: First queued comment", exact: true })
+      .waitFor({ state: "hidden" });
+    await page.getByRole("button", { name: "Send feedback (2)", exact: true }).waitFor();
     await page.getByRole("button", { name: "Feedback", exact: true }).click();
-    await page.getByText("Awaiting agent · 2 comments", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Captured comment 1", exact: true }).click();
+    const queued = page.getByRole("region", {
+      name: "Pinned comment: Second queued comment",
+      exact: true,
+    });
+    await queued.waitFor();
+    expect(await queued.getByRole("button", { name: "Resolve comment", exact: true }).count()).toBe(
+      0,
+    );
+    await mkdir(evidence, { recursive: true });
+    await page.screenshot({ path: join(evidence, "queued-delete-feedback.png") });
+    await queued.getByRole("button", { name: "Delete comment", exact: true }).click();
+    await queued.waitFor({ state: "hidden" });
+    await page.getByRole("button", { name: "Hide feedback" }).click();
+    await page.getByRole("button", { name: "Send feedback (1)", exact: true }).click();
+    await page.getByRole("button", { name: "Feedback", exact: true }).click();
+    await page.getByText("Awaiting agent · 1 comment", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Captured comment 1", exact: true }).click();
+    await page.getByRole("button", { name: "Resolve comment", exact: true }).waitFor();
+    expect(await page.getByRole("button", { name: "Delete comment", exact: true }).count()).toBe(0);
     const client = await connect();
     const result = await client.plan({ action: "read", name: "queue-plan" });
     if (result.type !== "snapshot") throw new Error("Expected plan snapshot.");
-    const remaining = result.snapshot.comments.filter(
-      (comment) => comment.text !== "First queued comment",
-    );
+    const remaining = result.snapshot.comments;
     expect(result.snapshot.rounds[0].commentIds).toEqual(remaining.map((comment) => comment.id));
-    expect(remaining).toHaveLength(2);
-    expect(
-      result.snapshot.comments.find((comment) => comment.text === "First queued comment")?.resolved,
-    ).toBe(true);
+    expect(remaining.map((comment) => comment.text)).toEqual(["Third queued comment"]);
   } finally {
     await application.close();
     await rm(directory, { recursive: true, force: true });
@@ -460,10 +481,10 @@ test("Escape closes plan capture before workspace shortcuts and focus keeps an u
     await frame.getByRole("heading", { name: "Interactive checkout" }).waitFor();
     await frame.getByRole("textbox", { name: "Order reference" }).fill("kept in focus");
     await page.getByRole("button", { name: "Comment", exact: true }).click();
+    await draw(page, [0.35, 0.25], [0.35, 0.25]);
     await page
       .getByRole("textbox", { name: "Comment", exact: true })
       .fill("Keep this draft while reading.");
-    await draw(page, [0.35, 0.25], [0.35, 0.25]);
     await page.getByRole("textbox", { name: "Comment", exact: true }).focus();
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Resume comment", exact: true }).waitFor();
@@ -514,6 +535,7 @@ test("plan metadata refreshes after reconnect when a text-only response notifica
     await frame.getByRole("heading", { name: "Interactive checkout" }).waitFor();
     await frame.getByRole("textbox", { name: "Order reference" }).fill("keep during reconnect");
     await page.getByRole("button", { name: "Comment", exact: true }).click();
+    await draw(page, [0.25, 0.25], [0.25, 0.25]);
     await page
       .getByRole("textbox", { name: "Comment", exact: true })
       .fill("Explain the payment step.");

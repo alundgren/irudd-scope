@@ -61,19 +61,28 @@ export function CommentThread({
         />
         <Button
           size="xs"
-          variant="ghost"
+          variant={round ? "ghost" : "destructive"}
           disabled={busy}
           onClick={() =>
-            void command({
-              action: "resolve",
-              name,
-              requestId: crypto.randomUUID(),
-              commentId: comment.id,
-              resolved: !comment.resolved,
-            })
+            void command(
+              round
+                ? {
+                    action: "resolve",
+                    name,
+                    requestId: crypto.randomUUID(),
+                    commentId: comment.id,
+                    resolved: !comment.resolved,
+                  }
+                : {
+                    action: "delete-comment",
+                    name,
+                    requestId: crypto.randomUUID(),
+                    commentId: comment.id,
+                  },
+            )
           }
         >
-          {comment.resolved ? "Reopen comment" : "Resolve comment"}
+          {round ? (comment.resolved ? "Reopen comment" : "Resolve comment") : "Delete comment"}
         </Button>
       </div>
     </section>

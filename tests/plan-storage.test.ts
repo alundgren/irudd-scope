@@ -108,6 +108,57 @@ test("capture positions persist beside legacy comments and drafts without changi
   }
 });
 
+test("deleting queued comments preserves shared screenshots and remains deleted after retry and restart", async () => {
+  const f = await fixture();
+  let reopened: ArtifactStore | undefined;
+  try {
+    const artifact = await publish(f.store, "<p>Queued feedback</p>");
+    const first = comment(artifact.revision);
+    const second = comment(artifact.revision);
+    await f.store.plans.command(first);
+    await f.store.plans.command(second);
+    const before = await snapshot(f.store);
+    const imageId = before.comments[0].image.id;
+    const deletion = {
+      action: "delete-comment" as const,
+      name,
+      requestId: randomUUID(),
+      commentId: first.requestId,
+    };
+    const receipt = await f.store.plans.command(deletion);
+    expect(await f.store.plans.command(deletion)).toEqual(receipt);
+    expect((await snapshot(f.store)).comments.map((entry) => entry.id)).toEqual([second.requestId]);
+    await f.store.reclaim(Date.now() + 60 * 60_000);
+    expect(await f.store.plans.image(name, imageId)).toEqual(Buffer.from(png, "base64"));
+    await f.store.plans.command({
+      ...deletion,
+      requestId: randomUUID(),
+      commentId: second.requestId,
+    });
+    await expect(f.store.plans.image(name, imageId)).rejects.toThrow("not found");
+    await f.store.reclaim(Date.now() + 60 * 60_000);
+    const db = new DatabaseSync(f.store.filename, { readOnly: true });
+    try {
+      expect(db.prepare("SELECT count(*) AS count FROM plan_images").get()?.count).toBe(0);
+      expect(
+        db.prepare("SELECT count(*) AS count FROM blobs WHERE id = ?").get(imageId)?.count,
+      ).toBe(0);
+    } finally {
+      db.close();
+    }
+    await f.store.close();
+    reopened = await ArtifactStore.open(f.directory);
+    expect((await snapshot(reopened)).comments).toEqual([]);
+    await reopened.plans.command(deletion);
+    await reopened.plans.command(first);
+    expect((await snapshot(reopened)).comments).toEqual([]);
+    expect((await snapshot(reopened)).version).toBe(before.version + 2);
+  } finally {
+    await reopened?.close();
+    await f.close();
+  }
+});
+
 test("plan history survives publication, reclamation, restart and restore while preserving permanence", async () => {
   const f = await fixture();
   let reopened: ArtifactStore | undefined;
