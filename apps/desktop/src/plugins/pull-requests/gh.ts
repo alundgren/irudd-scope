@@ -43,7 +43,7 @@ const ThreadsConnection = Schema.Struct({
 });
 const GitHubPullRequest = Schema.Struct({
   state: Schema.String,
-  reviewThreads: ThreadsConnection,
+  reviewThreads: Schema.optional(ThreadsConnection),
   id: Schema.String,
   repository: Schema.Struct({ id: Schema.String.check(Schema.isMinLength(1)) }),
   number: Schema.Int,
@@ -123,6 +123,20 @@ const INVENTORY_QUERY = `query ScopeOpenPullRequests($owner: String!, $name: Str
       pageInfo { hasNextPage endCursor }
     }
   }
+}`;
+const INITIAL_QUERY = `query ScopeInitialOpenPullRequests($owner: String!, $name: String!, $cursor: String) {
+  viewer { login } rateLimit { cost limit remaining resetAt }
+  repository(owner: $owner, name: $name) {
+    id owner { login } name nameWithOwner
+    pullRequests(states: OPEN, first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
+      nodes { ${PULL_REQUEST_FIELDS.replace("reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }", "").replace("labels(first: 100)", "labels(first: 25)").replace("reviewRequests(first: 100)", "reviewRequests(first: 25)")} }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`;
+const ENRICH_QUERY = `query ScopeEnrichPullRequests($ids: [ID!]!) {
+  viewer { login } rateLimit { cost limit remaining resetAt }
+  nodes(ids: $ids) { ... on PullRequest { ${PULL_REQUEST_FIELDS.replace("repository { id }", "repository { id owner { login } name nameWithOwner }")} } }
 }`;
 const THREADS_QUERY = `query ScopePullRequestThreads($owner: String!, $name: String!, $number: Int!, $cursor: String) {
   viewer { login }
@@ -512,48 +526,46 @@ export class GitHubPullRequests {
               ? "pending"
               : "unknown";
 
-    return this.unresolved(
-      repository,
-      validated(PullRequestFacts, {
-        nodeId: node.id,
-        number: node.number,
-        title: node.title,
-        author: node.author?.login ?? null,
-        ...metadata,
+    const facts = validated(PullRequestFacts, {
+      nodeId: node.id,
+      number: node.number,
+      title: node.title,
+      author: node.author?.login ?? null,
+      ...metadata,
+      headOid: node.headRefOid,
+      headRefName: node.headRefName,
+      baseOid: node.baseRefOid,
+      draft: node.isDraft,
+      additions: node.additions,
+      deletions: node.deletions,
+      changedFiles: node.changedFiles,
+      url: node.url,
+      updatedAt: node.updatedAt,
+      createdAt: node.createdAt,
+      merge: {
+        status:
+          node.mergeable === "MERGEABLE"
+            ? "clear"
+            : node.mergeable === "CONFLICTING"
+              ? "conflicting"
+              : "unknown",
         headOid: node.headRefOid,
-        headRefName: node.headRefName,
         baseOid: node.baseRefOid,
-        draft: node.isDraft,
-        additions: node.additions,
-        deletions: node.deletions,
-        changedFiles: node.changedFiles,
-        url: node.url,
-        updatedAt: node.updatedAt,
-        createdAt: node.createdAt,
-        merge: {
-          status:
-            node.mergeable === "MERGEABLE"
-              ? "clear"
-              : node.mergeable === "CONFLICTING"
-                ? "conflicting"
-                : "unknown",
-          headOid: node.headRefOid,
-          baseOid: node.baseRefOid,
-          observedAt,
-        },
-        checks: { status, headOid: rollup?.commit.oid ?? null, observedAt },
-        hasUnresolvedConversations: null,
-      }),
-      signal,
-      node.reviewThreads,
-      context,
-    );
+        observedAt,
+      },
+      checks: { status, headOid: rollup?.commit.oid ?? null, observedAt },
+      hasUnresolvedConversations: null,
+    });
+    return node.reviewThreads
+      ? this.unresolved(repository, facts, signal, node.reviewThreads, context)
+      : facts;
   }
 
   async current(
     repository: PullRequestsRepository,
     pr: PullRequestFacts,
     signal: AbortSignal,
+    onClosed?: (observedAt: string) => void,
   ): Promise<PullRequestFacts | null> {
     const context: ReadContext = { cost: 0, priority: 1 };
     const result = await this.query(
@@ -602,7 +614,10 @@ export class GitHubPullRequests {
       node.url.toLowerCase() !== `https://github.com/${path}/pull/${pr.number}`
     )
       throw new GitHubReadError("GitHub returned a pull request from another repository.");
-    if (node.state === "CLOSED" || node.state === "MERGED") return null;
+    if (node.state === "CLOSED" || node.state === "MERGED") {
+      onClosed?.(timestamp);
+      return null;
+    }
     if (node.state !== "OPEN")
       throw new GitHubReadError("GitHub returned invalid pull request state.");
     const full = githubValue(
@@ -614,13 +629,124 @@ export class GitHubPullRequests {
     return this.facts(repository, full, signal, context, timestamp);
   }
 
+  async account(signal: AbortSignal): Promise<string> {
+    const output = await this.process.run(
+      ["api", "--hostname", "github.com", "--include", "user"],
+      signal,
+      2,
+    );
+    return githubValue(
+      Schema.Struct({ login: Schema.String.check(Schema.isMinLength(1)) }),
+      json(output),
+    ).login;
+  }
+
   private async run(args: string[], signal: AbortSignal) {
     return this.process.run(args, signal, 1, () => this.beforeRead?.(signal));
   }
 
-  async inventory(
+  inventory(repository: PullRequestsRepository, signal: AbortSignal) {
+    return this.readInventory(repository, signal, INVENTORY_QUERY);
+  }
+
+  initialInventory(repository: PullRequestsRepository, signal: AbortSignal) {
+    return this.readInventory(repository, signal, INITIAL_QUERY);
+  }
+
+  async enrichInventory(
+    repository: PullRequestsRepository,
+    prs: readonly PullRequestFacts[],
+    signal: AbortSignal,
+  ) {
+    const queriedRepository = validated(PullRequestsRepository, repository);
+    const context: ReadContext = { cost: 0, priority: 0 };
+    const enriched: PullRequestFacts[] = [];
+    let startedAt: string | undefined;
+    let repositoryId: string | undefined;
+    const inputIds = new Set<string>();
+    for (const pr of prs) {
+      validated(PullRequestFacts, pr);
+      if (inputIds.has(pr.nodeId))
+        throw new GitHubReadError("GitHub enrichment contains duplicate pull requests.");
+      inputIds.add(pr.nodeId);
+    }
+    const EnrichmentPage = Schema.Struct({
+      data: Schema.Struct({
+        nodes: Schema.Array(
+          Schema.NullOr(
+            Schema.Struct({
+              id: Schema.String,
+              state: Schema.String,
+              number: Schema.Int,
+              url: Schema.String,
+              repository: Schema.Struct({
+                id: Schema.String,
+                owner: Schema.Struct({ login: Schema.String }),
+                name: Schema.String,
+                nameWithOwner: Schema.String,
+              }),
+            }),
+          ),
+        ),
+      }),
+    });
+    for (let offset = 0; offset < Math.max(prs.length, 1); offset += 25) {
+      const batch = prs.slice(offset, offset + 25);
+      const result = await this.query(
+        repository,
+        ENRICH_QUERY,
+        signal,
+        batch.length ? batch.flatMap((pr) => ["-f", `ids[]=${pr.nodeId}`]) : ["-F", "ids[]"],
+        context,
+      );
+      const timestamp = observedAt();
+      startedAt ??= timestamp;
+      const nodes = githubValue(EnrichmentPage, result).data.nodes;
+      if (nodes.length !== batch.length)
+        throw new GitHubReadError("GitHub did not return complete pull request enrichment.");
+      for (const [index, node] of nodes.entries()) {
+        const requested = batch[index];
+        if (!node)
+          throw new GitHubReadError(
+            "GitHub did not return this pull request. The saved list was kept.",
+            "permission",
+          );
+        const path = `${repository.owner}/${repository.name}`.toLowerCase();
+        if (
+          node.id !== requested.nodeId ||
+          node.number !== requested.number ||
+          node.url.toLowerCase() !== `https://github.com/${path}/pull/${node.number}` ||
+          node.repository.nameWithOwner.toLowerCase() !== path ||
+          `${node.repository.owner.login}/${node.repository.name}`.toLowerCase() !== path ||
+          (repositoryId && node.repository.id !== repositoryId)
+        )
+          throw new GitHubReadError("GitHub returned a pull request from another repository.");
+        repositoryId = node.repository.id;
+        if (node.state === "CLOSED" || node.state === "MERGED") continue;
+        if (node.state !== "OPEN")
+          throw new GitHubReadError("GitHub returned invalid pull request state.");
+        const raw = (result as { data: { nodes: unknown[] } }).data.nodes[index];
+        const full = githubValue(GitHubPullRequest, raw);
+        if (!full.reviewThreads)
+          throw new GitHubReadError("GitHub returned incomplete conversation data.");
+        enriched.push(await this.facts(repository, full, signal, context, timestamp));
+      }
+    }
+    return {
+      queriedRepository,
+      repository: queriedRepository,
+      viewer: context.account!,
+      account: context.account!,
+      cost: context.cost,
+      startedAt: startedAt!,
+      prs: enriched,
+    };
+  }
+
+  private async readInventory(
     repository: PullRequestsRepository,
     signal: AbortSignal,
+    inventoryQuery: string,
   ): Promise<{
     queriedRepository: PullRequestsRepository;
     repository: PullRequestsRepository;
@@ -628,9 +754,11 @@ export class GitHubPullRequests {
     prs: PullRequestFacts[];
     account: string;
     cost: number;
+    startedAt: string;
   }> {
     const context: ReadContext = { cost: 0, priority: 0 };
     const queriedRepository = validated(PullRequestsRepository, repository);
+    let startedAt: string | undefined;
     let cursor: string | null = null;
     const seen = new Set<string>();
     const prs: PullRequestFacts[] = [];
@@ -644,13 +772,14 @@ export class GitHubPullRequests {
         InventoryPage,
         await this.query(
           repository,
-          INVENTORY_QUERY,
+          inventoryQuery,
           signal,
           cursor ? ["-f", `cursor=${cursor}`] : [],
           context,
         ),
       ).data;
       const timestamp = observedAt();
+      startedAt ??= timestamp;
       if (!page.repository)
         throw new GitHubReadError(
           "Your GitHub CLI account cannot read this repository.",
@@ -687,7 +816,15 @@ export class GitHubPullRequests {
           throw new GitHubReadError("GitHub returned duplicate pull requests. Try Sync again.");
         ids.add(node.id);
         numbers.add(node.number);
-        prs.push(await this.facts(repository, node, signal, context, timestamp));
+        prs.push(
+          await this.facts(
+            repository,
+            inventoryQuery === INITIAL_QUERY ? { ...node, reviewThreads: undefined } : node,
+            signal,
+            context,
+            timestamp,
+          ),
+        );
       }
       cursor = nextCursor(page.repository.pullRequests.pageInfo, seen);
     } while (cursor);
@@ -698,6 +835,7 @@ export class GitHubPullRequests {
       prs,
       account: context.account!,
       cost: context.cost,
+      startedAt: startedAt!,
     };
   }
 
