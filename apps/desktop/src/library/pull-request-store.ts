@@ -197,14 +197,20 @@ export class PullRequestStore {
     );
   }
 
-  async configuredTabs(): Promise<PullRequestsSnapshot[]> {
+  async configuredTabs(): Promise<Pick<PullRequestsSnapshot, "tabId" | "repository" | "sync">[]> {
     const { sql, run } = this.database;
     const rows = await run(
       sql<{
         tab_id: string;
-      }>`SELECT pull_requests_state.tab_id FROM pull_requests_state JOIN live_tabs ON live_tabs.id = pull_requests_state.tab_id JOIN artifacts ON artifacts.tab_id = pull_requests_state.tab_id WHERE live_tabs.trashed_at IS NULL AND pull_requests_state.repository IS NOT NULL AND json_extract(artifacts.document, '$.kind') = 'pull-requests'`,
+        repository: string;
+        sync: string;
+      }>`SELECT pull_requests_state.tab_id, pull_requests_state.repository, pull_requests_state.sync FROM pull_requests_state JOIN live_tabs ON live_tabs.id = pull_requests_state.tab_id JOIN artifacts ON artifacts.tab_id = pull_requests_state.tab_id WHERE live_tabs.trashed_at IS NULL AND pull_requests_state.repository IS NOT NULL AND json_extract(artifacts.document, '$.kind') = 'pull-requests'`,
     );
-    return Promise.all(rows.map((row) => this.snapshotByTab(row.tab_id)));
+    return rows.map((row) => ({
+      tabId: row.tab_id,
+      repository: decode(PullRequestsRepository, JSON.parse(row.repository)),
+      sync: decode(PullRequestsSync, JSON.parse(row.sync)),
+    }));
   }
 
   async commitCurrent(
