@@ -4,7 +4,9 @@ import { Artifact, ArtifactId, BlobId, PublicationTabId, Revision } from "./inde
 export const MAX_PUBLICATIONS_REQUEST_BYTES = 256 * 1024;
 export const MAX_PUBLICATIONS_REPLY_BYTES = 1024 * 1024;
 const Text = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2048));
-const Timestamp = Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/));
+const Timestamp = Schema.String.check(
+  Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/),
+);
 const Url = Schema.String.check(Schema.isMaxLength(2048), Schema.isPattern(/^https:\/\/[^\s]+$/));
 export const PublicationProvider = Schema.Literals(["claude", "sites"]);
 export type PublicationProvider = typeof PublicationProvider.Type;
@@ -20,7 +22,11 @@ export const PublicationObservation = Schema.Struct({
   url: Schema.NullOr(Url),
   access: Schema.Literals(["owner", "editor", "none", "unknown"]),
   audience: Schema.Literals(["owner", "team", "public", "external", "unknown"]),
-  evidence: Schema.Literals(["authenticated-tool", "authenticated-share-inspection", "documented-private-default"]),
+  evidence: Schema.Literals([
+    "authenticated-tool",
+    "authenticated-share-inspection",
+    "documented-private-default",
+  ]),
   checkedAt: Timestamp,
   marker: PublicationMarker,
   conditionalWrite: Schema.Boolean,
@@ -75,16 +81,45 @@ export const PublicationsSnapshot = Schema.Struct({
 });
 export type PublicationsSnapshot = typeof PublicationsSnapshot.Type;
 const Address = { id: ArtifactId };
-const Operation = { ...Address, tabId: PublicationTabId, provider: PublicationProvider, operationId: PublicationTabId };
+const Operation = {
+  ...Address,
+  tabId: PublicationTabId,
+  provider: PublicationProvider,
+  operationId: PublicationTabId,
+};
 export const PublicationsCommand = Schema.Union([
   Schema.Struct({ ...Address, action: Schema.Literal("read") }),
-  Schema.Struct({ ...Operation, action: Schema.Literal("prepare"), expectedRevision: Revision, observation: PublicationObservation }),
+  Schema.Struct({
+    ...Operation,
+    action: Schema.Literal("prepare"),
+    expectedRevision: Revision,
+    observation: PublicationObservation,
+  }),
+  Schema.Struct({
+    ...Operation,
+    action: Schema.Literal("refresh"),
+    observation: PublicationObservation,
+  }),
   Schema.Struct({ ...Operation, action: Schema.Literal("authorize") }),
   Schema.Struct({ ...Operation, action: Schema.Literal("start") }),
-  Schema.Struct({ ...Operation, action: Schema.Literal("progress"), progress: PublicationProgress }),
+  Schema.Struct({
+    ...Operation,
+    action: Schema.Literal("progress"),
+    progress: PublicationProgress,
+  }),
   Schema.Struct({ ...Operation, action: Schema.Literal("complete"), result: PublicationSuccess }),
-  Schema.Struct({ ...Operation, action: Schema.Literal("cancel"), acknowledgeUncertain: Schema.Boolean }),
-  Schema.Struct({ ...Address, tabId: PublicationTabId, provider: PublicationProvider, action: Schema.Literal("unlink"), acknowledgeUncertain: Schema.Boolean }),
+  Schema.Struct({
+    ...Operation,
+    action: Schema.Literal("cancel"),
+    acknowledgeUncertain: Schema.Boolean,
+  }),
+  Schema.Struct({
+    ...Address,
+    tabId: PublicationTabId,
+    provider: PublicationProvider,
+    action: Schema.Literal("unlink"),
+    acknowledgeUncertain: Schema.Boolean,
+  }),
 ]);
 export type PublicationsCommand = typeof PublicationsCommand.Type;
 export const PublicationsReply = Schema.Struct({
