@@ -34,7 +34,7 @@ export const PublicationObservation = Schema.Struct({
 export type PublicationObservation = typeof PublicationObservation.Type;
 export const PublicationProgress = Schema.Struct({
   remoteId: Text,
-  url: Url,
+  url: Schema.NullOr(Url),
   savedVersion: Schema.NullOr(Text),
   sourceCommit: Schema.NullOr(Schema.String.check(Schema.isPattern(/^[a-f0-9]{40,64}$/))),
   deploymentId: Schema.NullOr(Text),
@@ -42,6 +42,7 @@ export const PublicationProgress = Schema.Struct({
 export type PublicationProgress = typeof PublicationProgress.Type;
 export const PublicationSuccess = Schema.Struct({
   ...PublicationProgress.fields,
+  url: Url,
   provider: PublicationProvider,
   marker: PublicationMarker,
   confirmedAt: Timestamp,
