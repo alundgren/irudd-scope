@@ -1017,7 +1017,12 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
         ),
       )
       .toBeGreaterThan(1);
-    expect(await frame.getByLabel("Your notes").inputValue()).toBe(
+    const noteRequests = await app.evaluate(() =>
+      (
+        globalThis as unknown as { prInboxTest: { calls: PullRequestsCommand[] } }
+      ).prInboxTest.calls.filter((call) => call.action === "note"),
+    );
+    expect(await frame.getByLabel("Your notes").inputValue(), JSON.stringify(noteRequests)).toBe(
       "User draft begun at version zero",
     );
     await frame.getByRole("button", { name: "Save note", exact: true }).click();
