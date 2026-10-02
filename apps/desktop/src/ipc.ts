@@ -1,3 +1,4 @@
+import { PublicationsCommand, PublicationsReply } from "@irudd-scope/protocol/publications";
 import { connectedDiagramAgents } from "./plugins/diagram/connected-agent.ts";
 import { diagramCommands } from "./plugins/diagram/command-main.ts";
 import { clipboard, dialog, ipcMain, nativeTheme, type BrowserWindow } from "electron";
@@ -90,16 +91,17 @@ export function registerDesktopIpc({
     diagrams.cancelAll();
     connectedAgents.close();
   };
-  const navigating = (
+  const navigated = (
     _event: Electron.Event,
     _url: string,
-    inPlace: boolean,
+    _statusCode: number,
+    _statusText: string,
     mainFrame: boolean,
   ) => {
-    if (mainFrame && !inPlace) rendererUnavailable();
+    if (mainFrame) rendererUnavailable();
   };
   window.webContents.on("render-process-gone", rendererUnavailable);
-  window.webContents.on("did-start-navigation", navigating);
+  window.webContents.on("did-frame-navigate", navigated);
   handle("scope:diagram-agent-status", (input) =>
     connectedAgents.status(decode(ArtifactId, input)),
   );
@@ -124,6 +126,15 @@ export function registerDesktopIpc({
     client,
     artifacts: lifecycle.artifacts,
     workspace: () => lifecycle.workspace(),
+  });
+  handle("scope:publications-command", async (input) =>
+    decode(PublicationsReply, await client.publications(decode(PublicationsCommand, input))),
+  );
+  const stopPublicationEvents = library.onPublicationsChanged((event) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:publications-changed", event);
+  });
+  const stopPublicationReconnects = library.onPublicationsReconnected(() => {
+    if (!window.isDestroyed()) window.webContents.send("scope:publications-reconnected");
   });
   const stopPlanEvents = library.onPlanChanged((event) => {
     if (!window.isDestroyed()) window.webContents.send("scope:plan-changed", event);
@@ -267,6 +278,7 @@ export function registerDesktopIpc({
       decode(DiagramReply, await diagrams.run(command, signal)),
     syncDiagram: async (request: DiagramSyncCommand, id: string, signal: AbortSignal) =>
       decode(DiagramSyncReply, await diagrams.run({ action: "sync", id, request }, signal)),
+    resumePending: () => plugins.resumePullRequests(),
     cancelPending: () => {
       plugins.cancelPending();
       plugins.cancelPullRequests();
@@ -280,10 +292,12 @@ export function registerDesktopIpc({
     dispose: () => {
       stopPlanEvents();
       stopPlanReconnects();
+      stopPublicationEvents();
+      stopPublicationReconnects();
       stopPullRequestsEvents();
       stopPullRequestsReconnects();
       window.webContents.removeListener("render-process-gone", rendererUnavailable);
-      window.webContents.removeListener("did-start-navigation", navigating);
+      window.webContents.removeListener("did-frame-navigate", navigated);
       window.removeListener("enter-full-screen", enteredFullscreen);
       window.removeListener("leave-full-screen", leftFullscreen);
       plugins.cancelPending();

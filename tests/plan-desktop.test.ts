@@ -8,20 +8,33 @@ import { desktopFixture } from "./desktop-fixture.ts";
 const html = `<!doctype html><html><head><title>Checkout page</title><style>body{margin:0;padding:40px;font:18px system-ui;background:#f3f8f1;color:#182a21}button{font:inherit;padding:12px}section{height:1600px}input{font:inherit}</style></head><body><h1>Interactive checkout</h1><button id="next" onclick="document.querySelector('h1').textContent='Payment details';this.hidden=true">Next step</button><input aria-label="Order reference"><section>Keep this authored page interactive.</section></body></html>`;
 const evidence = "/tmp/scope-plan-ui-evidence";
 async function draw(page: Page, from: [number, number], to: [number, number]) {
-  const points = await page
-    .getByRole("img", { name: "Frozen plan screenshot, draw annotations here" })
-    .evaluate(
-      (element, values) => {
-        const svg = element as SVGSVGElement;
-        const rect = svg.viewBox.baseVal;
-        const matrix = svg.getScreenCTM()!;
-        return values.map(([x, y]) => {
-          const point = new DOMPoint(x * rect.width, y * rect.height).matrixTransform(matrix);
-          return { x: point.x, y: point.y };
-        });
-      },
-      [from, to],
-    );
+  const screenshot = page.getByRole("img", {
+    name: "Frozen plan screenshot, draw annotations here",
+  });
+  await Promise.race([
+    screenshot.waitFor(),
+    page
+      .getByRole("alert")
+      .first()
+      .waitFor()
+      .then(async () => {
+        throw new Error(
+          `Plan capture failed: ${(await page.getByRole("alert").allTextContents()).join(" ")}`,
+        );
+      }),
+  ]);
+  const points = await screenshot.evaluate(
+    (element, values) => {
+      const svg = element as SVGSVGElement;
+      const rect = svg.viewBox.baseVal;
+      const matrix = svg.getScreenCTM()!;
+      return values.map(([x, y]) => {
+        const point = new DOMPoint(x * rect.width, y * rect.height).matrixTransform(matrix);
+        return { x: point.x, y: point.y };
+      });
+    },
+    [from, to],
+  );
   await page.mouse.click(points[1].x, points[1].y);
 }
 
@@ -179,10 +192,10 @@ test("a plan keeps interactive HTML while captured comments, feedback, replies, 
     await page.getByRole("button", { name: "Hide feedback" }).click();
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
-    await page.getByRole("button", { name: "Exit focus mode" }).waitFor();
+    await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).waitFor();
     expect(await page.getByRole("complementary", { name: "Plan feedback" }).count()).toBe(0);
     await page.screenshot({ path: join(evidence, "focus.png") });
-    await page.getByRole("button", { name: "Exit focus mode" }).click();
+    await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
     await application.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]!.setContentSize(560, 620),
     );
@@ -278,10 +291,24 @@ test("plan navigation preserves authored state, historical capture, and unsent w
     await page.getByRole("tab", { name: "Other artifact", exact: true }).click();
     await page.getByText("A separate tab.", { exact: true }).waitFor();
     await page.getByRole("tab", { name: "Navigation plan", exact: true }).click();
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async (artifactId) => {
+            const workspace = await window.scope.workspace();
+            const planTab = workspace?.tabs.find((tab) => tab.state.data.artifactId === artifactId);
+            return Boolean(workspace && planTab && workspace.selected === planTab.id);
+          }, artifact.id),
+        { timeout: 5_000 },
+      )
+      .toBe(true);
     expect(await page.getByRole("textbox", { name: "Comment", exact: true }).inputValue()).toBe(
       "Unsent historical comment",
     );
     await page.getByRole("button", { name: "Discard comment", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Comment on captured page" })
+      .waitFor({ state: "hidden" });
     expect(await frame.getByRole("textbox", { name: "Order reference" }).inputValue()).toBe(
       "keep-input",
     );
@@ -492,7 +519,7 @@ test("Escape closes plan capture before workspace shortcuts and focus keeps an u
     await page.getByRole("button", { name: "Resume comment", exact: true }).click();
     await page.getByRole("textbox", { name: "Comment", exact: true }).focus();
     await page.keyboard.press(process.platform === "darwin" ? "Meta+Shift+F" : "Control+Shift+F");
-    await page.getByRole("button", { name: "Exit focus mode" }).waitFor();
+    await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).waitFor();
     expect(await page.getByRole("dialog", { name: "Comment on captured page" }).count()).toBe(0);
     expect(await frame.getByRole("textbox", { name: "Order reference" }).inputValue()).toBe(
       "kept in focus",

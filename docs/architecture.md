@@ -147,11 +147,19 @@ to the tab UUID. Publishing another HTML revision preserves them.
 
 `plugins/pull-requests/gh-process.ts` runs the installed `gh` executable without
 a shell, using the desktop user's existing login. `gh.ts` reads GitHub facts
-and on-demand details. `sync.ts` coalesces refreshes per tab and cancels work
-when the tab is removed or the desktop shuts down. A complete inventory commits
+and on-demand details. `sync.ts` owns one adaptive polling scheduler and shares
+repository reads across inboxes using the same desktop account. It cancels work
+on suspension, tab removal, and shutdown. A complete inventory commits
 in one transaction and removes PRs no longer open. Failed or incomplete reads
 preserve the previous inventory. Local and agent records have separate version
 checks and do not get replaced by GitHub facts.
+
+First load commits a complete lightweight inventory before enriching checks,
+mergeability, and conversations in bounded batches. Checks, mergeability, and conversations are Unknown and sync remains
+in progress until enrichment finishes. An enrichment failure retains that valid
+base list. Once a base inventory has been committed, retries and later refreshes
+read and commit enriched facts together, preserving cached facts on failure.
+This remains true after restart; an incomplete membership read never replaces the list.
 
 `plugins/pull-requests/view.tsx` hosts trusted authored HTML and injects
 `window.scope.pullRequests` before its scripts run. The HTML receives immutable
@@ -161,8 +169,16 @@ reloads durable state after invalidation or reconnect. Refreshing PR state
 preserves the iframe; publishing a new HTML revision replaces it after pending
 local edits finish saving. Transient notices carry no replay history.
 
-The tab syncs when selected and through the app's Sync action. There is no
-background polling. Native creation publishes the built-in flat-list app;
+Configured inboxes refresh automatically while Scope is running and awake.
+Selection, wake, and reconnect request coalesced fresh reads; Sync remains a
+fallback. Foreground, background, and inspected-PR reads use different target
+intervals, lengthened to fit observed GitHub cost and remaining quota. The
+500-point hourly account target controls admission of new automatic jobs;
+admitted jobs finish. Manual Sync and detail reads bypass that routine wait,
+while every request respects actual quota reserve and throttling. Main owns
+the timers; renderer interests identify the visible inbox and inspected PR.
+An inspected PR's reviews refresh without downloading its captured diff again.
+Native creation publishes the built-in flat-list app;
 agents can publish their own HTML with named JavaScript views. GitHub access is
 read-only. Review submission and merges remain on GitHub. Authenticated HTTP
 commands work without the tab being mounted. Paired hubs forward them and keep
@@ -257,6 +273,9 @@ and their conversion to Excalidraw; `plugins/diagram/view.tsx` owns editing.
 ## Tabs, plugins, and groups
 
 A tab has a UUID, group UUID, plugin type, title, and versioned JSON state.
+Optional validated overlay positions belong to the desktop tab contract and
+use the existing SQLite tab record. Old records without positions use the
+controls' default locations.
 Groups have their own UUID and an owner reference with a kind and ID. Owners
 are independent of tab lifetimes. The current desktop opens publications in
 one local workspace group. Group indicators and agent-facing group selection
@@ -594,3 +613,40 @@ agent host continues its existing tool loop. Running a wait command outside
 that loop does not attach it to a model. This mode does not resume an idle or
 closed host session. Connected-agent selection is temporary; existing named
 or embedded recipient preferences remain in the draft.
+
+## Outbound HTML publication
+
+An existing coding session uses its native Claude Artifact or OpenAI Sites tools
+to publish stored Scope HTML. Scope exports an immutable document and stores
+agent-supplied destination metadata, publication checkpoints, and unresolved
+operations in `scope.db`. It does not launch agents or hold provider credentials.
+
+`packages/protocol/src/publications.ts` owns the commands and snapshots.
+`library/publication-store.ts` owns tab-bound state and retained content through
+the artifact store's serialized SQL transactions. HTTP and paired relays expose
+the same commands while the desktop is online. They do not buffer provider
+operations. The CLI validates explicit command files and exports exact bytes.
+The desktop dialog copies a request for an existing session and records explicit
+overwrite acknowledgement.
+
+Privacy and edit observations come from authenticated native provider tools or
+an authenticated sharing inspection. Scope evaluates those observations; it
+cannot independently monitor either provider. Claude updates need authenticated
+Share-dialog inspection and retain the provider's native version guard. Sites
+uses owner-only deployment enforcement and requires overwrite acknowledgement
+for existing destinations because its deployment tools have no conditional
+content version parameter. Unknown privacy blocks publication. Unknown edit
+metadata warns before replacement.
+
+```mermaid
+flowchart LR
+    Human[Human in Scope] --> Request[Copy agent request]
+    Request --> Agent[Existing coding session]
+    Agent --> Observe[Native tools: audience and remote edits]
+    Observe --> Prepare[Scope: prepare immutable HTML]
+    Prepare --> Warning[Human acknowledges overwrite warning]
+    Warning --> Agent
+    Agent --> Provider[Claude artifact or owner-private Site]
+    Provider --> Result[Confirmed publication result]
+    Result --> Checkpoint[Scope: durable checkpoint]
+```

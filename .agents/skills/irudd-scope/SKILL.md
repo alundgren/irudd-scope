@@ -37,6 +37,16 @@ Publication commands print a JSON artifact record with its ID and revision. Trea
 
 HTML previews run interactive prototypes and mockups, including scripts, external styles, fonts, images, network requests, forms, and popups. Publish a complete document with embedded resources or reachable URLs. Adjacent files are not uploaded; use absolute resource URLs or set the document's base URL. Normal browser rules such as CORS apply. For Markdown, raw HTML is omitted and links and image descriptions appear as text.
 
+### Publish to Claude artifacts or OpenAI Sites
+
+When asked to publish an existing Scope HTML artifact to Claude or Sites, read
+[outbound publishing](references/outbound-publications.md). Use
+`publications guide` for the installed schema. The current coding session uses
+its native provider tools; Scope stores links, immutable HTML, and recovery
+checkpoints. Remote edit warnings need acknowledgement before replacement.
+Public or unverifiable audiences are blocked. There is no pull or background
+sync.
+
 ### Pull request inbox apps
 
 When asked to create or customize a PR inbox, read

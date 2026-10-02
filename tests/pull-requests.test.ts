@@ -95,6 +95,49 @@ async function fixture(publish = true) {
   return { directory, server, client, cli, html, read, configure };
 }
 
+test("saved PR facts without stack and approval fields reopen without losing local state", async () => {
+  const f = await fixture();
+  await f.configure();
+  const initial = await f.read();
+  await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [facts()],
+    completedAt: now,
+  });
+  await f.client.pullRequests({
+    action: "note",
+    name,
+    tabId: initial.tabId,
+    nodeId: "PR_1",
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    text: "Existing review notes",
+  });
+  const saved = await f.read();
+  expect(saved.prs[0]).not.toHaveProperty("review");
+  expect(saved.prs[0]).not.toHaveProperty("stack");
+  await f.server.close();
+  const reopened = await ArtifactStore.open(f.directory);
+  cleanup.push(() => reopened.close());
+  expect((await reopened.pullRequests.snapshot(name)).prs).toEqual(saved.prs);
+  const enriched = await reopened.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [
+      {
+        ...facts(),
+        stack: null,
+        review: { decision: null, hasApproval: true, headOid: head, observedAt: now },
+      },
+    ],
+    completedAt: now,
+  });
+  expect(enriched.prs[0].review?.hasApproval).toBe(true);
+  expect(enriched.prs[0].stack).toBeNull();
+  expect(enriched.prs[0].local).toEqual(saved.prs[0].local);
+});
+
 test("first verified alias inventory updates the binding atomically and rejects an old queried pin", async () => {
   const f = await fixture();
   await f.configure();
@@ -563,7 +606,7 @@ test("version 6 databases migrate additively and reopen current inbox state", as
   const db = new DatabaseSync(join(f.directory, "scope.db"));
   try {
     db.exec(
-      "DROP TABLE pull_requests_receipts; DROP TABLE pull_requests_current; DROP TABLE pull_requests_state; PRAGMA user_version = 6;",
+      "DROP TABLE publications; DROP TABLE pull_requests_receipts; DROP TABLE pull_requests_current; DROP TABLE pull_requests_state; PRAGMA user_version = 6;",
     );
   } finally {
     db.close();
@@ -574,7 +617,7 @@ test("version 6 databases migrate additively and reopen current inbox state", as
   expect((await reopened.list()).items[0].kind).toBe("pull-requests");
   const check = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
   try {
-    expect(check.prepare("PRAGMA user_version").get()?.user_version).toBe(7);
+    expect(check.prepare("PRAGMA user_version").get()?.user_version).toBe(8);
   } finally {
     check.close();
   }

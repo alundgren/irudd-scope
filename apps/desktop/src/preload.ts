@@ -1,3 +1,4 @@
+import type { PublicationsEvent } from "@irudd-scope/protocol/publications";
 import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
 import type { DiagramCommandRequest } from "./plugins/diagram/commands.ts";
 import { contextBridge, ipcRenderer } from "electron";
@@ -9,10 +10,39 @@ import type { DiagramMenuAction } from "./menu-contract.ts";
 
 import type { PlanEvent } from "@irudd-scope/protocol/plan";
 import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
+import type { PullRequestsDetailUpdate } from "./plugins/pull-requests/interest.ts";
+import type { PullRequestsLinkResult } from "./plugins/pull-requests/contract.ts";
 
 const bridge: ScopeBridge = {
+  publicationsCommand: (input) => ipcRenderer.invoke("scope:publications-command", input),
+  onPublicationsChanged: (listener) => {
+    const receive = (_event: unknown, event: PublicationsEvent) => listener(event);
+    ipcRenderer.on("scope:publications-changed", receive);
+    return () => ipcRenderer.removeListener("scope:publications-changed", receive);
+  },
+  onPublicationsReconnected: (listener) => {
+    const receive = () => listener();
+    ipcRenderer.on("scope:publications-reconnected", receive);
+    return () => ipcRenderer.removeListener("scope:publications-reconnected", receive);
+  },
   createPullRequests: (input) => ipcRenderer.invoke("scope:create-pull-requests", input),
   pullRequestsCommand: (input) => ipcRenderer.invoke("scope:pull-requests-command", input),
+  pullRequestsInterest: (input) => ipcRenderer.invoke("scope:pull-requests-interest", input),
+  onPullRequestsDetailUpdate: (listener) => {
+    const receive = (_event: unknown, event: PullRequestsDetailUpdate) => listener(event);
+    ipcRenderer.on("scope:pull-requests-detail-update", receive);
+    return () => ipcRenderer.removeListener("scope:pull-requests-detail-update", receive);
+  },
+  openPullRequestsLink: (input) => ipcRenderer.invoke("scope:open-pull-requests-link", input),
+  registerPullRequestsFrame: (input) =>
+    ipcRenderer.invoke("scope:register-pull-requests-frame", input),
+  unregisterPullRequestsFrame: (input) =>
+    ipcRenderer.invoke("scope:unregister-pull-requests-frame", input),
+  onPullRequestsLinkResult: (listener) => {
+    const receive = (_event: unknown, result: PullRequestsLinkResult) => listener(result);
+    ipcRenderer.on("scope:pull-requests-link-result", receive);
+    return () => ipcRenderer.removeListener("scope:pull-requests-link-result", receive);
+  },
   onPullRequestsReconnected: (listener) => {
     const receive = () => listener();
     ipcRenderer.on("scope:pull-requests-reconnected", receive);

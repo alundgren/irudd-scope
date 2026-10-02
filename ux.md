@@ -24,6 +24,25 @@ contains open tabs and a search button on the right. Search opens a roomy
 control panel so secondary actions take no permanent tab space. Prose has a
 reading width; images, HTML, and diagrams use the available area.
 
+## Publish with a coding agent
+
+HTML and plan tabs expose Publish with coding agent in their current-tab
+controls. The dialog copies a request to paste into an existing session, shows
+saved remote links and the last successful Scope revision, and retains an
+unresolved operation for recovery. Provider availability belongs to the current
+session. Scope does not start one.
+
+Remote audience and edit metadata are labeled Last checked because Scope has
+no provider monitor. Local pending changes are derived from the current Scope
+revision. Remote edit warnings require Allow replacement before the agent can
+continue. Privacy blocks cannot be acknowledged away. Every existing Sites
+update warns about concurrent replacement because its tools lack conditional
+content version enforcement. Sites uses owner-only deployment in this flow.
+
+Unlink explains that it removes Scope's saved link and leaves the remote
+artifact intact. Canceling a started operation warns that the provider may
+already have published and that its result needs reconciliation.
+
 ## Appearance and controls
 
 Scope uses Excalidraw-inspired cool neutrals, violet selection and focus,
@@ -137,7 +156,11 @@ on file tabs.
 
 Fullscreen in the search panel enters native fullscreen, keeps the selected
 artifact mounted, and hides workspace navigation. Other artifact tabs leave a
-small exit at the top right, clear of Excalidraw's centered toolbar.
+small exit at the top right, clear of Excalidraw's centered toolbar. A grip on
+Scope's fullscreen controls lets the person drag them away from content. The
+focused grip accepts arrow keys, with Shift for larger steps, and Home restores
+the default position. Positions are saved per tab and stay within the window
+when it narrows.
 Diagram tabs start in Edit, with the Excalidraw tools and left menu available.
 A small control at the top right switches between Edit, View, and
 Present or exits fullscreen. View shows only the drawing and allows zoom and pan.
@@ -147,7 +170,13 @@ Switching modes preserves the canvas, zoom, draft, and conversation. Escape
 closes an active dialog or editor interaction, then returns View or Present to
 Edit and Edit to the workspace. Command-Shift-F toggles fullscreen; Command-K
 opens the panel in any mode. Leaving native fullscreen also restores the
-workspace controls.
+workspace controls. Ordinary HTML, plans, and PR inboxes offer View, Present,
+and Back to tabs in fullscreen. Present uses the same audience pointer and
+trail inside accessible HTML frames while links, forms, scrolling, and scripts
+remain usable. Frame navigation to another origin retains the native cursor.
+Scope does not override Escape in editable fields, open page dialogs, or events
+the page handles. Otherwise Escape returns HTML Present to View, then returns
+to the workspace.
 
 Published HTML is trusted agent output. Prototypes run their scripts, load
 external resources, submit forms, and open links without a trust prompt or
@@ -313,8 +342,11 @@ Plans always have an immutable unique name and start permanent. Later updates
 respect the person's permanence choice. Ordinary trusted HTML remains the
 content, including scripts and external resources. The reading page uses the
 available width and height. A small floating pin control starts a comment;
-Copy and Send appear beside it when feedback is collected. Focus mode hides
-these controls. Feedback and version history open in a compact overlay on
+Copy and Send appear beside it when feedback is collected. The toolbar and
+Feedback overlay each have a grip for dragging away from page content. Arrow keys move a focused grip, Shift makes larger steps, and Home
+restores its default position. Scope saves positions per tab in SQLite and
+keeps the controls inside the available area after resizing. Comment pins stay
+attached to their captured content. Focus mode hides these controls. Feedback and version history open in a compact overlay on
 request, with no reserved column or comment list. The page stays mounted when
 controls toggle, a comment is canceled, or an agent responds.
 
@@ -359,16 +391,30 @@ PR data, notes, snoozes, and review decisions. Closing moves a permanent inbox
 to the end of the tab queue. Moving it to Trashcan uses ordinary retention.
 Permanently deleting the tab deletes its repository review data.
 
-Selecting the tab syncs current open PRs, including drafts. Sync is also an
-explicit icon action. A failed GitHub read keeps the cached list and places a
-small error indicator on that icon. Its tooltip explains the failure, and
-clicking retries. There is no polling, cache expiry prompt, or closed PR history.
+Configured inboxes refresh current open PRs automatically, including drafts.
+Visible inboxes target 30 seconds, inspected PRs 15 seconds, and background
+repositories five minutes. These targets lengthen when the complete inventory
+cost or GitHub quota requires it. A quiet status line reports the last successful
+refresh, the current refresh target, and retry time after a failure. Matching
+inboxes share GitHub reads. Launch, selection, wake, and reconnect restore
+freshness; suspension and Trashcan stop their work. The Mac must be awake and
+Scope must be running. There is no closed PR history.
+
+Sync remains an explicit fallback icon action and joins the same scheduled work.
+A failed GitHub read keeps the cached list and retries automatically. Its
+tooltip explains the failure; authentication failures name `gh auth login`.
+Rate-limit waits apply to manual Sync too.
+First load displays the complete PR list before computed GitHub facts finish
+loading. Checks, mergeability, and conversation state remain Unknown and the status line explains the
+remaining work. Only complete membership reads remove PRs from the list.
 Unknown checks or conversation state remain visibly unknown. Any unresolved
 GitHub review conversation means the author's turn in the initial app.
 
 Opening a PR captures its ordered review queue and displayed commit. Background
 refreshes update the list and local state without moving the person to another PR or changing
-the displayed code. A newer head offers Load latest commit. Next and Previous
+the displayed code. Reviews and description in the open pane refresh without
+downloading its captured diff again. A newer head offers Load latest commit;
+a changed base offers Load latest comparison. Next and Previous
 use the captured queue, including after a snooze removes the row from a view.
 Opening records inspection; Mark this commit reviewed is explicit and records
 the displayed commit. New code can therefore remain in Changed after review.
@@ -380,3 +426,14 @@ new commits, and Undo. Undo cannot erase a later snooze from another client.
 Pending local edits flush before closing or replacing the HTML; a failed flush
 keeps the app open. These local actions never write to GitHub. Open on GitHub
 handles public comments, reviews, and merges.
+
+PR inbox links to HTTP(S) destinations open in the system's default browser,
+including links from agent-authored HTML and direct `window.open` calls. This
+uses the person's existing browser login for private repositories. In-page
+anchors stay in the inbox. Ordinary published HTML retains its own navigation
+and popup behavior.
+
+Scope supplies native stack membership and active review approval in the PR
+model. Agent-authored inboxes decide how to display or filter them. Stack
+readiness depends on all open members being out of draft; approval and CI are
+separate facts.

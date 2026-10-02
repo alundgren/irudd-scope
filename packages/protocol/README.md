@@ -371,12 +371,22 @@ desktop requirements apply. Paired hubs forward the route without storing PRs.
 `generation`, repository, viewer, sync status, and a flat `prs` array. All other
 commands require that `tabId`, the immutable name, and a UUID `requestId`.
 Repository configuration can be repeated with the same repository, but changing
-it requires another tab. The first successful sync can normalize an alias to
+it requires another tab. The first complete inventory can normalize an alias to
 GitHub's verified canonical owner/name, provided there are no cached PR rows
-or previous successful inventory. A successful empty inventory also pins that
+or a previously committed inventory. A successful empty inventory also pins that
 binding. Later renames or transfers require a new inbox. `sync` uses the desktop user's installed `gh` and
-returns the current snapshot. Simultaneous refreshes of one tab share work.
+returns the current snapshot. Configured live inboxes refresh automatically;
+simultaneous refreshes of the same repository share remote reads while local
+records remain tab-owned. The 500-point hourly account target delays new automatic
+jobs; admitted jobs finish. Manual Sync and detail reads bypass that routine wait.
+Every request still respects actual GitHub quota reserve and throttling.
 Sync request IDs identify calls; they do not retain an inventory history.
+
+Sync status retains `state`, `updatedAt`, `lastSuccessAt`, and `error`. Optional
+`intervalMs`, `nextAttemptAt`, and `reason` report the adaptive refresh target and
+retry policy in desktop IPC and the HTML SDK. HTTP replies retain the four legacy
+sync fields so older CLI and hub clients continue decoding them. Older saved
+snapshots remain readable by the updated desktop without the optional fields.
 
 PR facts include title, author, labels, draft status, requested reviewers, size,
 commit IDs, merge status, aggregate checks, and
@@ -384,7 +394,42 @@ commit IDs, merge status, aggregate checks, and
 unresolved, false after a complete read finds none, and null when unavailable.
 Checks and merge status identify their observed commits. Unknown values are
 distinct from success or absence. A complete sync removes records no longer
-open. Failed and partial reads preserve cached facts and local values.
+open. Failed or incomplete membership reads preserve the cached list and local values.
+
+First load may publish a complete base inventory while `sync.state` remains
+`syncing` and checks, mergeability, and conversations are Unknown. `lastSuccessAt` advances only after
+enrichment finishes. Failed enrichment keeps the valid base rows; incomplete
+membership reads keep the previous list. Once the base inventory is committed,
+retries and later refreshes commit enriched facts atomically, including after restart. Optional scheduler status is supplied to authored apps by the desktop.
+
+`review` adds `{ decision, hasApproval, headOid, observedAt }`. `decision` is
+GitHub's overall `approved`, `changes-requested`, or `review-required` decision,
+or null when GitHub supplies none. `hasApproval` is true when any reviewer's
+current opinion is an active approval, even if another reviewer requests
+changes. Dismissed and superseded approvals do not count. Null means that the
+observed head changed during retrieval. This flag does not assert that required
+reviews, CI, or other merge rules are satisfied.
+
+`stack` is null for a known standalone PR or a native GitHub stack record with
+`nodeId`, `number`, `position`, `size`, `baseRefName`, `members`,
+`readyForReview`, `approved`, and `observedAt`. Members are ordered by native
+position, starting at 1 nearest the target branch, and include PR `nodeId`,
+`number`, `position`, `state` (`open`, `closed`, or `merged`), and `draft`.
+`readyForReview` means every open member is out of draft. `approved` means every
+open member has an active approval; it is null if approval is unknown and no
+member is known to lack one. Closed and merged members do not affect either
+flag. Membership uses GitHub's native stack records, without branch inference.
+Complete membership and review pagination are required before saving a refresh.
+
+The lightweight initial load omits review and stack fields until enrichment completes.
+A focused PR refresh re-observes every open member of its native stack. Other
+rows can retain older observations; use `stack.observedAt` for that stack record.
+
+These two fields are optional so existing stored PR facts remain readable
+without a database migration. Missing fields mean not yet observed, rather
+than no approval or no stack. Existing authored HTML continues to receive the
+same flat array with added fields. Update desktop, CLI, and hub together:
+older strict protocol decoders reject newly enriched replies and saved rows.
 
 `note`, `snooze`, `review`, and `assessment` mutations use independent current
 versions. `expectedVersion` selects `local.noteVersion`, `local.snoozeVersion`,
@@ -434,9 +479,20 @@ inbox.watch((prs, context, sync) => {
 });
 ```
 
-`sync()` requests refresh. `detail(nodeId, section)` returns the complete
+`sync()` requests refresh. `detail(nodeId, section, {headOid,baseOid})` returns the complete
 commit-bound detail object; `section` is an app hint and does not limit that
-reply. Local mutation methods require the version the user acted on:
+reply. `watchDetail(nodeId, displayedHeadOid, displayedBaseOid, callback)` reports
+the inspected PR and receives refreshed `{ body, reviews, fetchedAt, error }`
+alongside its tab, PR, and captured commit IDs. It returns an unsubscribe function.
+Subscribe when opening or switching a PR and unsubscribe on closing the pane.
+The most recently registered detail subscription identifies the inspected PR.
+Failed updates retain the prior content and carry an error; they do not replace
+the captured diff. Existing apps using only `detail` remain supported.
+Each review retains its own `headOid`; the subscription commit IDs identify the
+pane's displayed comparison. Description and reviews continue refreshing when
+the current head or base changes, while the captured diff stays fixed.
+
+Local mutation methods require the version the user acted on:
 
 | Method                                                           | Version argument         |
 | ---------------------------------------------------------------- | ------------------------ |
@@ -513,3 +569,45 @@ The CLI documents the agent workflow and schema with `irudd-scope plan guide`.
 Feedback exports include `packet.json`, originating `plan.html` and both PNGs for
 each comment. Export retrieves only the selected round, not the entire history.
 They are explicit copies; plan storage stays in SQLite.
+
+## Outbound HTML publication
+
+`src/publications.ts` defines validated agent-assisted publishing commands and
+snapshots. `ScopeClient.publications` posts commands to `/v1/publications` with a
+256 KiB request bound and 1 MiB reply bound. `publicationContent(id, operationId)`
+reads the operation's exact retained HTML through
+`GET /v1/publications/:id/operations/:operationId/content`. Content retains the
+ordinary 32 MiB bound. Both routes require authentication and an online desktop;
+hubs forward them without offline buffering.
+
+Snapshots identify the artifact, owning tab UUID, and Claude/Sites destinations.
+Each destination contains a nullable successful checkpoint and unresolved
+operation. `prepare` pins the current revision and blob to an operation UUID.
+`authorize` acknowledges the operation's overwrite warning and checks the displayed `expectedObservation` against current semantic facts. `refresh` accepts a
+fresh observation and preserves acknowledgement only when the destination,
+account, audience, permission, version and date are unchanged. `start` records
+permission before the first provider mutation. `progress` records returned
+remote IDs and Sites version/deployment IDs. `complete` records confirmed
+success. `cancel` and `unlink` require explicit uncertainty acknowledgement for
+started work. Neither deletes provider content.
+
+Provider observations are supplied by the authenticated agent. Unknown or public
+privacy blocks writes. Changed remote versions, newer edit dates, or missing
+comparable metadata warn. Sites requires owner-only native deployment and an
+explicit acknowledgement for existing destinations because its tools cannot
+conditionally reject concurrent content edits. Claude keeps its native version
+guard; its list alone does not establish the audience. A provider failure must
+be reconciled before a started operation can be retried.
+
+The latest checkpoint and unresolved operation protect their stored HTML bytes.
+Operations survive desktop restart and preparation expiry. Completion uses the
+operation UUID for idempotency and rejects changed result replays. Sites
+completion needs an exact saved version, source commit, deployment ID, and
+attested terminal success for the matching project/version. A saved version or
+pending deployment is insufficient. Scope performs no provider calls, pull,
+conflict resolution, or background synchronization.
+
+`{ type: "publications", id, tabId }` live events notify changed publication
+state. Reconnect and read the snapshot to recover missed events. Read commands
+do not refresh provider metadata. The CLI's `publications guide` exposes the
+installed exact schema and workflow.

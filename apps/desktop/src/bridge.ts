@@ -1,3 +1,8 @@
+import type {
+  PublicationsCommand,
+  PublicationsReply,
+  PublicationsEvent,
+} from "@irudd-scope/protocol/publications";
 import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
 import type { TabAgentRequest } from "./plugins/diagram/connected-agent.ts";
 import type { DiagramCommandRequest, DiagramCommandResponse } from "./plugins/diagram/commands.ts";
@@ -17,6 +22,15 @@ import type {
   TransferStatus,
 } from "./transfer/contract.ts";
 import type { DiagramMenuAction, DiagramMenuState } from "./menu-contract.ts";
+import type {
+  PullRequestsInterest,
+  PullRequestsDetailUpdate,
+} from "./plugins/pull-requests/interest.ts";
+import type {
+  PullRequestsExternalLink,
+  PullRequestsFrame,
+  PullRequestsLinkResult,
+} from "./plugins/pull-requests/contract.ts";
 
 export type ArtifactLibrarySnapshot = {
   artifacts: Artifact[];
@@ -36,6 +50,9 @@ import type {
 } from "@irudd-scope/protocol/pull-requests";
 
 export type ScopeBridge = {
+  publicationsCommand: (command: PublicationsCommand) => Promise<PublicationsReply>;
+  onPublicationsChanged: (listener: (event: PublicationsEvent) => void) => () => void;
+  onPublicationsReconnected: (listener: () => void) => () => void;
   createPullRequests: (input: {
     name: string;
     title: string;
@@ -43,6 +60,12 @@ export type ScopeBridge = {
     repository: PullRequestsRepository;
   }) => Promise<Artifact>;
   pullRequestsCommand: (command: PullRequestsCommand) => Promise<PullRequestsReply>;
+  pullRequestsInterest: (input: PullRequestsInterest) => Promise<void>;
+  onPullRequestsDetailUpdate: (listener: (event: PullRequestsDetailUpdate) => void) => () => void;
+  openPullRequestsLink: (input: PullRequestsExternalLink) => Promise<void>;
+  registerPullRequestsFrame: (input: PullRequestsFrame) => Promise<void>;
+  unregisterPullRequestsFrame: (input: PullRequestsFrame) => Promise<void>;
+  onPullRequestsLinkResult: (listener: (result: PullRequestsLinkResult) => void) => () => void;
   onPullRequestsReconnected: (listener: () => void) => () => void;
   onPullRequestsChanged: (listener: (event: PullRequestsEvent) => void) => () => void;
   createPlan: (input: { name: string; title: string; html: string }) => Promise<Artifact>;

@@ -14,7 +14,8 @@
     "./voice": "./src/voice.ts",
     "./plan": "./src/plan.ts",
     "./pull-requests": "./src/pull-requests.ts",
-    "./transfer": "./src/transfer.ts"
+    "./transfer": "./src/transfer.ts",
+    "./publications": "./src/publications.ts"
   },
   "dependencies": {
     "effect": "catalog:"

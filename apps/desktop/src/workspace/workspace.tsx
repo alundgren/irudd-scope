@@ -1,6 +1,8 @@
+import { PublicationDialog } from "./publication-dialog.tsx";
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
+  Upload,
   Maximize2,
   Minimize2,
   Settings,
@@ -31,12 +33,14 @@ import { WorkspaceSearch } from "./search.tsx";
 
 import type { Tab } from "./contract.ts";
 import { TabBar } from "./tab-bar.tsx";
+import { FloatingOverlay } from "../renderer/components/ui/floating-overlay.tsx";
 import { TabHost } from "./tab-host.tsx";
 import { TabEventRouter } from "./events.ts";
 import { PresentationPointer } from "./presentation-pointer.tsx";
+import { observeFrameKeyboard } from "./frame-documents.ts";
 import { pluginTools, pluginForArtifact, tabArtifactId } from "../plugins/registry.renderer.ts";
 
-type DiagramMode = "edit" | "view" | "present";
+type FullscreenMode = "edit" | "view" | "present";
 
 export function App({ initialSettings }: { initialSettings: SettingsView | undefined }) {
   const { theme, setAppearance } = useAppearance(initialSettings?.appearance ?? "system");
@@ -49,15 +53,16 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const [overflow, setOverflow] = useState(false);
   const [query, setQuery] = useState("");
   const [focus, setFocus] = useState(false);
-  const [diagramMode, setDiagramMode] = useState<DiagramMode>("edit");
+  const [fullscreenMode, setFullscreenMode] = useState<FullscreenMode>("edit");
   const [details, setDetails] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState("");
   useEffect(
     () =>
       window.scope.onFullscreenChange((value) => {
         setOverflow(false);
         setFocus(value);
-        if (!value) setDiagramMode("edit");
+        if (!value) setFullscreenMode("edit");
       }),
     [],
   );
@@ -85,6 +90,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     moveTab,
     updateTab,
     updateState,
+    updateOverlayPosition,
   } = useWorkspace(setError);
   const retention = useTabRetention(workspaceReady, setError);
   // Moving an iframe resets its document, so panel order must be independent of tab order.
@@ -96,7 +102,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   useEffect(() => {
     if (!workspace.tabs.length) {
       setFocus(false);
-      setDiagramMode("edit");
+      setFullscreenMode("edit");
     }
   }, [workspace.tabs.length]);
   const tabButtons = useRef(new Map<string, HTMLButtonElement>());
@@ -104,9 +110,12 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const modeSelect = useRef<HTMLSelectElement>(null);
   const artifacts = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const active = workspace.tabs.find((tab) => tab.id === workspace.selected);
-  const returnFocus = focus && active?.type === "diagram" ? modeSelect : controlsButton;
-  const viewing = focus && active?.type === "diagram" && diagramMode !== "edit";
-  const presentation = viewing && diagramMode === "present";
+  const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
+  const html = ["html", "plan", "pull-requests"].includes(activeArtifact?.kind ?? "");
+  const hasModes = active?.type === "diagram" || html;
+  const returnFocus = focus && hasModes ? modeSelect : controlsButton;
+  const viewing = focus && active?.type === "diagram" && fullscreenMode !== "edit";
+  const presentation = focus && hasModes && fullscreenMode === "present";
   const trashedArtifacts = new Set(
     retention.tabs
       .filter((entry) => entry.trashedAt !== null)
@@ -121,7 +130,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   useEffect(() => {
     if (focus) retention.reportVisible(workspace.selected ? [workspace.selected] : []);
   }, [focus, workspace.selected, retention.reportVisible]);
-  const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
   useEffect(() => {
     if (activeArtifact) markRead(activeArtifact.id);
   }, [activeArtifact?.id, activeArtifact?.revision]);
@@ -220,7 +228,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       return;
     const artifactId = tabArtifactId(tab);
     if (artifactId) markRead(artifactId);
-    if (tab.id !== workspace.selected) setDiagramMode("edit");
+    if (tab.id !== workspace.selected) setFullscreenMode("edit");
     setSearch(false);
     setCreating(null);
     if (keyboard) requestAnimationFrame(() => tabButtons.current.get(tab.id)?.focus());
@@ -248,7 +256,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     if (!retention.ready) return;
     if (retention.tabs.find((entry) => entry.tab.id === id)?.permanent) {
       const selected = deferTab(id);
-      if (workspace.selected === id) setDiagramMode("edit");
+      if (workspace.selected === id) setFullscreenMode("edit");
       requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
       return;
     }
@@ -260,7 +268,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     const tabs = workspace.tabs.filter((tab) => tab.id !== id);
     const selected =
       workspace.selected === id ? (tabs[Math.max(0, index - 1)]?.id ?? null) : workspace.selected;
-    if (workspace.selected === id) setDiagramMode("edit");
+    if (workspace.selected === id) setFullscreenMode("edit");
     if (!tabs.length) setFocus(false);
     requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
   }
@@ -278,18 +286,20 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     setSettingsQuery(filter);
     setSettings(true);
     setDetails(false);
+    setPublishing(false);
     setSearch(false);
   }
   function openSearch() {
     setOverflow(false);
     setSettings(false);
     setDetails(false);
+    setPublishing(false);
     setQuery("");
     setSearch(true);
   }
   function toggleFocus() {
     setOverflow(false);
-    if (focus) setDiagramMode("edit");
+    setFullscreenMode(!focus && html ? "view" : "edit");
     setFocus(!focus);
   }
   async function download() {
@@ -312,10 +322,13 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       } else if (command && event.key === ",") {
         event.preventDefault();
         openSettings();
-      } else if (search || settings || details || overflow) return;
-      else if (event.key === "Escape" && viewing) {
+      } else if (search || settings || details || publishing || overflow) return;
+      else if (event.key === "Escape" && html && presentation) {
         event.preventDefault();
-        setDiagramMode("edit");
+        setFullscreenMode("view");
+      } else if (event.key === "Escape" && viewing) {
+        event.preventDefault();
+        setFullscreenMode("edit");
       } else if (event.key === "Escape" && focus) {
         event.preventDefault();
         toggleFocus();
@@ -334,7 +347,12 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       }
     };
     window.addEventListener("keydown", keyboard);
-    return () => window.removeEventListener("keydown", keyboard);
+    const pane = active && document.getElementById(`pane-${active.id}`);
+    const stopFrames = html && pane ? observeFrameKeyboard(pane, keyboard) : undefined;
+    return () => {
+      stopFrames?.();
+      window.removeEventListener("keydown", keyboard);
+    };
   });
   if (!workspaceReady) return <p role="status">Opening workspace…</p>;
   const content = (
@@ -365,40 +383,52 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           onSearch={openSearch}
         />
       )}
-      {focus && (
-        <div className="focus-controls">
-          {active?.type === "diagram" ? (
-            <NativeSelect
-              size="sm"
-              className="diagram-mode-select"
-              ref={modeSelect}
-              aria-label="Fullscreen diagram mode"
-              value={diagramMode}
-              onChange={(event) => {
-                if (event.target.value === "tabs") toggleFocus();
-                else setDiagramMode(event.target.value as DiagramMode);
-              }}
-            >
-              <NativeSelectOption value="edit">Edit</NativeSelectOption>
-              <NativeSelectOption value="view">View</NativeSelectOption>
-              <NativeSelectOption value="present">Present</NativeSelectOption>
-              <NativeSelectOption value="tabs">Back to tabs</NativeSelectOption>
-            </NativeSelect>
-          ) : (
-            <Button
-              variant="secondary"
-              size="icon-xs"
-              ref={controlsButton}
-              aria-label="Exit focus mode"
-              title="Exit fullscreen · Escape"
-              onClick={toggleFocus}
-            >
-              <Minimize2 />
-            </Button>
+      {focus && active && (
+        <FloatingOverlay
+          key={active.id}
+          className="focus-controls"
+          label="fullscreen controls"
+          handleSize="icon-xs"
+          position={active.overlayPositions?.fullscreen}
+          onPosition={(position) => updateOverlayPosition(active.id, "fullscreen", position)}
+        >
+          {(handle) => (
+            <>
+              {handle}
+              {hasModes ? (
+                <NativeSelect
+                  size="sm"
+                  className="fullscreen-mode-select"
+                  ref={modeSelect}
+                  aria-label={html ? "Fullscreen HTML mode" : "Fullscreen diagram mode"}
+                  value={html && fullscreenMode === "edit" ? "view" : fullscreenMode}
+                  onChange={(event) => {
+                    if (event.target.value === "tabs") toggleFocus();
+                    else setFullscreenMode(event.target.value as FullscreenMode);
+                  }}
+                >
+                  {!html && <NativeSelectOption value="edit">Edit</NativeSelectOption>}
+                  <NativeSelectOption value="view">View</NativeSelectOption>
+                  <NativeSelectOption value="present">Present</NativeSelectOption>
+                  <NativeSelectOption value="tabs">Back to tabs</NativeSelectOption>
+                </NativeSelect>
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="icon-xs"
+                  ref={controlsButton}
+                  aria-label="Exit focus mode"
+                  title="Exit fullscreen · Escape"
+                  onClick={toggleFocus}
+                >
+                  <Minimize2 />
+                </Button>
+              )}
+            </>
           )}
-        </div>
+        </FloatingOverlay>
       )}
-      {presentation && <PresentationPointer />}
+      {presentation && active && <PresentationPointer tabId={active.id} />}
       {workspaceSave.error && (
         <div className="error-bar" role="alert">
           Could not save open tabs.
@@ -447,6 +477,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                 artifact={artifact}
                 router={events}
                 updateState={updateState}
+                updateOverlayPosition={updateOverlayPosition}
                 theme={theme}
                 focus={focus && id === workspace.selected}
                 viewing={viewing && id === workspace.selected}
@@ -511,7 +542,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         artifacts={activeArtifacts}
         onOpenArtifact={open}
         onOpenSettings={openSettings}
-        finalFocus={settings || details ? false : returnFocus}
+        finalFocus={settings || details || publishing ? false : returnFocus}
         actions={[
           {
             id: "settings",
@@ -563,6 +594,20 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                           icon: Download,
                           onSelect: () => void download(),
                         },
+                        ...(activeArtifact.kind === "html" || activeArtifact.kind === "plan"
+                          ? [
+                              {
+                                id: "publish",
+                                title: "Publish with coding agent",
+                                keywords: "publish claude artifact codex openai sites sync",
+                                icon: Upload,
+                                onSelect: () => {
+                                  setPublishing(true);
+                                  setSearch(false);
+                                },
+                              },
+                            ]
+                          : []),
                         {
                           id: "details",
                           title: "Artifact details",
@@ -610,6 +655,16 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             }}
           />
         </SettingsDialog>
+      </Dialog>
+      <Dialog open={publishing} onOpenChange={setPublishing}>
+        {activeArtifact && (
+          <PublicationDialog
+            key={activeArtifact.id}
+            artifact={activeArtifact}
+            open={publishing}
+            finalFocus={search ? false : returnFocus}
+          />
+        )}
       </Dialog>
       <Dialog open={details} onOpenChange={setDetails}>
         <DialogContent finalFocus={search ? false : returnFocus}>

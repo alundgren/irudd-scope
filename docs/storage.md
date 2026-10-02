@@ -316,3 +316,23 @@ retries do not repeat the write; changed payloads under the same ID conflict.
 Every command except a name lookup pins the saved tab UUID, so a command for a
 deleted tab cannot modify a new tab that reuses its name. Exported command and
 snapshot files are explicit copies and are not Scope's persistent store.
+
+## Outbound publication checkpoints
+
+The additive artifact database migration retains existing tab and artifact
+records. Each tab can retain one Claude destination and one Sites destination.
+Each destination has its latest successful checkpoint and at most one unresolved
+operation. Both reference the exact stored HTML blob, protecting it from upload
+reclamation and replacement by a newer local revision.
+
+An operation UUID identifies its prepared bytes, observed remote facts, and
+completion receipt. Preparation freshness limits permission to start a provider
+write, but does not expire the recovery record. Started operations remain until
+reconciled completion, explicit cancellation, or unlink. Completion retries with
+the same result return the saved checkpoint; changed results under the same UUID
+conflict. A completion for an older local revision leaves newer HTML pending.
+
+Closing or trashing a tab retains these records. Permanent deletion removes them
+with the tab. Unlink removes only Scope's destination and checkpoint; provider
+content remains. Scope stores no provider tokens. Backup and restore must include
+`scope.db` to retain links and unresolved publication recovery.

@@ -1,15 +1,39 @@
+import { powerMonitor } from "electron";
+import { PullRequestsInterest } from "./interest.ts";
 import { randomUUID } from "node:crypto";
 import { Schema } from "effect";
 import { ArtifactName, decode } from "@irudd-scope/protocol";
 import { PullRequestsCommand, PullRequestsRepository } from "@irudd-scope/protocol/pull-requests";
 import type { MainPluginContext } from "../main-api.ts";
 import { PullRequestSync } from "./sync.ts";
+import { registerPullRequestsExternalLinks } from "./external-links.ts";
 
-export function registerPullRequestsIpc({ handle, artifacts, client }: MainPluginContext) {
-  const syncing = new PullRequestSync(artifacts.pullRequests);
+export function registerPullRequestsIpc(context: MainPluginContext) {
+  const { handle, artifacts, client, window } = context;
+  const links = registerPullRequestsExternalLinks(context);
+  const syncing = new PullRequestSync(artifacts.pullRequests, undefined, {
+    onDetail: (update) => {
+      if (!window.isDestroyed())
+        window.webContents.send("scope:pull-requests-detail-update", update);
+    },
+  });
+  const unsubscribe = artifacts.subscribe(() => {
+    void syncing.reconcile().catch(() => {});
+  });
+  const suspend = () => syncing.cancelPending();
+  const resume = () => {
+    void syncing.resume().catch(() => {});
+  };
+  powerMonitor.on("suspend", suspend);
+  powerMonitor.on("resume", resume);
+  window.webContents.on("destroyed", suspend);
+  void syncing.start().catch(() => {});
+  handle("scope:pull-requests-interest", (value) =>
+    syncing.interest(decode(PullRequestsInterest, value)),
+  );
   artifacts.pullRequests.setHandlers({
     sync: (tabId) => syncing.sync(tabId),
-    detail: (tabId, nodeId) => syncing.detail(tabId, nodeId),
+    detail: (tabId, nodeId, captured) => syncing.detail(tabId, nodeId, captured),
   });
   handle("scope:create-pull-requests", async (value) => {
     const input = decode(
@@ -50,9 +74,15 @@ export function registerPullRequestsIpc({ handle, artifacts, client }: MainPlugi
   );
   return {
     cancelPending: () => syncing.cancelPending(),
+    resume: () => syncing.resume(),
     cancelTabs: (ids: readonly string[]) => syncing.cancelTabs(ids),
     dispose: () => {
+      links.dispose();
       syncing.cancelPending();
+      unsubscribe();
+      powerMonitor.removeListener("suspend", suspend);
+      powerMonitor.removeListener("resume", resume);
+      window.webContents.removeListener("destroyed", suspend);
       artifacts.pullRequests.setHandlers(undefined);
     },
   };

@@ -73,7 +73,11 @@ for (const appearance of ["light", "dark"] as const) {
       expect(await note().inputValue()).toBe("Keep this unsaved browser state");
       expect(await page.getByRole("tab", { name: title }).getAttribute("id")).toBe(permanentId);
       await page.keyboard.press("ControlOrMeta+w");
-      await page.getByRole("tab", { name: "Charlie", selected: true }).waitFor();
+      const neighbor = page.getByRole("tab", { name: "Charlie", selected: true });
+      await neighbor.waitFor();
+      await expect
+        .poll(() => neighbor.evaluate((element) => element === document.activeElement))
+        .toBe(true);
       await page.getByRole("tab", { name: title }).focus();
       await page.keyboard.press("Alt+ArrowLeft");
       await expect.poll(order).toEqual(["Bravo", title, "Charlie"]);
