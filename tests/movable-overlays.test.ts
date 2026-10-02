@@ -158,7 +158,8 @@ test("fullscreen controls keep their position through focus, resizing, tabs, and
     expect((await bounds(controls)).x).toBeCloseTo(original.x - 210, 1);
     expect((await bounds(controls)).y).toBeCloseTo(original.y + 150, 1);
     const moved = await bounds(controls);
-    await controls.getByRole("button", { name: "Exit focus mode" }).click();
+    await controls.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("present");
+    await controls.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
     expect(
       await page.frameLocator(".plan-document").getByLabel("Authored draft").inputValue(),
     ).toBe("Fullscreen draft");
@@ -175,7 +176,7 @@ test("fullscreen controls keep their position through focus, resizing, tabs, and
     await page.keyboard.press("ControlOrMeta+Shift+f");
     await move.waitFor();
     await expect.poll(() => bounds(controls)).toEqual(original);
-    await controls.getByRole("button", { name: "Exit focus mode" }).click();
+    await controls.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
     await page.getByRole("tab", { name: "Focus plan", exact: true }).click();
     await page
       .getByRole("tabpanel", { name: "Focus plan" })
@@ -188,7 +189,7 @@ test("fullscreen controls keep their position through focus, resizing, tabs, and
     await page.setViewportSize({ width: 450, height: 350 });
     await expect.poll(() => fits(controls, page.locator(".workspace"))).toBe(true);
     await screenshot(page, "movable-fullscreen-small.png");
-    await controls.getByRole("button", { name: "Exit focus mode" }).click();
+    await controls.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
     await application.close();
     application = await launch();
     page = await application.firstWindow();
@@ -201,7 +202,7 @@ test("fullscreen controls keep their position through focus, resizing, tabs, and
     await move.focus();
     await page.keyboard.press("Home");
     await expect.poll(async () => (await bounds(controls)).y).toBeCloseTo(original.y, 1);
-    await controls.getByRole("button", { name: "Exit focus mode" }).click();
+    await controls.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
   } finally {
     await application.close();
     await rm(directory, { recursive: true, force: true });
