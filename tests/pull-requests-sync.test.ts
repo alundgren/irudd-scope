@@ -64,6 +64,10 @@ function pr(
     headRefOid: head,
     headRefName: "feature",
     baseRefOid: base,
+    stack: null,
+    stackEntry: null,
+    reviewDecision: null,
+    latestOpinionatedReviews: { totalCount: 0, nodes: [], pageInfo: complete },
     reviewRequests: {
       nodes: [
         {

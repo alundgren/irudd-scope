@@ -20,6 +20,11 @@ import type {
   PullRequestsInterest,
   PullRequestsDetailUpdate,
 } from "./plugins/pull-requests/interest.ts";
+import type {
+  PullRequestsExternalLink,
+  PullRequestsFrame,
+  PullRequestsLinkResult,
+} from "./plugins/pull-requests/contract.ts";
 
 export type ArtifactLibrarySnapshot = {
   artifacts: Artifact[];
@@ -51,6 +56,10 @@ export type ScopeBridge = {
   pullRequestsCommand: (command: PullRequestsCommand) => Promise<PullRequestsReply>;
   pullRequestsInterest: (input: PullRequestsInterest) => Promise<void>;
   onPullRequestsDetailUpdate: (listener: (event: PullRequestsDetailUpdate) => void) => () => void;
+  openPullRequestsLink: (input: PullRequestsExternalLink) => Promise<void>;
+  registerPullRequestsFrame: (input: PullRequestsFrame) => Promise<void>;
+  unregisterPullRequestsFrame: (input: PullRequestsFrame) => Promise<void>;
+  onPullRequestsLinkResult: (listener: (result: PullRequestsLinkResult) => void) => () => void;
   onPullRequestsReconnected: (listener: () => void) => () => void;
   onPullRequestsChanged: (listener: (event: PullRequestsEvent) => void) => () => void;
   createPlan: (input: { name: string; title: string; html: string }) => Promise<Artifact>;

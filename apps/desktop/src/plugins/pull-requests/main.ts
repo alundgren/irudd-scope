@@ -6,8 +6,11 @@ import { ArtifactName, decode } from "@irudd-scope/protocol";
 import { PullRequestsCommand, PullRequestsRepository } from "@irudd-scope/protocol/pull-requests";
 import type { MainPluginContext } from "../main-api.ts";
 import { PullRequestSync } from "./sync.ts";
+import { registerPullRequestsExternalLinks } from "./external-links.ts";
 
-export function registerPullRequestsIpc({ handle, artifacts, client, window }: MainPluginContext) {
+export function registerPullRequestsIpc(context: MainPluginContext) {
+  const { handle, artifacts, client, window } = context;
+  const links = registerPullRequestsExternalLinks(context);
   const syncing = new PullRequestSync(artifacts.pullRequests, undefined, {
     onDetail: (update) => {
       if (!window.isDestroyed())
@@ -74,6 +77,7 @@ export function registerPullRequestsIpc({ handle, artifacts, client, window }: M
     resume: () => syncing.resume(),
     cancelTabs: (ids: readonly string[]) => syncing.cancelTabs(ids),
     dispose: () => {
+      links.dispose();
       syncing.cancelPending();
       unsubscribe();
       powerMonitor.removeListener("suspend", suspend);

@@ -24,6 +24,31 @@ export const PullRequestsRepository = Schema.Struct({
   name: Schema.String.check(Schema.isPattern(/^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/)),
 });
 export type PullRequestsRepository = typeof PullRequestsRepository.Type;
+export const PullRequestReviewStatus = Schema.Struct({
+  decision: Schema.NullOr(Schema.Literals(["approved", "changes-requested", "review-required"])),
+  hasApproval: Schema.NullOr(Schema.Boolean),
+  headOid: PullRequestCommit,
+  observedAt: Timestamp,
+});
+export const PullRequestStackMember = Schema.Struct({
+  nodeId: PullRequestNodeId,
+  number: Schema.Int.check(Schema.isGreaterThan(0)),
+  position: Schema.Int.check(Schema.isGreaterThan(0)),
+  state: Schema.Literals(["open", "closed", "merged"]),
+  draft: Schema.Boolean,
+});
+export const PullRequestStack = Schema.Struct({
+  nodeId: PullRequestNodeId,
+  number: Schema.Int.check(Schema.isGreaterThan(0)),
+  position: Schema.Int.check(Schema.isGreaterThan(0)),
+  size: Schema.Int.check(Schema.isGreaterThan(0)),
+  baseRefName: ShortText,
+  members: Schema.Array(PullRequestStackMember),
+  readyForReview: Schema.Boolean,
+  approved: Schema.NullOr(Schema.Boolean),
+  observedAt: Timestamp,
+});
+export type PullRequestStack = typeof PullRequestStack.Type;
 export const PullRequestFacts = Schema.Struct({
   nodeId: PullRequestNodeId,
   number: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER })),
@@ -33,6 +58,8 @@ export const PullRequestFacts = Schema.Struct({
   headOid: PullRequestCommit,
   headRefName: ShortText,
   baseOid: PullRequestCommit,
+  review: Schema.optionalKey(PullRequestReviewStatus),
+  stack: Schema.optionalKey(Schema.NullOr(PullRequestStack)),
   draft: Schema.Boolean,
   additions: Revision,
   deletions: Revision,

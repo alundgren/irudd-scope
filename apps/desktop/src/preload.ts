@@ -11,6 +11,7 @@ import type { DiagramMenuAction } from "./menu-contract.ts";
 import type { PlanEvent } from "@irudd-scope/protocol/plan";
 import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
 import type { PullRequestsDetailUpdate } from "./plugins/pull-requests/interest.ts";
+import type { PullRequestsLinkResult } from "./plugins/pull-requests/contract.ts";
 
 const bridge: ScopeBridge = {
   publicationsCommand: (input) => ipcRenderer.invoke("scope:publications-command", input),
@@ -31,6 +32,16 @@ const bridge: ScopeBridge = {
     const receive = (_event: unknown, event: PullRequestsDetailUpdate) => listener(event);
     ipcRenderer.on("scope:pull-requests-detail-update", receive);
     return () => ipcRenderer.removeListener("scope:pull-requests-detail-update", receive);
+  },
+  openPullRequestsLink: (input) => ipcRenderer.invoke("scope:open-pull-requests-link", input),
+  registerPullRequestsFrame: (input) =>
+    ipcRenderer.invoke("scope:register-pull-requests-frame", input),
+  unregisterPullRequestsFrame: (input) =>
+    ipcRenderer.invoke("scope:unregister-pull-requests-frame", input),
+  onPullRequestsLinkResult: (listener) => {
+    const receive = (_event: unknown, result: PullRequestsLinkResult) => listener(result);
+    ipcRenderer.on("scope:pull-requests-link-result", receive);
+    return () => ipcRenderer.removeListener("scope:pull-requests-link-result", receive);
   },
   onPullRequestsReconnected: (listener) => {
     const receive = () => listener();

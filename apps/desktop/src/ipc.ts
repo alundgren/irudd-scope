@@ -87,16 +87,17 @@ export function registerDesktopIpc({
     diagrams.cancelAll();
     connectedAgents.close();
   };
-  const navigating = (
+  const navigated = (
     _event: Electron.Event,
     _url: string,
-    inPlace: boolean,
+    _statusCode: number,
+    _statusText: string,
     mainFrame: boolean,
   ) => {
-    if (mainFrame && !inPlace) rendererUnavailable();
+    if (mainFrame) rendererUnavailable();
   };
   window.webContents.on("render-process-gone", rendererUnavailable);
-  window.webContents.on("did-start-navigation", navigating);
+  window.webContents.on("did-frame-navigate", navigated);
   handle("scope:diagram-agent-status", (input) =>
     connectedAgents.status(decode(ArtifactId, input)),
   );
@@ -279,7 +280,7 @@ export function registerDesktopIpc({
       stopPullRequestsEvents();
       stopPullRequestsReconnects();
       window.webContents.removeListener("render-process-gone", rendererUnavailable);
-      window.webContents.removeListener("did-start-navigation", navigating);
+      window.webContents.removeListener("did-frame-navigate", navigated);
       window.removeListener("enter-full-screen", enteredFullscreen);
       window.removeListener("leave-full-screen", leftFullscreen);
       plugins.cancelPending();

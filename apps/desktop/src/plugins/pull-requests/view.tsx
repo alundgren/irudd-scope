@@ -70,6 +70,7 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
   const [content, setContent] = useState<{ html: string; revision: number }>();
   const [readError, setReadError] = useState("");
   const [contentError, setContentError] = useState("");
+  const [linkError, setLinkError] = useState("");
   const [retry, setRetry] = useState(0);
   const [freshness, setFreshness] = useState<PullRequestsSnapshot["sync"]>();
   const [prCount, setPrCount] = useState(0);
@@ -214,6 +215,22 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
   useEffect(() => {
     let commands = Promise.resolve();
     let mounted = true;
+    let registration: Promise<void> | undefined;
+    const stopLinks = window.scope.onPullRequestsLinkResult((result) => {
+      if (result.tabId !== context.tabId || result.channel !== identity.channel) return;
+      setLinkError(
+        result.error ? `Could not open the browser. ${result.error} Retry the link.` : "",
+      );
+      iframe.current?.contentWindow?.postMessage(
+        {
+          ...identity,
+          type: "scope-pull-requests-link-result",
+          url: result.url,
+          error: result.error,
+        },
+        "*",
+      );
+    });
     flushFrame.current = () => {
       if (!frameReady.current) return Promise.resolve();
       const id = crypto.randomUUID();
@@ -248,6 +265,12 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
         return;
       }
       if (call.type === "scope-pull-requests-ready") {
+        if (!registration && name) {
+          registration = window.scope.registerPullRequestsFrame({ ...identity, name });
+          void registration.catch(() => {
+            if (mounted) setLinkError("Could not set up browser links. Reopen the inbox.");
+          });
+        }
         sent.current = "";
         frameReady.current = true;
         sendSnapshot();
@@ -276,6 +299,33 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
         !Array.isArray(call.args)
       )
         return;
+      if (call.method === "openExternal") {
+        void (async () => {
+          let error: string | undefined;
+          try {
+            if (!name || call.args.length !== 1 || typeof call.args[0] !== "string")
+              throw new Error("Choose a valid PR inbox link.");
+            await window.scope.openPullRequestsLink({
+              name,
+              tabId: context.tabId,
+              url: call.args[0],
+            });
+            if (mounted) setLinkError("");
+          } catch (failure) {
+            error = failureMessage(failure).replace(
+              /^Error invoking remote method 'scope:open-pull-requests-link': Error: /,
+              "",
+            );
+            if (mounted) setLinkError(`Could not open the browser. ${error} Retry the link.`);
+          }
+          if (mounted)
+            iframe.current?.contentWindow?.postMessage(
+              { ...identity, type: "scope-pull-requests-reply", id: call.id, error },
+              "*",
+            );
+        })();
+        return;
+      }
       const execute = async () => {
         if (!mounted) return;
         try {
@@ -364,6 +414,11 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
       mounted = false;
       frameReady.current = false;
       stopClosing();
+      stopLinks();
+      if (registration && name)
+        void registration
+          .then(() => window.scope.unregisterPullRequestsFrame({ ...identity, name }))
+          .catch(() => {});
       for (const pending of closeRequests.current.values()) {
         clearTimeout(pending.timer);
         pending.reject(new Error("The PR app closed before saving completed."));
@@ -438,6 +493,14 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
           {target ? ` · Refresh target ${target}` : ""}
         </div>
       )}
+      {linkError && (
+        <div role="alert">
+          {linkError}{" "}
+          <Button variant="ghost" onClick={() => setLinkError("")}>
+            Dismiss
+          </Button>
+        </div>
+      )}
       {(contentError || readError) && (
         <div role="alert">
           {contentError || readError}{" "}
@@ -448,7 +511,9 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
       )}
       {document && (
         <iframe
+          key={identity.channel}
           ref={iframe}
+          name={`scope-pull-requests-${context.tabId}-${identity.channel}`}
           title={artifact?.title ?? "PR inbox"}
           className="html-preview pull-requests-document"
           style={{ flex: 1, minHeight: 0 }}

@@ -394,6 +394,35 @@ enrichment finishes. Failed enrichment keeps the valid base rows; incomplete
 membership reads keep the previous list. Once the base inventory is committed,
 retries and later refreshes commit enriched facts atomically, including after restart. Optional scheduler status is supplied to authored apps by the desktop.
 
+`review` adds `{ decision, hasApproval, headOid, observedAt }`. `decision` is
+GitHub's overall `approved`, `changes-requested`, or `review-required` decision,
+or null when GitHub supplies none. `hasApproval` is true when any reviewer's
+current opinion is an active approval, even if another reviewer requests
+changes. Dismissed and superseded approvals do not count. Null means that the
+observed head changed during retrieval. This flag does not assert that required
+reviews, CI, or other merge rules are satisfied.
+
+`stack` is null for a known standalone PR or a native GitHub stack record with
+`nodeId`, `number`, `position`, `size`, `baseRefName`, `members`,
+`readyForReview`, `approved`, and `observedAt`. Members are ordered by native
+position, starting at 1 nearest the target branch, and include PR `nodeId`,
+`number`, `position`, `state` (`open`, `closed`, or `merged`), and `draft`.
+`readyForReview` means every open member is out of draft. `approved` means every
+open member has an active approval; it is null if approval is unknown and no
+member is known to lack one. Closed and merged members do not affect either
+flag. Membership uses GitHub's native stack records, without branch inference.
+Complete membership and review pagination are required before saving a refresh.
+
+The lightweight initial load omits review and stack fields until enrichment completes.
+A focused PR refresh re-observes every open member of its native stack. Other
+rows can retain older observations; use `stack.observedAt` for that stack record.
+
+These two fields are optional so existing stored PR facts remain readable
+without a database migration. Missing fields mean not yet observed, rather
+than no approval or no stack. Existing authored HTML continues to receive the
+same flat array with added fields. Update desktop, CLI, and hub together:
+older strict protocol decoders reject newly enriched replies and saved rows.
+
 `note`, `snooze`, `review`, and `assessment` mutations use independent current
 versions. `expectedVersion` selects `local.noteVersion`, `local.snoozeVersion`,
 `local.reviewVersion`, or `agent.version`, respectively. Inspection and review
