@@ -1,6 +1,7 @@
 import type { PullRequestStore, PullRequestsInventory } from "../../library/pull-request-store.ts";
 import type {
   PullRequestDetail,
+  PullRequestFacts,
   PullRequestsRepository,
   PullRequestsSnapshot,
 } from "@irudd-scope/protocol/pull-requests";
@@ -20,8 +21,9 @@ type Group = {
   failures: number;
   cost: number;
   targetCost: number;
-  closed: Set<string>;
+  closed: Map<string, string>;
   inventory?: PullRequestsInventory;
+  full: boolean;
 };
 type Scheduling = {
   now?: () => number;
@@ -49,10 +51,14 @@ export class PullRequestSync {
   private readonly charges: { at: number; cost: number }[] = [];
   private account: string | null = null;
   private reserveUntil = 0;
+  private accountCheckAt = -Infinity;
+  private accountProbe?: Promise<void>;
+  private probeController?: AbortController;
   private paused = false;
   private started = false;
   private timer?: ReturnType<typeof setTimeout>;
   private reconciling?: Promise<void>;
+  private reconcileRequested = 0;
   private readonly now: () => number;
   private readonly schedule: NonNullable<Scheduling["setTimeout"]>;
   private readonly unschedule: NonNullable<Scheduling["clearTimeout"]>;
@@ -67,15 +73,7 @@ export class PullRequestSync {
     this.unschedule = options.clearTimeout ?? clearTimeout;
     this.github.setReadHooks(
       (observation) => {
-        if (this.account !== null && this.account !== observation.account) {
-          for (const group of this.groups.values()) group.controller.abort();
-          this.groups.clear();
-          this.detailCache.clear();
-          this.charges.length = 0;
-          this.reserveUntil = 0;
-          void this.reconcile();
-        }
-        this.account = observation.account;
+        this.useAccount(observation.account);
         this.charges.push({ at: this.now(), cost: observation.cost });
         if (observation.remaining <= Math.max(100, observation.limit * 0.1))
           this.reserveUntil = Math.max(
@@ -104,14 +102,54 @@ export class PullRequestSync {
     );
   }
 
+  private useAccount(account: string) {
+    if (this.account !== null && this.account !== account) {
+      for (const group of this.groups.values()) group.controller.abort();
+      this.groups.clear();
+      this.detailCache.clear();
+      this.charges.length = 0;
+      this.reserveUntil = 0;
+      void this.reconcile().catch(() => {});
+    }
+    this.account = account;
+  }
+
+  private checkAccount(): Promise<void> {
+    if (this.accountProbe) return this.accountProbe;
+    if (this.now() < this.accountCheckAt + 60_000 || this.paused) return Promise.resolve();
+    this.accountCheckAt = this.now();
+    const controller = new AbortController();
+    this.probeController = controller;
+    const task = this.github
+      .account(controller.signal)
+      .then((account) => {
+        controller.signal.throwIfAborted();
+        this.useAccount(account);
+      })
+      .catch(() => {})
+      .finally(() => {
+        this.accountProbe = undefined;
+        this.probeController = undefined;
+      });
+    this.accountProbe = task;
+    return task;
+  }
+
   start(): Promise<void> {
     this.started = true;
     return this.reconcile();
   }
 
   reconcile(): Promise<void> {
+    this.reconcileRequested++;
     if (this.reconciling) return this.reconciling;
-    const task = this.refreshGroups().finally(() => {
+    const task = (async () => {
+      let observed: number;
+      do {
+        observed = this.reconcileRequested;
+        await this.refreshGroups();
+      } while (observed !== this.reconcileRequested);
+    })().finally(() => {
       this.reconciling = undefined;
     });
     this.reconciling = task;
@@ -123,7 +161,14 @@ export class PullRequestSync {
     const memberships = new Map<string, Set<string>>();
     for (const snapshot of snapshots) {
       if (!snapshot.repository) continue;
-      const repoKey = key(snapshot.repository);
+      const requestedKey = key(snapshot.repository);
+      const existing = [...this.groups].find(
+        ([groupKey, group]) =>
+          groupKey === requestedKey ||
+          key(group.repository) === requestedKey ||
+          (group.inventory && key(group.inventory.repository) === requestedKey),
+      );
+      const repoKey = existing?.[0] ?? requestedKey;
       const tabs = memberships.get(repoKey) ?? new Set<string>();
       tabs.add(snapshot.tabId);
       memberships.set(repoKey, tabs);
@@ -137,10 +182,20 @@ export class PullRequestSync {
           failures: 0,
           cost: 1,
           targetCost: 2,
-          closed: new Set(),
+          closed: new Map(),
+          full: snapshot.sync.lastSuccessAt !== null,
         });
     }
     for (const [repoKey, group] of this.groups) {
+      if (
+        snapshots.some(
+          (snapshot) =>
+            snapshot.repository &&
+            key(snapshot.repository) === repoKey &&
+            snapshot.sync.lastSuccessAt !== null,
+        )
+      )
+        group.full = true;
       const tabs = memberships.get(repoKey);
       if (!tabs) {
         group.controller.abort();
@@ -154,7 +209,9 @@ export class PullRequestSync {
               tabId,
               {
                 ...group.inventory,
-                prs: group.inventory.prs.filter((pr) => !group.closed.has(pr.nodeId)),
+                prs: group.inventory.prs.filter(
+                  (pr) => (group.closed.get(pr.nodeId) ?? "") < pr.merge.observedAt,
+                ),
               },
               group.controller.signal,
             );
@@ -165,14 +222,20 @@ export class PullRequestSync {
   }
 
   async interest(interest: PullRequestsInterest): Promise<void> {
+    const previous = this.interests.get(interest.tabId);
     this.interests.set(interest.tabId, interest);
     this.releaseDetail(interest);
     await this.reconcile();
     const group = [...this.groups.values()].find((group) => group.tabs.has(interest.tabId));
     if (!group) return;
     if (interest.active && !group.failures) {
-      group.next = Math.min(group.next, this.now());
-      if (interest.detail) group.targetNext = Math.min(group.targetNext, this.now());
+      if (interest.refresh || !previous?.active || !group.inventory)
+        group.next = Math.min(group.next, this.now());
+      if (
+        interest.detail &&
+        (interest.refresh || JSON.stringify(previous?.detail) !== JSON.stringify(interest.detail))
+      )
+        group.targetNext = Math.min(group.targetNext, this.now());
     }
     if (!this.inspected(group).length) group.targetController?.abort();
     this.arm();
@@ -239,6 +302,36 @@ export class PullRequestSync {
     }
   }
 
+  private async publishCadence(exclude?: Group) {
+    for (const group of this.groups.values()) {
+      if (group === exclude || group.controller.signal.aborted) continue;
+      if (!group.run && !group.failures && group.inventory && !group.inventory.syncOverride)
+        group.next = Math.max(
+          this.now(),
+          Date.parse(group.inventory.completedAt) + this.interval(group),
+        );
+      for (const tabId of group.tabs) {
+        const snapshot = await this.store.snapshotByTab(tabId);
+        await this.store.setSyncStatus(
+          tabId,
+          {
+            ...snapshot.sync,
+            intervalMs: this.interval(group),
+            nextAttemptAt: new Date(Math.max(group.next, this.reserveUntil)).toISOString(),
+            reason:
+              snapshot.sync.reason === "Loading remaining GitHub facts" &&
+              snapshot.sync.state === "syncing"
+                ? snapshot.sync.reason
+                : this.factor() > 1
+                  ? "Account query budget"
+                  : null,
+          },
+          group.controller.signal,
+        );
+      }
+    }
+  }
+
   private arm() {
     if (this.timer) this.unschedule(this.timer);
     this.timer = undefined;
@@ -249,6 +342,8 @@ export class PullRequestSync {
       if (!group.target && this.inspected(group).length)
         next = Math.min(next, Math.max(group.targetNext, this.reserveUntil));
     }
+    if (this.reserveUntil > this.now() && !this.accountProbe)
+      next = Math.min(next, Math.max(this.now(), this.accountCheckAt + 60_000));
     if (Number.isFinite(next)) {
       this.timer = this.schedule(
         () => {
@@ -262,6 +357,10 @@ export class PullRequestSync {
   }
   private tick() {
     if (this.paused) return;
+    if (this.reserveUntil > this.now()) {
+      void this.checkAccount().finally(() => this.arm());
+      return;
+    }
     for (const group of this.groups.values()) {
       if (this.now() < this.reserveUntil) continue;
       // Targeted reads join the subprocess queue before the next inventory page.
@@ -282,29 +381,72 @@ export class PullRequestSync {
     });
     return group.run;
   }
+  private retainFacts(
+    group: Group,
+    inventory: { prs: readonly PullRequestFacts[]; startedAt: string },
+  ) {
+    const prs = new Map(inventory.prs.map((pr) => [pr.nodeId, pr]));
+    for (const previous of group.inventory?.prs ?? []) {
+      const incoming = prs.get(previous.nodeId);
+      if (
+        previous.merge.observedAt > inventory.startedAt &&
+        (!incoming || previous.merge.observedAt > incoming.merge.observedAt)
+      )
+        prs.set(previous.nodeId, previous);
+    }
+    return [...prs.values()].filter(
+      (pr) => (group.closed.get(pr.nodeId) ?? "") < pr.merge.observedAt,
+    );
+  }
+
   private async inventory(group: Group) {
     const signal = group.controller.signal;
-    group.closed.clear();
     const startedAt = new Date(this.now()).toISOString();
     const startedTabs = [...group.tabs];
     try {
       await this.status(group, "syncing", null, startedAt);
-      const inventory = await this.github.inventory(group.repository, signal);
+      let inventory;
+      if (!group.full) {
+        const base = await this.github.initialInventory(group.repository, signal);
+        signal.throwIfAborted();
+        group.inventory = {
+          ...base,
+          prs: this.retainFacts(group, base),
+          completedAt: new Date(this.now()).toISOString(),
+          closed: group.closed,
+          syncOverride: {
+            state: "syncing",
+            updatedAt: startedAt,
+            lastSuccessAt: null,
+            error: null,
+            reason: "Loading remaining GitHub facts",
+          },
+        };
+        for (const tabId of [...group.tabs])
+          await this.store.commitInventory(tabId, group.inventory, signal);
+        group.repository = base.repository;
+        const enriched = await this.github.enrichInventory(base.repository, base.prs, signal);
+        for (const [nodeId, observedAt] of enriched.closed)
+          if ((group.closed.get(nodeId) ?? "") < observedAt) group.closed.set(nodeId, observedAt);
+        inventory = { ...enriched, startedAt: base.startedAt };
+      } else inventory = await this.github.inventory(group.repository, signal);
       signal.throwIfAborted();
       group.cost = Math.max(1, inventory.cost);
       group.inventory = {
         ...inventory,
-        prs: inventory.prs,
-        closedNodeIds: group.closed,
+        prs: this.retainFacts(group, inventory),
+        closed: group.closed,
         completedAt: new Date(this.now()).toISOString(),
       };
       for (const tabId of [...group.tabs]) {
         signal.throwIfAborted();
         await this.store.commitInventory(tabId, group.inventory, signal);
       }
+      group.full = true;
       group.failures = 0;
       group.next = this.now() + this.interval(group);
       await this.status(group, "idle");
+      await this.publishCadence(group);
     } catch (error) {
       if (signal.aborted) throw error;
       await this.failure(group, error);
@@ -327,6 +469,17 @@ export class PullRequestSync {
     group.targetNext = group.next;
     if (error instanceof GitHubReadError && error.kind === "throttle")
       this.reserveUntil = group.next;
+    if (group.inventory?.syncOverride)
+      group.inventory.syncOverride = {
+        ...group.inventory.syncOverride,
+        state: "error",
+        updatedAt: new Date(this.now()).toISOString(),
+        error:
+          error instanceof GitHubReadError
+            ? error.message
+            : "Pull requests could not be refreshed. Scope will retry automatically.",
+        nextAttemptAt: new Date(group.next).toISOString(),
+      };
     await this.status(
       group,
       "error",
@@ -349,37 +502,60 @@ export class PullRequestSync {
       for (const nodeId of new Set(interests.map((interest) => interest.detail!.nodeId))) {
         const source = snapshot.prs.find((pr) => pr.nodeId === nodeId);
         if (!source) continue;
-        const facts = await this.github.current(group.repository, source, signal);
+        let closedAt = new Date(
+          Math.max(this.now(), Date.parse(source.merge.observedAt) + 1),
+        ).toISOString();
+        const facts = await this.github.current(group.repository, source, signal, (observedAt) => {
+          closedAt = observedAt;
+        });
         signal.throwIfAborted();
         if (!facts) {
-          group.closed.add(nodeId);
+          group.closed.set(nodeId, closedAt);
           if (group.inventory)
             group.inventory = {
               ...group.inventory,
-              prs: group.inventory.prs.filter((pr) => pr.nodeId !== nodeId),
+              prs: group.inventory.prs.filter(
+                (pr) => pr.nodeId !== nodeId || pr.merge.observedAt > closedAt,
+              ),
             };
         }
+        if (facts && group.inventory)
+          group.inventory = {
+            ...group.inventory,
+            prs: group.inventory.prs.map((pr) =>
+              pr.nodeId === facts.nodeId && pr.merge.observedAt < facts.merge.observedAt
+                ? facts
+                : pr,
+            ),
+          };
         for (const tabId of [...group.tabs])
-          await this.store.commitCurrent(tabId, group.repository, source, facts, signal);
+          await this.store.commitCurrent(tabId, group.repository, source, facts, signal, closedAt);
         if (!facts) continue;
-        const reviews = await this.github.reviews(group.repository, facts, signal);
-        const cacheKey = `${this.account}/${key(group.repository)}/${nodeId}/${facts.headOid}/${facts.baseOid}`;
-        const cached = this.detailCache.get(cacheKey);
-        if (cached) {
-          const updated = cached.then((detail) => ({ ...detail, ...reviews }));
-          this.detailCache.set(cacheKey, updated);
-          void updated.catch(() => {
-            if (this.detailCache.get(cacheKey) === updated) this.detailCache.delete(cacheKey);
-          });
-        }
+        const captured = interests.find(
+          (interest) =>
+            interest.detail?.nodeId === nodeId && this.interests.get(interest.tabId) === interest,
+        )?.detail;
+        if (!captured) continue;
+        const reviews = await this.github.reviews(
+          group.repository,
+          { ...source, headOid: captured.headOid, baseOid: captured.baseOid },
+          signal,
+        );
         for (const interest of interests) {
           if (interest.detail?.nodeId !== nodeId || this.interests.get(interest.tabId) !== interest)
             continue;
+          const cacheKey = `${this.account}/${key(group.repository)}/${nodeId}/${interest.detail.headOid}/${interest.detail.baseOid}`;
+          const cached = this.detailCache.get(cacheKey);
+          if (cached) {
+            const updated = cached.then((detail) => ({ ...detail, ...reviews }));
+            this.detailCache.set(cacheKey, updated);
+            void updated.catch(() => {
+              if (this.detailCache.get(cacheKey) === updated) this.detailCache.delete(cacheKey);
+            });
+          }
           this.options.onDetail?.({
             tabId: interest.tabId,
-            nodeId,
-            headOid: facts.headOid,
-            baseOid: facts.baseOid,
+            ...interest.detail,
             ...reviews,
             error: null,
           });
@@ -392,6 +568,7 @@ export class PullRequestSync {
           spent / Math.max(1, new Set(interests.map((interest) => interest.detail!.nodeId)).size),
         );
       group.targetNext = this.now() + Math.ceil(15_000 * this.factor());
+      if (spent > 0) await this.publishCadence();
     } catch (error) {
       if (!signal.aborted) {
         await this.failure(group, error);
@@ -414,15 +591,11 @@ export class PullRequestSync {
   }
 
   async sync(tabId: string): Promise<PullRequestsSnapshot> {
+    if (this.reserveUntil > this.now()) await this.checkAccount();
     await this.reconcile();
     const group = [...this.groups.values()].find((group) => group.tabs.has(tabId));
     if (!group) throw new GitHubReadError("Choose a repository before refreshing pull requests.");
-    if (
-      this.paused ||
-      this.reserveUntil > this.now() ||
-      (group.failures && group.next > this.now())
-    )
-      return this.store.snapshotByTab(tabId);
+    if (this.paused || this.reserveUntil > this.now()) return this.store.snapshotByTab(tabId);
     await (group.run ?? this.run(group));
     return this.store.snapshotByTab(tabId);
   }
@@ -431,7 +604,8 @@ export class PullRequestSync {
     await this.reconcile();
     const snapshot = await this.store.snapshotByTab(tabId);
     const pr = snapshot.prs.find((row) => row.nodeId === nodeId);
-    const group = snapshot.repository && this.groups.get(key(snapshot.repository));
+    const group =
+      snapshot.repository && [...this.groups.values()].find((group) => group.tabs.has(tabId));
     if (!group || !pr || this.paused) throw new GitHubReadError("Open pull request not found.");
     const cacheKey = `${this.account}/${key(group.repository)}/${nodeId}/${pr.headOid}/${pr.baseOid}`;
     let detail = this.detailCache.get(cacheKey);
@@ -490,6 +664,7 @@ export class PullRequestSync {
   }
   cancelPending() {
     this.paused = true;
+    this.probeController?.abort();
     if (this.timer) this.unschedule(this.timer);
     this.timer = undefined;
     for (const group of this.groups.values()) group.controller.abort();

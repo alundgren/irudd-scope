@@ -71,6 +71,7 @@ export function registerPullRequestsIpc({ handle, artifacts, client, window }: M
   );
   return {
     cancelPending: () => syncing.cancelPending(),
+    resume: () => syncing.resume(),
     cancelTabs: (ids: readonly string[]) => syncing.cancelTabs(ids),
     dispose: () => {
       syncing.cancelPending();

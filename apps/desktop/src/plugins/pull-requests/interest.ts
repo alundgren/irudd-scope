@@ -9,6 +9,7 @@ import {
 export const PullRequestsInterest = Schema.Struct({
   tabId: PublicationTabId,
   active: Schema.Boolean,
+  refresh: Schema.optional(Schema.Boolean),
   detail: Schema.NullOr(
     Schema.Struct({
       nodeId: PullRequestNodeId,

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import type { SqliteClient } from "@effect/sql-sqlite-node";
 import { Artifact, ScopeError, decode, type LiveEvent } from "@irudd-scope/protocol";
 import {
@@ -55,7 +55,9 @@ export type PullRequestsInventory = {
   viewer: string | null;
   prs: readonly PullRequestFacts[];
   completedAt: string;
-  closedNodeIds?: ReadonlySet<string>;
+  startedAt?: string;
+  syncOverride?: PullRequestsSync;
+  closed?: ReadonlyMap<string, string>;
 };
 
 export function initializePullRequestsTab(
@@ -211,8 +213,9 @@ export class PullRequestStore {
     source: PullRequestFacts,
     facts: PullRequestFacts | null,
     signal?: AbortSignal,
+    closedAt = source.merge.observedAt,
   ): Promise<PullRequestsSnapshot> {
-    decode(PullRequestFacts, source);
+    Schema.decodeUnknownSync(PullRequestFacts)(source);
     if (facts) {
       decode(PullRequestFacts, facts);
       if (
@@ -250,7 +253,7 @@ export class PullRequestStore {
             if (
               facts
                 ? previous.merge.observedAt <= facts.merge.observedAt
-                : previous.merge.observedAt <= source.merge.observedAt
+                : previous.merge.observedAt <= closedAt
             ) {
               if (facts) {
                 if (facts.nodeId !== source.nodeId || facts.number !== source.number)
@@ -351,12 +354,15 @@ export class PullRequestStore {
       )
         throw new ScopeError(400, "Pull request checks or merge status refer to another commit.");
     }
-    const sync = decode(PullRequestsSync, {
-      state: "idle",
-      updatedAt: value.completedAt,
-      lastSuccessAt: value.completedAt,
-      error: null,
-    });
+    const sync = decode(
+      PullRequestsSync,
+      value.syncOverride ?? {
+        state: "idle",
+        updatedAt: value.completedAt,
+        lastSuccessAt: value.completedAt,
+        error: null,
+      },
+    );
     const { sql, mutate } = this.database;
     const owner = this.owner.bind(this),
       active = this.active.bind(this),
@@ -390,7 +396,12 @@ export class PullRequestStore {
               );
           }
           yield* Effect.sync(() => signal?.throwIfAborted());
-          const currentPrs = prs.filter((pr) => !value.closedNodeIds?.has(pr.nodeId));
+          const currentPrs = prs.filter(
+            (pr) => (value.closed?.get(pr.nodeId) ?? "") < pr.merge.observedAt,
+          );
+          for (const [nodeId, closedAt] of value.closed ?? [])
+            if (!currentPrs.some((pr) => pr.nodeId === nodeId))
+              yield* sql`DELETE FROM pull_requests_current WHERE tab_id = ${tabId} AND node_id = ${nodeId} AND json_extract(facts, '$.merge.observedAt') <= ${closedAt}`;
           for (const pr of currentPrs)
             yield* sql`INSERT INTO pull_requests_current(tab_id, node_id, facts, local, agent)
               VALUES (${tabId}, ${pr.nodeId}, ${JSON.stringify(pr)}, ${JSON.stringify(emptyLocal)}, ${JSON.stringify(emptyAgent)})
@@ -404,7 +415,7 @@ export class PullRequestStore {
                   ELSE pull_requests_current.local
                 END
               WHERE json_extract(pull_requests_current.facts, '$.merge.observedAt') <= json_extract(excluded.facts, '$.merge.observedAt')`;
-          yield* sql`DELETE FROM pull_requests_current WHERE tab_id = ${tabId} AND node_id NOT IN (SELECT value FROM json_each(${JSON.stringify(currentPrs.map((pr) => pr.nodeId))}))`;
+          yield* sql`DELETE FROM pull_requests_current WHERE tab_id = ${tabId} AND node_id NOT IN (SELECT value FROM json_each(${JSON.stringify(currentPrs.map((pr) => pr.nodeId))})) AND json_extract(facts, '$.merge.observedAt') <= ${value.startedAt ?? value.completedAt}`;
           yield* sql`UPDATE pull_requests_state SET repository = ${JSON.stringify(repository)}, viewer = ${value.viewer}, sync = ${JSON.stringify(sync)}, generation = generation + 1 WHERE tab_id = ${tabId}`;
           yield* Effect.sync(() => signal?.throwIfAborted());
           const snapshot = yield* read(yield* owner(tabId, true));

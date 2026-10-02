@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { ScopeClient } from "@irudd-scope/protocol/client";
+import { decode } from "@irudd-scope/protocol";
+import { PullRequestsSnapshot, PullRequestsSync } from "@irudd-scope/protocol/pull-requests";
 import type { PullRequestFacts } from "@irudd-scope/protocol/pull-requests";
 import { startArtifactServer } from "../apps/desktop/src/library/server.ts";
 import { PullRequestSync } from "../apps/desktop/src/plugins/pull-requests/sync.ts";
@@ -93,6 +95,7 @@ async function fixture(
 function reader() {
   let calls = 0;
   const github = new GitHubPullRequests();
+  github.account = async () => "VIEWER";
   github.inventory = async () => {
     calls++;
     return {
@@ -100,10 +103,17 @@ function reader() {
       queriedRepository: repository,
       viewer: "viewer",
       account: "VIEWER",
+      startedAt: stamp,
       cost: 1,
       prs: [facts()],
     };
   };
+  let base: Awaited<ReturnType<GitHubPullRequests["inventory"]>>;
+  github.initialInventory = async (...args) => {
+    base = await github.inventory(...args);
+    return base;
+  };
+  github.enrichInventory = async () => ({ ...base, closed: new Map<string, string>() });
   return { github, calls: () => calls };
 }
 
@@ -200,6 +210,7 @@ test("large inventories lengthen active cadence using actual costs", async () =>
     queriedRepository: repository,
     viewer: "viewer",
     account: "VIEWER",
+    startedAt: stamp,
     cost: 20,
     prs: Array.from({ length: 125 }, (_, index) => facts(index + 1)),
   });
@@ -262,9 +273,19 @@ test("closed targeted read cannot be resurrected by an older completing inventor
   });
   await f.service.start();
   nextTask!();
-  await expect.poll(async () => (await f.store.snapshotByTab(tabId)).prs.length).toBe(0);
+  await expect
+    .poll(
+      async () => {
+        const row = await f.store.snapshotByTab(tabId);
+        return row.prs.length;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(0);
   release();
-  await expect.poll(async () => (await f.store.snapshotByTab(tabId)).sync.state).toBe("idle");
+  await expect
+    .poll(async () => (await f.store.snapshotByTab(tabId)).sync.state, { timeout: 10_000 })
+    .toBe("idle");
   expect((await f.store.snapshotByTab(tabId)).prs).toHaveLength(0);
 });
 
@@ -278,6 +299,7 @@ test("account change aborts old work and an account reserve prevents extra queri
   };
   let account = "first-account",
     low = false;
+  remote.github.account = async () => account;
   remote.github.inventory = async (_repository, signal) => {
     await beforeRead(signal);
     observe({
@@ -293,6 +315,7 @@ test("account change aborts old work and an account reserve prevents extra queri
       queriedRepository: repository,
       viewer: account,
       account,
+      startedAt: stamp,
       cost: 1,
       prs: [facts()],
     };
@@ -340,4 +363,470 @@ test("immutable detail is shared across tabs until commits change", async () => 
   await f.store.commitCurrent(first, repository, previous, changed);
   await f.service.detail(first, "PR_1");
   expect(calls).toBe(2);
+});
+
+test("newer reopened inventory survives an older closed observation", async () => {
+  const remote = reader(),
+    f = await fixture(remote.github),
+    tabId = await f.tab("reopen");
+  await f.service.sync(tabId);
+  const previous = facts(),
+    reopened = facts(1, "2026-10-02T00:00:20.000Z"),
+    closedAt = "2026-10-02T00:00:15.000Z";
+  await f.store.commitCurrent(tabId, repository, previous, null, undefined, closedAt);
+  await f.store.commitInventory(tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [reopened],
+    completedAt: "2026-10-02T00:00:30.000Z",
+    startedAt: reopened.merge.observedAt,
+    closed: new Map([["PR_1", closedAt]]),
+  });
+  await f.store.commitCurrent(tabId, repository, previous, null, undefined, closedAt);
+  await f.store.commitInventory(tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [facts(1, "2026-10-02T00:00:10.000Z")],
+    completedAt: "2026-10-02T00:00:40.000Z",
+    startedAt: "2026-10-02T00:00:10.000Z",
+    closed: new Map([["PR_1", closedAt]]),
+  });
+  expect((await f.store.snapshotByTab(tabId)).prs[0].merge.observedAt).toBe(
+    reopened.merge.observedAt,
+  );
+});
+
+test("complete inventory does not prune targeted open facts observed after its first root", async () => {
+  const remote = reader(),
+    f = await fixture(remote.github),
+    tabId = await f.tab("absence");
+  await f.service.sync(tabId);
+  const newer = facts(1, "2026-10-02T00:00:30.000Z");
+  await f.store.commitCurrent(tabId, repository, facts(), newer);
+  await f.store.commitInventory(tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [],
+    startedAt: "2026-10-02T00:00:20.000Z",
+    completedAt: "2026-10-02T00:00:40.000Z",
+  });
+  expect((await f.store.snapshotByTab(tabId)).prs).toHaveLength(1);
+  await f.store.commitInventory(tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [],
+    startedAt: "2026-10-02T00:00:50.000Z",
+    completedAt: "2026-10-02T00:00:55.000Z",
+  });
+  expect((await f.store.snapshotByTab(tabId)).prs).toHaveLength(0);
+});
+
+test("explicit sync retries authentication recovery while automatic cadence stays slow", async () => {
+  const remote = reader();
+  let calls = 0;
+  const inventory = remote.github.inventory.bind(remote.github);
+  remote.github.inventory = async (...args) => {
+    if (++calls === 1) throw new GitHubReadError("Sign in with gh auth login", "auth");
+    return inventory(...args);
+  };
+  const f = await fixture(remote.github, { now: () => Date.parse(stamp) }),
+    tabId = await f.tab("auth-recovery");
+  expect((await f.service.sync(tabId)).sync.nextAttemptAt).toBe("2026-10-02T00:15:00.000Z");
+  expect((await f.service.sync(tabId)).sync.state).toBe("idle");
+  expect(calls).toBe(2);
+});
+
+test("first load publishes complete base rows before enrichment and a joining tab shares it", async () => {
+  const remote = reader();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  remote.github.enrichInventory = async () => {
+    await held;
+    return {
+      repository,
+      queriedRepository: repository,
+      viewer: "viewer",
+      account: "VIEWER",
+      cost: 1,
+      startedAt: stamp,
+      closed: new Map<string, string>(),
+      prs: [facts()],
+    };
+  };
+  const f = await fixture(remote.github, { now: () => Date.parse(stamp) }),
+    first = await f.tab("base-first");
+  const pending = f.service.sync(first);
+  await expect
+    .poll(async () => (await f.store.snapshotByTab(first)).prs.length, { timeout: 10_000 })
+    .toBe(1);
+  const base = await f.store.snapshotByTab(first);
+  expect(base.sync.state).toBe("syncing");
+  expect(base.sync.lastSuccessAt).toBeNull();
+  expect(base.sync.reason).toBe("Loading remaining GitHub facts");
+  const second = await f.tab("base-second");
+  await f.service.reconcile();
+  expect((await f.store.snapshotByTab(second)).sync.lastSuccessAt).toBeNull();
+  expect((await f.store.snapshotByTab(second)).prs).toHaveLength(1);
+  const joined = f.service.sync(second);
+  release();
+  await Promise.all([pending, joined]);
+  expect(remote.calls()).toBe(1);
+  expect((await f.store.snapshotByTab(second)).sync.lastSuccessAt).toBe(stamp);
+});
+
+test("failed initial enrichment retains base rows and retries without claiming full freshness", async () => {
+  const remote = reader();
+  let attempts = 0;
+  remote.github.enrichInventory = async () => {
+    if (++attempts === 1) throw new GitHubReadError("GitHub could not be reached", "network");
+    return {
+      repository,
+      queriedRepository: repository,
+      viewer: "viewer",
+      account: "VIEWER",
+      cost: 1,
+      startedAt: stamp,
+      closed: new Map<string, string>(),
+      prs: [facts()],
+    };
+  };
+  const f = await fixture(remote.github),
+    tabId = await f.tab("base-retry");
+  const failed = await f.service.sync(tabId);
+  expect(failed.sync.state).toBe("error");
+  expect(failed.sync.lastSuccessAt).toBeNull();
+  expect(failed.prs).toHaveLength(1);
+  expect((await f.service.sync(tabId)).sync.lastSuccessAt).toBeTruthy();
+});
+
+test("manual refresh probes a changed account while the previous account reserve is active", async () => {
+  const remote = reader();
+  let observe!: Parameters<GitHubPullRequests["setReadHooks"]>[0];
+  let before!: NonNullable<Parameters<GitHubPullRequests["setReadHooks"]>[1]>;
+  remote.github.setReadHooks = (callback, beforeRead) => {
+    observe = callback;
+    before = beforeRead!;
+  };
+  let account = "old-account";
+  let queries = 0;
+  remote.github.account = async () => account;
+  remote.github.inventory = async (_repository, signal) => {
+    await before(signal);
+    queries++;
+    observe({
+      account,
+      cost: 1,
+      limit: 5000,
+      remaining: account === "old-account" ? 20 : 4000,
+      resetAt: "2026-10-02T01:00:00.000Z",
+    });
+    return {
+      repository,
+      queriedRepository: repository,
+      viewer: account,
+      account,
+      cost: 1,
+      startedAt: stamp,
+      closed: new Map<string, string>(),
+      prs: [facts()],
+    };
+  };
+  const f = await fixture(remote.github, { now: () => Date.parse(stamp) }),
+    tabId = await f.tab("probe");
+  await f.service.sync(tabId);
+  account = "new-account";
+  expect((await f.service.sync(tabId)).viewer).toBe("new-account");
+  expect(queries).toBe(2);
+});
+
+test("HTTP snapshots remain readable by the original strict schema", async () => {
+  const remote = reader(),
+    f = await fixture(remote.github),
+    tabId = await f.tab("legacy");
+  await f.service.sync(tabId);
+  expect((await f.store.snapshotByTab(tabId)).sync.intervalMs).toBeTypeOf("number");
+  const response = await fetch(`${f.server.url}/v1/pull-requests`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer synthetic-scheduler-token-123456789",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action: "read", name: "legacy" }),
+  });
+  expect(response.ok).toBe(true);
+  const oldSnapshot = PullRequestsSnapshot.mapFields((fields) => ({
+    ...fields,
+    sync: PullRequestsSync.mapFields((sync) => ({
+      state: sync.state,
+      updatedAt: sync.updatedAt,
+      lastSuccessAt: sync.lastSuccessAt,
+      error: sync.error,
+    })),
+  }));
+  const reply = (await response.json()) as { type: string; snapshot: unknown };
+  expect(Object.keys(reply)).toEqual(["type", "snapshot"]);
+  expect(reply.type).toBe("snapshot");
+  const snapshot = decode(oldSnapshot, reply.snapshot);
+  expect(snapshot.prs).toHaveLength(1);
+});
+
+test("cancelled shutdown pauses requests and resume schedules a new refresh", async () => {
+  const remote = reader();
+  let task: (() => void) | undefined;
+  const f = await fixture(remote.github, {
+    now: () => Date.parse(stamp),
+    setTimeout: (callback) => {
+      task = callback;
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: () => {
+      task = undefined;
+    },
+  });
+  const tabId = await f.tab("resume");
+  await f.service.start();
+  task!();
+  await expect
+    .poll(async () => (await f.store.snapshotByTab(tabId)).sync.lastSuccessAt, { timeout: 10_000 })
+    .toBe(stamp);
+  f.service.cancelPending();
+  expect(task).toBeUndefined();
+  await f.service.resume();
+  expect(task).toBeTypeOf("function");
+  task!();
+  await expect.poll(remote.calls, { timeout: 10_000 }).toBe(2);
+});
+
+test("configuration arriving during a reconciliation scan is observed before it finishes", async () => {
+  const remote = reader();
+  let task: (() => void) | undefined;
+  const f = await fixture(remote.github, {
+    setTimeout: (callback) => {
+      task = callback;
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: () => {
+      task = undefined;
+    },
+  });
+  const original = f.store.configuredTabs.bind(f.store);
+  let release!: () => void, entered!: () => void;
+  const held = new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+    started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+  let scans = 0;
+  f.store.configuredTabs = async () => {
+    const rows = await original();
+    if (++scans === 1) {
+      entered();
+      await held;
+    }
+    return rows;
+  };
+  const scan = f.service.start();
+  await started;
+  const tabId = await f.tab("arriving");
+  const changed = f.service.reconcile();
+  release();
+  await Promise.all([scan, changed]);
+  expect(scans).toBe(2);
+  expect(task).toBeTypeOf("function");
+  task!();
+  await expect
+    .poll(async () => (await f.store.snapshotByTab(tabId)).sync.lastSuccessAt, { timeout: 10_000 })
+    .toBeTruthy();
+});
+
+test("explicit enrichment closure removes a later base row and preserves only newer reopened facts", async () => {
+  const remote = reader(),
+    f = await fixture(remote.github),
+    tabId = await f.tab("enrichment-close");
+  const baseAt = "2026-10-02T00:00:10.000Z",
+    closedAt = "2026-10-02T00:00:30.000Z";
+  await f.store.commitInventory(tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [facts(1, baseAt), facts(2, baseAt), facts(3, baseAt)],
+    startedAt: stamp,
+    completedAt: baseAt,
+  });
+  await f.store.commitCurrent(
+    tabId,
+    repository,
+    facts(2, baseAt),
+    facts(2, "2026-10-02T00:00:25.000Z"),
+  );
+  await f.store.commitCurrent(
+    tabId,
+    repository,
+    facts(3, baseAt),
+    facts(3, "2026-10-02T00:00:35.000Z"),
+  );
+  await f.store.commitInventory(tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [],
+    startedAt: stamp,
+    completedAt: "2026-10-02T00:00:40.000Z",
+    closed: new Map([1, 2, 3].map((number) => [`PR_${number}`, closedAt])),
+  });
+  expect((await f.store.snapshotByTab(tabId)).prs.map((pr) => pr.nodeId)).toEqual(["PR_3"]);
+});
+
+test("store restore notification restarts an unmounted repository", async () => {
+  const remote = reader();
+  let task: (() => void) | undefined;
+  const f = await fixture(remote.github, {
+    setTimeout: (callback) => {
+      task = callback;
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: () => {
+      task = undefined;
+    },
+  });
+  const tabId = await f.tab("restored");
+  const unsubscribe = f.server.store.subscribe(() => {
+    void f.service.reconcile().catch(() => {});
+  });
+  cleanups.push(async () => {
+    unsubscribe();
+  });
+  await f.service.start();
+  await f.server.store.trashTab(tabId);
+  await expect.poll(() => task, { timeout: 10_000 }).toBeUndefined();
+  await f.server.store.restoreTab(tabId);
+  await expect.poll(() => typeof task, { timeout: 10_000 }).toBe("function");
+});
+
+test("opening, advancing and closing a pane leave a fresh active inventory on its cadence", async () => {
+  const remote = reader();
+  let task: (() => void) | undefined,
+    delay = -1,
+    currentCalls = 0;
+  remote.github.inventory = async () => ({
+    repository,
+    queriedRepository: repository,
+    viewer: "viewer",
+    account: "VIEWER",
+    cost: 1,
+    startedAt: stamp,
+    prs: [facts(1), facts(2)],
+  });
+  remote.github.current = async (_repository, pr) => {
+    currentCalls++;
+    return { ...facts(pr.number, "2026-10-02T00:00:01.000Z") };
+  };
+  remote.github.reviews = async () => ({
+    body: "current discussion",
+    reviews: [],
+    fetchedAt: stamp,
+  });
+  let inventoryCalls = 0;
+  const inventory = remote.github.inventory.bind(remote.github);
+  remote.github.inventory = async (...args) => {
+    inventoryCalls++;
+    return inventory(...args);
+  };
+  const f = await fixture(remote.github, {
+      now: () => Date.parse(stamp),
+      setTimeout: (callback, wait) => {
+        task = callback;
+        delay = wait;
+        return 1 as unknown as ReturnType<typeof setTimeout>;
+      },
+      clearTimeout: () => {
+        task = undefined;
+      },
+    }),
+    tabId = await f.tab("pane-cadence");
+  await f.service.interest({ tabId, active: true, detail: null });
+  await f.service.sync(tabId);
+  await f.service.start();
+  expect(delay).toBe(30_000);
+  await f.service.interest({
+    tabId,
+    active: true,
+    detail: { nodeId: "PR_1", headOid: facts().headOid, baseOid: facts().baseOid },
+  });
+  expect(delay).toBe(0);
+  task!();
+  await expect.poll(() => currentCalls, { timeout: 10_000 }).toBe(1);
+  await expect.poll(() => delay, { timeout: 10_000 }).toBeGreaterThan(0);
+  await f.service.interest({
+    tabId,
+    active: true,
+    detail: { nodeId: "PR_2", headOid: facts().headOid, baseOid: facts().baseOid },
+  });
+  task!();
+  await expect.poll(() => currentCalls, { timeout: 10_000 }).toBe(2);
+  await f.service.interest({ tabId, active: true, detail: null });
+  expect(delay).toBeGreaterThan(0);
+  expect(inventoryCalls).toBe(1);
+  await f.service.interest({ tabId, active: true, detail: null, refresh: true });
+  expect(delay).toBe(0);
+  task!();
+  await expect.poll(() => inventoryCalls, { timeout: 10_000 }).toBe(2);
+});
+
+test("live discussions keep captured pane commits while current repository facts advance", async () => {
+  const remote = reader();
+  let task: (() => void) | undefined,
+    detailCalls = 0;
+  const updates: { headOid: string; body?: string }[] = [];
+  const newHead = "c".repeat(40);
+  remote.github.detail = async () => {
+    detailCalls++;
+    return {
+      headOid: facts().headOid,
+      body: "old body",
+      diff: "captured diff",
+      reviews: [],
+      files: [],
+      fetchedAt: stamp,
+    };
+  };
+  remote.github.current = async () => ({
+    ...facts(1, "2026-10-02T00:00:10.000Z"),
+    headOid: newHead,
+    merge: { ...facts().merge, headOid: newHead, observedAt: "2026-10-02T00:00:10.000Z" },
+    checks: { ...facts().checks, headOid: newHead, observedAt: "2026-10-02T00:00:10.000Z" },
+  });
+  remote.github.reviews = async (_repository, captured) => {
+    expect(captured.headOid).toBe(facts().headOid);
+    return { body: "new discussion", reviews: [], fetchedAt: stamp };
+  };
+  const f = await fixture(remote.github, {
+      now: () => Date.parse(stamp),
+      onDetail: (update) => {
+        updates.push(update);
+      },
+      setTimeout: (callback) => {
+        task = callback;
+        return 1 as unknown as ReturnType<typeof setTimeout>;
+      },
+      clearTimeout: () => {
+        task = undefined;
+      },
+    }),
+    tabId = await f.tab("pinned");
+  await f.service.interest({ tabId, active: true, detail: null });
+  await f.service.sync(tabId);
+  expect((await f.service.detail(tabId, "PR_1")).diff).toBe("captured diff");
+  await f.service.start();
+  await f.service.interest({
+    tabId,
+    active: true,
+    detail: { nodeId: "PR_1", headOid: facts().headOid, baseOid: facts().baseOid },
+  });
+  task!();
+  await expect.poll(() => updates.length, { timeout: 10_000 }).toBe(1);
+  expect(updates[0]).toMatchObject({ headOid: facts().headOid, body: "new discussion" });
+  expect((await f.store.snapshotByTab(tabId)).prs[0].headOid).toBe(newHead);
+  expect(detailCalls).toBe(1);
 });
