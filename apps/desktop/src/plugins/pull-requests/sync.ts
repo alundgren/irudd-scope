@@ -24,7 +24,7 @@ type Group = {
   targetCost: number;
   closed: Map<string, string>;
   inventory?: PullRequestsInventory;
-  full: boolean;
+  hasBase: boolean;
 };
 type Scheduling = {
   now?: () => number;
@@ -184,19 +184,17 @@ export class PullRequestSync {
           cost: 1,
           targetCost: 2,
           closed: new Map(),
-          full: snapshot.sync.lastSuccessAt !== null,
+          hasBase: snapshot.viewer !== null,
         });
     }
     for (const [repoKey, group] of this.groups) {
       if (
         snapshots.some(
           (snapshot) =>
-            snapshot.repository &&
-            key(snapshot.repository) === repoKey &&
-            snapshot.sync.lastSuccessAt !== null,
+            snapshot.repository && key(snapshot.repository) === repoKey && snapshot.viewer !== null,
         )
       )
-        group.full = true;
+        group.hasBase = true;
       const tabs = memberships.get(repoKey);
       if (!tabs) {
         group.controller.abort();
@@ -407,7 +405,7 @@ export class PullRequestSync {
     try {
       await this.status(group, "syncing", null, startedAt);
       let inventory;
-      if (!group.full) {
+      if (!group.hasBase) {
         const base = await this.github.initialInventory(group.repository, signal);
         signal.throwIfAborted();
         group.inventory = {
@@ -425,6 +423,7 @@ export class PullRequestSync {
         };
         for (const tabId of [...group.tabs])
           await this.store.commitInventory(tabId, group.inventory, signal);
+        group.hasBase = true;
         group.repository = base.repository;
         const enriched = await this.github.enrichInventory(base.repository, base.prs, signal);
         for (const [nodeId, observedAt] of enriched.closed)
@@ -443,7 +442,7 @@ export class PullRequestSync {
         signal.throwIfAborted();
         await this.store.commitInventory(tabId, group.inventory, signal);
       }
-      group.full = true;
+      group.hasBase = true;
       group.failures = 0;
       group.next = this.now() + this.interval(group);
       await this.status(group, "idle");
