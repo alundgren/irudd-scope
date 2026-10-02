@@ -332,7 +332,12 @@ export class GitHubPullRequests {
     context.cost += observation.cost;
     if (incomplete)
       throw githubFailure(
-        output + `\nx-ratelimit-reset: ${Date.parse(data.rateLimit.resetAt) / 1000}`,
+        JSON.stringify(errors) +
+          "\n" +
+          (output.match(/^(?:x-ratelimit-[^\r\n]*|retry-after:[^\r\n]*)/gim)?.join("\n") ?? "") +
+          (data.rateLimit.remaining === 0
+            ? `\nx-ratelimit-remaining: 0\nx-ratelimit-reset: ${Date.parse(data.rateLimit.resetAt) / 1000}`
+            : ""),
       );
     return value;
   }

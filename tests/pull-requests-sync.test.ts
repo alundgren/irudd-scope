@@ -578,6 +578,34 @@ describe("GitHub process failures", () => {
     }
   });
 
+  test.each([
+    [401, "auth"],
+    [403, "permission"],
+    [404, "permission"],
+    [500, "network"],
+  ])("ordinary rate headers preserve HTTP %i classification", async (status, kind) => {
+    const gh = await fakeGh(
+      `console.error('HTTP/2 ${status}\\nX-RateLimit-Limit: 5000\\nX-RateLimit-Remaining: 4999\\nX-RateLimit-Reset: 4090000000\\nordinary error'); process.exit(1);`,
+    );
+    await expect(gh.process.run([], signal())).rejects.toMatchObject({ kind });
+  });
+
+  test("secondary throttling honors Retry-After without waiting for a later primary reset", async () => {
+    const gh = await fakeGh(
+      `console.error('HTTP/2 403\\nRetry-After: 2\\nX-RateLimit-Remaining: 4999\\nX-RateLimit-Reset: 4090000000\\nsecondary rate limit'); process.exit(1);`,
+    );
+    const started = Date.now();
+    try {
+      await gh.process.run([], signal());
+      throw new Error("Expected failure");
+    } catch (error) {
+      expect(error).toMatchObject({ kind: "throttle" });
+      const retryAt = (error as { retryAt: number }).retryAt;
+      expect(retryAt).toBeGreaterThanOrEqual(started + 2000);
+      expect(retryAt).toBeLessThan(Date.now() + 3000);
+    }
+  });
+
   test("runs one subprocess at a time and gives queued inspected reads priority", async () => {
     const gh = await fakeGh(`
 import {existsSync,writeFileSync,unlinkSync} from 'node:fs';
