@@ -109,6 +109,68 @@ async function screenshot(page: Page, name: string) {
   await page.screenshot({ animations: "disabled", path: join(process.env.SCOPE_REVIEW_DIR, name) });
 }
 
+test("Send tab leaves the current tab open when pending workspace writes fail", async () => {
+  const f = await desktopFixture();
+  const app = await f.launch();
+  try {
+    const page = await app.firstWindow();
+    await f.cli(
+      "text",
+      "Current tab stays open",
+      "--id",
+      "transfer-save-source",
+      "--title",
+      "Current review",
+    );
+    await page.getByText("Current tab stays open", { exact: true }).waitFor();
+    const client = await f.connect();
+    const artifact = (await client.list()).find((entry) => entry.id === "transfer-save-source")!;
+    await installTransferResponses(app, artifact);
+    await app.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler("scope:save-workspace");
+      ipcMain.handle("scope:save-workspace", () => {
+        throw new Error("Synthetic save failure");
+      });
+    });
+    await f.cli(
+      "text",
+      "A background tab",
+      "--id",
+      "transfer-save-background",
+      "--title",
+      "Background review",
+    );
+    await page.getByRole("tab", { name: "Background review", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Search and controls" }).click();
+    await page.getByRole("button", { name: "Send tab", exact: true }).click();
+    await page.getByRole("button", { name: "Create transfer link", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Send tab", exact: true })
+      .getByText("Could not save the workspace.")
+      .waitFor();
+    expect((await controls(app)).sent).toBe(0);
+    expect(await page.getByRole("tab", { name: "Current review", exact: true }).count()).toBe(1);
+    await app.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler("scope:save-workspace");
+      ipcMain.handle("scope:save-workspace", () => {});
+    });
+    await page.getByRole("button", { name: "Create transfer link", exact: true }).click();
+    await page.getByRole("img", { name: "Transfer QR code" }).waitFor();
+    expect((await controls(app)).sent).toBe(1);
+    await page.getByRole("button", { name: "Cancel transfer", exact: true }).click();
+    await page.getByText("Current tab stays open", { exact: true }).waitFor();
+  } finally {
+    await app
+      .evaluate(({ ipcMain }) => {
+        ipcMain.removeHandler("scope:save-workspace");
+        ipcMain.handle("scope:save-workspace", () => {});
+      })
+      .catch(() => {});
+    await app.close();
+    await rm(f.directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test("Other Scopes creates a public invitation, copies the secret through main, pairs, and forgets", async () => {
   const f = await desktopFixture();
   const app = await f.launch();
