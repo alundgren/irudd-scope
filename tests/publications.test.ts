@@ -116,6 +116,9 @@ test("outbound HTML pins bytes through updates, reclamation, restart and lost co
   expect(completed.snapshot.destinations[0]?.checkpoint?.revision).toBe(1);
   expect(completed.snapshot.destinations[0]?.operation).toBeNull();
   await f.restart();
+  expect(Buffer.from(await f.client.publicationContent(op.id, op.operationId)).toString()).toBe(
+    "<h1>Original</h1>",
+  );
   expect(await f.client.publications({ ...op, action: "complete", result })).toEqual(completed);
   await expect(
     f.client.publications({
@@ -418,6 +421,8 @@ test("refresh retains explicit approval only while destination facts are unchang
     observation: { ...remote, checkedAt: new Date().toISOString(), audience: "public" },
   });
   expect(blocked.decision).toBe("blocked");
+  expect(blocked.snapshot.destinations[0]?.operation?.state).toBe("blocked");
+  expect((await f.client.publications({ action: "read", id: op.id })).decision).toBe("blocked");
   await expect(f.client.publications({ ...op, action: "authorize" })).rejects.toThrow("privacy");
 });
 
@@ -458,4 +463,76 @@ test("a newer successful checkpoint cannot be replaced by replaying an older com
     (await f.client.publications({ action: "read", id: first.id })).snapshot.destinations[0]
       ?.checkpoint?.result.marker.version,
   ).toBe("2");
+});
+
+test("expired checks remain blocked until identical facts are refreshed without losing approval", async () => {
+  const f = await fixture(),
+    op = f.operation();
+  const remote = observation({
+    remoteId: "remote-1",
+    url: "https://claude.ai/code/artifact/remote-1",
+    evidence: "authenticated-share-inspection",
+    marker: { version: "1", updatedAt: null },
+  });
+  await f.client.publications({
+    ...op,
+    action: "prepare",
+    expectedRevision: 1,
+    observation: remote,
+  });
+  await f.client.publications({ ...op, action: "authorize" });
+  const db = new DatabaseSync(join(f.directory, "scope.db"));
+  db.prepare(
+    "UPDATE publications SET operation = json_set(operation, '$.observation.checkedAt', '2025-01-01T00:00:00Z') WHERE tab_id = ?",
+  ).run(op.tabId);
+  db.close();
+  const read = await f.client.publications({ action: "read", id: op.id });
+  expect(read.decision).toBe("blocked");
+  expect(read.snapshot.destinations[0]?.operation?.needsRefresh).toBe(true);
+  expect(read.snapshot.destinations[0]?.operation?.canAuthorize).toBe(false);
+  expect(read.snapshot.destinations[0]?.operation?.warnings).toContain(
+    "The remote observation expired. Check the destination again before publishing.",
+  );
+  await expect(f.client.publications({ ...op, action: "start" })).rejects.toThrow();
+  const refreshed = await f.client.publications({
+    ...op,
+    action: "refresh",
+    observation: { ...remote, checkedAt: new Date().toISOString() },
+  });
+  expect(refreshed.snapshot.destinations[0]?.operation?.state).toBe("prepared");
+  await f.client.publications({ ...op, action: "start" });
+});
+
+test("an expired safe overwrite warning remains acknowledgeable and requires a fresh check to start", async () => {
+  const f = await fixture(),
+    op = f.operation();
+  const remote = observation({
+    remoteId: "remote-1",
+    url: "https://claude.ai/code/artifact/remote-1",
+    evidence: "authenticated-share-inspection",
+    marker: { version: "1", updatedAt: null },
+  });
+  await f.client.publications({
+    ...op,
+    action: "prepare",
+    expectedRevision: 1,
+    observation: remote,
+  });
+  const db = new DatabaseSync(join(f.directory, "scope.db"));
+  db.prepare(
+    "UPDATE publications SET operation = json_set(operation, '$.observation.checkedAt', '2025-01-01T00:00:00Z') WHERE tab_id = ?",
+  ).run(op.tabId);
+  db.close();
+  expect(
+    (await f.client.publications({ action: "read", id: op.id })).snapshot.destinations[0]?.operation
+      ?.canAuthorize,
+  ).toBe(true);
+  await f.client.publications({ ...op, action: "authorize" });
+  await expect(f.client.publications({ ...op, action: "start" })).rejects.toThrow("Refresh");
+  await f.client.publications({
+    ...op,
+    action: "refresh",
+    observation: { ...remote, checkedAt: new Date().toISOString() },
+  });
+  await f.client.publications({ ...op, action: "start" });
 });
