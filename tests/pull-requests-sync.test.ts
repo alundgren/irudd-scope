@@ -457,7 +457,24 @@ if(query.includes('ScopeInitialOpenPullRequests')) {
     expect(complete.prs.some((row) => row.number === 2)).toBe(false);
     expect(complete.prs.every((row) => row.hasUnresolvedConversations === false)).toBe(true);
     expect(complete.cost).toBe(3);
+    expect(Date.parse(complete.closed.get("PR_2")!)).toBeGreaterThan(Date.parse(first.startedAt));
     expect(await gh.calls()).toHaveLength(4);
+  });
+
+  test("enrichment timestamps a closure from a later complete membership page", async () => {
+    const firstPage = inventory([pr(1)], { hasNextPage: true, endCursor: "second" });
+    const secondPage = inventory([pr(2)]);
+    const closed = { ...pr(2), state: "MERGED", repository: firstPage.data.repository };
+    const open = { ...pr(1), repository: firstPage.data.repository };
+    const gh = await fakeGh(`
+if(args.some(a=>a.includes('ScopeInitialOpenPullRequests'))) console.log(JSON.stringify(args.includes('cursor=second')?${JSON.stringify(secondPage)}:${JSON.stringify(firstPage)}));
+else console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2099-10-02T00:00:00Z'},nodes:${JSON.stringify([open, closed])}}}));`);
+    const reader = new GitHubPullRequests(gh.process);
+    const initial = await reader.initialInventory(repository, signal());
+    const result = await reader.enrichInventory(repository, initial.prs, signal());
+    expect(result.prs.map((pr) => pr.nodeId)).toEqual(["PR_1"]);
+    expect(result.closed.get("PR_2")! > initial.prs[1].merge.observedAt).toBe(true);
+    expect(result.closed.get("PR_2")).toBe(result.prs[0].merge.observedAt);
   });
 
   test("missing enrichment nodes never silently remove existing membership", async () => {
