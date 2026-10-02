@@ -123,7 +123,11 @@ Prepare local source before requesting provider publication.
 Read `.openai/hosting.json` first. Reuse its exact `project_id` and Scope's saved
 project identity. For a new project, call `create_site` once after the Scope
 operation is started. Immediately save the returned ID atomically in the
-manifest and record it with Scope progress. A missing source credential needs
+manifest and record it with Scope progress. If all returned Site URLs are
+absent, use `progress.url: null`; never derive a URL from the project ID or
+Git endpoint. Add the provider-returned URL to progress when it becomes
+available. Known destination IDs and URLs cannot be replaced or cleared.
+A missing source credential needs
 `create_source_repository_write_credential` for that same project, not another
 creation. Before saving content, use `get_site` to verify current owner-private
 access. New project creation itself is not a successful HTML publication.
