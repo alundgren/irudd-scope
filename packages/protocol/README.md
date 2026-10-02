@@ -374,7 +374,9 @@ Sync request IDs identify calls; they do not retain an inventory history.
 
 Sync status retains `state`, `updatedAt`, `lastSuccessAt`, and `error`. Optional
 `intervalMs`, `nextAttemptAt`, and `reason` report the adaptive refresh target and
-retry policy. Older saved snapshots remain readable without these fields.
+retry policy in desktop IPC and the HTML SDK. HTTP replies retain the four legacy
+sync fields so older CLI and hub clients continue decoding them. Older saved
+snapshots remain readable by the updated desktop without the optional fields.
 
 PR facts include title, author, labels, draft status, requested reviewers, size,
 commit IDs, merge status, aggregate checks, and
@@ -385,10 +387,10 @@ distinct from success or absence. A complete sync removes records no longer
 open. Failed or incomplete membership reads preserve the cached list and local values.
 
 First load may publish a complete base inventory while `sync.state` remains
-`syncing` and conversations are Unknown. `lastSuccessAt` advances only after
+`syncing` and checks, mergeability, and conversations are Unknown. `lastSuccessAt` advances only after
 enrichment finishes. Failed enrichment keeps the valid base rows; incomplete
 membership reads keep the previous list. Later refreshes commit enriched facts
-atomically. Update desktop, CLI, and hub together for the new optional sync fields.
+atomically. Optional scheduler status is supplied to authored apps by the desktop.
 
 `note`, `snooze`, `review`, and `assessment` mutations use independent current
 versions. `expectedVersion` selects `local.noteVersion`, `local.snoozeVersion`,

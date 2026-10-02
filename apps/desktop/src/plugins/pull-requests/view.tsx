@@ -97,11 +97,12 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
     () => (content ? pullRequestsDocument(content.html, identity) : undefined),
     [content, identity],
   );
-  function reportInterest() {
+  function reportInterest(forceRefresh = false) {
     return window.scope.pullRequestsInterest({
       tabId: context.tabId,
       active: activeRef.current,
       detail: detailInterest.current,
+      ...(forceRefresh ? { refresh: true } : {}),
     });
   }
   function sendSnapshot() {
@@ -175,7 +176,7 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
     });
     const stopReconnect = window.scope.onPullRequestsReconnected(() => {
       void reload();
-      void reportInterest().catch(() => {});
+      void reportInterest(true).catch(() => {});
     });
     void reload();
     return () => {
@@ -271,7 +272,7 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
         !Array.isArray(call.args)
       )
         return;
-      commands = commands.then(async () => {
+      const execute = async () => {
         if (!mounted) return;
         try {
           if (!snapshot.current) {
@@ -333,7 +334,9 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
               "*",
             );
         }
-      });
+      };
+      if (call.method === "sync" || call.method === "detail") void execute();
+      else commands = commands.then(execute);
     }
     window.addEventListener("message", receive);
     const stopDetails = window.scope.onPullRequestsDetailUpdate((update) => {
@@ -407,10 +410,10 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
     : "";
   const status =
     freshness?.state === "error"
-      ? freshness.error
+      ? `${updated} · ${freshness.error ?? "Refresh failed"}`
       : freshness?.state === "syncing"
         ? age === null && prCount > 0
-          ? `Loaded ${prCount.toLocaleString()} PRs · Reading review conversations…`
+          ? `Loaded ${prCount.toLocaleString()} PRs · Reading checks and conversations…`
           : `${updated} · Refreshing…`
         : updated;
   const retryAt =

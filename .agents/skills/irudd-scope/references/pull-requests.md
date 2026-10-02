@@ -128,15 +128,15 @@ This minimal app displays live titles and a Sync action:
 `pull-requests read NAME` returns `{ type: "snapshot", snapshot }`. Other
 commands also return this envelope, except `detail`. A snapshot contains:
 
-| Field        | Meaning                                                                                                           |
-| ------------ | ----------------------------------------------------------------------------------------------------------------- |
-| `artifact`   | Publication metadata, including `id`, immutable `name`, `kind`, and HTML `revision`.                              |
-| `tabId`      | Desktop tab UUID. Include it in agent commands to prevent writes to a replacement tab with a reused name.         |
-| `generation` | Inbox change counter. It is separate from HTML revision and each mutation's version.                              |
-| `repository` | `{ owner, name }`, or `null` before configuration.                                                                |
-| `viewer`     | Desktop GitHub login, or `null` before a successful refresh.                                                      |
-| `sync`       | `{ state, updatedAt, lastSuccessAt, error }`, plus optional adaptive `intervalMs`, `nextAttemptAt`, and `reason`. |
-| `prs`        | Complete flat array of currently cached open PR records, including drafts.                                        |
+| Field        | Meaning                                                                                                                        |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `artifact`   | Publication metadata, including `id`, immutable `name`, `kind`, and HTML `revision`.                                           |
+| `tabId`      | Desktop tab UUID. Include it in agent commands to prevent writes to a replacement tab with a reused name.                      |
+| `generation` | Inbox change counter. It is separate from HTML revision and each mutation's version.                                           |
+| `repository` | `{ owner, name }`, or `null` before configuration.                                                                             |
+| `viewer`     | Desktop GitHub login, or `null` before a successful refresh.                                                                   |
+| `sync`       | `{ state, updatedAt, lastSuccessAt, error }`. The HTML SDK also supplies adaptive `intervalMs`, `nextAttemptAt`, and `reason`. |
+| `prs`        | Complete flat array of currently cached open PR records, including drafts.                                                     |
 
 Each PR has the following GitHub facts at its top level:
 

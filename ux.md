@@ -354,8 +354,8 @@ Sync remains an explicit fallback icon action and joins the same scheduled work.
 A failed GitHub read keeps the cached list and retries automatically. Its
 tooltip explains the failure; authentication failures name `gh auth login`.
 Rate-limit waits apply to manual Sync too.
-First load displays the complete PR list before review conversations finish
-loading. Conversation state remains Unknown and the status line explains the
+First load displays the complete PR list before computed GitHub facts finish
+loading. Checks, mergeability, and conversation state remain Unknown and the status line explains the
 remaining work. Only complete membership reads remove PRs from the list.
 Unknown checks or conversation state remain visibly unknown. Any unresolved
 GitHub review conversation means the author's turn in the initial app.

@@ -111,7 +111,7 @@ preserve the previous inventory. Local and agent records have separate version
 checks and do not get replaced by GitHub facts.
 
 First load commits a complete lightweight inventory before enriching review
-conversations in bounded batches. Conversation state is Unknown and sync remains
+conversations in bounded batches. Checks, mergeability, and conversations are Unknown and sync remains
 in progress until enrichment finishes. An enrichment failure retains that valid
 base list and retries; an incomplete membership read never replaces the list.
 Later refreshes commit the complete enriched inventory together.
