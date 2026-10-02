@@ -346,7 +346,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   // A visible tab change must update shortcuts before another key can target the old tab.
   useLayoutEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || transferOpen) return;
       const command = event.metaKey || event.ctrlKey;
       if (command && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -706,6 +706,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         <SendTabDialog
           tabId={sendTab.id}
           title={sendTab.title}
+          finalFocus={returnFocus}
           onClose={() => setSendTab(undefined)}
           onPair={() => {
             setSendTab(undefined);
@@ -717,12 +718,18 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         <ImportTabDialog
           key={importLink}
           initialUrl={importLink}
+          finalFocus={returnFocus}
           onClose={() => setImportLink(undefined)}
           onImported={openImported}
         />
       )}
       {pairLink !== undefined && (
-        <PairScopeDialog key={pairLink} url={pairLink} onClose={() => setPairLink(undefined)} />
+        <PairScopeDialog
+          key={pairLink}
+          url={pairLink}
+          finalFocus={returnFocus}
+          onClose={() => setPairLink(undefined)}
+        />
       )}
       <Dialog open={settings} onOpenChange={setSettings}>
         <SettingsDialog finalFocus={search ? false : returnFocus}>

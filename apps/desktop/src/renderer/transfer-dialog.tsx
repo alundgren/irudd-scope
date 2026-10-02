@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentProps } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
 import { X } from "lucide-react";
 import { flushWorkspace } from "../workspace/persistence.ts";
@@ -14,16 +14,20 @@ import {
   type Invitation,
 } from "./transfer-invitation.tsx";
 
+type TransferDialogFocus = ComponentProps<typeof DialogContent>["finalFocus"];
+
 export function SendTabDialog({
   tabId,
   title,
   onClose,
   onPair,
+  finalFocus,
 }: {
   tabId: string;
   title: string;
   onClose: () => void;
   onPair: () => void;
+  finalFocus?: TransferDialogFocus;
 }) {
   const [devices, setDevices] =
     useState<Awaited<ReturnType<typeof window.scope.transferDevices>>>();
@@ -84,7 +88,7 @@ export function SendTabDialog({
         if (!open) void close();
       }}
     >
-      <DialogContent className="transfer-dialog" showCloseButton={false}>
+      <DialogContent className="transfer-dialog" showCloseButton={false} finalFocus={finalFocus}>
         <DialogHeader>
           <DialogTitle>Send tab</DialogTitle>
         </DialogHeader>
@@ -170,10 +174,12 @@ export function ImportTabDialog({
   initialUrl = "",
   onClose,
   onImported,
+  finalFocus,
 }: {
   initialUrl?: string;
   onClose: () => void;
   onImported: (artifact: Artifact) => Promise<void>;
+  finalFocus?: TransferDialogFocus;
 }) {
   const [url, setUrl] = useState(initialUrl);
   const [preview, setPreview] =
@@ -211,7 +217,7 @@ export function ImportTabDialog({
         if (!open && !busy) onClose();
       }}
     >
-      <DialogContent className="transfer-dialog" showCloseButton={false}>
+      <DialogContent className="transfer-dialog" showCloseButton={false} finalFocus={finalFocus}>
         <DialogHeader>
           <DialogTitle>Import tab</DialogTitle>
         </DialogHeader>
@@ -302,7 +308,15 @@ export function ImportTabDialog({
   );
 }
 
-export function PairScopeDialog({ url, onClose }: { url: string; onClose: () => void }) {
+export function PairScopeDialog({
+  url,
+  onClose,
+  finalFocus,
+}: {
+  url: string;
+  onClose: () => void;
+  finalFocus?: TransferDialogFocus;
+}) {
   const [paired, setPaired] = useState(false);
   return (
     <Dialog
@@ -311,7 +325,7 @@ export function PairScopeDialog({ url, onClose }: { url: string; onClose: () => 
         if (!open) onClose();
       }}
     >
-      <DialogContent className="transfer-dialog">
+      <DialogContent className="transfer-dialog" finalFocus={finalFocus}>
         <DialogHeader>
           <DialogTitle>Pair another Scope</DialogTitle>
         </DialogHeader>
