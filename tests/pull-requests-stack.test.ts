@@ -445,6 +445,7 @@ test("lightweight initial inventory omits stack and review facts until complete 
     initial.prs,
     new AbortController().signal,
   );
+  expect(enriched.cost).toBe((await f.calls()).length - 1);
   expect(enriched.prs[0].review?.hasApproval).toBe(true);
   expect(enriched.prs[0].stack).toMatchObject({ readyForReview: false, approved: false });
 });

@@ -919,6 +919,12 @@ export class GitHubPullRequests {
         enriched.push(await this.facts(repository, full, signal, context, timestamp));
       }
     }
+    const stackEnriched = await enrichStacks(
+      enriched,
+      memberships,
+      repositoryId!,
+      (query, fields) => this.query(repository, query, signal, fields, context),
+    );
     return {
       queriedRepository,
       repository: queriedRepository,
@@ -926,9 +932,7 @@ export class GitHubPullRequests {
       account: context.account!,
       cost: context.cost,
       startedAt: startedAt!,
-      prs: await enrichStacks(enriched, memberships, repositoryId!, (query, fields) =>
-        this.query(repository, query, signal, fields, context),
-      ),
+      prs: stackEnriched,
       closed,
     };
   }
