@@ -1,6 +1,6 @@
 ---
 name: irudd-scope
-description: Create a plan, make a plan, or plan a feature as a named HTML plan in Scope. Also publish or update artifacts, edit Excalidraw diagrams, and generate narration with the desktop OpenRouter key. Honor an explicitly requested planning tool or output format.
+description: Create named HTML plans and GitHub PR inbox apps in Scope. Also publish or update artifacts, edit Excalidraw diagrams, and generate narration with the desktop OpenRouter key. Honor an explicitly requested planning tool or output format.
 ---
 
 # Use Scope CLI
@@ -39,29 +39,17 @@ HTML previews run interactive prototypes and mockups, including scripts, externa
 
 ### Pull request inbox apps
 
-Publish trusted HTML as a named PR inbox, then bind its repository:
+When asked to create or customize a PR inbox, read
+[PR inbox authoring](references/pull-requests.md). It covers creation through
+the CLI, the complete PR data model, HTML SDK methods, agent command payloads,
+and conflict recovery. Create the named HTML app from the current agent session;
+the desktop's Create PR inbox button is optional.
 
-```sh
-irudd-scope add inbox.html --pull-requests --name repository-inbox --title "PR inbox"
-irudd-scope pull-requests configure repository-inbox OWNER/REPO
-irudd-scope pull-requests guide
-irudd-scope pull-requests read repository-inbox
-```
-
-Scope injects `window.scope.pullRequests` before authored scripts. Use its
-`watch` callback to render the current immutable PR array as a flat list with
-named views. Use SDK operations for notes, snoozes, details, and local review
-marks. `pull-requests guide` documents the SDK and validated agent commands.
-Scope persists these values separately from HTML
-and runs the desktop user's `gh` for open-PR reads. Tab selection and Sync
-refresh GitHub; there is no polling, closed PR archive, or GitHub mutation.
-
-`update NAME inbox.html` replaces the app while keeping repository state.
-The initial repository binding is permanent; publish another named tab for
-another repository. For agent mutations, export the current snapshot, retain
-its `tabId` and the relevant version, and submit a validated command file with
-`pull-requests apply FILE`. Retry an uncertain write with its original UUID
-request ID and payload. A conflict requires reading and reconsidering the edit.
+Scope supplies `window.scope.pullRequests` and persists repository, GitHub,
+local, and agent data separately from HTML. Use `update NAME inbox.html` to
+change an existing app while keeping that data. Scope runs the desktop user's
+`gh` for reads; inbox operations never mutate GitHub. Use
+`pull-requests guide` for the installed CLI's exact validated command schema.
 
 ### HTML plans
 

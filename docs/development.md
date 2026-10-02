@@ -211,8 +211,10 @@ The benchmark is separate from `ready` and needs no provider key.
 
 ## GitHub pull request inboxes
 
-Use Create PR inbox in the desktop and enter `OWNER/REPO`, or publish an HTML
-app from an existing coding session:
+Ask the agent in an existing coding session to author and publish a named HTML
+inbox. The Scope skill links to [PR inbox authoring](../.agents/skills/irudd-scope/references/pull-requests.md)
+for the creation workflow, data model, SDK methods, and agent commands.
+Create PR inbox in the desktop also creates an inbox for `OWNER/REPO`.
 
 ```sh
 irudd-scope add inbox.html --pull-requests --name repository-inbox
