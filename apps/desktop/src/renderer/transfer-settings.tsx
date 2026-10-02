@@ -115,7 +115,7 @@ export function PairScopeForm({
 export function TransferSettings({ query }: { query: string }) {
   return (
     <SettingsSection id="transfers" query={query}>
-      {(active) => (active ? <TransferDevices /> : null)}
+      <TransferDevices />
     </SettingsSection>
   );
 }
@@ -125,9 +125,7 @@ function TransferDevices() {
   const [name, setName] = useState("");
   const [task, setTask] = useState<"create" | "enter">();
   const [invitation, setInvitation] = useState<Invitation>();
-  const invitationRef = useRef(invitation);
   const mounted = useRef(true);
-  invitationRef.current = invitation;
   const [forget, setForget] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -141,8 +139,6 @@ function TransferDevices() {
     void load().catch((error: unknown) => setError(transferError(error)));
     return () => {
       mounted.current = false;
-      const value = invitationRef.current;
-      if (value?.state === "waiting") void window.scope.cancelTransfer(value.id).catch(() => {});
     };
   }, []);
   useInvitationStatus(
@@ -174,7 +170,6 @@ function TransferDevices() {
   async function create() {
     const value = await window.scope.createPairing(name.trim());
     if (mounted.current) setInvitation(value);
-    else await window.scope.cancelTransfer(value.id);
   }
   return (
     <div className="transfer-form">

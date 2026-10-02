@@ -69,7 +69,7 @@ export function SendTabDialog({
     }
   }
   async function close() {
-    if (busy || invitation?.state === "importing") return;
+    if (busy) return;
     setBusy(true);
     try {
       if (invitation?.state === "waiting") await window.scope.cancelTransfer(invitation.id);
@@ -80,7 +80,7 @@ export function SendTabDialog({
       setBusy(false);
     }
   }
-  const closingDisabled = busy || invitation?.state === "importing";
+  const cancelDisabled = busy || invitation?.state === "importing";
   return (
     <Dialog
       open
@@ -97,7 +97,7 @@ export function SendTabDialog({
           variant="ghost"
           size="icon-sm"
           aria-label="Close"
-          disabled={closingDisabled}
+          disabled={busy}
           onClick={() => void close()}
         >
           <X />
@@ -149,7 +149,7 @@ export function SendTabDialog({
                   Create new link
                 </Button>
               )}
-              <Button variant="secondary" disabled={closingDisabled} onClick={() => void close()}>
+              <Button variant="secondary" disabled={cancelDisabled} onClick={() => void close()}>
                 {invitation.state === "waiting"
                   ? "Cancel transfer"
                   : invitation.state === "importing"

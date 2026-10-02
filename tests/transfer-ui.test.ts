@@ -11,12 +11,20 @@ type TestTransfer = {
   imported: number;
   copied: number;
   sent: number;
+  pauseImport: boolean;
 };
-type TestMain = { scopeTransferUITest: TestTransfer };
+type TestMain = { scopeTransferUITest: TestTransfer; resumeScopeImport?: () => void };
 
 async function installTransferResponses(app: ElectronApplication, artifact?: Artifact) {
   await app.evaluate(({ ipcMain, clipboard }, artifact) => {
-    const control = { state: "waiting", cancelled: 0, imported: 0, copied: 0, sent: 0 };
+    const control = {
+      state: "waiting",
+      cancelled: 0,
+      imported: 0,
+      copied: 0,
+      sent: 0,
+      pauseImport: false,
+    };
     (globalThis as unknown as TestMain).scopeTransferUITest = control;
     const devices = {
       deviceId: "11111111-1111-4111-8111-111111111111",
@@ -93,7 +101,11 @@ async function installTransferResponses(app: ElectronApplication, artifact?: Art
           alreadyImported: control.imported > 0,
         };
       },
-      "import-transfer": () => {
+      "import-transfer": async () => {
+        if (control.pauseImport)
+          await new Promise<void>((resolve) => {
+            (globalThis as unknown as TestMain).resumeScopeImport = resolve;
+          });
         control.imported++;
         return { artifact, alreadyImported: control.imported > 1 };
       },
@@ -210,6 +222,15 @@ test("Other Scopes creates a public invitation, copies the secret through main, 
     expect((await controls(app)).copied).toBe(1);
     expect(await page.locator("body").innerText()).not.toContain("synthetic-pairing-secret");
     await screenshot(page, "transfer-pair-light.png");
+    const pairingUrl = await page.getByLabel("Pairing link", { exact: true }).inputValue();
+    await page.getByRole("button", { name: /^Other Scopes/ }).click();
+    expect((await controls(app)).cancelled).toBe(0);
+    await page.getByRole("button", { name: /^Other Scopes/ }).click();
+    expect(await page.getByLabel("Pairing link", { exact: true }).inputValue()).toBe(pairingUrl);
+    await page.getByLabel("Search settings").fill("appearance");
+    expect((await controls(app)).cancelled).toBe(0);
+    await page.getByLabel("Search settings").fill("other scopes");
+    expect(await page.getByLabel("Pairing link", { exact: true }).inputValue()).toBe(pairingUrl);
     await page.getByRole("button", { name: "Cancel invitation", exact: true }).click();
     expect((await controls(app)).cancelled).toBe(1);
     await page.getByRole("button", { name: "Enter pairing link", exact: true }).click();
@@ -217,6 +238,9 @@ test("Other Scopes creates a public invitation, copies the secret through main, 
       .getByLabel("Pairing link", { exact: true })
       .fill("scope-transfer://v1/#synthetic-pair-public-link");
     await page.getByLabel("Pairing secret", { exact: true }).fill("wrong");
+    await page.getByLabel("Search settings").fill("appearance");
+    await page.getByLabel("Search settings").fill("other scopes");
+    expect(await page.getByLabel("Pairing secret", { exact: true }).inputValue()).toBe("wrong");
     await page.getByRole("button", { name: "Pair Scope", exact: true }).click();
     await page.getByText("Pairing secret does not match. Retry.", { exact: false }).waitFor();
     await page.getByLabel("Pairing secret", { exact: true }).fill("synthetic-pairing-secret");
@@ -297,11 +321,27 @@ test("Send tab shows QR, cancellation, expiry, import progress, and completion w
     expect(
       await page.getByRole("button", { name: "Import in progress", exact: true }).isDisabled(),
     ).toBe(true);
-    expect(await page.getByRole("button", { name: "Close", exact: true }).isDisabled()).toBe(true);
-    await page.keyboard.press("Escape");
-    expect(await page.getByRole("dialog", { name: "Send tab", exact: true }).isVisible()).toBe(
-      true,
+    expect(await page.getByRole("button", { name: "Close", exact: true }).isEnabled()).toBe(true);
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.send("scope:transfer-link", {
+        url: "scope-transfer://v1/#queued-pair-public-link",
+        kind: "pair",
+      }),
     );
+    expect(
+      await page.getByRole("dialog", { name: "Pair another Scope", exact: true }).count(),
+    ).toBe(0);
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog", { name: "Pair another Scope", exact: true }).waitFor();
+    expect(await page.getByLabel("Pairing link", { exact: true }).inputValue()).toBe(
+      "scope-transfer://v1/#queued-pair-public-link",
+    );
+    expect((await controls(app)).cancelled).toBe(1);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await app.evaluate(() => {
+      (globalThis as unknown as TestMain).scopeTransferUITest.state = "delivered";
+    });
+    await send();
     await app.evaluate(() => {
       (globalThis as unknown as TestMain).scopeTransferUITest.state = "delivered";
     });
@@ -347,7 +387,34 @@ test("Import reviews metadata before confirmation and duplicate import opens the
     await dialog.getByText("1,024 bytes", { exact: true }).waitFor();
     expect((await controls(app)).imported).toBe(0);
     await screenshot(page, "transfer-import-light.png");
+    await app.evaluate(() => {
+      (globalThis as unknown as TestMain).scopeTransferUITest.pauseImport = true;
+    });
     await dialog.getByRole("button", { name: "Import tab", exact: true }).click();
+    await dialog.getByRole("button", { name: "Importing…", exact: true }).waitFor();
+    const queuedImportLink = "scope-transfer://v1/#queued-tab-public-link";
+    await app.evaluate(
+      ({ BrowserWindow }, url) =>
+        BrowserWindow.getAllWindows()[0].webContents.send("scope:transfer-link", {
+          url,
+          kind: "tab",
+        }),
+      queuedImportLink,
+    );
+    expect(await dialog.getByRole("button", { name: "Importing…", exact: true }).isDisabled()).toBe(
+      true,
+    );
+    expect(await page.getByLabel("Transfer link", { exact: true }).count()).toBe(0);
+    await app.evaluate(() => {
+      const state = globalThis as unknown as TestMain;
+      state.scopeTransferUITest.pauseImport = false;
+      state.resumeScopeImport?.();
+    });
+    await page.getByLabel("Transfer link", { exact: true }).waitFor();
+    expect(await page.getByLabel("Transfer link", { exact: true }).inputValue()).toBe(
+      queuedImportLink,
+    );
+    await page.getByRole("button", { name: "Close", exact: true }).click();
     await dialog.waitFor({ state: "hidden" });
     expect((await controls(app)).imported).toBe(1);
     await app.evaluate(
