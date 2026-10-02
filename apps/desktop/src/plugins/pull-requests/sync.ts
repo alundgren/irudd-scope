@@ -86,13 +86,7 @@ export class PullRequestSync {
       },
       (signal) => {
         signal.throwIfAborted();
-        this.pruneCharges();
-        const blocked = Math.max(
-          this.reserveUntil,
-          this.charges.reduce((sum, charge) => sum + charge.cost, 0) >= 500
-            ? this.charges[0]!.at + 3_600_000
-            : 0,
-        );
+        const blocked = this.reserveUntil;
         if (blocked > this.now())
           throw new GitHubReadError(
             "GitHub refresh is waiting for the account query budget.",
@@ -243,6 +237,23 @@ export class PullRequestSync {
   private pruneCharges() {
     while (this.charges[0] && this.charges[0].at <= this.now() - 3_600_000) this.charges.shift();
   }
+  private budgetUntil() {
+    this.pruneCharges();
+    let spent = this.charges.reduce((sum, charge) => sum + charge.cost, 0);
+    if (spent < 500) return 0;
+    for (const charge of this.charges) {
+      spent -= charge.cost;
+      if (spent < 500) return charge.at + 3_600_000;
+    }
+    return 0;
+  }
+  private waitUntil() {
+    return Math.max(this.reserveUntil, this.budgetUntil());
+  }
+  private cadenceReason() {
+    if (this.reserveUntil > this.now()) return "GitHub query reserve";
+    return this.budgetUntil() > this.now() || this.factor() > 1 ? "Account query budget" : null;
+  }
   private inspected(group: Group) {
     return [...group.tabs]
       .map((tabId) => this.interests.get(tabId))
@@ -285,13 +296,8 @@ export class PullRequestSync {
             updatedAt: stamp,
             error,
             intervalMs: this.interval(group),
-            nextAttemptAt: new Date(Math.max(group.next, this.reserveUntil)).toISOString(),
-            reason:
-              this.reserveUntil > this.now()
-                ? "GitHub query reserve"
-                : this.factor() > 1
-                  ? "Account query budget"
-                  : null,
+            nextAttemptAt: new Date(Math.max(group.next, this.waitUntil())).toISOString(),
+            reason: this.cadenceReason(),
           },
           group.controller.signal,
         );
@@ -316,14 +322,12 @@ export class PullRequestSync {
           {
             ...snapshot.sync,
             intervalMs: this.interval(group),
-            nextAttemptAt: new Date(Math.max(group.next, this.reserveUntil)).toISOString(),
+            nextAttemptAt: new Date(Math.max(group.next, this.waitUntil())).toISOString(),
             reason:
               snapshot.sync.reason === "Loading remaining GitHub facts" &&
               snapshot.sync.state === "syncing"
                 ? snapshot.sync.reason
-                : this.factor() > 1
-                  ? "Account query budget"
-                  : null,
+                : this.cadenceReason(),
           },
           group.controller.signal,
         );
@@ -337,11 +341,11 @@ export class PullRequestSync {
     if (this.paused || !this.started || !this.groups.size) return;
     let next = Infinity;
     for (const group of this.groups.values()) {
-      if (!group.run) next = Math.min(next, Math.max(group.next, this.reserveUntil));
+      if (!group.run) next = Math.min(next, Math.max(group.next, this.waitUntil()));
       if (!group.target && this.inspected(group).length)
-        next = Math.min(next, Math.max(group.targetNext, this.reserveUntil));
+        next = Math.min(next, Math.max(group.targetNext, this.waitUntil()));
     }
-    if (this.reserveUntil > this.now() && !this.accountProbe)
+    if (this.waitUntil() > this.now() && !this.accountProbe)
       next = Math.min(next, Math.max(this.now(), this.accountCheckAt + 60_000));
     if (Number.isFinite(next)) {
       this.timer = this.schedule(
@@ -356,12 +360,15 @@ export class PullRequestSync {
   }
   private tick() {
     if (this.paused) return;
-    if (this.reserveUntil > this.now()) {
-      void this.checkAccount().finally(() => this.arm());
+    if (this.waitUntil() > this.now()) {
+      void this.checkAccount()
+        .then(() => this.publishCadence())
+        .catch(() => {})
+        .finally(() => this.arm());
       return;
     }
     for (const group of this.groups.values()) {
-      if (this.now() < this.reserveUntil) continue;
+      if (this.now() < this.waitUntil()) continue;
       // Targeted reads join the subprocess queue before the next inventory page.
       if (!group.target && group.targetNext <= this.now() && this.inspected(group).length) {
         group.target = this.target(group).finally(() => {
@@ -591,10 +598,11 @@ export class PullRequestSync {
   }
 
   async sync(tabId: string): Promise<PullRequestsSnapshot> {
-    if (this.reserveUntil > this.now()) await this.checkAccount();
+    if (this.waitUntil() > this.now()) await this.checkAccount();
     await this.reconcile();
     const group = [...this.groups.values()].find((group) => group.tabs.has(tabId));
     if (!group) throw new GitHubReadError("Choose a repository before refreshing pull requests.");
+    if (!this.paused && this.reserveUntil > this.now()) await this.publishCadence();
     if (this.paused || this.reserveUntil > this.now()) return this.store.snapshotByTab(tabId);
     await (group.run ?? this.run(group));
     return this.store.snapshotByTab(tabId);
