@@ -1,3 +1,4 @@
+import { PublicationStore } from "./publication-store.ts";
 import { PullRequestStore, initializePullRequestsTab } from "./pull-request-store.ts";
 import { DatabaseMaintenance } from "@irudd-scope/sqlite";
 import { createHash, randomUUID } from "node:crypto";
@@ -44,6 +45,7 @@ export class ArtifactStore {
   maintenance!: DatabaseMaintenance;
   plans!: PlanStore;
   pullRequests!: PullRequestStore;
+  publications!: PublicationStore;
   onChanged: (event: LiveEvent) => void = () => {};
   private readonly listeners = new Set<(event?: LiveEvent) => void>();
   subscribe(listener: (event?: LiveEvent) => void): () => void {
@@ -89,6 +91,12 @@ export class ArtifactStore {
         mutate: (effect, events) => store.mutate(effect, events),
       });
       await store.pullRequests.initialize();
+      store.publications = new PublicationStore({
+        sql,
+        run: (effect) => store.run(effect),
+        mutate: (effect, events) => store.mutate(effect, events),
+      });
+      await store.publications.initialize();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -127,7 +135,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 7) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 8) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");
@@ -562,11 +570,11 @@ export class ArtifactStore {
     return this.run(
       sql.withTransaction(
         Effect.gen(function* () {
-          yield* sql`DELETE FROM tab_blobs WHERE staged_until <= ${now} AND NOT EXISTS (SELECT 1 FROM artifacts WHERE artifacts.tab_id = tab_blobs.tab_id AND artifacts.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM plan_revisions WHERE plan_revisions.tab_id = tab_blobs.tab_id AND plan_revisions.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM plan_images WHERE plan_images.tab_id = tab_blobs.tab_id AND plan_images.blob_id = tab_blobs.blob_id)`;
+          yield* sql`DELETE FROM tab_blobs WHERE staged_until <= ${now} AND NOT EXISTS (SELECT 1 FROM artifacts WHERE artifacts.tab_id = tab_blobs.tab_id AND artifacts.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM plan_revisions WHERE plan_revisions.tab_id = tab_blobs.tab_id AND plan_revisions.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM plan_images WHERE plan_images.tab_id = tab_blobs.tab_id AND plan_images.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM publications WHERE publications.tab_id = tab_blobs.tab_id AND (publications.checkpoint_blob = tab_blobs.blob_id OR publications.operation_blob = tab_blobs.blob_id))`;
           yield* sql`DELETE FROM live_tabs WHERE opened = 0 AND created_at <= ${now - UPLOAD_GRACE_MS} AND NOT EXISTS (SELECT 1 FROM artifacts WHERE artifacts.tab_id = live_tabs.id) AND NOT EXISTS (SELECT 1 FROM tab_blobs WHERE tab_blobs.tab_id = live_tabs.id)`;
           const [row] = yield* sql<{
             bytes: number;
-          }>`SELECT coalesce(sum(length(content)), 0) AS bytes FROM blobs WHERE id NOT IN (SELECT blob_id FROM artifacts UNION SELECT blob_id FROM plan_revisions UNION SELECT blob_id FROM plan_images)`;
+          }>`SELECT coalesce(sum(length(content)), 0) AS bytes FROM blobs WHERE id NOT IN (SELECT blob_id FROM artifacts UNION SELECT blob_id FROM plan_revisions UNION SELECT blob_id FROM plan_images UNION SELECT checkpoint_blob FROM publications WHERE checkpoint_blob IS NOT NULL UNION SELECT operation_blob FROM publications WHERE operation_blob IS NOT NULL)`;
           return row.bytes;
         }),
       ),
@@ -757,7 +765,7 @@ export class ArtifactStore {
           yield* sql`UPDATE artifacts SET revision = ${artifact.revision}, document = ${JSON.stringify(artifact)}, blob_id = ${blob} WHERE id = ${id}`;
           yield* sql`UPDATE lifecycle SET value = max(value, ${artifact.revision}) WHERE name = 'max_revision'`;
           yield* recordPlanRevision(sql, row.tab_id, artifact);
-          yield* sql`DELETE FROM tab_blobs WHERE tab_id = ${row.tab_id} AND staged_until = 0 AND blob_id <> ${blob} AND NOT EXISTS (SELECT 1 FROM plan_revisions WHERE plan_revisions.tab_id = tab_blobs.tab_id AND plan_revisions.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM plan_images WHERE plan_images.tab_id = tab_blobs.tab_id AND plan_images.blob_id = tab_blobs.blob_id)`;
+          yield* sql`DELETE FROM tab_blobs WHERE tab_id = ${row.tab_id} AND staged_until = 0 AND blob_id <> ${blob} AND NOT EXISTS (SELECT 1 FROM plan_revisions WHERE plan_revisions.tab_id = tab_blobs.tab_id AND plan_revisions.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM plan_images WHERE plan_images.tab_id = tab_blobs.tab_id AND plan_images.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM publications WHERE publications.tab_id = tab_blobs.tab_id AND (publications.checkpoint_blob = tab_blobs.blob_id OR publications.operation_blob = tab_blobs.blob_id))`;
           return artifact;
         }),
       ),

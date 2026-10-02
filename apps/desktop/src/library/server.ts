@@ -1,3 +1,4 @@
+import { handlePublicationsHttp } from "./publications-http.ts";
 import { handlePullRequestsHttp } from "./pull-requests-http.ts";
 import {
   VoiceRequest,
@@ -113,6 +114,7 @@ export async function startArtifactServer(options: {
     authenticate(request, options.token);
     if (await handlePlanHttp(request, response, url, store.plans)) return;
     if (await handlePullRequestsHttp(request, response, url, store.pullRequests)) return;
+    if (await handlePublicationsHttp(request, response, url, store.publications)) return;
 
     if (route === "POST /v1/voice" && !url.search) {
       if (!options.voice) throw new ScopeError(503, "Voice generation is unavailable.");

@@ -6,6 +6,25 @@ contains open tabs and a search button on the right. Search opens a roomy
 control panel so secondary actions take no permanent tab space. Prose has a
 reading width; images, HTML, and diagrams use the available area.
 
+## Publish with a coding agent
+
+HTML and plan tabs expose Publish with coding agent in their current-tab
+controls. The dialog copies a request to paste into an existing session, shows
+saved remote links and the last successful Scope revision, and retains an
+unresolved operation for recovery. Provider availability belongs to the current
+session. Scope does not start one.
+
+Remote audience and edit metadata are labeled Last checked because Scope has
+no provider monitor. Local pending changes are derived from the current Scope
+revision. Remote edit warnings require Allow replacement before the agent can
+continue. Privacy blocks cannot be acknowledged away. Every existing Sites
+update warns about concurrent replacement because its tools lack conditional
+content version enforcement. Sites uses owner-only deployment in this flow.
+
+Unlink explains that it removes Scope's saved link and leaves the remote
+artifact intact. Canceling a started operation warns that the provider may
+already have published and that its result needs reconciliation.
+
 ## Appearance and controls
 
 Scope uses Excalidraw-inspired cool neutrals, violet selection and focus,
