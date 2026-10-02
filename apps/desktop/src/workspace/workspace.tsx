@@ -45,6 +45,8 @@ import { observeFrameKeyboard } from "./frame-documents.ts";
 import { pluginTools, pluginForArtifact, tabArtifactId } from "../plugins/registry.renderer.ts";
 
 type FullscreenMode = "edit" | "view" | "present";
+type TransferLink = { kind: "pair" | "tab"; url: string };
+type TransferDialog = TransferLink | { kind: "send"; tabId: string; title: string };
 
 export function App({ initialSettings }: { initialSettings: SettingsView | undefined }) {
   const { theme, setAppearance } = useAppearance(initialSettings?.appearance ?? "system");
@@ -60,20 +62,38 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const [fullscreenMode, setFullscreenMode] = useState<FullscreenMode>("edit");
   const [details, setDetails] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [sendTab, setSendTab] = useState<{ id: string; title: string }>();
-  const [importLink, setImportLink] = useState<string>();
-  const [pairLink, setPairLink] = useState<string>();
-  const transferOpen = Boolean(sendTab) || importLink !== undefined || pairLink !== undefined;
+  const [transfer, setTransfer] = useState<TransferDialog>();
+  const [transferLinks, setTransferLinks] = useState<TransferLink[]>([]);
+  const pendingTransferLinks = useRef<TransferLink[]>([]);
+  const transferOpen = transfer !== undefined;
   const [error, setError] = useState("");
   useEffect(
     () =>
       window.scope.onTransferLink(({ url, kind }) => {
         setSearch(false);
-        if (kind === "pair") setPairLink(url);
-        else setImportLink(url);
+        const links = pendingTransferLinks.current;
+        if (links.some((link) => link.url === url)) return;
+        if (links.length === 4) {
+          setError(
+            "Four transfer links are waiting. Finish a transfer, then open the new link again.",
+          );
+          return;
+        }
+        pendingTransferLinks.current = [...links, { url, kind }];
+        setTransferLinks(pendingTransferLinks.current);
       }),
     [],
   );
+  useEffect(() => {
+    if (transfer || settings || !transferLinks.length) return;
+    const [next, ...pending] = pendingTransferLinks.current;
+    setTransfer(next);
+    pendingTransferLinks.current = pending;
+    setTransferLinks(pending);
+  }, [transfer, settings, transferLinks]);
+  function closeTransfer(dialog: TransferDialog) {
+    setTransfer((current) => (current === dialog ? undefined : current));
+  }
   useEffect(
     () =>
       window.scope.onFullscreenChange((value) => {
@@ -582,7 +602,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             keywords: "receive transfer link scope",
             icon: Download,
             onSelect: () => {
-              setImportLink("");
+              setTransfer({ kind: "tab", url: "" });
               setSearch(false);
             },
           },
@@ -637,7 +657,11 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                           keywords: "transfer share scope",
                           icon: Send,
                           onSelect: () => {
-                            setSendTab({ id: active.id, title: activeArtifact.title });
+                            setTransfer({
+                              kind: "send",
+                              tabId: active.id,
+                              title: activeArtifact.title,
+                            });
                             setSearch(false);
                           },
                         },
@@ -702,33 +726,33 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             : undefined
         }
       />
-      {sendTab && (
+      {transfer?.kind === "send" && (
         <SendTabDialog
-          tabId={sendTab.id}
-          title={sendTab.title}
+          tabId={transfer.tabId}
+          title={transfer.title}
           finalFocus={returnFocus}
-          onClose={() => setSendTab(undefined)}
+          onClose={() => closeTransfer(transfer)}
           onPair={() => {
-            setSendTab(undefined);
+            closeTransfer(transfer);
             openSettings("Other Scopes");
           }}
         />
       )}
-      {importLink !== undefined && (
+      {transfer?.kind === "tab" && (
         <ImportTabDialog
-          key={importLink}
-          initialUrl={importLink}
+          key={transfer.url}
+          initialUrl={transfer.url}
           finalFocus={returnFocus}
-          onClose={() => setImportLink(undefined)}
+          onClose={() => closeTransfer(transfer)}
           onImported={openImported}
         />
       )}
-      {pairLink !== undefined && (
+      {transfer?.kind === "pair" && (
         <PairScopeDialog
-          key={pairLink}
-          url={pairLink}
+          key={transfer.url}
+          url={transfer.url}
           finalFocus={returnFocus}
-          onClose={() => setPairLink(undefined)}
+          onClose={() => closeTransfer(transfer)}
         />
       )}
       <Dialog open={settings} onOpenChange={setSettings}>
