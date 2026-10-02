@@ -663,6 +663,7 @@ export class GitHubPullRequests {
     const queriedRepository = validated(PullRequestsRepository, repository);
     const context: ReadContext = { cost: 0, priority: 0 };
     const enriched: PullRequestFacts[] = [];
+    const closed = new Map<string, string>();
     let startedAt: string | undefined;
     let repositoryId: string | undefined;
     const inputIds = new Set<string>();
@@ -724,7 +725,10 @@ export class GitHubPullRequests {
         )
           throw new GitHubReadError("GitHub returned a pull request from another repository.");
         repositoryId = node.repository.id;
-        if (node.state === "CLOSED" || node.state === "MERGED") continue;
+        if (node.state === "CLOSED" || node.state === "MERGED") {
+          closed.set(node.id, timestamp);
+          continue;
+        }
         if (node.state !== "OPEN")
           throw new GitHubReadError("GitHub returned invalid pull request state.");
         const raw = (result as { data: { nodes: unknown[] } }).data.nodes[index];
@@ -742,6 +746,7 @@ export class GitHubPullRequests {
       cost: context.cost,
       startedAt: startedAt!,
       prs: enriched,
+      closed,
     };
   }
 
