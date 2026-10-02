@@ -472,18 +472,16 @@ test("Import reviews metadata before confirmation and duplicate import opens the
           kind: "tab",
         });
     }, queuedLinks);
+    await page
+      .getByText(
+        "Four transfer links are waiting. Finish a transfer, then open the new link again.",
+        { exact: true },
+      )
+      .waitFor({ state: "visible" });
     expect(await dialog.getByRole("button", { name: "Importing…", exact: true }).isDisabled()).toBe(
       true,
     );
     expect(await page.getByLabel("Transfer link", { exact: true }).count()).toBe(0);
-    expect(
-      await page
-        .getByText(
-          "Four transfer links are waiting. Finish a transfer, then open the new link again.",
-          { exact: true },
-        )
-        .count(),
-    ).toBe(1);
     await app.evaluate(() => {
       const state = globalThis as unknown as TestMain;
       state.scopeTransferUITest.pauseImport = false;
