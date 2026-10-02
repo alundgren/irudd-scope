@@ -74,6 +74,13 @@ function overwriteWarnings(
       warnings.push(
         "Remote publication dates regressed and cannot verify the current content. Publishing could overwrite remote edits.",
       );
+    if (
+      (before.updatedAt !== null && beforeDate === null) ||
+      (after.updatedAt !== null && afterDate === null)
+    )
+      warnings.push(
+        "Remote publication dates are invalid and cannot verify the current content. Publishing could overwrite remote edits.",
+      );
     const sameVersion = before.version !== null && after.version === before.version;
     const sameDate = beforeDate !== null && afterDate === beforeDate;
     if (!sameVersion && !sameDate && !warnings.length)
@@ -88,24 +95,22 @@ function overwriteWarnings(
   return warnings;
 }
 function fresh(observation: PublicationObservation): boolean {
-  const checked = Date.parse(observation.checkedAt);
-  if (timestamp(observation.checkedAt) === null) return false;
-  return Number.isFinite(checked) && checked <= Date.now() && Date.now() - checked <= 60_000;
+  const checked = timestamp(observation.checkedAt);
+  const now = BigInt(Date.now()) * 1_000_000n;
+  return checked !== null && checked <= now && now - checked <= 60_000_000_000n;
 }
 function privacy(provider: PublicationProvider, observation: PublicationObservation): string[] {
   const messages: string[] = [];
   if (!safeUrl(provider, observation.url))
     messages.push("The destination URL is not a supported secure provider URL.");
-  if (!fresh(observation))
-    messages.push(
-      "Check the destination again: the account observation must be no more than 60 seconds old.",
-    );
   if (!["owner", "editor"].includes(observation.access))
     messages.push("The signed-in account cannot verify edit permission.");
   if (!["owner", "team"].includes(observation.audience))
     messages.push("Destination privacy is public, external, or unverified.");
-  if (provider === "sites" && observation.audience !== "owner")
+  if (provider === "sites" && (observation.audience !== "owner" || observation.access !== "owner"))
     messages.push("Sites publishing requires owner-only access and its private deployment tool.");
+  if (provider === "claude" && observation.audience === "team" && observation.workspaceId === null)
+    messages.push("A team-only Claude destination needs verified workspace identity.");
   if ((observation.remoteId === null) !== (observation.url === null))
     messages.push("Remote identity and URL must both be supplied or both be absent.");
   if (
@@ -189,11 +194,30 @@ export class PublicationStore {
       return decode(PublicationsSnapshot, {
         artifact: JSON.parse(owner.document),
         tabId: owner.tab_id,
-        destinations: rows.map((row) => ({
-          provider: row.provider,
-          checkpoint: row.checkpoint ? JSON.parse(row.checkpoint) : null,
-          operation: row.operation ? JSON.parse(row.operation) : null,
-        })),
+        destinations: rows.map((row) => {
+          let operation = row.operation
+            ? decode(PublicationOperation, JSON.parse(row.operation))
+            : null;
+          if (operation)
+            operation = {
+              ...operation,
+              needsRefresh: operation.state !== "started" && !fresh(operation.observation),
+            };
+          // Expiry prevents a remote call, but retains approval for an identical fresh observation.
+          if (operation && operation.state !== "started" && !fresh(operation.observation))
+            operation = {
+              ...operation,
+              warnings: [
+                ...operation.warnings,
+                "The remote observation expired. Check the destination again before publishing.",
+              ],
+            };
+          return {
+            provider: row.provider,
+            checkpoint: row.checkpoint ? JSON.parse(row.checkpoint) : null,
+            operation,
+          };
+        }),
       });
     });
   }
@@ -283,6 +307,10 @@ export class PublicationStore {
                 "This HTML uses the Scope SDK and cannot work at an external destination.",
               );
             messages.push(...privacy(command.provider, command.observation));
+            if (!fresh(command.observation))
+              messages.push(
+                "Check the destination again: the account observation must be no more than 60 seconds old.",
+              );
             if (
               checkpoint &&
               (checkpoint.observation.accountId !== command.observation.accountId ||
@@ -391,9 +419,9 @@ export class PublicationStore {
                 return yield* fail(
                   "Destination privacy or account evidence is not verified. Refresh it before continuing.",
                 );
-              if (!fresh(operation.observation))
+              if (command.action === "start" && !fresh(operation.observation))
                 return yield* fail(
-                  "The remote observation expired. Cancel this unstarted operation and check the destination again.",
+                  "The remote observation expired. Refresh the destination check before starting.",
                 );
               if (operation.revision !== artifact.revision)
                 return yield* fail(
