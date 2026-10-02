@@ -393,18 +393,31 @@ test("Import reviews metadata before confirmation and duplicate import opens the
     await dialog.getByRole("button", { name: "Import tab", exact: true }).click();
     await dialog.getByRole("button", { name: "Importing…", exact: true }).waitFor();
     const queuedImportLink = "scope-transfer://v1/#queued-tab-public-link";
-    await app.evaluate(
-      ({ BrowserWindow }, url) =>
+    const queuedLinks = [
+      queuedImportLink,
+      ...["second", "third", "fourth", "overflow"].map(
+        (name) => `scope-transfer://v1/#${name}-queued-link`,
+      ),
+    ];
+    await app.evaluate(({ BrowserWindow }, links) => {
+      for (const url of links)
         BrowserWindow.getAllWindows()[0].webContents.send("scope:transfer-link", {
           url,
           kind: "tab",
-        }),
-      queuedImportLink,
-    );
+        });
+    }, queuedLinks);
     expect(await dialog.getByRole("button", { name: "Importing…", exact: true }).isDisabled()).toBe(
       true,
     );
     expect(await page.getByLabel("Transfer link", { exact: true }).count()).toBe(0);
+    expect(
+      await page
+        .getByText(
+          "Four transfer links are waiting. Finish a transfer, then open the new link again.",
+          { exact: true },
+        )
+        .count(),
+    ).toBe(1);
     await app.evaluate(() => {
       const state = globalThis as unknown as TestMain;
       state.scopeTransferUITest.pauseImport = false;
@@ -414,7 +427,12 @@ test("Import reviews metadata before confirmation and duplicate import opens the
     expect(await page.getByLabel("Transfer link", { exact: true }).inputValue()).toBe(
       queuedImportLink,
     );
-    await page.getByRole("button", { name: "Close", exact: true }).click();
+    for (const link of queuedLinks.slice(0, 4)) {
+      await expect
+        .poll(() => page.getByLabel("Transfer link", { exact: true }).inputValue())
+        .toBe(link);
+      await page.getByRole("button", { name: "Close", exact: true }).click();
+    }
     await dialog.waitFor({ state: "hidden" });
     expect((await controls(app)).imported).toBe(1);
     await app.evaluate(

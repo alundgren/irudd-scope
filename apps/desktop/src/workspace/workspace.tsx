@@ -85,12 +85,12 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     [],
   );
   useEffect(() => {
-    if (transfer || settings || !transferLinks.length) return;
+    if (transfer || settings || publishing || details || overflow || !transferLinks.length) return;
     const [next, ...pending] = pendingTransferLinks.current;
     setTransfer(next);
     pendingTransferLinks.current = pending;
     setTransferLinks(pending);
-  }, [transfer, settings, transferLinks]);
+  }, [transfer, settings, publishing, details, overflow, transferLinks]);
   function closeTransfer(dialog: TransferDialog) {
     setTransfer((current) => (current === dialog ? undefined : current));
   }
