@@ -117,6 +117,16 @@ function inventory(
     },
   };
 }
+function enrichment(nodes: ReturnType<typeof pr>[]) {
+  const page = inventory(nodes);
+  return {
+    data: {
+      viewer: page.data.viewer,
+      rateLimit: page.data.rateLimit,
+      nodes: nodes.map((node) => ({ ...node, repository: page.data.repository })),
+    },
+  };
+}
 function threads(number: number, resolved: boolean[], pageInfo = complete) {
   return {
     data: {
@@ -427,7 +437,7 @@ console.log(JSON.stringify({...${JSON.stringify(inventory([]))},data:{...${JSON.
     const gh = await fakeGh(`
 const query = args.find(a=>a.startsWith('query='));
 if(query.includes('ScopeInitialOpenPullRequests')) {
- if(!query.includes('first: 100') || !query.includes('labels(first: 25)') || query.includes('reviewThreads')) throw new Error('Not lightweight');
+ if(!query.includes('first: 100') || !query.includes('labels(first: 25)') || query.includes('reviewThreads') || query.includes('statusCheckRollup') || query.includes('mergeable')) throw new Error('Not lightweight');
  console.log(JSON.stringify(${JSON.stringify(initial)}));
 } else if(query.includes('ScopeEnrichPullRequests')) {
  const ids=args.filter(a=>a.startsWith('ids[]=')).map(a=>a.slice(6));
@@ -440,7 +450,8 @@ if(query.includes('ScopeInitialOpenPullRequests')) {
     expect(first.prs).toHaveLength(51);
     expect(first.prs.every((row) => row.hasUnresolvedConversations === null)).toBe(true);
     expect(first.startedAt).toBe(first.prs[0].merge.observedAt);
-    expect(first.prs[0].checks.status).toBe("passing");
+    expect(first.prs[0].checks.status).toBe("unknown");
+    expect(first.prs[0].merge.status).toBe("unknown");
     const complete = await reader.enrichInventory(repository, first.prs, signal());
     expect(complete.prs).toHaveLength(50);
     expect(complete.prs.some((row) => row.number === 2)).toBe(false);
@@ -822,7 +833,7 @@ describe("tab-owned GitHub synchronization", () => {
   test("first HTTP sync canonicalizes an alias and later sync preserves notes, review and agent fields", async () => {
     const alias = { owner: "previous-owner", name: "previous-project" };
     const gh = await fakeGh(
-      `if(args.some(a=>a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+      `if(args.some(a=>(a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
     const f = await inboxFixture(gh.process, alias);
     try {
@@ -879,7 +890,7 @@ describe("tab-owned GitHub synchronization", () => {
     changed.repository.id = "R_TRANSFERRED";
     changed.url = "https://github.com/other/project/pull/1";
     const gh = await fakeGh(
-      `import { existsSync } from 'node:fs';if(args.some(a=>a.includes('ScopeOpenPullRequests')))console.log(JSON.stringify(existsSync(process.argv[1]+'.release')?${JSON.stringify(inventory([changed], complete, { owner: "other", name: "project" }, "R_TRANSFERRED"))}:${JSON.stringify(inventory([pr(1)]))}));else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+      `import { existsSync } from 'node:fs';if(args.some(a=>(a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests'))))console.log(JSON.stringify(existsSync(process.argv[1]+'.release')?${JSON.stringify(inventory([changed], complete, { owner: "other", name: "project" }, "R_TRANSFERRED"))}:${JSON.stringify(inventory([pr(1)]))}));else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
     const f = await inboxFixture(gh.process);
     try {
@@ -909,11 +920,12 @@ describe("tab-owned GitHub synchronization", () => {
 
   test("coalesces sync commands through HTTP and preserves newer local edits during refresh", async () => {
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) { setTimeout(() => console.log(JSON.stringify(${JSON.stringify(inventory([pr(1, { draft: true })]))})), 150); } else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+      `if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) { setTimeout(() => console.log(JSON.stringify(${JSON.stringify(inventory([pr(1, { draft: true })]))})), 150); } else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1, { draft: true })]))}));else throw new Error('Unexpected query');`,
     );
     const f = await inboxFixture(gh.process);
     try {
       await f.service.sync(f.snapshot.tabId);
+      const callsAfterSeed = (await gh.calls()).length;
       const refresh = f.command({
         action: "sync",
         name: "test-inbox",
@@ -926,7 +938,7 @@ describe("tab-owned GitHub synchronization", () => {
         tabId: f.snapshot.tabId,
         requestId: randomUUID(),
       });
-      await waitForCalls(gh, 2);
+      await waitForCalls(gh, callsAfterSeed + 1);
       await f.server.store.pullRequests.command({
         action: "note",
         name: "test-inbox",
@@ -957,7 +969,7 @@ describe("tab-owned GitHub synchronization", () => {
           snooze: { until: "2026-10-02T12:00:00Z" },
         },
       });
-      expect(await gh.calls()).toHaveLength(2);
+      expect(await gh.calls()).toHaveLength(callsAfterSeed + 1);
     } finally {
       await f.close();
     }
@@ -965,7 +977,7 @@ describe("tab-owned GitHub synchronization", () => {
 
   test("failed complete inventory preserves the cache and an empty complete inventory prunes local state", async () => {
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+      `if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
     const failed = await fakeGh("console.log(JSON.stringify({errors:[{message:'unavailable'}]}))");
     const empty = await fakeGh(`console.log(JSON.stringify(${JSON.stringify(inventory([]))}));`);
@@ -1006,7 +1018,7 @@ describe("tab-owned GitHub synchronization", () => {
 
   test("a delayed refresh cannot revive a deleted tab or write into a reused name", async () => {
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) setTimeout(() => console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})), 150); else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+      `if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) setTimeout(() => console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})), 150); else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
     const f = await inboxFixture(gh.process);
     try {
@@ -1026,7 +1038,7 @@ describe("tab-owned GitHub synchronization", () => {
 
   test("cancellation clears retained sync status while keeping the cache across restart", async () => {
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) setTimeout(() => console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})), 150); else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+      `if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) setTimeout(() => console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})), 150); else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
     const f = await inboxFixture(gh.process);
     let closed = false;
@@ -1041,8 +1053,9 @@ describe("tab-owned GitHub synchronization", () => {
         expectedVersion: 0,
         text: "Retained note",
       });
+      const callsAfterSeed = (await gh.calls()).length;
       const refreshing = f.service.sync(f.snapshot.tabId).catch(() => null);
-      await waitForCalls(gh, 2);
+      await waitForCalls(gh, callsAfterSeed + 1);
       await f.server.store.trashTab(f.snapshot.tabId);
       f.service.cancelTabs([f.snapshot.tabId]);
       expect(await refreshing).toBeNull();
@@ -1071,7 +1084,7 @@ describe("tab-owned GitHub synchronization", () => {
 
   test("startup recovers an interrupted sync for active and trashed owners without losing cache", async () => {
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+      `if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
     const f = await inboxFixture(gh.process);
     let closed = false;
@@ -1119,9 +1132,9 @@ describe("tab-owned GitHub synchronization", () => {
   test("delayed cancellation cleanup cannot clear a newer run's status", async () => {
     const gh = await fakeGh(
       `import { existsSync } from 'node:fs';
-if(args.some(a => a.includes('ScopeOpenPullRequests'))) {
+if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) {
   const timer = setInterval(() => { if(existsSync(process.argv[1] + '.release')) { clearInterval(timer); console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); } }, 10);
-} else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+} else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
     const f = await inboxFixture(gh.process);
     const cancelSync = f.server.store.pullRequests.cancelSync.bind(f.server.store.pullRequests);
