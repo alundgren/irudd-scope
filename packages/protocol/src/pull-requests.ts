@@ -11,6 +11,11 @@ export const PullRequestNodeId = Schema.String.check(
   Schema.isPattern(/^[A-Za-z0-9_=-]+$/),
 );
 export const PullRequestCommit = Schema.String.check(Schema.isPattern(/^[a-f0-9]{40,64}$/));
+export const PullRequestCommitPair = Schema.Struct({
+  headOid: PullRequestCommit,
+  baseOid: PullRequestCommit,
+});
+export type PullRequestCommitPair = typeof PullRequestCommitPair.Type;
 const Timestamp = Schema.String.check(
   Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/),
 );
@@ -153,6 +158,9 @@ export const PullRequestsSync = Schema.Struct({
   updatedAt: Schema.NullOr(Timestamp),
   lastSuccessAt: Schema.NullOr(Timestamp),
   error: Schema.NullOr(ShortText),
+  intervalMs: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  nextAttemptAt: Schema.optional(Schema.NullOr(Timestamp)),
+  reason: Schema.optional(Schema.NullOr(ShortText)),
 });
 export type PullRequestsSync = typeof PullRequestsSync.Type;
 export const PullRequestsSnapshot = Schema.Struct({
@@ -176,7 +184,12 @@ export const PullRequestsCommand = Schema.Union([
     repository: PullRequestsRepository,
   }),
   Schema.Struct({ ...Write, action: Schema.Literal("sync") }),
-  Schema.Struct({ ...Write, action: Schema.Literal("detail"), nodeId: PullRequestNodeId }),
+  Schema.Struct({
+    ...Write,
+    action: Schema.Literal("detail"),
+    nodeId: PullRequestNodeId,
+    captured: Schema.optional(PullRequestCommitPair),
+  }),
   Schema.Struct({ ...Versioned, action: Schema.Literal("note"), text: Text }),
   Schema.Struct({
     ...Versioned,

@@ -32,7 +32,19 @@ export async function handlePullRequestsHttp(
   } catch {
     throw new ScopeError(400, "Invalid pull request command.");
   }
-  const reply = JSON.stringify(decode(PullRequestsReply, await store.command(command)));
+  const value = decode(PullRequestsReply, await store.command(command));
+  let projected = value;
+  if (value.type === "snapshot") {
+    // Older HTTP clients reject additional sync fields during strict decoding.
+    const sync = {
+      state: value.snapshot.sync.state,
+      updatedAt: value.snapshot.sync.updatedAt,
+      lastSuccessAt: value.snapshot.sync.lastSuccessAt,
+      error: value.snapshot.sync.error,
+    };
+    projected = { ...value, snapshot: { ...value.snapshot, sync } };
+  }
+  const reply = JSON.stringify(projected);
   if (Buffer.byteLength(reply) > MAX_PULL_REQUESTS_REPLY_BYTES)
     throw new ScopeError(413, "Pull request reply exceeds 32 MiB.");
   response.writeHead(200, {

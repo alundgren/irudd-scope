@@ -53,6 +53,8 @@ function pr(
   options: { draft?: boolean; mergeable?: string; checkHead?: string; checkState?: string } = {},
 ) {
   return {
+    state: "OPEN",
+    reviewThreads: { nodes: [] as { isResolved: boolean }[], pageInfo: complete },
     id: `PR_${number}`,
     repository: { id: "R_PROJECT" },
     number,
@@ -108,6 +110,7 @@ function inventory(
   return {
     data: {
       viewer: { login: "viewer" },
+      rateLimit: { cost: 1, limit: 5000, remaining: 4999, resetAt: "2026-10-03T00:00:00Z" },
       repository: {
         id,
         owner: { login: resolved.owner },
@@ -118,9 +121,21 @@ function inventory(
     },
   };
 }
+function enrichment(nodes: ReturnType<typeof pr>[]) {
+  const page = inventory(nodes);
+  return {
+    data: {
+      viewer: page.data.viewer,
+      rateLimit: page.data.rateLimit,
+      nodes: nodes.map((node) => ({ ...node, repository: page.data.repository })),
+    },
+  };
+}
 function threads(number: number, resolved: boolean[], pageInfo = complete) {
   return {
     data: {
+      viewer: { login: "viewer" },
+      rateLimit: { cost: 1, limit: 5000, remaining: 4999, resetAt: "2026-10-03T00:00:00Z" },
       repository: {
         pullRequest: {
           id: `PR_${number}`,
@@ -179,6 +194,10 @@ describe("fixed GitHub reads", () => {
       hasNextPage: true,
       endCursor: "inventory-two",
     });
+    first.data.repository.pullRequests.nodes[0].reviewThreads = {
+      nodes: [],
+      pageInfo: { hasNextPage: true, endCursor: "threads-two" },
+    };
     const second = inventory([pr(2, { mergeable: "CONFLICTING", checkState: "FAILURE" })]);
     const gh = await fakeGh(`
 if (args.some(a => a.includes('ScopeOpenPullRequests'))) {
@@ -202,9 +221,11 @@ if (args.some(a => a.includes('ScopeOpenPullRequests'))) {
       hasUnresolvedConversations: false,
     });
     const calls = await gh.calls();
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(3);
     expect(
-      calls.every((args) => args.slice(0, 4).join(" ") === "api graphql --hostname github.com"),
+      calls.every(
+        (args) => args.slice(0, 5).join(" ") === "api graphql --include --hostname github.com",
+      ),
     ).toBe(true);
     expect(calls[0].find((arg) => arg.startsWith("query="))).toContain("states: OPEN");
     expect(calls[0]).toContain("owner=example");
@@ -212,8 +233,10 @@ if (args.some(a => a.includes('ScopeOpenPullRequests'))) {
   });
 
   test("unavailable thread data stays unknown while complete current inventory survives", async () => {
+    const row = pr(1, { mergeable: "MERGEABLE" });
+    row.reviewThreads = { nodes: [], pageInfo: { hasNextPage: true, endCursor: "fail" } };
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else { console.error('permission denied GH_TOKEN=secret'); process.exit(1); }`,
+      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([row]))})); else { console.error('permission denied GH_TOKEN=secret'); process.exit(1); }`,
     );
     const result = await new GitHubPullRequests(gh.process).inventory(repository, signal());
     expect(result.prs[0].hasUnresolvedConversations).toBeNull();
@@ -221,8 +244,13 @@ if (args.some(a => a.includes('ScopeOpenPullRequests'))) {
   });
 
   test("observed unresolved threads remain true if a later thread page fails", async () => {
+    const row = pr(1, { mergeable: "MERGEABLE" });
+    row.reviewThreads = {
+      nodes: [{ isResolved: false }],
+      pageInfo: { hasNextPage: true, endCursor: "fail" },
+    };
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else if(args.includes('cursor=fail')) process.exit(1); else console.log(JSON.stringify(${JSON.stringify(threads(1, [false], { hasNextPage: true, endCursor: "fail" }))}));`,
+      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([row]))})); else if(args.includes('cursor=fail')) process.exit(1); else console.log(JSON.stringify(${JSON.stringify(threads(1, [false], { hasNextPage: true, endCursor: "fail" }))}));`,
     );
     expect(
       (await new GitHubPullRequests(gh.process).inventory(repository, signal())).prs[0]
@@ -239,8 +267,8 @@ if (args.some(a => a.includes('ScopeOpenPullRequests'))) {
     });
     const gh = await fakeGh(`
 if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([row]))}));
-else if(args.some(a => a.includes('ScopePullRequestLabels'))) console.log(JSON.stringify({data:{repository:{pullRequest:{id:'PR_1',labels:{nodes:[{name:'later-label'}],pageInfo:${JSON.stringify(complete)}}}}}}));
-else if(args.some(a => a.includes('ScopePullRequestReviewers'))) console.log(JSON.stringify({data:{repository:{pullRequest:{id:'PR_1',reviewRequests:{nodes:[{requestedReviewer:{login:'later-reviewer'}},{requestedReviewer:{slug:'maintainers',organization:{login:'another-org'}}}],pageInfo:${JSON.stringify(complete)}}}}}}));
+else if(args.some(a => a.includes('ScopePullRequestLabels'))) console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2026-10-03T00:00:00Z'},repository:{nameWithOwner:'example/project',pullRequest:{id:'PR_1',labels:{nodes:[{name:'later-label'}],pageInfo:${JSON.stringify(complete)}}}}}}));
+else if(args.some(a => a.includes('ScopePullRequestReviewers'))) console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2026-10-03T00:00:00Z'},repository:{nameWithOwner:'example/project',pullRequest:{id:'PR_1',reviewRequests:{nodes:[{requestedReviewer:{login:'later-reviewer'}},{requestedReviewer:{slug:'maintainers',organization:{login:'another-org'}}}],pageInfo:${JSON.stringify(complete)}}}}}}));
 else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
     const result = await new GitHubPullRequests(gh.process).inventory(repository, signal());
     expect(result.prs[0].labels).toEqual(["bug", "later-label"]);
@@ -251,7 +279,7 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
       "another-org/maintainers",
     ]);
     const calls = await gh.calls();
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(3);
     for (const args of calls.filter((args) =>
       args.some(
         (arg) => arg.includes("ScopeOpenPullRequests") || arg.includes("ScopePullRequestReviewers"),
@@ -265,8 +293,10 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
   test("head movement while reading threads makes CI and merge status unknown", async () => {
     const moved = threads(1, [false]);
     moved.data.repository.pullRequest.headRefOid = oldHead;
+    const row = pr(1, { mergeable: "MERGEABLE" });
+    row.reviewThreads = { nodes: [], pageInfo: { hasNextPage: true, endCursor: "fail" } };
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1, { mergeable: "MERGEABLE" })]))})); else console.log(JSON.stringify(${JSON.stringify(moved)}));`,
+      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([row]))})); else console.log(JSON.stringify(${JSON.stringify(moved)}));`,
     );
     const result = await new GitHubPullRequests(gh.process).inventory(repository, signal());
     expect(result.prs[0]).toMatchObject({
@@ -278,6 +308,7 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
 
   test.each([
     ["invalid JSON", "console.log('{')"],
+    ["null JSON", "console.log('null')"],
     [
       "GraphQL errors with HTTP success",
       "console.log(JSON.stringify({data:{},errors:[{message:'secret'}]}))",
@@ -309,12 +340,18 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
   });
 
   test("reads ordinary REST detail responses with extra fields through GitHub.com despite GH_HOST", async () => {
-    const view = { id: "PR_1", state: "OPEN", headRefOid: head, body: "Review this change" };
+    const view = {
+      id: "PR_1",
+      state: "OPEN",
+      headRefOid: head,
+      baseRefOid: base,
+      body: "Review this change",
+    };
     const gh = await fakeGh(`
 if(process.env.GH_HOST !== 'github.example.com') throw new Error('Expected non-default host');
 if(args[0] === 'pr' && !args.includes('github.com/example/project')) throw new Error('Wrong host');
 if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));
-else if(args[0] === 'pr' && args[1] === 'view') console.log(JSON.stringify(${JSON.stringify(view)}));
+else if(args.some(a=>a.includes('ScopePullRequestReviewBody'))) console.log(JSON.stringify({data:{viewer:{login:"viewer"},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:"2026-10-03T00:00:00Z"},repository:{nameWithOwner:'example/project',pullRequest:${JSON.stringify(view)}}}}));
 else if(args[0] === 'pr' && args[1] === 'diff') console.log('diff --git a/test b/test');
 else if(args.some(a => a.includes('/files?'))) console.log(JSON.stringify([{sha:'${head}',filename:'test.ts',additions:0,deletions:0,changes:0,status:'modified',blob_url:'https://github.com/example/project/blob/${head}/test.ts',raw_url:'https://github.com/example/project/raw/${head}/test.ts',contents_url:'https://api.github.com/repos/example/project/contents/test.ts',patch:'@@ -1 +1 @@'}]));
 else if(args.some(a => a.includes('/reviews?'))) console.log(JSON.stringify([{id:2,node_id:'REVIEW_2',user:{login:'reviewer',id:7,node_id:'USER_7',avatar_url:'https://avatars.githubusercontent.com/u/7',type:'User',site_admin:false},state:'APPROVED',body:'Looks good',submitted_at:'2026-10-01T12:00:00Z',commit_id:'${head}',html_url:'https://github.com/example/project/pull/1#pullrequestreview-2',pull_request_url:'https://api.github.com/repos/example/project/pulls/1',author_association:'MEMBER',_links:{html:{href:'https://github.com/example/project/pull/1#pullrequestreview-2'}}}]));
@@ -333,7 +370,9 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
       });
       expect(detail.diff).toContain("diff --git");
       const calls = await gh.calls();
-      expect(calls.filter((args) => args[1] === "view")).toHaveLength(2);
+      expect(
+        calls.filter((args) => args.some((a) => a.includes("ScopePullRequestReviewBody"))),
+      ).toHaveLength(2);
       expect(calls.find((args) => args[1] === "diff")).toEqual([
         "pr",
         "diff",
@@ -349,22 +388,293 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
     }
   });
 
-  test("refuses detail when the head changes during diff collection", async () => {
-    const view = { id: "PR_1", state: "OPEN", headRefOid: head, body: "Original" };
-    const gh = await fakeGh(`
+  test.each(["head", "base"])(
+    "refuses detail when the %s changes during diff collection",
+    async (commit) => {
+      const view = {
+        id: "PR_1",
+        state: "OPEN",
+        headRefOid: head,
+        baseRefOid: base,
+        body: "Original",
+      };
+      const gh = await fakeGh(`
 import { existsSync, writeFileSync } from 'node:fs';
 const marker = process.argv[1] + '.viewed';
 if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));
-else if(args[1] === 'view') { const moved = existsSync(marker); writeFileSync(marker, 'yes'); console.log(JSON.stringify({...${JSON.stringify(view)},headRefOid:moved?'${oldHead}':'${head}'})); }
+else if(args.some(a=>a.includes('ScopePullRequestReviewBody'))) { const moved = existsSync(marker); writeFileSync(marker, 'yes'); console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2026-10-03T00:00:00Z'},repository:{nameWithOwner:'example/project',pullRequest:{...${JSON.stringify(view)},headRefOid:moved && '${commit}'==='head'?'${oldHead}':'${head}',baseRefOid:moved && '${commit}'==='base'?'${oldHead}':'${base}'}}}})); }
 else if(args[1] === 'diff') console.log('diff --git a/test b/test');
 else if(args.some(a => a.includes('/files?'))) console.log(JSON.stringify([{filename:'test',additions:0,deletions:0,status:'modified'}]));
 else if(args.some(a => a.includes('/reviews?'))) console.log('[]');
 else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
-    const service = new GitHubPullRequests(gh.process);
-    const current = (await service.inventory(repository, signal())).prs[0];
-    await expect(service.detail(repository, current, signal())).rejects.toThrow(
-      "changed while loading",
+      const service = new GitHubPullRequests(gh.process);
+      const current = (await service.inventory(repository, signal())).prs[0];
+      await expect(service.detail(repository, current, signal())).rejects.toThrow(
+        "changed while loading",
+      );
+    },
+  );
+});
+
+describe("batched and targeted GitHub reads", () => {
+  test.each([1051, 2526])(
+    "reads every one of %i PRs in bounded pages without first-thread subprocesses",
+    async (count) => {
+      const gh = await fakeGh(`
+const query = args.find(a=>a.startsWith('query='));
+if(!query.includes('pullRequests(states: OPEN, first: 25') || !query.includes('reviewThreads(first: 100)') || !query.includes('rateLimit { cost limit remaining resetAt }')) throw new Error('Missing bounded query');
+const offset = Number(args.find(a=>a.startsWith('cursor='))?.slice(7) ?? 0);
+const rows = Array.from({length:Math.min(25,${count}-offset)},(_,i)=>({...${JSON.stringify(pr(1))},id:'PR_'+(offset+i+1),number:offset+i+1,url:'https://github.com/example/project/pull/'+(offset+i+1)}));
+console.log(JSON.stringify({...${JSON.stringify(inventory([]))},data:{...${JSON.stringify(inventory([]).data)},repository:{...${JSON.stringify(inventory([]).data.repository)},pullRequests:{nodes:rows,pageInfo:{hasNextPage:offset+25<${count},endCursor:String(offset+25)}}}}}));`);
+      const result = await new GitHubPullRequests(gh.process).inventory(repository, signal());
+      expect(result.prs).toHaveLength(count);
+      expect(result.prs.at(-1)?.number).toBe(count);
+      expect(result.prs.every((row) => row.hasUnresolvedConversations === false)).toBe(true);
+      expect(result.cost).toBe(Math.ceil(count / 25));
+      expect(await gh.calls()).toHaveLength(Math.ceil(count / 25));
+    },
+  );
+
+  test("first load returns complete lightweight membership then enriches bounded groups and explicit closures", async () => {
+    const rows = Array.from({ length: 51 }, (_, i) => pr(i + 1));
+    const initial = inventory(rows);
+    const gh = await fakeGh(`
+const query = args.find(a=>a.startsWith('query='));
+if(query.includes('ScopeInitialOpenPullRequests')) {
+ if(!query.includes('first: 100') || !query.includes('labels(first: 25)') || query.includes('reviewThreads') || query.includes('statusCheckRollup') || query.includes('mergeable')) throw new Error('Not lightweight');
+ console.log(JSON.stringify(${JSON.stringify(initial)}));
+} else if(query.includes('ScopeEnrichPullRequests')) {
+ const ids=args.filter(a=>a.startsWith('ids[]=')).map(a=>a.slice(6));
+ if(ids.length>25) throw new Error('Unbounded enrichment');
+ const rows=${JSON.stringify(rows)};
+ console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2099-10-02T00:00:00Z'},nodes:ids.map(id=>{const row=rows.find(row=>row.id===id); return {...row,state:row.number===2?'CLOSED':'OPEN',repository:${JSON.stringify(initial.data.repository)}};})}}));
+} else throw new Error('Unexpected read');`);
+    const reader = new GitHubPullRequests(gh.process);
+    const first = await reader.initialInventory(repository, signal());
+    expect(first.prs).toHaveLength(51);
+    expect(first.prs.every((row) => row.hasUnresolvedConversations === null)).toBe(true);
+    expect(first.startedAt).toBe(first.prs[0].merge.observedAt);
+    expect(first.prs[0].checks.status).toBe("unknown");
+    expect(first.prs[0].merge.status).toBe("unknown");
+    const complete = await reader.enrichInventory(repository, first.prs, signal());
+    expect(complete.prs).toHaveLength(50);
+    expect(complete.prs.some((row) => row.number === 2)).toBe(false);
+    expect(complete.prs.every((row) => row.hasUnresolvedConversations === false)).toBe(true);
+    expect(complete.cost).toBe(3);
+    expect(Date.parse(complete.closed.get("PR_2")!)).toBeGreaterThan(Date.parse(first.startedAt));
+    expect(await gh.calls()).toHaveLength(4);
+  });
+
+  test("enrichment timestamps a closure from a later complete membership page", async () => {
+    const firstPage = inventory([pr(1)], { hasNextPage: true, endCursor: "second" });
+    const secondPage = inventory([pr(2)]);
+    const closed = { ...pr(2), state: "MERGED", repository: firstPage.data.repository };
+    const open = { ...pr(1), repository: firstPage.data.repository };
+    const gh = await fakeGh(`
+if(args.some(a=>a.includes('ScopeInitialOpenPullRequests'))) console.log(JSON.stringify(args.includes('cursor=second')?${JSON.stringify(secondPage)}:${JSON.stringify(firstPage)}));
+else console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2099-10-02T00:00:00Z'},nodes:${JSON.stringify([open, closed])}}}));`);
+    const reader = new GitHubPullRequests(gh.process);
+    const initial = await reader.initialInventory(repository, signal());
+    const result = await reader.enrichInventory(repository, initial.prs, signal());
+    expect(result.prs.map((pr) => pr.nodeId)).toEqual(["PR_1"]);
+    expect(result.closed.get("PR_2")! > initial.prs[1].merge.observedAt).toBe(true);
+    expect(result.closed.get("PR_2")).toBe(result.prs[0].merge.observedAt);
+  });
+
+  test("missing enrichment nodes never silently remove existing membership", async () => {
+    const gh = await fakeGh(
+      `if(args.some(a=>a.includes('ScopeInitialOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));else console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2099-10-02T00:00:00Z'},nodes:[null]}}));`,
     );
+    const reader = new GitHubPullRequests(gh.process);
+    const initial = await reader.initialInventory(repository, signal());
+    await expect(reader.enrichInventory(repository, initial.prs, signal())).rejects.toThrow(
+      "did not return",
+    );
+  });
+
+  test("empty membership carries a start observation and account probes bypass an old budget", async () => {
+    const gh = await fakeGh(
+      `if(args.includes('user')) console.log(JSON.stringify({login:'new-account'}));else console.log(JSON.stringify(${JSON.stringify(inventory([]))}));`,
+    );
+    const reader = new GitHubPullRequests(gh.process);
+    const empty = await reader.initialInventory(repository, signal());
+    expect(Date.parse(empty.startedAt)).toBeGreaterThan(0);
+    reader.setReadHooks(
+      () => {},
+      () => {
+        throw new Error("Old account exhausted");
+      },
+    );
+    expect(await reader.account(signal())).toBe("new-account");
+  });
+
+  test("current reads see reopened conversations without updatedAt changing and only remove explicitly closed PRs", async () => {
+    const row = pr(1);
+    const initial = inventory([row]);
+    const target = {
+      data: {
+        ...initial.data,
+        repository: {
+          ...initial.data.repository,
+          pullRequest: {
+            ...row,
+            reviewThreads: { nodes: [{ isResolved: false }], pageInfo: complete },
+          },
+        },
+      },
+    };
+    const gh = await fakeGh(`
+if(args.some(a=>a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(initial)}));
+else console.log(JSON.stringify(${JSON.stringify(target)}));`);
+    const service = new GitHubPullRequests(gh.process);
+    const first = (await service.inventory(repository, signal())).prs[0];
+    const current = await service.current(repository, first, signal());
+    expect(current?.updatedAt).toBe(first.updatedAt);
+    expect(current?.hasUnresolvedConversations).toBe(true);
+    expect(current!.merge.observedAt > first.merge.observedAt).toBe(true);
+    expect(current?.checks.observedAt).toBe(current?.merge.observedAt);
+    const closed = await fakeGh(
+      `console.log(JSON.stringify(${JSON.stringify({ ...target, data: { ...target.data, repository: { ...target.data.repository, pullRequest: { ...target.data.repository.pullRequest, state: "CLOSED" } } } })}));`,
+    );
+    let closedAt: string | undefined;
+    expect(
+      await new GitHubPullRequests(closed.process).current(
+        repository,
+        first,
+        signal(),
+        (timestamp) => {
+          closedAt = timestamp;
+        },
+      ),
+    ).toBeNull();
+    expect(Date.parse(closedAt!)).toBeGreaterThan(0);
+    const missing = await fakeGh(
+      `console.log(JSON.stringify(${JSON.stringify({ ...target, data: { ...target.data, repository: { ...target.data.repository, pullRequest: null } } })}));`,
+    );
+    await expect(
+      new GitHubPullRequests(missing.process).current(repository, first, signal()),
+    ).rejects.toThrow("did not return");
+  });
+
+  test("queued inspected facts run between inventory pages and retain their later root timestamp", async () => {
+    const row = pr(1);
+    const first = inventory([row], { hasNextPage: true, endCursor: "page-two" });
+    const target = {
+      data: { ...first.data, repository: { ...first.data.repository, pullRequest: row } },
+    };
+    const gh = await fakeGh(`
+import {existsSync} from 'node:fs';
+if(args.some(a=>a.includes('ScopeCurrentPullRequest'))) console.log(JSON.stringify(${JSON.stringify(target)}));
+else if(args.includes('cursor=page-two')) console.log(JSON.stringify(${JSON.stringify(inventory([pr(2)]))}));
+else { const wait=setInterval(()=>{if(existsSync(process.argv[1]+'.release')){clearInterval(wait);console.log(JSON.stringify(${JSON.stringify(first)}));}},10); }`);
+    const service = new GitHubPullRequests(gh.process);
+    const cachedGh = await fakeGh(
+      `console.log(JSON.stringify(${JSON.stringify(inventory([row]))}));`,
+    );
+    const cached = (await new GitHubPullRequests(cachedGh.process).inventory(repository, signal()))
+      .prs[0];
+    const pending = service.inventory(repository, signal());
+    await waitForCalls(gh, 1);
+    const inspected = service.current(repository, cached, signal());
+    await gh.release();
+    const [inventoryResult, current] = await Promise.all([pending, inspected]);
+    expect(
+      (await gh.calls()).map(
+        (args) => args.find((a) => a.startsWith("query="))?.match(/query (\w+)/)?.[1],
+      ),
+    ).toEqual(["ScopeOpenPullRequests", "ScopeCurrentPullRequest", "ScopeOpenPullRequests"]);
+    expect(current!.merge.observedAt > inventoryResult.prs[0].merge.observedAt).toBe(true);
+  });
+
+  test("an account change on thread overflow rejects inventory and reports its new account", async () => {
+    const row = pr(1);
+    row.reviewThreads.pageInfo = { hasNextPage: true, endCursor: "overflow" };
+    const overflow = threads(1, []);
+    overflow.data.viewer.login = "different";
+    const gh = await fakeGh(
+      `console.log(JSON.stringify(args.some(a=>a.includes('ScopeOpenPullRequests'))?${JSON.stringify(inventory([row]))}:${JSON.stringify(overflow)}));`,
+    );
+    const observations: string[] = [];
+    const service = new GitHubPullRequests(gh.process, (observation) =>
+      observations.push(observation.account),
+    );
+    await expect(service.inventory(repository, signal())).rejects.toMatchObject({
+      kind: "account",
+      account: "different",
+    });
+    expect(observations).toEqual(["viewer", "different"]);
+  });
+
+  test("GraphQL success with throttling errors reaches the scheduler even during thread overflow", async () => {
+    const row = pr(1);
+    row.reviewThreads.pageInfo = { hasNextPage: true, endCursor: "overflow" };
+    const failure = {
+      data: {
+        viewer: { login: "viewer" },
+        rateLimit: { cost: 1, limit: 5000, remaining: 0, resetAt: "2099-10-02T00:00:00Z" },
+      },
+      errors: [{ type: "RATE_LIMITED", message: "rate limit secret GH_TOKEN=credential" }],
+    };
+    const gh = await fakeGh(
+      `console.log(JSON.stringify(args.some(a=>a.includes('ScopeOpenPullRequests'))?${JSON.stringify(inventory([row]))}:${JSON.stringify(failure)}));`,
+    );
+    await expect(
+      new GitHubPullRequests(gh.process).inventory(repository, signal()),
+    ).rejects.toMatchObject({ kind: "throttle", retryAt: Date.parse("2099-10-02T00:00:00Z") });
+  });
+
+  test("nonzero GraphQL responses identify the account and exhausted quota before rejecting", async () => {
+    const failure = {
+      data: {
+        viewer: { login: "new-viewer" },
+        rateLimit: { cost: 1, limit: 5000, remaining: 0, resetAt: "2099-10-02T00:00:00Z" },
+      },
+      errors: [{ type: "RATE_LIMITED", message: "rate limit GH_TOKEN=secret" }],
+    };
+    const gh = await fakeGh(
+      `console.log(JSON.stringify(${JSON.stringify(failure)})); console.error('gh: rate limit exceeded'); process.exit(1);`,
+    );
+    const observations: { account: string; remaining: number }[] = [];
+    const service = new GitHubPullRequests(gh.process, (observation) =>
+      observations.push(observation),
+    );
+    await expect(service.inventory(repository, signal())).rejects.toMatchObject({
+      kind: "throttle",
+      retryAt: Date.parse("2099-10-02T00:00:00Z"),
+    });
+    expect(observations).toEqual([
+      expect.objectContaining({ account: "new-viewer", remaining: 0 }),
+    ]);
+    try {
+      await gh.process.run([], signal());
+    } catch (error) {
+      expect(JSON.stringify(error)).not.toContain("secret");
+    }
+  });
+
+  test("reviews refresh after current commits move preserves each submitted commit without files or diff", async () => {
+    const view = {
+      id: "PR_1",
+      state: "OPEN",
+      headRefOid: oldHead,
+      baseRefOid: oldHead,
+      body: "Current body",
+    };
+    const gh = await fakeGh(`
+if(args.some(a=>a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));
+else if(args.some(a=>a.includes('ScopePullRequestReviewBody'))) console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2099-10-02T00:00:00Z'},repository:{nameWithOwner:'example/project',pullRequest:${JSON.stringify(view)}}}}));
+else if(args.some(a=>a.includes('/reviews?'))) console.log(JSON.stringify([{id:7,user:{login:'reviewer'},state:'APPROVED',body:'old commit approval',submitted_at:'2026-10-01T12:00:00Z',commit_id:'${head}'}]));
+else throw new Error('Unexpected file or diff read');`);
+    const service = new GitHubPullRequests(gh.process);
+    const first = (await service.inventory(repository, signal())).prs[0];
+    const result = await service.reviews(repository, first, signal());
+    expect(result.body).toBe("Current body");
+    expect(result.reviews[0].headOid).toBe(head);
+    expect(
+      (await gh.calls()).some(
+        (args) => args.includes("diff") || args.some((a) => a.includes("/files?")),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -372,6 +682,72 @@ describe("GitHub process failures", () => {
   test("does not return CLI stderr containing credentials", async () => {
     const gh = await fakeGh("console.error('HTTP 401 GH_TOKEN=super-secret'); process.exit(1)");
     await expect(gh.process.run([], signal())).rejects.toThrow("Sign in with gh auth login");
+  });
+
+  test.each([
+    ["HTTP/2 429\nRetry-After: 120\nGH_TOKEN=secret", "throttle"],
+    ["HTTP/2 403\nx-ratelimit-remaining: 0\nx-ratelimit-reset: 4090000000", "throttle"],
+    ["HTTP/2 403\npermission denied GH_TOKEN=secret", "permission"],
+    ["HTTP/2 429\nRetry-After: invalid GH_TOKEN=secret", "throttle"],
+    ["dial tcp: network timeout GH_TOKEN=secret", "network"],
+  ])("classifies bounded diagnostics for %s", async (failure, kind) => {
+    const gh = await fakeGh(`console.error(${JSON.stringify(failure)}); process.exit(1);`);
+    try {
+      await gh.process.run([], signal());
+      throw new Error("Expected failure");
+    } catch (error) {
+      expect(error).toMatchObject({ kind });
+      expect(JSON.stringify(error)).not.toContain("secret");
+      if (kind === "throttle")
+        expect((error as { retryAt: number }).retryAt).toBeGreaterThan(Date.now());
+    }
+  });
+
+  test.each([
+    [401, "auth"],
+    [403, "permission"],
+    [404, "permission"],
+    [500, "network"],
+  ])("ordinary rate headers preserve HTTP %i classification", async (status, kind) => {
+    const gh = await fakeGh(
+      `console.error('HTTP/2 ${status}\\nX-RateLimit-Limit: 5000\\nX-RateLimit-Remaining: 4999\\nX-RateLimit-Reset: 4090000000\\nordinary error'); process.exit(1);`,
+    );
+    await expect(gh.process.run([], signal())).rejects.toMatchObject({ kind });
+  });
+
+  test("secondary throttling honors Retry-After without waiting for a later primary reset", async () => {
+    const gh = await fakeGh(
+      `console.error('HTTP/2 403\\nRetry-After: 2\\nX-RateLimit-Remaining: 4999\\nX-RateLimit-Reset: 4090000000\\nsecondary rate limit'); process.exit(1);`,
+    );
+    const started = Date.now();
+    try {
+      await gh.process.run([], signal());
+      throw new Error("Expected failure");
+    } catch (error) {
+      expect(error).toMatchObject({ kind: "throttle" });
+      const retryAt = (error as { retryAt: number }).retryAt;
+      expect(retryAt).toBeGreaterThanOrEqual(started + 2000);
+      expect(retryAt).toBeLessThan(Date.now() + 3000);
+    }
+  });
+
+  test("runs one subprocess at a time and gives queued inspected reads priority", async () => {
+    const gh = await fakeGh(`
+import {existsSync,writeFileSync,unlinkSync} from 'node:fs';
+const lock = process.argv[1]+'.active';
+if(existsSync(lock)) throw new Error('Concurrent subprocess');
+writeFileSync(lock,'active');
+setTimeout(()=>{unlinkSync(lock);console.log(args[0]);},100);`);
+    const first = gh.process.run(["first"], signal());
+    await waitForCalls(gh, 1);
+    const inventoryPage = gh.process.run(["inventory"], signal(), 0);
+    const inspected = gh.process.run(["current"], signal(), 1);
+    expect(await Promise.all([first, inventoryPage, inspected])).toEqual([
+      "first\n",
+      "inventory\n",
+      "current\n",
+    ]);
+    expect((await gh.calls()).map((args) => args[0])).toEqual(["first", "current", "inventory"]);
   });
 
   test("reports a missing executable", async () => {
@@ -478,7 +854,7 @@ describe("tab-owned GitHub synchronization", () => {
   test("first HTTP sync canonicalizes an alias and later sync preserves notes, review and agent fields", async () => {
     const alias = { owner: "previous-owner", name: "previous-project" };
     const gh = await fakeGh(
-      `if(args.some(a=>a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+      `if(args.some(a=>(a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
     const f = await inboxFixture(gh.process, alias);
     try {
@@ -524,7 +900,7 @@ describe("tab-owned GitHub synchronization", () => {
       expect(refreshed.prs[0].agent).toEqual(before.prs[0].agent);
       const calls = await gh.calls();
       expect(calls[0]).toContain("owner=previous-owner");
-      expect(calls[2]).toContain("owner=example");
+      expect(calls[1]).toContain("owner=example");
     } finally {
       await f.close();
     }
@@ -535,7 +911,7 @@ describe("tab-owned GitHub synchronization", () => {
     changed.repository.id = "R_TRANSFERRED";
     changed.url = "https://github.com/other/project/pull/1";
     const gh = await fakeGh(
-      `import { existsSync } from 'node:fs';if(args.some(a=>a.includes('ScopeOpenPullRequests')))console.log(JSON.stringify(existsSync(process.argv[1]+'.release')?${JSON.stringify(inventory([changed], complete, { owner: "other", name: "project" }, "R_TRANSFERRED"))}:${JSON.stringify(inventory([pr(1)]))}));else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+      `import { existsSync } from 'node:fs';if(args.some(a=>(a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests'))))console.log(JSON.stringify(existsSync(process.argv[1]+'.release')?${JSON.stringify(inventory([changed], complete, { owner: "other", name: "project" }, "R_TRANSFERRED"))}:${JSON.stringify(inventory([pr(1)]))}));else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
     const f = await inboxFixture(gh.process);
     try {
@@ -565,11 +941,12 @@ describe("tab-owned GitHub synchronization", () => {
 
   test("coalesces sync commands through HTTP and preserves newer local edits during refresh", async () => {
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) { setTimeout(() => console.log(JSON.stringify(${JSON.stringify(inventory([pr(1, { draft: true })]))})), 150); } else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+      `if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) { setTimeout(() => console.log(JSON.stringify(${JSON.stringify(inventory([pr(1, { draft: true })]))})), 150); } else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1, { draft: true })]))}));else throw new Error('Unexpected query');`,
     );
     const f = await inboxFixture(gh.process);
     try {
       await f.service.sync(f.snapshot.tabId);
+      const callsAfterSeed = (await gh.calls()).length;
       const refresh = f.command({
         action: "sync",
         name: "test-inbox",
@@ -582,7 +959,7 @@ describe("tab-owned GitHub synchronization", () => {
         tabId: f.snapshot.tabId,
         requestId: randomUUID(),
       });
-      await waitForCalls(gh, 3);
+      await waitForCalls(gh, callsAfterSeed + 1);
       await f.server.store.pullRequests.command({
         action: "note",
         name: "test-inbox",
@@ -613,7 +990,7 @@ describe("tab-owned GitHub synchronization", () => {
           snooze: { until: "2026-10-02T12:00:00Z" },
         },
       });
-      expect(await gh.calls()).toHaveLength(4);
+      expect(await gh.calls()).toHaveLength(callsAfterSeed + 1);
     } finally {
       await f.close();
     }
@@ -621,7 +998,7 @@ describe("tab-owned GitHub synchronization", () => {
 
   test("failed complete inventory preserves the cache and an empty complete inventory prunes local state", async () => {
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+      `if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
     const failed = await fakeGh("console.log(JSON.stringify({errors:[{message:'unavailable'}]}))");
     const empty = await fakeGh(`console.log(JSON.stringify(${JSON.stringify(inventory([]))}));`);
@@ -662,7 +1039,7 @@ describe("tab-owned GitHub synchronization", () => {
 
   test("a delayed refresh cannot revive a deleted tab or write into a reused name", async () => {
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) setTimeout(() => console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})), 150); else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+      `if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) setTimeout(() => console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})), 150); else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
     const f = await inboxFixture(gh.process);
     try {
@@ -682,7 +1059,7 @@ describe("tab-owned GitHub synchronization", () => {
 
   test("cancellation clears retained sync status while keeping the cache across restart", async () => {
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) setTimeout(() => console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})), 150); else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+      `if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) setTimeout(() => console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})), 150); else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
     const f = await inboxFixture(gh.process);
     let closed = false;
@@ -697,8 +1074,9 @@ describe("tab-owned GitHub synchronization", () => {
         expectedVersion: 0,
         text: "Retained note",
       });
+      const callsAfterSeed = (await gh.calls()).length;
       const refreshing = f.service.sync(f.snapshot.tabId).catch(() => null);
-      await waitForCalls(gh, 3);
+      await waitForCalls(gh, callsAfterSeed + 1);
       await f.server.store.trashTab(f.snapshot.tabId);
       f.service.cancelTabs([f.snapshot.tabId]);
       expect(await refreshing).toBeNull();
@@ -727,7 +1105,7 @@ describe("tab-owned GitHub synchronization", () => {
 
   test("startup recovers an interrupted sync for active and trashed owners without losing cache", async () => {
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+      `if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
     const f = await inboxFixture(gh.process);
     let closed = false;
@@ -775,9 +1153,9 @@ describe("tab-owned GitHub synchronization", () => {
   test("delayed cancellation cleanup cannot clear a newer run's status", async () => {
     const gh = await fakeGh(
       `import { existsSync } from 'node:fs';
-if(args.some(a => a.includes('ScopeOpenPullRequests'))) {
+if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) {
   const timer = setInterval(() => { if(existsSync(process.argv[1] + '.release')) { clearInterval(timer); console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); } }, 10);
-} else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`,
+} else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
     const f = await inboxFixture(gh.process);
     const cancelSync = f.server.store.pullRequests.cancelSync.bind(f.server.store.pullRequests);

@@ -42,6 +42,7 @@ const Page = Schema.Struct({
   }),
 });
 const QUERY = `query ScopePullRequestStack($id: ID!, $cursor: String) {
+  viewer { login } rateLimit { cost limit remaining resetAt }
   node(id: $id) { ... on PullRequestStack {
     id number size baseRefName
     entries(first: 100, after: $cursor) {
@@ -54,7 +55,7 @@ const QUERY = `query ScopePullRequestStack($id: ID!, $cursor: String) {
 const changed = () =>
   new GitHubReadError("GitHub stack membership changed or is incomplete. Try Sync again.");
 
-async function readStack(
+export async function readStack(
   header: typeof Header.Type,
   repositoryId: string,
   query: (query: string, fields: string[]) => Promise<unknown>,
@@ -98,6 +99,63 @@ async function readStack(
   return entries.sort((a, b) => a.position - b.position);
 }
 
+export type StackObservation = Pick<
+  PullRequestFacts,
+  "nodeId" | "number" | "draft" | "headOid" | "review"
+>;
+
+export function summarizeStack(
+  header: NonNullable<Membership["stack"]>,
+  entries: Awaited<ReturnType<typeof readStack>>,
+  byId: ReadonlyMap<string, StackObservation>,
+  memberships: ReadonlyMap<string, Membership>,
+): Omit<PullRequestStack, "position"> {
+  const open: StackObservation[] = [];
+  for (const entry of entries) {
+    const member = entry.pullRequest;
+    const current = byId.get(member.id);
+    if (member.state !== "OPEN") {
+      if (current) throw changed();
+      continue;
+    }
+    const expected = memberships.get(member.id);
+    if (
+      !current ||
+      current.number !== member.number ||
+      current.draft !== member.isDraft ||
+      current.headOid !== member.headRefOid ||
+      expected?.stack?.id !== header.id ||
+      expected.stack.number !== header.number ||
+      expected.stack.size !== header.size ||
+      expected.stack.baseRefName !== header.baseRefName ||
+      expected.stackEntry?.position !== entry.position
+    )
+      throw changed();
+    open.push(current);
+  }
+  if (!open.length) throw changed();
+  return {
+    nodeId: header.id,
+    number: header.number,
+    size: header.size,
+    baseRefName: header.baseRefName,
+    members: entries.map(({ position, pullRequest: member }) => ({
+      nodeId: member.id,
+      number: member.number,
+      position,
+      state: member.state === "OPEN" ? "open" : member.state === "MERGED" ? "merged" : "closed",
+      draft: member.isDraft,
+    })),
+    readyForReview: open.every((member) => !member.draft),
+    approved: open.some((member) => member.review?.hasApproval === false)
+      ? false
+      : open.every((member) => member.review?.hasApproval === true)
+        ? true
+        : null,
+    observedAt: new Date().toISOString(),
+  };
+}
+
 export async function enrichStacks(
   prs: readonly PullRequestFacts[],
   memberships: ReadonlyMap<string, Membership>,
@@ -116,50 +174,7 @@ export async function enrichStacks(
     const header = membership.stack;
     if (stacks.has(header.id)) continue;
     const entries = await readStack(header, repositoryId, query);
-    const open: PullRequestFacts[] = [];
-    for (const entry of entries) {
-      const member = entry.pullRequest;
-      const current = byId.get(member.id);
-      if (member.state !== "OPEN") {
-        if (current) throw changed();
-        continue;
-      }
-      const expected = memberships.get(member.id);
-      if (
-        !current ||
-        current.number !== member.number ||
-        current.draft !== member.isDraft ||
-        current.headOid !== member.headRefOid ||
-        expected?.stack?.id !== header.id ||
-        expected.stack.number !== header.number ||
-        expected.stack.size !== header.size ||
-        expected.stack.baseRefName !== header.baseRefName ||
-        expected.stackEntry?.position !== entry.position
-      )
-        throw changed();
-      open.push(current);
-    }
-    if (!open.length) throw changed();
-    stacks.set(header.id, {
-      nodeId: header.id,
-      number: header.number,
-      size: header.size,
-      baseRefName: header.baseRefName,
-      members: entries.map(({ position, pullRequest: member }) => ({
-        nodeId: member.id,
-        number: member.number,
-        position,
-        state: member.state === "OPEN" ? "open" : member.state === "MERGED" ? "merged" : "closed",
-        draft: member.isDraft,
-      })),
-      readyForReview: open.every((member) => !member.draft),
-      approved: open.some((member) => member.review?.hasApproval === false)
-        ? false
-        : open.every((member) => member.review?.hasApproval === true)
-          ? true
-          : null,
-      observedAt: new Date().toISOString(),
-    });
+    stacks.set(header.id, summarizeStack(header, entries, byId, memberships));
   }
   return prs.map((pr) => {
     const membership = memberships.get(pr.nodeId)!;

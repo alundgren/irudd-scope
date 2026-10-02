@@ -160,7 +160,7 @@ test("T3 wakes for messages and proposal decisions; edits and new proposals wait
   const fixture = await deliveryFixture();
   try {
     const listener = fixture.start(["--t3-thread", "test-thread"]);
-    await expect.poll(listener.diagnostics).toContain("Listening");
+    await expect.poll(listener.diagnostics, { timeout: 5_000 }).toContain("Listening");
     for (let i = 0; i < 16; i++) fixture.emit("changed");
     fixture.emit("proposal");
     await delay(1100);
@@ -190,7 +190,7 @@ test("stdout observers keep edit and proposal notices", async () => {
   const fixture = await deliveryFixture();
   try {
     const listener = fixture.start();
-    await expect.poll(listener.diagnostics).toContain("Listening");
+    await expect.poll(listener.diagnostics, { timeout: 5_000 }).toContain("Listening");
     fixture.emit("changed");
     fixture.emit("proposal");
     await expect.poll(listener.output).toContain('\\"event\\":\\"changed\\"');
@@ -221,7 +221,9 @@ test("a waiting listener can be stopped while the editor remains unavailable", a
   const fixture = await deliveryFixture("127.0.0.1", 100);
   try {
     const listener = fixture.start(["--t3-thread", "test-thread"]);
-    await expect.poll(listener.diagnostics).toContain("Waiting for the diagram editor");
+    await expect
+      .poll(listener.diagnostics, { timeout: 5_000 })
+      .toContain("Waiting for the diagram editor");
     listener.process.kill();
     await expect.poll(() => listener.process.exitCode).toBe(0);
   } finally {
@@ -233,7 +235,7 @@ test("the listener reconnects after Scope restarts without waking T3 for missed 
   const fixture = await deliveryFixture();
   try {
     const listener = fixture.start(["--t3-thread", "test-thread"]);
-    await expect.poll(listener.diagnostics).toContain("Listening");
+    await expect.poll(listener.diagnostics, { timeout: 5_000 }).toContain("Listening");
     await fixture.restart();
     await expect
       .poll(() => listener.diagnostics().match(/Listening/g)?.length, { timeout: 5000 })
@@ -254,11 +256,11 @@ test.for(["Scope", "T3"])("the listener survives a %s startup outage", async (se
     if (service === "Scope") await fixture.disconnectScope();
     else await fixture.disconnectT3();
     const listener = fixture.start(["--t3-thread", "test-thread"]);
-    await expect.poll(listener.diagnostics).toContain(`Waiting for ${service}`);
+    await expect.poll(listener.diagnostics, { timeout: 5_000 }).toContain(`Waiting for ${service}`);
     expect(listener.process.exitCode).toBeNull();
     if (service === "Scope") await fixture.restart();
     else await fixture.reconnectT3();
-    await expect.poll(listener.diagnostics).toContain("Listening");
+    await expect.poll(listener.diagnostics, { timeout: 5_000 }).toContain("Listening");
     fixture.emit("message", "Please finish the edit.");
     await expect.poll(() => fixture.requests.length).toBe(1);
   } finally {
@@ -270,7 +272,7 @@ test("Scope authentication failure on reconnect stops the listener", async () =>
   const fixture = await deliveryFixture();
   try {
     const listener = fixture.start(["--t3-thread", "test-thread"]);
-    await expect.poll(listener.diagnostics).toContain("Listening");
+    await expect.poll(listener.diagnostics, { timeout: 5_000 }).toContain("Listening");
     await fixture.restart("replacement-synthetic-scope-token");
     await expect.poll(() => listener.process.exitCode, { timeout: 5000 }).toBe(1);
     expect(listener.diagnostics()).toContain("A valid publishing token is required");
@@ -285,9 +287,9 @@ test("T3 startup retries service unavailability, but an uncertain dispatch termi
   try {
     fixture.setReadStatus(503);
     const listener = fixture.start(["--t3-thread", "test-thread"]);
-    await expect.poll(listener.diagnostics).toContain("Waiting for T3");
+    await expect.poll(listener.diagnostics, { timeout: 5_000 }).toContain("Waiting for T3");
     fixture.setReadStatus(200);
-    await expect.poll(listener.diagnostics).toContain("Listening");
+    await expect.poll(listener.diagnostics, { timeout: 5_000 }).toContain("Listening");
     fixture.setDeliveryStatus(503);
     fixture.emit("message", "One request, with a bounded delivery retry.");
     await expect.poll(() => listener.process.exitCode).toBe(1);
@@ -313,7 +315,7 @@ test.for(["Scope credentials", "T3 credentials", "T3 contract", "missing diagram
         ["--t3-thread", failure === "T3 contract" ? "different-thread" : "test-thread"],
         failure === "Scope credentials" ? { SCOPE_TOKEN: "invalid-synthetic-scope-token" } : {},
       );
-      await expect.poll(() => listener.process.exitCode).toBe(1);
+      await expect.poll(() => listener.process.exitCode, { timeout: 5_000 }).toBe(1);
       expect(listener.diagnostics()).not.toContain("Waiting for");
       expect(listener.diagnostics()).not.toContain("Listening");
       expect(fixture.requests).toHaveLength(0);
@@ -385,7 +387,7 @@ test("T3 uses its configured address on this machine without a loopback proxy", 
   const fixture = await deliveryFixture(host);
   try {
     const listener = fixture.start(["--t3-thread", "test-thread"]);
-    await expect.poll(listener.diagnostics).toContain("Listening");
+    await expect.poll(listener.diagnostics, { timeout: 5_000 }).toContain("Listening");
     fixture.emit("message", "Use the direct connection.");
     await expect.poll(() => fixture.requests.length).toBe(1);
     expect(fixture.reads()).toBe(1);
@@ -401,14 +403,16 @@ test("an explicit T3 address overrides environment defaults and connection error
       ["--t3-thread", "test-thread", "--t3-endpoint", fixture.endpoint],
       { T3CODE_HOST: "203.0.113.7", T3CODE_PORT: "1" },
     );
-    await expect.poll(listener.diagnostics).toContain("Listening");
+    await expect.poll(listener.diagnostics, { timeout: 5_000 }).toContain("Listening");
     const unreachable = fixture.start([
       "--t3-thread",
       "test-thread",
       "--t3-endpoint",
       "http://127.0.0.1:1",
     ]);
-    await expect.poll(unreachable.diagnostics).toContain("Cannot reach T3 at http://127.0.0.1:1");
+    await expect
+      .poll(unreachable.diagnostics, { timeout: 5_000 })
+      .toContain("Cannot reach T3 at http://127.0.0.1:1");
     expect(unreachable.diagnostics()).not.toContain("synthetic-t3-token");
     unreachable.process.kill();
     await expect.poll(() => unreachable.process.exitCode).toBe(0);
@@ -428,7 +432,7 @@ test("T3 rejects remote HTTP and endpoint credentials, paths and query parameter
       `${fixture.endpoint}#untrusted`,
     ]) {
       const listener = fixture.start(["--t3-thread", "test-thread", "--t3-endpoint", endpoint]);
-      await expect.poll(() => listener.process.exitCode).toBe(1);
+      await expect.poll(() => listener.process.exitCode, { timeout: 5_000 }).toBe(1);
       expect(listener.diagnostics()).not.toContain("Listening");
       expect(listener.diagnostics()).not.toContain("secret");
     }

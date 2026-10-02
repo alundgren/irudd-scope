@@ -36,6 +36,11 @@ function sourcePr(
 ) {
   const opinions = options.opinions ?? [];
   return {
+    state: "OPEN",
+    reviewThreads: {
+      nodes: [],
+      pageInfo: { hasNextPage: true, endCursor: "threads" as string | null },
+    },
     id: "PR_" + number,
     repository: { id: "R_PROJECT" },
     number,
@@ -65,6 +70,7 @@ function inventory(nodes: ReturnType<typeof sourcePr>[], pageInfo = complete) {
   return {
     data: {
       viewer: { login: "viewer" },
+      rateLimit: { cost: 1, limit: 5000, remaining: 4999, resetAt: "2099-10-03T00:00:00Z" },
       repository: {
         id: "R_PROJECT",
         owner: { login: repository.owner },
@@ -94,7 +100,11 @@ function stack(
   count = header.size,
 ) {
   return {
-    data: { node: { ...header, entries: { nodes: entries, totalCount: count, pageInfo } } },
+    data: {
+      viewer: { login: "viewer" },
+      rateLimit: { cost: 1, limit: 5000, remaining: 4999, resetAt: "2099-10-03T00:00:00Z" },
+      node: { ...header, entries: { nodes: entries, totalCount: count, pageInfo } },
+    },
   };
 }
 async function fakeGh(
@@ -108,6 +118,7 @@ async function fakeGh(
     stack: stackPages,
     opinions: {} as Record<string, unknown>,
     threadHead: head,
+    memberReviews: {} as Record<string, ReturnType<typeof sourcePr> | null>,
   };
   const path = join(directory, "gh.mjs"),
     data = join(directory, "responses.json"),
@@ -119,10 +130,22 @@ import {readFileSync,appendFileSync} from 'node:fs';
 const args=process.argv.slice(2), data=JSON.parse(readFileSync(${JSON.stringify(data)},'utf8'));
 appendFileSync(${JSON.stringify(log)},JSON.stringify(args)+'\\n');
 const query=args.find(a=>a.startsWith('query='))||'', number=args.find(a=>a.startsWith('number='))?.slice(7), later=args.some(a=>a.startsWith('cursor='));
-if(query.includes('ScopeOpenPullRequests')) console.log(JSON.stringify(data.inventory[later?1:0]));
-else if(query.includes('ScopePullRequestStack')) console.log(JSON.stringify(data.stack[later?1:0]));
-else if(query.includes('ScopePullRequestOpinions')) console.log(JSON.stringify(data.opinions[number]));
-else console.log(JSON.stringify({data:{repository:{pullRequest:{id:'PR_'+number,state:'OPEN',headRefOid:data.threadHead,baseRefOid:'${base}',reviewThreads:{nodes:[],pageInfo:${JSON.stringify(complete)}}}}}}));
+const common={viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2099-10-03T00:00:00Z'}};
+const emit=value=>{ if(value?.data) value.data={...common,...value.data}; console.log(JSON.stringify(value)); };
+const repo=data.inventory[0].data.repository, rows=data.inventory.flatMap(page=>page.data.repository.pullRequests.nodes), ids=args.filter(a=>a.startsWith('ids[]=')).map(a=>a.slice(6));
+if(args.includes('user')) console.log(JSON.stringify({login:'viewer'}));
+else if(query.includes('ScopeOpenPullRequests') || query.includes('ScopeInitialOpenPullRequests')) {
+ const value=data.inventory[later?1:0];
+ if(query.includes('ScopeInitialOpenPullRequests')) for(const row of value.data.repository.pullRequests.nodes) for(const key of ['stack','stackEntry','reviewDecision','latestOpinionatedReviews','reviewThreads','commits','mergeable']) delete row[key];
+ emit(value);
+}
+else if(query.includes('ScopeEnrichPullRequests')) emit({data:{nodes:ids.map(id=>({...rows.find(row=>row.id===id),repository:repo}))}});
+else if(query.includes('ScopeCurrentPullRequest')) emit({data:{repository:{...repo,pullRequest:rows.find(row=>row.number===Number(number))}}});
+else if(query.includes('ScopeStackMemberReviews')) emit({data:{nodes:ids.map(id=>Object.hasOwn(data.memberReviews||{},id)?data.memberReviews[id]:rows.find(row=>row.id===id))}});
+else if(query.includes('ScopePullRequestStack')) emit(data.stack[later?1:0]);
+else if(query.includes('ScopePullRequestOpinions')) emit(data.opinions[number]);
+else emit({data:{repository:{pullRequest:{id:'PR_'+number,state:'OPEN',headRefOid:data.threadHead,baseRefOid:'${base}',reviewThreads:{nodes:[],pageInfo:${JSON.stringify(complete)}}}}}});
+
 `,
     { mode: 0o700 },
   );
@@ -342,6 +365,7 @@ test("HTTP and CLI snapshots retain model facts and notes after a failed native 
   cleanup.push(server.close);
   const client = new ScopeClient(server.url, token);
   const sync = new PullRequestSync(server.store.pullRequests, f.reader);
+  cleanup.push(async () => sync.cancelPending());
   server.store.pullRequests.setHandlers({
     sync: (tabId) => sync.sync(tabId),
     detail: (tabId, id) => sync.detail(tabId, id),
@@ -403,3 +427,159 @@ test("HTTP and CLI snapshots retain model facts and notes after a failed native 
   expect(retained.sync.state).toBe("error");
   expect(retained.prs).toEqual(saved.prs);
 });
+
+test("lightweight initial inventory omits stack and review facts until complete enrichment", async () => {
+  const first = sourcePr(1, { stack: header, opinions: [opinion("APPROVED")] });
+  const second = sourcePr(2, { stack: header, draft: true });
+  const f = await fakeGh([first, second], [stack([entry(first), entry(second)])]);
+  const initial = await f.reader.initialInventory(repository, new AbortController().signal);
+  for (const pr of initial.prs) {
+    expect(Object.hasOwn(pr, "stack")).toBe(false);
+    expect(Object.hasOwn(pr, "review")).toBe(false);
+  }
+  const firstQuery = (await f.calls())[0].find((arg) => arg.startsWith("query="))!;
+  expect(firstQuery).not.toContain("latestOpinionatedReviews");
+  expect(firstQuery).not.toContain("stackEntry");
+  const enriched = await f.reader.enrichInventory(
+    repository,
+    initial.prs,
+    new AbortController().signal,
+  );
+  expect(enriched.prs[0].review?.hasApproval).toBe(true);
+  expect(enriched.prs[0].stack).toMatchObject({ readyForReview: false, approved: false });
+});
+
+test("a focused standalone refresh reads approval without loading the repository or a stack", async () => {
+  const first = sourcePr(1, { opinions: [opinion("APPROVED")] });
+  const f = await fakeGh([first]);
+  const previous = (await f.read()).prs[0];
+  const before = (await f.calls()).length;
+  const current = await f.reader.current(repository, previous, new AbortController().signal);
+  expect(current?.stack).toBeNull();
+  expect(current?.review?.hasApproval).toBe(true);
+  const calls = (await f.calls()).slice(before);
+  expect(calls.some((args) => args.some((arg) => arg.includes("ScopeCurrentPullRequest")))).toBe(
+    true,
+  );
+  expect(
+    calls.some((args) =>
+      args.some((arg) => /Scope(?:Open|InitialOpen|Enrich|PullRequestStack|StackMember)/.test(arg)),
+    ),
+  ).toBe(false);
+});
+
+test("a focused stack refresh includes hidden drafts and reviews while cached siblings stay older", async () => {
+  const first = sourcePr(1, {
+    stack: header,
+    opinions: [opinion("APPROVED"), opinion("CHANGES_REQUESTED", "other")],
+  });
+  const second = sourcePr(2, { stack: header, opinions: [opinion("APPROVED")] });
+  const f = await fakeGh([first, second], [stack([entry(first), entry(second)])]);
+  const cached = (await f.read()).prs;
+  const changed = sourcePr(2, {
+    stack: header,
+    draft: true,
+    opinions: [opinion("CHANGES_REQUESTED")],
+  });
+  f.payload.memberReviews[changed.id] = changed;
+  f.payload.stack[0].data.node.entries.nodes = [entry(first), entry(changed)];
+  await f.update();
+  const before = (await f.calls()).length;
+  const current = await f.reader.current(repository, cached[0], new AbortController().signal);
+  expect(current?.review?.hasApproval).toBe(true);
+  expect(current?.stack).toMatchObject({ readyForReview: false, approved: false });
+  expect(current?.stack?.members[1]).toMatchObject({ nodeId: changed.id, draft: true });
+  expect(current!.stack!.observedAt > cached[1].stack!.observedAt).toBe(true);
+  expect(cached[1].draft).toBe(false);
+  expect(cached[1].stack?.approved).toBe(true);
+  const calls = (await f.calls()).slice(before);
+  const memberQuery = calls.find((args) =>
+    args.some((arg) => arg.includes("ScopeStackMemberReviews")),
+  )!;
+  expect(memberQuery).toContain("ids[]=PR_2");
+  expect(memberQuery).not.toContain("ids[]=PR_1");
+  expect(
+    calls.some((args) =>
+      args.some((arg) => /Scope(?:Open|InitialOpen|Enrich)PullRequests/.test(arg)),
+    ),
+  ).toBe(false);
+});
+
+test.each(["missing member", "head", "draft", "header"])(
+  "focused stack %s drift rejects the read instead of replacing selected facts",
+  async (failure) => {
+    const first = sourcePr(1, { stack: header, opinions: [opinion("APPROVED")] });
+    const second = sourcePr(2, { stack: header, opinions: [opinion("APPROVED")] });
+    const f = await fakeGh([first, second], [stack([entry(first), entry(second)])]);
+    const cached = (await f.read()).prs[0];
+    const changed = { ...second };
+    if (failure === "head") changed.headRefOid = base;
+    if (failure === "draft") changed.isDraft = true;
+    if (failure === "header") changed.stack = { ...header, baseRefName: "different" };
+    f.payload.memberReviews[second.id] = failure === "missing member" ? null : changed;
+    await f.update();
+    await expect(
+      f.reader.current(repository, cached, new AbortController().signal),
+    ).rejects.toThrow(/stack/);
+    expect(cached.review?.hasApproval).toBe(true);
+    expect(cached.stack?.approved).toBe(true);
+  },
+);
+
+test("native stack queries retain GitHub account errors and rate-limit observations", async () => {
+  const first = sourcePr(1, { stack: header });
+  const second = sourcePr(2, { stack: header });
+  const f = await fakeGh([first, second], [stack([entry(first), entry(second)])]);
+  const cached = (await f.read()).prs[0];
+  const observations: string[] = [];
+  f.reader.setReadHooks((observation) => observations.push(observation.account));
+  f.payload.stack[0].data.viewer = { login: "another-account" };
+  await f.update();
+  await expect(
+    f.reader.current(repository, cached, new AbortController().signal),
+  ).rejects.toMatchObject({ kind: "account" });
+  expect(observations).toEqual(["viewer", "viewer", "another-account"]);
+  const query = (await f.calls()).at(-1)!.find((arg) => arg.startsWith("query="))!;
+  expect(query).toContain("viewer { login }");
+  expect(query).toContain("rateLimit { cost limit remaining resetAt }");
+});
+
+test.each(["account", "throttle"])(
+  "focused opinion pagination retains %s failures",
+  async (failure) => {
+    const first = sourcePr(1, { stack: header });
+    const second = sourcePr(2, { stack: header });
+    const f = await fakeGh([first, second], [stack([entry(first), entry(second)])]);
+    const cached = (await f.read()).prs[0];
+    const member = sourcePr(2, { stack: header, opinions: [opinion("COMMENTED")] });
+    member.latestOpinionatedReviews.totalCount = 2;
+    member.latestOpinionatedReviews.pageInfo = { hasNextPage: true, endCursor: "opinions" };
+    f.payload.memberReviews[second.id] = member;
+    f.payload.opinions["2"] = {
+      ...(failure === "throttle" ? { errors: [{ message: "API rate limit exceeded" }] } : {}),
+      data: {
+        viewer: { login: failure === "account" ? "another-account" : "viewer" },
+        rateLimit: {
+          cost: 1,
+          limit: 5000,
+          remaining: failure === "throttle" ? 0 : 4999,
+          resetAt: "2099-10-03T00:00:00Z",
+        },
+        repository: {
+          pullRequest: {
+            ...member,
+            latestOpinionatedReviews: {
+              totalCount: 2,
+              nodes: [opinion("APPROVED", "later")],
+              pageInfo: complete,
+            },
+          },
+        },
+      },
+    };
+    await f.update();
+    await expect(
+      f.reader.current(repository, cached, new AbortController().signal),
+    ).rejects.toMatchObject({ kind: failure });
+  },
+);

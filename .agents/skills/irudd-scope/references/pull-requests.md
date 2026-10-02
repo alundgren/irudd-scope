@@ -38,15 +38,21 @@ installed `gh` under the Mac user's current GitHub login. A remote agent does
 not need a separate GitHub login to use the inbox commands. Only `github.com`
 repositories are supported.
 
-Configuration and sync are separate. `configure` binds the repository without
-fetching PRs; `read` returns cached state without refreshing GitHub. `sync`
+`configure` binds the repository and starts automatic desktop refresh;
+`read` returns cached state without refreshing GitHub. `sync`
 returns a snapshot even when GitHub refresh fails. Check `snapshot.sync.state`,
 `error`, and `lastSuccessAt` before reporting that the inbox has loaded current
-PRs. Tab selection and the app's Sync action also refresh. There is no polling.
+PRs. Tab selection and the app's Sync action request coalesced refreshes.
+The desktop polls configured live inboxes while Scope is running and awake.
+Visible inboxes target 30 seconds, inspected PRs 15 seconds, and background
+repositories five minutes; measured cost and quota can lengthen these targets.
+Matching inboxes share GitHub reads. The 500-point hourly account target delays
+new automatic jobs; admitted jobs finish. Manual Sync and detail reads bypass
+that routine wait but still respect actual GitHub quota reserve and throttling.
 
 If publication succeeds but configuration fails, configure the existing name
 instead of publishing again. The same repository can be configured again.
-Changing repositories requires a new named inbox. The first successful sync
+Changing repositories requires a new named inbox. The first complete inventory
 may normalize an alias to GitHub's verified canonical owner/name. A successful
 inventory, including an empty one, pins that path. Later repository renames or
 transfers require a new inbox. Read the returned snapshot for the actual binding.
@@ -135,15 +141,15 @@ This minimal app displays live titles and a Sync action:
 `pull-requests read NAME` returns `{ type: "snapshot", snapshot }`. Other
 commands also return this envelope, except `detail`. A snapshot contains:
 
-| Field        | Meaning                                                                                                                   |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `artifact`   | Publication metadata, including `id`, immutable `name`, `kind`, and HTML `revision`.                                      |
-| `tabId`      | Desktop tab UUID. Include it in agent commands to prevent writes to a replacement tab with a reused name.                 |
-| `generation` | Inbox change counter. It is separate from HTML revision and each mutation's version.                                      |
-| `repository` | `{ owner, name }`, or `null` before configuration.                                                                        |
-| `viewer`     | Desktop GitHub login, or `null` before a successful refresh.                                                              |
-| `sync`       | `{ state, updatedAt, lastSuccessAt, error }`. State is `idle`, `syncing`, or `error`; timestamps and error can be `null`. |
-| `prs`        | Complete flat array of currently cached open PR records, including drafts.                                                |
+| Field        | Meaning                                                                                                                        |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `artifact`   | Publication metadata, including `id`, immutable `name`, `kind`, and HTML `revision`.                                           |
+| `tabId`      | Desktop tab UUID. Include it in agent commands to prevent writes to a replacement tab with a reused name.                      |
+| `generation` | Inbox change counter. It is separate from HTML revision and each mutation's version.                                           |
+| `repository` | `{ owner, name }`, or `null` before configuration.                                                                             |
+| `viewer`     | Desktop GitHub login, or `null` before a successful refresh.                                                                   |
+| `sync`       | `{ state, updatedAt, lastSuccessAt, error }`. The HTML SDK also supplies adaptive `intervalMs`, `nextAttemptAt`, and `reason`. |
+| `prs`        | Complete flat array of currently cached open PR records, including drafts.                                                     |
 
 Each PR has the following GitHub facts at its top level:
 
@@ -180,10 +186,14 @@ from the aggregate flags. Every open member must be out of draft for
 `readyForReview`; every open member must have an active approval for `approved`.
 `approved` is null when an approval is unknown and none is known to be absent.
 
-Stack calculations use the complete repository inventory before your HTML
+Stack calculations include every open native member before your HTML
 applies filters or snoozes. A hidden draft still blocks stack readiness.
 Incomplete membership or review reads fail the refresh and keep the saved
 facts; check sync state and observation timestamps before relying on them.
+
+The lightweight initial load omits review and stack fields until enrichment completes.
+A focused PR refresh re-observes every open member of its native stack. Other
+rows can retain older observations; use `stack.observedAt` for that stack record.
 
 Older saved records can omit `review` and `stack`. Treat missing fields as
 unknown; `stack === null` is the known standalone case. For example:
@@ -240,23 +250,29 @@ retrieval rejects the read; read current state and request details again.
 
 `window.scope.pullRequests` exposes these methods:
 
-| Method                                                           | Result and behavior                                                                                                                    |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `watch(callback)`                                                | Calls `callback(prs, context, sync)` when the initial snapshot arrives and on snapshot/theme changes. Returns an unsubscribe function. |
-| `sync()`                                                         | Promise that requests GitHub refresh. Refresh errors appear in the watched `sync` state; transport errors reject.                      |
-| `detail(nodeId, section)`                                        | Promise of the complete detail object above. `section` is an app hint, not a response filter.                                          |
-| `openExternal(url)`                                              | Promise that opens an HTTP(S) URL in the default browser; rejects invalid URLs or browser-launch failures.                             |
-| `saveNote(nodeId, text, expectedVersion)`                        | Promise of `{ version }`. Use `local.noteVersion`.                                                                                     |
-| `setSnooze(nodeId, { until, wakeOnNewCommit }, expectedVersion)` | Promise of `{ version }`. Use `local.snoozeVersion`. The host supplies the current head commit. `until: null` clears the snooze.       |
-| `inspect(nodeId, displayedHeadOid, expectedVersion)`             | Promise of `{ version }`. Use `local.reviewVersion`. Records inspection only.                                                          |
-| `markReviewed(nodeId, displayedHeadOid, expectedVersion)`        | Promise of `{ version }`. Use `local.reviewVersion`. Records an explicit local review mark.                                            |
-| `beforeClose(asyncCallback)`                                     | Registers a pending-edit flush. Returns a cleanup function.                                                                            |
+| Method                                                           | Result and behavior                                                                                                                                                                                           |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `watch(callback)`                                                | Calls `callback(prs, context, sync)` when the initial snapshot arrives and on snapshot/theme changes. Returns an unsubscribe function.                                                                        |
+| `sync()`                                                         | Promise that requests GitHub refresh. Refresh errors appear in the watched `sync` state; transport errors reject.                                                                                             |
+| `watchDetail(nodeId, headOid, baseOid, callback)`                | Subscribes the inspected PR to live body/review updates for the captured commit pair. Returns unsubscribe; the newest subscription identifies the inspected PR.                                               |
+| `detail(nodeId, section, {headOid,baseOid})`                     | Promise of the complete detail object above. `section` is an app hint, not a response filter. Supply the captured commit pair to reject a comparison that changed before the read; older callers may omit it. |
+| `openExternal(url)`                                              | Promise that opens an HTTP(S) URL in the default browser; rejects invalid URLs or browser-launch failures.                                                                                                    |
+| `saveNote(nodeId, text, expectedVersion)`                        | Promise of `{ version }`. Use `local.noteVersion`.                                                                                                                                                            |
+| `setSnooze(nodeId, { until, wakeOnNewCommit }, expectedVersion)` | Promise of `{ version }`. Use `local.snoozeVersion`. The host supplies the current head commit. `until: null` clears the snooze.                                                                              |
+| `inspect(nodeId, displayedHeadOid, expectedVersion)`             | Promise of `{ version }`. Use `local.reviewVersion`. Records inspection only.                                                                                                                                 |
+| `markReviewed(nodeId, displayedHeadOid, expectedVersion)`        | Promise of `{ version }`. Use `local.reviewVersion`. Records an explicit local review mark.                                                                                                                   |
+| `beforeClose(asyncCallback)`                                     | Registers a pending-edit flush. Returns a cleanup function.                                                                                                                                                   |
 
 `watch` context is `{ name, repository, viewer, theme }`, with theme `light`
 or `dark`. Repository, viewer, and sync have the same meanings as in a CLI
 snapshot. The array and all nested records are frozen. Derive views with
 ordinary predicates, sorting a copied array rather than mutating `prs`.
 Named views, selection, and review navigation belong to the HTML app.
+
+`watchDetail` updates include `tabId`, `nodeId`, captured `headOid` and `baseOid`,
+`body`, `reviews`, `fetchedAt`, and `error`. Error updates omit body/reviews; keep
+the prior content. Unsubscribe when closing or switching the pane. Initial
+`detail` loading still supplies the diff and files; live reviews do not replace them.
 
 For example, filter review requests with
 `context.viewer !== null && pr.requestedReviewers.includes(context.viewer)`.

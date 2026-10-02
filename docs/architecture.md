@@ -103,11 +103,19 @@ to the tab UUID. Publishing another HTML revision preserves them.
 
 `plugins/pull-requests/gh-process.ts` runs the installed `gh` executable without
 a shell, using the desktop user's existing login. `gh.ts` reads GitHub facts
-and on-demand details. `sync.ts` coalesces refreshes per tab and cancels work
-when the tab is removed or the desktop shuts down. A complete inventory commits
+and on-demand details. `sync.ts` owns one adaptive polling scheduler and shares
+repository reads across inboxes using the same desktop account. It cancels work
+on suspension, tab removal, and shutdown. A complete inventory commits
 in one transaction and removes PRs no longer open. Failed or incomplete reads
 preserve the previous inventory. Local and agent records have separate version
 checks and do not get replaced by GitHub facts.
+
+First load commits a complete lightweight inventory before enriching checks,
+mergeability, and conversations in bounded batches. Checks, mergeability, and conversations are Unknown and sync remains
+in progress until enrichment finishes. An enrichment failure retains that valid
+base list. Once a base inventory has been committed, retries and later refreshes
+read and commit enriched facts together, preserving cached facts on failure.
+This remains true after restart; an incomplete membership read never replaces the list.
 
 `plugins/pull-requests/view.tsx` hosts trusted authored HTML and injects
 `window.scope.pullRequests` before its scripts run. The HTML receives immutable
@@ -117,8 +125,16 @@ reloads durable state after invalidation or reconnect. Refreshing PR state
 preserves the iframe; publishing a new HTML revision replaces it after pending
 local edits finish saving. Transient notices carry no replay history.
 
-The tab syncs when selected and through the app's Sync action. There is no
-background polling. Native creation publishes the built-in flat-list app;
+Configured inboxes refresh automatically while Scope is running and awake.
+Selection, wake, and reconnect request coalesced fresh reads; Sync remains a
+fallback. Foreground, background, and inspected-PR reads use different target
+intervals, lengthened to fit observed GitHub cost and remaining quota. The
+500-point hourly account target controls admission of new automatic jobs;
+admitted jobs finish. Manual Sync and detail reads bypass that routine wait,
+while every request respects actual quota reserve and throttling. Main owns
+the timers; renderer interests identify the visible inbox and inspected PR.
+An inspected PR's reviews refresh without downloading its captured diff again.
+Native creation publishes the built-in flat-list app;
 agents can publish their own HTML with named JavaScript views. GitHub access is
 read-only. Review submission and merges remain on GitHub. Authenticated HTTP
 commands work without the tab being mounted. Paired hubs forward them and keep
