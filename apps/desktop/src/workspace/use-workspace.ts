@@ -3,6 +3,8 @@ import {
   decodeWorkspace,
   emptyWorkspace,
   importWorkspace,
+  type OverlayName,
+  type OverlayPosition,
   type Tab,
   type TabGroup,
   type TabState,
@@ -220,7 +222,10 @@ export function useWorkspace(onError: (message: string) => void) {
     replace({ ...previous, tabs });
   }
 
-  function updateTab(id: string, patch: Partial<Pick<Tab, "state" | "type" | "title">>): void {
+  function updateTab(
+    id: string,
+    patch: Partial<Pick<Tab, "state" | "type" | "title" | "overlayPositions">>,
+  ): void {
     const previous = current.current;
     const update = (tab: Tab) => {
       if (tab.id !== id) return tab;
@@ -234,6 +239,18 @@ export function useWorkspace(onError: (message: string) => void) {
         tabs: previous.tabs.map(update),
       }),
     );
+  }
+  function updateOverlayPosition(
+    id: string,
+    name: OverlayName,
+    position: OverlayPosition | undefined,
+  ) {
+    const tab = current.current.tabs.find((entry) => entry.id === id);
+    if (!tab) return;
+    const overlayPositions = { ...tab.overlayPositions };
+    if (position) overlayPositions[name] = position;
+    else delete overlayPositions[name];
+    updateTab(id, { overlayPositions });
   }
   const updateState = (id: string, state: TabState) => updateTab(id, { state });
   return {
@@ -249,5 +266,6 @@ export function useWorkspace(onError: (message: string) => void) {
     createGroup,
     updateTab,
     updateState,
+    updateOverlayPosition,
   };
 }

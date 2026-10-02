@@ -15,12 +15,22 @@ export const TabState = Schema.Struct({
   data: Schema.JsonObject,
 });
 export type TabState = typeof TabState.Type;
+const OverlayCoordinate = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0));
+export const OverlayPosition = Schema.Struct({ x: OverlayCoordinate, y: OverlayCoordinate });
+export type OverlayPosition = typeof OverlayPosition.Type;
+export const OverlayPositions = Schema.Struct({
+  fullscreen: Schema.optionalKey(OverlayPosition),
+  planControls: Schema.optionalKey(OverlayPosition),
+  planReview: Schema.optionalKey(OverlayPosition),
+});
+export type OverlayName = keyof typeof OverlayPositions.Type;
 export const Tab = Schema.Struct({
   id: Uuid,
   groupId: Uuid,
   type: Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9-]{0,63}$/)),
   title: Name,
   state: TabState,
+  overlayPositions: Schema.optionalKey(OverlayPositions),
 });
 export type Tab = typeof Tab.Type;
 export const Workspace = Schema.Struct({
