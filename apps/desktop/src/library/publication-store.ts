@@ -141,7 +141,8 @@ function validateResult(
   const expected = operation.progress ?? operation.observation;
   if (
     expected.remoteId !== null &&
-    (expected.remoteId !== result.remoteId || expected.url !== result.url)
+    (expected.remoteId !== result.remoteId ||
+      (expected.url !== null && expected.url !== result.url))
   )
     return "The result belongs to another destination.";
   if (result.marker.updatedAt !== null && timestamp(result.marker.updatedAt) === null)
@@ -440,7 +441,7 @@ export class PublicationStore {
               if (
                 previous.remoteId !== null &&
                 (previous.remoteId !== command.progress.remoteId ||
-                  previous.url !== command.progress.url)
+                  (previous.url !== null && previous.url !== command.progress.url))
               )
                 return yield* fail("Remote progress belongs to another destination.");
               if (

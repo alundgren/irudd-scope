@@ -625,3 +625,73 @@ test("stale acknowledgement cannot approve remote facts refreshed after the warn
   });
   await f.client.publications({ ...op, action: "start" });
 });
+
+test("Sites creation retains an ID without a URL and fills its URL without replacing known identity", async () => {
+  const f = await fixture(),
+    op = f.operation("sites");
+  await f.client.publications({
+    ...op,
+    action: "prepare",
+    expectedRevision: 1,
+    observation: observation({ evidence: "authenticated-tool" }),
+  });
+  await f.client.publications({ ...op, action: "start" });
+  const created = {
+    remoteId: "site-with-no-url",
+    url: null,
+    savedVersion: null,
+    sourceCommit: null,
+    deploymentId: null,
+  };
+  await f.client.publications({ ...op, action: "progress", progress: created });
+  await f.restart();
+  expect(
+    (await f.client.publications({ action: "read", id: op.id })).snapshot.destinations[0]?.operation
+      ?.progress,
+  ).toEqual(created);
+  await expect(
+    f.client.publications({
+      ...op,
+      action: "progress",
+      progress: { ...created, remoteId: "another-site" },
+    }),
+  ).rejects.toThrow("another destination");
+  const saved = { ...created, savedVersion: "saved-version-1", sourceCommit: "b".repeat(40) };
+  await f.client.publications({ ...op, action: "progress", progress: saved });
+  const deployed = {
+    ...saved,
+    url: "https://site-with-no-url.chatgpt.site",
+    deploymentId: "deployment-1",
+  };
+  await f.client.publications({ ...op, action: "progress", progress: deployed });
+  await expect(
+    f.client.publications({
+      ...op,
+      action: "progress",
+      progress: { ...deployed, url: "https://different.chatgpt.site" },
+    }),
+  ).rejects.toThrow("another destination");
+  await expect(
+    f.client.publications({ ...op, action: "progress", progress: { ...deployed, url: null } }),
+  ).rejects.toThrow("another destination");
+  const result = success({
+    ...deployed,
+    provider: "sites",
+    marker: {
+      version: JSON.stringify({
+        savedVersion: deployed.savedVersion,
+        deploymentId: deployed.deploymentId,
+      }),
+      updatedAt: null,
+    },
+  });
+  await expect(
+    f.client.publications({
+      ...op,
+      action: "complete",
+      result: { ...result, url: null } as unknown as PublicationSuccess,
+    }),
+  ).rejects.toThrow("Invalid publication command");
+  const complete = await f.client.publications({ ...op, action: "complete", result });
+  expect(complete.snapshot.destinations[0]?.checkpoint?.result).toEqual(result);
+});
