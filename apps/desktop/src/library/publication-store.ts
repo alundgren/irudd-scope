@@ -292,18 +292,6 @@ export class PublicationStore {
               return yield* fail("The local artifact changed. Read it again before preparing.");
             if (!["html", "plan"].includes(artifact.kind))
               messages.push("Only stored HTML and plans can be published to these destinations.");
-            const [blob] = yield* sql<{
-              content: Uint8Array;
-            }>`SELECT content FROM blobs WHERE id = ${artifact.blob}`;
-            if (!blob) return yield* fail("Artifact content is missing.");
-            if (
-              /window\s*\.\s*scope\b|scope-sdk|\/sdk\/scope|irudd-scope:\/\//i.test(
-                Buffer.from(blob.content).toString("utf8"),
-              )
-            )
-              messages.push(
-                "This HTML uses the Scope SDK and cannot work at an external destination.",
-              );
             messages.push(...privacy(command.provider, command.observation));
             if (!fresh(command.observation))
               messages.push(
