@@ -275,11 +275,16 @@ test("Other Scopes creates a public invitation, copies the secret through main, 
       "secret",
     );
     await page.getByRole("button", { name: "Copy link", exact: true }).click();
-    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe(
-      await page.getByLabel("Pairing link", { exact: true }).inputValue(),
-    );
+    await page.getByText("Link copied.", { exact: true }).waitFor();
+    await expect
+      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe(await page.getByLabel("Pairing link", { exact: true }).inputValue());
     await page.getByRole("button", { name: "Copy pairing secret", exact: true }).click();
-    expect((await controls(app)).copied).toBe(1);
+    await page.getByText("Pairing secret copied.", { exact: true }).waitFor();
+    await expect.poll(() => controls(app).then((value) => value.copied)).toBe(1);
+    await expect
+      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe("synthetic-pairing-secret");
     expect(await page.locator("body").innerText()).not.toContain("synthetic-pairing-secret");
     await screenshot(page, "transfer-pair-light.png");
     const pairingUrl = await page.getByLabel("Pairing link", { exact: true }).inputValue();
@@ -348,9 +353,10 @@ test("Send tab shows QR, cancellation, expiry, import progress, and completion w
     };
     await send();
     await page.getByRole("button", { name: "Copy link", exact: true }).click();
-    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe(
-      await page.getByLabel("Transfer link", { exact: true }).inputValue(),
-    );
+    await page.getByText("Link copied.", { exact: true }).waitFor();
+    await expect
+      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe(await page.getByLabel("Transfer link", { exact: true }).inputValue());
     await screenshot(page, "transfer-send-light.png");
     await page.getByRole("button", { name: "Close", exact: true }).click();
     expect((await controls(app)).cancelled).toBe(1);
