@@ -264,6 +264,13 @@ export function ImportTabDialog({
               <dd>{preview.fileName}</dd>
               <dt>Size</dt>
               <dd>{new Intl.NumberFormat().format(preview.size)} bytes</dd>
+              <dt>Expires</dt>
+              <dd>
+                {new Date(preview.expiresAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </dd>
             </dl>
             <p className="secondary">
               {preview.alreadyImported

@@ -944,7 +944,7 @@ h2 {
   overflow-wrap: anywhere;
 }
 .transfer-qr {
-  width: 180px;
+  width: 240px;
   max-width: 100%;
   height: auto;
   justify-self: center;
