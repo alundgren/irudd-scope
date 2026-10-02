@@ -5,7 +5,12 @@ import {
   PullRequestDetail,
   PullRequestsRepository,
 } from "@irudd-scope/protocol/pull-requests";
-import { GitHubProcess, GitHubReadError, githubFailure } from "./gh-process.ts";
+import {
+  GitHubProcess,
+  GitHubReadError,
+  githubFailure,
+  githubErrorResponse,
+} from "./gh-process.ts";
 
 const PageInfo = Schema.Struct({
   hasNextPage: Schema.Boolean,
@@ -278,32 +283,48 @@ export class GitHubPullRequests {
     context: ReadContext = { cost: 0, priority: 0 },
   ) {
     const { owner, name } = validated(PullRequestsRepository, repository);
-    const output = await this.process.run(
-      [
-        "api",
-        "graphql",
-        "--include",
-        "--hostname",
-        "github.com",
-        "-f",
-        `query=${query}`,
-        "-f",
-        `owner=${owner}`,
-        "-f",
-        `name=${name}`,
-        ...fields,
-      ],
-      signal,
-      context.priority,
-      () => this.beforeRead?.(signal),
-    );
-    const value = json(output, true);
+    let failure: GitHubReadError | undefined;
+    let output: string;
+    try {
+      output = await this.process.run(
+        [
+          "api",
+          "graphql",
+          "--include",
+          "--hostname",
+          "github.com",
+          "-f",
+          `query=${query}`,
+          "-f",
+          `owner=${owner}`,
+          "-f",
+          `name=${name}`,
+          ...fields,
+        ],
+        signal,
+        context.priority,
+        () => this.beforeRead?.(signal),
+      );
+    } catch (error) {
+      if (!(error instanceof GitHubReadError)) throw error;
+      const response = githubErrorResponse(error);
+      if (response === undefined) throw error;
+      output = response;
+      failure = error;
+    }
+    let value: unknown;
+    try {
+      value = json(output, true);
+    } catch (error) {
+      throw failure ?? error;
+    }
     const errors = (value as { errors?: unknown } | null)?.errors;
     const incomplete = errors !== undefined && (!Array.isArray(errors) || errors.length > 0);
     let data: typeof Observation.Type;
     try {
       data = githubValue(Observation, (value as { data?: unknown } | null)?.data);
     } catch (error) {
+      if (failure) throw failure;
       if (incomplete) throw githubFailure(output);
       throw error;
     }
@@ -339,6 +360,7 @@ export class GitHubPullRequests {
             ? `\nx-ratelimit-remaining: 0\nx-ratelimit-reset: ${Date.parse(data.rateLimit.resetAt) / 1000}`
             : ""),
       );
+    if (failure) throw failure;
     return value;
   }
 
@@ -689,7 +711,7 @@ export class GitHubPullRequests {
       repository,
       `query ScopePullRequestReviewBody($owner: String!, $name: String!, $number: Int!) {
       viewer { login } rateLimit { cost limit remaining resetAt }
-      repository(owner: $owner, name: $name) { pullRequest(number: $number) { id state headRefOid baseRefOid body } }
+      repository(owner: $owner, name: $name) { nameWithOwner pullRequest(number: $number) { id state headRefOid baseRefOid body } }
     }`,
       signal,
       ["-F", `number=${pr.number}`],
@@ -698,12 +720,21 @@ export class GitHubPullRequests {
     const page = githubValue(
       Schema.Struct({
         data: Schema.Struct({
-          repository: Schema.NullOr(Schema.Struct({ pullRequest: Schema.NullOr(DetailView) })),
+          repository: Schema.NullOr(
+            Schema.Struct({ nameWithOwner: Schema.String, pullRequest: Schema.NullOr(DetailView) }),
+          ),
         }),
       }),
       result,
     );
-    const view = page.data.repository?.pullRequest;
+    const resolved = page.data.repository;
+    const view = resolved?.pullRequest;
+    if (
+      resolved &&
+      resolved.nameWithOwner.toLowerCase() !==
+        `${repository.owner}/${repository.name}`.toLowerCase()
+    )
+      throw new GitHubReadError("GitHub returned a pull request from another repository.");
     if (!view) throw new GitHubReadError("GitHub did not return this pull request.", "permission");
     return view;
   }
@@ -761,21 +792,11 @@ export class GitHubPullRequests {
   ): Promise<Pick<PullRequestDetail, "body" | "reviews" | "fetchedAt">> {
     const context: ReadContext = { cost: 0, priority: 1 };
     const before = await this.view(repository, pr, signal, context);
-    if (
-      before.id !== pr.nodeId ||
-      before.state !== "OPEN" ||
-      before.headRefOid !== pr.headOid ||
-      before.baseRefOid !== pr.baseOid
-    )
+    if (before.id !== pr.nodeId || before.state !== "OPEN")
       throw new GitHubReadError("This pull request changed. Sync before opening its details.");
     const reviews = await this.reviewPages(repository, pr, signal);
     const after = await this.view(repository, pr, signal, context);
-    if (
-      after.id !== before.id ||
-      after.state !== "OPEN" ||
-      after.headRefOid !== before.headRefOid ||
-      after.baseRefOid !== before.baseRefOid
-    )
+    if (after.id !== before.id || after.state !== "OPEN")
       throw new GitHubReadError("This pull request changed while loading. Sync and open it again.");
     return { body: after.body, reviews, fetchedAt: observedAt() };
   }
