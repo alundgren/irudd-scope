@@ -69,21 +69,39 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
       snapshot: Mutable<typeof initial>;
       failNote: boolean;
       failSync: boolean;
+      holdSync: boolean;
+      releaseSync: (() => void) | null;
+      holdNextNote: boolean;
+      releaseNote: (() => void) | null;
       reads: number;
       held: { snapshot: Mutable<typeof initial>; resolve: (value: unknown) => void } | null;
       holdRead: boolean;
       calls: PullRequestsCommand[];
+      interests: {
+        tabId: string;
+        active: boolean;
+        detail: { nodeId: string; headOid: string; baseOid: string } | null;
+      }[];
     };
     const state: State = {
       snapshot: initial as Mutable<typeof initial>,
       failNote: false,
       failSync: false,
+      holdSync: false,
+      releaseSync: null,
+      holdNextNote: false,
+      releaseNote: null,
       reads: 0,
       held: null,
       holdRead: false,
       calls: [],
+      interests: [],
     };
     Object.assign(globalThis, { prInboxTest: state });
+    ipcMain.removeHandler("scope:pull-requests-interest");
+    ipcMain.handle("scope:pull-requests-interest", (_event, interest) => {
+      state.interests.push(structuredClone(interest));
+    });
     const notify = () =>
       BrowserWindow.getAllWindows()[0]!.webContents.send("scope:pull-requests-changed", {
         type: "pull-requests",
@@ -92,7 +110,8 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
         generation: state.snapshot.generation,
       });
     ipcMain.removeHandler("scope:pull-requests-command");
-    ipcMain.handle("scope:pull-requests-command", (_event, command) => {
+    ipcMain.handle("scope:pull-requests-command", async (_event, incoming) => {
+      const command = structuredClone(incoming);
       state.calls.push(structuredClone(command));
       if (command.action !== "read" && command.tabId !== state.snapshot.tabId)
         throw new Error("Synthetic wrong tab incarnation");
@@ -115,9 +134,34 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
         state.snapshot.generation++;
         notify();
         if (state.failSync) throw new Error("Synthetic offline failure");
+        if (state.holdSync) {
+          state.holdSync = false;
+          return new Promise((resolve) => {
+            state.releaseSync = () => {
+              state.releaseSync = null;
+              resolve({ type: "snapshot", snapshot: state.snapshot });
+            };
+          });
+        }
       } else {
+        if (command.action === "note" && state.holdNextNote) {
+          state.holdNextNote = false;
+          await new Promise<void>((resolve) => {
+            state.releaseNote = () => {
+              state.releaseNote = null;
+              resolve();
+            };
+          });
+        }
         const row = state.snapshot.prs.find((p) => p.nodeId === command.nodeId)!;
-        if (command.action === "detail")
+        if (command.action === "detail") {
+          if (
+            command.captured &&
+            (command.captured.headOid !== row.headOid || command.captured.baseOid !== row.baseOid)
+          )
+            throw new Error(
+              "This comparison changed. Load the latest comparison to view its details.",
+            );
           return {
             type: "detail",
             tabId: state.snapshot.tabId,
@@ -140,6 +184,7 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
               fetchedAt: initial.sync.updatedAt,
             },
           };
+        }
         if (command.action === "note") {
           if (command.expectedVersion !== row.local.noteVersion)
             throw new Error("Synthetic note version conflict");
@@ -169,6 +214,281 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
     });
   }, snapshot);
 }
+
+test("live reviews preserve captured code and drafts, and closing the pane stops its subscription", async () => {
+  const fixture = await offlineFixture();
+  const app = await fixture.launch();
+  try {
+    const { artifact, tabId } = await createStarterInbox(app);
+    await installCommands(app, {
+      ...snapshot(artifact, tabId),
+      prs: [pr(1)],
+      sync: {
+        state: "idle",
+        updatedAt: at,
+        lastSuccessAt: at,
+        error: null,
+        intervalMs: 300_000,
+        nextAttemptAt: null,
+        reason: "Adaptive account budget",
+      },
+    });
+    await sendChange(app, "reconnect");
+    const page = await app.firstWindow();
+    const frame = page.frameLocator(".pull-requests-document");
+    await frame
+      .getByRole("button", { name: "Keep the current review stable 1", exact: true })
+      .click();
+    await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (
+              globalThis as unknown as {
+                prInboxTest: { interests: { detail: { nodeId: string } | null }[] };
+              }
+            ).prInboxTest.interests.at(-1)?.detail?.nodeId,
+        ),
+      )
+      .toBe("PR_1");
+    await page.getByRole("status").filter({ hasText: "Refresh target 5 minutes" }).waitFor();
+    await frame.getByRole("button", { name: "Discussion", exact: true }).click();
+    await frame.getByLabel("Your notes").fill("Keep my unfinished note");
+    const update = {
+      tabId,
+      nodeId: "PR_1",
+      headOid: head,
+      baseOid: base,
+      body: "Updated description",
+      fetchedAt: "2026-10-02T12:00:00.000Z",
+      error: null,
+      reviews: [
+        {
+          id: "review-2",
+          author: "reviewer",
+          state: "APPROVED",
+          body: "Live review arrived",
+          submittedAt: at,
+          headOid: head,
+        },
+      ],
+    };
+    await app.evaluate(({ BrowserWindow }, value) => {
+      BrowserWindow.getAllWindows()[0]!.webContents.send(
+        "scope:pull-requests-detail-update",
+        value,
+      );
+    }, update);
+    await frame.getByText("reviewer · APPROVED\nLive review arrived", { exact: true }).waitFor();
+    expect(await frame.getByLabel("Your notes").inputValue()).toBe("Keep my unfinished note");
+    await frame.getByRole("button", { name: "Diff", exact: true }).click();
+    await expect.poll(() => frame.locator("#content").textContent()).toContain(head);
+    await sendChange(app, "new-head");
+    await frame
+      .getByRole("button", { name: "New commit available · Load latest commit" })
+      .waitFor();
+    expect(await frame.locator("#head").textContent()).toBe(head.slice(0, 12));
+    await expect.poll(() => frame.locator("#content").textContent()).toContain(head);
+    await app.evaluate(
+      ({ BrowserWindow }, value) => {
+        BrowserWindow.getAllWindows()[0]!.webContents.send(
+          "scope:pull-requests-detail-update",
+          value,
+        );
+      },
+      {
+        ...update,
+        headOid: newerHead,
+        body: "Wrong captured commit",
+        fetchedAt: "2026-10-02T12:01:00.000Z",
+      },
+    );
+    await frame.getByRole("button", { name: "Body", exact: true }).click();
+    await expect.poll(() => frame.locator("#content").textContent()).toBe("Updated description");
+    await frame.getByRole("button", { name: "Back to inbox" }).click();
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (
+              globalThis as unknown as { prInboxTest: { interests: { detail: unknown }[] } }
+            ).prInboxTest.interests.at(-1)?.detail,
+        ),
+      )
+      .toBe(null);
+    await app.evaluate(
+      ({ BrowserWindow }, value) => {
+        BrowserWindow.getAllWindows()[0]!.webContents.send(
+          "scope:pull-requests-detail-update",
+          value,
+        );
+      },
+      { ...update, body: "After unsubscribe", fetchedAt: "2026-10-02T12:02:00.000Z" },
+    );
+    await expect.poll(() => frame.locator("#content").textContent()).toBe("Updated description");
+    await mkdir("/tmp/scope-adaptive-live-sync", { recursive: true });
+    await page.screenshot({ path: "/tmp/scope-adaptive-live-sync/inbox-light.png" });
+    await page.setViewportSize({ width: 680, height: 720 });
+    await page.getByRole("button", { name: "Search and controls" }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Appearance", exact: true }).click();
+    await page.getByLabel("Appearance", { exact: true }).selectOption("dark");
+    await page
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe("dark");
+    await expect
+      .poll(() => page.getByRole("dialog", { name: "Settings", exact: true }).count())
+      .toBe(0);
+    await page.screenshot({ path: "/tmp/scope-adaptive-live-sync/inbox-dark-narrow.png" });
+    await app.evaluate(({ BrowserWindow }) => {
+      const state = (
+        globalThis as unknown as {
+          prInboxTest: {
+            snapshot: {
+              sync: { state: string; error: string | null; nextAttemptAt: string | null };
+            };
+          };
+        }
+      ).prInboxTest;
+      state.snapshot.sync.state = "error";
+      state.snapshot.sync.error = "GitHub temporarily unavailable";
+      state.snapshot.sync.nextAttemptAt = "2026-10-02T12:05:00.000Z";
+      BrowserWindow.getAllWindows()[0]!.webContents.send("scope:pull-requests-reconnected");
+    });
+    const failedStatus = page
+      .getByRole("status")
+      .filter({ hasText: "GitHub temporarily unavailable" });
+    await expect.poll(() => failedStatus.textContent()).toContain("Updated ");
+    await expect.poll(() => failedStatus.textContent()).toContain("Retrying at ");
+  } finally {
+    await app.close();
+    await rm(fixture.directory, { recursive: true, force: true });
+    await rm(fixture.ghDirectory, { recursive: true, force: true });
+  }
+});
+
+test("a captured pane rejects a changed base until loading the latest comparison", async () => {
+  const fixture = await offlineFixture();
+  const app = await fixture.launch();
+  try {
+    const { artifact, tabId } = await createStarterInbox(app);
+    await installCommands(app, { ...snapshot(artifact, tabId), prs: [pr(1)] });
+    await sendChange(app, "reconnect");
+    const page = await app.firstWindow();
+    const frame = page.frameLocator(".pull-requests-document");
+    await frame
+      .getByRole("button", { name: "Keep the current review stable 1", exact: true })
+      .waitFor();
+    const changedBase = "d".repeat(40);
+    await app.evaluate((_electron, value) => {
+      const state = (
+        globalThis as unknown as { prInboxTest: { snapshot: { prs: { baseOid: string }[] } } }
+      ).prInboxTest;
+      state.snapshot.prs[0]!.baseOid = value;
+    }, changedBase);
+    await frame
+      .getByRole("button", { name: "Keep the current review stable 1", exact: true })
+      .click();
+    await expect
+      .poll(() => frame.locator("#content").textContent())
+      .toContain("This comparison changed. Load the latest comparison to view its details.");
+    await sendChange(app, "reconnect");
+    await frame
+      .getByRole("button", { name: "Base changed · Load latest comparison", exact: true })
+      .click();
+    await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
+    await frame.getByRole("button", { name: "Diff", exact: true }).click();
+    await expect.poll(() => frame.locator("#content").textContent()).toContain(head);
+    const captured = await app.evaluate(() =>
+      (
+        globalThis as unknown as {
+          prInboxTest: {
+            calls: { action: string; captured?: { headOid: string; baseOid: string } }[];
+          };
+        }
+      ).prInboxTest.calls
+        .filter((call) => call.action === "detail")
+        .map((call) => call.captured),
+    );
+    expect(captured).toEqual([
+      { headOid: head, baseOid: base },
+      { headOid: head, baseOid: changedBase },
+    ]);
+  } finally {
+    await app.close();
+    await rm(fixture.directory, { recursive: true, force: true });
+    await rm(fixture.ghDirectory, { recursive: true, force: true });
+  }
+});
+
+test("a pending GitHub refresh does not delay saving a local note", async () => {
+  const fixture = await offlineFixture();
+  const app = await fixture.launch();
+  try {
+    const { artifact, tabId } = await createStarterInbox(app);
+    await installCommands(app, { ...snapshot(artifact, tabId), prs: [pr(1)] });
+    await sendChange(app, "reconnect");
+    const page = await app.firstWindow();
+    const frame = page.frameLocator(".pull-requests-document");
+    await frame
+      .getByRole("button", { name: "Keep the current review stable 1", exact: true })
+      .click();
+    await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
+    await app.evaluate(() => {
+      (globalThis as unknown as { prInboxTest: { holdSync: boolean } }).prInboxTest.holdSync = true;
+    });
+    const authored = page.frames().find((item) => item.url() === "about:srcdoc")!;
+    await authored.evaluate(() => {
+      const inbox = window as unknown as {
+        scope: { pullRequests: { sync: () => Promise<unknown> } };
+      };
+      void inbox.scope.pullRequests.sync().catch(() => {});
+    });
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            !!(globalThis as unknown as { prInboxTest: { releaseSync: unknown } }).prInboxTest
+              .releaseSync,
+        ),
+      )
+      .toBe(true);
+    await frame.getByLabel("Your notes").fill("Saved while GitHub is still reading");
+    await frame.getByRole("button", { name: "Save note", exact: true }).click();
+    await frame.getByText("Saved", { exact: true }).waitFor();
+    expect(
+      await app.evaluate(
+        () =>
+          (globalThis as unknown as { prInboxTest: { snapshot: PullRequestsSnapshot } }).prInboxTest
+            .snapshot.prs[0].local.note,
+      ),
+    ).toBe("Saved while GitHub is still reading");
+    await app.evaluate(() => {
+      (
+        globalThis as unknown as { prInboxTest: { releaseSync: (() => void) | null } }
+      ).prInboxTest.releaseSync?.();
+    });
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (globalThis as unknown as { prInboxTest: { releaseSync: unknown } }).prInboxTest
+              .releaseSync,
+        ),
+      )
+      .toBe(null);
+    expect(await frame.getByLabel("Your notes").inputValue()).toBe(
+      "Saved while GitHub is still reading",
+    );
+  } finally {
+    await app.close();
+    await rm(fixture.directory, { recursive: true, force: true });
+    await rm(fixture.ghDirectory, { recursive: true, force: true });
+  }
+});
 async function sendChange(
   application: ElectronApplication,
   change: "new-head" | "reconnect" | "release" | "note-error" | "note-ok" | "sync-error",
@@ -695,23 +1015,46 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
       .getByRole("button", { name: "Keep the current review stable 1", exact: true })
       .click();
     await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
+    await app.evaluate(() => {
+      (
+        globalThis as unknown as { prInboxTest: { holdNextNote: boolean } }
+      ).prInboxTest.holdNextNote = true;
+    });
     await frame.getByLabel("Your notes").fill("User draft begun at version zero");
-    await frame.getByText("Unsaved edits", { exact: true }).waitFor();
-    expect(
-      await frame
-        .getByLabel("Your notes")
-        .evaluate((element) => element === document.activeElement),
-    ).toBe(true);
-    await app.evaluate(({ BrowserWindow }) => {
+    await frame.getByRole("button", { name: "Diff", exact: true }).click();
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (globalThis as unknown as { prInboxTest: { releaseNote: unknown } }).prInboxTest
+              .releaseNote !== null,
+        ),
+      )
+      .toBe(true);
+    const heldRequests = await app.evaluate(() =>
+      (
+        globalThis as unknown as { prInboxTest: { calls: PullRequestsCommand[] } }
+      ).prInboxTest.calls.filter((call) => call.action === "note"),
+    );
+    expect(heldRequests).toHaveLength(1);
+    expect(heldRequests[0]).toMatchObject({
+      action: "note",
+      text: "User draft begun at version zero",
+      expectedVersion: 0,
+    });
+    const readsBeforeAgentEdit = await app.evaluate(({ BrowserWindow }) => {
       const state = (
-        globalThis as unknown as { prInboxTest: { snapshot: Mutable<PullRequestsSnapshot> } }
+        globalThis as unknown as {
+          prInboxTest: { snapshot: Mutable<PullRequestsSnapshot>; reads: number };
+        }
       ).prInboxTest;
       if (state.snapshot.prs[0].local.noteVersion !== 0)
-        throw new Error("The note was autosaved before the concurrent edit test began.");
+        throw new Error("The held note request changed the saved version before release.");
       state.snapshot.prs[0].local.note = "Agent changed the note";
       state.snapshot.prs[0].local.noteVersion = 1;
       state.snapshot.generation++;
       BrowserWindow.getAllWindows()[0]!.webContents.send("scope:pull-requests-reconnected");
+      return state.reads;
     });
     await expect
       .poll(async () =>
@@ -719,12 +1062,22 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
           () => (globalThis as unknown as { prInboxTest: { reads: number } }).prInboxTest.reads,
         ),
       )
-      .toBeGreaterThan(1);
-    expect(await frame.getByLabel("Your notes").inputValue()).toBe(
+      .toBeGreaterThan(readsBeforeAgentEdit);
+    const noteRequests = await app.evaluate(() =>
+      (
+        globalThis as unknown as { prInboxTest: { calls: PullRequestsCommand[] } }
+      ).prInboxTest.calls.filter((call) => call.action === "note"),
+    );
+    expect(await frame.getByLabel("Your notes").inputValue(), JSON.stringify(noteRequests)).toBe(
       "User draft begun at version zero",
     );
-    await frame.getByRole("button", { name: "Save note", exact: true }).click();
+    await app.evaluate(() =>
+      (
+        globalThis as unknown as { prInboxTest: { releaseNote: (() => void) | null } }
+      ).prInboxTest.releaseNote?.(),
+    );
     await frame.getByText(/Your edits are kept here/).waitFor();
+    await frame.getByText("Saved note changed: Agent changed the note", { exact: true }).waitFor();
     expect(await frame.getByLabel("Your notes").inputValue()).toBe(
       "User draft begun at version zero",
     );
@@ -735,6 +1088,13 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
             .snapshot.prs[0].local.note,
       ),
     ).toBe("Agent changed the note");
+    expect(
+      await app.evaluate(
+        () =>
+          (globalThis as unknown as { prInboxTest: { snapshot: PullRequestsSnapshot } }).prInboxTest
+            .snapshot.prs[0].local.noteVersion,
+      ),
+    ).toBe(1);
     await frame.getByRole("button", { name: "Keep my note", exact: true }).click();
     await frame.getByText("Saved", { exact: true }).waitFor();
     expect(
@@ -744,6 +1104,13 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
             .snapshot.prs[0].local.note,
       ),
     ).toBe("User draft begun at version zero");
+    expect(
+      await app.evaluate(
+        () =>
+          (globalThis as unknown as { prInboxTest: { snapshot: PullRequestsSnapshot } }).prInboxTest
+            .snapshot.prs[0].local.noteVersion,
+      ),
+    ).toBe(2);
     await frame.getByRole("button", { name: "Snooze pull request", exact: true }).click();
     await frame.getByRole("button", { name: "2 hours", exact: true }).click();
     await frame.getByRole("button", { name: "Undo", exact: true }).waitFor();
@@ -774,6 +1141,11 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
       ),
     ).toBe("2028-01-01T12:00:00.000Z");
   } finally {
+    await app.evaluate(() =>
+      (
+        globalThis as unknown as { prInboxTest?: { releaseNote: (() => void) | null } }
+      ).prInboxTest?.releaseNote?.(),
+    );
     await app.close();
     await rm(fixture.directory, { recursive: true, force: true });
     await rm(fixture.ghDirectory, { recursive: true, force: true });

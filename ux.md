@@ -341,16 +341,30 @@ PR data, notes, snoozes, and review decisions. Closing moves a permanent inbox
 to the end of the tab queue. Moving it to Trashcan uses ordinary retention.
 Permanently deleting the tab deletes its repository review data.
 
-Selecting the tab syncs current open PRs, including drafts. Sync is also an
-explicit icon action. A failed GitHub read keeps the cached list and places a
-small error indicator on that icon. Its tooltip explains the failure, and
-clicking retries. There is no polling, cache expiry prompt, or closed PR history.
+Configured inboxes refresh current open PRs automatically, including drafts.
+Visible inboxes target 30 seconds, inspected PRs 15 seconds, and background
+repositories five minutes. These targets lengthen when the complete inventory
+cost or GitHub quota requires it. A quiet status line reports the last successful
+refresh, the current refresh target, and retry time after a failure. Matching
+inboxes share GitHub reads. Launch, selection, wake, and reconnect restore
+freshness; suspension and Trashcan stop their work. The Mac must be awake and
+Scope must be running. There is no closed PR history.
+
+Sync remains an explicit fallback icon action and joins the same scheduled work.
+A failed GitHub read keeps the cached list and retries automatically. Its
+tooltip explains the failure; authentication failures name `gh auth login`.
+Rate-limit waits apply to manual Sync too.
+First load displays the complete PR list before computed GitHub facts finish
+loading. Checks, mergeability, and conversation state remain Unknown and the status line explains the
+remaining work. Only complete membership reads remove PRs from the list.
 Unknown checks or conversation state remain visibly unknown. Any unresolved
 GitHub review conversation means the author's turn in the initial app.
 
 Opening a PR captures its ordered review queue and displayed commit. Background
 refreshes update the list and local state without moving the person to another PR or changing
-the displayed code. A newer head offers Load latest commit. Next and Previous
+the displayed code. Reviews and description in the open pane refresh without
+downloading its captured diff again. A newer head offers Load latest commit;
+a changed base offers Load latest comparison. Next and Previous
 use the captured queue, including after a snooze removes the row from a view.
 Opening records inspection; Mark this commit reviewed is explicit and records
 the displayed commit. New code can therefore remain in Changed after review.

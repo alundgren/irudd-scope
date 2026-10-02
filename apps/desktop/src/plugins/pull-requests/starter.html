@@ -382,6 +382,7 @@
             ><button data-section="diff">Diff</button>
           </nav>
           <div id="content" class="content"></div>
+          <div id="detail-freshness" class="muted" role="status"></div>
           <button id="retry-detail" hidden>Retry loading details</button>
         </div>
         <aside>
@@ -447,6 +448,8 @@
         snoozeId = null,
         undoAction = null,
         origin = null;
+      let stopDetailWatch,
+        watchedDetail = "";
       const drafts = new Map(),
         details = new Map(),
         captured = new Map();
@@ -501,7 +504,54 @@
         const latest = prs.find((p) => p.nodeId === queue[index]);
         if (!latest) return;
         if (!captured.has(latest.nodeId)) captured.set(latest.nodeId, latest);
-        return { ...captured.get(latest.nodeId), local: latest.local, agent: latest.agent };
+        return {
+          ...captured.get(latest.nodeId),
+          checks: latest.checks,
+          merge: latest.merge,
+          hasUnresolvedConversations: latest.hasUnresolvedConversations,
+          local: latest.local,
+          agent: latest.agent,
+        };
+      }
+      function detailKey(p) {
+        return [
+          context.repository?.owner,
+          context.repository?.name,
+          p.nodeId,
+          p.headOid,
+          p.baseOid,
+        ].join(":");
+      }
+      function watchCurrentDetail(p) {
+        const key = p ? detailKey(p) : "";
+        if (watchedDetail === key) return;
+        stopDetailWatch?.();
+        stopDetailWatch = undefined;
+        watchedDetail = key;
+        $("detail-freshness").textContent = "";
+        if (!p) return;
+        stopDetailWatch = api.watchDetail(p.nodeId, p.headOid, p.baseOid, (update) => {
+          if (watchedDetail !== key || $("review").hidden) return;
+          if (update.error) {
+            $("detail-freshness").textContent = update.error;
+            return;
+          }
+          $("detail-freshness").textContent = "";
+          const cached = details.get(key);
+          if (!cached || Date.parse(cached.fetchedAt) > Date.parse(update.fetchedAt)) return;
+          const next = {
+            ...cached,
+            body: update.body,
+            reviews: update.reviews,
+            fetchedAt: update.fetchedAt,
+          };
+          details.set(key, next);
+          if (["body", "discussion"].includes(section) && current()?.nodeId === p.nodeId) {
+            const contentScroll = $("content").scrollTop;
+            $("content").textContent = detailText(next, section, p);
+            $("content").scrollTop = contentScroll;
+          }
+        });
       }
       function node(tag, text, className) {
         const el = document.createElement(tag);
@@ -571,10 +621,12 @@
         $("empty").textContent = prs.length
           ? "No pull requests in this view."
           : sync.lastSuccessAt
-            ? "No open pull requests. Sync to refresh."
+            ? "No open pull requests."
             : sync.state === "syncing"
               ? "Loading pull requests…"
-              : "Pull requests have not loaded yet. Use Sync to try again.";
+              : sync.state === "error"
+                ? "Pull requests could not load. Retrying automatically; Sync is also available."
+                : "Waiting for pull requests to load…";
         $("rows").replaceChildren(
           ...visible.map((p) => {
             const row = node("article", undefined, "row");
@@ -704,6 +756,7 @@
         const p = current();
         if (p && draft(p).dirty) void saveNote(p);
         $("review").hidden = true;
+        watchCurrentDetail();
         moveToast();
         document.querySelector('[data-open="' + origin + '"]')?.focus({ preventScroll: true });
       }
@@ -722,6 +775,7 @@
         $("next").disabled = index >= queue.length - 1;
         $("position").textContent = index + 1 + " / " + queue.length;
         if (!p) {
+          watchCurrentDetail();
           detailRead++;
           $("review-title").textContent = "This pull request is no longer open";
           $("load-latest").hidden = $("github").hidden = true;
@@ -730,13 +784,19 @@
           return;
         }
         document.querySelector(".review-layout").hidden = false;
+        watchCurrentDetail(p);
         $("review-title").textContent = p.title;
         $("review-meta").textContent = "#" + p.number + " · " + (p.author || "Unknown author");
         $("review-status").textContent = status(p);
         $("github").hidden = false;
         $("github").href = p.url;
         $("head").textContent = p.headOid.slice(0, 12);
-        $("load-latest").hidden = prs.find((row) => row.nodeId === p.nodeId).headOid === p.headOid;
+        const latest = prs.find((row) => row.nodeId === p.nodeId);
+        $("load-latest").hidden = latest.headOid === p.headOid && latest.baseOid === p.baseOid;
+        $("load-latest").textContent =
+          latest.headOid === p.headOid
+            ? "Base changed · Load latest comparison"
+            : "New commit available · Load latest commit";
         $("reviewed-state").textContent =
           p.local.reviewed?.headOid === p.headOid
             ? "This commit is marked reviewed."
@@ -760,12 +820,11 @@
         if (load) {
           void api.inspect(p.nodeId, p.headOid, p.local.reviewVersion).catch(() => {});
           void loadDetail(p);
-        } else if ($("content").dataset.key !== p.nodeId + ":" + p.headOid + ":" + section)
-          void loadDetail(p);
+        } else if ($("content").dataset.key !== detailKey(p) + ":" + section) void loadDetail(p);
       }
       async function loadDetail(p) {
         const requestedSection = section;
-        const key = p.nodeId + ":" + p.headOid,
+        const key = detailKey(p),
           viewKey = key + ":" + requestedSection,
           read = ++detailRead;
         $("content").dataset.key = viewKey;
@@ -777,7 +836,10 @@
         }
         $("content").textContent = "Loading…";
         try {
-          const result = await api.detail(p.nodeId, section);
+          const result = await api.detail(p.nodeId, section, {
+            headOid: p.headOid,
+            baseOid: p.baseOid,
+          });
           if (result.headOid !== p.headOid)
             throw new Error("This pull request changed while loading details. Sync and retry.");
           const text = detailText(result, requestedSection, p);
