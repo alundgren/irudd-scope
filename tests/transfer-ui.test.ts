@@ -136,6 +136,63 @@ async function screenshot(page: Page, name: string) {
   await page.screenshot({ animations: "disabled", path: join(process.env.SCOPE_REVIEW_DIR, name) });
 }
 
+test("Transfer links wait until artifact details and publishing dialogs close", async () => {
+  const f = await desktopFixture();
+  const app = await f.launch();
+  try {
+    const page = await app.firstWindow();
+    const source = join(f.directory, "gating.html");
+    await writeFile(source, "<h1>Keep this review open</h1>");
+    await f.cli("add", source, "--id", "transfer-gating", "--title", "Transfer gating review");
+    await page
+      .frameLocator("iframe")
+      .getByRole("heading", { name: "Keep this review open" })
+      .waitFor();
+    await installTransferResponses(app);
+    await page.getByRole("button", { name: "Search and controls" }).click();
+    await page.getByRole("button", { name: "Artifact details", exact: true }).click();
+    const details = page.getByRole("dialog", { name: "Transfer gating review", exact: true });
+    await details.waitFor();
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.send("scope:transfer-link", {
+        url: "scope-transfer://v1/#details-queued-link",
+        kind: "tab",
+      }),
+    );
+    expect(await page.getByRole("dialog", { name: "Import tab", exact: true }).count()).toBe(0);
+    await details.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByLabel("Transfer link", { exact: true }).waitFor();
+    expect(await page.getByLabel("Transfer link", { exact: true }).inputValue()).toBe(
+      "scope-transfer://v1/#details-queued-link",
+    );
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("button", { name: "Search and controls" }).click();
+    await page.getByRole("button", { name: "Publish with coding agent", exact: true }).click();
+    const publication = page.getByRole("dialog", {
+      name: "Publish with coding agent",
+      exact: true,
+    });
+    await publication.waitFor();
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.send("scope:transfer-link", {
+        url: "scope-transfer://v1/#publishing-queued-link",
+        kind: "pair",
+      }),
+    );
+    expect(
+      await page.getByRole("dialog", { name: "Pair another Scope", exact: true }).count(),
+    ).toBe(0);
+    await publication.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByLabel("Pairing link", { exact: true }).waitFor();
+    expect(await page.getByLabel("Pairing link", { exact: true }).inputValue()).toBe(
+      "scope-transfer://v1/#publishing-queued-link",
+    );
+  } finally {
+    await app.close();
+    await rm(f.directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test("Send tab leaves the current tab open when pending workspace writes fail", async () => {
   const f = await desktopFixture();
   const app = await f.launch();
