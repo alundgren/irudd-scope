@@ -1,11 +1,86 @@
 import { spawn } from "node:child_process";
 import { delimiter } from "node:path";
 
+export type GitHubReadErrorKind =
+  | "auth"
+  | "permission"
+  | "network"
+  | "throttle"
+  | "invalid"
+  | "cancelled"
+  | "unavailable"
+  | "account";
+
 export class GitHubReadError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly kind: GitHubReadErrorKind = "invalid",
+    readonly retryAt: number | null = null,
+    readonly diagnostic: { status?: number; code?: string } = {},
+    readonly account: string | null = null,
+  ) {
     super(message);
     this.name = "GitHubReadError";
   }
+}
+
+export function githubFailure(text: string, now = Date.now()): GitHubReadError {
+  const statusText = /(?:HTTP(?:\/[^\s]+)?\s+|status[=: ]+)(401|403|404|429|5\d\d)\b/i.exec(
+    text,
+  )?.[1];
+  const status = statusText ? Number(statusText) : undefined;
+  const retry = /retry-after\s*:\s*([^\r\n]+)/i.exec(text)?.[1]?.trim();
+  const reset = /x-ratelimit-reset\s*:\s*(\d+)/i.exec(text)?.[1];
+  const exhausted = /x-ratelimit-remaining\s*:\s*0\b/i.test(text);
+  const throttle =
+    status === 429 ||
+    exhausted ||
+    /rate.?limit|secondary rate|abuse detection|RATE_LIMITED/i.test(text);
+  if (throttle) {
+    const retryDate =
+      retry && /^\d+(?:\.\d+)?$/.test(retry)
+        ? now + Number(retry) * 1000
+        : retry
+          ? Date.parse(retry)
+          : NaN;
+    const resetDate = reset ? Number(reset) * 1000 : NaN;
+    const retryAt = Math.max(
+      now + 1_000,
+      ...[retryDate, resetDate].filter(Number.isFinite),
+      now + (!Number.isFinite(retryDate) && !Number.isFinite(resetDate) ? 60_000 : 0),
+    );
+    return new GitHubReadError(
+      "GitHub has limited requests. Refresh will retry later.",
+      "throttle",
+      retryAt,
+      { status, code: "RATE_LIMITED" },
+    );
+  }
+  if (/network|timeout|connection|resolve host|dial tcp/i.test(text) || (status && status >= 500))
+    return new GitHubReadError("GitHub could not be reached. Try Sync again.", "network", null, {
+      status,
+    });
+  if (status === 401 || /gh auth login|authentication|bad[ _]credentials/i.test(text))
+    return new GitHubReadError("Sign in with gh auth login, then try Sync again.", "auth", null, {
+      status,
+    });
+  if (
+    status === 403 ||
+    status === 404 ||
+    /not accessible|could not resolve to a repository|FORBIDDEN/i.test(text)
+  )
+    return new GitHubReadError(
+      "Your GitHub CLI account cannot read this repository.",
+      "permission",
+      null,
+      { status },
+    );
+  return new GitHubReadError(
+    "GitHub CLI could not complete the read. Try Sync again.",
+    "unavailable",
+    null,
+    { status },
+  );
 }
 
 export class GitHubProcess {
@@ -15,8 +90,59 @@ export class GitHubProcess {
     private readonly maxBytes = 16 * 1024 * 1024,
   ) {}
 
-  run(args: readonly string[], signal: AbortSignal): Promise<string> {
-    signal.throwIfAborted();
+  private active = false;
+  private readonly pending: { priority: number; start: () => void }[] = [];
+
+  run(
+    args: readonly string[],
+    signal: AbortSignal,
+    priority = 0,
+    beforeStart?: () => Promise<void> | void,
+  ): Promise<string> {
+    if (signal.aborted)
+      return Promise.reject(new GitHubReadError("GitHub refresh was cancelled.", "cancelled"));
+    return new Promise((resolve, reject) => {
+      const entry = {
+        priority,
+        start: () => {
+          signal.removeEventListener("abort", cancelled);
+          if (signal.aborted) {
+            reject(new GitHubReadError("GitHub refresh was cancelled.", "cancelled"));
+            this.advance();
+            return;
+          }
+          Promise.resolve()
+            .then(beforeStart)
+            .then(() => this.execute(args, signal))
+            .then(resolve, reject)
+            .finally(() => this.advance());
+        },
+      };
+      const cancelled = () => {
+        const index = this.pending.indexOf(entry);
+        if (index >= 0) {
+          this.pending.splice(index, 1);
+          reject(new GitHubReadError("GitHub refresh was cancelled.", "cancelled"));
+        }
+      };
+      signal.addEventListener("abort", cancelled, { once: true });
+      this.pending.push(entry);
+      if (!this.active) this.advance();
+    });
+  }
+
+  private advance() {
+    this.active = false;
+    this.pending.sort((a, b) => b.priority - a.priority);
+    const next = this.pending.shift();
+    if (next) {
+      this.active = true;
+      next.start();
+    }
+  }
+
+  private execute(args: readonly string[], signal: AbortSignal): Promise<string> {
+    if (signal.aborted) throw new GitHubReadError("GitHub refresh was cancelled.", "cancelled");
     return new Promise((resolve, reject) => {
       // Finder launches commonly omit the package-manager directories from PATH.
       const env = { ...process.env };
@@ -34,6 +160,7 @@ export class GitHubProcess {
       let bytes = 0;
       let stderr = "";
       let settled = false;
+      let stopped: Error | undefined;
       const finish = (error?: Error, output?: string) => {
         if (settled) return;
         settled = true;
@@ -43,17 +170,18 @@ export class GitHubProcess {
         else resolve(output ?? "");
       };
       const stop = (error: Error) => {
+        stopped ??= error;
         try {
           if (child.pid && process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
           else child.kill("SIGKILL");
         } catch {
           // A process can exit between the cancellation and kill calls.
         }
-        finish(error);
       };
-      const abort = () => stop(new GitHubReadError("GitHub refresh was cancelled."));
+      const abort = () => stop(new GitHubReadError("GitHub refresh was cancelled.", "cancelled"));
       const timer = setTimeout(
-        () => stop(new GitHubReadError("GitHub did not respond in time. Try Sync again.")),
+        () =>
+          stop(new GitHubReadError("GitHub did not respond in time. Try Sync again.", "network")),
         this.timeoutMs,
       );
       signal.addEventListener("abort", abort, { once: true });
@@ -80,16 +208,13 @@ export class GitHubProcess {
         );
       });
       child.on("close", (code) => {
+        if (stopped) {
+          finish(stopped);
+          return;
+        }
         if (code === 0) finish(undefined, Buffer.concat(chunks).toString("utf8"));
         else {
-          const message = /network|timeout|connection|resolve host|dial tcp/i.test(stderr)
-            ? "GitHub could not be reached. Try Sync again."
-            : /gh auth login|authentication|HTTP 401/i.test(stderr)
-              ? "Sign in with gh auth login, then try Sync again."
-              : /HTTP 403|HTTP 404|not accessible|could not resolve to a repository/i.test(stderr)
-                ? "Your GitHub CLI account cannot read this repository."
-                : "GitHub CLI could not complete the read. Try Sync again.";
-          finish(new GitHubReadError(message));
+          finish(githubFailure(Buffer.concat(chunks).toString("utf8") + "\n" + stderr));
         }
       });
     });

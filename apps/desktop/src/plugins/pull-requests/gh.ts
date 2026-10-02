@@ -5,7 +5,7 @@ import {
   PullRequestDetail,
   PullRequestsRepository,
 } from "@irudd-scope/protocol/pull-requests";
-import { GitHubProcess, GitHubReadError } from "./gh-process.ts";
+import { GitHubProcess, GitHubReadError, githubFailure } from "./gh-process.ts";
 
 const PageInfo = Schema.Struct({
   hasNextPage: Schema.Boolean,
@@ -32,7 +32,13 @@ const CheckRollup = Schema.NullOr(
     commit: Schema.Struct({ oid: Schema.String }),
   }),
 );
+const ThreadsConnection = Schema.Struct({
+  nodes: Schema.Array(Schema.Struct({ isResolved: Schema.Boolean })),
+  pageInfo: PageInfo,
+});
 const GitHubPullRequest = Schema.Struct({
+  state: Schema.String,
+  reviewThreads: ThreadsConnection,
   id: Schema.String,
   repository: Schema.Struct({ id: Schema.String.check(Schema.isMinLength(1)) }),
   number: Schema.Int,
@@ -94,23 +100,28 @@ const ThreadsPage = Schema.Struct({
   }),
 });
 
-const INVENTORY_QUERY = `query ScopeOpenPullRequests($owner: String!, $name: String!, $cursor: String) {
-  viewer { login }
-  repository(owner: $owner, name: $name) {
-    id owner { login } name nameWithOwner
-    pullRequests(states: OPEN, first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
-      nodes {
-        id repository { id } number title author { login } headRefOid headRefName baseRefOid isDraft
+const PULL_REQUEST_FIELDS = `id state repository { id } number title author { login } headRefOid headRefName baseRefOid isDraft
         additions deletions changedFiles url mergeable updatedAt createdAt
+        reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }
         labels(first: 100) { nodes { name } pageInfo { hasNextPage endCursor } }
         reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } ... on Team { slug organization { login } } } } pageInfo { hasNextPage endCursor } }
-        commits(last: 1) { nodes { commit { oid statusCheckRollup { state commit { oid } } } } }
+        commits(last: 1) { nodes { commit { oid statusCheckRollup { state commit { oid } } } } }`;
+const INVENTORY_QUERY = `query ScopeOpenPullRequests($owner: String!, $name: String!, $cursor: String) {
+  viewer { login }
+  rateLimit { cost limit remaining resetAt }
+  repository(owner: $owner, name: $name) {
+    id owner { login } name nameWithOwner
+    pullRequests(states: OPEN, first: 25, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
+      nodes {
+        ${PULL_REQUEST_FIELDS}
       }
       pageInfo { hasNextPage endCursor }
     }
   }
 }`;
 const THREADS_QUERY = `query ScopePullRequestThreads($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+  viewer { login }
+  rateLimit { cost limit remaining resetAt }
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       id state headRefOid baseRefOid
@@ -119,11 +130,15 @@ const THREADS_QUERY = `query ScopePullRequestThreads($owner: String!, $name: Str
   }
 }`;
 const LABELS_QUERY = `query ScopePullRequestLabels($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+  viewer { login }
+  rateLimit { cost limit remaining resetAt }
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
     id labels(first: 100, after: $cursor) { nodes { name } pageInfo { hasNextPage endCursor } }
   } }
 }`;
 const REVIEWERS_QUERY = `query ScopePullRequestReviewers($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+  viewer { login }
+  rateLimit { cost limit remaining resetAt }
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
     id reviewRequests(first: 100, after: $cursor) { nodes { requestedReviewer { ... on User { login } ... on Team { slug organization { login } } } } pageInfo { hasNextPage endCursor } }
   } }
@@ -132,6 +147,7 @@ const DetailView = Schema.Struct({
   id: Schema.String,
   state: Schema.String,
   headRefOid: Schema.String,
+  baseRefOid: Schema.String,
   body: Schema.String,
 });
 const Files = Schema.Array(
@@ -153,13 +169,18 @@ const Reviews = Schema.Array(
   }),
 );
 
-function json(output: string): unknown {
+function json(output: string, allowErrors = false): unknown {
   try {
-    const value: unknown = JSON.parse(output);
-    if (value && typeof value === "object" && "errors" in value) {
+    const value: unknown = JSON.parse(output.replace(/^(?:HTTP\/[^\n]+\n[\s\S]*?\r?\n\r?\n)+/, ""));
+    if (!allowErrors && value && typeof value === "object" && "errors" in value) {
       const errors = value.errors;
-      if (!Array.isArray(errors) || errors.length)
-        throw new GitHubReadError("GitHub could not return a complete result. Try Sync again.");
+      if (!Array.isArray(errors) || errors.length) {
+        const resetAt = (value as { data?: { rateLimit?: { resetAt?: string } } }).data?.rateLimit
+          ?.resetAt;
+        throw githubFailure(
+          output + (resetAt ? `\nx-ratelimit-reset: ${Date.parse(resetAt) / 1000}` : ""),
+        );
+      }
     }
     return value;
   } catch (error) {
@@ -203,54 +224,141 @@ function nextCursor(info: typeof PageInfo.Type, seen: Set<string>): string | nul
   return info.endCursor;
 }
 
+export interface GitHubReadObservation {
+  account: string;
+  cost: number;
+  limit: number;
+  remaining: number;
+  resetAt: string;
+}
+type ReadContext = { account?: string; cost: number; priority: number };
+const Observation = Schema.Struct({
+  viewer: Schema.Struct({ login: Schema.String }),
+  rateLimit: Schema.Struct({
+    cost: Schema.Int,
+    limit: Schema.Int,
+    remaining: Schema.Int,
+    resetAt: Schema.String,
+  }),
+});
+let lastObservedAt = 0;
+function observedAt() {
+  lastObservedAt = Math.max(Date.now(), lastObservedAt + 1);
+  return new Date(lastObservedAt).toISOString();
+}
+const CURRENT_QUERY = `query ScopeCurrentPullRequest($owner: String!, $name: String!, $number: Int!) {
+  viewer { login }
+  rateLimit { cost limit remaining resetAt }
+  repository(owner: $owner, name: $name) {
+    id owner { login } name nameWithOwner
+    pullRequest(number: $number) { ${PULL_REQUEST_FIELDS} }
+  }
+}`;
+
 export class GitHubPullRequests {
-  constructor(private readonly process = new GitHubProcess()) {}
+  private beforeRead?: (signal: AbortSignal) => Promise<void> | void;
+  constructor(
+    private readonly process = new GitHubProcess(),
+    private observe?: (observation: GitHubReadObservation) => void,
+  ) {}
+
+  setReadHooks(
+    observe: (observation: GitHubReadObservation) => void,
+    beforeRead?: (signal: AbortSignal) => Promise<void> | void,
+  ) {
+    this.observe = observe;
+    this.beforeRead = beforeRead;
+  }
 
   private async query(
     repository: PullRequestsRepository,
     query: string,
     signal: AbortSignal,
     fields: string[] = [],
+    context: ReadContext = { cost: 0, priority: 0 },
   ) {
     const { owner, name } = validated(PullRequestsRepository, repository);
-    return json(
-      await this.process.run(
-        [
-          "api",
-          "graphql",
-          "--hostname",
-          "github.com",
-          "-f",
-          `query=${query}`,
-          "-f",
-          `owner=${owner}`,
-          "-f",
-          `name=${name}`,
-          ...fields,
-        ],
-        signal,
-      ),
+    const output = await this.process.run(
+      [
+        "api",
+        "graphql",
+        "--include",
+        "--hostname",
+        "github.com",
+        "-f",
+        `query=${query}`,
+        "-f",
+        `owner=${owner}`,
+        "-f",
+        `name=${name}`,
+        ...fields,
+      ],
+      signal,
+      context.priority,
+      () => this.beforeRead?.(signal),
     );
+    const value = json(output, true);
+    const errors = (value as { errors?: unknown } | null)?.errors;
+    const incomplete = errors !== undefined && (!Array.isArray(errors) || errors.length > 0);
+    let data: typeof Observation.Type;
+    try {
+      data = githubValue(Observation, (value as { data?: unknown } | null)?.data);
+    } catch (error) {
+      if (incomplete) throw githubFailure(output);
+      throw error;
+    }
+    if (
+      !data.viewer.login ||
+      data.rateLimit.cost < 0 ||
+      data.rateLimit.remaining < 0 ||
+      data.rateLimit.limit <= 0 ||
+      !Number.isFinite(Date.parse(data.rateLimit.resetAt))
+    )
+      throw new GitHubReadError(
+        "GitHub returned invalid rate limit data. The saved list was kept.",
+      );
+    const observation = { account: data.viewer.login, ...data.rateLimit };
+    this.observe?.(observation);
+    if (context.account && context.account !== observation.account)
+      throw new GitHubReadError(
+        "GitHub CLI account changed during refresh. Try Sync again.",
+        "account",
+        null,
+        {},
+        observation.account,
+      );
+    signal.throwIfAborted();
+    context.account = observation.account;
+    context.cost += observation.cost;
+    if (incomplete)
+      throw githubFailure(
+        output + `\nx-ratelimit-reset: ${Date.parse(data.rateLimit.resetAt) / 1000}`,
+      );
+    return value;
   }
 
   private async unresolved(
     repository: PullRequestsRepository,
     pr: PullRequestFacts,
     signal: AbortSignal,
+    first: typeof ThreadsConnection.Type,
+    context: ReadContext,
   ): Promise<PullRequestFacts> {
-    let cursor: string | null = null;
     const seen = new Set<string>();
-    let found = false;
+    let cursor: string | null = nextCursor(first.pageInfo, seen);
+    let found = first.nodes.some((thread) => !thread.isResolved);
     let observed = pr;
     try {
-      do {
+      while (cursor) {
         const result = githubValue(
           ThreadsPage,
-          await this.query(repository, THREADS_QUERY, signal, [
-            "-F",
-            `number=${pr.number}`,
-            ...(cursor ? ["-f", `cursor=${cursor}`] : []),
-          ]),
+          await this.query(
+            repository,
+            THREADS_QUERY,
+            signal,
+            ["-F", `number=${pr.number}`, "-f", `cursor=${cursor}`],
+            context,
+          ),
         ).data.repository?.pullRequest;
         if (!result || result.id !== pr.nodeId || result.state !== "OPEN")
           return { ...observed, hasUnresolvedConversations: found ? true : null };
@@ -266,11 +374,15 @@ export class GitHubPullRequests {
         }
         found ||= result.reviewThreads.nodes.some((thread) => !thread.isResolved);
         cursor = nextCursor(result.reviewThreads.pageInfo, seen);
-      } while (cursor);
+      }
       return { ...observed, hasUnresolvedConversations: found };
     } catch (error) {
       signal.throwIfAborted();
-      if (!(error instanceof GitHubReadError)) throw error;
+      if (
+        !(error instanceof GitHubReadError) ||
+        ["throttle", "auth", "account"].includes(error.kind)
+      )
+        throw error;
       return { ...observed, hasUnresolvedConversations: found ? true : null };
     }
   }
@@ -279,6 +391,7 @@ export class GitHubPullRequests {
     repository: PullRequestsRepository,
     node: typeof GitHubPullRequest.Type,
     signal: AbortSignal,
+    context: ReadContext,
   ) {
     const labels = node.labels.nodes.map((label) => label.name);
     const requestedReviewers = node.reviewRequests.nodes.flatMap((request) =>
@@ -311,12 +424,13 @@ export class GitHubPullRequests {
     while (labelCursor) {
       const result = githubValue(
         LabelsPage,
-        await this.query(repository, LABELS_QUERY, signal, [
-          "-F",
-          `number=${node.number}`,
-          "-f",
-          `cursor=${labelCursor}`,
-        ]),
+        await this.query(
+          repository,
+          LABELS_QUERY,
+          signal,
+          ["-F", `number=${node.number}`, "-f", `cursor=${labelCursor}`],
+          context,
+        ),
       ).data.repository?.pullRequest;
       if (!result || result.id !== node.id)
         throw new GitHubReadError("GitHub returned incomplete labels. The saved list was kept.");
@@ -328,12 +442,13 @@ export class GitHubPullRequests {
     while (reviewerCursor) {
       const result = githubValue(
         ReviewersPage,
-        await this.query(repository, REVIEWERS_QUERY, signal, [
-          "-F",
-          `number=${node.number}`,
-          "-f",
-          `cursor=${reviewerCursor}`,
-        ]),
+        await this.query(
+          repository,
+          REVIEWERS_QUERY,
+          signal,
+          ["-F", `number=${node.number}`, "-f", `cursor=${reviewerCursor}`],
+          context,
+        ),
       ).data.repository?.pullRequest;
       if (!result || result.id !== node.id)
         throw new GitHubReadError(
@@ -349,6 +464,133 @@ export class GitHubPullRequests {
     return { labels, requestedReviewers };
   }
 
+  private async facts(
+    repository: PullRequestsRepository,
+    node: typeof GitHubPullRequest.Type,
+    signal: AbortSignal,
+    context: ReadContext,
+    timestamp: string,
+  ): Promise<PullRequestFacts> {
+    const metadata = await this.metadata(repository, node, signal, context);
+    const observedAt = timestamp;
+    const rollup = node.commits.nodes.at(-1)?.commit.statusCheckRollup;
+    const status =
+      !rollup || rollup.commit.oid !== node.headRefOid
+        ? "unknown"
+        : rollup.state === "SUCCESS"
+          ? "passing"
+          : rollup.state === "FAILURE" || rollup.state === "ERROR"
+            ? "failing"
+            : rollup.state === "PENDING" || rollup.state === "EXPECTED"
+              ? "pending"
+              : "unknown";
+
+    return this.unresolved(
+      repository,
+      validated(PullRequestFacts, {
+        nodeId: node.id,
+        number: node.number,
+        title: node.title,
+        author: node.author?.login ?? null,
+        ...metadata,
+        headOid: node.headRefOid,
+        headRefName: node.headRefName,
+        baseOid: node.baseRefOid,
+        draft: node.isDraft,
+        additions: node.additions,
+        deletions: node.deletions,
+        changedFiles: node.changedFiles,
+        url: node.url,
+        updatedAt: node.updatedAt,
+        createdAt: node.createdAt,
+        merge: {
+          status:
+            node.mergeable === "MERGEABLE"
+              ? "clear"
+              : node.mergeable === "CONFLICTING"
+                ? "conflicting"
+                : "unknown",
+          headOid: node.headRefOid,
+          baseOid: node.baseRefOid,
+          observedAt,
+        },
+        checks: { status, headOid: rollup?.commit.oid ?? null, observedAt },
+        hasUnresolvedConversations: null,
+      }),
+      signal,
+      node.reviewThreads,
+      context,
+    );
+  }
+
+  async current(
+    repository: PullRequestsRepository,
+    pr: PullRequestFacts,
+    signal: AbortSignal,
+  ): Promise<PullRequestFacts | null> {
+    const context: ReadContext = { cost: 0, priority: 1 };
+    const result = await this.query(
+      repository,
+      CURRENT_QUERY,
+      signal,
+      ["-F", `number=${pr.number}`],
+      context,
+    );
+    const timestamp = observedAt();
+    const CurrentPage = Schema.Struct({
+      data: Schema.Struct({
+        repository: Schema.NullOr(
+          Schema.Struct({
+            id: Schema.String,
+            owner: Schema.Struct({ login: Schema.String }),
+            name: Schema.String,
+            nameWithOwner: Schema.String,
+            pullRequest: Schema.NullOr(
+              Schema.Struct({
+                id: Schema.String,
+                state: Schema.String,
+                repository: Schema.Struct({ id: Schema.String }),
+                number: Schema.Int,
+                url: Schema.String,
+              }),
+            ),
+          }),
+        ),
+      }),
+    });
+    const resolved = githubValue(CurrentPage, result).data.repository;
+    const node = resolved?.pullRequest;
+    if (!resolved || !node)
+      throw new GitHubReadError(
+        "GitHub did not return this pull request. The saved list was kept.",
+        "permission",
+      );
+    const path = `${repository.owner}/${repository.name}`.toLowerCase();
+    if (
+      node.id !== pr.nodeId ||
+      node.number !== pr.number ||
+      node.repository.id !== resolved.id ||
+      resolved.nameWithOwner.toLowerCase() !== path ||
+      `${resolved.owner.login}/${resolved.name}`.toLowerCase() !== path ||
+      node.url.toLowerCase() !== `https://github.com/${path}/pull/${pr.number}`
+    )
+      throw new GitHubReadError("GitHub returned a pull request from another repository.");
+    if (node.state === "CLOSED" || node.state === "MERGED") return null;
+    if (node.state !== "OPEN")
+      throw new GitHubReadError("GitHub returned invalid pull request state.");
+    const full = githubValue(
+      Schema.Struct({
+        data: Schema.Struct({ repository: Schema.Struct({ pullRequest: GitHubPullRequest }) }),
+      }),
+      result,
+    ).data.repository.pullRequest;
+    return this.facts(repository, full, signal, context, timestamp);
+  }
+
+  private async run(args: string[], signal: AbortSignal) {
+    return this.process.run(args, signal, 1, () => this.beforeRead?.(signal));
+  }
+
   async inventory(
     repository: PullRequestsRepository,
     signal: AbortSignal,
@@ -357,12 +599,16 @@ export class GitHubPullRequests {
     repository: PullRequestsRepository;
     viewer: string;
     prs: PullRequestFacts[];
+    account: string;
+    cost: number;
   }> {
+    const context: ReadContext = { cost: 0, priority: 0 };
     const queriedRepository = validated(PullRequestsRepository, repository);
     let cursor: string | null = null;
     const seen = new Set<string>();
     const prs: PullRequestFacts[] = [];
     const ids = new Set<string>();
+    const numbers = new Set<number>();
     let viewer: string | undefined;
     let repositoryId: string | undefined;
     let resolvedRepository: PullRequestsRepository | undefined;
@@ -374,10 +620,15 @@ export class GitHubPullRequests {
           INVENTORY_QUERY,
           signal,
           cursor ? ["-f", `cursor=${cursor}`] : [],
+          context,
         ),
       ).data;
+      const timestamp = observedAt();
       if (!page.repository)
-        throw new GitHubReadError("Your GitHub CLI account cannot read this repository.");
+        throw new GitHubReadError(
+          "Your GitHub CLI account cannot read this repository.",
+          "permission",
+        );
       const resolved = validated(PullRequestsRepository, {
         owner: page.repository.owner.login,
         name: page.repository.name,
@@ -398,130 +649,76 @@ export class GitHubPullRequests {
         throw new GitHubReadError("GitHub CLI account changed during refresh. Try Sync again.");
       viewer = page.viewer.login;
       for (const node of page.repository.pullRequests.nodes) {
+        if (node.state !== "OPEN")
+          throw new GitHubReadError("GitHub returned a closed pull request in the open inventory.");
         if (
           node.repository.id !== repositoryId ||
           node.url.toLowerCase() !== `https://github.com/${canonicalPath}/pull/${node.number}`
         )
           throw new GitHubReadError("GitHub returned a pull request from another repository.");
-        if (ids.has(node.id))
+        if (ids.has(node.id) || numbers.has(node.number))
           throw new GitHubReadError("GitHub returned duplicate pull requests. Try Sync again.");
         ids.add(node.id);
-        const metadata = await this.metadata(repository, node, signal);
-        const observedAt = new Date().toISOString();
-        const rollup = node.commits.nodes.at(-1)?.commit.statusCheckRollup;
-        const status =
-          !rollup || rollup.commit.oid !== node.headRefOid
-            ? "unknown"
-            : rollup.state === "SUCCESS"
-              ? "passing"
-              : rollup.state === "FAILURE" || rollup.state === "ERROR"
-                ? "failing"
-                : rollup.state === "PENDING" || rollup.state === "EXPECTED"
-                  ? "pending"
-                  : "unknown";
-        prs.push(
-          validated(PullRequestFacts, {
-            nodeId: node.id,
-            number: node.number,
-            title: node.title,
-            author: node.author?.login ?? null,
-            ...metadata,
-            headOid: node.headRefOid,
-            headRefName: node.headRefName,
-            baseOid: node.baseRefOid,
-            draft: node.isDraft,
-            additions: node.additions,
-            deletions: node.deletions,
-            changedFiles: node.changedFiles,
-            url: node.url,
-            updatedAt: node.updatedAt,
-            createdAt: node.createdAt,
-            merge: {
-              status:
-                node.mergeable === "MERGEABLE"
-                  ? "clear"
-                  : node.mergeable === "CONFLICTING"
-                    ? "conflicting"
-                    : "unknown",
-              headOid: node.headRefOid,
-              baseOid: node.baseRefOid,
-              observedAt,
-            },
-            checks: { status, headOid: rollup?.commit.oid ?? null, observedAt },
-            hasUnresolvedConversations: null,
-          }),
-        );
+        numbers.add(node.number);
+        prs.push(await this.facts(repository, node, signal, context, timestamp));
       }
       cursor = nextCursor(page.repository.pullRequests.pageInfo, seen);
     } while (cursor);
-    const observed: PullRequestFacts[] = [];
-    for (const pr of prs) observed.push(await this.unresolved(repository, pr, signal));
-    return { queriedRepository, repository: resolvedRepository!, viewer: viewer!, prs: observed };
+    return {
+      queriedRepository,
+      repository: resolvedRepository!,
+      viewer: viewer!,
+      prs,
+      account: context.account!,
+      cost: context.cost,
+    };
   }
 
-  async detail(
+  private async view(
     repository: PullRequestsRepository,
     pr: PullRequestFacts,
     signal: AbortSignal,
-  ): Promise<PullRequestDetail> {
+    context: ReadContext,
+  ) {
+    const result = await this.query(
+      repository,
+      `query ScopePullRequestReviewBody($owner: String!, $name: String!, $number: Int!) {
+      viewer { login } rateLimit { cost limit remaining resetAt }
+      repository(owner: $owner, name: $name) { pullRequest(number: $number) { id state headRefOid baseRefOid body } }
+    }`,
+      signal,
+      ["-F", `number=${pr.number}`],
+      context,
+    );
+    const page = githubValue(
+      Schema.Struct({
+        data: Schema.Struct({
+          repository: Schema.NullOr(Schema.Struct({ pullRequest: Schema.NullOr(DetailView) })),
+        }),
+      }),
+      result,
+    );
+    const view = page.data.repository?.pullRequest;
+    if (!view) throw new GitHubReadError("GitHub did not return this pull request.", "permission");
+    return view;
+  }
+
+  private async reviewPages(
+    repository: PullRequestsRepository,
+    pr: PullRequestFacts,
+    signal: AbortSignal,
+  ) {
     const { owner, name } = validated(PullRequestsRepository, repository);
-    const viewArgs = [
-      "pr",
-      "view",
-      String(pr.number),
-      "--repo",
-      `github.com/${owner}/${name}`,
-      "--json",
-      "id,state,headRefOid,body",
-    ];
-    const before = githubValue(DetailView, json(await this.process.run(viewArgs, signal)));
-    if (before.id !== pr.nodeId || before.state !== "OPEN" || before.headRefOid !== pr.headOid)
-      throw new GitHubReadError("This pull request changed. Sync before opening its details.");
-    const files: PullRequestDetail["files"][number][] = [];
     const reviews: PullRequestDetail["reviews"][number][] = [];
-    const filePaths = new Set<string>();
-    for (let page = 1; ; page++) {
-      const result = githubValue(
-        Files,
-        json(
-          await this.process.run(
-            [
-              "api",
-              "--hostname",
-              "github.com",
-              "--method",
-              "GET",
-              `repos/${owner}/${name}/pulls/${pr.number}/files?per_page=100&page=${page}`,
-            ],
-            signal,
-          ),
-        ),
-      );
-      files.push(
-        ...result.map((file) => ({
-          path: file.filename,
-          additions: file.additions,
-          deletions: file.deletions,
-          status: file.status,
-        })),
-      );
-      for (const file of result) {
-        if (filePaths.has(file.filename))
-          throw new GitHubReadError("GitHub file pagination did not advance. Try again.");
-        filePaths.add(file.filename);
-      }
-      if (result.length < 100) break;
-    }
-    if (files.length !== pr.changedFiles)
-      throw new GitHubReadError("GitHub did not return all changed files. Sync and try again.");
     const reviewIds = new Set<number>();
     for (let page = 1; ; page++) {
       const result = githubValue(
         Reviews,
         json(
-          await this.process.run(
+          await this.run(
             [
               "api",
+              "--include",
               "--hostname",
               "github.com",
               "--method",
@@ -549,7 +746,90 @@ export class GitHubPullRequests {
       }
       if (result.length < 100) break;
     }
-    const diff = await this.process.run(
+    return reviews;
+  }
+
+  async reviews(
+    repository: PullRequestsRepository,
+    pr: PullRequestFacts,
+    signal: AbortSignal,
+  ): Promise<Pick<PullRequestDetail, "body" | "reviews" | "fetchedAt">> {
+    const context: ReadContext = { cost: 0, priority: 1 };
+    const before = await this.view(repository, pr, signal, context);
+    if (
+      before.id !== pr.nodeId ||
+      before.state !== "OPEN" ||
+      before.headRefOid !== pr.headOid ||
+      before.baseRefOid !== pr.baseOid
+    )
+      throw new GitHubReadError("This pull request changed. Sync before opening its details.");
+    const reviews = await this.reviewPages(repository, pr, signal);
+    const after = await this.view(repository, pr, signal, context);
+    if (
+      after.id !== before.id ||
+      after.state !== "OPEN" ||
+      after.headRefOid !== before.headRefOid ||
+      after.baseRefOid !== before.baseRefOid
+    )
+      throw new GitHubReadError("This pull request changed while loading. Sync and open it again.");
+    return { body: after.body, reviews, fetchedAt: observedAt() };
+  }
+
+  async detail(
+    repository: PullRequestsRepository,
+    pr: PullRequestFacts,
+    signal: AbortSignal,
+  ): Promise<PullRequestDetail> {
+    const { owner, name } = validated(PullRequestsRepository, repository);
+    const context: ReadContext = { cost: 0, priority: 1 };
+    const before = await this.view(repository, pr, signal, context);
+    if (
+      before.id !== pr.nodeId ||
+      before.state !== "OPEN" ||
+      before.headRefOid !== pr.headOid ||
+      before.baseRefOid !== pr.baseOid
+    )
+      throw new GitHubReadError("This pull request changed. Sync before opening its details.");
+    const files: PullRequestDetail["files"][number][] = [];
+    const reviews: PullRequestDetail["reviews"][number][] = [];
+    const filePaths = new Set<string>();
+    for (let page = 1; ; page++) {
+      const result = githubValue(
+        Files,
+        json(
+          await this.run(
+            [
+              "api",
+              "--include",
+              "--hostname",
+              "github.com",
+              "--method",
+              "GET",
+              `repos/${owner}/${name}/pulls/${pr.number}/files?per_page=100&page=${page}`,
+            ],
+            signal,
+          ),
+        ),
+      );
+      files.push(
+        ...result.map((file) => ({
+          path: file.filename,
+          additions: file.additions,
+          deletions: file.deletions,
+          status: file.status,
+        })),
+      );
+      for (const file of result) {
+        if (filePaths.has(file.filename))
+          throw new GitHubReadError("GitHub file pagination did not advance. Try again.");
+        filePaths.add(file.filename);
+      }
+      if (result.length < 100) break;
+    }
+    if (files.length !== pr.changedFiles)
+      throw new GitHubReadError("GitHub did not return all changed files. Sync and try again.");
+    reviews.push(...(await this.reviewPages(repository, pr, signal)));
+    const diff = await this.run(
       [
         "pr",
         "diff",
@@ -561,8 +841,13 @@ export class GitHubPullRequests {
       ],
       signal,
     );
-    const after = githubValue(DetailView, json(await this.process.run(viewArgs, signal)));
-    if (after.id !== before.id || after.state !== "OPEN" || after.headRefOid !== before.headRefOid)
+    const after = await this.view(repository, pr, signal, context);
+    if (
+      after.id !== before.id ||
+      after.state !== "OPEN" ||
+      after.headRefOid !== before.headRefOid ||
+      after.baseRefOid !== before.baseRefOid
+    )
       throw new GitHubReadError("This pull request changed while loading. Sync and open it again.");
     return validated(PullRequestDetail, {
       headOid: before.headRefOid,
