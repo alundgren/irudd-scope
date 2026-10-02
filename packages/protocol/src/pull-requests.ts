@@ -126,6 +126,9 @@ export const PullRequestsSync = Schema.Struct({
   updatedAt: Schema.NullOr(Timestamp),
   lastSuccessAt: Schema.NullOr(Timestamp),
   error: Schema.NullOr(ShortText),
+  intervalMs: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  nextAttemptAt: Schema.optional(Schema.NullOr(Timestamp)),
+  reason: Schema.optional(Schema.NullOr(ShortText)),
 });
 export type PullRequestsSync = typeof PullRequestsSync.Type;
 export const PullRequestsSnapshot = Schema.Struct({

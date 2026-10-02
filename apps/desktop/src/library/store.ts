@@ -45,6 +45,13 @@ export class ArtifactStore {
   plans!: PlanStore;
   pullRequests!: PullRequestStore;
   onChanged: (event: LiveEvent) => void = () => {};
+  private readonly listeners = new Set<(event: LiveEvent) => void>();
+  subscribe(listener: (event: LiveEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
   private pendingMutations = Promise.resolve();
   private constructor(
     private readonly runtime: ReturnType<typeof databaseRuntime>,
@@ -102,7 +109,10 @@ export class ArtifactStore {
     const task = this.pendingMutations.then(async () => {
       const result = await this.run(effect);
       const events = event(result);
-      for (const item of Array.isArray(events) ? events : [events]) this.onChanged(item);
+      for (const item of Array.isArray(events) ? events : [events]) {
+        this.onChanged(item);
+        for (const listener of this.listeners) listener(item);
+      }
       return result;
     });
     this.pendingMutations = task.then(
