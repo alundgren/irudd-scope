@@ -694,11 +694,20 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
     await frame
       .getByRole("button", { name: "Keep the current review stable 1", exact: true })
       .click();
+    await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
     await frame.getByLabel("Your notes").fill("User draft begun at version zero");
+    await frame.getByText("Unsaved edits", { exact: true }).waitFor();
+    expect(
+      await frame
+        .getByLabel("Your notes")
+        .evaluate((element) => element === document.activeElement),
+    ).toBe(true);
     await app.evaluate(({ BrowserWindow }) => {
       const state = (
         globalThis as unknown as { prInboxTest: { snapshot: Mutable<PullRequestsSnapshot> } }
       ).prInboxTest;
+      if (state.snapshot.prs[0].local.noteVersion !== 0)
+        throw new Error("The note was autosaved before the concurrent edit test began.");
       state.snapshot.prs[0].local.note = "Agent changed the note";
       state.snapshot.prs[0].local.noteVersion = 1;
       state.snapshot.generation++;

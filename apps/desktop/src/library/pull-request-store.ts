@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import type { SqliteClient } from "@effect/sql-sqlite-node";
 import { Artifact, ScopeError, decode, type LiveEvent } from "@irudd-scope/protocol";
 import {
@@ -12,6 +12,7 @@ import {
   PullRequestLocal,
   PullRequestAgent,
   PullRequestDetail,
+  type PullRequestCommitPair,
   MAX_PULL_REQUESTS_REPLY_BYTES,
 } from "@irudd-scope/protocol/pull-requests";
 
@@ -47,7 +48,11 @@ const emptyLocal: PullRequestLocal = {
 const emptyAgent: PullRequestAgent = { version: 0, assessment: null, customFields: [] };
 export type PullRequestsHandlers = {
   sync: (tabId: string) => Promise<PullRequestsSnapshot>;
-  detail: (tabId: string, nodeId: string) => Promise<PullRequestDetail>;
+  detail: (
+    tabId: string,
+    nodeId: string,
+    captured?: PullRequestCommitPair,
+  ) => Promise<PullRequestDetail>;
 };
 export type PullRequestsInventory = {
   repository: PullRequestsRepository;
@@ -55,6 +60,9 @@ export type PullRequestsInventory = {
   viewer: string | null;
   prs: readonly PullRequestFacts[];
   completedAt: string;
+  startedAt?: string;
+  syncOverride?: PullRequestsSync;
+  closed?: ReadonlyMap<string, string>;
 };
 
 export function initializePullRequestsTab(
@@ -194,6 +202,91 @@ export class PullRequestStore {
     );
   }
 
+  async configuredTabs(): Promise<
+    Pick<PullRequestsSnapshot, "tabId" | "repository" | "sync" | "viewer">[]
+  > {
+    const { sql, run } = this.database;
+    const rows = await run(
+      sql<{
+        tab_id: string;
+        repository: string;
+        sync: string;
+        viewer: string | null;
+      }>`SELECT pull_requests_state.tab_id, pull_requests_state.repository, pull_requests_state.sync, pull_requests_state.viewer FROM pull_requests_state JOIN live_tabs ON live_tabs.id = pull_requests_state.tab_id JOIN artifacts ON artifacts.tab_id = pull_requests_state.tab_id WHERE live_tabs.trashed_at IS NULL AND pull_requests_state.repository IS NOT NULL AND json_extract(artifacts.document, '$.kind') = 'pull-requests'`,
+    );
+    return rows.map((row) => ({
+      tabId: row.tab_id,
+      viewer: row.viewer,
+      repository: decode(PullRequestsRepository, JSON.parse(row.repository)),
+      sync: decode(PullRequestsSync, JSON.parse(row.sync)),
+    }));
+  }
+
+  async commitCurrent(
+    tabId: string,
+    repository: PullRequestsRepository,
+    source: PullRequestFacts,
+    facts: PullRequestFacts | null,
+    signal?: AbortSignal,
+    closedAt = source.merge.observedAt,
+  ): Promise<PullRequestsSnapshot> {
+    Schema.decodeUnknownSync(PullRequestFacts)(source);
+    if (facts) {
+      decode(PullRequestFacts, facts);
+      if (
+        facts.url.toLowerCase() !==
+          `https://github.com/${repository.owner}/${repository.name}/pull/${facts.number}`.toLowerCase() ||
+        facts.merge.headOid !== facts.headOid ||
+        facts.merge.baseOid !== facts.baseOid ||
+        (facts.checks.status !== "unknown" && facts.checks.headOid !== facts.headOid)
+      )
+        throw new ScopeError(400, "Pull request facts refer to another repository or commit.");
+    }
+    const { sql, mutate } = this.database;
+    const owner = this.owner.bind(this),
+      active = this.active.bind(this),
+      read = this.read.bind(this);
+    return mutate(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const current = yield* owner(tabId, true);
+          yield* active(current);
+          if (
+            !current.repository ||
+            JSON.stringify(JSON.parse(current.repository)).toLowerCase() !==
+              JSON.stringify(repository).toLowerCase()
+          )
+            return yield* Effect.fail(
+              new ScopeError(409, "The repository changed during synchronization."),
+            );
+          yield* Effect.sync(() => signal?.throwIfAborted());
+          const [row] = yield* sql<{
+            facts: string;
+          }>`SELECT facts FROM pull_requests_current WHERE tab_id = ${tabId} AND node_id = ${source.nodeId}`;
+          if (row) {
+            const previous = decode(PullRequestFacts, JSON.parse(row.facts));
+            if (
+              facts
+                ? previous.merge.observedAt <= facts.merge.observedAt
+                : previous.merge.observedAt <= closedAt
+            ) {
+              if (facts) {
+                if (facts.nodeId !== source.nodeId || facts.number !== source.number)
+                  return yield* Effect.fail(new ScopeError(400, "Pull request identity changed."));
+                yield* sql`UPDATE pull_requests_current SET facts = ${JSON.stringify(facts)}, local = CASE WHEN json_extract(local, '$.snooze.wakeOnNewCommit') = 1 AND json_extract(local, '$.snooze.headOid') != ${facts.headOid} THEN json_set(local, '$.snooze', json('null'), '$.snoozeVersion', json_extract(local, '$.snoozeVersion') + 1) ELSE local END WHERE tab_id = ${tabId} AND node_id = ${source.nodeId}`;
+              } else
+                yield* sql`DELETE FROM pull_requests_current WHERE tab_id = ${tabId} AND node_id = ${source.nodeId}`;
+              yield* sql`UPDATE pull_requests_state SET generation = generation + 1 WHERE tab_id = ${tabId}`;
+            }
+          }
+          yield* Effect.sync(() => signal?.throwIfAborted());
+          return yield* read(yield* owner(tabId, true));
+        }),
+      ),
+      (snapshot) => this.event(snapshot),
+    );
+  }
+
   async setSyncStatus(
     tabId: string,
     value: PullRequestsSync,
@@ -276,12 +369,15 @@ export class PullRequestStore {
       )
         throw new ScopeError(400, "Pull request checks or merge status refer to another commit.");
     }
-    const sync = decode(PullRequestsSync, {
-      state: "idle",
-      updatedAt: value.completedAt,
-      lastSuccessAt: value.completedAt,
-      error: null,
-    });
+    const sync = decode(
+      PullRequestsSync,
+      value.syncOverride ?? {
+        state: "idle",
+        updatedAt: value.completedAt,
+        lastSuccessAt: value.completedAt,
+        error: null,
+      },
+    );
     const { sql, mutate } = this.database;
     const owner = this.owner.bind(this),
       active = this.active.bind(this),
@@ -306,7 +402,11 @@ export class PullRequestStore {
             const existing = yield* sql<{
               count: number;
             }>`SELECT count(*) AS count FROM pull_requests_current WHERE tab_id = ${tabId}`;
-            if (JSON.parse(current.sync).lastSuccessAt !== null || existing[0].count !== 0)
+            if (
+              current.viewer !== null ||
+              JSON.parse(current.sync).lastSuccessAt !== null ||
+              existing[0].count !== 0
+            )
               return yield* Effect.fail(
                 new ScopeError(
                   409,
@@ -315,7 +415,13 @@ export class PullRequestStore {
               );
           }
           yield* Effect.sync(() => signal?.throwIfAborted());
-          for (const pr of prs)
+          const currentPrs = prs.filter(
+            (pr) => (value.closed?.get(pr.nodeId) ?? "") < pr.merge.observedAt,
+          );
+          for (const [nodeId, closedAt] of value.closed ?? [])
+            if (!currentPrs.some((pr) => pr.nodeId === nodeId))
+              yield* sql`DELETE FROM pull_requests_current WHERE tab_id = ${tabId} AND node_id = ${nodeId} AND json_extract(facts, '$.merge.observedAt') <= ${closedAt}`;
+          for (const pr of currentPrs)
             yield* sql`INSERT INTO pull_requests_current(tab_id, node_id, facts, local, agent)
               VALUES (${tabId}, ${pr.nodeId}, ${JSON.stringify(pr)}, ${JSON.stringify(emptyLocal)}, ${JSON.stringify(emptyAgent)})
               ON CONFLICT(tab_id, node_id) DO UPDATE SET facts = excluded.facts,
@@ -326,8 +432,9 @@ export class PullRequestStore {
                     '$.snooze', json('null'),
                     '$.snoozeVersion', json_extract(pull_requests_current.local, '$.snoozeVersion') + 1)
                   ELSE pull_requests_current.local
-                END`;
-          yield* sql`DELETE FROM pull_requests_current WHERE tab_id = ${tabId} AND node_id NOT IN (SELECT value FROM json_each(${JSON.stringify(prs.map((pr) => pr.nodeId))}))`;
+                END
+              WHERE json_extract(pull_requests_current.facts, '$.merge.observedAt') <= json_extract(excluded.facts, '$.merge.observedAt')`;
+          yield* sql`DELETE FROM pull_requests_current WHERE tab_id = ${tabId} AND node_id NOT IN (SELECT value FROM json_each(${JSON.stringify(currentPrs.map((pr) => pr.nodeId))})) AND json_extract(facts, '$.merge.observedAt') <= ${value.startedAt ?? value.completedAt}`;
           yield* sql`UPDATE pull_requests_state SET repository = ${JSON.stringify(repository)}, viewer = ${value.viewer}, sync = ${JSON.stringify(sync)}, generation = generation + 1 WHERE tab_id = ${tabId}`;
           yield* Effect.sync(() => signal?.throwIfAborted());
           const snapshot = yield* read(yield* owner(tabId, true));
@@ -373,12 +480,24 @@ export class PullRequestStore {
         });
       const pr = pinned.prs.find((pr) => pr.nodeId === command.nodeId);
       if (!pr) throw new ScopeError(404, "Open pull request not found.");
-      const detail = decode(PullRequestDetail, await this.handlers.detail(pinned.tabId, pr.nodeId));
+      if (
+        command.captured &&
+        (command.captured.headOid !== pr.headOid || command.captured.baseOid !== pr.baseOid)
+      )
+        throw new ScopeError(
+          409,
+          "This comparison changed. Load the latest comparison to view its details.",
+        );
+      const detail = decode(
+        PullRequestDetail,
+        await this.handlers.detail(pinned.tabId, pr.nodeId, command.captured),
+      );
       const current = await this.snapshotByTab(pinned.tabId);
       await this.database.run(this.active(await this.database.run(this.owner(pinned.tabId, true))));
       if (
         detail.headOid !== pr.headOid ||
-        current.prs.find((row) => row.nodeId === pr.nodeId)?.headOid !== detail.headOid
+        current.prs.find((row) => row.nodeId === pr.nodeId)?.headOid !== detail.headOid ||
+        current.prs.find((row) => row.nodeId === pr.nodeId)?.baseOid !== pr.baseOid
       )
         throw new ScopeError(
           409,
