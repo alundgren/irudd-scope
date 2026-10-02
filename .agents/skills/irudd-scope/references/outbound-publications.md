@@ -121,7 +121,12 @@ to the configured static directory as `index.html`. Do not transform its bytes.
 Prepare local source before requesting provider publication.
 
 Read `.openai/hosting.json` first. Reuse its exact `project_id` and Scope's saved
-project identity. For a new project, call `create_site` once after the Scope
+project identity. When reusing an unpublished Sites project with no returned
+URL, prepare with its exact remote ID and `observation.url: null`, after
+authenticated owner-private inspection. A newly observed URL may enrich that
+operation through refresh, which resets acknowledgement when facts change.
+A successful checkpoint still requires its saved destination URL.
+For a new project, call `create_site` once after the Scope
 operation is started. Immediately save the returned ID atomically in the
 manifest and record it with Scope progress. If all returned Site URLs are
 absent, use `progress.url: null`; never derive a URL from the project ID or
