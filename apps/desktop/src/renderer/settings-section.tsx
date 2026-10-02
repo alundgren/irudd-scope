@@ -34,6 +34,12 @@ const settingsSections = [
     terms: "hub pairing tailnet tailscale disconnect cli skill version retry",
   },
   {
+    id: "transfers",
+    title: "Other Scopes",
+    description: "Pair another Scope to send and import tabs",
+    terms: "tab transfer devices pairing sharing qr code invitation",
+  },
+  {
     id: "updates",
     title: "App updates",
     description: "Check for updates and restart",
