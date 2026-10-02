@@ -982,3 +982,97 @@ test("captured detail rejects changed base before cache or remote read even when
   });
   expect(calls).toBe(1);
 });
+
+
+function budgetReader() {
+  const remote = reader();
+  let observe!: Parameters<GitHubPullRequests["setReadHooks"]>[0];
+  let before!: NonNullable<Parameters<GitHubPullRequests["setReadHooks"]>[1]>;
+  remote.github.setReadHooks = (callback, guard) => { observe=callback; before=guard!; };
+  let account = "VIEWER", remaining = 4000, calls = 0, probes = 0;
+  let pageCosts = [100,100,100,100,100,100];
+  remote.github.account = async () => {probes++;return account;};
+  const charge = async (cost: number, signal=new AbortController().signal) => {
+    await before(signal);
+    observe({account,cost,limit:5000,remaining,resetAt:"2026-10-02T02:00:00.000Z"});
+  };
+  remote.github.inventory = async (_repository, signal) => {
+    calls++;
+    for (const cost of pageCosts) await charge(cost,signal);
+    return {repository,queriedRepository:repository,viewer:account,account,cost:pageCosts.reduce((sum,cost)=>sum+cost,0),startedAt:stamp,prs:[facts()]};
+  };
+  remote.github.detail = async (_repository,pr,signal) => {
+    await charge(1,signal);
+    return {headOid:pr.headOid,body:"Detail",reviews:[],files:[],diff:"",fetchedAt:stamp};
+  };
+  return {...remote,charge,calls:()=>calls,probes:()=>probes,setAccount:(value:string)=>{account=value;},setRemaining:(value:number)=>{remaining=value;},setCosts:(costs:number[])=>{pageCosts=costs;}};
+}
+function budgetClock() {
+  let now=Date.parse(stamp), timer=0;
+  const tasks=new Map<number,{at:number;callback:()=>void}>();
+  return {now:()=>now,advance:(amount:number)=>{now+=amount;},tasks,
+    scheduling:{now:()=>now,setTimeout:(callback:()=>void,delay:number)=>{const id=++timer;tasks.set(id,{at:now+delay,callback});return id as unknown as ReturnType<typeof setTimeout>;},clearTimeout:(id:ReturnType<typeof setTimeout>)=>{tasks.delete(id as unknown as number);}},
+    fire:()=>{const next=[...tasks].sort((a,b)=>a[1].at-b[1].at)[0];if(!next) throw new Error("No scheduled task");now=Math.max(now,next[1].at);tasks.delete(next[0]);next[1].callback();},
+  };
+}
+
+test("admitted automatic inventories finish past the routine target and later automatic jobs wait", async () => {
+  const remote=budgetReader(),clock=budgetClock(),f=await fixture(remote.github,clock.scheduling),tabId=await f.tab("complete-expensive");
+  await f.service.start();clock.fire();
+  await expect.poll(async()=>(await f.store.snapshotByTab(tabId)).sync.state).toBe("idle");
+  const snapshot=await f.store.snapshotByTab(tabId);
+  expect(snapshot.prs).toHaveLength(1);
+  expect(snapshot.sync.lastSuccessAt).toBe(stamp);
+  expect(remote.calls()).toBe(1);
+  await f.service.interest({tabId,active:true,refresh:true,detail:null});
+  clock.fire();
+  await expect.poll(()=>remote.probes()).toBe(1);
+  expect(remote.calls()).toBe(1);
+  const waiting=await f.store.snapshotByTab(tabId);
+  await expect.poll(async()=>(await f.store.snapshotByTab(tabId)).sync.nextAttemptAt).toBe("2026-10-02T01:00:00.000Z");
+  expect(waiting.sync.error).toBeNull();
+  expect((await f.store.snapshotByTab(tabId)).sync.reason).toBe("Account query budget");
+});
+
+test("manual sync and initial detail bypass the routine target while actual quota still blocks reads", async () => {
+  const remote=budgetReader(),clock=budgetClock(),f=await fixture(remote.github,clock.scheduling),tabId=await f.tab("manual-budget");
+  await f.service.sync(tabId);
+  expect((await f.service.sync(tabId)).sync.state).toBe("idle");
+  expect(remote.calls()).toBe(2);
+  expect((await f.service.detail(tabId,"PR_1")).body).toBe("Detail");
+  remote.setRemaining(20);
+  await remote.charge(1);
+  await expect(f.service.detail(tabId,"PR_1",{headOid:"c".repeat(40),baseOid:"b".repeat(40)})).rejects.toThrow("comparison changed");
+  await expect(remote.charge(1)).rejects.toMatchObject({kind:"throttle",retryAt:Date.parse("2026-10-02T02:00:00.000Z")});
+  expect((await f.service.sync(tabId)).sync.nextAttemptAt).toBe("2026-10-02T02:00:00.000Z");
+  expect(remote.calls()).toBe(2);
+});
+
+test("routine waiting ends only after enough charges expire below the target", async () => {
+  const remote=budgetReader(),clock=budgetClock();remote.setCosts([100]);
+  const f=await fixture(remote.github,clock.scheduling),tabId=await f.tab("rolling-budget");
+  await f.service.sync(tabId);
+  clock.advance(60_000);await remote.charge(400);
+  clock.advance(60_000);await remote.charge(300);
+  await f.service.start();clock.fire();
+  await expect.poll(async()=>(await f.store.snapshotByTab(tabId)).sync.nextAttemptAt).toBe("2026-10-02T01:01:00.000Z");
+  expect(remote.calls()).toBe(1);
+  clock.advance(58*60_000);
+  await f.service.interest({tabId,active:true,refresh:true,detail:null});clock.fire();
+  expect(remote.calls()).toBe(1);
+  clock.advance(60_000);clock.fire();
+  await expect.poll(()=>remote.calls()).toBe(2);
+});
+
+test("account probes clear routine waiting when the CLI account changes", async () => {
+  const remote=budgetReader(),clock=budgetClock(),f=await fixture(remote.github,clock.scheduling),tabId=await f.tab("soft-account");
+  await f.service.sync(tabId);
+  remote.setAccount("NEW_VIEWER");remote.setCosts([1]);
+  await f.service.start();clock.fire();
+  await expect.poll(()=>remote.probes()).toBe(1);
+  await expect.poll(()=>clock.tasks.size).toBeGreaterThan(0);
+  clock.fire();
+  await expect.poll(async()=>(await f.store.snapshotByTab(tabId)).viewer).toBe("NEW_VIEWER");
+  expect(remote.calls()).toBe(2);
+  expect((await f.store.snapshotByTab(tabId)).sync.reason).toBeNull();
+});
