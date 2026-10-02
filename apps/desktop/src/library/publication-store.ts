@@ -426,6 +426,13 @@ export class PublicationStore {
                   "The local artifact changed. Cancel this unstarted operation and prepare the current revision.",
                 );
               if (command.action === "authorize") {
+                if (
+                  JSON.stringify({ ...command.expectedObservation, checkedAt: "" }) !==
+                  JSON.stringify({ ...operation.observation, checkedAt: "" })
+                )
+                  return yield* fail(
+                    "The destination check changed. Read the new warning before acknowledging it.",
+                  );
                 if (operation.state === "started")
                   return yield* fail("This operation has already started.");
                 operation = { ...operation, state: "prepared" };

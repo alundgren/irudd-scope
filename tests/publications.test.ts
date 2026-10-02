@@ -79,6 +79,14 @@ async function fixture() {
     directory,
     publish,
     operation,
+    async authorize(op: ReturnType<typeof operation>) {
+      const read = await client.publications({ action: "read", id: op.id });
+      const expectedObservation = read.snapshot.destinations.find(
+        (item) => item.provider === op.provider,
+      )?.operation?.observation;
+      if (!expectedObservation) throw new Error("No operation to acknowledge.");
+      return client.publications({ ...op, action: "authorize", expectedObservation });
+    },
     get client() {
       return client;
     },
@@ -176,7 +184,7 @@ test("newer remote dates and versions warn and cannot start without explicit aut
     });
     expect(reply.decision).toBe("warning");
     await expect(f.client.publications({ ...next, action: "start" })).rejects.toThrow("authorize");
-    await f.client.publications({ ...next, action: "authorize" });
+    await f.authorize(next);
     await f.client.publications({ ...next, action: "start" });
     await expect(
       f.client.publications({ ...next, action: "cancel", acknowledgeUncertain: false }),
@@ -403,7 +411,7 @@ test("refresh retains explicit approval only while destination facts are unchang
       })
     ).decision,
   ).toBe("warning");
-  await f.client.publications({ ...op, action: "authorize" });
+  await f.authorize(op);
   const refreshed = await f.client.publications({
     ...op,
     action: "refresh",
@@ -430,7 +438,7 @@ test("refresh retains explicit approval only while destination facts are unchang
   expect(blocked.decision).toBe("blocked");
   expect(blocked.snapshot.destinations[0]?.operation?.state).toBe("blocked");
   expect((await f.client.publications({ action: "read", id: op.id })).decision).toBe("blocked");
-  await expect(f.client.publications({ ...op, action: "authorize" })).rejects.toThrow("privacy");
+  await expect(f.authorize(op)).rejects.toThrow("privacy");
 });
 
 test("a newer successful checkpoint cannot be replaced by replaying an older completion", async () => {
@@ -487,7 +495,7 @@ test("expired checks require refresh without losing approval", async () => {
     expectedRevision: 1,
     observation: remote,
   });
-  await f.client.publications({ ...op, action: "authorize" });
+  await f.authorize(op);
   const db = new DatabaseSync(join(f.directory, "scope.db"));
   db.prepare(
     "UPDATE publications SET operation = json_set(operation, '$.observation.checkedAt', '2025-01-01T00:00:00Z') WHERE tab_id = ?",
@@ -534,7 +542,7 @@ test("an expired safe overwrite warning remains acknowledgeable and requires a f
     (await f.client.publications({ action: "read", id: op.id })).snapshot.destinations[0]?.operation
       ?.state,
   ).toBe("warning");
-  await f.client.publications({ ...op, action: "authorize" });
+  await f.authorize(op);
   await expect(f.client.publications({ ...op, action: "start" })).rejects.toThrow("Refresh");
   await f.client.publications({
     ...op,
@@ -571,4 +579,38 @@ test("confirmed Claude publication without change metadata saves its link and wa
   });
   expect(update.decision).toBe("warning");
   expect(update.messages.some((message) => message.includes("missing or incomparable"))).toBe(true);
+});
+
+test("stale acknowledgement cannot approve remote facts refreshed after the warning was displayed", async () => {
+  const f = await fixture(),
+    op = f.operation();
+  const before = observation({
+    remoteId: "remote-1",
+    url: "https://claude.ai/code/artifact/remote-1",
+    evidence: "authenticated-share-inspection",
+    marker: { version: "1", updatedAt: null },
+  });
+  await f.client.publications({
+    ...op,
+    action: "prepare",
+    expectedRevision: 1,
+    observation: before,
+  });
+  const after = {
+    ...before,
+    checkedAt: new Date().toISOString(),
+    marker: { version: "2", updatedAt: null },
+  };
+  await f.client.publications({ ...op, action: "refresh", observation: after });
+  await expect(
+    f.client.publications({ ...op, action: "authorize", expectedObservation: before }),
+  ).rejects.toThrow("check changed");
+  await expect(f.client.publications({ ...op, action: "start" })).rejects.toThrow("authorize");
+  await f.client.publications({ ...op, action: "authorize", expectedObservation: after });
+  await f.client.publications({
+    ...op,
+    action: "refresh",
+    observation: { ...after, checkedAt: new Date().toISOString() },
+  });
+  await f.client.publications({ ...op, action: "start" });
 });
