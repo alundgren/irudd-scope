@@ -59,16 +59,18 @@ const GitHubPullRequest = Schema.Struct({
   deletions: Schema.Int,
   changedFiles: Schema.Int,
   url: Schema.String,
-  mergeable: Schema.String,
+  mergeable: Schema.optional(Schema.String),
   updatedAt: Schema.String,
   createdAt: Schema.String,
-  commits: Schema.Struct({
-    nodes: Schema.Array(
-      Schema.Struct({
-        commit: Schema.Struct({ oid: Schema.String, statusCheckRollup: CheckRollup }),
-      }),
-    ),
-  }),
+  commits: Schema.optional(
+    Schema.Struct({
+      nodes: Schema.Array(
+        Schema.Struct({
+          commit: Schema.Struct({ oid: Schema.String, statusCheckRollup: CheckRollup }),
+        }),
+      ),
+    }),
+  ),
 });
 const InventoryPage = Schema.Struct({
   data: Schema.Struct({
@@ -129,7 +131,7 @@ const INITIAL_QUERY = `query ScopeInitialOpenPullRequests($owner: String!, $name
   repository(owner: $owner, name: $name) {
     id owner { login } name nameWithOwner
     pullRequests(states: OPEN, first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
-      nodes { ${PULL_REQUEST_FIELDS.replace("reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }", "").replace("labels(first: 100)", "labels(first: 25)").replace("reviewRequests(first: 100)", "reviewRequests(first: 25)")} }
+      nodes { ${PULL_REQUEST_FIELDS.replace("reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }", "").replace("labels(first: 100)", "labels(first: 25)").replace("reviewRequests(first: 100)", "reviewRequests(first: 25)").replace("commits(last: 1) { nodes { commit { oid statusCheckRollup { state commit { oid } } } } }", "").replace("url mergeable updatedAt", "url updatedAt")} }
       pageInfo { hasNextPage endCursor }
     }
   }
@@ -514,7 +516,7 @@ export class GitHubPullRequests {
   ): Promise<PullRequestFacts> {
     const metadata = await this.metadata(repository, node, signal, context);
     const observedAt = timestamp;
-    const rollup = node.commits.nodes.at(-1)?.commit.statusCheckRollup;
+    const rollup = node.commits?.nodes.at(-1)?.commit.statusCheckRollup;
     const status =
       !rollup || rollup.commit.oid !== node.headRefOid
         ? "unknown"
@@ -819,7 +821,9 @@ export class GitHubPullRequests {
         prs.push(
           await this.facts(
             repository,
-            inventoryQuery === INITIAL_QUERY ? { ...node, reviewThreads: undefined } : node,
+            inventoryQuery === INITIAL_QUERY
+              ? { ...node, reviewThreads: undefined, commits: undefined, mergeable: undefined }
+              : node,
             signal,
             context,
             timestamp,
