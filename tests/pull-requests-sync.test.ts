@@ -421,6 +421,61 @@ console.log(JSON.stringify({...${JSON.stringify(inventory([]))},data:{...${JSON.
     },
   );
 
+  test("first load returns complete lightweight membership then enriches bounded groups and explicit closures", async () => {
+    const rows = Array.from({ length: 51 }, (_, i) => pr(i + 1));
+    const initial = inventory(rows);
+    const gh = await fakeGh(`
+const query = args.find(a=>a.startsWith('query='));
+if(query.includes('ScopeInitialOpenPullRequests')) {
+ if(!query.includes('first: 100') || !query.includes('labels(first: 25)') || query.includes('reviewThreads')) throw new Error('Not lightweight');
+ console.log(JSON.stringify(${JSON.stringify(initial)}));
+} else if(query.includes('ScopeEnrichPullRequests')) {
+ const ids=args.filter(a=>a.startsWith('ids[]=')).map(a=>a.slice(6));
+ if(ids.length>25) throw new Error('Unbounded enrichment');
+ const rows=${JSON.stringify(rows)};
+ console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2099-10-02T00:00:00Z'},nodes:ids.map(id=>{const row=rows.find(row=>row.id===id); return {...row,state:row.number===2?'CLOSED':'OPEN',repository:${JSON.stringify(initial.data.repository)}};})}}));
+} else throw new Error('Unexpected read');`);
+    const reader = new GitHubPullRequests(gh.process);
+    const first = await reader.initialInventory(repository, signal());
+    expect(first.prs).toHaveLength(51);
+    expect(first.prs.every((row) => row.hasUnresolvedConversations === null)).toBe(true);
+    expect(first.startedAt).toBe(first.prs[0].merge.observedAt);
+    expect(first.prs[0].checks.status).toBe("passing");
+    const complete = await reader.enrichInventory(repository, first.prs, signal());
+    expect(complete.prs).toHaveLength(50);
+    expect(complete.prs.some((row) => row.number === 2)).toBe(false);
+    expect(complete.prs.every((row) => row.hasUnresolvedConversations === false)).toBe(true);
+    expect(complete.cost).toBe(3);
+    expect(await gh.calls()).toHaveLength(4);
+  });
+
+  test("missing enrichment nodes never silently remove existing membership", async () => {
+    const gh = await fakeGh(
+      `if(args.some(a=>a.includes('ScopeInitialOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));else console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2099-10-02T00:00:00Z'},nodes:[null]}}));`,
+    );
+    const reader = new GitHubPullRequests(gh.process);
+    const initial = await reader.initialInventory(repository, signal());
+    await expect(reader.enrichInventory(repository, initial.prs, signal())).rejects.toThrow(
+      "did not return",
+    );
+  });
+
+  test("empty membership carries a start observation and account probes bypass an old budget", async () => {
+    const gh = await fakeGh(
+      `if(args.includes('user')) console.log(JSON.stringify({login:'new-account'}));else console.log(JSON.stringify(${JSON.stringify(inventory([]))}));`,
+    );
+    const reader = new GitHubPullRequests(gh.process);
+    const empty = await reader.initialInventory(repository, signal());
+    expect(Date.parse(empty.startedAt)).toBeGreaterThan(0);
+    reader.setReadHooks(
+      () => {},
+      () => {
+        throw new Error("Old account exhausted");
+      },
+    );
+    expect(await reader.account(signal())).toBe("new-account");
+  });
+
   test("current reads see reopened conversations without updatedAt changing and only remove explicitly closed PRs", async () => {
     const row = pr(1);
     const initial = inventory([row]);
@@ -449,9 +504,18 @@ else console.log(JSON.stringify(${JSON.stringify(target)}));`);
     const closed = await fakeGh(
       `console.log(JSON.stringify(${JSON.stringify({ ...target, data: { ...target.data, repository: { ...target.data.repository, pullRequest: { ...target.data.repository.pullRequest, state: "CLOSED" } } } })}));`,
     );
+    let closedAt: string | undefined;
     expect(
-      await new GitHubPullRequests(closed.process).current(repository, first, signal()),
+      await new GitHubPullRequests(closed.process).current(
+        repository,
+        first,
+        signal(),
+        (timestamp) => {
+          closedAt = timestamp;
+        },
+      ),
     ).toBeNull();
+    expect(Date.parse(closedAt!)).toBeGreaterThan(0);
     const missing = await fakeGh(
       `console.log(JSON.stringify(${JSON.stringify({ ...target, data: { ...target.data, repository: { ...target.data.repository, pullRequest: null } } })}));`,
     );

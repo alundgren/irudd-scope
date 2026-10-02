@@ -20,13 +20,18 @@ const args = process.argv.slice(2);
 const state = JSON.parse(readFileSync(${JSON.stringify(stateFile)}, 'utf8'));
 if (state.fail) { console.error('Synthetic offline GitHub'); process.exit(1); }
 const complete = { hasNextPage: false, endCursor: null };
-const row = { id:'PR_JOURNEY_1', repository:{id:'R_JOURNEY'}, number:1, title:'Review persistent state', author:{login:'colleague'}, labels:{nodes:[{name:'enhancement'}],pageInfo:complete}, headRefOid:state.head, headRefName:'feature', baseRefOid:'${base}', reviewRequests:{nodes:[{requestedReviewer:{__typename:'User',login:'viewer'}}],pageInfo:complete}, isDraft:false, additions:14, deletions:3, changedFiles:1, url:'https://github.com/synthetic/project/pull/1', mergeable:'MERGEABLE', createdAt:'2026-09-30T12:00:00Z',updatedAt:'2026-10-01T12:00:00Z', commits:{nodes:[{commit:{oid:state.head,statusCheckRollup:{state:'SUCCESS',commit:{oid:state.head}}}}]} };
-if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify({data:{viewer:{login:'viewer'},repository:{id:'R_JOURNEY',owner:{login:'synthetic'},name:'project',nameWithOwner:'synthetic/project',pullRequests:{nodes:[row],pageInfo:complete}}}}));
-else if(args[0]==='pr' && args[1]==='view') console.log(JSON.stringify({id:row.id,state:'OPEN',headRefOid:state.head,body:'Inspect this synthetic change'}));
+const row = { state:'OPEN',reviewThreads:{nodes:[],pageInfo:complete}, id:'PR_JOURNEY_1', repository:{id:'R_JOURNEY'}, number:1, title:'Review persistent state', author:{login:'colleague'}, labels:{nodes:[{name:'enhancement'}],pageInfo:complete}, headRefOid:state.head, headRefName:'feature', baseRefOid:'${base}', reviewRequests:{nodes:[{requestedReviewer:{__typename:'User',login:'viewer'}}],pageInfo:complete}, isDraft:false, additions:14, deletions:3, changedFiles:1, url:'https://github.com/synthetic/project/pull/1', mergeable:'MERGEABLE', createdAt:'2026-09-30T12:00:00Z',updatedAt:'2026-10-01T12:00:00Z', commits:{nodes:[{commit:{oid:state.head,statusCheckRollup:{state:'SUCCESS',commit:{oid:state.head}}}}]} };
+const common = {viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2099-10-02T00:00:00Z'}};
+const repository = {id:'R_JOURNEY',owner:{login:'synthetic'},name:'project',nameWithOwner:'synthetic/project'};
+if(args.some(a => a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests'))) console.log(JSON.stringify({data:{...common,repository:{...repository,pullRequests:{nodes:[row],pageInfo:complete}}}}));
+else if(args.some(a => a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify({data:{...common,nodes:[{...row,repository}]}}));
+else if(args.some(a => a.includes('ScopeCurrentPullRequest'))) console.log(JSON.stringify({data:{...common,repository:{...repository,pullRequest:row}}}));
+else if(args.some(a => a.includes('ScopePullRequestReviewBody'))) console.log(JSON.stringify({data:{...common,repository:{...repository,pullRequest:{id:row.id,state:'OPEN',headRefOid:state.head,baseRefOid:'${base}',body:'Inspect this synthetic change'}}}}));
 else if(args[0]==='pr' && args[1]==='diff') console.log('diff --git a/example.ts b/example.ts\\n+synthetic change');
 else if(args.some(a=>a.includes('/files?'))) console.log(JSON.stringify([{sha:'synthetic-file',filename:'example.ts',additions:14,deletions:3,changes:17,status:'modified',blob_url:'https://github.com/synthetic/project/blob/example.ts'}]));
 else if(args.some(a=>a.includes('/reviews?'))) console.log(JSON.stringify([{id:1,node_id:'REVIEW_1',user:{id:1,node_id:'USER_1',login:'reviewer'},state:'COMMENTED',body:'Looks straightforward',submitted_at:'2026-10-01T12:00:00Z',commit_id:state.head,html_url:'https://github.com/synthetic/project/pull/1'}]));
-else console.log(JSON.stringify({data:{repository:{pullRequest:{id:row.id,state:'OPEN',headRefOid:state.head,baseRefOid:'${base}',reviewThreads:{nodes:[],pageInfo:complete}}}}}));
+else if(args.includes('user')) console.log(JSON.stringify({login:'viewer'}));
+else throw new Error('Unexpected GitHub read');
 `,
     { mode: 0o700 },
   );
