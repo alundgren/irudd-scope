@@ -363,13 +363,15 @@ desktop requirements apply. Paired hubs forward the route without storing PRs.
 `generation`, repository, viewer, sync status, and a flat `prs` array. All other
 commands require that `tabId`, the immutable name, and a UUID `requestId`.
 Repository configuration can be repeated with the same repository, but changing
-it requires another tab. The first successful sync can normalize an alias to
+it requires another tab. The first complete inventory can normalize an alias to
 GitHub's verified canonical owner/name, provided there are no cached PR rows
-or previous successful inventory. A successful empty inventory also pins that
+or a previously committed inventory. A successful empty inventory also pins that
 binding. Later renames or transfers require a new inbox. `sync` uses the desktop user's installed `gh` and
 returns the current snapshot. Configured live inboxes refresh automatically;
 simultaneous refreshes of the same repository share remote reads while local
-records remain tab-owned. Sync obeys the same rate-limit waits as scheduled reads.
+records remain tab-owned. The 500-point hourly account target delays new automatic
+jobs; admitted jobs finish. Manual Sync and detail reads bypass that routine wait.
+Every request still respects actual GitHub quota reserve and throttling.
 Sync request IDs identify calls; they do not retain an inventory history.
 
 Sync status retains `state`, `updatedAt`, `lastSuccessAt`, and `error`. Optional

@@ -46,7 +46,9 @@ PRs. Tab selection and the app's Sync action request coalesced refreshes.
 The desktop polls configured live inboxes while Scope is running and awake.
 Visible inboxes target 30 seconds, inspected PRs 15 seconds, and background
 repositories five minutes; measured cost and quota can lengthen these targets.
-Matching inboxes share GitHub reads. Sync remains a fallback and obeys rate-limit waits.
+Matching inboxes share GitHub reads. The 500-point hourly account target delays
+new automatic jobs; admitted jobs finish. Manual Sync and detail reads bypass
+that routine wait but still respect actual GitHub quota reserve and throttling.
 
 If publication succeeds but configuration fails, configure the existing name
 instead of publishing again. The same repository can be configured again.

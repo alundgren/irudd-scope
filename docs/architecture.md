@@ -128,7 +128,10 @@ local edits finish saving. Transient notices carry no replay history.
 Configured inboxes refresh automatically while Scope is running and awake.
 Selection, wake, and reconnect request coalesced fresh reads; Sync remains a
 fallback. Foreground, background, and inspected-PR reads use different target
-intervals, lengthened to fit observed GitHub cost and remaining quota. Main owns
+intervals, lengthened to fit observed GitHub cost and remaining quota. The
+500-point hourly account target controls admission of new automatic jobs;
+admitted jobs finish. Manual Sync and detail reads bypass that routine wait,
+while every request respects actual quota reserve and throttling. Main owns
 the timers; renderer interests identify the visible inbox and inspected PR.
 An inspected PR's reviews refresh without downloading its captured diff again.
 Native creation publishes the built-in flat-list app;
