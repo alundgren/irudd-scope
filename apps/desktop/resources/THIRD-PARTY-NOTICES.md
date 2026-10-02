@@ -44,3 +44,11 @@ Each desktop build collects the Go standard library license and the
 LICENSE, COPYING, NOTICE, copyright, and patent files supplied by the modules
 linked into `scope-tailcat`. The packaged collection and its module versions
 are in [the native transfer notices](../dist/transfer-licenses/NOTICE.md).
+
+## QR codes
+
+The renderer includes qrcode v1.5.4, copyright (c) 2012 Ryan Day, under the
+MIT License. The complete license is in [QRCODE-LICENSE](QRCODE-LICENSE).
+Its dijkstrajs dependency supplies path-finding functions, copyright (C) 2008
+Wyatt Baldwin, under the MIT License. Its supplied notice is in
+[DIJKSTRAJS-LICENSE.md](DIJKSTRAJS-LICENSE.md).
