@@ -26,6 +26,11 @@ import { AppUpdates } from "./updates.ts";
 import { AgentTools } from "./agent-tools.ts";
 import { Remotes } from "./remotes.ts";
 import { createApplicationMenu } from "./menu.ts";
+import { TabTransfers } from "./transfer/service.ts";
+import { NativeTransferTransport } from "./transfer/transport.ts";
+import { registerTransferLinks } from "./transfer/links.ts";
+
+const transferLinks = registerTransferLinks();
 
 app.setName("irudd-scope");
 if (process.env.SCOPE_DESKTOP_DATA_DIR)
@@ -112,6 +117,8 @@ async function main() {
       backgroundThrottling: !hideTestWindow,
     },
   });
+  transferLinks.attach(window);
+  const transfers = new TabTransfers(store, lifecycle!, new NativeTransferTransport());
   if (process.platform === "darwin") window.setWindowButtonVisibility(false);
   const client = new ScopeClient(artifacts.url, artifacts.token);
   const setDiagramMenu = createApplicationMenu(window);
@@ -144,6 +151,7 @@ async function main() {
     updates,
     agentTools,
     remotes,
+    transfers,
     setDiagramMenu,
     onRestartToUpdate: async () => {
       if (updates.snapshot().phase !== "ready") throw new Error("No update is ready.");
@@ -204,6 +212,7 @@ async function main() {
     await Promise.all([updates.cancel(), agentTools.cancel()]);
     desktopIpc.dispose();
     library.close();
+    await transfers.close();
     await remotes.close();
     await voice.close();
     await Promise.all([artifacts.close(), store.close()]);

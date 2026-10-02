@@ -16,6 +16,23 @@ release candidates; other dependencies use stable releases. Alpha, beta,
 nightly, and canary versions require a specific project decision. Update
 manifests, catalog, and lockfile together through Vite+.
 
+## Native transfer build
+
+The desktop build compiles `apps/desktop/transfer-transport/` into
+`dist/scope-tailcat` for packaging. The Go module pins Tailcat and `go.sum`
+records dependency checksums. The build helper uses a matching installed
+compiler or downloads the pinned compiler into `~/.cache/irudd-scope/build`,
+checking its archive's SHA-256 before unpacking it. Linux and macOS on x64 and
+arm64 are supported. Initial builds need internet access for the compiler and
+Go modules. Later builds reuse caches. Runtime needs no separate Tailcat install.
+
+Builds generate linked-module licenses and notices under `dist/transfer-licenses`.
+Packaging preserves them and checks the helper version. Standard tests use
+synthetic local transports. The optional
+`vp exec node tools/check-transfer-transport.ts` smoke test sends synthetic
+content through Tailcat and requires its hosted relay. It runs separately from
+`ready` and uses no personal artifacts or provider credentials.
+
 ## Validation and tests
 
 `vp run ready` builds the CLI, hub, and desktop, runs `vp run check`, then runs

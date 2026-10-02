@@ -1,6 +1,6 @@
 import { connectedDiagramAgents } from "./plugins/diagram/connected-agent.ts";
 import { diagramCommands } from "./plugins/diagram/command-main.ts";
-import { dialog, ipcMain, nativeTheme, type BrowserWindow } from "electron";
+import { clipboard, dialog, ipcMain, nativeTheme, type BrowserWindow } from "electron";
 import { writeFile } from "node:fs/promises";
 import { Schema } from "effect";
 import { ArtifactId, Revision, decode } from "@irudd-scope/protocol";
@@ -21,6 +21,8 @@ import { openKeychainAccess } from "./signing.ts";
 import { DiagramCommand, DiagramReply } from "@irudd-scope/protocol/diagram";
 import { DiagramSyncCommand, DiagramSyncReply } from "@irudd-scope/protocol/diagram-sync";
 import { DiagramMenuState } from "./menu-contract.ts";
+import type { TabTransfers } from "./transfer/service.ts";
+import { TransferId, TransferName } from "@irudd-scope/protocol/transfer";
 
 export function registerDesktopIpc({
   window,
@@ -32,6 +34,7 @@ export function registerDesktopIpc({
   updates,
   agentTools,
   remotes,
+  transfers,
   onRestartToUpdate,
   setDiagramMenu,
 }: {
@@ -44,6 +47,7 @@ export function registerDesktopIpc({
   updates: AppUpdates;
   agentTools: AgentTools;
   remotes: Remotes;
+  transfers: TabTransfers;
   onRestartToUpdate: () => Promise<void>;
   setDiagramMenu: (state: DiagramMenuState) => void;
 }) {
@@ -216,6 +220,19 @@ export function registerDesktopIpc({
   handle("scope:close-tab", async (input) => {
     await lifecycle.closeTab(decode(Uuid, input));
   });
+  handle("scope:transfer-devices", () => transfers.devices());
+  handle("scope:create-pairing", (input) => transfers.createPairing(decode(TransferName, input)));
+  handle("scope:copy-pairing-secret", async (input) => {
+    await clipboard.writeText(transfers.pairingSecret(decode(TransferId, input)));
+  });
+  handle("scope:pair-scope", (input) => transfers.pair(input));
+  handle("scope:forget-scope", (input) => transfers.forget(decode(TransferId, input)));
+  handle("scope:send-tab", (input) => transfers.send(input));
+  handle("scope:transfer-status", (input) => transfers.status(decode(TransferId, input)));
+  handle("scope:cancel-transfer", (input) => transfers.cancel(decode(TransferId, input)));
+  const TransferLink = Schema.String.check(Schema.isMaxLength(8192));
+  handle("scope:inspect-transfer", (input) => transfers.inspect(decode(TransferLink, input)));
+  handle("scope:import-transfer", (input) => transfers.import(decode(TransferLink, input)));
   handle("scope:workspace", () => lifecycle.workspace());
   handle("scope:save-workspace", (input) => lifecycle.saveWorkspace(input));
   handle("scope:close-ready", (input) => onCloseReady(decode(Schema.Boolean, input)));

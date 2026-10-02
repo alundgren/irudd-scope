@@ -28,6 +28,50 @@ server. `packages/protocol/src/voice.ts` owns the public contracts; the CLI owns
 explicit audio and receipt exports. The hub forwards the same routes without
 provider calls or speech storage. Speech results are independent of tabs.
 
+## Tab transfer
+
+`apps/desktop/src/transfer/` owns desktop pairing, temporary invitations,
+authentication, and transport cleanup. `packages/protocol/src/transfer.ts`
+defines the versioned invitation and portable artifact manifest. Desktop main
+exposes named IPC for Settings, Send, and Import. The renderer receives metadata
+and status, never saved pairing keys. Copying a generated secret uses a named
+main-process clipboard operation.
+
+Each pair has an independently generated random secret in the credential store
+and peer identity and name in `desktop.db`. Signed invitations bind the source,
+connection address, and fifteen-minute lifetime. Receivers verify signatures
+before connecting. AES-256-GCM messages use HKDF-derived directional keys,
+fresh nonces, and invitation-bound authenticated data. Responses identify the
+source and originating request. Repeated requests do not repeat mutations;
+live invitations bound accepted request counts.
+
+The bundled `scope-tailcat` Go helper uses the pinned Tailcat library for
+WireGuard, NAT traversal, and DERP fallback. One dedicated TCP port forwards
+only to a main-created loopback listener. The helper has no shell, file service,
+publishing credential, or library API access. Cancellation, expiry, parent pipe
+closure, and helper failure close accepted connections. Requests and responses
+have size limits, deadlines, and bounded concurrency. Tailcat is experimental;
+its hosted relays retain connection metadata and provide rate-limited service
+without uptime guarantees.
+
+Send flushes edits and freezes an ordinary artifact or current diagram document.
+Conversations, proposals, credentials, and agent sessions remain local. Inspect
+authenticates and retains the approved manifest in main. Import validates the
+download against that manifest and requests final source authorization.
+Authorization is serialized against Cancel and Forget. Cancel stops imports
+not yet authorized; closing or forgetting the source cannot retract previously
+authorized bytes.
+
+`library/transfer-import.ts` commits the new tab, artifact, bytes, and retry
+receipt together in `scope.db`. New local identities and omission of the
+original unique name prevent overwrites. Repeated imports return the existing
+copy. Removing that copy retains its receipt until expiry and prevents
+recreation. Explicit Import precedes HTML execution under the existing trusted
+content behavior. Both apps must be online and awake. Invitations and snapshots
+exist only in memory, with no offline queue or continuing synchronization.
+Plans and PR inboxes are excluded because their additional records are not in
+the portable manifest.
+
 ## HTML plans
 
 `packages/protocol/src/plan.ts` defines review commands, revisions, comments,

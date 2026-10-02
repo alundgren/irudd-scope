@@ -1,5 +1,23 @@
 # UI decisions
 
+Other Scopes in Settings pairs desktops using a public invitation and a
+separately exchanged generated secret. Saved keys never appear in the renderer.
+Main copies the setup secret; the target clears its transient input after
+success or cancellation. Mac pairings persist in Keychain. Session profiles
+explain their shorter lifetime.
+
+Current tab offers Send to another Scope for ordinary artifacts and diagrams.
+It flushes edits before freezing a copy for the selected peer. Invitations show
+a QR code, Copy link, expiry, and Cancel, and last fifteen minutes. Cancel is
+unavailable after final authorization; the source shows Import in progress.
+Delivered means the target committed and acknowledged its copy.
+
+Import from link is a workspace action. Transfer URLs prepopulate pairing or
+import dialogs and require an explicit action. Import shows authenticated tab
+details and source before opening the artifact. Repeated imports open the
+existing copy. Dialogs preserve the mounted source tab and return keyboard
+focus to the workspace.
+
 Scope is a Mac workspace for inspecting artifacts left by coding agents and
 editing diagrams and reviewing HTML plans. The selected artifact gets the window. One compact strip
 contains open tabs and a search button on the right. Search opens a roomy

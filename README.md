@@ -4,7 +4,7 @@
 
 A private workspace where coding agents leave things for a human to inspect. An Electron app stores and displays artifacts on the Mac. Local publishing works while Scope is open, without a VM. An optional paired hub forwards remote requests and buffers offline publications until the Mac reconnects. Codex and Claude can publish through the same CLI.
 
-The repository is public. Artifact data and credentials stay private. Remote access belongs on a private tailnet.
+The repository is public. Artifact data and credentials stay private. Remote publishing belongs on a private tailnet. Paired Scope instances can exchange selected tabs over a separate encrypted connection.
 
 SQLite stores artifact contents, metadata, ordinary settings, and workspace preferences. Mac provider and remote connection credentials live directly in Keychain. The private discovery file holds the CLI publishing token. The Mac owns delivered artifacts. Direct publishing requires Scope to be running; paired hubs buffer up to 50 offline publications for 48 hours.
 
@@ -35,6 +35,24 @@ Node/npm. Open a new terminal after installing the CLI.
 
 See [installation and recovery](docs/development.md#installed-app) for paths,
 build requirements, and removal.
+
+## Send a tab to another Mac
+
+In **Settings → Other Scopes**, create a pairing invitation. Send its link to
+the other Mac and exchange the separately copied pairing secret through another
+channel. On that Mac, choose **Enter pairing link** and enter both values.
+Mac pairing credentials stay in Keychain. Either Mac can forget the pairing.
+
+Choose **Send to another Scope…** under **Current tab** in search, select the
+paired Mac, then copy the link or scan its QR code. On the target, open the link
+or choose **Import from link…** in search. Review the authenticated tab details
+before importing. Each invitation expires after fifteen minutes.
+
+Both apps must be running and awake. Transfers create independent copies of
+ordinary artifacts and editable diagrams. The source keeps its tab. Plans and
+PR inboxes have additional records and cannot be transferred through this flow.
+See [tab transfer](docs/architecture.md#tab-transfer) for connection and security
+limits.
 
 ## Install on a remote
 

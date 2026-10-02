@@ -22,6 +22,8 @@ import {
 import { DIAGRAM_MODEL, DIAGRAM_PROVIDER } from "./plugins/diagram/provider-settings.ts";
 import { Remote, Remotes } from "./remote-contract.ts";
 import { RemoteToken } from "@irudd-scope/protocol/remote";
+import { TransferName, TransferSecret } from "@irudd-scope/protocol/transfer";
+import { ScopeDevice, ScopePeer, ScopePeers } from "./transfer/contract.ts";
 
 const SavedSettings = Schema.Struct({
   version: Schema.Literal(2),
@@ -289,6 +291,85 @@ export class DesktopStore {
   expireVoice(now: number): Promise<void> {
     return this.enqueue(async () => {
       await this.run(this.sql!`DELETE FROM voice_requests WHERE expires_at <= ${now}`);
+    });
+  }
+
+  get credentialStorage(): "keychain" | "session" {
+    return this.credentials.kind;
+  }
+
+  transferDevice(name?: string): Promise<ScopeDevice> {
+    if (name !== undefined) decode(TransferName, name);
+    return this.enqueue(async () => {
+      const [row] = await this.run(
+        this.sql!<{
+          document: string;
+        }>`SELECT document FROM preferences WHERE name = 'transfer-device'`,
+      );
+      const device = row
+        ? decode(ScopeDevice, JSON.parse(row.document))
+        : { deviceId: crypto.randomUUID(), name: name ?? "Scope" };
+      const next = { ...device, name: name ?? device.name };
+      await this.run(
+        this
+          .sql!`INSERT INTO preferences(name, document) VALUES ('transfer-device', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+      );
+      return next;
+    });
+  }
+
+  async scopePeers(): Promise<ScopePeer[]> {
+    await this.pending;
+    const [row] = await this.run(
+      this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'scope-peers'`,
+    );
+    return row ? [...decode(ScopePeers, JSON.parse(row.document))] : [];
+  }
+
+  async transferKey(id: string): Promise<string | undefined> {
+    await this.pending;
+    return (await this.credentials.read()).transferKeys?.[id];
+  }
+
+  saveScopePeer(value: ScopePeer, secret: string): Promise<void> {
+    const peer = decode(ScopePeer, value);
+    decode(TransferSecret, secret);
+    return this.enqueue(async () => {
+      const [row] = await this.run(
+        this.sql!<{
+          document: string;
+        }>`SELECT document FROM preferences WHERE name = 'scope-peers'`,
+      );
+      const peers = row ? [...decode(ScopePeers, JSON.parse(row.document))] : [];
+      const secrets = await this.credentials.read();
+      await this.credentials.write({
+        ...secrets,
+        transferKeys: { ...secrets.transferKeys, [peer.id]: secret },
+      });
+      const next = [...peers.filter((item) => item.id !== peer.id), peer];
+      await this.run(
+        this
+          .sql!`INSERT INTO preferences(name, document) VALUES ('scope-peers', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+      );
+    });
+  }
+
+  removeScopePeer(id: string): Promise<void> {
+    return this.enqueue(async () => {
+      const [row] = await this.run(
+        this.sql!<{
+          document: string;
+        }>`SELECT document FROM preferences WHERE name = 'scope-peers'`,
+      );
+      const peers = row ? [...decode(ScopePeers, JSON.parse(row.document))] : [];
+      const secrets = await this.credentials.read();
+      const transferKeys = { ...secrets.transferKeys };
+      delete transferKeys[id];
+      await this.credentials.write({ ...secrets, transferKeys });
+      await this.run(
+        this
+          .sql!`UPDATE preferences SET document = ${JSON.stringify(peers.filter((peer) => peer.id !== id))} WHERE name = 'scope-peers'`,
+      );
     });
   }
 

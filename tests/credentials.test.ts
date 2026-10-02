@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { keychainCredentials } from "../apps/desktop/src/credentials.ts";
 import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
 import { DIAGRAM_MODEL } from "../apps/desktop/src/plugins/diagram/provider-settings.ts";
+import { randomBytes, randomUUID } from "node:crypto";
 
 function keychainEntry(initial: string | null | undefined) {
   let value = initial;
@@ -86,6 +87,41 @@ test("Keychain retains remote credentials across store instances and provider ke
     expect(await second.remoteToken(id)).toBe(token);
     await second.removeRemote(id);
     expect(await keychainCredentials(entry).read()).toEqual({});
+  } finally {
+    await second.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Scope pairing survives a Keychain-backed restart and Forget preserves other credentials", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "scope-pairing-credentials-"));
+  const entry = keychainEntry(null);
+  const credentials = keychainCredentials(entry);
+  const peer = {
+    id: randomUUID(),
+    deviceId: randomUUID(),
+    name: "Work Mac",
+    createdAt: Date.now(),
+  };
+  const secret = randomBytes(32).toString("base64url");
+  const first = new DesktopStore(directory, credentials);
+  const second = new DesktopStore(directory, credentials);
+  try {
+    await first.load();
+    const device = await first.transferDevice("Private Mac");
+    await first.saveScopePeer(peer, secret);
+    await first.saveSettings({ apiKey: "synthetic-provider-key" });
+    await first.close();
+    await second.load();
+    expect(await second.transferDevice()).toEqual(device);
+    expect(await second.scopePeers()).toEqual([peer]);
+    expect(await second.transferKey(peer.id)).toBe(secret);
+    await second.removeScopePeer(peer.id);
+    expect(await second.scopePeers()).toEqual([]);
+    expect(await credentials.read()).toEqual({
+      apiKey: "synthetic-provider-key",
+      transferKeys: {},
+    });
   } finally {
     await second.close();
     await rm(directory, { recursive: true, force: true });

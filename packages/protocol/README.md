@@ -1,5 +1,13 @@
 # Artifact protocol
 
+`src/transfer.ts` defines portable manifests and signed fifteen-minute
+`scope-transfer://v1/` invitations for paired desktop copies. These contracts
+are independent of the publication HTTP API. Transfers support ordinary
+artifact bytes and editable Excalidraw documents; they carry no credentials,
+unique tab names, conversation, or plan and PR inbox records. Main validates
+content sizes, media types, checksums, and native diagram structure before
+import. Authentication and the Tailcat process belong to desktop main.
+
 `src/index.ts` owns the validated wire types and limits. `src/client.ts` is the HTTP client used by CLI and desktop main. TypeScript types derive from Effect Schema definitions.
 
 An artifact is the latest content and metadata for one stable ID. A revision is an increasing integer for that ID. A blob is immutable content addressed by its SHA-256 digest. An absent source field means unknown; it never blocks publication.
