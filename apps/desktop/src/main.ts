@@ -188,6 +188,7 @@ async function main() {
         });
         if (answer.response === 0) {
           closing = false;
+          await desktopIpc.resumePending();
           return;
         }
       }
@@ -198,6 +199,7 @@ async function main() {
         app.relaunch({ execPath: executable, args: [] });
       } catch (error) {
         closing = false;
+        await desktopIpc.resumePending();
         throw error;
       }
     }

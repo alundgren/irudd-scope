@@ -107,6 +107,7 @@ test("retention drawer keeps Trashcan secondary, restores tabs, and requires two
     const hidden = saved!.tabs.find((tab) => tab.title === "Review 1")!;
     const db = new DatabaseSync(join(f.settingsDirectory, "artifacts/scope.db"));
     try {
+      db.exec("PRAGMA busy_timeout = 5000");
       db.prepare("UPDATE live_tabs SET last_visible_at = ? WHERE id = ?").run(
         Date.now() - 86_400_001,
         hidden.id,
@@ -165,6 +166,7 @@ test("retention drawer keeps Trashcan secondary, restores tabs, and requires two
     await page.getByRole("tab", { name: "Review 11", exact: true }).click();
     const aging = new DatabaseSync(join(f.settingsDirectory, "artifacts/scope.db"));
     try {
+      aging.exec("PRAGMA busy_timeout = 5000");
       aging
         .prepare("UPDATE live_tabs SET last_visible_at = ? WHERE permanent = 0")
         .run(Date.now() - 86_400_001);

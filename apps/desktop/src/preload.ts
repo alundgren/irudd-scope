@@ -10,6 +10,7 @@ import type { DiagramMenuAction } from "./menu-contract.ts";
 
 import type { PlanEvent } from "@irudd-scope/protocol/plan";
 import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
+import type { PullRequestsDetailUpdate } from "./plugins/pull-requests/interest.ts";
 
 const bridge: ScopeBridge = {
   publicationsCommand: (input) => ipcRenderer.invoke("scope:publications-command", input),
@@ -25,6 +26,12 @@ const bridge: ScopeBridge = {
   },
   createPullRequests: (input) => ipcRenderer.invoke("scope:create-pull-requests", input),
   pullRequestsCommand: (input) => ipcRenderer.invoke("scope:pull-requests-command", input),
+  pullRequestsInterest: (input) => ipcRenderer.invoke("scope:pull-requests-interest", input),
+  onPullRequestsDetailUpdate: (listener) => {
+    const receive = (_event: unknown, event: PullRequestsDetailUpdate) => listener(event);
+    ipcRenderer.on("scope:pull-requests-detail-update", receive);
+    return () => ipcRenderer.removeListener("scope:pull-requests-detail-update", receive);
+  },
   onPullRequestsReconnected: (listener) => {
     const receive = () => listener();
     ipcRenderer.on("scope:pull-requests-reconnected", receive);

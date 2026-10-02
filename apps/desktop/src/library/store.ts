@@ -47,6 +47,13 @@ export class ArtifactStore {
   pullRequests!: PullRequestStore;
   publications!: PublicationStore;
   onChanged: (event: LiveEvent) => void = () => {};
+  private readonly listeners = new Set<(event?: LiveEvent) => void>();
+  subscribe(listener: (event?: LiveEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
   private pendingMutations = Promise.resolve();
   private constructor(
     private readonly runtime: ReturnType<typeof databaseRuntime>,
@@ -110,7 +117,10 @@ export class ArtifactStore {
     const task = this.pendingMutations.then(async () => {
       const result = await this.run(effect);
       const events = event(result);
-      for (const item of Array.isArray(events) ? events : [events]) this.onChanged(item);
+      for (const item of Array.isArray(events) ? events : [events]) {
+        this.onChanged(item);
+        for (const listener of this.listeners) listener(item);
+      }
       return result;
     });
     this.pendingMutations = task.then(
@@ -323,6 +333,7 @@ export class ArtifactStore {
         id: string;
       }>`UPDATE live_tabs SET trashed_at = ${now} WHERE id = ${id} AND opened = 1 AND trashed_at IS NULL RETURNING id`,
     );
+    if (rows.length) for (const listener of this.listeners) listener();
     return rows.map((row) => row.id);
   }
 
@@ -333,6 +344,7 @@ export class ArtifactStore {
       }>`UPDATE live_tabs SET trashed_at = NULL, last_visible_at = ${now}, position = (SELECT coalesce(max(position), -1) + 1 FROM live_tabs) WHERE id = ${id} AND trashed_at IS NOT NULL AND document IS NOT NULL RETURNING document`,
     );
     if (!rows.length) throw new Error("This tab is no longer in Trashcan.");
+    for (const listener of this.listeners) listener();
     return decode(Tab, JSON.parse(rows[0].document));
   }
 

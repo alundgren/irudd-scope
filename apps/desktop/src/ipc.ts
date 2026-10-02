@@ -260,6 +260,7 @@ export function registerDesktopIpc({
       decode(DiagramReply, await diagrams.run(command, signal)),
     syncDiagram: async (request: DiagramSyncCommand, id: string, signal: AbortSignal) =>
       decode(DiagramSyncReply, await diagrams.run({ action: "sync", id, request }, signal)),
+    resumePending: () => plugins.resumePullRequests(),
     cancelPending: () => {
       plugins.cancelPending();
       plugins.cancelPullRequests();

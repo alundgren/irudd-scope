@@ -26,6 +26,10 @@ push and documentation changes. Further edits require another successful run
 before completion or pushing. CI after a push does not replace this local check.
 Validation does not rewrite source or the lockfile. Do not install validation hooks.
 
+Standard validation runs at most two test files concurrently to keep Electron
+interaction responsive. Writers inside the pressure tests still compete concurrently.
+Use `vp run test --maxWorkers=N` to override the file-worker count.
+
 Keep successful tests quiet. The minimal reporter prints totals without listing
 passing tests and shows console logs only for failures. The display runner also
 holds Xvfb diagnostics unless the run fails. On failure, it counts repeated

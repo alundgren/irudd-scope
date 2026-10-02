@@ -7,6 +7,7 @@ import {
 import type { TabProps } from "../api.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { pullRequestsDocument, type FrameIdentity } from "./frame-sdk.ts";
+import { PullRequestsInterest } from "./interest.ts";
 
 const failureMessage = (error: unknown) =>
   error instanceof Error ? error.message : "Could not load the PR inbox.";
@@ -24,7 +25,11 @@ function frameCommand(
   const row = { ...base, nodeId: pr.nodeId };
   switch (call.method) {
     case "detail":
-      return { ...row, action: "detail" };
+      return decode(PullRequestsCommand, {
+        ...row,
+        action: "detail",
+        ...(call.args[2] === undefined ? {} : { captured: call.args[2] }),
+      });
     case "saveNote":
       return decode(PullRequestsCommand, {
         ...row,
@@ -66,6 +71,9 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
   const [readError, setReadError] = useState("");
   const [contentError, setContentError] = useState("");
   const [retry, setRetry] = useState(0);
+  const [freshness, setFreshness] = useState<PullRequestsSnapshot["sync"]>();
+  const [prCount, setPrCount] = useState(0);
+  const [now, setNow] = useState(Date.now());
   const iframe = useRef<HTMLIFrameElement>(null);
   const snapshot = useRef<PullRequestsSnapshot | undefined>(undefined);
   const frameReady = useRef(false);
@@ -78,6 +86,9 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
   const flushFrame = useRef<() => Promise<void>>(async () => {});
   const sent = useRef("");
   const refresh = useRef<() => Promise<void>>(async () => {});
+  const detailInterest = useRef<PullRequestsInterest["detail"]>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const identity = useMemo(
     () => ({ channel: crypto.randomUUID(), tabId: context.tabId }),
     [context.tabId, content?.revision],
@@ -90,6 +101,14 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
     () => (content ? pullRequestsDocument(content.html, identity) : undefined),
     [content, identity],
   );
+  function reportInterest(forceRefresh = false) {
+    return window.scope.pullRequestsInterest({
+      tabId: context.tabId,
+      active: activeRef.current,
+      detail: detailInterest.current,
+      ...(forceRefresh ? { refresh: true } : {}),
+    });
+  }
   function sendSnapshot() {
     const value = snapshot.current;
     if (!value || value.tabId !== context.tabId || !frameReady.current) return;
@@ -140,6 +159,8 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
               reply.snapshot.generation >= (snapshot.current?.generation ?? -1)
             ) {
               snapshot.current = reply.snapshot;
+              setFreshness(reply.snapshot.sync);
+              setPrCount(reply.snapshot.prs.length);
               sendSnapshot();
               setReadError("");
             }
@@ -159,6 +180,7 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
     });
     const stopReconnect = window.scope.onPullRequestsReconnected(() => {
       void reload();
+      void reportInterest(true).catch(() => {});
     });
     void reload();
     return () => {
@@ -231,6 +253,22 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
         sendSnapshot();
         return;
       }
+      if (call.type === "scope-pull-requests-interest") {
+        try {
+          const input = decode(PullRequestsInterest, {
+            tabId: context.tabId,
+            active: activeRef.current,
+            detail: call.detail,
+          });
+          detailInterest.current = input.detail;
+          void reportInterest().catch((error: unknown) => {
+            if (mounted) setReadError(failureMessage(error));
+          });
+        } catch (error) {
+          setReadError(failureMessage(error));
+        }
+        return;
+      }
       if (
         call.type !== "scope-pull-requests-call" ||
         typeof call.id !== "string" ||
@@ -238,7 +276,7 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
         !Array.isArray(call.args)
       )
         return;
-      commands = commands.then(async () => {
+      const execute = async () => {
         if (!mounted) return;
         try {
           if (!snapshot.current) {
@@ -259,6 +297,8 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
             reply.snapshot.generation >= snapshot.current.generation
           ) {
             snapshot.current = reply.snapshot;
+            setFreshness(reply.snapshot.sync);
+            setPrCount(reply.snapshot.prs.length);
             sendSnapshot();
           }
           const local =
@@ -298,9 +338,28 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
               "*",
             );
         }
-      });
+      };
+      if (call.method === "sync" || call.method === "detail") void execute();
+      else commands = commands.then(execute);
     }
     window.addEventListener("message", receive);
+    const stopDetails = window.scope.onPullRequestsDetailUpdate((update) => {
+      const current = detailInterest.current;
+      if (
+        !mounted ||
+        !frameReady.current ||
+        !current ||
+        update.tabId !== context.tabId ||
+        update.nodeId !== current?.nodeId ||
+        update.headOid !== current.headOid ||
+        update.baseOid !== current.baseOid
+      )
+        return;
+      iframe.current?.contentWindow?.postMessage(
+        { ...identity, type: "scope-pull-requests-detail-update", value: update },
+        "*",
+      );
+    });
     return () => {
       mounted = false;
       frameReady.current = false;
@@ -311,25 +370,74 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
       }
       closeRequests.current.clear();
       window.removeEventListener("message", receive);
+      stopDetails();
+      detailInterest.current = null;
+      void reportInterest().catch(() => {});
     };
   }, [identity, context.tabId]);
   useEffect(() => {
     sendSnapshot();
   }, [theme]);
   useEffect(() => {
-    if (!active || !name) return;
-    void window.scope
-      .pullRequestsCommand({
-        action: "sync",
-        name,
-        requestId: crypto.randomUUID(),
-        tabId: context.tabId,
-      })
-      .then(() => refresh.current())
-      .catch(() => refresh.current());
+    if (!name) return;
+    void reportInterest().catch((error: unknown) => setReadError(failureMessage(error)));
+    return () => {
+      void window.scope
+        .pullRequestsInterest({
+          tabId: context.tabId,
+          active: false,
+          detail: null,
+        })
+        .catch(() => {});
+    };
   }, [active, name, context.tabId]);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(timer);
+  }, []);
+  const age = freshness?.lastSuccessAt
+    ? Math.max(0, Math.floor((now - Date.parse(freshness.lastSuccessAt)) / 1000))
+    : null;
+  const interval = freshness?.intervalMs;
+  const updated =
+    age === null
+      ? "Waiting for first refresh"
+      : age < 60
+        ? `Updated ${age} seconds ago`
+        : age < 3600
+          ? `Updated ${Math.floor(age / 60)} minutes ago`
+          : `Updated ${Math.floor(age / 3600)} hours ago`;
+  const target = interval
+    ? interval < 60_000
+      ? `${Math.ceil(interval / 1000)} seconds`
+      : `${Math.ceil(interval / 60_000)} minutes`
+    : "";
+  const status =
+    freshness?.state === "error"
+      ? `${updated} · ${freshness.error ?? "Refresh failed"}`
+      : freshness?.state === "syncing"
+        ? age === null && prCount > 0
+          ? `Loaded ${prCount.toLocaleString()} PRs · Reading checks and conversations…`
+          : `${updated} · Refreshing…`
+        : updated;
+  const retryAt =
+    freshness?.state === "error" && freshness.nextAttemptAt
+      ? ` · Retrying at ${new Date(freshness.nextAttemptAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+      : "";
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      {freshness && (
+        <div
+          role="status"
+          aria-live="off"
+          className="pull-requests-freshness"
+          title={freshness.reason ?? undefined}
+        >
+          {status}
+          {retryAt}
+          {target ? ` · Refresh target ${target}` : ""}
+        </div>
+      )}
       {(contentError || readError) && (
         <div role="alert">
           {contentError || readError}{" "}

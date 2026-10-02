@@ -6,6 +6,14 @@
 
 @custom-variant dark (&:is([data-theme="dark"] *));
 
+.pull-requests-freshness {
+  padding: var(--scope-space-2) var(--scope-space-3);
+  color: var(--scope-muted);
+  background: var(--scope-canvas);
+  font-size: var(--scope-text-detail);
+  line-height: var(--scope-leading-detail);
+}
+
 :root {
   --background: var(--scope-canvas);
   --foreground: var(--scope-text);

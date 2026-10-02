@@ -16,6 +16,10 @@ import type { DiagramDraft } from "./plugins/diagram/draft.ts";
 import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 import type { DiagramMenuAction, DiagramMenuState } from "./menu-contract.ts";
+import type {
+  PullRequestsInterest,
+  PullRequestsDetailUpdate,
+} from "./plugins/pull-requests/interest.ts";
 
 export type ArtifactLibrarySnapshot = {
   artifacts: Artifact[];
@@ -45,6 +49,8 @@ export type ScopeBridge = {
     repository: PullRequestsRepository;
   }) => Promise<Artifact>;
   pullRequestsCommand: (command: PullRequestsCommand) => Promise<PullRequestsReply>;
+  pullRequestsInterest: (input: PullRequestsInterest) => Promise<void>;
+  onPullRequestsDetailUpdate: (listener: (event: PullRequestsDetailUpdate) => void) => () => void;
   onPullRequestsReconnected: (listener: () => void) => () => void;
   onPullRequestsChanged: (listener: (event: PullRequestsEvent) => void) => () => void;
   createPlan: (input: { name: string; title: string; html: string }) => Promise<Artifact>;

@@ -98,6 +98,24 @@ export async function desktopFixture(options: { disableGpu?: boolean; showWindow
         });
       }
       await application.firstWindow();
+      if (process.platform === "linux" || showWindow) {
+        await application.evaluate(({ BrowserWindow }) => {
+          const window = BrowserWindow.getAllWindows()[0]!;
+          if (window.isVisible()) return;
+          return new Promise<void>((resolve, reject) => {
+            const shown = () => {
+              clearTimeout(timer);
+              window.removeListener("show", shown);
+              resolve();
+            };
+            const timer = setTimeout(() => {
+              window.removeListener("show", shown);
+              reject(new Error("Electron did not show its test window within 5 seconds."));
+            }, 5_000);
+            window.once("show", shown);
+          });
+        });
+      }
       return application;
     } catch (error) {
       await application.close().catch(() => {});
