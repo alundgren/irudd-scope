@@ -26,6 +26,7 @@ import { AppUpdates } from "./updates.ts";
 import { AgentTools } from "./agent-tools.ts";
 import { Remotes } from "./remotes.ts";
 import { createApplicationMenu } from "./menu.ts";
+import { registerExternalLinks } from "./external-links.ts";
 
 app.setName("irudd-scope");
 if (process.env.SCOPE_DESKTOP_DATA_DIR)
@@ -151,6 +152,7 @@ async function main() {
       await close(true);
     },
   });
+  const externalLinks = registerExternalLinks(window);
   lifecycle!.onRemoved = (ids) => desktopIpc.cancelTabs(ids);
   lifecycle!.onRetentionChanged = (tabs) => {
     if (!window.isDestroyed()) window.webContents.send("scope:retention-changed", tabs);
@@ -205,6 +207,7 @@ async function main() {
     }
     await Promise.all([updates.cancel(), agentTools.cancel()]);
     desktopIpc.dispose();
+    externalLinks.dispose();
     library.close();
     await remotes.close();
     await voice.close();

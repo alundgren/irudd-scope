@@ -5,7 +5,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 
-test("published HTML runs a complete prototype with external resources, forms, and popups", async () => {
+test("published HTML runs external resources and embedded forms while links open in the browser", async () => {
   const server = createServer((request, response) => {
     response.setHeader("Access-Control-Allow-Origin", "*");
     const url = new URL(request.url!, "http://localhost");
@@ -59,6 +59,16 @@ test("published HTML runs a complete prototype with external resources, forms, a
   let application: Awaited<ReturnType<typeof launch>> | undefined;
   try {
     application = await launch();
+    await application.evaluate(({ shell }) => {
+      Object.assign(globalThis, { prototypeLinks: [] as string[] });
+      shell.openExternal = async (url) => {
+        (globalThis as unknown as { prototypeLinks: string[] }).prototypeLinks.push(url);
+      };
+    });
+    const links = () =>
+      application!.evaluate(
+        () => (globalThis as unknown as { prototypeLinks: string[] }).prototypeLinks,
+      );
     const page = await application.firstWindow();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -112,11 +122,8 @@ test("published HTML runs a complete prototype with external resources, forms, a
       .frameLocator('iframe[title="Form result"]')
       .getByRole("heading", { name: "Submitted Ada" })
       .waitFor();
-    const popupPromise = page.waitForEvent("popup");
     await preview.getByRole("button", { name: "Open popup" }).click();
-    const popup = await popupPromise;
-    await popup.getByRole("heading", { name: "Prototype popup" }).waitFor();
-    await popup.close();
+    await expect.poll(links).toEqual([`${origin}/popup`]);
     await preview.getByRole("button", { name: "Copy text" }).click();
     await preview.getByRole("button", { name: "Copied", exact: true }).waitFor();
     const download = join(directory, "prototype.txt");
@@ -135,7 +142,8 @@ test("published HTML runs a complete prototype with external resources, forms, a
     await preview.getByRole("button", { name: "Count 2" }).waitFor();
 
     await preview.getByRole("link", { name: "Follow link" }).click();
-    await preview.getByRole("heading", { name: "Linked page" }).waitFor();
+    await expect.poll(links).toEqual([`${origin}/popup`, `${origin}/linked`]);
+    await preview.getByRole("heading", { name: "Interactive prototype" }).waitFor();
     expect(await page.getByRole("button", { name: "Search and controls" }).isVisible()).toBe(true);
     expect(errors).toEqual([]);
   } finally {
