@@ -563,7 +563,7 @@ test("version 6 databases migrate additively and reopen current inbox state", as
   const db = new DatabaseSync(join(f.directory, "scope.db"));
   try {
     db.exec(
-      "DROP TABLE pull_requests_receipts; DROP TABLE pull_requests_current; DROP TABLE pull_requests_state; PRAGMA user_version = 6;",
+      "DROP TABLE publications; DROP TABLE pull_requests_receipts; DROP TABLE pull_requests_current; DROP TABLE pull_requests_state; PRAGMA user_version = 6;",
     );
   } finally {
     db.close();
@@ -574,7 +574,7 @@ test("version 6 databases migrate additively and reopen current inbox state", as
   expect((await reopened.list()).items[0].kind).toBe("pull-requests");
   const check = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
   try {
-    expect(check.prepare("PRAGMA user_version").get()?.user_version).toBe(7);
+    expect(check.prepare("PRAGMA user_version").get()?.user_version).toBe(8);
   } finally {
     check.close();
   }

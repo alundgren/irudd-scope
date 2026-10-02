@@ -207,7 +207,7 @@ test("schema 4 upgrades preserve names, tab IDs, order, and drafts with a fresh 
   await store.close();
   const db = new DatabaseSync(join(directory, "scope.db"));
   db.exec(
-    "DROP TABLE plan_drafts; DROP TABLE plan_receipts; DROP TABLE plan_records; DROP TABLE plan_images; DROP TABLE plan_revisions; DROP TABLE plan_state; DROP TABLE pull_requests_receipts; DROP TABLE pull_requests_current; DROP TABLE pull_requests_state; ALTER TABLE live_tabs DROP COLUMN permanent; ALTER TABLE live_tabs DROP COLUMN last_visible_at; ALTER TABLE live_tabs DROP COLUMN trashed_at; PRAGMA user_version = 4;",
+    "DROP TABLE publications; DROP TABLE plan_drafts; DROP TABLE plan_receipts; DROP TABLE plan_records; DROP TABLE plan_images; DROP TABLE plan_revisions; DROP TABLE plan_state; DROP TABLE pull_requests_receipts; DROP TABLE pull_requests_current; DROP TABLE pull_requests_state; ALTER TABLE live_tabs DROP COLUMN permanent; ALTER TABLE live_tabs DROP COLUMN last_visible_at; ALTER TABLE live_tabs DROP COLUMN trashed_at; PRAGMA user_version = 4;",
   );
   db.close();
   const before = Date.now();

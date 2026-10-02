@@ -309,7 +309,7 @@ test("schema 5 migration preserves ordinary artifact content, named metadata and
   const db = new DatabaseSync(filename);
   try {
     db.exec(
-      "DROP TABLE plan_drafts; DROP TABLE plan_receipts; DROP TABLE plan_records; DROP TABLE plan_images; DROP TABLE plan_revisions; DROP TABLE plan_state; DROP TABLE pull_requests_receipts; DROP TABLE pull_requests_current; DROP TABLE pull_requests_state; PRAGMA user_version = 5;",
+      "DROP TABLE publications; DROP TABLE plan_drafts; DROP TABLE plan_receipts; DROP TABLE plan_records; DROP TABLE plan_images; DROP TABLE plan_revisions; DROP TABLE plan_state; DROP TABLE pull_requests_receipts; DROP TABLE pull_requests_current; DROP TABLE pull_requests_state; PRAGMA user_version = 5;",
     );
     db.prepare(
       "UPDATE live_tabs SET permanent = 1, last_visible_at = 123, trashed_at = 456 WHERE artifact_id = ?",
@@ -329,7 +329,7 @@ test("schema 5 migration preserves ordinary artifact content, named metadata and
     });
     const migrated = new DatabaseSync(filename, { readOnly: true });
     try {
-      expect(migrated.prepare("PRAGMA user_version").get()?.user_version).toBe(7);
+      expect(migrated.prepare("PRAGMA user_version").get()?.user_version).toBe(8);
     } finally {
       migrated.close();
     }
