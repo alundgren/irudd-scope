@@ -857,7 +857,7 @@ test("captured detail rejects changed base before cache or remote read even when
   await f.store.commitCurrent(tabId, repository, old, changed);
   await expect(
     f.service.detail(tabId, "PR_1", { headOid: old.headOid, baseOid: old.baseOid }),
-  ).rejects.toThrow("commits changed");
+  ).rejects.toThrow("comparison changed");
   expect(calls).toBe(0);
   f.store.setHandlers({
     sync: (id) => f.service.sync(id),
@@ -872,7 +872,7 @@ test("captured detail rejects changed base before cache or remote read even when
       requestId: randomUUID(),
       captured: { headOid: old.headOid, baseOid: old.baseOid },
     }),
-  ).rejects.toThrow("commits changed");
+  ).rejects.toThrow("comparison changed");
   expect(calls).toBe(0);
   await f.store.command({
     name: "captured-base",

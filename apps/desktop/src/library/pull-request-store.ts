@@ -478,7 +478,7 @@ export class PullRequestStore {
       )
         throw new ScopeError(
           409,
-          "Pull request commits changed. Open details for the captured commits again.",
+          "This comparison changed. Load the latest comparison to view its details.",
         );
       const detail = decode(
         PullRequestDetail,
