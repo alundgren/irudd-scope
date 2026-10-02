@@ -268,6 +268,20 @@ export class PlanStore {
             event = "response";
             break;
           }
+          case "delete-comment": {
+            const [row] = yield* sql<{
+              document: string;
+            }>`SELECT document FROM plan_records WHERE tab_id = ${tabId} AND kind = 'comment' AND id = ${command.commentId}`;
+            const comment = row ? decode(PlanComment, JSON.parse(row.document)) : undefined;
+            if (!comment) return yield* fail("This comment does not belong to the plan.");
+            const [submitted] =
+              yield* sql`SELECT 1 FROM plan_records, json_each(plan_records.document, '$.commentIds') AS comments WHERE tab_id = ${tabId} AND kind = 'round' AND value = ${command.commentId} LIMIT 1`;
+            if (submitted)
+              return yield* fail("A submitted comment cannot be deleted. Resolve it instead.");
+            yield* sql`DELETE FROM plan_records WHERE tab_id = ${tabId} AND kind = 'comment' AND id = ${command.commentId}`;
+            yield* sql`DELETE FROM plan_images WHERE tab_id = ${tabId} AND ${sql.in("blob_id", [comment.image.id, comment.originalImage.id])} AND NOT EXISTS (SELECT 1 FROM plan_records WHERE plan_records.tab_id = plan_images.tab_id AND kind = 'comment' AND (json_extract(document, '$.image.id') = plan_images.blob_id OR json_extract(document, '$.originalImage.id') = plan_images.blob_id))`;
+            break;
+          }
           case "resolve": {
             const [row] = yield* sql<{
               document: string;

@@ -296,7 +296,8 @@ request, with no reserved column or comment list. The page stays mounted when
 controls toggle, a comment is canceled, or an agent responds.
 
 The pin control freezes the visible page at its current revision. Clicking the
-capture places one pin, with a small comment editor beside it. Adding a comment
+capture places one pin and opens a small comment editor beside it. Before
+placement, the capture shows only the crosshair cursor. Adding a comment
 saves it for the next feedback round. Enter adds it; Shift+Enter adds a line.
 The original image, marked image, geometry and text stay together. Unresolved
 pins, including unsent drafts, remain over the live page and move with document
@@ -310,6 +311,9 @@ position metadata.
 Unfinished comments persist across restart. Back to plan retains the draft;
 Discard comment removes it and returns to the same live page.
 
+Queued comments offer Delete comment in both their pin and Feedback. Deleting
+removes the comment and any screenshots no other comment uses. Submitted comments
+offer Resolve comment or Reopen comment and retain their feedback history.
 The person explicitly sends queued comments as a feedback round. Awaiting agent
 means feedback is saved for an external agent; Scope does not claim one is
 running. Send submits collected comments together, up to 100 per round. Copy submits

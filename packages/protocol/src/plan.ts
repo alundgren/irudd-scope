@@ -130,6 +130,11 @@ export const PlanCommand = Schema.Union([
     html: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(32 * 1024 * 1024))),
   }),
   Schema.Struct({
+    action: Schema.Literal("delete-comment"),
+    ...Write,
+    commentId: PlanRecordId,
+  }),
+  Schema.Struct({
     action: Schema.Literal("resolve"),
     ...Write,
     commentId: PlanRecordId,

@@ -482,9 +482,13 @@ original screenshot, marked screenshot, normalized annotations, text and source
 revision. Optional `viewport` metadata records `scrollX`, `scrollY`, `width`
 and `height` in CSS pixels for placing marks over the same document revision.
 Comments and drafts saved without this metadata remain readable; no database
-migration is required. The desktop offers boxes and pins for new marks, while
-existing arrow annotations remain supported by the protocol and screenshot renderer.
+migration is required. The desktop places a pin before opening its comment editor;
+existing box and arrow annotations remain supported by the protocol and screenshot renderer.
 A submitted round contains distinct comments from one revision.
+`delete-comment` takes `commentId` and removes an unsent comment. It returns 409
+for a comment in any submitted round or a comment outside the named plan.
+Screenshots shared by other comments stay available; unused screenshots become
+eligible for reclamation. Existing records and request receipts remain compatible.
 Responses must reply to every comment in that round. Optional HTML replacement
 checks `expectedRevision` and commits with the replies. Text-only responses may
 reference retained older revisions. Restore appends history rather than deleting
