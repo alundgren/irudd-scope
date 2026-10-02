@@ -31,10 +31,22 @@ async function installTransferResponses(app: ElectronApplication, artifact?: Art
       createdAt: Date.now(),
     };
     if (artifact) devices.peers.push(peer);
+    const expiresAt = Date.now() + 15 * 60_000;
     const invitation = (pairing = false) => ({
       id: "44444444-4444-4444-8444-444444444444",
-      url: `scope-transfer://v1/#synthetic-${pairing ? "pair" : "tab"}-public-link`,
-      expiresAt: Date.now() + 15 * 60_000,
+      url: `scope-transfer://v1/#${Buffer.from(
+        JSON.stringify({
+          version: 1,
+          mode: pairing ? "pair" : "tab",
+          id: "44444444-4444-4444-8444-444444444444",
+          pairId: peer.id,
+          sourceId: devices.deviceId,
+          expiresAt,
+          address: "tc" + "synthetic-public-address-".repeat(6),
+          mac: "A".repeat(43),
+        }),
+      ).toString("base64url")}`,
+      expiresAt,
       state: control.state,
     });
     const handlers = {
@@ -149,7 +161,11 @@ test("Send tab leaves the current tab open when pending workspace writes fail", 
       .getByText("Could not save the workspace.")
       .waitFor();
     expect((await controls(app)).sent).toBe(0);
-    expect(await page.getByRole("tab", { name: "Current review", exact: true }).count()).toBe(1);
+    expect(
+      await page
+        .getByRole("tab", { name: "Current review", exact: true, includeHidden: true })
+        .count(),
+    ).toBe(1);
     await app.evaluate(({ ipcMain }) => {
       ipcMain.removeHandler("scope:save-workspace");
       ipcMain.handle("scope:save-workspace", () => {});
@@ -187,8 +203,8 @@ test("Other Scopes creates a public invitation, copies the secret through main, 
       "secret",
     );
     await page.getByRole("button", { name: "Copy link", exact: true }).click();
-    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toContain(
-      "synthetic-pair-public-link",
+    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+      await page.getByLabel("Pairing link", { exact: true }).inputValue(),
     );
     await page.getByRole("button", { name: "Copy pairing secret", exact: true }).click();
     expect((await controls(app)).copied).toBe(1);
@@ -248,8 +264,8 @@ test("Send tab shows QR, cancellation, expiry, import progress, and completion w
     };
     await send();
     await page.getByRole("button", { name: "Copy link", exact: true }).click();
-    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toContain(
-      "synthetic-tab-public-link",
+    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+      await page.getByLabel("Transfer link", { exact: true }).inputValue(),
     );
     await screenshot(page, "transfer-send-light.png");
     await page.getByRole("button", { name: "Close", exact: true }).click();
