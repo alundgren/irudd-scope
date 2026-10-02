@@ -361,7 +361,10 @@ export class PullRequestSync {
   private tick() {
     if (this.paused) return;
     if (this.waitUntil() > this.now()) {
-      void this.checkAccount().then(() => this.publishCadence()).catch(() => {}).finally(() => this.arm());
+      void this.checkAccount()
+        .then(() => this.publishCadence())
+        .catch(() => {})
+        .finally(() => this.arm());
       return;
     }
     for (const group of this.groups.values()) {
@@ -599,6 +602,7 @@ export class PullRequestSync {
     await this.reconcile();
     const group = [...this.groups.values()].find((group) => group.tabs.has(tabId));
     if (!group) throw new GitHubReadError("Choose a repository before refreshing pull requests.");
+    if (!this.paused && this.reserveUntil > this.now()) await this.publishCadence();
     if (this.paused || this.reserveUntil > this.now()) return this.store.snapshotByTab(tabId);
     await (group.run ?? this.run(group));
     return this.store.snapshotByTab(tabId);
