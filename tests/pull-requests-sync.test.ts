@@ -53,6 +53,8 @@ function pr(
   options: { draft?: boolean; mergeable?: string; checkHead?: string; checkState?: string } = {},
 ) {
   return {
+    state: "OPEN",
+    reviewThreads: { nodes: [] as { isResolved: boolean }[], pageInfo: complete },
     id: `PR_${number}`,
     repository: { id: "R_PROJECT" },
     number,
@@ -104,6 +106,7 @@ function inventory(
   return {
     data: {
       viewer: { login: "viewer" },
+      rateLimit: { cost: 1, limit: 5000, remaining: 4999, resetAt: "2026-10-03T00:00:00Z" },
       repository: {
         id,
         owner: { login: resolved.owner },
@@ -117,6 +120,8 @@ function inventory(
 function threads(number: number, resolved: boolean[], pageInfo = complete) {
   return {
     data: {
+      viewer: { login: "viewer" },
+      rateLimit: { cost: 1, limit: 5000, remaining: 4999, resetAt: "2026-10-03T00:00:00Z" },
       repository: {
         pullRequest: {
           id: `PR_${number}`,
@@ -175,6 +180,10 @@ describe("fixed GitHub reads", () => {
       hasNextPage: true,
       endCursor: "inventory-two",
     });
+    first.data.repository.pullRequests.nodes[0].reviewThreads = {
+      nodes: [],
+      pageInfo: { hasNextPage: true, endCursor: "threads-two" },
+    };
     const second = inventory([pr(2, { mergeable: "CONFLICTING", checkState: "FAILURE" })]);
     const gh = await fakeGh(`
 if (args.some(a => a.includes('ScopeOpenPullRequests'))) {
@@ -198,9 +207,11 @@ if (args.some(a => a.includes('ScopeOpenPullRequests'))) {
       hasUnresolvedConversations: false,
     });
     const calls = await gh.calls();
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(3);
     expect(
-      calls.every((args) => args.slice(0, 4).join(" ") === "api graphql --hostname github.com"),
+      calls.every(
+        (args) => args.slice(0, 5).join(" ") === "api graphql --include --hostname github.com",
+      ),
     ).toBe(true);
     expect(calls[0].find((arg) => arg.startsWith("query="))).toContain("states: OPEN");
     expect(calls[0]).toContain("owner=example");
@@ -208,8 +219,10 @@ if (args.some(a => a.includes('ScopeOpenPullRequests'))) {
   });
 
   test("unavailable thread data stays unknown while complete current inventory survives", async () => {
+    const row = pr(1, { mergeable: "MERGEABLE" });
+    row.reviewThreads = { nodes: [], pageInfo: { hasNextPage: true, endCursor: "fail" } };
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else { console.error('permission denied GH_TOKEN=secret'); process.exit(1); }`,
+      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([row]))})); else { console.error('permission denied GH_TOKEN=secret'); process.exit(1); }`,
     );
     const result = await new GitHubPullRequests(gh.process).inventory(repository, signal());
     expect(result.prs[0].hasUnresolvedConversations).toBeNull();
@@ -217,8 +230,13 @@ if (args.some(a => a.includes('ScopeOpenPullRequests'))) {
   });
 
   test("observed unresolved threads remain true if a later thread page fails", async () => {
+    const row = pr(1, { mergeable: "MERGEABLE" });
+    row.reviewThreads = {
+      nodes: [{ isResolved: false }],
+      pageInfo: { hasNextPage: true, endCursor: "fail" },
+    };
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else if(args.includes('cursor=fail')) process.exit(1); else console.log(JSON.stringify(${JSON.stringify(threads(1, [false], { hasNextPage: true, endCursor: "fail" }))}));`,
+      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([row]))})); else if(args.includes('cursor=fail')) process.exit(1); else console.log(JSON.stringify(${JSON.stringify(threads(1, [false], { hasNextPage: true, endCursor: "fail" }))}));`,
     );
     expect(
       (await new GitHubPullRequests(gh.process).inventory(repository, signal())).prs[0]
@@ -235,8 +253,8 @@ if (args.some(a => a.includes('ScopeOpenPullRequests'))) {
     });
     const gh = await fakeGh(`
 if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([row]))}));
-else if(args.some(a => a.includes('ScopePullRequestLabels'))) console.log(JSON.stringify({data:{repository:{pullRequest:{id:'PR_1',labels:{nodes:[{name:'later-label'}],pageInfo:${JSON.stringify(complete)}}}}}}));
-else if(args.some(a => a.includes('ScopePullRequestReviewers'))) console.log(JSON.stringify({data:{repository:{pullRequest:{id:'PR_1',reviewRequests:{nodes:[{requestedReviewer:{login:'later-reviewer'}},{requestedReviewer:{slug:'maintainers',organization:{login:'another-org'}}}],pageInfo:${JSON.stringify(complete)}}}}}}));
+else if(args.some(a => a.includes('ScopePullRequestLabels'))) console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2026-10-03T00:00:00Z'},repository:{pullRequest:{id:'PR_1',labels:{nodes:[{name:'later-label'}],pageInfo:${JSON.stringify(complete)}}}}}}));
+else if(args.some(a => a.includes('ScopePullRequestReviewers'))) console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2026-10-03T00:00:00Z'},repository:{pullRequest:{id:'PR_1',reviewRequests:{nodes:[{requestedReviewer:{login:'later-reviewer'}},{requestedReviewer:{slug:'maintainers',organization:{login:'another-org'}}}],pageInfo:${JSON.stringify(complete)}}}}}}));
 else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
     const result = await new GitHubPullRequests(gh.process).inventory(repository, signal());
     expect(result.prs[0].labels).toEqual(["bug", "later-label"]);
@@ -247,7 +265,7 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
       "another-org/maintainers",
     ]);
     const calls = await gh.calls();
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(3);
     for (const args of calls.filter((args) =>
       args.some(
         (arg) => arg.includes("ScopeOpenPullRequests") || arg.includes("ScopePullRequestReviewers"),
@@ -261,8 +279,10 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
   test("head movement while reading threads makes CI and merge status unknown", async () => {
     const moved = threads(1, [false]);
     moved.data.repository.pullRequest.headRefOid = oldHead;
+    const row = pr(1, { mergeable: "MERGEABLE" });
+    row.reviewThreads = { nodes: [], pageInfo: { hasNextPage: true, endCursor: "fail" } };
     const gh = await fakeGh(
-      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1, { mergeable: "MERGEABLE" })]))})); else console.log(JSON.stringify(${JSON.stringify(moved)}));`,
+      `if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([row]))})); else console.log(JSON.stringify(${JSON.stringify(moved)}));`,
     );
     const result = await new GitHubPullRequests(gh.process).inventory(repository, signal());
     expect(result.prs[0]).toMatchObject({
@@ -274,6 +294,7 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
 
   test.each([
     ["invalid JSON", "console.log('{')"],
+    ["null JSON", "console.log('null')"],
     [
       "GraphQL errors with HTTP success",
       "console.log(JSON.stringify({data:{},errors:[{message:'secret'}]}))",
@@ -305,12 +326,18 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
   });
 
   test("reads ordinary REST detail responses with extra fields through GitHub.com despite GH_HOST", async () => {
-    const view = { id: "PR_1", state: "OPEN", headRefOid: head, body: "Review this change" };
+    const view = {
+      id: "PR_1",
+      state: "OPEN",
+      headRefOid: head,
+      baseRefOid: base,
+      body: "Review this change",
+    };
     const gh = await fakeGh(`
 if(process.env.GH_HOST !== 'github.example.com') throw new Error('Expected non-default host');
 if(args[0] === 'pr' && !args.includes('github.com/example/project')) throw new Error('Wrong host');
 if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));
-else if(args[0] === 'pr' && args[1] === 'view') console.log(JSON.stringify(${JSON.stringify(view)}));
+else if(args.some(a=>a.includes('ScopePullRequestReviewBody'))) console.log(JSON.stringify({data:{viewer:{login:"viewer"},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:"2026-10-03T00:00:00Z"},repository:{pullRequest:${JSON.stringify(view)}}}}));
 else if(args[0] === 'pr' && args[1] === 'diff') console.log('diff --git a/test b/test');
 else if(args.some(a => a.includes('/files?'))) console.log(JSON.stringify([{sha:'${head}',filename:'test.ts',additions:0,deletions:0,changes:0,status:'modified',blob_url:'https://github.com/example/project/blob/${head}/test.ts',raw_url:'https://github.com/example/project/raw/${head}/test.ts',contents_url:'https://api.github.com/repos/example/project/contents/test.ts',patch:'@@ -1 +1 @@'}]));
 else if(args.some(a => a.includes('/reviews?'))) console.log(JSON.stringify([{id:2,node_id:'REVIEW_2',user:{login:'reviewer',id:7,node_id:'USER_7',avatar_url:'https://avatars.githubusercontent.com/u/7',type:'User',site_admin:false},state:'APPROVED',body:'Looks good',submitted_at:'2026-10-01T12:00:00Z',commit_id:'${head}',html_url:'https://github.com/example/project/pull/1#pullrequestreview-2',pull_request_url:'https://api.github.com/repos/example/project/pulls/1',author_association:'MEMBER',_links:{html:{href:'https://github.com/example/project/pull/1#pullrequestreview-2'}}}]));
@@ -329,7 +356,9 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
       });
       expect(detail.diff).toContain("diff --git");
       const calls = await gh.calls();
-      expect(calls.filter((args) => args[1] === "view")).toHaveLength(2);
+      expect(
+        calls.filter((args) => args.some((a) => a.includes("ScopePullRequestReviewBody"))),
+      ).toHaveLength(2);
       expect(calls.find((args) => args[1] === "diff")).toEqual([
         "pr",
         "diff",
@@ -345,22 +374,182 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
     }
   });
 
-  test("refuses detail when the head changes during diff collection", async () => {
-    const view = { id: "PR_1", state: "OPEN", headRefOid: head, body: "Original" };
-    const gh = await fakeGh(`
+  test.each(["head", "base"])(
+    "refuses detail when the %s changes during diff collection",
+    async (commit) => {
+      const view = {
+        id: "PR_1",
+        state: "OPEN",
+        headRefOid: head,
+        baseRefOid: base,
+        body: "Original",
+      };
+      const gh = await fakeGh(`
 import { existsSync, writeFileSync } from 'node:fs';
 const marker = process.argv[1] + '.viewed';
 if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));
-else if(args[1] === 'view') { const moved = existsSync(marker); writeFileSync(marker, 'yes'); console.log(JSON.stringify({...${JSON.stringify(view)},headRefOid:moved?'${oldHead}':'${head}'})); }
+else if(args.some(a=>a.includes('ScopePullRequestReviewBody'))) { const moved = existsSync(marker); writeFileSync(marker, 'yes'); console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2026-10-03T00:00:00Z'},repository:{pullRequest:{...${JSON.stringify(view)},headRefOid:moved && '${commit}'==='head'?'${oldHead}':'${head}',baseRefOid:moved && '${commit}'==='base'?'${oldHead}':'${base}'}}}})); }
 else if(args[1] === 'diff') console.log('diff --git a/test b/test');
 else if(args.some(a => a.includes('/files?'))) console.log(JSON.stringify([{filename:'test',additions:0,deletions:0,status:'modified'}]));
 else if(args.some(a => a.includes('/reviews?'))) console.log('[]');
 else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
+      const service = new GitHubPullRequests(gh.process);
+      const current = (await service.inventory(repository, signal())).prs[0];
+      await expect(service.detail(repository, current, signal())).rejects.toThrow(
+        "changed while loading",
+      );
+    },
+  );
+});
+
+describe("batched and targeted GitHub reads", () => {
+  test.each([1051, 2526])(
+    "reads every one of %i PRs in bounded pages without first-thread subprocesses",
+    async (count) => {
+      const gh = await fakeGh(`
+const query = args.find(a=>a.startsWith('query='));
+if(!query.includes('pullRequests(states: OPEN, first: 25') || !query.includes('reviewThreads(first: 100)') || !query.includes('rateLimit { cost limit remaining resetAt }')) throw new Error('Missing bounded query');
+const offset = Number(args.find(a=>a.startsWith('cursor='))?.slice(7) ?? 0);
+const rows = Array.from({length:Math.min(25,${count}-offset)},(_,i)=>({...${JSON.stringify(pr(1))},id:'PR_'+(offset+i+1),number:offset+i+1,url:'https://github.com/example/project/pull/'+(offset+i+1)}));
+console.log(JSON.stringify({...${JSON.stringify(inventory([]))},data:{...${JSON.stringify(inventory([]).data)},repository:{...${JSON.stringify(inventory([]).data.repository)},pullRequests:{nodes:rows,pageInfo:{hasNextPage:offset+25<${count},endCursor:String(offset+25)}}}}}));`);
+      const result = await new GitHubPullRequests(gh.process).inventory(repository, signal());
+      expect(result.prs).toHaveLength(count);
+      expect(result.prs.at(-1)?.number).toBe(count);
+      expect(result.prs.every((row) => row.hasUnresolvedConversations === false)).toBe(true);
+      expect(result.cost).toBe(Math.ceil(count / 25));
+      expect(await gh.calls()).toHaveLength(Math.ceil(count / 25));
+    },
+  );
+
+  test("current reads see reopened conversations without updatedAt changing and only remove explicitly closed PRs", async () => {
+    const row = pr(1);
+    const initial = inventory([row]);
+    const target = {
+      data: {
+        ...initial.data,
+        repository: {
+          ...initial.data.repository,
+          pullRequest: {
+            ...row,
+            reviewThreads: { nodes: [{ isResolved: false }], pageInfo: complete },
+          },
+        },
+      },
+    };
+    const gh = await fakeGh(`
+if(args.some(a=>a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(initial)}));
+else console.log(JSON.stringify(${JSON.stringify(target)}));`);
     const service = new GitHubPullRequests(gh.process);
-    const current = (await service.inventory(repository, signal())).prs[0];
-    await expect(service.detail(repository, current, signal())).rejects.toThrow(
-      "changed while loading",
+    const first = (await service.inventory(repository, signal())).prs[0];
+    const current = await service.current(repository, first, signal());
+    expect(current?.updatedAt).toBe(first.updatedAt);
+    expect(current?.hasUnresolvedConversations).toBe(true);
+    expect(current!.merge.observedAt > first.merge.observedAt).toBe(true);
+    expect(current?.checks.observedAt).toBe(current?.merge.observedAt);
+    const closed = await fakeGh(
+      `console.log(JSON.stringify(${JSON.stringify({ ...target, data: { ...target.data, repository: { ...target.data.repository, pullRequest: { ...target.data.repository.pullRequest, state: "CLOSED" } } } })}));`,
     );
+    expect(
+      await new GitHubPullRequests(closed.process).current(repository, first, signal()),
+    ).toBeNull();
+    const missing = await fakeGh(
+      `console.log(JSON.stringify(${JSON.stringify({ ...target, data: { ...target.data, repository: { ...target.data.repository, pullRequest: null } } })}));`,
+    );
+    await expect(
+      new GitHubPullRequests(missing.process).current(repository, first, signal()),
+    ).rejects.toThrow("did not return");
+  });
+
+  test("queued inspected facts run between inventory pages and retain their later root timestamp", async () => {
+    const row = pr(1);
+    const first = inventory([row], { hasNextPage: true, endCursor: "page-two" });
+    const target = {
+      data: { ...first.data, repository: { ...first.data.repository, pullRequest: row } },
+    };
+    const gh = await fakeGh(`
+import {existsSync} from 'node:fs';
+if(args.some(a=>a.includes('ScopeCurrentPullRequest'))) console.log(JSON.stringify(${JSON.stringify(target)}));
+else if(args.includes('cursor=page-two')) console.log(JSON.stringify(${JSON.stringify(inventory([pr(2)]))}));
+else { const wait=setInterval(()=>{if(existsSync(process.argv[1]+'.release')){clearInterval(wait);console.log(JSON.stringify(${JSON.stringify(first)}));}},10); }`);
+    const service = new GitHubPullRequests(gh.process);
+    const cachedGh = await fakeGh(
+      `console.log(JSON.stringify(${JSON.stringify(inventory([row]))}));`,
+    );
+    const cached = (await new GitHubPullRequests(cachedGh.process).inventory(repository, signal()))
+      .prs[0];
+    const pending = service.inventory(repository, signal());
+    await waitForCalls(gh, 1);
+    const inspected = service.current(repository, cached, signal());
+    await gh.release();
+    const [inventoryResult, current] = await Promise.all([pending, inspected]);
+    expect(
+      (await gh.calls()).map(
+        (args) => args.find((a) => a.startsWith("query="))?.match(/query (\w+)/)?.[1],
+      ),
+    ).toEqual(["ScopeOpenPullRequests", "ScopeCurrentPullRequest", "ScopeOpenPullRequests"]);
+    expect(current!.merge.observedAt > inventoryResult.prs[0].merge.observedAt).toBe(true);
+  });
+
+  test("an account change on thread overflow rejects inventory and reports its new account", async () => {
+    const row = pr(1);
+    row.reviewThreads.pageInfo = { hasNextPage: true, endCursor: "overflow" };
+    const overflow = threads(1, []);
+    overflow.data.viewer.login = "different";
+    const gh = await fakeGh(
+      `console.log(JSON.stringify(args.some(a=>a.includes('ScopeOpenPullRequests'))?${JSON.stringify(inventory([row]))}:${JSON.stringify(overflow)}));`,
+    );
+    const observations: string[] = [];
+    const service = new GitHubPullRequests(gh.process, (observation) =>
+      observations.push(observation.account),
+    );
+    await expect(service.inventory(repository, signal())).rejects.toMatchObject({
+      kind: "account",
+      account: "different",
+    });
+    expect(observations).toEqual(["viewer", "different"]);
+  });
+
+  test("GraphQL success with throttling errors reaches the scheduler even during thread overflow", async () => {
+    const row = pr(1);
+    row.reviewThreads.pageInfo = { hasNextPage: true, endCursor: "overflow" };
+    const failure = {
+      data: {
+        viewer: { login: "viewer" },
+        rateLimit: { cost: 1, limit: 5000, remaining: 0, resetAt: "2099-10-02T00:00:00Z" },
+      },
+      errors: [{ type: "RATE_LIMITED", message: "rate limit secret GH_TOKEN=credential" }],
+    };
+    const gh = await fakeGh(
+      `console.log(JSON.stringify(args.some(a=>a.includes('ScopeOpenPullRequests'))?${JSON.stringify(inventory([row]))}:${JSON.stringify(failure)}));`,
+    );
+    await expect(
+      new GitHubPullRequests(gh.process).inventory(repository, signal()),
+    ).rejects.toMatchObject({ kind: "throttle", retryAt: Date.parse("2099-10-02T00:00:00Z") });
+  });
+
+  test("reviews refresh preserves each submitted commit and never reads files or diff", async () => {
+    const view = {
+      id: "PR_1",
+      state: "OPEN",
+      headRefOid: head,
+      baseRefOid: base,
+      body: "Current body",
+    };
+    const gh = await fakeGh(`
+if(args.some(a=>a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));
+else if(args.some(a=>a.includes('ScopePullRequestReviewBody'))) console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2099-10-02T00:00:00Z'},repository:{pullRequest:${JSON.stringify(view)}}}}));
+else if(args.some(a=>a.includes('/reviews?'))) console.log(JSON.stringify([{id:7,user:{login:'reviewer'},state:'APPROVED',body:'old commit approval',submitted_at:'2026-10-01T12:00:00Z',commit_id:'${oldHead}'}]));
+else throw new Error('Unexpected file or diff read');`);
+    const service = new GitHubPullRequests(gh.process);
+    const first = (await service.inventory(repository, signal())).prs[0];
+    const result = await service.reviews(repository, first, signal());
+    expect(result.body).toBe("Current body");
+    expect(result.reviews[0].headOid).toBe(oldHead);
+    expect(
+      (await gh.calls()).some(
+        (args) => args.includes("diff") || args.some((a) => a.includes("/files?")),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -368,6 +557,44 @@ describe("GitHub process failures", () => {
   test("does not return CLI stderr containing credentials", async () => {
     const gh = await fakeGh("console.error('HTTP 401 GH_TOKEN=super-secret'); process.exit(1)");
     await expect(gh.process.run([], signal())).rejects.toThrow("Sign in with gh auth login");
+  });
+
+  test.each([
+    ["HTTP/2 429\nRetry-After: 120\nGH_TOKEN=secret", "throttle"],
+    ["HTTP/2 403\nx-ratelimit-remaining: 0\nx-ratelimit-reset: 4090000000", "throttle"],
+    ["HTTP/2 403\npermission denied GH_TOKEN=secret", "permission"],
+    ["HTTP/2 429\nRetry-After: invalid GH_TOKEN=secret", "throttle"],
+    ["dial tcp: network timeout GH_TOKEN=secret", "network"],
+  ])("classifies bounded diagnostics for %s", async (failure, kind) => {
+    const gh = await fakeGh(`console.error(${JSON.stringify(failure)}); process.exit(1);`);
+    try {
+      await gh.process.run([], signal());
+      throw new Error("Expected failure");
+    } catch (error) {
+      expect(error).toMatchObject({ kind });
+      expect(JSON.stringify(error)).not.toContain("secret");
+      if (kind === "throttle")
+        expect((error as { retryAt: number }).retryAt).toBeGreaterThan(Date.now());
+    }
+  });
+
+  test("runs one subprocess at a time and gives queued inspected reads priority", async () => {
+    const gh = await fakeGh(`
+import {existsSync,writeFileSync,unlinkSync} from 'node:fs';
+const lock = process.argv[1]+'.active';
+if(existsSync(lock)) throw new Error('Concurrent subprocess');
+writeFileSync(lock,'active');
+setTimeout(()=>{unlinkSync(lock);console.log(args[0]);},100);`);
+    const first = gh.process.run(["first"], signal());
+    await waitForCalls(gh, 1);
+    const inventoryPage = gh.process.run(["inventory"], signal(), 0);
+    const inspected = gh.process.run(["current"], signal(), 1);
+    expect(await Promise.all([first, inventoryPage, inspected])).toEqual([
+      "first\n",
+      "inventory\n",
+      "current\n",
+    ]);
+    expect((await gh.calls()).map((args) => args[0])).toEqual(["first", "current", "inventory"]);
   });
 
   test("reports a missing executable", async () => {
@@ -520,7 +747,7 @@ describe("tab-owned GitHub synchronization", () => {
       expect(refreshed.prs[0].agent).toEqual(before.prs[0].agent);
       const calls = await gh.calls();
       expect(calls[0]).toContain("owner=previous-owner");
-      expect(calls[2]).toContain("owner=example");
+      expect(calls[1]).toContain("owner=example");
     } finally {
       await f.close();
     }
@@ -578,7 +805,7 @@ describe("tab-owned GitHub synchronization", () => {
         tabId: f.snapshot.tabId,
         requestId: randomUUID(),
       });
-      await waitForCalls(gh, 3);
+      await waitForCalls(gh, 2);
       await f.server.store.pullRequests.command({
         action: "note",
         name: "test-inbox",
@@ -609,7 +836,7 @@ describe("tab-owned GitHub synchronization", () => {
           snooze: { until: "2026-10-02T12:00:00Z" },
         },
       });
-      expect(await gh.calls()).toHaveLength(4);
+      expect(await gh.calls()).toHaveLength(2);
     } finally {
       await f.close();
     }
@@ -694,7 +921,7 @@ describe("tab-owned GitHub synchronization", () => {
         text: "Retained note",
       });
       const refreshing = f.service.sync(f.snapshot.tabId).catch(() => null);
-      await waitForCalls(gh, 3);
+      await waitForCalls(gh, 2);
       await f.server.store.trashTab(f.snapshot.tabId);
       f.service.cancelTabs([f.snapshot.tabId]);
       expect(await refreshing).toBeNull();
