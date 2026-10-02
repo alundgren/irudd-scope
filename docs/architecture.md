@@ -550,3 +550,40 @@ agent host continues its existing tool loop. Running a wait command outside
 that loop does not attach it to a model. This mode does not resume an idle or
 closed host session. Connected-agent selection is temporary; existing named
 or embedded recipient preferences remain in the draft.
+
+## Outbound HTML publication
+
+An existing coding session uses its native Claude Artifact or OpenAI Sites tools
+to publish stored Scope HTML. Scope exports an immutable document and stores
+agent-supplied destination metadata, publication checkpoints, and unresolved
+operations in `scope.db`. It does not launch agents or hold provider credentials.
+
+`packages/protocol/src/publications.ts` owns the commands and snapshots.
+`library/publication-store.ts` owns tab-bound state and retained content through
+the artifact store's serialized SQL transactions. HTTP and paired relays expose
+the same commands while the desktop is online. They do not buffer provider
+operations. The CLI validates explicit command files and exports exact bytes.
+The desktop dialog copies a request for an existing session and records explicit
+overwrite acknowledgement.
+
+Privacy and edit observations come from authenticated native provider tools or
+an authenticated sharing inspection. Scope evaluates those observations; it
+cannot independently monitor either provider. Claude updates need authenticated
+Share-dialog inspection and retain the provider's native version guard. Sites
+uses owner-only deployment enforcement and requires overwrite acknowledgement
+for existing destinations because its deployment tools have no conditional
+content version parameter. Unknown privacy blocks publication. Unknown edit
+metadata warns before replacement.
+
+```mermaid
+flowchart LR
+    Human[Human in Scope] --> Request[Copy agent request]
+    Request --> Agent[Existing coding session]
+    Agent --> Observe[Native tools: audience and remote edits]
+    Observe --> Prepare[Scope: prepare immutable HTML]
+    Prepare --> Warning[Human acknowledges overwrite warning]
+    Warning --> Agent
+    Agent --> Provider[Claude artifact or owner-private Site]
+    Provider --> Result[Confirmed publication result]
+    Result --> Checkpoint[Scope: durable checkpoint]
+```
