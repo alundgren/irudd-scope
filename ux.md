@@ -80,8 +80,13 @@ does not keep refreshing visibility. Scope checks on startup and every minute
 while running, after flushing pending saves. A long offline interval starts a
 full seven days in Trashcan when the tab is actually moved there.
 
-Close controls and Command-W move tabs to Trashcan, preserving artifact content,
-names, drafts, conversations, and saved viewport. Agent updates cannot restore
+Close controls and Command-W move temporary tabs to Trashcan. For permanent
+tabs, they move the tab to the end of the saved order, last in the drawer,
+and select a neighboring tab. Closing a background permanent tab keeps the
+current selection; a sole permanent tab stays selected. This lets permanent
+tools stay available after use. Delete, dropping onto Trashcan, and the explicit
+Move to Trashcan action still trash either kind of tab. These actions preserve
+artifact content, names, drafts, conversations, and saved viewport. Agent updates cannot restore
 trashed tabs or refresh their retention clocks. Restore returns the same tab to
 the right end, selects it, preserves its permanent setting, and restarts the
 one-day allowance for temporary tabs. Trashcan sorts newest first and shows the
@@ -328,8 +333,9 @@ new latest revision and retains the previous versions.
 Each inbox is a permanent named HTML app for one GitHub repository. The initial
 app presents a flat list and named views, with no search or sort controls.
 Agents can replace its HTML and JavaScript while Scope preserves the current
-PR data, notes, snoozes, and review decisions. Closing uses ordinary Trashcan
-retention. Permanently deleting the tab deletes its repository review data.
+PR data, notes, snoozes, and review decisions. Closing moves a permanent inbox
+to the end of the tab queue. Moving it to Trashcan uses ordinary retention.
+Permanently deleting the tab deletes its repository review data.
 
 Selecting the tab syncs current open PRs, including drafts. Sync is also an
 explicit icon action. A failed GitHub read keeps the cached list and places a

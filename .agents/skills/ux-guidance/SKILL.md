@@ -29,7 +29,10 @@ keeps its saved position. Dragging reorders tabs in the strip or drawer; droppin
 onto Trashcan moves a tab there. Hold a dragged tab over the drawer button to
 open it. Focused titles support Alt and arrow keys to reorder and Delete to trash.
 The bookmark sits beside each drawer title and toggles permanence without reordering.
-Closing moves a tab to Trashcan, preserving content and drafts. Restore returns
+Closing moves temporary tabs to Trashcan, preserving content and drafts.
+Closing permanent tabs moves them to the end of the saved order, last in the
+drawer, and selects another tab when available. Explicit trash actions still
+move either kind to Trashcan. Restore returns
 it to the right end. Temporary tabs expire after a day outside the visible strip;
 trash expires after seven days. Emptying requires an inline slider and click. Quitting Scope preserves tabs left open. Focus keeps the artifact mounted, preserves position,
 hides chat, and exposes a small exit clear of editor controls. Escape dismisses

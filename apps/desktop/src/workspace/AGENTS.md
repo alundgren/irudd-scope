@@ -14,8 +14,10 @@ to host subscribers. Derive membership from the workspace, clean up closed
 tab subscriptions, and isolate listener failures. The main-process bridge
 validates the saved sender and group. Events are not persisted or replayed.
 
-`persistence.ts` flushes pending writes before the window closes. Closing an
-individual tab flushes saves and moves it to Trashcan. Failed saves or trash
+`persistence.ts` flushes pending writes before the window closes. Closing a
+temporary tab flushes saves and moves it to Trashcan. Closing a permanent tab
+moves it to the end of the saved workspace order and selects another tab when
+available. Explicit trash actions flush saves for either kind. Failed saves or trash
 writes keep the tab visible for retry. `retention.ts` owns desktop retention
 contracts; `use-tab-retention.ts` reports visibility and requests cleanup after
 saves. Permanent deletion removes tab content atomically. Late saves only update existing tabs. Preserve open
