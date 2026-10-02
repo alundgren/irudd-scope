@@ -1,6 +1,8 @@
+import { PublicationDialog } from "./publication-dialog.tsx";
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
+  Upload,
   Maximize2,
   Minimize2,
   Settings,
@@ -51,6 +53,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const [focus, setFocus] = useState(false);
   const [diagramMode, setDiagramMode] = useState<DiagramMode>("edit");
   const [details, setDetails] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState("");
   useEffect(
     () =>
@@ -278,12 +281,14 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     setSettingsQuery(filter);
     setSettings(true);
     setDetails(false);
+    setPublishing(false);
     setSearch(false);
   }
   function openSearch() {
     setOverflow(false);
     setSettings(false);
     setDetails(false);
+    setPublishing(false);
     setQuery("");
     setSearch(true);
   }
@@ -312,7 +317,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       } else if (command && event.key === ",") {
         event.preventDefault();
         openSettings();
-      } else if (search || settings || details || overflow) return;
+      } else if (search || settings || details || publishing || overflow) return;
       else if (event.key === "Escape" && viewing) {
         event.preventDefault();
         setDiagramMode("edit");
@@ -511,7 +516,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         artifacts={activeArtifacts}
         onOpenArtifact={open}
         onOpenSettings={openSettings}
-        finalFocus={settings || details ? false : returnFocus}
+        finalFocus={settings || details || publishing ? false : returnFocus}
         actions={[
           {
             id: "settings",
@@ -563,6 +568,20 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                           icon: Download,
                           onSelect: () => void download(),
                         },
+                        ...(activeArtifact.kind === "html" || activeArtifact.kind === "plan"
+                          ? [
+                              {
+                                id: "publish",
+                                title: "Publish with coding agent",
+                                keywords: "publish claude artifact codex openai sites sync",
+                                icon: Upload,
+                                onSelect: () => {
+                                  setPublishing(true);
+                                  setSearch(false);
+                                },
+                              },
+                            ]
+                          : []),
                         {
                           id: "details",
                           title: "Artifact details",
@@ -610,6 +629,16 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             }}
           />
         </SettingsDialog>
+      </Dialog>
+      <Dialog open={publishing} onOpenChange={setPublishing}>
+        {activeArtifact && (
+          <PublicationDialog
+            key={activeArtifact.id}
+            artifact={activeArtifact}
+            open={publishing}
+            finalFocus={search ? false : returnFocus}
+          />
+        )}
       </Dialog>
       <Dialog open={details} onOpenChange={setDetails}>
         <DialogContent finalFocus={search ? false : returnFocus}>

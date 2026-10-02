@@ -86,6 +86,14 @@ export function artifactRequest(method: string, path: string): boolean {
   if (method === "POST" && path === "/v1/diagrams/sync") return true;
   if (method === "POST" && path === "/v1/plans") return true;
   if (method === "POST" && path === "/v1/pull-requests") return true;
+  if (method === "POST" && path === "/v1/publications") return true;
+  if (
+    method === "GET" &&
+    /^\/v1\/publications\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}\/operations\/[0-9a-f-]{36}\/content$/.test(
+      path,
+    )
+  )
+    return true;
   if (
     method === "GET" &&
     /^\/v1\/plans\/[a-z0-9][a-z0-9-]{0,127}\/(?:images\/[a-f0-9]{64}|revisions\/[1-9][0-9]*\/content)$/.test(

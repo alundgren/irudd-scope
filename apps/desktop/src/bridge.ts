@@ -1,3 +1,8 @@
+import type {
+  PublicationsCommand,
+  PublicationsReply,
+  PublicationsEvent,
+} from "@irudd-scope/protocol/publications";
 import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
 import type { TabAgentRequest } from "./plugins/diagram/connected-agent.ts";
 import type { DiagramCommandRequest, DiagramCommandResponse } from "./plugins/diagram/commands.ts";
@@ -30,6 +35,9 @@ import type {
 } from "@irudd-scope/protocol/pull-requests";
 
 export type ScopeBridge = {
+  publicationsCommand: (command: PublicationsCommand) => Promise<PublicationsReply>;
+  onPublicationsChanged: (listener: (event: PublicationsEvent) => void) => () => void;
+  onPublicationsReconnected: (listener: () => void) => () => void;
   createPullRequests: (input: {
     name: string;
     title: string;
