@@ -71,6 +71,8 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
       failSync: boolean;
       holdSync: boolean;
       releaseSync: (() => void) | null;
+      holdNextNote: boolean;
+      releaseNote: (() => void) | null;
       reads: number;
       held: { snapshot: Mutable<typeof initial>; resolve: (value: unknown) => void } | null;
       holdRead: boolean;
@@ -87,6 +89,8 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
       failSync: false,
       holdSync: false,
       releaseSync: null,
+      holdNextNote: false,
+      releaseNote: null,
       reads: 0,
       held: null,
       holdRead: false,
@@ -106,7 +110,8 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
         generation: state.snapshot.generation,
       });
     ipcMain.removeHandler("scope:pull-requests-command");
-    ipcMain.handle("scope:pull-requests-command", (_event, command) => {
+    ipcMain.handle("scope:pull-requests-command", async (_event, incoming) => {
+      const command = structuredClone(incoming);
       state.calls.push(structuredClone(command));
       if (command.action !== "read" && command.tabId !== state.snapshot.tabId)
         throw new Error("Synthetic wrong tab incarnation");
@@ -139,6 +144,15 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
           });
         }
       } else {
+        if (command.action === "note" && state.holdNextNote) {
+          state.holdNextNote = false;
+          await new Promise<void>((resolve) => {
+            state.releaseNote = () => {
+              state.releaseNote = null;
+              resolve();
+            };
+          });
+        }
         const row = state.snapshot.prs.find((p) => p.nodeId === command.nodeId)!;
         if (command.action === "detail") {
           if (
@@ -1001,23 +1015,46 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
       .getByRole("button", { name: "Keep the current review stable 1", exact: true })
       .click();
     await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
+    await app.evaluate(() => {
+      (
+        globalThis as unknown as { prInboxTest: { holdNextNote: boolean } }
+      ).prInboxTest.holdNextNote = true;
+    });
     await frame.getByLabel("Your notes").fill("User draft begun at version zero");
-    await frame.getByText("Unsaved edits", { exact: true }).waitFor();
-    expect(
-      await frame
-        .getByLabel("Your notes")
-        .evaluate((element) => element === document.activeElement),
-    ).toBe(true);
-    await app.evaluate(({ BrowserWindow }) => {
+    await frame.getByRole("button", { name: "Diff", exact: true }).click();
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (globalThis as unknown as { prInboxTest: { releaseNote: unknown } }).prInboxTest
+              .releaseNote !== null,
+        ),
+      )
+      .toBe(true);
+    const heldRequests = await app.evaluate(() =>
+      (
+        globalThis as unknown as { prInboxTest: { calls: PullRequestsCommand[] } }
+      ).prInboxTest.calls.filter((call) => call.action === "note"),
+    );
+    expect(heldRequests).toHaveLength(1);
+    expect(heldRequests[0]).toMatchObject({
+      action: "note",
+      text: "User draft begun at version zero",
+      expectedVersion: 0,
+    });
+    const readsBeforeAgentEdit = await app.evaluate(({ BrowserWindow }) => {
       const state = (
-        globalThis as unknown as { prInboxTest: { snapshot: Mutable<PullRequestsSnapshot> } }
+        globalThis as unknown as {
+          prInboxTest: { snapshot: Mutable<PullRequestsSnapshot>; reads: number };
+        }
       ).prInboxTest;
       if (state.snapshot.prs[0].local.noteVersion !== 0)
-        throw new Error("The note was autosaved before the concurrent edit test began.");
+        throw new Error("The held note request changed the saved version before release.");
       state.snapshot.prs[0].local.note = "Agent changed the note";
       state.snapshot.prs[0].local.noteVersion = 1;
       state.snapshot.generation++;
       BrowserWindow.getAllWindows()[0]!.webContents.send("scope:pull-requests-reconnected");
+      return state.reads;
     });
     await expect
       .poll(async () =>
@@ -1025,7 +1062,7 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
           () => (globalThis as unknown as { prInboxTest: { reads: number } }).prInboxTest.reads,
         ),
       )
-      .toBeGreaterThan(1);
+      .toBeGreaterThan(readsBeforeAgentEdit);
     const noteRequests = await app.evaluate(() =>
       (
         globalThis as unknown as { prInboxTest: { calls: PullRequestsCommand[] } }
@@ -1034,8 +1071,13 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
     expect(await frame.getByLabel("Your notes").inputValue(), JSON.stringify(noteRequests)).toBe(
       "User draft begun at version zero",
     );
-    await frame.getByRole("button", { name: "Save note", exact: true }).click();
+    await app.evaluate(() =>
+      (
+        globalThis as unknown as { prInboxTest: { releaseNote: (() => void) | null } }
+      ).prInboxTest.releaseNote?.(),
+    );
     await frame.getByText(/Your edits are kept here/).waitFor();
+    await frame.getByText("Saved note changed: Agent changed the note", { exact: true }).waitFor();
     expect(await frame.getByLabel("Your notes").inputValue()).toBe(
       "User draft begun at version zero",
     );
@@ -1046,6 +1088,13 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
             .snapshot.prs[0].local.note,
       ),
     ).toBe("Agent changed the note");
+    expect(
+      await app.evaluate(
+        () =>
+          (globalThis as unknown as { prInboxTest: { snapshot: PullRequestsSnapshot } }).prInboxTest
+            .snapshot.prs[0].local.noteVersion,
+      ),
+    ).toBe(1);
     await frame.getByRole("button", { name: "Keep my note", exact: true }).click();
     await frame.getByText("Saved", { exact: true }).waitFor();
     expect(
@@ -1055,6 +1104,13 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
             .snapshot.prs[0].local.note,
       ),
     ).toBe("User draft begun at version zero");
+    expect(
+      await app.evaluate(
+        () =>
+          (globalThis as unknown as { prInboxTest: { snapshot: PullRequestsSnapshot } }).prInboxTest
+            .snapshot.prs[0].local.noteVersion,
+      ),
+    ).toBe(2);
     await frame.getByRole("button", { name: "Snooze pull request", exact: true }).click();
     await frame.getByRole("button", { name: "2 hours", exact: true }).click();
     await frame.getByRole("button", { name: "Undo", exact: true }).waitFor();
@@ -1085,6 +1141,11 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
       ),
     ).toBe("2028-01-01T12:00:00.000Z");
   } finally {
+    await app.evaluate(() =>
+      (
+        globalThis as unknown as { prInboxTest?: { releaseNote: (() => void) | null } }
+      ).prInboxTest?.releaseNote?.(),
+    );
     await app.close();
     await rm(fixture.directory, { recursive: true, force: true });
     await rm(fixture.ghDirectory, { recursive: true, force: true });
