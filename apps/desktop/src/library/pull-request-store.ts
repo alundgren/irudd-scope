@@ -402,7 +402,11 @@ export class PullRequestStore {
             const existing = yield* sql<{
               count: number;
             }>`SELECT count(*) AS count FROM pull_requests_current WHERE tab_id = ${tabId}`;
-            if (JSON.parse(current.sync).lastSuccessAt !== null || existing[0].count !== 0)
+            if (
+              current.viewer !== null ||
+              JSON.parse(current.sync).lastSuccessAt !== null ||
+              existing[0].count !== 0
+            )
               return yield* Effect.fail(
                 new ScopeError(
                   409,

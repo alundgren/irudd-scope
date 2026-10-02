@@ -741,6 +741,39 @@ test("configuration arriving during a reconciliation scan is observed before it 
     .toBeTruthy();
 });
 
+test("empty first inventory binds the canonical repository before enrichment succeeds", async () => {
+  const f = await fixture(reader().github),
+    tabId = await f.tab("empty-binding");
+  await f.store.commitInventory(tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [],
+    startedAt: stamp,
+    completedAt: stamp,
+    syncOverride: {
+      state: "syncing",
+      updatedAt: stamp,
+      lastSuccessAt: null,
+      error: null,
+      reason: "Loading remaining GitHub facts",
+    },
+  });
+  const before = await f.store.snapshotByTab(tabId);
+  expect(before.viewer).toBe("viewer");
+  expect(before.prs).toEqual([]);
+  expect(before.sync.lastSuccessAt).toBeNull();
+  await expect(
+    f.store.commitInventory(tabId, {
+      queriedRepository: repository,
+      repository: { owner: "transferred", name: "project" },
+      viewer: "viewer",
+      prs: [],
+      completedAt: "2026-10-02T00:01:00.000Z",
+    }),
+  ).rejects.toThrow("The repository resolved to another name after an earlier sync.");
+  expect(await f.store.snapshotByTab(tabId)).toEqual(before);
+});
+
 test("explicit enrichment closure removes a later base row and preserves only newer reopened facts", async () => {
   const remote = reader(),
     f = await fixture(remote.github),
