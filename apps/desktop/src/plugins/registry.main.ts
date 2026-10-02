@@ -10,6 +10,7 @@ export function registerMainPlugins(context: MainPluginContext) {
   return {
     cancelPending: () => diagrams.cancelPending(),
     cancelPullRequests: () => pullRequests.cancelPending(),
+    resumePullRequests: () => pullRequests.resume(),
     cancelTabs: (ids: string[]) => {
       diagrams.cancelTabs(ids);
       pullRequests.cancelTabs(ids);
