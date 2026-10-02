@@ -562,7 +562,7 @@ export class ArtifactStore {
           yield* sql`DELETE FROM live_tabs WHERE opened = 0 AND created_at <= ${now - UPLOAD_GRACE_MS} AND NOT EXISTS (SELECT 1 FROM artifacts WHERE artifacts.tab_id = live_tabs.id) AND NOT EXISTS (SELECT 1 FROM tab_blobs WHERE tab_blobs.tab_id = live_tabs.id)`;
           const [row] = yield* sql<{
             bytes: number;
-          }>`SELECT coalesce(sum(length(content)), 0) AS bytes FROM blobs WHERE id NOT IN (SELECT blob_id FROM artifacts UNION SELECT blob_id FROM plan_revisions UNION SELECT blob_id FROM plan_images)`;
+          }>`SELECT coalesce(sum(length(content)), 0) AS bytes FROM blobs WHERE id NOT IN (SELECT blob_id FROM artifacts UNION SELECT blob_id FROM plan_revisions UNION SELECT blob_id FROM plan_images UNION SELECT checkpoint_blob FROM publications WHERE checkpoint_blob IS NOT NULL UNION SELECT operation_blob FROM publications WHERE operation_blob IS NOT NULL)`;
           return row.bytes;
         }),
       ),

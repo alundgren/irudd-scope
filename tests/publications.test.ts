@@ -295,6 +295,13 @@ test("unresolved operations prevent duplicate creation and stale local starts", 
     sourceCommit: null,
     deploymentId: null,
   };
+  await expect(
+    f.client.publications({
+      ...next,
+      action: "progress",
+      progress: { ...progress, url: "https://example.com/remote" },
+    }),
+  ).rejects.toThrow("supported secure provider URL");
   await f.client.publications({ ...next, action: "progress", progress });
   await f.restart();
   expect(

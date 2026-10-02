@@ -441,6 +441,8 @@ export class PublicationStore {
             } else if (command.action === "progress") {
               if (operation.state !== "started")
                 return yield* fail("Start the operation before recording remote progress.");
+              if (!safeUrl(command.provider, command.progress.url))
+                return yield* fail("Remote progress URL is not a supported secure provider URL.");
               const previous = operation.progress ?? operation.observation;
               if (
                 previous.remoteId !== null &&
