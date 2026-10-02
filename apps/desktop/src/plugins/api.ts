@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
-import type { Tab, TabState } from "../workspace/contract.ts";
+import type { OverlayName, OverlayPosition, Tab, TabState } from "../workspace/contract.ts";
 import type { Theme } from "../renderer/appearance.ts";
 import type { TabEvents } from "./events.ts";
 
@@ -9,6 +9,7 @@ export type TabContext = {
   groupId: string;
   events: TabEvents;
   updateState: (state: TabState) => void;
+  updateOverlayPosition: (name: OverlayName, position: OverlayPosition | undefined) => void;
   onBeforeClose: (save: () => Promise<void>) => () => void;
 };
 export type TabProps = {

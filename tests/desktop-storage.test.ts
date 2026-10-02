@@ -52,9 +52,30 @@ test("tab-owned drafts and plugin state survive restart, then close deletes them
       type: "future-tool",
       title: "Future tool",
       state: { version: 5, data: { prompt: "Keep me" } },
+      overlayPositions: {
+        fullscreen: { x: 240, y: 90 },
+        planControls: { x: 125.5, y: 48 },
+        planReview: { x: 30, y: 100 },
+      },
     });
     if (!tab) throw new Error("Expected the saved tab to open.");
     await lifecycle.saveWorkspace({ ...workspace, tabs: [tab], selected: tab.id });
+    expect(() =>
+      lifecycle.saveWorkspace({
+        ...workspace,
+        tabs: [{ ...tab, overlayPositions: { fullscreen: { x: -1, y: 20 } } }],
+        selected: tab.id,
+      }),
+    ).toThrow();
+    expect(() =>
+      lifecycle.saveWorkspace({
+        ...workspace,
+        tabs: [
+          { ...tab, overlayPositions: { fullscreen: { x: Number.POSITIVE_INFINITY, y: 20 } } },
+        ],
+        selected: tab.id,
+      }),
+    ).toThrow();
     await artifacts.saveDiagramDraft(tab.id, draft);
     await expect(
       artifacts.saveDiagramDraft(tab.id, { ...draft, viewport: { ...draft.viewport, zoom: -1 } }),

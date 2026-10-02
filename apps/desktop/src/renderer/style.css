@@ -126,6 +126,7 @@ svg.lucide {
   stroke-width: 1.6;
 }
 .workspace {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -326,16 +327,21 @@ svg.lucide {
   scrollbar-color: var(--scope-outline) var(--scope-canvas);
 }
 .focus-controls {
-  position: fixed;
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: var(--scope-space-1);
+  background: var(--scope-panel);
+  border-radius: var(--scope-radius-control);
   right: var(--scope-space-2);
   top: var(--scope-space-2);
   z-index: 40;
 }
 .focus-controls [data-slot="button"],
-.diagram-mode-select {
+.fullscreen-mode-select {
   box-shadow: var(--scope-shadow);
 }
-.diagram-mode-select {
+.fullscreen-mode-select {
   background: var(--scope-panel);
   border-radius: var(--scope-radius-control);
 }
@@ -1402,11 +1408,13 @@ h2 {
 }
 .plan-review-heading {
   display: flex;
+  gap: var(--scope-space-2);
   align-items: center;
   justify-content: space-between;
   padding: var(--scope-space-3) var(--scope-space-4);
 }
 .plan-review-heading h2 {
+  flex: 1;
   font-size: var(--scope-text-ui);
   font-weight: var(--scope-weight-strong);
   margin: 0;
@@ -1596,4 +1604,14 @@ h2 {
 
 .plan-view:has(.plan-pin-layer .plan-pin-popover) .plan-controls > .plan-feedback-actions {
   display: none;
+}
+
+.floating-overlay-move {
+  cursor: grab;
+  touch-action: none;
+  color: var(--scope-muted);
+}
+.floating-overlay-move:active {
+  cursor: grabbing;
+  translate: none;
 }

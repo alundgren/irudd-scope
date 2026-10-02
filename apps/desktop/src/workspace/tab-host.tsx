@@ -1,6 +1,6 @@
 import { Component, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
-import type { Tab, TabState } from "./contract.ts";
+import type { OverlayName, OverlayPosition, Tab, TabState } from "./contract.ts";
 import type { TabEventRouter } from "./events.ts";
 import { beforeClose } from "./persistence.ts";
 import { findPlugin } from "../plugins/registry.renderer.ts";
@@ -27,12 +27,18 @@ export function TabHost({
   tab,
   router,
   updateState,
+  updateOverlayPosition,
   active,
   ...display
 }: {
   tab: Tab;
   router: TabEventRouter;
   updateState: (id: string, state: TabState) => void;
+  updateOverlayPosition: (
+    id: string,
+    name: OverlayName,
+    position: OverlayPosition | undefined,
+  ) => void;
   active: boolean;
   artifact?: Artifact;
   theme: Theme;
@@ -90,6 +96,8 @@ export function TabHost({
             groupId: tab.groupId,
             events,
             updateState: (state) => updateState(tab.id, state),
+            updateOverlayPosition: (name, position) =>
+              updateOverlayPosition(tab.id, name, position),
             onBeforeClose: (save) => {
               const remove = beforeClose(save);
               saves.add(remove);
