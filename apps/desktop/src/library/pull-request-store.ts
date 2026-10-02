@@ -12,6 +12,7 @@ import {
   PullRequestLocal,
   PullRequestAgent,
   PullRequestDetail,
+  type PullRequestCommitPair,
   MAX_PULL_REQUESTS_REPLY_BYTES,
 } from "@irudd-scope/protocol/pull-requests";
 
@@ -47,7 +48,11 @@ const emptyLocal: PullRequestLocal = {
 const emptyAgent: PullRequestAgent = { version: 0, assessment: null, customFields: [] };
 export type PullRequestsHandlers = {
   sync: (tabId: string) => Promise<PullRequestsSnapshot>;
-  detail: (tabId: string, nodeId: string) => Promise<PullRequestDetail>;
+  detail: (
+    tabId: string,
+    nodeId: string,
+    captured?: PullRequestCommitPair,
+  ) => Promise<PullRequestDetail>;
 };
 export type PullRequestsInventory = {
   repository: PullRequestsRepository;
@@ -467,12 +472,24 @@ export class PullRequestStore {
         });
       const pr = pinned.prs.find((pr) => pr.nodeId === command.nodeId);
       if (!pr) throw new ScopeError(404, "Open pull request not found.");
-      const detail = decode(PullRequestDetail, await this.handlers.detail(pinned.tabId, pr.nodeId));
+      if (
+        command.captured &&
+        (command.captured.headOid !== pr.headOid || command.captured.baseOid !== pr.baseOid)
+      )
+        throw new ScopeError(
+          409,
+          "Pull request commits changed. Open details for the captured commits again.",
+        );
+      const detail = decode(
+        PullRequestDetail,
+        await this.handlers.detail(pinned.tabId, pr.nodeId, command.captured),
+      );
       const current = await this.snapshotByTab(pinned.tabId);
       await this.database.run(this.active(await this.database.run(this.owner(pinned.tabId, true))));
       if (
         detail.headOid !== pr.headOid ||
-        current.prs.find((row) => row.nodeId === pr.nodeId)?.headOid !== detail.headOid
+        current.prs.find((row) => row.nodeId === pr.nodeId)?.headOid !== detail.headOid ||
+        current.prs.find((row) => row.nodeId === pr.nodeId)?.baseOid !== pr.baseOid
       )
         throw new ScopeError(
           409,

@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { PublicationTabId } from "@irudd-scope/protocol";
 import {
-  PullRequestCommit,
+  PullRequestCommitPair,
   PullRequestNodeId,
   PullRequestDetail,
 } from "@irudd-scope/protocol/pull-requests";
@@ -13,8 +13,7 @@ export const PullRequestsInterest = Schema.Struct({
   detail: Schema.NullOr(
     Schema.Struct({
       nodeId: PullRequestNodeId,
-      headOid: PullRequestCommit,
-      baseOid: PullRequestCommit,
+      ...PullRequestCommitPair.fields,
     }),
   ),
 });
@@ -22,8 +21,7 @@ export type PullRequestsInterest = typeof PullRequestsInterest.Type;
 export const PullRequestsDetailUpdate = Schema.Struct({
   tabId: PublicationTabId,
   nodeId: PullRequestNodeId,
-  headOid: PullRequestCommit,
-  baseOid: PullRequestCommit,
+  ...PullRequestCommitPair.fields,
   body: Schema.optional(PullRequestDetail.fields.body),
   reviews: Schema.optional(PullRequestDetail.fields.reviews),
   fetchedAt: Schema.String,

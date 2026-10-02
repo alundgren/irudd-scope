@@ -830,3 +830,56 @@ test("live discussions keep captured pane commits while current repository facts
   expect((await f.store.snapshotByTab(tabId)).prs[0].headOid).toBe(newHead);
   expect(detailCalls).toBe(1);
 });
+
+test("captured detail rejects changed base before cache or remote read even when head is unchanged", async () => {
+  const remote = reader();
+  let calls = 0;
+  remote.github.detail = async (_repository, pr) => {
+    calls++;
+    return {
+      headOid: pr.headOid,
+      body: "description",
+      diff: "diff",
+      reviews: [],
+      files: [],
+      fetchedAt: stamp,
+    };
+  };
+  const f = await fixture(remote.github),
+    tabId = await f.tab("captured-base");
+  await f.service.sync(tabId);
+  const old = facts(),
+    changed = {
+      ...facts(1, "2026-10-02T00:00:10.000Z"),
+      baseOid: "c".repeat(40),
+      merge: { ...facts().merge, baseOid: "c".repeat(40), observedAt: "2026-10-02T00:00:10.000Z" },
+    };
+  await f.store.commitCurrent(tabId, repository, old, changed);
+  await expect(
+    f.service.detail(tabId, "PR_1", { headOid: old.headOid, baseOid: old.baseOid }),
+  ).rejects.toThrow("commits changed");
+  expect(calls).toBe(0);
+  f.store.setHandlers({
+    sync: (id) => f.service.sync(id),
+    detail: (id, nodeId, captured) => f.service.detail(id, nodeId, captured),
+  });
+  await expect(
+    f.store.command({
+      name: "captured-base",
+      tabId,
+      action: "detail",
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      captured: { headOid: old.headOid, baseOid: old.baseOid },
+    }),
+  ).rejects.toThrow("commits changed");
+  expect(calls).toBe(0);
+  await f.store.command({
+    name: "captured-base",
+    tabId,
+    action: "detail",
+    nodeId: "PR_1",
+    requestId: randomUUID(),
+  });
+  expect(calls).toBe(1);
+});

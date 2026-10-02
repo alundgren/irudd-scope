@@ -1,6 +1,7 @@
 import type { PullRequestStore, PullRequestsInventory } from "../../library/pull-request-store.ts";
 import type {
   PullRequestDetail,
+  PullRequestCommitPair,
   PullRequestFacts,
   PullRequestsRepository,
   PullRequestsSnapshot,
@@ -600,13 +601,21 @@ export class PullRequestSync {
     return this.store.snapshotByTab(tabId);
   }
 
-  async detail(tabId: string, nodeId: string): Promise<PullRequestDetail> {
+  async detail(
+    tabId: string,
+    nodeId: string,
+    captured?: PullRequestCommitPair,
+  ): Promise<PullRequestDetail> {
     await this.reconcile();
     const snapshot = await this.store.snapshotByTab(tabId);
     const pr = snapshot.prs.find((row) => row.nodeId === nodeId);
     const group =
       snapshot.repository && [...this.groups.values()].find((group) => group.tabs.has(tabId));
     if (!group || !pr || this.paused) throw new GitHubReadError("Open pull request not found.");
+    if (captured && (captured.headOid !== pr.headOid || captured.baseOid !== pr.baseOid))
+      throw new GitHubReadError(
+        "Pull request commits changed. Load details for the current commits.",
+      );
     const cacheKey = `${this.account}/${key(group.repository)}/${nodeId}/${pr.headOid}/${pr.baseOid}`;
     let detail = this.detailCache.get(cacheKey);
     if (!detail) {

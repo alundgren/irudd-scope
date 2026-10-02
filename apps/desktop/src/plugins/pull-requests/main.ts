@@ -30,7 +30,7 @@ export function registerPullRequestsIpc({ handle, artifacts, client, window }: M
   );
   artifacts.pullRequests.setHandlers({
     sync: (tabId) => syncing.sync(tabId),
-    detail: (tabId, nodeId) => syncing.detail(tabId, nodeId),
+    detail: (tabId, nodeId, captured) => syncing.detail(tabId, nodeId, captured),
   });
   handle("scope:create-pull-requests", async (value) => {
     const input = decode(
