@@ -614,7 +614,7 @@ export class PullRequestSync {
     if (!group || !pr || this.paused) throw new GitHubReadError("Open pull request not found.");
     if (captured && (captured.headOid !== pr.headOid || captured.baseOid !== pr.baseOid))
       throw new GitHubReadError(
-        "Pull request commits changed. Load details for the current commits.",
+        "This comparison changed. Load the latest comparison to view its details.",
       );
     const cacheKey = `${this.account}/${key(group.repository)}/${nodeId}/${pr.headOid}/${pr.baseOid}`;
     let detail = this.detailCache.get(cacheKey);
