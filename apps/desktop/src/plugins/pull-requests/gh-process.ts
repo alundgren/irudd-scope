@@ -32,10 +32,13 @@ export function githubFailure(text: string, now = Date.now()): GitHubReadError {
   const retry = /retry-after\s*:\s*([^\r\n]+)/i.exec(text)?.[1]?.trim();
   const reset = /x-ratelimit-reset\s*:\s*(\d+)/i.exec(text)?.[1];
   const exhausted = /x-ratelimit-remaining\s*:\s*0\b/i.test(text);
+  const errorText = text.replace(/^\s*(?:x-ratelimit-[^\r\n]*|retry-after:[^\r\n]*)/gim, "");
   const throttle =
     status === 429 ||
     exhausted ||
-    /rate.?limit|secondary rate|abuse detection|RATE_LIMITED/i.test(text);
+    /rate[ _-]limit(?:ed| exceeded|ing|\b)|secondary rate|abuse detection|RATE_LIMITED/i.test(
+      errorText,
+    );
   if (throttle) {
     const retryDate =
       retry && /^\d+(?:\.\d+)?$/.test(retry)
@@ -43,7 +46,7 @@ export function githubFailure(text: string, now = Date.now()): GitHubReadError {
         : retry
           ? Date.parse(retry)
           : NaN;
-    const resetDate = reset ? Number(reset) * 1000 : NaN;
+    const resetDate = exhausted && reset ? Number(reset) * 1000 : NaN;
     const retryAt = Math.max(
       now + 1_000,
       ...[retryDate, resetDate].filter(Number.isFinite),
