@@ -33,6 +33,7 @@ function descriptor(invitation: Omit<TransferInvitation, "mac">) {
     invitation.issuedAt,
     invitation.expiresAt,
     invitation.address,
+    invitation.port,
   ]);
 }
 

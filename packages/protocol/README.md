@@ -1,12 +1,15 @@
 # Artifact protocol
 
 `src/transfer.ts` defines portable manifests and signed fifteen-minute
-`scope-transfer://v1/` invitations for paired desktop copies. These contracts
+`scope-transfer://v2/` invitations for paired desktop copies. These contracts
 are independent of the publication HTTP API. Transfers support ordinary
 artifact bytes and editable Excalidraw documents; they carry no credentials,
 unique tab names, conversation, or plan and PR inbox records. Main validates
 content sizes, media types, checksums, and native diagram structure before
-import. Authentication and the Tailcat process belong to desktop main.
+import. Invitations include a validated TCP port, signed together with the
+connection address and lifetime. Version 1 transfer links are rejected.
+Authentication and supervision of the user-installed Tailcat CLI belong to
+desktop main; saved pairings are independent of invitation versions.
 
 `src/index.ts` owns the validated wire types and limits. `src/client.ts` is the HTTP client used by CLI and desktop main. TypeScript types derive from Effect Schema definitions.
 

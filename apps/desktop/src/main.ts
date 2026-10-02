@@ -27,7 +27,7 @@ import { AgentTools } from "./agent-tools.ts";
 import { Remotes } from "./remotes.ts";
 import { createApplicationMenu } from "./menu.ts";
 import { TabTransfers } from "./transfer/service.ts";
-import { NativeTransferTransport } from "./transfer/transport.ts";
+import { TailcatCliTransport } from "./transfer/transport.ts";
 import { registerTransferLinks } from "./transfer/links.ts";
 
 const transferLinks = registerTransferLinks();
@@ -118,7 +118,7 @@ async function main() {
     },
   });
   transferLinks.attach(window);
-  const transfers = new TabTransfers(store, lifecycle!, new NativeTransferTransport());
+  const transfers = new TabTransfers(store, lifecycle!, new TailcatCliTransport());
   if (process.platform === "darwin") window.setWindowButtonVisibility(false);
   const client = new ScopeClient(artifacts.url, artifacts.token);
   const setDiagramMenu = createApplicationMenu(window);

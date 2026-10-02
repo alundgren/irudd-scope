@@ -43,14 +43,16 @@ async function installTransferResponses(app: ElectronApplication, artifact?: Art
     let pairingInvitation = false;
     const invitation = (pairing = false) => ({
       id: "44444444-4444-4444-8444-444444444444",
-      url: `scope-transfer://v1/#${Buffer.from(
+      url: `scope-transfer://v2/#${Buffer.from(
         JSON.stringify({
-          version: 1,
+          version: 2,
           mode: pairing ? "pair" : "tab",
           id: "44444444-4444-4444-8444-444444444444",
           pairId: peer.id,
           sourceId: devices.deviceId,
           expiresAt,
+          issuedAt: expiresAt - 15 * 60_000,
+          port: 12345,
           address: "tc" + "synthetic-public-address-".repeat(6),
           mac: "A".repeat(43),
         }),
@@ -155,7 +157,7 @@ test("Transfer links wait until artifact details and publishing dialogs close", 
     await details.waitFor();
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].webContents.send("scope:transfer-link", {
-        url: "scope-transfer://v1/#details-queued-link",
+        url: "scope-transfer://v2/#details-queued-link",
         kind: "tab",
       }),
     );
@@ -163,7 +165,7 @@ test("Transfer links wait until artifact details and publishing dialogs close", 
     await details.getByRole("button", { name: "Close", exact: true }).click();
     await page.getByLabel("Transfer link", { exact: true }).waitFor();
     expect(await page.getByLabel("Transfer link", { exact: true }).inputValue()).toBe(
-      "scope-transfer://v1/#details-queued-link",
+      "scope-transfer://v2/#details-queued-link",
     );
     await page.getByRole("button", { name: "Close", exact: true }).click();
     await page.getByRole("button", { name: "Search and controls" }).click();
@@ -175,7 +177,7 @@ test("Transfer links wait until artifact details and publishing dialogs close", 
     await publication.waitFor();
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].webContents.send("scope:transfer-link", {
-        url: "scope-transfer://v1/#publishing-queued-link",
+        url: "scope-transfer://v2/#publishing-queued-link",
         kind: "pair",
       }),
     );
@@ -185,7 +187,7 @@ test("Transfer links wait until artifact details and publishing dialogs close", 
     await publication.getByRole("button", { name: "Close", exact: true }).click();
     await page.getByLabel("Pairing link", { exact: true }).waitFor();
     expect(await page.getByLabel("Pairing link", { exact: true }).inputValue()).toBe(
-      "scope-transfer://v1/#publishing-queued-link",
+      "scope-transfer://v2/#publishing-queued-link",
     );
   } finally {
     await app.close();
@@ -269,6 +271,33 @@ test("Other Scopes creates a public invitation, copies the secret through main, 
     await page.getByText("No other Scopes paired.").waitFor();
     await page.getByRole("button", { name: "Create pairing invitation", exact: true }).click();
     await page.getByLabel("This Scope's name").fill("Studio Mac");
+    await page
+      .getByText("Tab transfers require Tailcat installed separately on each Mac.")
+      .waitFor();
+    await app.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler("scope:create-pairing");
+      ipcMain.handle("scope:create-pairing", () => {
+        throw new Error("Tab transfers require the Tailcat CLI installed separately on this Mac.");
+      });
+    });
+    await page.getByRole("button", { name: "Create pairing link", exact: true }).click();
+    await page
+      .getByRole("alert")
+      .getByText("Tab transfers require the Tailcat CLI installed separately on this Mac.")
+      .waitFor();
+    expect(await page.getByRole("img", { name: "Pairing QR code" }).count()).toBe(0);
+    expect(await page.getByRole("button", { name: /install tailcat/i }).count()).toBe(0);
+    await screenshot(page, "transfer-missing-tailcat-light.png");
+    await page.getByLabel("Search settings").fill("appearance");
+    await page.getByLabel("Appearance", { exact: true }).selectOption("dark");
+    await page.getByLabel("Search settings").fill("other scopes");
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));
+    await screenshot(page, "transfer-missing-tailcat-dark-narrow.png");
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 820));
+    await page.getByLabel("Search settings").fill("appearance");
+    await page.getByLabel("Appearance", { exact: true }).selectOption("light");
+    await page.getByLabel("Search settings").fill("other scopes");
+    await installTransferResponses(app);
     await page.getByRole("button", { name: "Create pairing link", exact: true }).click();
     await page.getByRole("img", { name: "Pairing QR code" }).waitFor();
     expect(await page.getByLabel("Pairing link", { exact: true }).inputValue()).not.toContain(
@@ -301,7 +330,7 @@ test("Other Scopes creates a public invitation, copies the secret through main, 
     await page.getByRole("button", { name: "Enter pairing link", exact: true }).click();
     await page
       .getByLabel("Pairing link", { exact: true })
-      .fill("scope-transfer://v1/#synthetic-pair-public-link");
+      .fill("scope-transfer://v2/#synthetic-pair-public-link");
     await page.getByLabel("Pairing secret", { exact: true }).fill("wrong");
     await page.getByLabel("Search settings").fill("appearance");
     await page.getByLabel("Search settings").fill("other scopes");
@@ -390,7 +419,7 @@ test("Send tab shows QR, cancellation, expiry, import progress, and completion w
     expect(await page.getByRole("button", { name: "Close", exact: true }).isEnabled()).toBe(true);
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].webContents.send("scope:transfer-link", {
-        url: "scope-transfer://v1/#queued-pair-public-link",
+        url: "scope-transfer://v2/#queued-pair-public-link",
         kind: "pair",
       }),
     );
@@ -400,7 +429,7 @@ test("Send tab shows QR, cancellation, expiry, import progress, and completion w
     await page.keyboard.press("Escape");
     await page.getByRole("dialog", { name: "Pair another Scope", exact: true }).waitFor();
     expect(await page.getByLabel("Pairing link", { exact: true }).inputValue()).toBe(
-      "scope-transfer://v1/#queued-pair-public-link",
+      "scope-transfer://v2/#queued-pair-public-link",
     );
     expect((await controls(app)).cancelled).toBe(1);
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -440,7 +469,7 @@ test("Import reviews metadata before confirmation and duplicate import opens the
     const artifact = (await client.list()).find((entry) => entry.id === "transfer-target")!;
     await page.getByText("Imported content", { exact: true }).waitFor();
     await installTransferResponses(app, artifact);
-    const importLink = "scope-transfer://v1/#synthetic-tab-public-link";
+    const importLink = "scope-transfer://v2/#synthetic-tab-public-link";
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Import tab", exact: true }).click();
     await page.getByLabel("Transfer link", { exact: true }).fill("invalid");
@@ -458,11 +487,11 @@ test("Import reviews metadata before confirmation and duplicate import opens the
     });
     await dialog.getByRole("button", { name: "Import tab", exact: true }).click();
     await dialog.getByRole("button", { name: "Importing…", exact: true }).waitFor();
-    const queuedImportLink = "scope-transfer://v1/#queued-tab-public-link";
+    const queuedImportLink = "scope-transfer://v2/#queued-tab-public-link";
     const queuedLinks = [
       queuedImportLink,
       ...["second", "third", "fourth", "overflow"].map(
-        (name) => `scope-transfer://v1/#${name}-queued-link`,
+        (name) => `scope-transfer://v2/#${name}-queued-link`,
       ),
     ];
     await app.evaluate(({ BrowserWindow }, links) => {
@@ -520,7 +549,7 @@ test("Import reviews metadata before confirmation and duplicate import opens the
     await page.getByText("Imported content", { exact: true }).waitFor();
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].webContents.send("scope:transfer-link", {
-        url: "scope-transfer://v1/#synthetic-pair-public-link",
+        url: "scope-transfer://v2/#synthetic-pair-public-link",
         kind: "pair",
       }),
     );

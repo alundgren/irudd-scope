@@ -221,7 +221,7 @@ export class TabTransfers {
     const issuedAt = this.now();
     const invitation = signInvitation(
       {
-        version: 1,
+        version: 2,
         mode,
         id,
         pairId,
@@ -229,6 +229,7 @@ export class TabTransfers {
         issuedAt,
         expiresAt: issuedAt + TRANSFER_LIFETIME_MS,
         address: listener.address,
+        port: listener.port,
       },
       secret,
     );
@@ -433,7 +434,7 @@ export class TabTransfers {
     this.assertNotExpired(invitation);
     const body = encryptTransfer(secret, invitation, "request", request);
     const nonce = (JSON.parse(body) as { nonce: string }).nonce;
-    const wire = await this.transport.request(invitation.address, body);
+    const wire = await this.transport.request(invitation.address, invitation.port, body);
     const response = decode(Response, decryptTransfer(secret, invitation, "response", wire).value);
     if (response.requestNonce !== nonce || response.sourceId !== invitation.sourceId)
       throw new Error("The transfer response could not be authenticated.");

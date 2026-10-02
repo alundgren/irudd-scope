@@ -16,22 +16,24 @@ release candidates; other dependencies use stable releases. Alpha, beta,
 nightly, and canary versions require a specific project decision. Update
 manifests, catalog, and lockfile together through Vite+.
 
-## Native transfer build
+## Installed Tailcat transport
 
-The desktop build compiles `apps/desktop/transfer-transport/` into
-`dist/scope-tailcat` for packaging. The Go module pins Tailcat and `go.sum`
-records dependency checksums. The build helper uses a matching installed
-compiler or downloads the pinned compiler into `~/.cache/irudd-scope/build`,
-checking its archive's SHA-256 before unpacking it. Linux and macOS on x64 and
-arm64 are supported. Initial builds need internet access for the compiler and
-Go modules. Later builds reuse caches. Runtime needs no separate Tailcat install.
+Tab transfer requires Tailcat installed separately by the user on each Mac.
+Scope discovers the CLI through PATH, then `/opt/homebrew/bin/tailcat` and
+`/usr/local/bin/tailcat` for GUI-launched Mac apps. Scope provides no installer
+or installation action. The adapter uses the Tailcat v0.7.0 CLI interface;
+installed versions must support the same JSON listener and port-forwarding commands.
 
-Builds generate linked-module licenses and notices under `dist/transfer-licenses`.
-Packaging preserves them and checks the helper version. Standard tests use
-synthetic local transports. The optional
-`vp exec node tools/check-transfer-transport.ts` smoke test sends synthetic
-content through Tailcat and requires its hosted relay. It runs separately from
-`ready` and uses no personal artifacts or provider credentials.
+The desktop build compiles a TypeScript transport supervisor with Vite+.
+Scope uses its existing Electron runtime to supervise the user-installed CLI.
+Builds and packaging need neither Tailcat nor a Go compiler and redistribute
+no Tailcat binary or Go dependencies. Standard tests use synthetic local CLI
+subprocesses and need no Tailcat installation or live relay.
+
+The optional `vp exec node tools/check-transfer-transport.ts` smoke test uses
+an already installed Tailcat CLI and sends synthetic content through its hosted
+relay. It runs separately from `ready`, never installs dependencies, and uses
+no personal artifacts or provider credentials.
 
 ## Validation and tests
 

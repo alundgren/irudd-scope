@@ -14,7 +14,7 @@ export const TailcatAddress = Schema.String.check(
 );
 export const TransferName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(160));
 export const TransferInvitation = Schema.Struct({
-  version: Schema.Literal(1),
+  version: Schema.Literal(2),
   mode: Schema.Literals(["pair", "tab"]),
   id: TransferId,
   pairId: TransferId,
@@ -22,6 +22,7 @@ export const TransferInvitation = Schema.Struct({
   issuedAt: Schema.Int.check(Schema.isGreaterThan(0)),
   expiresAt: Schema.Int.check(Schema.isGreaterThan(0)),
   address: TailcatAddress,
+  port: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 })),
   mac: TransferSecret,
 });
 export type TransferInvitation = typeof TransferInvitation.Type;
@@ -53,14 +54,14 @@ export function transferUrl(invitation: TransferInvitation): string {
     .replaceAll("+", "-")
     .replaceAll("/", "_")
     .replace(/=+$/, "");
-  return `scope-transfer://v1/#${encoded}`;
+  return `scope-transfer://v2/#${encoded}`;
 }
 
 export function readTransferUrl(value: string): TransferInvitation {
   if (value.length > 8192) throw new Error("This Scope transfer link is too long.");
   try {
     const url = new URL(value.trim());
-    if (url.href !== `scope-transfer://v1/${url.hash}` || !/^#[A-Za-z0-9_-]+$/.test(url.hash))
+    if (url.href !== `scope-transfer://v2/${url.hash}` || !/^#[A-Za-z0-9_-]+$/.test(url.hash))
       throw new Error("Invalid link.");
     const binary = atob(url.hash.slice(1).replaceAll("-", "+").replaceAll("_", "/"));
     const invitation = decode(

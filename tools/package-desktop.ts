@@ -51,7 +51,9 @@ try {
       scopeInstallation: { root: resolve(installRoot), vp, commit, signingIdentity },
     }),
   );
-  await cp(join(desktop, "dist"), join(source, "dist"), { recursive: true });
+  await mkdir(join(source, "dist"));
+  for (const entry of ["main.mjs", "preload.cjs", "cli-process.mjs", "renderer"])
+    await cp(join(desktop, "dist", entry), join(source, "dist", entry), { recursive: true });
   await cp(join(desktop, "resources"), join(source, "resources"), { recursive: true });
   await cp(join(root, "packages/cli/dist"), join(source, "cli"), { recursive: true });
   await cp(join(root, "install.sh"), join(source, "install.sh"));
@@ -121,14 +123,6 @@ try {
       timeout: 30_000,
     },
   );
-  const transport = await exec(
-    join(bundle, "Contents/Resources/app/dist/scope-tailcat"),
-    ["--version"],
-    { timeout: 10_000 },
-  );
-  if (transport.stdout.trim() !== "scope-tailcat tailcat/v0.7.0") {
-    throw new Error("The packaged Scope transfer transport has an unexpected version.");
-  }
   await mkdir(resolve(output), { recursive: true });
   await rename(bundle, resolve(output, "Scope.app")).catch(async (error: NodeJS.ErrnoException) => {
     if (error.code !== "EXDEV") throw error;

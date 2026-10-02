@@ -15,7 +15,7 @@ import type { TransferTransport } from "../apps/desktop/src/transfer/transport.t
 
 class LocalTransport implements TransferTransport {
   handlers = new Map<string, (body: string) => Promise<string>>();
-  requests: { address: string; body: string }[] = [];
+  requests: { address: string; port: number; body: string }[] = [];
   after?: (address: string, body: string) => Promise<void>;
   transform?: (address: string, body: string, response: string) => Promise<string>;
   async listen(handler: (body: string) => Promise<string>) {
@@ -23,13 +23,14 @@ class LocalTransport implements TransferTransport {
     this.handlers.set(address, handler);
     return {
       address,
+      port: 12345,
       close: async () => {
         this.handlers.delete(address);
       },
     };
   }
-  async request(address: string, body: string) {
-    this.requests.push({ address, body });
+  async request(address: string, port: number, body: string) {
+    this.requests.push({ address, port, body });
     const handler = this.handlers.get(address);
     if (!handler) throw new Error("Source is unavailable.");
     const response = await handler(body);
@@ -184,6 +185,13 @@ test("a copied QR, wrong secret, changed address, and different receiver cannot 
       address: `tc${randomBytes(64).toString("base64url")}`,
     };
     await expect(f.target.service.inspect(transferUrl(altered))).rejects.toThrow("does not match");
+    await expect(
+      f.target.service.inspect(transferUrl({ ...readTransferUrl(invitation.url), port: 12346 })),
+    ).rejects.toThrow("does not match");
+    for (const port of [0, 65536, 1.5])
+      expect(() => transferUrl({ ...readTransferUrl(invitation.url), port })).toThrow();
+    const oldUrl = invitation.url.replace("scope-transfer://v2/", "scope-transfer://v1/");
+    expect(() => readTransferUrl(oldUrl)).toThrow("valid Scope transfer link");
     expect(f.transport.requests).toHaveLength(calls);
     expect((await f.stranger.lifecycle.workspace()).tabs).toHaveLength(0);
     await f.source.service.forget(peerId);
@@ -376,7 +384,7 @@ test("replaying pairing requests does not repeat pairing and removed imports can
   try {
     const { peerId } = await f.pair();
     const request = f.transport.requests[0];
-    await f.transport.request(request.address, request.body);
+    await f.transport.request(request.address, request.port, request.body);
     expect(await f.source.store.scopePeers()).toHaveLength(1);
     const published = await f.publish();
     const invitation = await f.source.service.send({ tabId: published.tab.id, peerId });

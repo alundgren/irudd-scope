@@ -45,14 +45,23 @@ fresh nonces, and invitation-bound authenticated data. Responses identify the
 source and originating request. Repeated requests do not repeat mutations;
 live invitations bound accepted request counts.
 
-The bundled `scope-tailcat` Go helper uses the pinned Tailcat library for
-WireGuard, NAT traversal, and DERP fallback. One dedicated TCP port forwards
-only to a main-created loopback listener. The helper has no shell, file service,
-publishing credential, or library API access. Cancellation, expiry, parent pipe
-closure, and helper failure close accepted connections. Requests and responses
-have size limits, deadlines, and bounded concurrency. Tailcat is experimental;
-its hosted relays can observe connection metadata and provide rate-limited service
-without uptime guarantees.
+Tab transfer requires a user-installed Tailcat CLI on each Mac. Scope searches
+PATH and the standard Mac Homebrew locations, and reports a missing CLI when a
+transfer starts. Scope does not install, download, or bundle Tailcat.
+
+Desktop main runs a TypeScript transport supervisor using its existing runtime.
+The supervisor owns one loopback HTTP listener and a Tailcat process serving
+only that listener's port, with ephemeral keys. Version 2 invitations sign the
+port alongside the address and lifetime. Version 1 transfer links are rejected;
+both desktops must use version 2 links. Existing saved pairings remain valid.
+
+The supervisor stops Tailcat before releasing its HTTP port on cancellation,
+expiry, main-process disconnect, or CLI failure. Requests and responses have
+size limits, deadlines, and bounded concurrency. The target uses the CLI's
+loopback port forwarding and sends encrypted messages over HTTP. Pairing secrets
+and payloads never enter CLI arguments; the invitation's connection address does.
+Tailcat is experimental; its hosted relays can observe connection metadata and
+provide rate-limited service without uptime guarantees.
 
 Send flushes edits and freezes an ordinary artifact or current diagram document.
 Conversations, proposals, credentials, and agent sessions remain local. Inspect

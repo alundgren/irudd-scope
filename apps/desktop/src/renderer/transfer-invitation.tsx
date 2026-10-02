@@ -6,7 +6,9 @@ import { Input } from "./components/ui/input.tsx";
 export type Invitation = Awaited<ReturnType<typeof window.scope.transferStatus>>;
 
 export function transferError(error: unknown): string {
-  return error instanceof Error ? error.message : "Could not complete the transfer. Retry.";
+  return error instanceof Error
+    ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "")
+    : "Could not complete the transfer. Retry.";
 }
 
 export function useInvitationStatus(

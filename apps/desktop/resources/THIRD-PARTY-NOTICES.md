@@ -34,17 +34,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Tailcat
-
-The `scope-tailcat` transport links Tailcat v0.7.0, copyright Tailscale Inc and
-contributors, under the BSD 3-Clause License. The complete license is in
-[TAILCAT-LICENSE](TAILCAT-LICENSE).
-
-Each desktop build collects the Go standard library license and the
-LICENSE, COPYING, NOTICE, copyright, and patent files supplied by the modules
-linked into `scope-tailcat`. The packaged collection and its module versions
-are in [the native transfer notices](../dist/transfer-licenses/NOTICE.md).
-
 ## QR codes
 
 The renderer includes qrcode v1.5.4, copyright (c) 2012 Ryan Day, under the

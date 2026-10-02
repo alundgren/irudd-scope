@@ -1,5 +1,9 @@
 # UI decisions
 
+Other Scopes explains that transfers require Tailcat installed separately on
+each Mac. Scope has no installer or installation action; a missing CLI produces
+an inline error when pairing or transfer starts.
+
 Other Scopes in Settings pairs desktops using a public invitation and a
 separately exchanged generated secret. Saved keys never appear in the renderer.
 Main copies the setup secret; the target clears its transient input after
