@@ -66,20 +66,20 @@ export function framePoint(
   return { x, y };
 }
 
+const PageDialogs = "dialog[open], [role=dialog][aria-modal=true], :popover-open";
+const PageEditors = "input, textarea, select, [contenteditable]:not([contenteditable=false])";
+
 function pageOwnsEscape(document: Document, frames: readonly HTMLIFrameElement[]) {
-  if (
-    document.activeElement?.closest(
-      "input, textarea, select, [contenteditable]:not([contenteditable=false])",
-    )
-  )
-    return true;
-  return [document, ...frames.map((frame) => frame.ownerDocument)].some((document) =>
-    Array.from(
-      document.querySelectorAll<HTMLElement>(
-        "dialog[open], [role=dialog][aria-modal=true], :popover-open",
-      ),
-    ).some((dialog) => dialog.getClientRects().length > 0),
-  );
+  return [document, ...frames.map((frame) => frame.ownerDocument)].some((document) => {
+    let focused = document.activeElement;
+    while (focused) {
+      if (focused.closest(`${PageEditors}, ${PageDialogs}`)) return true;
+      focused = focused.shadowRoot?.activeElement ?? null;
+    }
+    return Array.from(document.querySelectorAll<HTMLElement>(PageDialogs)).some(
+      (dialog) => dialog.getClientRects().length > 0,
+    );
+  });
 }
 
 export function observeFrameKeyboard(root: HTMLElement, keyboard: (event: KeyboardEvent) => void) {

@@ -26,13 +26,16 @@ test("HTML presentation preserves page interactions and follows accessible frame
       html,
       `<!doctype html><html><body style="min-height:2000px">
       <h1>Presentation page</h1><button id="count">Count 0</button>
-      <label>Draft <textarea></textarea></label>
+      <label>Draft <textarea></textarea></label><div id="shadow-draft"></div><button id="shadow-dialog">Open shadow dialog</button>
       <button id="dialog">Open dialog</button><dialog><form method="dialog"><button>Close dialog</button></form></dialog>
       <button id="nested-dialog">Open nested dialog</button>
       <dialog id="parent-dialog"><iframe title="Dialog page" srcdoc="&lt;button&gt;Dialog child button&lt;/button&gt;"></iframe><form method="dialog"><button>Close parent dialog</button></form></dialog>
       <button id="nested">Add nested frame</button><button id="handled">Handle Escape</button>
       <a href="http://127.0.0.1:${address.port}/">Navigate away</a>
       <script>
+        const shadow = document.querySelector('#shadow-draft').attachShadow({ mode: 'open' });
+        shadow.innerHTML = '<textarea aria-label="Shadow draft"></textarea><dialog><form method="dialog"><button>Close shadow dialog</button></form></dialog>';
+        document.querySelector('#shadow-dialog').onclick = () => shadow.querySelector('dialog').showModal();
         let count = 0;
         document.querySelector('#count').onclick = event => event.target.textContent = 'Count ' + ++count;
         document.querySelector('#dialog').onclick = () => document.querySelector('dialog').showModal();
@@ -49,7 +52,7 @@ test("HTML presentation preserves page interactions and follows accessible frame
     const frame = page.frameLocator('iframe[title="HTML presentation"]');
     await frame.getByRole("heading", { name: "Presentation page" }).waitFor();
     const mounted = await page.locator('iframe[title="HTML presentation"]').elementHandle();
-    await frame.getByLabel("Draft").fill("Keep this text");
+    await frame.getByLabel("Draft", { exact: true }).fill("Keep this text");
     // Workspace shortcuts still work while the authored page has keyboard focus.
     await page.keyboard.press("ControlOrMeta+Shift+f");
     const mode = page.getByRole("combobox", { name: "Fullscreen HTML mode" });
@@ -57,7 +60,9 @@ test("HTML presentation preserves page interactions and follows accessible frame
     await mode.selectOption("present");
     await frame.getByRole("button", { name: "Count 0" }).click();
     await frame.getByRole("button", { name: "Count 1" }).waitFor();
-    await expect.poll(() => frame.getByLabel("Draft").inputValue()).toBe("Keep this text");
+    await expect
+      .poll(() => frame.getByLabel("Draft", { exact: true }).inputValue())
+      .toBe("Keep this text");
     const button = await frame.getByRole("button", { name: "Count 1" }).boundingBox();
     const point = { x: button!.x + 12, y: button!.y + 10 };
     await page.mouse.move(point.x, point.y);
@@ -96,8 +101,17 @@ test("HTML presentation preserves page interactions and follows accessible frame
     await page.keyboard.press("Escape");
     await frame.getByRole("dialog").waitFor({ state: "hidden" });
     expect(await mode.inputValue()).toBe("present");
-    await frame.getByLabel("Draft").focus();
+    await frame.getByLabel("Draft", { exact: true }).focus();
     await page.keyboard.press("Escape");
+    expect(await mode.inputValue()).toBe("present");
+    await frame.getByLabel("Shadow draft").fill("Keep editing");
+    await page.keyboard.press("Escape");
+    expect(await mode.inputValue()).toBe("present");
+    expect(await frame.getByLabel("Shadow draft").inputValue()).toBe("Keep editing");
+    await frame.getByRole("button", { name: "Open shadow dialog" }).click();
+    await frame.getByRole("button", { name: "Close shadow dialog" }).focus();
+    await page.keyboard.press("Escape");
+    await frame.getByRole("button", { name: "Close shadow dialog" }).waitFor({ state: "hidden" });
     expect(await mode.inputValue()).toBe("present");
     await frame.getByRole("button", { name: "Handle Escape" }).focus();
     await page.keyboard.press("Escape");
