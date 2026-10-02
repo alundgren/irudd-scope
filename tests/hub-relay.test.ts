@@ -278,10 +278,13 @@ test("outbound publication state forwards only to the connected desktop and is n
   expect(offline.status).toBe(503);
   expect((await f.queue()).items).toHaveLength(0);
   const relay = await f.openRelay();
-  const pending = f.request("/v1/publications", { method: "POST", body: JSON.stringify(command) });
+  const longBody = " ".repeat(20 * 1024) + JSON.stringify(command);
+  const pending = f.request("/v1/publications", { method: "POST", body: longBody });
   const forwarded = await relay.next();
   expect(forwarded).toMatchObject({ method: "POST", path: "/v1/publications" });
-  expect(await (await f.body(forwarded.id)).json()).toEqual(command);
+  const transferred = await (await f.body(forwarded.id)).text();
+  expect(transferred).toBe(longBody);
+  expect(JSON.parse(transferred)).toEqual(command);
   await f.answer(forwarded.id, 200, { synthetic: "desktop-only" });
   expect(await (await pending).json()).toEqual({ synthetic: "desktop-only" });
   await relay.close();

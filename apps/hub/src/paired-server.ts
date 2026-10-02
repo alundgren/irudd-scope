@@ -371,17 +371,19 @@ export async function startPairedHub(
       await pipeline(
         item.request,
         bounded(
-          item.path === "/v1/pull-requests"
-            ? MAX_PULL_REQUESTS_REQUEST_BYTES
-            : item.path === "/v1/plans"
-              ? MAX_PLAN_REQUEST_BYTES
-              : item.path === "/v1/voice"
-                ? MAX_VOICE_REQUEST_BYTES
-                : ["/v1/diagrams", "/v1/diagram-agents"].includes(item.path)
-                  ? MAX_DIAGRAM_REQUEST_BYTES
-                  : item.path.endsWith("/blobs") || item.path === "/v1/diagrams/sync"
-                    ? MAX_CONTENT_BYTES
-                    : MAX_METADATA_BYTES,
+          item.path === "/v1/publications"
+            ? MAX_PUBLICATIONS_REQUEST_BYTES
+            : item.path === "/v1/pull-requests"
+              ? MAX_PULL_REQUESTS_REQUEST_BYTES
+              : item.path === "/v1/plans"
+                ? MAX_PLAN_REQUEST_BYTES
+                : item.path === "/v1/voice"
+                  ? MAX_VOICE_REQUEST_BYTES
+                  : ["/v1/diagrams", "/v1/diagram-agents"].includes(item.path)
+                    ? MAX_DIAGRAM_REQUEST_BYTES
+                    : item.path.endsWith("/blobs") || item.path === "/v1/diagrams/sync"
+                      ? MAX_CONTENT_BYTES
+                      : MAX_METADATA_BYTES,
         ),
         response,
         { signal: item.controller.signal },
