@@ -277,6 +277,8 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
           await page.keyboard.press("Escape");
           expect(await mode.inputValue()).toBe("edit");
           await mode.selectOption("tabs");
+        } else if (example.kind === "html") {
+          await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
         } else {
           await page.getByRole("button", { name: "Exit focus mode" }).click();
         }

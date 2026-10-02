@@ -192,10 +192,10 @@ test("a plan keeps interactive HTML while captured comments, feedback, replies, 
     await page.getByRole("button", { name: "Hide feedback" }).click();
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
-    await page.getByRole("button", { name: "Exit focus mode" }).waitFor();
+    await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).waitFor();
     expect(await page.getByRole("complementary", { name: "Plan feedback" }).count()).toBe(0);
     await page.screenshot({ path: join(evidence, "focus.png") });
-    await page.getByRole("button", { name: "Exit focus mode" }).click();
+    await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
     await application.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]!.setContentSize(560, 620),
     );
@@ -519,7 +519,7 @@ test("Escape closes plan capture before workspace shortcuts and focus keeps an u
     await page.getByRole("button", { name: "Resume comment", exact: true }).click();
     await page.getByRole("textbox", { name: "Comment", exact: true }).focus();
     await page.keyboard.press(process.platform === "darwin" ? "Meta+Shift+F" : "Control+Shift+F");
-    await page.getByRole("button", { name: "Exit focus mode" }).waitFor();
+    await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).waitFor();
     expect(await page.getByRole("dialog", { name: "Comment on captured page" }).count()).toBe(0);
     expect(await frame.getByRole("textbox", { name: "Order reference" }).inputValue()).toBe(
       "kept in focus",

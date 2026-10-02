@@ -128,10 +128,10 @@ test("published HTML runs a complete prototype with external resources, forms, a
 
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
-    await page.getByRole("button", { name: "Exit focus mode" }).waitFor();
+    await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).waitFor();
     await preview.getByRole("button", { name: "Count 1" }).click();
     await preview.getByRole("button", { name: "Count 2" }).waitFor();
-    await page.getByRole("button", { name: "Exit focus mode" }).click();
+    await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
     await preview.getByRole("button", { name: "Count 2" }).waitFor();
 
     await preview.getByRole("link", { name: "Follow link" }).click();

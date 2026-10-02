@@ -138,7 +138,11 @@ on file tabs.
 
 Fullscreen in the search panel enters native fullscreen, keeps the selected
 artifact mounted, and hides workspace navigation. Other artifact tabs leave a
-small exit at the top right, clear of Excalidraw's centered toolbar.
+small exit at the top right, clear of Excalidraw's centered toolbar. A grip on
+Scope's fullscreen controls lets the person drag them away from content. The
+focused grip accepts arrow keys, with Shift for larger steps, and Home restores
+the default position. Positions are saved per tab and stay within the window
+when it narrows.
 Diagram tabs start in Edit, with the Excalidraw tools and left menu available.
 A small control at the top right switches between Edit, View, and
 Present or exits fullscreen. View shows only the drawing and allows zoom and pan.
@@ -148,7 +152,13 @@ Switching modes preserves the canvas, zoom, draft, and conversation. Escape
 closes an active dialog or editor interaction, then returns View or Present to
 Edit and Edit to the workspace. Command-Shift-F toggles fullscreen; Command-K
 opens the panel in any mode. Leaving native fullscreen also restores the
-workspace controls.
+workspace controls. Ordinary HTML, plans, and PR inboxes offer View, Present,
+and Back to tabs in fullscreen. Present uses the same audience pointer and
+trail inside accessible HTML frames while links, forms, scrolling, and scripts
+remain usable. Frame navigation to another origin retains the native cursor.
+Scope does not override Escape in editable fields, open page dialogs, or events
+the page handles. Otherwise Escape returns HTML Present to View, then returns
+to the workspace.
 
 Published HTML is trusted agent output. Prototypes run their scripts, load
 external resources, submit forms, and open links without a trust prompt or
@@ -314,8 +324,11 @@ Plans always have an immutable unique name and start permanent. Later updates
 respect the person's permanence choice. Ordinary trusted HTML remains the
 content, including scripts and external resources. The reading page uses the
 available width and height. A small floating pin control starts a comment;
-Copy and Send appear beside it when feedback is collected. Focus mode hides
-these controls. Feedback and version history open in a compact overlay on
+Copy and Send appear beside it when feedback is collected. The toolbar and
+Feedback overlay each have a grip for dragging away from page content. Arrow keys move a focused grip, Shift makes larger steps, and Home
+restores its default position. Scope saves positions per tab in SQLite and
+keeps the controls inside the available area after resizing. Comment pins stay
+attached to their captured content. Focus mode hides these controls. Feedback and version history open in a compact overlay on
 request, with no reserved column or comment list. The page stays mounted when
 controls toggle, a comment is canceled, or an agent responds.
 
