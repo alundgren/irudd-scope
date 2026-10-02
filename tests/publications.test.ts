@@ -61,8 +61,8 @@ async function fixture() {
       {
         title: "Presentation",
         kind,
-        mediaType: "text/html",
-        fileName: "presentation.html",
+        mediaType: kind === "html" ? "text/html" : "text/plain",
+        fileName: kind === "html" ? "presentation.html" : "presentation.txt",
         expectedRevision,
       },
       Buffer.from(content),
@@ -193,7 +193,7 @@ test("newer remote dates and versions warn and cannot start without explicit aut
   }
 });
 
-test("privacy, account evidence, compatibility and stale observations fail closed", async () => {
+test("privacy, account evidence, artifact kinds and stale observations fail closed", async () => {
   const f = await fixture();
   for (const audience of ["public", "external", "unknown"] as const) {
     const op = f.operation();
@@ -243,7 +243,7 @@ test("privacy, account evidence, compatibility and stale observations fail close
       })
     ).decision,
   ).toBe("blocked");
-  await f.publish("<script>window.scope.plans.read()</script>", 1);
+  await f.publish("A text artifact", 1, "text");
   expect(
     (
       await f.client.publications({
@@ -254,6 +254,17 @@ test("privacy, account evidence, compatibility and stale observations fail close
       })
     ).decision,
   ).toBe("blocked");
+  await f.publish("<h1>Scope API</h1><code>window.scope.pullRequests</code>", 2);
+  expect(
+    (
+      await f.client.publications({
+        ...f.operation(),
+        action: "prepare",
+        expectedRevision: 3,
+        observation: observation(),
+      })
+    ).decision,
+  ).toBe("allowed");
 });
 
 test("unresolved operations prevent duplicate creation and stale local starts", async () => {
