@@ -9,6 +9,7 @@ import { PlanReview } from "./review.tsx";
 import { FeedbackActions } from "./feedback-actions.tsx";
 import { useDocumentScroll } from "./document-scroll.ts";
 import { PendingMarks, readDocumentViewport } from "./pending-marks.tsx";
+import { FloatingOverlay } from "../../renderer/components/ui/floating-overlay.tsx";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { useAutosave } from "../../workspace/persistence.ts";
 
@@ -260,52 +261,74 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
           </p>
         )}
         {reviewOpen && !focus && snapshot && (
-          <PlanReview
-            snapshot={snapshot}
-            revision={revision}
-            onRevision={selectRevision}
-            onClose={() => showReview(false)}
-            command={command}
-            busy={busy}
-          />
+          <FloatingOverlay
+            as="aside"
+            className="plan-review"
+            label="Feedback panel"
+            ariaLabel="Plan feedback"
+            position={tab.overlayPositions?.planReview}
+            onPosition={(position) => context.updateOverlayPosition("planReview", position)}
+          >
+            {(handle) => (
+              <PlanReview
+                snapshot={snapshot}
+                revision={revision}
+                onRevision={selectRevision}
+                onClose={() => showReview(false)}
+                command={command}
+                busy={busy}
+                moveHandle={handle}
+              />
+            )}
+          </FloatingOverlay>
         )}
       </div>
       {!focus && (
-        <div
+        <FloatingOverlay
           className="plan-controls"
+          label="plan controls"
+          position={tab.overlayPositions?.planControls}
+          onPosition={(position) => context.updateOverlayPosition("planControls", position)}
           style={{ display: capturing || captureOpen ? "none" : undefined }}
         >
-          <Button
-            variant="outline"
-            size="icon-sm"
-            aria-label={draft ? "Resume comment" : "Comment"}
-            title={draft ? "Resume comment" : "Pin a comment"}
-            disabled={loading || busy || !draftLoaded}
-            onClick={() => void capture()}
-          >
-            <Pin />
-          </Button>
-          {snapshot && (
-            <FeedbackActions
-              snapshot={snapshot}
-              revision={revision}
-              command={command}
-              busy={busy}
-            />
+          {(handle) => (
+            <>
+              {handle}
+              <Button
+                variant="outline"
+                size="icon-sm"
+                aria-label={draft ? "Resume comment" : "Comment"}
+                title={draft ? "Resume comment" : "Pin a comment"}
+                disabled={loading || busy || !draftLoaded}
+                onClick={() => void capture()}
+              >
+                <Pin />
+              </Button>
+              {snapshot && (
+                <FeedbackActions
+                  snapshot={snapshot}
+                  revision={revision}
+                  command={command}
+                  busy={busy}
+                />
+              )}
+              <Button
+                variant="outline"
+                size="icon-sm"
+                aria-label={
+                  snapshot?.responses.some((response) => !response.seen)
+                    ? "Feedback · new"
+                    : "Feedback"
+                }
+                title="Feedback and versions"
+                aria-expanded={reviewOpen && !focus}
+                onClick={() => showReview(!reviewOpen)}
+              >
+                <MessageSquare />
+              </Button>
+            </>
           )}
-          <Button
-            variant="outline"
-            size="icon-sm"
-            aria-label={
-              snapshot?.responses.some((response) => !response.seen) ? "Feedback · new" : "Feedback"
-            }
-            title="Feedback and versions"
-            aria-expanded={reviewOpen && !focus}
-            onClick={() => showReview(!reviewOpen)}
-          >
-            <MessageSquare />
-          </Button>
-        </div>
+        </FloatingOverlay>
       )}
       {captureOpen && draft && active && !focus && (
         <CommentCapture

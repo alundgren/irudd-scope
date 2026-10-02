@@ -229,6 +229,9 @@ and their conversion to Excalidraw; `plugins/diagram/view.tsx` owns editing.
 ## Tabs, plugins, and groups
 
 A tab has a UUID, group UUID, plugin type, title, and versioned JSON state.
+Optional validated overlay positions belong to the desktop tab contract and
+use the existing SQLite tab record. Old records without positions use the
+controls' default locations.
 Groups have their own UUID and an owner reference with a kind and ID. Owners
 are independent of tab lifetimes. The current desktop opens publications in
 one local workspace group. Group indicators and agent-facing group selection

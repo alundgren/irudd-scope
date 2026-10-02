@@ -833,6 +833,21 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
       .waitFor();
     await sendChange(app, "note-error");
     await frame.getByLabel("Your notes").fill("Keep this note after a failure");
+    await page.getByRole("button", { name: "Search and controls" }).click();
+    await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
+    const presentationMode = page.getByRole("combobox", { name: "Fullscreen HTML mode" });
+    await presentationMode.selectOption("present");
+    await frame.getByLabel("Your notes").hover();
+    await expect
+      .poll(() =>
+        page.locator(".presentation-pointer").evaluate((element) => element.style.opacity),
+      )
+      .toBe("1");
+    expect(await frame.getByLabel("Your notes").inputValue()).toBe(
+      "Keep this note after a failure",
+    );
+    await presentationMode.selectOption("tabs");
+    expect(await frame.locator("#head").textContent()).toBe(head.slice(0, 12));
     await frame.getByRole("button", { name: "Save note", exact: true }).click();
     await frame.getByText(/Your edits are kept here/).waitFor();
     await sendChange(app, "new-head");
