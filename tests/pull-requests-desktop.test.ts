@@ -287,9 +287,31 @@ test("the inbox SDK runs before authored scripts and recovers updates without re
   const fixture = await offlineFixture();
   const app = await fixture.launch();
   try {
-    const html = `<!doctype html><script>window.firstScriptSDK=!!window.scope.pullRequests;window.boots=1;window.snapshots=[];window.stop=window.scope.pullRequests.watch((prs,context,sync)=>{window.snapshots.push({title:prs[0]?.title,head:prs[0]?.headOid,viewer:context.viewer,frozen:Object.isFrozen(prs)&&Object.isFrozen(prs[0]?.local)});document.getElementById('title')&&(document.getElementById('title').textContent=prs[0]?.title||'Empty')});</script><h1 id="title">Loading</h1><input aria-label="Authored draft">`;
+    const html = `<!doctype html><script>window.firstScriptSDK=!!window.scope.pullRequests;window.boots=1;window.snapshots=[];window.stop=window.scope.pullRequests.watch((prs,context,sync)=>{window.snapshots.push({title:prs[0]?.title,head:prs[0]?.headOid,viewer:context.viewer,review:prs[0]?.review,stack:prs[0]?.stack,frozen:Object.isFrozen(prs)&&Object.isFrozen(prs[0]?.local)&&Object.isFrozen(prs[0]?.review)&&Object.isFrozen(prs[0]?.stack?.members)});document.getElementById('title')&&(document.getElementById('title').textContent=prs[0]?.title||'Empty')});</script><h1 id="title">Loading</h1><input aria-label="Authored draft">`;
     const { artifact, tabId } = await publish(app, html, "sdk-inbox");
-    await installCommands(app, snapshot(artifact, tabId));
+    const initial = snapshot(artifact, tabId) as Mutable<PullRequestsSnapshot>;
+    initial.prs[0] = {
+      ...initial.prs[0],
+      review: { decision: "changes-requested", hasApproval: true, headOid: head, observedAt: at },
+      stack: {
+        nodeId: "PRS_1",
+        number: 10,
+        position: 1,
+        size: 2,
+        baseRefName: "main",
+        members: initial.prs.map((pr, i) => ({
+          nodeId: pr.nodeId,
+          number: pr.number,
+          position: i + 1,
+          state: "open" as const,
+          draft: pr.draft,
+        })),
+        readyForReview: true,
+        approved: false,
+        observedAt: at,
+      },
+    };
+    await installCommands(app, initial);
     await sendChange(app, "reconnect");
     const page = await app.firstWindow(),
       frame = page.frameLocator(".pull-requests-document");
@@ -305,6 +327,23 @@ test("the inbox SDK runs before authored scripts and recovers updates without re
         () => (window as unknown as { snapshots: { frozen: boolean }[] }).snapshots.at(-1)?.frozen,
       ),
     ).toBe(true);
+    expect(
+      await actual.evaluate(() =>
+        (
+          window as unknown as {
+            snapshots: { review: PullRequest["review"]; stack: PullRequest["stack"] }[];
+          }
+        ).snapshots.at(-1),
+      ),
+    ).toMatchObject({
+      review: { decision: "changes-requested", hasApproval: true },
+      stack: {
+        nodeId: "PRS_1",
+        readyForReview: true,
+        approved: false,
+        members: [{ nodeId: "PR_1" }, { nodeId: "PR_2" }],
+      },
+    });
     await frame.getByLabel("Authored draft").fill("Keep my app state");
     await app.evaluate(({ BrowserWindow }) => {
       const state = (globalThis as unknown as { prInboxTest: { holdRead: boolean } }).prInboxTest;

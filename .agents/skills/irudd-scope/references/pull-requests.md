@@ -68,6 +68,17 @@ before authored scripts. Do not embed credentials, a separate GitHub client,
 or a saved PR inventory in the HTML. There is no CLI command to export the
 desktop's built-in starter app; agents author their own HTML using the SDK.
 
+Inbox HTTP(S) links and direct `window.open` calls open in the system's default
+browser, preserving its GitHub login. In-page anchors stay in the inbox.
+Authored click handlers can cancel navigation with `preventDefault()`.
+For explicit actions, call `window.scope.pullRequests.openExternal(url)` and
+handle its rejected Promise. It accepts HTTP(S) URLs without embedded
+credentials. Automatic link failures show a host alert and dispatch
+`scope-pull-requests-external-error` on the inbox window with
+`event.detail = { url, message }`. Direct HTTP(S) `window.open` returns null;
+the browser window is outside Electron. Ordinary HTML artifact navigation
+and popups are unaffected.
+
 This minimal app displays live titles and a Sync action:
 
 ```html
@@ -148,6 +159,45 @@ Each PR has the following GitHub facts at its top level:
 | `hasUnresolvedConversations`             | `true` if a review thread is unresolved, `false` after a complete read finds none, `null` if unavailable.            |
 | `merge`                                  | `{ status, headOid, baseOid, observedAt }`. Status is `unknown`, `clear`, or `conflicting`.                          |
 | `checks`                                 | `{ status, headOid, observedAt }`. Status is `unknown`, `pending`, `passing`, or `failing`; `headOid` can be `null`. |
+| `review`                                 | Optional `{ decision, hasApproval, headOid, observedAt }`. See approval semantics below.                             |
+| `stack`                                  | Optional native stack record, or null for a known standalone PR. See stack semantics below.                          |
+
+`review.decision` is GitHub's overall `approved`, `changes-requested`, or
+`review-required` decision, or null when GitHub returns no decision.
+`review.hasApproval` is independent: any reviewer's active approval counts,
+even if another reviewer requests changes. Dismissed or superseded approvals
+do not count. Null means the head changed during retrieval. The recorded
+`headOid` identifies the PR head observed, not the commit a reviewer approved.
+Approval does not imply CI success or permission to merge.
+
+`stack` uses native GitHub membership, not matching branch names. It contains
+`nodeId`, repository-local `number`, this PR's `position`, total `size`, the
+stack's ultimate `baseRefName`, ordered `members`, `readyForReview`, `approved`,
+and `observedAt`. Each member has `nodeId`, `number`, `position`, `state`
+(`open`, `closed`, or `merged`), and `draft`. Native position 1 is nearest the
+target branch. Closed and merged members stay in this list but are excluded
+from the aggregate flags. Every open member must be out of draft for
+`readyForReview`; every open member must have an active approval for `approved`.
+`approved` is null when an approval is unknown and none is known to be absent.
+
+Stack calculations use the complete repository inventory before your HTML
+applies filters or snoozes. A hidden draft still blocks stack readiness.
+Incomplete membership or review reads fail the refresh and keep the saved
+facts; check sync state and observation timestamps before relying on them.
+
+Older saved records can omit `review` and `stack`. Treat missing fields as
+unknown; `stack === null` is the known standalone case. For example:
+
+```js
+const hasApproval = pr.review?.hasApproval ?? null;
+const readyForReview =
+  pr.stack === undefined ? null : pr.stack === null ? !pr.draft : pr.stack.readyForReview;
+const openStackMembers = pr.stack?.members.filter((member) => member.state === "open");
+```
+
+Update desktop, CLI, and hub together. Older strict protocol clients reject
+these added fields in newly enriched replies. Existing authored JavaScript
+can keep using the flat array and choose its own views and filters.
 
 Each PR also contains Scope-owned data:
 
@@ -195,6 +245,7 @@ retrieval rejects the read; read current state and request details again.
 | `watch(callback)`                                                | Calls `callback(prs, context, sync)` when the initial snapshot arrives and on snapshot/theme changes. Returns an unsubscribe function. |
 | `sync()`                                                         | Promise that requests GitHub refresh. Refresh errors appear in the watched `sync` state; transport errors reject.                      |
 | `detail(nodeId, section)`                                        | Promise of the complete detail object above. `section` is an app hint, not a response filter.                                          |
+| `openExternal(url)`                                              | Promise that opens an HTTP(S) URL in the default browser; rejects invalid URLs or browser-launch failures.                             |
 | `saveNote(nodeId, text, expectedVersion)`                        | Promise of `{ version }`. Use `local.noteVersion`.                                                                                     |
 | `setSnooze(nodeId, { until, wakeOnNewCommit }, expectedVersion)` | Promise of `{ version }`. Use `local.snoozeVersion`. The host supplies the current head commit. `until: null` clears the snooze.       |
 | `inspect(nodeId, displayedHeadOid, expectedVersion)`             | Promise of `{ version }`. Use `local.reviewVersion`. Records inspection only.                                                          |

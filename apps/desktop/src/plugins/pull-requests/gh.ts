@@ -1,5 +1,4 @@
 import { Schema } from "effect";
-import { decode } from "@irudd-scope/protocol";
 import {
   PullRequestFacts,
   PullRequestDetail,
@@ -7,10 +6,8 @@ import {
 } from "@irudd-scope/protocol/pull-requests";
 import { GitHubProcess, GitHubReadError } from "./gh-process.ts";
 
-const PageInfo = Schema.Struct({
-  hasNextPage: Schema.Boolean,
-  endCursor: Schema.NullOr(Schema.String),
-});
+import { PageInfo, json, validated, githubValue, nextCursor } from "./gh-response.ts";
+import { GitHubStackMembership, enrichStacks } from "./gh-stacks.ts";
 const Author = Schema.NullOr(Schema.Struct({ login: Schema.String }));
 const Reviewer = Schema.NullOr(
   Schema.Union([
@@ -32,6 +29,26 @@ const CheckRollup = Schema.NullOr(
     commit: Schema.Struct({ oid: Schema.String }),
   }),
 );
+const ReviewDecision = Schema.NullOr(
+  Schema.Literals(["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"]),
+);
+const OpinionsConnection = Schema.Struct({
+  totalCount: Schema.Int,
+  nodes: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      author: Author,
+      state: Schema.Literals([
+        "APPROVED",
+        "CHANGES_REQUESTED",
+        "COMMENTED",
+        "DISMISSED",
+        "PENDING",
+      ]),
+    }),
+  ),
+  pageInfo: PageInfo,
+});
 const GitHubPullRequest = Schema.Struct({
   id: Schema.String,
   repository: Schema.Struct({ id: Schema.String.check(Schema.isMinLength(1)) }),
@@ -43,6 +60,9 @@ const GitHubPullRequest = Schema.Struct({
   headRefOid: Schema.String,
   headRefName: Schema.String,
   baseRefOid: Schema.String,
+  ...GitHubStackMembership.fields,
+  reviewDecision: ReviewDecision,
+  latestOpinionatedReviews: OpinionsConnection,
   isDraft: Schema.Boolean,
   additions: Schema.Int,
   deletions: Schema.Int,
@@ -101,6 +121,9 @@ const INVENTORY_QUERY = `query ScopeOpenPullRequests($owner: String!, $name: Str
     pullRequests(states: OPEN, first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
       nodes {
         id repository { id } number title author { login } headRefOid headRefName baseRefOid isDraft
+        stack { id number size baseRefName } stackEntry { position }
+        reviewDecision
+        latestOpinionatedReviews(first: 100) { totalCount nodes { id author { login } state } pageInfo { hasNextPage endCursor } }
         additions deletions changedFiles url mergeable updatedAt createdAt
         labels(first: 100) { nodes { name } pageInfo { hasNextPage endCursor } }
         reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } ... on Team { slug organization { login } } } } pageInfo { hasNextPage endCursor } }
@@ -128,6 +151,12 @@ const REVIEWERS_QUERY = `query ScopePullRequestReviewers($owner: String!, $name:
     id reviewRequests(first: 100, after: $cursor) { nodes { requestedReviewer { ... on User { login } ... on Team { slug organization { login } } } } pageInfo { hasNextPage endCursor } }
   } }
 }`;
+const OPINIONS_QUERY = `query ScopePullRequestOpinions($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    id state headRefOid updatedAt reviewDecision
+    latestOpinionatedReviews(first: 100, after: $cursor) { totalCount nodes { id author { login } state } pageInfo { hasNextPage endCursor } }
+  } }
+}`;
 const DetailView = Schema.Struct({
   id: Schema.String,
   state: Schema.String,
@@ -153,54 +182,9 @@ const Reviews = Schema.Array(
   }),
 );
 
-function json(output: string): unknown {
-  try {
-    const value: unknown = JSON.parse(output);
-    if (value && typeof value === "object" && "errors" in value) {
-      const errors = value.errors;
-      if (!Array.isArray(errors) || errors.length)
-        throw new GitHubReadError("GitHub could not return a complete result. Try Sync again.");
-    }
-    return value;
-  } catch (error) {
-    if (error instanceof GitHubReadError) throw error;
-    throw new GitHubReadError("GitHub returned invalid data. The saved list was kept.");
-  }
-}
-
-function validated<S extends Schema.ConstraintDecoder<unknown, never>>(
-  schema: S,
-  value: unknown,
-): S["Type"] {
-  try {
-    return decode(schema, value);
-  } catch {
-    throw new GitHubReadError("GitHub returned invalid data. The saved list was kept.");
-  }
-}
-
-function githubValue<S extends Schema.ConstraintDecoder<unknown, never>>(
-  schema: S,
-  value: unknown,
-): S["Type"] {
-  try {
-    return Schema.decodeUnknownSync(schema, { onExcessProperty: "ignore" })(value);
-  } catch {
-    throw new GitHubReadError("GitHub returned invalid data. The saved list was kept.");
-  }
-}
-
 function reviewerIdentity(reviewer: typeof Reviewer.Type): string[] {
   if (!reviewer) return [];
   return ["login" in reviewer ? reviewer.login : `${reviewer.organization.login}/${reviewer.slug}`];
-}
-
-function nextCursor(info: typeof PageInfo.Type, seen: Set<string>): string | null {
-  if (!info.hasNextPage) return null;
-  if (!info.endCursor || seen.has(info.endCursor))
-    throw new GitHubReadError("GitHub pagination did not advance. The saved list was kept.");
-  seen.add(info.endCursor);
-  return info.endCursor;
 }
 
 export class GitHubPullRequests {
@@ -262,6 +246,10 @@ export class GitHubPullRequests {
               result.headRefOid !== pr.headOid
                 ? { ...pr.checks, status: "unknown" }
                 : observed.checks,
+            review:
+              pr.review && result.headRefOid !== pr.headOid
+                ? { ...pr.review, decision: null, hasApproval: null }
+                : observed.review,
           };
         }
         found ||= result.reviewThreads.nodes.some((thread) => !thread.isResolved);
@@ -349,6 +337,85 @@ export class GitHubPullRequests {
     return { labels, requestedReviewers };
   }
 
+  private async reviewStatus(
+    repository: PullRequestsRepository,
+    node: typeof GitHubPullRequest.Type,
+    signal: AbortSignal,
+    observedAt: string,
+  ) {
+    const Page = Schema.Struct({
+      data: Schema.Struct({
+        repository: Schema.NullOr(
+          Schema.Struct({
+            pullRequest: Schema.NullOr(
+              Schema.Struct({
+                id: Schema.String,
+                state: Schema.String,
+                headRefOid: Schema.String,
+                updatedAt: Schema.String,
+                reviewDecision: ReviewDecision,
+                latestOpinionatedReviews: OpinionsConnection,
+              }),
+            ),
+          }),
+        ),
+      }),
+    });
+    const ids = new Set<string>(),
+      authors = new Set<string>();
+    let hasApproval = false;
+    function collect(opinions: typeof OpinionsConnection.Type) {
+      for (const opinion of opinions.nodes) {
+        if (ids.has(opinion.id) || (opinion.author && authors.has(opinion.author.login)))
+          throw new GitHubReadError("GitHub review pagination did not advance. Try Sync again.");
+        ids.add(opinion.id);
+        if (opinion.author) authors.add(opinion.author.login);
+        hasApproval ||= opinion.state === "APPROVED";
+      }
+    }
+    collect(node.latestOpinionatedReviews);
+    const cursors = new Set<string>();
+    let cursor = nextCursor(node.latestOpinionatedReviews.pageInfo, cursors);
+    while (cursor) {
+      const current = githubValue(
+        Page,
+        await this.query(repository, OPINIONS_QUERY, signal, [
+          "-F",
+          `number=${node.number}`,
+          "-f",
+          `cursor=${cursor}`,
+        ]),
+      ).data.repository?.pullRequest;
+      if (
+        !current ||
+        current.id !== node.id ||
+        current.state !== "OPEN" ||
+        current.headRefOid !== node.headRefOid ||
+        current.updatedAt !== node.updatedAt ||
+        current.reviewDecision !== node.reviewDecision ||
+        current.latestOpinionatedReviews.totalCount !== node.latestOpinionatedReviews.totalCount
+      )
+        throw new GitHubReadError("GitHub reviews changed during refresh. Try Sync again.");
+      collect(current.latestOpinionatedReviews);
+      cursor = nextCursor(current.latestOpinionatedReviews.pageInfo, cursors);
+    }
+    if (ids.size !== node.latestOpinionatedReviews.totalCount)
+      throw new GitHubReadError("GitHub returned incomplete reviews. Try Sync again.");
+    return {
+      decision:
+        node.reviewDecision === "APPROVED"
+          ? ("approved" as const)
+          : node.reviewDecision === "CHANGES_REQUESTED"
+            ? ("changes-requested" as const)
+            : node.reviewDecision === "REVIEW_REQUIRED"
+              ? ("review-required" as const)
+              : null,
+      hasApproval,
+      headOid: node.headRefOid,
+      observedAt,
+    };
+  }
+
   async inventory(
     repository: PullRequestsRepository,
     signal: AbortSignal,
@@ -363,6 +430,7 @@ export class GitHubPullRequests {
     const seen = new Set<string>();
     const prs: PullRequestFacts[] = [];
     const ids = new Set<string>();
+    const memberships = new Map<string, typeof GitHubStackMembership.Type>();
     let viewer: string | undefined;
     let repositoryId: string | undefined;
     let resolvedRepository: PullRequestsRepository | undefined;
@@ -376,6 +444,7 @@ export class GitHubPullRequests {
           cursor ? ["-f", `cursor=${cursor}`] : [],
         ),
       ).data;
+      const observedAt = new Date().toISOString();
       if (!page.repository)
         throw new GitHubReadError("Your GitHub CLI account cannot read this repository.");
       const resolved = validated(PullRequestsRepository, {
@@ -406,8 +475,9 @@ export class GitHubPullRequests {
         if (ids.has(node.id))
           throw new GitHubReadError("GitHub returned duplicate pull requests. Try Sync again.");
         ids.add(node.id);
+        memberships.set(node.id, { stack: node.stack, stackEntry: node.stackEntry });
         const metadata = await this.metadata(repository, node, signal);
-        const observedAt = new Date().toISOString();
+        const review = await this.reviewStatus(repository, node, signal, observedAt);
         const rollup = node.commits.nodes.at(-1)?.commit.statusCheckRollup;
         const status =
           !rollup || rollup.commit.oid !== node.headRefOid
@@ -429,6 +499,7 @@ export class GitHubPullRequests {
             headOid: node.headRefOid,
             headRefName: node.headRefName,
             baseOid: node.baseRefOid,
+            review,
             draft: node.isDraft,
             additions: node.additions,
             deletions: node.deletions,
@@ -456,7 +527,10 @@ export class GitHubPullRequests {
     } while (cursor);
     const observed: PullRequestFacts[] = [];
     for (const pr of prs) observed.push(await this.unresolved(repository, pr, signal));
-    return { queriedRepository, repository: resolvedRepository!, viewer: viewer!, prs: observed };
+    const enriched = await enrichStacks(observed, memberships, repositoryId!, (query, fields) =>
+      this.query(repository, query, signal, fields),
+    );
+    return { queriedRepository, repository: resolvedRepository!, viewer: viewer!, prs: enriched };
   }
 
   async detail(
