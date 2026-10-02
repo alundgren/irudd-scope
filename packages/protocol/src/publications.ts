@@ -101,7 +101,11 @@ export const PublicationsCommand = Schema.Union([
     action: Schema.Literal("refresh"),
     observation: PublicationObservation,
   }),
-  Schema.Struct({ ...Operation, action: Schema.Literal("authorize") }),
+  Schema.Struct({
+    ...Operation,
+    action: Schema.Literal("authorize"),
+    expectedObservation: PublicationObservation,
+  }),
   Schema.Struct({ ...Operation, action: Schema.Literal("start") }),
   Schema.Struct({
     ...Operation,
