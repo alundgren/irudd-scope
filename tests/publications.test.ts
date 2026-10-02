@@ -685,13 +685,82 @@ test("Sites creation retains an ID without a URL and fills its URL without repla
       updatedAt: null,
     },
   });
-  await expect(
-    f.client.publications({
-      ...op,
-      action: "complete",
-      result: { ...result, url: null } as unknown as PublicationSuccess,
-    }),
-  ).rejects.toThrow("Invalid publication command");
+  const invalid = await fetch(`${f.client.endpoint}/v1/publications`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ ...op, action: "complete", result: { ...result, url: null } }),
+  });
+  expect(invalid.status).toBe(400);
+  expect(await invalid.json()).toEqual({ error: "Invalid publication command." });
   const complete = await f.client.publications({ ...op, action: "complete", result });
   expect(complete.snapshot.destinations[0]?.checkpoint?.result).toEqual(result);
+});
+
+test("an explicitly cancelled Sites creation resumes the same project before its URL exists", async () => {
+  const f = await fixture(),
+    creating = f.operation("sites");
+  await f.client.publications({
+    ...creating,
+    action: "prepare",
+    expectedRevision: 1,
+    observation: observation({ evidence: "authenticated-tool" }),
+  });
+  await f.client.publications({ ...creating, action: "start" });
+  const created = {
+    remoteId: "unpublished-existing-site",
+    url: null,
+    savedVersion: null,
+    sourceCommit: null,
+    deploymentId: null,
+  };
+  await f.client.publications({ ...creating, action: "progress", progress: created });
+  await f.client.publications({ ...creating, action: "cancel", acknowledgeUncertain: true });
+  const resumed = f.operation("sites");
+  const remote = observation({
+    remoteId: created.remoteId,
+    url: null,
+    evidence: "authenticated-tool",
+    conditionalWrite: false,
+  });
+  const prepared = await f.client.publications({
+    ...resumed,
+    action: "prepare",
+    expectedRevision: 1,
+    observation: remote,
+  });
+  expect(prepared.decision).toBe("warning");
+  await f.client.publications({ ...resumed, action: "authorize", expectedObservation: remote });
+  const publishedUrl = "https://unpublished-existing-site.chatgpt.site";
+  const withUrl = { ...remote, url: publishedUrl, checkedAt: new Date().toISOString() };
+  const refreshed = await f.client.publications({
+    ...resumed,
+    action: "refresh",
+    observation: withUrl,
+  });
+  expect(refreshed.decision).toBe("warning");
+  await expect(f.client.publications({ ...resumed, action: "start" })).rejects.toThrow("authorize");
+  await f.client.publications({ ...resumed, action: "authorize", expectedObservation: withUrl });
+  await f.client.publications({ ...resumed, action: "start" });
+  const progress = {
+    ...created,
+    url: publishedUrl,
+    savedVersion: "saved-version-1",
+    sourceCommit: "c".repeat(40),
+    deploymentId: "deployment-1",
+  };
+  await f.client.publications({ ...resumed, action: "progress", progress });
+  const result = success({
+    ...progress,
+    provider: "sites",
+    marker: {
+      version: JSON.stringify({
+        savedVersion: progress.savedVersion,
+        deploymentId: progress.deploymentId,
+      }),
+      updatedAt: null,
+    },
+  });
+  const completed = await f.client.publications({ ...resumed, action: "complete", result });
+  expect(completed.snapshot.destinations[0]?.checkpoint?.result.remoteId).toBe(created.remoteId);
+  expect(completed.snapshot.destinations[0]?.checkpoint?.result.url).toBe(publishedUrl);
 });
