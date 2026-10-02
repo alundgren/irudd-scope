@@ -111,8 +111,11 @@ function privacy(provider: PublicationProvider, observation: PublicationObservat
     messages.push("Sites publishing requires owner-only access and its private deployment tool.");
   if (provider === "claude" && observation.audience === "team" && observation.workspaceId === null)
     messages.push("A team-only Claude destination needs verified workspace identity.");
-  if ((observation.remoteId === null) !== (observation.url === null))
-    messages.push("Remote identity and URL must both be supplied or both be absent.");
+  if (
+    (observation.remoteId === null && observation.url !== null) ||
+    (provider === "claude" && observation.remoteId !== null && observation.url === null)
+  )
+    messages.push("Remote identity and URL are inconsistent for this provider.");
   if (
     observation.evidence === "documented-private-default" &&
     (provider !== "claude" || observation.remoteId !== null || observation.audience !== "owner")
@@ -343,7 +346,7 @@ export class PublicationStore {
               previous.accountId !== command.observation.accountId ||
               previous.workspaceId !== command.observation.workspaceId ||
               previous.remoteId !== command.observation.remoteId ||
-              previous.url !== command.observation.url
+              (previous.url !== null && previous.url !== command.observation.url)
             )
               return yield* fail(
                 "The account or destination changed. Cancel or unlink before choosing another destination.",
