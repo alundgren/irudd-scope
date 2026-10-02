@@ -24,6 +24,12 @@ export class GitHubReadError extends Error {
   }
 }
 
+const failedResponses = new WeakMap<GitHubReadError, string>();
+
+export function githubErrorResponse(error: GitHubReadError): string | undefined {
+  return failedResponses.get(error);
+}
+
 export function githubFailure(text: string, now = Date.now()): GitHubReadError {
   const statusText = /(?:HTTP(?:\/[^\s]+)?\s+|status[=: ]+)(401|403|404|429|5\d\d)\b/i.exec(
     text,
@@ -217,7 +223,10 @@ export class GitHubProcess {
         }
         if (code === 0) finish(undefined, Buffer.concat(chunks).toString("utf8"));
         else {
-          finish(githubFailure(Buffer.concat(chunks).toString("utf8") + "\n" + stderr));
+          const output = Buffer.concat(chunks).toString("utf8");
+          const error = githubFailure(output + "\n" + stderr);
+          if (output) failedResponses.set(error, output);
+          finish(error);
         }
       });
     });

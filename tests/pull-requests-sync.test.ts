@@ -253,8 +253,8 @@ if (args.some(a => a.includes('ScopeOpenPullRequests'))) {
     });
     const gh = await fakeGh(`
 if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([row]))}));
-else if(args.some(a => a.includes('ScopePullRequestLabels'))) console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2026-10-03T00:00:00Z'},repository:{pullRequest:{id:'PR_1',labels:{nodes:[{name:'later-label'}],pageInfo:${JSON.stringify(complete)}}}}}}));
-else if(args.some(a => a.includes('ScopePullRequestReviewers'))) console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2026-10-03T00:00:00Z'},repository:{pullRequest:{id:'PR_1',reviewRequests:{nodes:[{requestedReviewer:{login:'later-reviewer'}},{requestedReviewer:{slug:'maintainers',organization:{login:'another-org'}}}],pageInfo:${JSON.stringify(complete)}}}}}}));
+else if(args.some(a => a.includes('ScopePullRequestLabels'))) console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2026-10-03T00:00:00Z'},repository:{nameWithOwner:'example/project',pullRequest:{id:'PR_1',labels:{nodes:[{name:'later-label'}],pageInfo:${JSON.stringify(complete)}}}}}}));
+else if(args.some(a => a.includes('ScopePullRequestReviewers'))) console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2026-10-03T00:00:00Z'},repository:{nameWithOwner:'example/project',pullRequest:{id:'PR_1',reviewRequests:{nodes:[{requestedReviewer:{login:'later-reviewer'}},{requestedReviewer:{slug:'maintainers',organization:{login:'another-org'}}}],pageInfo:${JSON.stringify(complete)}}}}}}));
 else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
     const result = await new GitHubPullRequests(gh.process).inventory(repository, signal());
     expect(result.prs[0].labels).toEqual(["bug", "later-label"]);
@@ -337,7 +337,7 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
 if(process.env.GH_HOST !== 'github.example.com') throw new Error('Expected non-default host');
 if(args[0] === 'pr' && !args.includes('github.com/example/project')) throw new Error('Wrong host');
 if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));
-else if(args.some(a=>a.includes('ScopePullRequestReviewBody'))) console.log(JSON.stringify({data:{viewer:{login:"viewer"},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:"2026-10-03T00:00:00Z"},repository:{pullRequest:${JSON.stringify(view)}}}}));
+else if(args.some(a=>a.includes('ScopePullRequestReviewBody'))) console.log(JSON.stringify({data:{viewer:{login:"viewer"},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:"2026-10-03T00:00:00Z"},repository:{nameWithOwner:'example/project',pullRequest:${JSON.stringify(view)}}}}));
 else if(args[0] === 'pr' && args[1] === 'diff') console.log('diff --git a/test b/test');
 else if(args.some(a => a.includes('/files?'))) console.log(JSON.stringify([{sha:'${head}',filename:'test.ts',additions:0,deletions:0,changes:0,status:'modified',blob_url:'https://github.com/example/project/blob/${head}/test.ts',raw_url:'https://github.com/example/project/raw/${head}/test.ts',contents_url:'https://api.github.com/repos/example/project/contents/test.ts',patch:'@@ -1 +1 @@'}]));
 else if(args.some(a => a.includes('/reviews?'))) console.log(JSON.stringify([{id:2,node_id:'REVIEW_2',user:{login:'reviewer',id:7,node_id:'USER_7',avatar_url:'https://avatars.githubusercontent.com/u/7',type:'User',site_admin:false},state:'APPROVED',body:'Looks good',submitted_at:'2026-10-01T12:00:00Z',commit_id:'${head}',html_url:'https://github.com/example/project/pull/1#pullrequestreview-2',pull_request_url:'https://api.github.com/repos/example/project/pulls/1',author_association:'MEMBER',_links:{html:{href:'https://github.com/example/project/pull/1#pullrequestreview-2'}}}]));
@@ -388,7 +388,7 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
 import { existsSync, writeFileSync } from 'node:fs';
 const marker = process.argv[1] + '.viewed';
 if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));
-else if(args.some(a=>a.includes('ScopePullRequestReviewBody'))) { const moved = existsSync(marker); writeFileSync(marker, 'yes'); console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2026-10-03T00:00:00Z'},repository:{pullRequest:{...${JSON.stringify(view)},headRefOid:moved && '${commit}'==='head'?'${oldHead}':'${head}',baseRefOid:moved && '${commit}'==='base'?'${oldHead}':'${base}'}}}})); }
+else if(args.some(a=>a.includes('ScopePullRequestReviewBody'))) { const moved = existsSync(marker); writeFileSync(marker, 'yes'); console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2026-10-03T00:00:00Z'},repository:{nameWithOwner:'example/project',pullRequest:{...${JSON.stringify(view)},headRefOid:moved && '${commit}'==='head'?'${oldHead}':'${head}',baseRefOid:moved && '${commit}'==='base'?'${oldHead}':'${base}'}}}})); }
 else if(args[1] === 'diff') console.log('diff --git a/test b/test');
 else if(args.some(a => a.includes('/files?'))) console.log(JSON.stringify([{filename:'test',additions:0,deletions:0,status:'modified'}]));
 else if(args.some(a => a.includes('/reviews?'))) console.log('[]');
@@ -527,24 +527,53 @@ else { const wait=setInterval(()=>{if(existsSync(process.argv[1]+'.release')){cl
     ).rejects.toMatchObject({ kind: "throttle", retryAt: Date.parse("2099-10-02T00:00:00Z") });
   });
 
-  test("reviews refresh preserves each submitted commit and never reads files or diff", async () => {
+  test("nonzero GraphQL responses identify the account and exhausted quota before rejecting", async () => {
+    const failure = {
+      data: {
+        viewer: { login: "new-viewer" },
+        rateLimit: { cost: 1, limit: 5000, remaining: 0, resetAt: "2099-10-02T00:00:00Z" },
+      },
+      errors: [{ type: "RATE_LIMITED", message: "rate limit GH_TOKEN=secret" }],
+    };
+    const gh = await fakeGh(
+      `console.log(JSON.stringify(${JSON.stringify(failure)})); console.error('gh: rate limit exceeded'); process.exit(1);`,
+    );
+    const observations: { account: string; remaining: number }[] = [];
+    const service = new GitHubPullRequests(gh.process, (observation) =>
+      observations.push(observation),
+    );
+    await expect(service.inventory(repository, signal())).rejects.toMatchObject({
+      kind: "throttle",
+      retryAt: Date.parse("2099-10-02T00:00:00Z"),
+    });
+    expect(observations).toEqual([
+      expect.objectContaining({ account: "new-viewer", remaining: 0 }),
+    ]);
+    try {
+      await gh.process.run([], signal());
+    } catch (error) {
+      expect(JSON.stringify(error)).not.toContain("secret");
+    }
+  });
+
+  test("reviews refresh after current commits move preserves each submitted commit without files or diff", async () => {
     const view = {
       id: "PR_1",
       state: "OPEN",
-      headRefOid: head,
-      baseRefOid: base,
+      headRefOid: oldHead,
+      baseRefOid: oldHead,
       body: "Current body",
     };
     const gh = await fakeGh(`
 if(args.some(a=>a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));
-else if(args.some(a=>a.includes('ScopePullRequestReviewBody'))) console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2099-10-02T00:00:00Z'},repository:{pullRequest:${JSON.stringify(view)}}}}));
-else if(args.some(a=>a.includes('/reviews?'))) console.log(JSON.stringify([{id:7,user:{login:'reviewer'},state:'APPROVED',body:'old commit approval',submitted_at:'2026-10-01T12:00:00Z',commit_id:'${oldHead}'}]));
+else if(args.some(a=>a.includes('ScopePullRequestReviewBody'))) console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2099-10-02T00:00:00Z'},repository:{nameWithOwner:'example/project',pullRequest:${JSON.stringify(view)}}}}));
+else if(args.some(a=>a.includes('/reviews?'))) console.log(JSON.stringify([{id:7,user:{login:'reviewer'},state:'APPROVED',body:'old commit approval',submitted_at:'2026-10-01T12:00:00Z',commit_id:'${head}'}]));
 else throw new Error('Unexpected file or diff read');`);
     const service = new GitHubPullRequests(gh.process);
     const first = (await service.inventory(repository, signal())).prs[0];
     const result = await service.reviews(repository, first, signal());
     expect(result.body).toBe("Current body");
-    expect(result.reviews[0].headOid).toBe(oldHead);
+    expect(result.reviews[0].headOid).toBe(head);
     expect(
       (await gh.calls()).some(
         (args) => args.includes("diff") || args.some((a) => a.includes("/files?")),
