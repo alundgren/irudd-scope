@@ -73,6 +73,11 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
       held: { snapshot: Mutable<typeof initial>; resolve: (value: unknown) => void } | null;
       holdRead: boolean;
       calls: PullRequestsCommand[];
+      interests: {
+        tabId: string;
+        active: boolean;
+        detail: { nodeId: string; headOid: string; baseOid: string } | null;
+      }[];
     };
     const state: State = {
       snapshot: initial as Mutable<typeof initial>,
@@ -82,8 +87,13 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
       held: null,
       holdRead: false,
       calls: [],
+      interests: [],
     };
     Object.assign(globalThis, { prInboxTest: state });
+    ipcMain.removeHandler("scope:pull-requests-interest");
+    ipcMain.handle("scope:pull-requests-interest", (_event, interest) => {
+      state.interests.push(structuredClone(interest));
+    });
     const notify = () =>
       BrowserWindow.getAllWindows()[0]!.webContents.send("scope:pull-requests-changed", {
         type: "pull-requests",
@@ -169,6 +179,141 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
     });
   }, snapshot);
 }
+
+test("live reviews preserve captured code and drafts, and closing the pane stops its subscription", async () => {
+  const fixture = await offlineFixture();
+  const app = await fixture.launch();
+  try {
+    const { artifact, tabId } = await createStarterInbox(app);
+    await installCommands(app, {
+      ...snapshot(artifact, tabId),
+      prs: [pr(1)],
+      sync: {
+        state: "idle",
+        updatedAt: at,
+        lastSuccessAt: at,
+        error: null,
+        intervalMs: 300_000,
+        nextAttemptAt: null,
+        reason: "Adaptive account budget",
+      },
+    });
+    await sendChange(app, "reconnect");
+    const page = await app.firstWindow();
+    const frame = page.frameLocator(".pull-requests-document");
+    await frame
+      .getByRole("button", { name: "Keep the current review stable 1", exact: true })
+      .click();
+    await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (
+              globalThis as unknown as {
+                prInboxTest: { interests: { detail: { nodeId: string } | null }[] };
+              }
+            ).prInboxTest.interests.at(-1)?.detail?.nodeId,
+        ),
+      )
+      .toBe("PR_1");
+    await page.getByRole("status").filter({ hasText: "Refresh target 5 minutes" }).waitFor();
+    await frame.getByRole("button", { name: "Discussion", exact: true }).click();
+    await frame.getByLabel("Your notes").fill("Keep my unfinished note");
+    const update = {
+      tabId,
+      nodeId: "PR_1",
+      headOid: head,
+      baseOid: base,
+      body: "Updated description",
+      fetchedAt: "2026-10-02T12:00:00.000Z",
+      error: null,
+      reviews: [
+        {
+          id: "review-2",
+          author: "reviewer",
+          state: "APPROVED",
+          body: "Live review arrived",
+          submittedAt: at,
+          headOid: head,
+        },
+      ],
+    };
+    await app.evaluate(({ BrowserWindow }, value) => {
+      BrowserWindow.getAllWindows()[0]!.webContents.send(
+        "scope:pull-requests-detail-update",
+        value,
+      );
+    }, update);
+    await frame.getByText("reviewer · APPROVED\nLive review arrived", { exact: true }).waitFor();
+    expect(await frame.getByLabel("Your notes").inputValue()).toBe("Keep my unfinished note");
+    await frame.getByRole("button", { name: "Diff", exact: true }).click();
+    await expect.poll(() => frame.locator("#content").textContent()).toContain(head);
+    await sendChange(app, "new-head");
+    await frame
+      .getByRole("button", { name: "New commit available · Load latest commit" })
+      .waitFor();
+    expect(await frame.locator("#head").textContent()).toBe(head.slice(0, 12));
+    await expect.poll(() => frame.locator("#content").textContent()).toContain(head);
+    await app.evaluate(
+      ({ BrowserWindow }, value) => {
+        BrowserWindow.getAllWindows()[0]!.webContents.send(
+          "scope:pull-requests-detail-update",
+          value,
+        );
+      },
+      {
+        ...update,
+        headOid: newerHead,
+        body: "Wrong captured commit",
+        fetchedAt: "2026-10-02T12:01:00.000Z",
+      },
+    );
+    await frame.getByRole("button", { name: "Body", exact: true }).click();
+    await expect.poll(() => frame.locator("#content").textContent()).toBe("Updated description");
+    await frame.getByRole("button", { name: "Back to inbox" }).click();
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (
+              globalThis as unknown as { prInboxTest: { interests: { detail: unknown }[] } }
+            ).prInboxTest.interests.at(-1)?.detail,
+        ),
+      )
+      .toBe(null);
+    await app.evaluate(
+      ({ BrowserWindow }, value) => {
+        BrowserWindow.getAllWindows()[0]!.webContents.send(
+          "scope:pull-requests-detail-update",
+          value,
+        );
+      },
+      { ...update, body: "After unsubscribe", fetchedAt: "2026-10-02T12:02:00.000Z" },
+    );
+    await expect.poll(() => frame.locator("#content").textContent()).toBe("Updated description");
+    await mkdir("/tmp/scope-adaptive-live-sync", { recursive: true });
+    await page.screenshot({ path: "/tmp/scope-adaptive-live-sync/inbox-light.png" });
+    await page.setViewportSize({ width: 680, height: 720 });
+    await page.getByRole("button", { name: "Search and controls" }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Appearance", exact: true }).click();
+    await page.getByLabel("Appearance", { exact: true }).selectOption("dark");
+    await page
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe("dark");
+    await expect
+      .poll(() => page.getByRole("dialog", { name: "Settings", exact: true }).count())
+      .toBe(0);
+    await page.screenshot({ path: "/tmp/scope-adaptive-live-sync/inbox-dark-narrow.png" });
+  } finally {
+    await app.close();
+    await rm(fixture.directory, { recursive: true, force: true });
+    await rm(fixture.ghDirectory, { recursive: true, force: true });
+  }
+});
 async function sendChange(
   application: ElectronApplication,
   change: "new-head" | "reconnect" | "release" | "note-error" | "note-ok" | "sync-error",

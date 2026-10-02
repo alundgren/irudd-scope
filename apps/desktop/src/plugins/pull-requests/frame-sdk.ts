@@ -12,6 +12,12 @@ function installPullRequestsSDK(identity: FrameIdentity) {
     }
   >();
   const watchers = new Set<Watcher>();
+  const detailWatchers = new Set<{
+    nodeId: string;
+    headOid: string;
+    baseOid: string;
+    watcher: (update: unknown) => void;
+  }>();
   const closing = new Set<() => Promise<void>>();
   let latest: { pullRequests: readonly unknown[]; context: unknown; sync: unknown } | undefined;
   let generation = -1;
@@ -48,6 +54,19 @@ function installPullRequestsSDK(identity: FrameIdentity) {
     }
     return value;
   }
+  function reportDetailInterest() {
+    const current = [...detailWatchers].at(-1);
+    parent.postMessage(
+      {
+        ...identity,
+        type: "scope-pull-requests-interest",
+        detail: current
+          ? { nodeId: current.nodeId, headOid: current.headOid, baseOid: current.baseOid }
+          : null,
+      },
+      "*",
+    );
+  }
   addEventListener("message", (event) => {
     const value = event.data;
     if (
@@ -57,6 +76,30 @@ function installPullRequestsSDK(identity: FrameIdentity) {
     )
       return;
     if (value.type === "scope-pull-requests-close") void flush(value.id);
+    if (value.type === "scope-pull-requests-detail-update") {
+      const current = [...detailWatchers].at(-1);
+      if (
+        current &&
+        value.value?.nodeId === current.nodeId &&
+        value.value?.headOid === current.headOid &&
+        value.value?.baseOid === current.baseOid
+      ) {
+        const update = freeze(value.value);
+        for (const subscription of detailWatchers) {
+          if (
+            subscription.nodeId !== current.nodeId ||
+            subscription.headOid !== current.headOid ||
+            subscription.baseOid !== current.baseOid
+          )
+            continue;
+          try {
+            subscription.watcher(update);
+          } catch (error) {
+            console.error(error);
+          }
+        }
+      }
+    }
     if (value.type === "scope-pull-requests-snapshot" && value.generation >= generation) {
       generation = value.generation;
       latest = freeze(value.value) as typeof latest;
@@ -81,6 +124,20 @@ function installPullRequestsSDK(identity: FrameIdentity) {
       watchers.add(watcher);
       if (latest) watcher(latest.pullRequests, latest.context, latest.sync);
       return () => watchers.delete(watcher);
+    },
+    watchDetail(
+      nodeId: string,
+      headOid: string,
+      baseOid: string,
+      watcher: (update: unknown) => void,
+    ) {
+      const subscription = { nodeId, headOid, baseOid, watcher };
+      detailWatchers.add(subscription);
+      reportDetailInterest();
+      return () => {
+        detailWatchers.delete(subscription);
+        reportDetailInterest();
+      };
     },
     beforeClose(callback: () => Promise<void>) {
       closing.add(callback);
