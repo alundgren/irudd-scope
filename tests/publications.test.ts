@@ -295,6 +295,13 @@ test("unresolved operations prevent duplicate creation and stale local starts", 
     sourceCommit: null,
     deploymentId: null,
   };
+  await expect(
+    f.client.publications({
+      ...next,
+      action: "progress",
+      progress: { ...progress, url: "https://example.com/remote" },
+    }),
+  ).rejects.toThrow("supported secure provider URL");
   await f.client.publications({ ...next, action: "progress", progress });
   await f.restart();
   expect(
@@ -535,4 +542,33 @@ test("an expired safe overwrite warning remains acknowledgeable and requires a f
     observation: { ...remote, checkedAt: new Date().toISOString() },
   });
   await f.client.publications({ ...op, action: "start" });
+});
+
+test("confirmed Claude publication without change metadata saves its link and warns on the next update", async () => {
+  const f = await fixture(),
+    op = f.operation();
+  await f.client.publications({
+    ...op,
+    action: "prepare",
+    expectedRevision: 1,
+    observation: observation(),
+  });
+  await f.client.publications({ ...op, action: "start" });
+  const result = success({ marker: { version: null, updatedAt: null } });
+  const completed = await f.client.publications({ ...op, action: "complete", result });
+  expect(completed.snapshot.destinations[0]?.checkpoint?.result.url).toBe(result.url);
+  await f.restart();
+  const next = f.operation();
+  const update = await f.client.publications({
+    ...next,
+    action: "prepare",
+    expectedRevision: 1,
+    observation: observation({
+      remoteId: result.remoteId,
+      url: result.url,
+      evidence: "authenticated-share-inspection",
+    }),
+  });
+  expect(update.decision).toBe("warning");
+  expect(update.messages.some((message) => message.includes("missing or incomparable"))).toBe(true);
 });
