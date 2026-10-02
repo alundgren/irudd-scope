@@ -70,7 +70,15 @@ try {
     appBundleId: "alundgren.irudd-scope",
     appCategoryType: "public.app-category.developer-tools",
     extraResource: [join(desktop, "resources/icon.icns")],
-    extendInfo: { CFBundleIconFile: "icon.icns" },
+    extendInfo: {
+      CFBundleIconFile: "icon.icns",
+      CFBundleURLTypes: [
+        {
+          CFBundleURLName: "alundgren.irudd-scope.transfer",
+          CFBundleURLSchemes: ["scope-transfer"],
+        },
+      ],
+    },
     platform: "darwin",
     arch: process.arch as "arm64" | "x64",
     electronVersion: require("electron/package.json").version,
@@ -113,6 +121,14 @@ try {
       timeout: 30_000,
     },
   );
+  const transport = await exec(
+    join(bundle, "Contents/Resources/app/dist/scope-tailcat"),
+    ["--version"],
+    { timeout: 10_000 },
+  );
+  if (transport.stdout.trim() !== "scope-tailcat tailcat/v0.7.0") {
+    throw new Error("The packaged Scope transfer transport has an unexpected version.");
+  }
   await mkdir(resolve(output), { recursive: true });
   await rename(bundle, resolve(output, "Scope.app")).catch(async (error: NodeJS.ErrnoException) => {
     if (error.code !== "EXDEV") throw error;
