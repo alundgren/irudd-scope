@@ -922,6 +922,34 @@ h2 {
   flex-wrap: wrap;
   gap: var(--scope-space-2);
 }
+.transfer-form {
+  display: grid;
+  gap: var(--scope-space-3);
+}
+.transfer-form label,
+.transfer-dialog > label {
+  display: grid;
+  gap: var(--scope-space-2);
+}
+.transfer-form > button,
+.transfer-dialog > button:not([aria-label="Close"]) {
+  justify-self: start;
+}
+[data-slot="dialog-content"].transfer-dialog {
+  max-height: calc(100dvh - var(--scope-space-8));
+  overflow: auto;
+}
+.transfer-title {
+  font-weight: var(--scope-weight-strong);
+  overflow-wrap: anywhere;
+}
+.transfer-qr {
+  width: 180px;
+  max-width: 100%;
+  height: auto;
+  justify-self: center;
+  border-radius: var(--scope-radius-control);
+}
 .installation-tool {
   display: grid;
   gap: var(--scope-space-3);
