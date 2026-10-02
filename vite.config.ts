@@ -43,6 +43,7 @@ export default defineConfig({
     })),
   },
   test: {
+    maxWorkers: 2,
     include: ["tests/**/*.test.ts"],
     testTimeout: 30_000,
     reporters: ["minimal"],
