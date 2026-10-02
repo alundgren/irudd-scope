@@ -107,8 +107,10 @@ function privacy(provider: PublicationProvider, observation: PublicationObservat
     messages.push("The signed-in account cannot verify edit permission.");
   if (!["owner", "team"].includes(observation.audience))
     messages.push("Destination privacy is public, external, or unverified.");
-  if (provider === "sites" && observation.audience !== "owner")
+  if (provider === "sites" && (observation.audience !== "owner" || observation.access !== "owner"))
     messages.push("Sites publishing requires owner-only access and its private deployment tool.");
+  if (provider === "claude" && observation.audience === "team" && observation.workspaceId === null)
+    messages.push("A team-only Claude destination needs verified workspace identity.");
   if ((observation.remoteId === null) !== (observation.url === null))
     messages.push("Remote identity and URL must both be supplied or both be absent.");
   if (
@@ -199,16 +201,12 @@ export class PublicationStore {
           if (operation)
             operation = {
               ...operation,
-              canAuthorize:
-                operation.state === "warning" &&
-                privacy(row.provider, operation.observation).length === 0,
               needsRefresh: operation.state !== "started" && !fresh(operation.observation),
             };
           // Expiry prevents a remote call, but retains approval for an identical fresh observation.
           if (operation && operation.state !== "started" && !fresh(operation.observation))
             operation = {
               ...operation,
-              state: "blocked",
               warnings: [
                 ...operation.warnings,
                 "The remote observation expired. Check the destination again before publishing.",

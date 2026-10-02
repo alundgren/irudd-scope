@@ -55,7 +55,6 @@ export const PublicationOperation = Schema.Struct({
   blob: BlobId,
   observation: PublicationObservation,
   state: Schema.Literals(["blocked", "warning", "prepared", "started"]),
-  canAuthorize: Schema.optionalKey(Schema.Boolean),
   needsRefresh: Schema.optionalKey(Schema.Boolean),
   warnings: Schema.Array(Text),
   createdAt: Timestamp,

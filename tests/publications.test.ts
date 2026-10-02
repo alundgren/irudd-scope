@@ -465,7 +465,7 @@ test("a newer successful checkpoint cannot be replaced by replaying an older com
   ).toBe("2");
 });
 
-test("expired checks remain blocked until identical facts are refreshed without losing approval", async () => {
+test("expired checks require refresh without losing approval", async () => {
   const f = await fixture(),
     op = f.operation();
   const remote = observation({
@@ -487,9 +487,9 @@ test("expired checks remain blocked until identical facts are refreshed without 
   ).run(op.tabId);
   db.close();
   const read = await f.client.publications({ action: "read", id: op.id });
-  expect(read.decision).toBe("blocked");
+  expect(read.decision).toBe("allowed");
   expect(read.snapshot.destinations[0]?.operation?.needsRefresh).toBe(true);
-  expect(read.snapshot.destinations[0]?.operation?.canAuthorize).toBe(false);
+  expect(read.snapshot.destinations[0]?.operation?.state).toBe("prepared");
   expect(read.snapshot.destinations[0]?.operation?.warnings).toContain(
     "The remote observation expired. Check the destination again before publishing.",
   );
@@ -525,8 +525,8 @@ test("an expired safe overwrite warning remains acknowledgeable and requires a f
   db.close();
   expect(
     (await f.client.publications({ action: "read", id: op.id })).snapshot.destinations[0]?.operation
-      ?.canAuthorize,
-  ).toBe(true);
+      ?.state,
+  ).toBe("warning");
   await f.client.publications({ ...op, action: "authorize" });
   await expect(f.client.publications({ ...op, action: "start" })).rejects.toThrow("Refresh");
   await f.client.publications({
