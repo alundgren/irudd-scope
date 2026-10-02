@@ -51,7 +51,7 @@ only to a main-created loopback listener. The helper has no shell, file service,
 publishing credential, or library API access. Cancellation, expiry, parent pipe
 closure, and helper failure close accepted connections. Requests and responses
 have size limits, deadlines, and bounded concurrency. Tailcat is experimental;
-its hosted relays retain connection metadata and provide rate-limited service
+its hosted relays can observe connection metadata and provide rate-limited service
 without uptime guarantees.
 
 Send flushes edits and freezes an ordinary artifact or current diagram document.
