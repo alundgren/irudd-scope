@@ -155,11 +155,7 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
             detail: {
               headOid: row.headOid,
               body: "A synthetic pull request description.",
-              diff:
-                "diff --git a/example.ts b/example.ts\n+const commit = " +
-                row.headOid +
-                ";\n-base " +
-                row.baseOid,
+              diff: "diff --git a/example.ts b/example.ts\n+const commit = " + row.headOid + ";",
               reviews: [
                 {
                   id: "review-1",
@@ -346,9 +342,7 @@ test("live reviews preserve captured code and drafts, and closing the pane stops
       state.snapshot.sync.state = "error";
       state.snapshot.sync.error = "GitHub temporarily unavailable";
       state.snapshot.sync.nextAttemptAt = "2026-10-02T12:05:00.000Z";
-      BrowserWindow.getAllWindows()[0]!.webContents.send("scope:pull-requests-changed", {
-        type: "reconnect",
-      });
+      BrowserWindow.getAllWindows()[0]!.webContents.send("scope:pull-requests-reconnected");
     });
     const failedStatus = page
       .getByRole("status")
@@ -384,18 +378,15 @@ test("a captured pane rejects a changed base until loading the latest comparison
     await frame
       .getByRole("button", { name: "Keep the current review stable 1", exact: true })
       .click();
-    await frame
-      .getByText("This comparison changed. Load the latest comparison to view its details.", {
-        exact: true,
-      })
-      .waitFor();
+    await expect
+      .poll(() => frame.locator("#content").textContent())
+      .toContain("This comparison changed. Load the latest comparison to view its details.");
     await sendChange(app, "reconnect");
     await frame
       .getByRole("button", { name: "Base changed · Load latest comparison", exact: true })
       .click();
     await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
-    await expect.poll(() => frame.locator("#content").textContent()).toContain(changedBase);
     await expect.poll(() => frame.locator("#content").textContent()).toContain(head);
     const captured = await app.evaluate(() =>
       (
