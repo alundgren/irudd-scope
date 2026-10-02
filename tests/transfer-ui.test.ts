@@ -40,6 +40,7 @@ async function installTransferResponses(app: ElectronApplication, artifact?: Art
     };
     if (artifact) devices.peers.push(peer);
     const expiresAt = Date.now() + 15 * 60_000;
+    let pairingInvitation = false;
     const invitation = (pairing = false) => ({
       id: "44444444-4444-4444-8444-444444444444",
       url: `scope-transfer://v1/#${Buffer.from(
@@ -61,6 +62,7 @@ async function installTransferResponses(app: ElectronApplication, artifact?: Art
       "transfer-devices": () => devices,
       "create-pairing": (_event: unknown, name: string) => {
         devices.name = name;
+        pairingInvitation = true;
         control.state = "waiting";
         return invitation(true);
       },
@@ -79,10 +81,11 @@ async function installTransferResponses(app: ElectronApplication, artifact?: Art
       },
       "send-tab": () => {
         control.sent++;
+        pairingInvitation = false;
         control.state = "waiting";
         return invitation();
       },
-      "transfer-status": () => invitation(),
+      "transfer-status": () => invitation(pairingInvitation),
       "cancel-transfer": () => {
         control.cancelled++;
         control.state = "cancelled";
