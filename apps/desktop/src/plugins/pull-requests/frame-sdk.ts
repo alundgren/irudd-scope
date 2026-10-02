@@ -152,7 +152,11 @@ function installPullRequestsSDK(identity: FrameIdentity) {
       send("markReviewed", [pullRequestId, headCommit, expectedVersion]),
     inspect: (pullRequestId: string, headCommit: string, expectedVersion: number) =>
       send("inspect", [pullRequestId, headCommit, expectedVersion]),
-    detail: (pullRequestId: string, section: string) => send("detail", [pullRequestId, section]),
+    detail: (
+      pullRequestId: string,
+      section: string,
+      captured?: { headOid: string; baseOid: string },
+    ) => send("detail", [pullRequestId, section, captured]),
   });
   Object.defineProperty(window, "scope", { value: Object.freeze({ pullRequests: sdk }) });
   parent.postMessage({ ...identity, type: "scope-pull-requests-ready" }, "*");

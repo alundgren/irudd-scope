@@ -528,6 +528,7 @@
         stopDetailWatch?.();
         stopDetailWatch = undefined;
         watchedDetail = key;
+        $("detail-freshness").textContent = "";
         if (!p) return;
         stopDetailWatch = api.watchDetail(p.nodeId, p.headOid, p.baseOid, (update) => {
           if (watchedDetail !== key || $("review").hidden) return;
@@ -835,7 +836,10 @@
         }
         $("content").textContent = "Loading…";
         try {
-          const result = await api.detail(p.nodeId, section);
+          const result = await api.detail(p.nodeId, section, {
+            headOid: p.headOid,
+            baseOid: p.baseOid,
+          });
           if (result.headOid !== p.headOid)
             throw new Error("This pull request changed while loading details. Sync and retry.");
           const text = detailText(result, requestedSection, p);

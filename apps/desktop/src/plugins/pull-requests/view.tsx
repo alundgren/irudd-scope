@@ -25,7 +25,11 @@ function frameCommand(
   const row = { ...base, nodeId: pr.nodeId };
   switch (call.method) {
     case "detail":
-      return { ...row, action: "detail" };
+      return decode(PullRequestsCommand, {
+        ...row,
+        action: "detail",
+        ...(call.args[2] === undefined ? {} : { captured: call.args[2] }),
+      });
     case "saveNote":
       return decode(PullRequestsCommand, {
         ...row,

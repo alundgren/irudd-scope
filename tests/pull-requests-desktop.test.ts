@@ -140,7 +140,14 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
         }
       } else {
         const row = state.snapshot.prs.find((p) => p.nodeId === command.nodeId)!;
-        if (command.action === "detail")
+        if (command.action === "detail") {
+          if (
+            command.captured &&
+            (command.captured.headOid !== row.headOid || command.captured.baseOid !== row.baseOid)
+          )
+            throw new Error(
+              "This comparison changed. Load the latest comparison to view its details.",
+            );
           return {
             type: "detail",
             tabId: state.snapshot.tabId,
@@ -148,7 +155,11 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
             detail: {
               headOid: row.headOid,
               body: "A synthetic pull request description.",
-              diff: "diff --git a/example.ts b/example.ts\n+const commit = " + row.headOid + ";",
+              diff:
+                "diff --git a/example.ts b/example.ts\n+const commit = " +
+                row.headOid +
+                ";\n-base " +
+                row.baseOid,
               reviews: [
                 {
                   id: "review-1",
@@ -163,6 +174,7 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
               fetchedAt: initial.sync.updatedAt,
             },
           };
+        }
         if (command.action === "note") {
           if (command.expectedVersion !== row.local.noteVersion)
             throw new Error("Synthetic note version conflict");
@@ -343,6 +355,63 @@ test("live reviews preserve captured code and drafts, and closing the pane stops
       .filter({ hasText: "GitHub temporarily unavailable" });
     await expect.poll(() => failedStatus.textContent()).toContain("Updated ");
     await expect.poll(() => failedStatus.textContent()).toContain("Retrying at ");
+  } finally {
+    await app.close();
+    await rm(fixture.directory, { recursive: true, force: true });
+    await rm(fixture.ghDirectory, { recursive: true, force: true });
+  }
+});
+
+test("a captured pane rejects a changed base until loading the latest comparison", async () => {
+  const fixture = await offlineFixture();
+  const app = await fixture.launch();
+  try {
+    const { artifact, tabId } = await createStarterInbox(app);
+    await installCommands(app, { ...snapshot(artifact, tabId), prs: [pr(1)] });
+    await sendChange(app, "reconnect");
+    const page = await app.firstWindow();
+    const frame = page.frameLocator(".pull-requests-document");
+    await frame
+      .getByRole("button", { name: "Keep the current review stable 1", exact: true })
+      .waitFor();
+    const changedBase = "d".repeat(40);
+    await app.evaluate((_electron, value) => {
+      const state = (
+        globalThis as unknown as { prInboxTest: { snapshot: { prs: { baseOid: string }[] } } }
+      ).prInboxTest;
+      state.snapshot.prs[0]!.baseOid = value;
+    }, changedBase);
+    await frame
+      .getByRole("button", { name: "Keep the current review stable 1", exact: true })
+      .click();
+    await frame
+      .getByText("This comparison changed. Load the latest comparison to view its details.", {
+        exact: true,
+      })
+      .waitFor();
+    await sendChange(app, "reconnect");
+    await frame
+      .getByRole("button", { name: "New base available · Load latest comparison", exact: true })
+      .click();
+    await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
+    await frame.getByRole("button", { name: "Diff", exact: true }).click();
+    await expect.poll(() => frame.locator("#content").textContent()).toContain(changedBase);
+    await expect.poll(() => frame.locator("#content").textContent()).toContain(head);
+    const captured = await app.evaluate(() =>
+      (
+        globalThis as unknown as {
+          prInboxTest: {
+            calls: { action: string; captured?: { headOid: string; baseOid: string } }[];
+          };
+        }
+      ).prInboxTest.calls
+        .filter((call) => call.action === "detail")
+        .map((call) => call.captured),
+    );
+    expect(captured).toEqual([
+      { headOid: head, baseOid: base },
+      { headOid: head, baseOid: changedBase },
+    ]);
   } finally {
     await app.close();
     await rm(fixture.directory, { recursive: true, force: true });

@@ -440,7 +440,7 @@ inbox.watch((prs, context, sync) => {
 });
 ```
 
-`sync()` requests refresh. `detail(nodeId, section)` returns the complete
+`sync()` requests refresh. `detail(nodeId, section, {headOid,baseOid})` returns the complete
 commit-bound detail object; `section` is an app hint and does not limit that
 reply. `watchDetail(nodeId, displayedHeadOid, displayedBaseOid, callback)` reports
 the inspected PR and receives refreshed `{ body, reviews, fetchedAt, error }`
