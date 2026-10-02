@@ -54,7 +54,7 @@ export const PublicationOperation = Schema.Struct({
   revision: Revision,
   blob: BlobId,
   observation: PublicationObservation,
-  state: Schema.Literals(["warning", "prepared", "started"]),
+  state: Schema.Literals(["blocked", "warning", "prepared", "started"]),
   warnings: Schema.Array(Text),
   createdAt: Timestamp,
   progress: Schema.NullOr(PublicationProgress),
