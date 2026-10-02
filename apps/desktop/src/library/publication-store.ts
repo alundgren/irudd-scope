@@ -144,8 +144,6 @@ function validateResult(
     (expected.remoteId !== result.remoteId || expected.url !== result.url)
   )
     return "The result belongs to another destination.";
-  if (result.marker.version === null && result.marker.updatedAt === null)
-    return "A successful result must include its provider version or publication date.";
   if (result.marker.updatedAt !== null && timestamp(result.marker.updatedAt) === null)
     return "The provider date is invalid.";
   if (provider === "sites") {
