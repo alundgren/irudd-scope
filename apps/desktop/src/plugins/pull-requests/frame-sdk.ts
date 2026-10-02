@@ -33,7 +33,7 @@ function installPullRequestsSDK(identity: FrameIdentity) {
       await Promise.all([...closing].map((callback) => callback()));
       await Promise.all(
         [...pending.values()]
-          .filter((call) => !["sync", "detail"].includes(call.method))
+          .filter((call) => !["sync", "detail", "openExternal"].includes(call.method))
           .map((call) => call.promise),
       );
     } catch (failure) {
@@ -57,6 +57,8 @@ function installPullRequestsSDK(identity: FrameIdentity) {
     )
       return;
     if (value.type === "scope-pull-requests-close") void flush(value.id);
+    if (value.type === "scope-pull-requests-link-result" && value.error)
+      reportExternalError(value.url, value.error);
     if (value.type === "scope-pull-requests-snapshot" && value.generation >= generation) {
       generation = value.generation;
       latest = freeze(value.value) as typeof latest;
@@ -77,6 +79,7 @@ function installPullRequestsSDK(identity: FrameIdentity) {
     }
   });
   const sdk = Object.freeze({
+    openExternal: (url: string) => send("openExternal", [url]),
     watch(watcher: Watcher) {
       watchers.add(watcher);
       if (latest) watcher(latest.pullRequests, latest.context, latest.sync);
@@ -98,6 +101,30 @@ function installPullRequestsSDK(identity: FrameIdentity) {
     detail: (pullRequestId: string, section: string) => send("detail", [pullRequestId, section]),
   });
   Object.defineProperty(window, "scope", { value: Object.freeze({ pullRequests: sdk }) });
+  function externalURL(value: string): string | undefined {
+    try {
+      const url = new URL(value, document.baseURI);
+      if (!["http:", "https:"].includes(url.protocol)) return;
+      return url.href;
+    } catch {
+      return;
+    }
+  }
+  function reportExternalError(url: string, message: string) {
+    dispatchEvent(
+      new CustomEvent("scope-pull-requests-external-error", { detail: { url, message } }),
+    );
+  }
+  function openLink(url: string) {
+    void sdk.openExternal(url).catch((error: Error) => reportExternalError(url, error.message));
+  }
+  const originalOpen = window.open.bind(window);
+  window.open = (url, target, features) => {
+    const external = url === undefined ? undefined : externalURL(String(url));
+    if (!external) return originalOpen(url, target, features);
+    openLink(external);
+    return null;
+  };
   parent.postMessage({ ...identity, type: "scope-pull-requests-ready" }, "*");
 }
 

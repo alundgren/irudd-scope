@@ -1,6 +1,16 @@
 import { Schema } from "effect";
-import { ArtifactId, decode, type Artifact } from "@irudd-scope/protocol";
-import type { TabState } from "../../workspace/contract.ts";
+import { ArtifactId, ArtifactName, decode, type Artifact } from "@irudd-scope/protocol";
+import { Uuid, type TabState } from "../../workspace/contract.ts";
+
+export const PullRequestsExternalLink = Schema.Struct({
+  name: ArtifactName,
+  tabId: Uuid,
+  url: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(8192)),
+});
+export type PullRequestsExternalLink = typeof PullRequestsExternalLink.Type;
+export const PullRequestsFrame = Schema.Struct({ name: ArtifactName, tabId: Uuid, channel: Uuid });
+export type PullRequestsFrame = typeof PullRequestsFrame.Type;
+export type PullRequestsLinkResult = PullRequestsFrame & { url: string; error?: string };
 
 export const PullRequestsTabState = Schema.Struct({
   version: Schema.Literal(1),
