@@ -7,6 +7,7 @@ import { ScopeClient } from "@irudd-scope/protocol/client";
 import { decode } from "@irudd-scope/protocol";
 import { PullRequestsSnapshot, PullRequestsSync } from "@irudd-scope/protocol/pull-requests";
 import type { PullRequestFacts } from "@irudd-scope/protocol/pull-requests";
+import { ArtifactStore } from "../apps/desktop/src/library/store.ts";
 import { startArtifactServer } from "../apps/desktop/src/library/server.ts";
 import { PullRequestSync } from "../apps/desktop/src/plugins/pull-requests/sync.ts";
 import { GitHubPullRequests } from "../apps/desktop/src/plugins/pull-requests/gh.ts";
@@ -55,9 +56,15 @@ async function fixture(
   });
   const client = new ScopeClient(server.url, "synthetic-scheduler-token-123456789");
   const service = new PullRequestSync(server.store.pullRequests, reader, scheduling);
-  cleanups.push(async () => {
+  let closed = false;
+  async function close() {
+    if (closed) return;
+    closed = true;
     service.cancelPending();
     await server.close();
+  }
+  cleanups.push(async () => {
+    await close();
     await rm(directory, { recursive: true, force: true });
   });
   async function tab(name: string) {
@@ -90,7 +97,7 @@ async function fixture(
     });
     return snapshot.tabId;
   }
-  return { server, service, tab, store: server.store.pullRequests };
+  return { server, service, tab, store: server.store.pullRequests, directory, close };
 }
 function reader() {
   let calls = 0;
@@ -499,6 +506,98 @@ test("failed initial enrichment retains base rows and retries without claiming f
   expect(failed.sync.lastSuccessAt).toBeNull();
   expect(failed.prs).toHaveLength(1);
   expect((await f.service.sync(tabId)).sync.lastSuccessAt).toBeTruthy();
+});
+
+for (const restart of [false, true]) {
+  test(`failed enrichment retries preserve known targeted facts${restart ? " after restart" : ""}`, async () => {
+    const remote = reader();
+    let metadataReads = 0;
+    const initial = remote.github.initialInventory.bind(remote.github);
+    remote.github.initialInventory = async (...args) => {
+      metadataReads++;
+      const base = await initial(...args);
+      return {
+        ...base,
+        prs: base.prs.map((pr) => ({
+          ...pr,
+          merge: { ...pr.merge, status: "unknown" as const },
+          checks: { ...pr.checks, status: "unknown" as const },
+          hasUnresolvedConversations: null,
+        })),
+      };
+    };
+    remote.github.enrichInventory = async () => {
+      throw new GitHubReadError("GitHub could not be reached", "network");
+    };
+    const f = await fixture(remote.github),
+      tabId = await f.tab("known-retry");
+    const failed = await f.service.sync(tabId);
+    expect(failed.viewer).toBe("viewer");
+    expect(failed.sync.lastSuccessAt).toBeNull();
+    const observed = facts(1, "2026-10-02T00:00:01.000Z");
+    const known = {
+      ...observed,
+      checks: { ...observed.checks, status: "passing" as const },
+      hasUnresolvedConversations: true,
+    };
+    await f.store.commitCurrent(tabId, repository, failed.prs[0]!, known);
+    let store = f.store,
+      service = f.service;
+    if (restart) {
+      await f.close();
+      const reopened = await ArtifactStore.open(f.directory);
+      store = reopened.pullRequests;
+      service = new PullRequestSync(store, remote.github);
+      cleanups.push(async () => {
+        service.cancelPending();
+        await reopened.close();
+      });
+    }
+    let completeReads = 0;
+    remote.github.inventory = async () => {
+      completeReads++;
+      throw new GitHubReadError("GitHub is still unavailable", "network");
+    };
+    const retried = await service.sync(tabId);
+    expect(metadataReads).toBe(1);
+    expect(completeReads).toBe(1);
+    expect(retried.sync.state).toBe("error");
+    expect(retried.sync.lastSuccessAt).toBeNull();
+    expect(retried.prs[0]!.checks.status).toBe("passing");
+    expect(retried.prs[0]!.merge.status).toBe("clear");
+    expect(retried.prs[0]!.hasUnresolvedConversations).toBe(true);
+    expect(retried.prs[0]!.merge.observedAt).toBe(known.merge.observedAt);
+  });
+}
+
+test("an empty committed base uses an atomic retry after restart", async () => {
+  const remote = reader();
+  let metadataReads = 0;
+  const initial = remote.github.initialInventory.bind(remote.github);
+  remote.github.initialInventory = async (...args) => {
+    metadataReads++;
+    return { ...(await initial(...args)), prs: [] };
+  };
+  remote.github.enrichInventory = async () => {
+    throw new GitHubReadError("GitHub could not be reached", "network");
+  };
+  const f = await fixture(remote.github),
+    tabId = await f.tab("empty-retry");
+  const failed = await f.service.sync(tabId);
+  expect(failed.prs).toEqual([]);
+  expect(failed.viewer).toBe("viewer");
+  expect(failed.sync.lastSuccessAt).toBeNull();
+  await f.close();
+  const reopened = await ArtifactStore.open(f.directory);
+  const service = new PullRequestSync(reopened.pullRequests, remote.github);
+  cleanups.push(async () => {
+    service.cancelPending();
+    await reopened.close();
+  });
+  const retry = await service.sync(tabId);
+  expect(metadataReads).toBe(1);
+  expect(retry.prs.map((pr) => pr.nodeId)).toEqual(["PR_1"]);
+  expect(retry.sync.lastSuccessAt).toBeTruthy();
 });
 
 test("manual refresh probes a changed account while the previous account reserve is active", async () => {
