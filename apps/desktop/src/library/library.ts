@@ -1,3 +1,4 @@
+import type { PublicationsEvent } from "@irudd-scope/protocol/publications";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { ScopeClient } from "@irudd-scope/protocol/client";
 import type { ArtifactContent, ArtifactLibrarySnapshot } from "../bridge.ts";
@@ -6,6 +7,23 @@ import type { PlanEvent } from "@irudd-scope/protocol/plan";
 import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
 
 export class ArtifactLibrary {
+  private publicationListeners = new Set<(event: PublicationsEvent) => void>();
+  private publicationReconnectListeners = new Set<() => void>();
+
+  onPublicationsChanged(listener: (event: PublicationsEvent) => void): () => void {
+    this.publicationListeners.add(listener);
+    return () => {
+      this.publicationListeners.delete(listener);
+    };
+  }
+
+  onPublicationsReconnected(listener: () => void): () => void {
+    this.publicationReconnectListeners.add(listener);
+    return () => {
+      this.publicationReconnectListeners.delete(listener);
+    };
+  }
+
   private pullRequestsListeners = new Set<(event: PullRequestsEvent) => void>();
   private pullRequestsReconnectListeners = new Set<() => void>();
 
@@ -105,6 +123,13 @@ export class ArtifactLibrary {
           if (event.type === "ready") {
             const refresh = ++this.refresh;
             changes = new Map();
+            for (const listener of this.publicationReconnectListeners) {
+              try {
+                listener();
+              } catch {
+                console.error("A publication reconnect listener failed.");
+              }
+            }
             for (const listener of this.planReconnectListeners) {
               try {
                 listener();
@@ -142,6 +167,14 @@ export class ArtifactLibrary {
                     error: "Could not refresh the artifact list.",
                   });
               });
+          } else if (event.type === "publications") {
+            for (const listener of this.publicationListeners) {
+              try {
+                listener(event);
+              } catch {
+                console.error("A publication update listener failed.");
+              }
+            }
           } else if (event.type === "pull-requests") {
             for (const listener of this.pullRequestsListeners) {
               try {
@@ -200,6 +233,8 @@ export class ArtifactLibrary {
     for (const active of this.loads.keys()) active.abort();
     this.loads.clear();
     this.cache.clear();
+    this.publicationListeners.clear();
+    this.publicationReconnectListeners.clear();
     this.planListeners.clear();
     this.planReconnectListeners.clear();
     this.pullRequestsListeners.clear();

@@ -505,3 +505,45 @@ The CLI documents the agent workflow and schema with `irudd-scope plan guide`.
 Feedback exports include `packet.json`, originating `plan.html` and both PNGs for
 each comment. Export retrieves only the selected round, not the entire history.
 They are explicit copies; plan storage stays in SQLite.
+
+## Outbound HTML publication
+
+`src/publications.ts` defines validated agent-assisted publishing commands and
+snapshots. `ScopeClient.publications` posts commands to `/v1/publications` with a
+256 KiB request bound and 1 MiB reply bound. `publicationContent(id, operationId)`
+reads the operation's exact retained HTML through
+`GET /v1/publications/:id/operations/:operationId/content`. Content retains the
+ordinary 32 MiB bound. Both routes require authentication and an online desktop;
+hubs forward them without offline buffering.
+
+Snapshots identify the artifact, owning tab UUID, and Claude/Sites destinations.
+Each destination contains a nullable successful checkpoint and unresolved
+operation. `prepare` pins the current revision and blob to an operation UUID.
+`authorize` acknowledges the operation's overwrite warning and checks the displayed `expectedObservation` against current semantic facts. `refresh` accepts a
+fresh observation and preserves acknowledgement only when the destination,
+account, audience, permission, version and date are unchanged. `start` records
+permission before the first provider mutation. `progress` records returned
+remote IDs and Sites version/deployment IDs. `complete` records confirmed
+success. `cancel` and `unlink` require explicit uncertainty acknowledgement for
+started work. Neither deletes provider content.
+
+Provider observations are supplied by the authenticated agent. Unknown or public
+privacy blocks writes. Changed remote versions, newer edit dates, or missing
+comparable metadata warn. Sites requires owner-only native deployment and an
+explicit acknowledgement for existing destinations because its tools cannot
+conditionally reject concurrent content edits. Claude keeps its native version
+guard; its list alone does not establish the audience. A provider failure must
+be reconciled before a started operation can be retried.
+
+The latest checkpoint and unresolved operation protect their stored HTML bytes.
+Operations survive desktop restart and preparation expiry. Completion uses the
+operation UUID for idempotency and rejects changed result replays. Sites
+completion needs an exact saved version, source commit, deployment ID, and
+attested terminal success for the matching project/version. A saved version or
+pending deployment is insufficient. Scope performs no provider calls, pull,
+conflict resolution, or background synchronization.
+
+`{ type: "publications", id, tabId }` live events notify changed publication
+state. Reconnect and read the snapshot to recover missed events. Read commands
+do not refresh provider metadata. The CLI's `publications guide` exposes the
+installed exact schema and workflow.
