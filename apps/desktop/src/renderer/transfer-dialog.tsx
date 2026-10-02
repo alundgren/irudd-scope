@@ -318,24 +318,40 @@ export function PairScopeDialog({
   finalFocus?: TransferDialogFocus;
 }) {
   const [paired, setPaired] = useState(false);
+  const [busy, setBusy] = useState(false);
   return (
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open && !busy) onClose();
       }}
     >
-      <DialogContent className="transfer-dialog" finalFocus={finalFocus}>
+      <DialogContent className="transfer-dialog" finalFocus={finalFocus} showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>Pair another Scope</DialogTitle>
         </DialogHeader>
+        <Button
+          className="absolute top-2 right-2"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Close"
+          disabled={busy}
+          onClick={onClose}
+        >
+          <X />
+        </Button>
         {paired ? (
           <>
             <p role="status">Scopes paired. You can now send tabs.</p>
             <Button onClick={onClose}>Done</Button>
           </>
         ) : (
-          <PairScopeForm initialUrl={url} onCancel={onClose} onPaired={() => setPaired(true)} />
+          <PairScopeForm
+            initialUrl={url}
+            onCancel={onClose}
+            onPaired={() => setPaired(true)}
+            onBusyChange={setBusy}
+          />
         )}
       </DialogContent>
     </Dialog>

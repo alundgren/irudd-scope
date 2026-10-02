@@ -15,10 +15,12 @@ export function PairScopeForm({
   initialUrl = "",
   onPaired,
   onCancel,
+  onBusyChange,
 }: {
   initialUrl?: string;
   onPaired: () => void;
   onCancel: () => void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [url, setUrl] = useState(initialUrl);
   const [secret, setSecret] = useState("");
@@ -37,6 +39,7 @@ export function PairScopeForm({
       onSubmit={(event) => {
         event.preventDefault();
         setBusy(true);
+        onBusyChange?.(true);
         setError("");
         void window.scope
           .pairScope({ url: url.trim(), secret: secret.trim(), name: name.trim() })
@@ -46,7 +49,10 @@ export function PairScopeForm({
             onPaired();
           })
           .catch((error: unknown) => setError(transferError(error)))
-          .finally(() => setBusy(false));
+          .finally(() => {
+            setBusy(false);
+            onBusyChange?.(false);
+          });
       }}
     >
       <label>
