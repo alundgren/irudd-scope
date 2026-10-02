@@ -145,6 +145,12 @@ export const PullRequestsEvent = Schema.Struct({
   generation: Revision,
 });
 export type PullRequestsEvent = typeof PullRequestsEvent.Type;
+export const PublicationsEvent = Schema.Struct({
+  type: Schema.Literal("publications"),
+  id: ArtifactId,
+  tabId: PublicationTabId,
+});
+export type PublicationsEvent = typeof PublicationsEvent.Type;
 export const LiveEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("ready") }),
   Schema.Struct({ type: Schema.Literal("artifact"), artifact: Artifact }),
@@ -152,6 +158,7 @@ export const LiveEvent = Schema.Union([
   DiagramEvent,
   PlanEvent,
   PullRequestsEvent,
+  PublicationsEvent,
 ]);
 export type LiveEvent = typeof LiveEvent.Type;
 

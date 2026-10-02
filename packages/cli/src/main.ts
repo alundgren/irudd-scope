@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { PublicationsGuide, publicationsCommand } from "./publications.ts";
 import { PullRequestsGuide, pullRequestsCommand } from "./pull-requests.ts";
 import { VoiceGuide } from "@irudd-scope/protocol/voice";
 import { voiceCommand, voiceHelp } from "./voice.ts";
@@ -48,6 +49,7 @@ irudd-scope diagram rebase WORKING.json
 irudd-scope diagram propose WORKING.json --note TEXT [--resolved]
 irudd-scope diagram reply NAME TEXT
 irudd-scope diagram watch NAME [--claude-channel | --t3-thread ID | --codex-thread ID] [--watch-edits]
+irudd-scope publications guide|read|apply|content [ID_OR_FILE] [OPERATION_ID] [--output FILE]
 irudd-scope pull-requests guide|read|configure|sync|detail|apply [NAME_OR_FILE] [OWNER/REPO_OR_NODE_ID]
 irudd-scope plan guide
 irudd-scope plan read NAME [--since VERSION]
@@ -427,6 +429,23 @@ async function main() {
     }
     const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"] ?? "330000"));
     await voiceCommand(argument, replacement, values, () => connect(values, signal), signal);
+    return;
+  }
+  if (command === "publications") {
+    if (argument === "guide") {
+      console.log(JSON.stringify(PublicationsGuide, null, 2));
+      return;
+    }
+    const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"] ?? "10000"));
+    const result = await publicationsCommand(
+      await connect(values, signal),
+      positionals,
+      values.output,
+      signal,
+    );
+    console.log(JSON.stringify(result, null, 2));
+    if (argument === "apply" && "decision" in result && result.decision !== "allowed")
+      process.exitCode = 2;
     return;
   }
   if (command === "pull-requests") {
