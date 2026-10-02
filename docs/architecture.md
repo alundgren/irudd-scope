@@ -110,11 +110,12 @@ in one transaction and removes PRs no longer open. Failed or incomplete reads
 preserve the previous inventory. Local and agent records have separate version
 checks and do not get replaced by GitHub facts.
 
-First load commits a complete lightweight inventory before enriching review
-conversations in bounded batches. Checks, mergeability, and conversations are Unknown and sync remains
+First load commits a complete lightweight inventory before enriching checks,
+mergeability, and conversations in bounded batches. Checks, mergeability, and conversations are Unknown and sync remains
 in progress until enrichment finishes. An enrichment failure retains that valid
-base list and retries; an incomplete membership read never replaces the list.
-Later refreshes commit the complete enriched inventory together.
+base list. Once a base inventory has been committed, retries and later refreshes
+read and commit enriched facts together, preserving cached facts on failure.
+This remains true after restart; an incomplete membership read never replaces the list.
 
 `plugins/pull-requests/view.tsx` hosts trusted authored HTML and injects
 `window.scope.pullRequests` before its scripts run. The HTML receives immutable

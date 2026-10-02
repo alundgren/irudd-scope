@@ -389,8 +389,8 @@ open. Failed or incomplete membership reads preserve the cached list and local v
 First load may publish a complete base inventory while `sync.state` remains
 `syncing` and checks, mergeability, and conversations are Unknown. `lastSuccessAt` advances only after
 enrichment finishes. Failed enrichment keeps the valid base rows; incomplete
-membership reads keep the previous list. Later refreshes commit enriched facts
-atomically. Optional scheduler status is supplied to authored apps by the desktop.
+membership reads keep the previous list. Once the base inventory is committed,
+retries and later refreshes commit enriched facts atomically, including after restart. Optional scheduler status is supplied to authored apps by the desktop.
 
 `note`, `snooze`, `review`, and `assessment` mutations use independent current
 versions. `expectedVersion` selects `local.noteVersion`, `local.snoozeVersion`,

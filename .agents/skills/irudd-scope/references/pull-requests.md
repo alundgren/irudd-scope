@@ -50,7 +50,7 @@ Matching inboxes share GitHub reads. Sync remains a fallback and obeys rate-limi
 
 If publication succeeds but configuration fails, configure the existing name
 instead of publishing again. The same repository can be configured again.
-Changing repositories requires a new named inbox. The first successful sync
+Changing repositories requires a new named inbox. The first complete inventory
 may normalize an alias to GitHub's verified canonical owner/name. A successful
 inventory, including an empty one, pins that path. Later repository renames or
 transfers require a new inbox. Read the returned snapshot for the actual binding.
