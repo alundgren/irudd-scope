@@ -198,6 +198,17 @@ export function useWorkspace(onError: (message: string) => void) {
       replace({ ...previous, tabs: [...previous.tabs.filter((entry) => entry.id !== id), tab] });
   }
 
+  function deferTab(id: string): string | null {
+    const previous = current.current;
+    const index = previous.tabs.findIndex((entry) => entry.id === id);
+    if (index < 0) return previous.selected;
+    const tabs = previous.tabs.filter((entry) => entry.id !== id);
+    const selected =
+      previous.selected === id ? (tabs[Math.max(0, index - 1)]?.id ?? id) : previous.selected;
+    replace({ ...previous, tabs: [...tabs, previous.tabs[index]], selected });
+    return selected;
+  }
+
   function moveTab(id: string, targetId: string, edge: TabDropEdge): void {
     if (id === targetId) return;
     const previous = current.current;
@@ -232,6 +243,7 @@ export function useWorkspace(onError: (message: string) => void) {
     openTab,
     addTabs,
     closeTab,
+    deferTab,
     moveTabToEnd,
     moveTab,
     createGroup,

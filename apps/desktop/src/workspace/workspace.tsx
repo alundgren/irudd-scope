@@ -80,6 +80,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     openTab,
     addTabs,
     closeTab,
+    deferTab,
     moveTabToEnd,
     moveTab,
     updateTab,
@@ -244,6 +245,16 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     );
   }
   async function close(id: string) {
+    if (!retention.ready) return;
+    if (retention.tabs.find((entry) => entry.tab.id === id)?.permanent) {
+      const selected = deferTab(id);
+      if (workspace.selected === id) setDiagramMode("edit");
+      requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
+      return;
+    }
+    await trash(id);
+  }
+  async function trash(id: string) {
     if (!(await closeTab(id))) return;
     const index = workspace.tabs.findIndex((tab) => tab.id === id);
     const tabs = workspace.tabs.filter((tab) => tab.id !== id);
@@ -350,6 +361,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           onSelect={select}
           onReorder={moveTab}
           onClose={close}
+          onTrash={trash}
           onSearch={openSearch}
         />
       )}
@@ -576,10 +588,10 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                     title: "Move to Trashcan",
                     keywords: "close trash delete remove",
                     icon: Trash2,
-                    shortcut: "⌘W",
+                    shortcut: activePermanent ? undefined : "⌘W",
                     onSelect: () => {
                       setSearch(false);
-                      void close(active.id);
+                      void trash(active.id);
                     },
                   },
                 ],

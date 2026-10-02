@@ -34,6 +34,7 @@ export function TabBar({
   onSelect,
   onReorder,
   onClose,
+  onTrash,
   onSearch,
 }: {
   tabs: readonly Tab[];
@@ -54,10 +55,11 @@ export function TabBar({
   onSelect: (id: string, keyboard?: boolean) => void;
   onReorder: ReorderTab;
   onClose: (id: string) => Promise<void>;
+  onTrash: (id: string) => Promise<void>;
   onSearch: () => void;
 }) {
   const navigation = useRef<HTMLElement>(null);
-  const drag = useTabDrag(onReorder, onClose);
+  const drag = useTabDrag(onReorder, onTrash);
   const [capacity, setCapacity] = useState(1);
   useLayoutEffect(() => {
     const element = navigation.current;
@@ -189,7 +191,7 @@ export function TabBar({
                   className="tab-close"
                   data-tab-drag-ignore
                   aria-label={`Close ${title}`}
-                  title="Move to Trashcan"
+                  title={permanent ? "Move to end of queue" : "Move to Trashcan"}
                   onClick={() => onClose(id)}
                 >
                   <X />

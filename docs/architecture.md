@@ -335,7 +335,9 @@ bytes have a reference for each owning tab. The revision check and metadata
 write share a SQLite transaction. A small revision counter prevents an old
 update from matching an artifact recreated under the same ID.
 
-Closing a tab sets its trash timestamp while retaining its content references,
+Closing a permanent tab reorders it to the end of the saved workspace and
+selects another tab when available. Closing a temporary tab or explicitly
+moving either kind to Trashcan sets its trash timestamp while retaining its content references,
 metadata, name, and draft. The desktop lifecycle coordinates retention changes
 and notifies the renderer, which removes trashed tabs from its workspace.
 The renderer reports visible strip tabs, or the selected fullscreen tab, and
