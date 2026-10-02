@@ -33,6 +33,7 @@ import { WorkspaceSearch } from "./search.tsx";
 
 import type { Tab } from "./contract.ts";
 import { TabBar } from "./tab-bar.tsx";
+import { FloatingOverlay } from "../renderer/components/ui/floating-overlay.tsx";
 import { TabHost } from "./tab-host.tsx";
 import { TabEventRouter } from "./events.ts";
 import { PresentationPointer } from "./presentation-pointer.tsx";
@@ -88,6 +89,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     moveTab,
     updateTab,
     updateState,
+    updateOverlayPosition,
   } = useWorkspace(setError);
   const retention = useTabRetention(workspaceReady, setError);
   // Moving an iframe resets its document, so panel order must be independent of tab order.
@@ -370,38 +372,50 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           onSearch={openSearch}
         />
       )}
-      {focus && (
-        <div className="focus-controls">
-          {active?.type === "diagram" ? (
-            <NativeSelect
-              size="sm"
-              className="diagram-mode-select"
-              ref={modeSelect}
-              aria-label="Fullscreen diagram mode"
-              value={diagramMode}
-              onChange={(event) => {
-                if (event.target.value === "tabs") toggleFocus();
-                else setDiagramMode(event.target.value as DiagramMode);
-              }}
-            >
-              <NativeSelectOption value="edit">Edit</NativeSelectOption>
-              <NativeSelectOption value="view">View</NativeSelectOption>
-              <NativeSelectOption value="present">Present</NativeSelectOption>
-              <NativeSelectOption value="tabs">Back to tabs</NativeSelectOption>
-            </NativeSelect>
-          ) : (
-            <Button
-              variant="secondary"
-              size="icon-xs"
-              ref={controlsButton}
-              aria-label="Exit focus mode"
-              title="Exit fullscreen · Escape"
-              onClick={toggleFocus}
-            >
-              <Minimize2 />
-            </Button>
+      {focus && active && (
+        <FloatingOverlay
+          key={active.id}
+          className="focus-controls"
+          label="fullscreen controls"
+          handleSize="icon-xs"
+          position={active.overlayPositions?.fullscreen}
+          onPosition={(position) => updateOverlayPosition(active.id, "fullscreen", position)}
+        >
+          {(handle) => (
+            <>
+              {handle}
+              {active?.type === "diagram" ? (
+                <NativeSelect
+                  size="sm"
+                  className="diagram-mode-select"
+                  ref={modeSelect}
+                  aria-label="Fullscreen diagram mode"
+                  value={diagramMode}
+                  onChange={(event) => {
+                    if (event.target.value === "tabs") toggleFocus();
+                    else setDiagramMode(event.target.value as DiagramMode);
+                  }}
+                >
+                  <NativeSelectOption value="edit">Edit</NativeSelectOption>
+                  <NativeSelectOption value="view">View</NativeSelectOption>
+                  <NativeSelectOption value="present">Present</NativeSelectOption>
+                  <NativeSelectOption value="tabs">Back to tabs</NativeSelectOption>
+                </NativeSelect>
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="icon-xs"
+                  ref={controlsButton}
+                  aria-label="Exit focus mode"
+                  title="Exit fullscreen · Escape"
+                  onClick={toggleFocus}
+                >
+                  <Minimize2 />
+                </Button>
+              )}
+            </>
           )}
-        </div>
+        </FloatingOverlay>
       )}
       {presentation && <PresentationPointer />}
       {workspaceSave.error && (
@@ -452,6 +466,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                 artifact={artifact}
                 router={events}
                 updateState={updateState}
+                updateOverlayPosition={updateOverlayPosition}
                 theme={theme}
                 focus={focus && id === workspace.selected}
                 viewing={viewing && id === workspace.selected}
