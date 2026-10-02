@@ -18,6 +18,12 @@ test("HTML presentation preserves page interactions and follows accessible frame
   let application: Awaited<ReturnType<typeof fixture.launch>> | undefined;
   try {
     application = await fixture.launch();
+    await application.evaluate(({ shell }) => {
+      Object.assign(globalThis, { presentationLinks: [] as string[] });
+      shell.openExternal = async (url) => {
+        (globalThis as unknown as { presentationLinks: string[] }).presentationLinks.push(url);
+      };
+    });
     const page = await application.firstWindow();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -32,6 +38,7 @@ test("HTML presentation preserves page interactions and follows accessible frame
       <dialog id="parent-dialog"><iframe title="Dialog page" srcdoc="&lt;button&gt;Dialog child button&lt;/button&gt;"></iframe><form method="dialog"><button>Close parent dialog</button></form></dialog>
       <button id="nested">Add nested frame</button><button id="handled">Handle Escape</button>
       <a href="http://127.0.0.1:${address.port}/">Navigate away</a>
+      <iframe title="External page" src="http://127.0.0.1:${address.port}/"></iframe>
       <script>
         const shadow = document.querySelector('#shadow-draft').attachShadow({ mode: 'open' });
         shadow.innerHTML = '<textarea aria-label="Shadow draft"></textarea><dialog><form method="dialog"><button>Close shadow dialog</button></form></dialog>';
@@ -149,16 +156,25 @@ test("HTML presentation preserves page interactions and follows accessible frame
 
     await mode.selectOption("present");
     await frame.getByRole("link", { name: "Navigate away" }).click();
-    await frame.getByRole("heading", { name: "External destination" }).waitFor();
-    await frame.getByRole("button", { name: "External button" }).hover();
+    await expect
+      .poll(() =>
+        application!.evaluate(
+          () => (globalThis as unknown as { presentationLinks: string[] }).presentationLinks,
+        ),
+      )
+      .toEqual([`http://127.0.0.1:${address.port}/`]);
+    expect(await frame.getByLabel("Draft", { exact: true }).inputValue()).toBe("Keep this text");
+    const external = frame.frameLocator('iframe[title="External page"]');
+    await external.getByRole("button", { name: "External button" }).hover();
+    expect(
+      await external.locator("body").evaluate((element) => getComputedStyle(element).cursor),
+    ).not.toBe("none");
+    await frame.getByRole("button", { name: "Count 2", exact: true }).hover();
     await expect
       .poll(() =>
         page.locator(".presentation-pointer").evaluate((element) => element.style.opacity),
       )
-      .toBe("0");
-    expect(
-      await frame.locator("body").evaluate((element) => getComputedStyle(element).cursor),
-    ).not.toBe("none");
+      .toBe("1");
     await mode.selectOption("tabs");
     await page.getByRole("button", { name: "Search and controls" }).waitFor();
     expect(await mounted!.evaluate((element) => element.isConnected)).toBe(true);

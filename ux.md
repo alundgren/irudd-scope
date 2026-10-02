@@ -177,14 +177,17 @@ opens the panel in any mode. Leaving native fullscreen also restores the
 workspace controls. Ordinary HTML, plans, and PR inboxes offer View, Present,
 and Back to tabs in fullscreen. Present uses the same audience pointer and
 trail inside accessible HTML frames while links, forms, scrolling, and scripts
-remain usable. Frame navigation to another origin retains the native cursor.
+remain usable. Embedded frames at another origin retain the native cursor.
 Scope does not override Escape in editable fields, open page dialogs, or events
 the page handles. Otherwise Escape returns HTML Present to View, then returns
 to the workspace.
 
 Published HTML is trusted agent output. Prototypes run their scripts, load
 external resources, submit forms, and open links without a trust prompt or
-preview restrictions. The document keeps its own styling and browser behavior.
+preview restrictions. HTTP(S) links and popups open in the system's default
+browser, preserving the artifact and unsaved input in Scope. In-page anchors,
+downloads, and forms targeting embedded frames stay in the document. If the
+browser cannot open, the artifact stays in place. The document keeps its own styling.
 
 Search opens with labeled icon controls for Settings, Fullscreen, creation
 tools. A tinted current-tab area shows the title
@@ -434,8 +437,8 @@ handles public comments, reviews, and merges.
 PR inbox links to HTTP(S) destinations open in the system's default browser,
 including links from agent-authored HTML and direct `window.open` calls. This
 uses the person's existing browser login for private repositories. In-page
-anchors stay in the inbox. Ordinary published HTML retains its own navigation
-and popup behavior.
+anchors stay in the inbox. Ordinary HTML and plan tabs also open HTTP(S) links
+and popups in the default browser.
 
 Scope supplies native stack membership and active review approval in the PR
 model. Agent-authored inboxes decide how to display or filter them. Stack

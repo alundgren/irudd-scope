@@ -29,6 +29,7 @@ import { createApplicationMenu } from "./menu.ts";
 import { TabTransfers } from "./transfer/service.ts";
 import { TailcatCliTransport } from "./transfer/transport.ts";
 import { registerTransferLinks } from "./transfer/links.ts";
+import { registerExternalLinks } from "./external-links.ts";
 
 const transferLinks = registerTransferLinks();
 
@@ -159,6 +160,7 @@ async function main() {
       await close(true);
     },
   });
+  const externalLinks = registerExternalLinks(window);
   lifecycle!.onRemoved = (ids) => desktopIpc.cancelTabs(ids);
   lifecycle!.onRetentionChanged = (tabs) => {
     if (!window.isDestroyed()) window.webContents.send("scope:retention-changed", tabs);
@@ -213,6 +215,7 @@ async function main() {
     }
     await Promise.all([updates.cancel(), agentTools.cancel()]);
     desktopIpc.dispose();
+    externalLinks.dispose();
     library.close();
     await transfers.close();
     await remotes.close();
