@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import type { PlanCommand, PlanComment, PlanSnapshot } from "@irudd-scope/protocol/plan";
 import { Pin, X } from "lucide-react";
 import { Button } from "../../renderer/components/ui/button.tsx";
@@ -57,7 +57,6 @@ export function PlanReview({
   onClose,
   command,
   busy,
-  moveHandle,
 }: {
   snapshot: PlanSnapshot;
   revision: number;
@@ -65,7 +64,6 @@ export function PlanReview({
   onClose: () => void;
   command: (command: PlanCommand) => Promise<boolean>;
   busy: boolean;
-  moveHandle: ReactNode;
 }) {
   const name = snapshot.artifact.name!;
   const [selected, setSelected] = useState<string>();
@@ -85,13 +83,12 @@ export function PlanReview({
   return (
     <>
       <div className="plan-review-heading">
-        {moveHandle}
         <h2>Feedback</h2>
         <Button variant="ghost" size="icon" aria-label="Hide feedback" onClick={onClose}>
           <X />
         </Button>
       </div>
-      <div className="plan-review-scroll">
+      <div className="plan-review-scroll" data-floating-overlay-content>
         <div className="plan-version-controls">
           <label>
             Version

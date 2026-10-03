@@ -104,16 +104,16 @@ else throw new Error('Unexpected GitHub read');
     await viewer.getByText("Binary files a/image.png and b/image.png differ").waitFor();
     const window = page.locator(".scope-content-window");
     const original = (await window.boundingBox())!;
-    await viewerChrome.getByRole("button", { name: "Move content window" }).focus();
+    await window.focus();
     await page.keyboard.press("ArrowLeft");
     await page.keyboard.press("ArrowDown");
     expect((await window.boundingBox())!.x).toBeCloseTo(original.x - 10, 1);
-    const grip = (await viewerChrome
-      .getByRole("button", { name: "Move content window" })
+    const title = (await viewerChrome
+      .getByRole("heading", { name: "Changes in #1" })
       .boundingBox())!;
-    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.move(title.x + title.width / 2, title.y + title.height / 2);
     await page.mouse.down();
-    await page.mouse.move(grip.x + grip.width / 2 + 15, grip.y + grip.height / 2 + 10, {
+    await page.mouse.move(title.x + title.width / 2 + 15, title.y + title.height / 2 + 10, {
       steps: 5,
     });
     await page.mouse.up();

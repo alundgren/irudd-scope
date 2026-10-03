@@ -10,15 +10,23 @@ async function bounds(locator: Locator) {
   expect(rectangle).not.toBeNull();
   return rectangle!;
 }
-async function drag(page: Page, handle: Locator, x: number, y: number) {
-  const rectangle = await bounds(handle);
-  await page.mouse.move(rectangle.x + rectangle.width / 2, rectangle.y + rectangle.height / 2);
+async function drag(
+  page: Page,
+  frame: Locator,
+  x: number,
+  y: number,
+  edge: "top" | "bottom" | "left" | "right" = "top",
+) {
+  const rectangle = await bounds(frame);
+  const startX =
+    rectangle.x +
+    (edge === "left" ? 2 : edge === "right" ? rectangle.width - 2 : rectangle.width / 2);
+  const startY =
+    rectangle.y +
+    (edge === "top" ? 2 : edge === "bottom" ? rectangle.height - 2 : rectangle.height / 2);
+  await page.mouse.move(startX, startY);
   await page.mouse.down();
-  await page.mouse.move(
-    rectangle.x + rectangle.width / 2 + x,
-    rectangle.y + rectangle.height / 2 + y,
-    { steps: 6 },
-  );
+  await page.mouse.move(startX + x, startY + y, { steps: 6 });
   await page.mouse.up();
 }
 async function fits(overlay: Locator, container: Locator) {
@@ -56,25 +64,37 @@ test("plan controls and feedback move without resetting HTML and persist separat
     await frame.getByRole("button", { name: "Authored action" }).click();
     let toolbar = pane.locator(".plan-controls");
     const original = await bounds(toolbar);
-    const grip = await bounds(pane.getByRole("button", { name: "Move plan controls" }));
-    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    expect(await pane.getByRole("button", { name: /^Move / }).count()).toBe(0);
+    const frameBounds = await bounds(toolbar);
+    await page.mouse.move(frameBounds.x + frameBounds.width / 2, frameBounds.y + 2);
     await page.mouse.down();
-    await page.mouse.move(grip.x - 150, grip.y + 100);
+    await page.mouse.move(frameBounds.x - 150, frameBounds.y + 100);
     await page.keyboard.press("Escape");
     await page.mouse.up();
     expect(await bounds(toolbar)).toEqual(original);
-    await drag(page, pane.getByRole("button", { name: "Move plan controls" }), -350, 120);
+    await drag(page, toolbar, -350, 120);
     await expect.poll(async () => (await bounds(toolbar)).x).toBeCloseTo(original.x - 350, 1);
     expect((await bounds(toolbar)).y).toBeCloseTo(original.y + 120, 1);
+    for (const edge of ["left", "right", "bottom"] as const) {
+      const before = await bounds(toolbar);
+      await drag(page, toolbar, -10, 10, edge);
+      expect((await bounds(toolbar)).x).toBeCloseTo(before.x - 10, 1);
+      expect((await bounds(toolbar)).y).toBeCloseTo(before.y + 10, 1);
+    }
     await pane.getByRole("button", { name: "Feedback", exact: true }).click();
     let review = pane.getByRole("complementary", { name: "Plan feedback" });
     const reviewOriginal = await bounds(review);
-    await drag(page, review.getByRole("button", { name: "Move Feedback panel" }), -400, 180);
-    await review.getByRole("button", { name: "Move Feedback panel" }).focus();
+    await drag(page, review.getByRole("heading", { name: "Feedback", exact: true }), -400, 180);
+    await review.focus();
     await page.keyboard.press("ArrowLeft");
     await page.keyboard.press("Shift+ArrowDown");
     expect((await bounds(review)).x).toBeCloseTo(reviewOriginal.x - 410, 1);
     expect((await bounds(review)).y).toBeCloseTo(reviewOriginal.y + 220, 1);
+    const reviewMoved = await bounds(review);
+    await drag(page, review.locator(".plan-name"), 20, 20);
+    expect(await bounds(review)).toEqual(reviewMoved);
+    await review.getByLabel("Version", { exact: true }).press("ArrowLeft");
+    expect(await bounds(review)).toEqual(reviewMoved);
     await review.getByLabel("Version", { exact: true }).selectOption("1");
     expect(await frame.getByLabel("Authored draft").inputValue()).toBe("Keep this draft");
     expect(await frame.getByRole("button", { name: "Clicked" }).count()).toBe(1);
@@ -86,7 +106,7 @@ test("plan controls and feedback move without resetting HTML and persist separat
     );
     await page.getByRole("tab", { name: "Other plan", exact: true }).click();
     const otherPane = page.getByRole("tabpanel", { name: "Other plan" });
-    await otherPane.getByRole("button", { name: "Move plan controls" }).waitFor();
+    await otherPane.locator(".plan-controls").waitFor();
     const otherDefault = await bounds(otherPane.locator(".plan-controls"));
     expect(otherDefault.x).toBeCloseTo(original.x, 1);
     expect(otherDefault.y).toBeCloseTo(original.y, 1);
@@ -95,6 +115,7 @@ test("plan controls and feedback move without resetting HTML and persist separat
     );
     await page.getByRole("tab", { name: "Moving plan", exact: true }).click();
     await expect.poll(() => fits(toolbar, pane.locator(".plan-view"))).toBe(true);
+    expect((await bounds(toolbar)).width).toBeCloseTo(original.width, 1);
     await expect.poll(() => fits(review, pane.locator(".plan-page"))).toBe(true);
     expect(await frame.getByLabel("Authored draft").inputValue()).toBe("Keep this draft");
     await page.keyboard.press("ControlOrMeta+,");
@@ -123,7 +144,7 @@ test("plan controls and feedback move without resetting HTML and persist separat
     await review.waitFor();
     await expect.poll(() => bounds(toolbar)).toEqual(savedToolbar);
     await expect.poll(() => bounds(review)).toEqual(savedReview);
-    await toolbar.getByRole("button", { name: "Move plan controls" }).focus();
+    await toolbar.focus();
     await page.keyboard.press("Home");
     await expect.poll(async () => (await bounds(toolbar)).y).toBeCloseTo(original.y, 1);
     const reset = await bounds(toolbar);
@@ -146,14 +167,13 @@ test("fullscreen controls keep their position through focus, resizing, tabs, and
       html,
     );
     await page.frameLocator(".plan-document").getByLabel("Authored draft").fill("Fullscreen draft");
-    await page.getByRole("button", { name: "Move plan controls" }).focus();
+    await page.locator(".plan-controls").focus();
     await page.keyboard.press("ControlOrMeta+Shift+f");
     let controls = page.locator(".focus-controls");
-    let move = controls.getByRole("button", { name: "Move fullscreen controls" });
-    await move.waitFor();
+    await controls.waitFor();
     const original = await bounds(controls);
-    await drag(page, move, -200, 150);
-    await move.focus();
+    await drag(page, controls, -200, 150);
+    await controls.focus();
     await page.keyboard.press("ArrowLeft");
     expect((await bounds(controls)).x).toBeCloseTo(original.x - 210, 1);
     expect((await bounds(controls)).y).toBeCloseTo(original.y + 150, 1);
@@ -171,23 +191,21 @@ test("fullscreen controls keep their position through focus, resizing, tabs, and
     await page.getByRole("tab", { name: "Other focus plan", exact: true }).click();
     await page
       .getByRole("tabpanel", { name: "Other focus plan" })
-      .getByRole("button", { name: "Move plan controls" })
+      .locator(".plan-controls")
       .focus();
     await page.keyboard.press("ControlOrMeta+Shift+f");
-    await move.waitFor();
+    await controls.waitFor();
     await expect.poll(() => bounds(controls)).toEqual(original);
     await controls.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
     await page.getByRole("tab", { name: "Focus plan", exact: true }).click();
-    await page
-      .getByRole("tabpanel", { name: "Focus plan" })
-      .getByRole("button", { name: "Move plan controls" })
-      .focus();
+    await page.getByRole("tabpanel", { name: "Focus plan" }).locator(".plan-controls").focus();
     await page.keyboard.press("ControlOrMeta+Shift+f");
     await expect.poll(() => bounds(controls)).toEqual(moved);
-    await drag(page, move, 5000, 5000);
+    await drag(page, controls, 5000, 5000);
     await expect.poll(() => fits(controls, page.locator(".workspace"))).toBe(true);
     await page.setViewportSize({ width: 450, height: 350 });
     await expect.poll(() => fits(controls, page.locator(".workspace"))).toBe(true);
+    expect((await bounds(controls)).width).toBeCloseTo(original.width, 1);
     await screenshot(page, "movable-fullscreen-small.png");
     await controls.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
     await application.close();
@@ -196,10 +214,9 @@ test("fullscreen controls keep their position through focus, resizing, tabs, and
     await page.getByRole("tab", { name: "Focus plan", exact: true }).waitFor();
     await page.keyboard.press("ControlOrMeta+Shift+f");
     controls = page.locator(".focus-controls");
-    move = controls.getByRole("button", { name: "Move fullscreen controls" });
-    await move.waitFor();
+    await controls.waitFor();
     expect((await bounds(controls)).y).toBeGreaterThan(original.y + 150);
-    await move.focus();
+    await controls.focus();
     await page.keyboard.press("Home");
     await expect.poll(async () => (await bounds(controls)).y).toBeCloseTo(original.y, 1);
     await controls.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
