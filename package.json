@@ -13,6 +13,7 @@
     "check:credentials": "vp exec node tools/check-credential-helper.ts",
     "hub": "vp run hub#dev",
     "desktop": "vp run desktop#dev",
+    "plan-web": "vp run plan-web#dev",
     "scope": "vp exec node packages/cli/src/main.ts"
   },
   "devDependencies": {
