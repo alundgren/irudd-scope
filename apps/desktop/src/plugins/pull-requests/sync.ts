@@ -275,7 +275,12 @@ export class PullRequestSync {
     return this.budgetUntil() > this.now() || this.factor() > 1 ? "Account query budget" : null;
   }
   private watched(interest: PullRequestsInterest) {
-    return interest.details ?? (interest.detail ? [interest.detail] : []);
+    const details = interest.details ?? (interest.detail ? [interest.detail] : []);
+    return [
+      ...new Map(
+        details.map((detail) => [`${detail.nodeId}/${detail.headOid}/${detail.baseOid}`, detail]),
+      ).values(),
+    ];
   }
   private inspected(group: Group) {
     return [...group.tabs].flatMap((tabId) => {
@@ -649,6 +654,8 @@ export class PullRequestSync {
     captured?: PullRequestCommitPair,
     signal?: AbortSignal,
   ): Promise<PullRequestDetail> {
+    signal?.throwIfAborted();
+    if (this.account === null) await this.checkAccount();
     signal?.throwIfAborted();
     await this.reconcile();
     signal?.throwIfAborted();

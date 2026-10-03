@@ -1571,7 +1571,7 @@ test("multi-detail interests refresh every captured PR and preserve subscription
   await f.service.interest({
     tabId: f.tabId,
     active: true,
-    details: [1, 2].map((number) => ({
+    details: [1, 1, 2].map((number) => ({
       nodeId: `PR_${number}`,
       headOid: facts().headOid,
       baseOid: facts().baseOid,
@@ -1663,4 +1663,71 @@ test("suspension cancels pending batches and drops completed cache before resumi
   await f.service.resume();
   await f.command(["PR_1"]);
   expect(signals).toHaveLength(3);
+});
+
+test("cold inventory detail reads share the account probe before caching", async () => {
+  const f = await detailFixture();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let probes = 0,
+    reads = 0;
+  f.remote.github.account = async () => {
+    probes++;
+    await held;
+    return "VIEWER";
+  };
+  f.remote.github.detail = async (_repository, pr) => {
+    reads++;
+    return syntheticDetail(pr);
+  };
+  const service = new PullRequestSync(f.store, f.remote.github);
+  cleanups.push(async () => {
+    service.cancelPending();
+  });
+  f.store.setHandlers({
+    sync: (id) => service.sync(id),
+    detail: (id, nodeId, captured, signal) => service.detail(id, nodeId, captured, signal),
+  });
+  const first = f.command(["PR_1"]);
+  const second = service.detail(f.tabId, "PR_1");
+  await expect.poll(() => probes).toBe(1);
+  release();
+  await expect(first).resolves.toMatchObject({ results: [{ detail: { diff: "diff" } }] });
+  await expect(second).resolves.toMatchObject({ diff: "diff" });
+  await service.detail(f.tabId, "PR_1");
+  expect(reads).toBe(1);
+  expect(probes).toBe(1);
+});
+
+test("batch completion rechecks early successes when a PR changes during another read", async () => {
+  const f = await detailFixture(2);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let calls = 0;
+  f.remote.github.detail = async (_repository, pr) => {
+    calls++;
+    if (pr.nodeId === "PR_2") await held;
+    return syntheticDetail(pr);
+  };
+  const loading = f.command(["PR_1", "PR_2"]);
+  await expect.poll(() => calls).toBe(2);
+  await f.command(["PR_1"]);
+  const original = facts();
+  const changed = {
+    ...original,
+    baseOid: "c".repeat(40),
+    merge: { ...original.merge, baseOid: "c".repeat(40), observedAt: "2026-10-02T00:01:00.000Z" },
+  };
+  await f.store.commitCurrent(f.tabId, repository, original, changed);
+  release();
+  await expect(loading).resolves.toMatchObject({
+    results: [
+      { nodeId: "PR_1", error: expect.stringContaining("changed") },
+      { nodeId: "PR_2", detail: { diff: "diff" } },
+    ],
+  });
 });

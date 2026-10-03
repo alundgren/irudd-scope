@@ -558,6 +558,31 @@ export class PullRequestStore {
     };
     try {
       await Promise.all(Array.from({ length: Math.min(3, nodeIds.length) }, load));
+      try {
+        const current = await this.snapshotByTab(pinned.tabId);
+        await this.database.run(
+          this.active(await this.database.run(this.owner(pinned.tabId, true))),
+        );
+        for (const [index, result] of results.entries()) {
+          if (!("detail" in result)) continue;
+          const pr = current.prs.find((pr) => pr.nodeId === result.nodeId);
+          if (pr?.headOid !== result.captured.headOid || pr.baseOid !== result.captured.baseOid)
+            replace(index, {
+              nodeId: result.nodeId,
+              error: "Pull request changed while loading detail. Retry with its current commit.",
+            });
+        }
+      } catch (error) {
+        for (const [index, result] of results.entries())
+          if ("detail" in result)
+            replace(index, {
+              nodeId: result.nodeId,
+              error:
+                error instanceof Error
+                  ? error.message.slice(0, 512)
+                  : "Pull request tab is no longer available.",
+            });
+      }
       return decode(PullRequestsReply, reply());
     } finally {
       clearTimeout(timer);
