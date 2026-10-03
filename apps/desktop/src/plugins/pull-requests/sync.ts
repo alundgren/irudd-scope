@@ -56,6 +56,7 @@ export class PullRequestSync {
       controller: AbortController;
       users: Map<symbol, string>;
       promise: Promise<PullRequestDetail>;
+      discussion?: Pick<PullRequestDetail, "body" | "reviews" | "fetchedAt">;
       repository: string;
       nodeId: string;
       headOid: string;
@@ -590,6 +591,8 @@ export class PullRequestSync {
             )
               continue;
             const cacheKey = `${this.account}/${key(group.repository)}/${nodeId}/${captured.headOid}/${captured.baseOid}`;
+            const pending = this.pendingDetails.get(cacheKey);
+            if (pending) pending.discussion = reviews;
             const cached = this.detailCache.get(cacheKey);
             if (cached)
               this.cacheDetail(
@@ -690,6 +693,9 @@ export class PullRequestSync {
         nodeId,
         headOid: pr.headOid,
         baseOid: pr.baseOid,
+        discussion: undefined as
+          | Pick<PullRequestDetail, "body" | "reviews" | "fetchedAt">
+          | undefined,
         promise: Promise.resolve(undefined as unknown as PullRequestDetail),
       };
       this.pendingDetails.set(cacheKey, entry);
@@ -697,8 +703,9 @@ export class PullRequestSync {
         .detail(group.repository, pr, controller.signal)
         .then((detail) => {
           controller.signal.throwIfAborted();
-          this.cacheDetail(cacheKey, detail, repository, nodeId, pr);
-          return detail;
+          const updated = { ...detail, ...entry.discussion };
+          this.cacheDetail(cacheKey, updated, repository, nodeId, pr);
+          return updated;
         })
         .finally(() => {
           group.controller.signal.removeEventListener("abort", abort);

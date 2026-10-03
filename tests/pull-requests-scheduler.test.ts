@@ -1821,3 +1821,72 @@ test("an account change cancels a batch including its earlier completed result",
   await command(["PR_1"]);
   expect(signals).toHaveLength(3);
 });
+
+test("initial detail replies and cache hits retain live discussion updates received during loading", async () => {
+  let task: (() => void) | undefined;
+  const updates: { body?: string }[] = [];
+  const f = await detailFixture(1, {
+    now: () => Date.parse(stamp),
+    onDetail: (update) => updates.push(update),
+    setTimeout: (callback) => {
+      task = callback;
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: () => {
+      task = undefined;
+    },
+  });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let calls = 0;
+  f.remote.github.detail = async (_repository, pr) => {
+    calls++;
+    await held;
+    return {
+      ...syntheticDetail(pr, "captured diff"),
+      body: "Initial body",
+      fetchedAt: "2026-10-02T00:01:00.000Z",
+    };
+  };
+  f.remote.github.current = async (_repository, pr) => facts(pr.number, "2026-10-02T00:00:10.000Z");
+  const reviews = [
+    {
+      id: "review-1",
+      author: "reviewer",
+      state: "APPROVED",
+      body: "Live review",
+      submittedAt: stamp,
+      headOid: facts().headOid,
+    },
+  ];
+  f.remote.github.reviews = async () => ({
+    body: "Updated body",
+    reviews,
+    fetchedAt: "2026-10-02T00:00:20.000Z",
+  });
+  const loading = f.service.detail(f.tabId, "PR_1");
+  await expect.poll(() => calls).toBe(1);
+  await f.service.start();
+  await f.service.interest({
+    tabId: f.tabId,
+    active: true,
+    details: [{ nodeId: "PR_1", headOid: facts().headOid, baseOid: facts().baseOid }],
+  });
+  task!();
+  await expect.poll(() => updates.length).toBe(1);
+  expect(updates[0].body).toBe("Updated body");
+  release();
+  await expect(loading).resolves.toMatchObject({
+    body: "Updated body",
+    reviews,
+    diff: "captured diff",
+  });
+  await expect(f.service.detail(f.tabId, "PR_1")).resolves.toMatchObject({
+    body: "Updated body",
+    reviews,
+    diff: "captured diff",
+  });
+  expect(calls).toBe(1);
+});
