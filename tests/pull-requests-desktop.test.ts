@@ -926,9 +926,7 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
       )
       .toBe("true");
     expect(await page.getByRole("alert").count()).toBe(0);
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0]!.setContentSize(560, 620),
-    );
+    await page.setViewportSize({ width: 560, height: 620 });
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "Appearance", exact: true }).click();
@@ -943,7 +941,7 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
       .frames()
       .find((f) => f.url() === "about:srcdoc")!
       .evaluate(() => ({
-        width: innerWidth,
+        width: document.documentElement.clientWidth,
         content: document.documentElement.scrollWidth,
         theme: document.documentElement.dataset.theme,
       }));
