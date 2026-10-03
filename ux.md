@@ -343,11 +343,12 @@ restores its default position. Scope saves positions per tab in SQLite and
 keeps the controls inside the available area after resizing. Comment pins stay
 attached to their captured content. Focus mode hides these controls. Feedback and version history open in a compact overlay on
 request, with no reserved column or comment list. The page stays mounted when
-controls toggle, a comment is canceled, or an agent responds.
+controls toggle, a comment is canceled, or an agent responds without changing HTML.
 
 The pin control freezes the visible page at its current revision. Clicking the
-capture places one pin and opens a small comment editor beside it. Before
-placement, the capture shows only the crosshair cursor. Adding a comment
+capture places one pin and opens a small comment editor beside it with the
+text box focused for immediate typing. Moving the pin returns focus to that
+text box. Before placement, the capture shows only the crosshair cursor. Adding a comment
 saves it for the next feedback round. Enter adds it; Shift+Enter adds a line.
 The original image, marked image, geometry and text stay together. Unresolved
 pins, including unsent drafts, remain over the live page and move with document
@@ -359,7 +360,7 @@ after HTML changes or responsive reflow. Captured pins in Feedback provide
 access to saved comments and screenshots when their live pins are unavailable, including comments without capture
 position metadata.
 Unfinished comments persist across restart. Back to plan retains the draft;
-Discard comment removes it and returns to the same live page.
+Discard comment removes it and returns to the live page.
 
 Queued comments offer Delete comment in both their pin and Feedback. Deleting
 removes the comment and any screenshots no other comment uses. Submitted comments
@@ -373,9 +374,13 @@ also offer a request for the individual round. Pasting that request into a codin
 session lets the agent retrieve the saved round and its screenshots even when
 no listener is connected. Responses appear in Feedback with the original comments and a link to
 the resulting revision. Seeing a response, resolving a comment and approving a
-revision are separate actions. A response leaves the current reading page in
-place until the person chooses another revision. Restoring history creates a
-new latest revision and retains the previous versions.
+revision are separate actions. New HTML revisions automatically replace the
+reading page and select the latest version, including while viewing history.
+An open comment capture keeps its frozen image, text, and original revision
+while the live page updates behind it. An in-progress screenshot finishes
+before the live page switches. Metadata-only responses leave the page and
+its interactive state in place. Restoring history creates a new latest
+revision and retains the previous versions.
 
 ## Pull request inboxes
 
