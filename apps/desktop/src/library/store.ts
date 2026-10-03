@@ -1,4 +1,3 @@
-import { PublicationStore } from "./publication-store.ts";
 import { PullRequestStore, initializePullRequestsTab } from "./pull-request-store.ts";
 import { DatabaseMaintenance } from "@irudd-scope/sqlite";
 import { createHash, randomUUID } from "node:crypto";
@@ -45,7 +44,6 @@ export class ArtifactStore {
   maintenance!: DatabaseMaintenance;
   plans!: PlanStore;
   pullRequests!: PullRequestStore;
-  publications!: PublicationStore;
   onChanged: (event: LiveEvent) => void = () => {};
   private readonly listeners = new Set<(event?: LiveEvent) => void>();
   subscribe(listener: (event?: LiveEvent) => void): () => void {
@@ -91,12 +89,7 @@ export class ArtifactStore {
         mutate: (effect, events) => store.mutate(effect, events),
       });
       await store.pullRequests.initialize();
-      store.publications = new PublicationStore({
-        sql,
-        run: (effect) => store.run(effect),
-        mutate: (effect, events) => store.mutate(effect, events),
-      });
-      await store.publications.initialize();
+      await store.initializePublicationHistory();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -128,6 +121,22 @@ export class ArtifactStore {
       () => {},
     );
     return task;
+  }
+
+  private async initializePublicationHistory(): Promise<void> {
+    const sql = this.sql;
+    const [{ user_version }] = await this.run(sql<{ user_version: number }>`PRAGMA user_version`);
+    if (user_version >= 8) return;
+    // Keep schema 8 and its retained bytes readable without the publication service.
+    await this.run(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`CREATE TABLE publications(tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE, provider TEXT NOT NULL CHECK(provider IN ('claude', 'sites')), checkpoint TEXT CHECK(checkpoint IS NULL OR json_valid(checkpoint)), operation TEXT CHECK(operation IS NULL OR json_valid(operation)), checkpoint_blob TEXT, operation_blob TEXT, PRIMARY KEY(tab_id, provider), FOREIGN KEY(tab_id, checkpoint_blob) REFERENCES tab_blobs(tab_id, blob_id) ON DELETE CASCADE, FOREIGN KEY(tab_id, operation_blob) REFERENCES tab_blobs(tab_id, blob_id) ON DELETE CASCADE) STRICT`;
+          yield* sql`CREATE UNIQUE INDEX publication_operations ON publications(tab_id, json_extract(operation, '$.operationId')) WHERE operation IS NOT NULL`;
+          yield* sql`PRAGMA user_version = 8`;
+        }),
+      ),
+    );
   }
 
   private async initialize(directory: string): Promise<void> {

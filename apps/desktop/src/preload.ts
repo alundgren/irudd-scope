@@ -1,4 +1,3 @@
-import type { PublicationsEvent } from "@irudd-scope/protocol/publications";
 import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
 import type { DiagramCommandRequest } from "./plugins/diagram/commands.ts";
 import { contextBridge, ipcRenderer } from "electron";
@@ -14,17 +13,6 @@ import type { PullRequestsDetailUpdate } from "./plugins/pull-requests/interest.
 import type { PullRequestsLinkResult } from "./plugins/pull-requests/contract.ts";
 
 const bridge: ScopeBridge = {
-  publicationsCommand: (input) => ipcRenderer.invoke("scope:publications-command", input),
-  onPublicationsChanged: (listener) => {
-    const receive = (_event: unknown, event: PublicationsEvent) => listener(event);
-    ipcRenderer.on("scope:publications-changed", receive);
-    return () => ipcRenderer.removeListener("scope:publications-changed", receive);
-  },
-  onPublicationsReconnected: (listener) => {
-    const receive = () => listener();
-    ipcRenderer.on("scope:publications-reconnected", receive);
-    return () => ipcRenderer.removeListener("scope:publications-reconnected", receive);
-  },
   createPullRequests: (input) => ipcRenderer.invoke("scope:create-pull-requests", input),
   pullRequestsCommand: (input) => ipcRenderer.invoke("scope:pull-requests-command", input),
   pullRequestsInterest: (input) => ipcRenderer.invoke("scope:pull-requests-interest", input),
