@@ -10,6 +10,12 @@ import type { DiagramRequest, DiagramResult } from "./plugins/diagram/contract.t
 import type { DiagramDraft } from "./plugins/diagram/draft.ts";
 import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
+import type {
+  TransferDevices,
+  TransferImport,
+  TransferPreview,
+  TransferStatus,
+} from "./transfer/contract.ts";
 import type { DiagramMenuAction, DiagramMenuState } from "./menu-contract.ts";
 import type {
   PullRequestsInterest,
@@ -80,6 +86,17 @@ export type ScopeBridge = {
   setFullscreen: (enabled: boolean) => Promise<void>;
   onFullscreenChange: (listener: (enabled: boolean) => void) => () => void;
   remotes: () => Promise<RemoteStatus[]>;
+  transferDevices: () => Promise<TransferDevices>;
+  createPairing: (name: string) => Promise<TransferStatus>;
+  copyPairingSecret: (id: string) => Promise<void>;
+  pairScope: (input: { url: string; secret: string; name: string }) => Promise<void>;
+  forgetScope: (id: string) => Promise<void>;
+  sendTab: (input: { tabId: string; peerId: string }) => Promise<TransferStatus>;
+  transferStatus: (id: string) => Promise<TransferStatus>;
+  cancelTransfer: (id: string) => Promise<void>;
+  inspectTransfer: (url: string) => Promise<TransferPreview>;
+  importTransfer: (url: string) => Promise<TransferImport>;
+  onTransferLink: (listener: (link: { url: string; kind: "pair" | "tab" }) => void) => () => void;
   pairRemote: (url: string) => Promise<void>;
   setRemoteEnabled: (id: string, enabled: boolean) => Promise<void>;
   removeRemote: (id: string) => Promise<void>;

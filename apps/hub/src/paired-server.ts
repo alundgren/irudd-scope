@@ -2,6 +2,10 @@ import { MAX_PULL_REQUESTS_REQUEST_BYTES } from "@irudd-scope/protocol/pull-requ
 import { MAX_VOICE_REQUEST_BYTES } from "@irudd-scope/protocol/voice";
 import { MAX_PLAN_REQUEST_BYTES } from "@irudd-scope/protocol/plan";
 import { MAX_DIAGRAM_REQUEST_BYTES } from "@irudd-scope/protocol/diagram";
+import {
+  MAX_TRANSFER_IMPORT_REQUEST_BYTES,
+  TRANSFER_IMPORT_TIMEOUT_MS,
+} from "@irudd-scope/protocol/transfer";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { Transform } from "node:stream";
@@ -505,18 +509,22 @@ export async function startPairedHub(
       return;
     }
     const limit =
-      request.url === "/v1/pull-requests"
-        ? MAX_PULL_REQUESTS_REQUEST_BYTES
-        : request.url === "/v1/plans"
-          ? MAX_PLAN_REQUEST_BYTES
-          : MAX_CONTENT_BYTES;
+      request.url === "/v1/transfers/import"
+        ? MAX_TRANSFER_IMPORT_REQUEST_BYTES
+        : request.url === "/v1/pull-requests"
+          ? MAX_PULL_REQUESTS_REQUEST_BYTES
+          : request.url === "/v1/plans"
+            ? MAX_PLAN_REQUEST_BYTES
+            : MAX_CONTENT_BYTES;
     if (Number(request.headers["content-length"]) > limit) {
       json(response, 413, { error: `Request exceeds the ${limit / (1024 * 1024)} MiB limit.` });
       return;
     }
     const timeoutMs = maintenanceRequest(request.url ?? "")
       ? MAX_MAINTENANCE_TIMEOUT_MS + 5000
-      : 30_000;
+      : request.url === "/v1/transfers/import"
+        ? TRANSFER_IMPORT_TIMEOUT_MS
+        : 30_000;
     request.setTimeout(timeoutMs);
     const id = randomUUID();
     const receivingDesktop = desktop;

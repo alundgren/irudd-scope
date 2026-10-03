@@ -16,6 +16,33 @@ release candidates; other dependencies use stable releases. Alpha, beta,
 nightly, and canary versions require a specific project decision. Update
 manifests, catalog, and lockfile together through Vite+.
 
+## Installed Tailcat transport
+
+Tab transfer requires Tailcat installed separately by the user on each Mac.
+Scope discovers the CLI through PATH, then `/opt/homebrew/bin/tailcat` and
+`/usr/local/bin/tailcat` for GUI-launched Mac apps. Scope provides no installer
+or installation action. The adapter uses the Tailcat v0.7.0 CLI interface;
+installed versions must support the same JSON listener and port-forwarding commands.
+
+The desktop build compiles a TypeScript transport supervisor with Vite+.
+Scope uses its existing Electron runtime to supervise the user-installed CLI.
+Builds and packaging need neither Tailcat nor a Go compiler and redistribute
+no Tailcat binary or Go dependencies. Standard tests use synthetic local CLI
+subprocesses and need no Tailcat installation or live relay.
+
+The optional `vp exec node tools/check-transfer-transport.ts` smoke test uses
+an already installed Tailcat CLI and sends synthetic content through its hosted
+relay. It runs separately from `ready`, never installs dependencies, and uses
+no personal artifacts or provider credentials.
+
+Sharing-link creation and Scope-to-Scope pairing stay in the Mac app. A receiver
+can authorize an agent to run `irudd-scope import-link 'scope-transfer://v2/#...'`
+through its normal Scope connection. Main imports without a desktop receive
+click, retaining the same pairing, expiry, validation and retry guarantees.
+Both Macs must be awake and online; a connected paired hub can forward the
+request, but imports are never queued. The command defaults to a bounded
+300,000 ms timeout. Retry the same link if its result is uncertain.
+
 ## Validation and tests
 
 `vp run ready` builds the CLI, hub, and desktop, runs `vp run check`, then runs

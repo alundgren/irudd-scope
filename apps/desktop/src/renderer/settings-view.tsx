@@ -7,6 +7,7 @@ import { NativeSelect, NativeSelectOption } from "./components/ui/native-select.
 import { Switch } from "./components/ui/switch.tsx";
 import { InstallationSettings } from "./installation-settings.tsx";
 import { RemoteSettings } from "./remote-settings.tsx";
+import { TransferSettings } from "./transfer-settings.tsx";
 import { ProviderSettings } from "./provider-settings.tsx";
 import { matchingSettings, SettingsSection } from "./settings-section.tsx";
 
@@ -176,6 +177,7 @@ export function SettingsViewPanel({
           )}
         </SettingsSection>
         <RemoteSettings query={query} />
+        <TransferSettings query={query} />
         <InstallationSettings query={query} />
       </div>
     </>

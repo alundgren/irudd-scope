@@ -1,5 +1,35 @@
 # Artifact protocol
 
+`src/transfer.ts` defines portable manifests and signed fifteen-minute
+`scope-transfer://v2/` invitations for paired desktop copies. These contracts
+also define the agent link-import request and receipt. Transfers support ordinary
+artifact bytes and editable Excalidraw documents; they carry no credentials,
+unique tab names, conversation, or plan and PR inbox records. Main validates
+content sizes, media types, checksums, and native diagram structure before
+import. Invitations include a validated TCP port, signed together with the
+connection address and lifetime. Version 1 transfer links are rejected.
+Authentication and supervision of the user-installed Tailcat CLI belong to
+desktop main; saved pairings are independent of invitation versions.
+
+`POST /v1/transfers/import` accepts `{ "url": "scope-transfer://v2/#..." }`
+with the normal receiver publishing token. Only tab links are accepted.
+Main authenticates and inspects the manifest, downloads and validates its
+content, then commits an independent copy. The reply is
+`{ "artifact": Artifact, "alreadyImported": boolean }`; a same-link retry
+returns the existing copy. The endpoint supports no pairing or link creation.
+Browser-origin requests are rejected. Requests are limited to 16 KiB and
+receipts to 32 KiB. The CLI, client and hubs allow a bounded 300,000 ms import
+request; the signed invitation still expires after exactly fifteen minutes.
+Imports require the receiving desktop online and are never buffered. A timeout
+can occur after commit; retry the same link rather than requesting another copy.
+Older desktops or hubs lack this additive endpoint and must be updated for
+agent imports. Invitation versions, saved pairings and existing UI flows remain
+compatible.
+
+The receiver's agent runs `irudd-scope import-link 'scope-transfer://v2/#...'`
+using its normal discovery or explicit authenticated endpoint. This command is
+the explicit import action; it does not open a desktop confirmation dialog.
+
 `src/index.ts` owns the validated wire types and limits. `src/client.ts` is the HTTP client used by CLI and desktop main. TypeScript types derive from Effect Schema definitions.
 
 An artifact is the latest content and metadata for one stable ID. A revision is an increasing integer for that ID. A blob is immutable content addressed by its SHA-256 digest. An absent source field means unknown; it never blocks publication.

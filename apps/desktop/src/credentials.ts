@@ -6,6 +6,7 @@ import { credentialHelperEntry } from "./credential-helper.ts";
 const Secrets = Schema.Struct({
   apiKey: Schema.optionalKey(Schema.String),
   remoteTokens: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  transferKeys: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
 const LegacySecrets = Schema.Struct({
   ...Secrets.fields,
@@ -59,6 +60,7 @@ export function keychainCredentials(entry: KeychainEntry): CredentialStore {
         return {
           ...(secrets.apiKey === undefined ? {} : { apiKey: secrets.apiKey }),
           ...(secrets.remoteTokens === undefined ? {} : { remoteTokens: secrets.remoteTokens }),
+          ...(secrets.transferKeys === undefined ? {} : { transferKeys: secrets.transferKeys }),
         };
       } catch {
         throw new Error("Scope's saved Keychain entry has an invalid format.");
@@ -66,7 +68,11 @@ export function keychainCredentials(entry: KeychainEntry): CredentialStore {
     },
     write: async (secrets) => {
       try {
-        if (secrets.apiKey || Object.keys(secrets.remoteTokens ?? {}).length)
+        if (
+          secrets.apiKey ||
+          Object.keys(secrets.remoteTokens ?? {}).length ||
+          Object.keys(secrets.transferKeys ?? {}).length
+        )
           await entry.setPassword(JSON.stringify(decode(Secrets, secrets)));
         else await entry.deleteCredential();
       } catch (cause) {

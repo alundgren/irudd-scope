@@ -35,8 +35,14 @@ import { handlePlanHttp } from "./plan-http.ts";
 import { ArtifactStore } from "./store.ts";
 import { DiagramSyncCommand, DiagramSyncReply } from "@irudd-scope/protocol/diagram-sync";
 import { ArtifactName } from "@irudd-scope/protocol";
+import {
+  decodeTransferImportRequest,
+  TransferImportReceipt,
+  MAX_TRANSFER_IMPORT_REQUEST_BYTES,
+} from "@irudd-scope/protocol/transfer";
 
 export async function startArtifactServer(options: {
+  importLink?: (url: string) => Promise<TransferImportReceipt>;
   voice?: VoiceService;
   diagramAgent?: (command: DiagramAgentCommand, signal: AbortSignal) => Promise<DiagramAgentReply>;
   diagram?: (command: DiagramCommand, signal: AbortSignal) => Promise<DiagramReply>;
@@ -113,6 +119,37 @@ export async function startArtifactServer(options: {
     authenticate(request, options.token);
     if (await handlePlanHttp(request, response, url, store.plans)) return;
     if (await handlePullRequestsHttp(request, response, url, store.pullRequests)) return;
+
+    if (route === "POST /v1/transfers/import" && !url.search) {
+      if (!options.importLink)
+        throw new ScopeError(
+          503,
+          "Link import is unavailable. Update and open Scope on the receiver.",
+        );
+      const body = await readJson(
+        request,
+        MAX_TRANSFER_IMPORT_REQUEST_BYTES,
+        "Transfer import request exceeds 16 KiB.",
+      );
+      let input;
+      try {
+        input = decodeTransferImportRequest(body);
+      } catch {
+        throw new ScopeError(
+          400,
+          "Provide a valid tab sharing link. Complete pairing in Scope first.",
+        );
+      }
+      let receipt;
+      try {
+        receipt = await options.importLink(input.url);
+      } catch (error) {
+        if (error instanceof ScopeError) throw error;
+        throw new ScopeError(400, error instanceof Error ? error.message : "The transfer failed.");
+      }
+      json(response, 200, decode(TransferImportReceipt, receipt));
+      return;
+    }
 
     if (route === "POST /v1/voice" && !url.search) {
       if (!options.voice) throw new ScopeError(503, "Voice generation is unavailable.");

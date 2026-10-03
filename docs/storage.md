@@ -13,6 +13,20 @@ to select separate directories for development.
 | CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                                                                                               |
 | Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, listener configuration, credential hashes, pairing expiry, remote update status, buffered publication bytes/metadata, and recently observed artifact metadata. |
 
+Tab transfer stores local identity and peer metadata in the `transfer-device`
+and `scope-peers` preference rows in `desktop.db`. Pairing keys live in the
+profile's Keychain entry alongside provider and remote credentials. Linux and
+explicit session-credential profiles retain keys only in memory, so pairing
+lasts until that app closes. Forget removes the selected pairing key and
+preserves provider and hub credentials.
+
+The additive `transfer_receipts` table in `scope.db` stores source and invitation
+IDs, expiry, and imported metadata in the same transaction as copied bytes.
+Receipts survive removal of the copied tab to prevent recreation by retry.
+Maintenance reclaims receipts after expiry. Existing artifact and desktop rows
+are preserved; these additions do not change their formats. Source snapshots
+and request records stay in memory for at most fifteen minutes.
+
 Scope creates database directories with mode `0700` and database files with
 mode `0600`. Treat the whole profile and discovery file as private. Explicit
 imports and downloads use files; ordinary storage uses SQLite.

@@ -28,6 +28,66 @@ server. `packages/protocol/src/voice.ts` owns the public contracts; the CLI owns
 explicit audio and receipt exports. The hub forwards the same routes without
 provider calls or speech storage. Speech results are independent of tabs.
 
+## Tab transfer
+
+`apps/desktop/src/transfer/` owns desktop pairing, temporary invitations,
+authentication, and transport cleanup. `packages/protocol/src/transfer.ts`
+defines the versioned invitation and portable artifact manifest. Desktop main
+exposes named IPC for Settings, Send, and Import. The renderer receives metadata
+and status, never saved pairing keys. Copying a generated secret uses a named
+main-process clipboard operation.
+
+Each pair has an independently generated random secret in the credential store
+and peer identity and name in `desktop.db`. Signed invitations bind the source,
+connection address, and fifteen-minute lifetime. Receivers verify signatures
+before connecting. AES-256-GCM messages use HKDF-derived directional keys,
+fresh nonces, and invitation-bound authenticated data. Responses identify the
+source and originating request. Repeated requests do not repeat mutations;
+live invitations bound accepted request counts.
+
+Tab transfer requires a user-installed Tailcat CLI on each Mac. Scope searches
+PATH and the standard Mac Homebrew locations, and reports a missing CLI when a
+transfer starts. Scope does not install, download, or bundle Tailcat.
+
+Desktop main runs a TypeScript transport supervisor using its existing runtime.
+The supervisor owns one loopback HTTP listener and a Tailcat process serving
+only that listener's port, with ephemeral keys. Version 2 invitations sign the
+port alongside the address and lifetime. Version 1 transfer links are rejected;
+both desktops must use version 2 links. Existing saved pairings remain valid.
+
+The supervisor stops Tailcat before releasing its HTTP port on cancellation,
+expiry, main-process disconnect, or CLI failure. Requests and responses have
+size limits, deadlines, and bounded concurrency. The target uses the CLI's
+loopback port forwarding and sends encrypted messages over HTTP. Pairing secrets
+and payloads never enter CLI arguments; the invitation's connection address does.
+Tailcat is experimental; its hosted relays can observe connection metadata and
+provide rate-limited service without uptime guarantees.
+
+Send flushes edits and freezes an ordinary artifact or current diagram document.
+Sharing links and Scope-to-Scope pairings are created only in the Mac app.
+The receiver can give an agent a tab sharing link and authorize
+`irudd-scope import-link LINK`. The authenticated publication API exposes only
+`POST /v1/transfers/import` for this operation. Desktop main performs Inspect
+then Import without a renderer confirmation; pairing keys stay in Keychain.
+The CLI uses normal receiver discovery or a connected paired hub. Imports are
+never queued, and the import request has a bounded five-minute deadline.
+Conversations, proposals, credentials, and agent sessions remain local. Inspect
+authenticates and retains the approved manifest in main. Import validates the
+download against that manifest and requests final source authorization.
+Authorization is serialized against Cancel and Forget. Cancel stops imports
+not yet authorized; closing or forgetting the source cannot retract previously
+authorized bytes.
+
+`library/transfer-import.ts` commits the new tab, artifact, bytes, and retry
+receipt together in `scope.db`. New local identities and omission of the
+original unique name prevent overwrites. Repeated imports return the existing
+copy. Removing that copy retains its receipt until expiry and prevents
+recreation. Explicit desktop Import or an authorized agent command precedes HTML execution under the existing trusted
+content behavior. Both apps must be online and awake. Invitations and snapshots
+exist only in memory, with no offline queue or continuing synchronization.
+Plans and PR inboxes are excluded because their additional records are not in
+the portable manifest.
+
 ## HTML plans
 
 `packages/protocol/src/plan.ts` defines review commands, revisions, comments,

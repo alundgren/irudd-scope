@@ -51,7 +51,9 @@ try {
       scopeInstallation: { root: resolve(installRoot), vp, commit, signingIdentity },
     }),
   );
-  await cp(join(desktop, "dist"), join(source, "dist"), { recursive: true });
+  await mkdir(join(source, "dist"));
+  for (const entry of ["main.mjs", "preload.cjs", "cli-process.mjs", "renderer"])
+    await cp(join(desktop, "dist", entry), join(source, "dist", entry), { recursive: true });
   await cp(join(desktop, "resources"), join(source, "resources"), { recursive: true });
   await cp(join(root, "packages/cli/dist"), join(source, "cli"), { recursive: true });
   await cp(join(root, "install.sh"), join(source, "install.sh"));
@@ -70,7 +72,15 @@ try {
     appBundleId: "alundgren.irudd-scope",
     appCategoryType: "public.app-category.developer-tools",
     extraResource: [join(desktop, "resources/icon.icns")],
-    extendInfo: { CFBundleIconFile: "icon.icns" },
+    extendInfo: {
+      CFBundleIconFile: "icon.icns",
+      CFBundleURLTypes: [
+        {
+          CFBundleURLName: "alundgren.irudd-scope.transfer",
+          CFBundleURLSchemes: ["scope-transfer"],
+        },
+      ],
+    },
     platform: "darwin",
     arch: process.arch as "arm64" | "x64",
     electronVersion: require("electron/package.json").version,

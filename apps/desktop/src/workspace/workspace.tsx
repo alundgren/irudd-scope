@@ -9,6 +9,7 @@ import {
   Plus,
   Bookmark,
   Trash2,
+  Send,
 } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { NativeSelect, NativeSelectOption } from "../renderer/components/ui/native-select.tsx";
@@ -21,6 +22,9 @@ import {
 import { SettingsViewPanel } from "../renderer/settings-view.tsx";
 import { SettingsDialog } from "../renderer/settings-dialog.tsx";
 import { UpdateNotice } from "../renderer/installation-settings.tsx";
+import { ImportTabDialog, PairScopeDialog, SendTabDialog } from "../renderer/transfer-dialog.tsx";
+import type { Artifact } from "@irudd-scope/protocol";
+import { isTransferKind } from "@irudd-scope/protocol/transfer";
 import { useAppearance } from "../renderer/appearance.ts";
 import { SettingsContext } from "../renderer/settings-context.tsx";
 import type { SettingsView } from "../settings.ts";
@@ -39,6 +43,8 @@ import { observeFrameKeyboard } from "./frame-documents.ts";
 import { pluginTools, pluginForArtifact, tabArtifactId } from "../plugins/registry.renderer.ts";
 
 type FullscreenMode = "edit" | "view" | "present";
+type TransferLink = { kind: "pair" | "tab"; url: string };
+type TransferDialog = TransferLink | { kind: "send"; tabId: string; title: string };
 
 export function App({ initialSettings }: { initialSettings: SettingsView | undefined }) {
   const { theme, setAppearance } = useAppearance(initialSettings?.appearance ?? "system");
@@ -53,7 +59,38 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const [focus, setFocus] = useState(false);
   const [fullscreenMode, setFullscreenMode] = useState<FullscreenMode>("edit");
   const [details, setDetails] = useState(false);
+  const [transfer, setTransfer] = useState<TransferDialog>();
+  const [transferLinks, setTransferLinks] = useState<TransferLink[]>([]);
+  const pendingTransferLinks = useRef<TransferLink[]>([]);
+  const transferOpen = transfer !== undefined;
   const [error, setError] = useState("");
+  useEffect(
+    () =>
+      window.scope.onTransferLink(({ url, kind }) => {
+        setSearch(false);
+        const links = pendingTransferLinks.current;
+        if (links.some((link) => link.url === url)) return;
+        if (links.length === 4) {
+          setError(
+            "Four transfer links are waiting. Finish a transfer, then open the new link again.",
+          );
+          return;
+        }
+        pendingTransferLinks.current = [...links, { url, kind }];
+        setTransferLinks(pendingTransferLinks.current);
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (transfer || settings || details || overflow || !transferLinks.length) return;
+    const [next, ...pending] = pendingTransferLinks.current;
+    setTransfer(next);
+    pendingTransferLinks.current = pending;
+    setTransferLinks(pending);
+  }, [transfer, settings, details, overflow, transferLinks]);
+  function closeTransfer(dialog: TransferDialog) {
+    setTransfer((current) => (current === dialog ? undefined : current));
+  }
   useEffect(
     () =>
       window.scope.onFullscreenChange((value) => {
@@ -249,6 +286,21 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       },
     );
   }
+  async function openImported(artifact: Artifact) {
+    recordPublication(artifact);
+    const saved = retention.tabs.find((entry) => tabArtifactId(entry.tab) === artifact.id);
+    const existing = workspace.tabs.find((tab) => tabArtifactId(tab) === artifact.id);
+    const plugin = pluginForArtifact(artifact);
+    const tab = existing ??
+      saved?.tab ?? {
+        id: crypto.randomUUID(),
+        groupId: workspace.groups[0].id,
+        type: plugin.type,
+        title: artifact.title,
+        state: plugin.publication!.state(artifact),
+      };
+    await activate(tab, false, artifact.revision);
+  }
   async function close(id: string) {
     if (!retention.ready) return;
     if (retention.tabs.find((entry) => entry.tab.id === id)?.permanent) {
@@ -309,7 +361,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   // A visible tab change must update shortcuts before another key can target the old tab.
   useLayoutEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || transferOpen) return;
       const command = event.metaKey || event.ctrlKey;
       if (command && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -317,7 +369,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       } else if (command && event.key === ",") {
         event.preventDefault();
         openSettings();
-      } else if (search || settings || details || overflow) return;
+      } else if (search || settings || details || overflow || transferOpen) return;
       else if (event.key === "Escape" && html && presentation) {
         event.preventDefault();
         setFullscreenMode("view");
@@ -537,8 +589,18 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         artifacts={activeArtifacts}
         onOpenArtifact={open}
         onOpenSettings={openSettings}
-        finalFocus={settings || details ? false : returnFocus}
+        finalFocus={settings || details || transferOpen ? false : returnFocus}
         actions={[
+          {
+            id: "import-tab",
+            title: "Import tab",
+            keywords: "receive transfer link scope",
+            icon: Download,
+            onSelect: () => {
+              setTransfer({ kind: "tab", url: "" });
+              setSearch(false);
+            },
+          },
           {
             id: "settings",
             title: "Settings",
@@ -580,6 +642,26 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             ? {
                 title: activeArtifact?.title ?? active.title,
                 actions: [
+                  ...(activeArtifact &&
+                  isTransferKind(activeArtifact.kind) &&
+                  (active.type === "file" || active.type === "diagram")
+                    ? [
+                        {
+                          id: "send-tab",
+                          title: "Send tab",
+                          keywords: "transfer share scope",
+                          icon: Send,
+                          onSelect: () => {
+                            setTransfer({
+                              kind: "send",
+                              tabId: active.id,
+                              title: activeArtifact.title,
+                            });
+                            setSearch(false);
+                          },
+                        },
+                      ]
+                    : []),
                   ...(activeArtifact
                     ? [
                         {
@@ -625,6 +707,35 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             : undefined
         }
       />
+      {transfer?.kind === "send" && (
+        <SendTabDialog
+          tabId={transfer.tabId}
+          title={transfer.title}
+          finalFocus={returnFocus}
+          onClose={() => closeTransfer(transfer)}
+          onPair={() => {
+            closeTransfer(transfer);
+            openSettings("Other Scopes");
+          }}
+        />
+      )}
+      {transfer?.kind === "tab" && (
+        <ImportTabDialog
+          key={transfer.url}
+          initialUrl={transfer.url}
+          finalFocus={returnFocus}
+          onClose={() => closeTransfer(transfer)}
+          onImported={openImported}
+        />
+      )}
+      {transfer?.kind === "pair" && (
+        <PairScopeDialog
+          key={transfer.url}
+          url={transfer.url}
+          finalFocus={returnFocus}
+          onClose={() => closeTransfer(transfer)}
+        />
+      )}
       <Dialog open={settings} onOpenChange={setSettings}>
         <SettingsDialog finalFocus={search ? false : returnFocus}>
           <SettingsViewPanel

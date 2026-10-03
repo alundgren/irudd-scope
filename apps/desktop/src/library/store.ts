@@ -25,6 +25,8 @@ import {
 } from "../workspace/retention.ts";
 import { PlanStore, recordPlanRevision } from "./plan-store.ts";
 import { DiagramDraft } from "../plugins/diagram/draft.ts";
+import { importTransferredTab, transferReceipt } from "./transfer-import.ts";
+import { TransferId, type TransferManifest } from "@irudd-scope/protocol/transfer";
 
 const databaseRuntime = (filename: string) => ManagedRuntime.make(SqliteClient.layer({ filename }));
 
@@ -89,6 +91,9 @@ export class ArtifactStore {
         mutate: (effect, events) => store.mutate(effect, events),
       });
       await store.pullRequests.initialize();
+      await store.run(
+        sql`CREATE TABLE IF NOT EXISTS transfer_receipts (source_id TEXT NOT NULL, invitation_id TEXT NOT NULL, expires_at INTEGER NOT NULL, artifact TEXT NOT NULL CHECK(json_valid(artifact)), tab TEXT NOT NULL CHECK(json_valid(tab)), PRIMARY KEY(source_id, invitation_id)) STRICT`,
+      );
       await store.initializePublicationHistory();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
@@ -558,6 +563,30 @@ export class ArtifactStore {
     );
   }
 
+  transferReceipt(sourceId: string, id: string) {
+    decode(TransferId, sourceId);
+    decode(TransferId, id);
+    return this.run(transferReceipt(this.sql, sourceId, id));
+  }
+
+  importTransferredTab(
+    sourceId: string,
+    id: string,
+    expiresAt: number,
+    groupId: string,
+    manifest: TransferManifest,
+    bytes: Uint8Array,
+    now = Date.now,
+  ) {
+    decode(TransferId, sourceId);
+    decode(TransferId, id);
+    decode(Uuid, groupId);
+    return this.mutate(
+      importTransferredTab(this.sql, sourceId, id, expiresAt, groupId, manifest, bytes, now),
+      (result) => (result.alreadyImported ? [] : { type: "artifact", artifact: result.artifact }),
+    );
+  }
+
   async diagramDraft(id: string): Promise<DiagramDraft | null> {
     decode(Uuid, id);
     const [row] = await this.run(
@@ -579,6 +608,7 @@ export class ArtifactStore {
     return this.run(
       sql.withTransaction(
         Effect.gen(function* () {
+          yield* sql`DELETE FROM transfer_receipts WHERE expires_at <= ${now}`;
           yield* sql`DELETE FROM tab_blobs WHERE staged_until <= ${now} AND NOT EXISTS (SELECT 1 FROM artifacts WHERE artifacts.tab_id = tab_blobs.tab_id AND artifacts.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM plan_revisions WHERE plan_revisions.tab_id = tab_blobs.tab_id AND plan_revisions.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM plan_images WHERE plan_images.tab_id = tab_blobs.tab_id AND plan_images.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM publications WHERE publications.tab_id = tab_blobs.tab_id AND (publications.checkpoint_blob = tab_blobs.blob_id OR publications.operation_blob = tab_blobs.blob_id))`;
           yield* sql`DELETE FROM live_tabs WHERE opened = 0 AND created_at <= ${now - UPLOAD_GRACE_MS} AND NOT EXISTS (SELECT 1 FROM artifacts WHERE artifacts.tab_id = live_tabs.id) AND NOT EXISTS (SELECT 1 FROM tab_blobs WHERE tab_blobs.tab_id = live_tabs.id)`;
           const [row] = yield* sql<{
