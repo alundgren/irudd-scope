@@ -29,12 +29,7 @@ export class BufferedPublication {
     private readonly reply: (response: ServerResponse, status: number, value: unknown) => void,
   ) {}
 
-  async handle(
-    request: IncomingMessage,
-    response: ServerResponse,
-    offline: boolean,
-    paired: boolean,
-  ) {
+  async handle(request: IncomingMessage, response: ServerResponse, paired: boolean) {
     const generation = this.queue.generation;
     const checkPairing = () => {
       if (generation !== this.queue.generation)
@@ -48,8 +43,7 @@ export class BufferedPublication {
     if (
       reservation &&
       request.method === "POST" &&
-      (this.queue.get(reservation[1]) ||
-        (offline && request.headers["scope-buffer-publication"] === "1"))
+      (this.queue.get(reservation[1]) || request.headers["scope-buffer-publication"] === "1")
     ) {
       if (request.headers["scope-buffer-publication"] !== "1")
         throw new ScopeError(

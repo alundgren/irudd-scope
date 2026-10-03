@@ -197,6 +197,10 @@ test(
         artifact = JSON.parse(
           (await cliFor(index)(...args, "--agent", "synthetic-pressure-test")).stdout,
         );
+        await expect
+          .poll(async () => (await clientFor(index).get(id)).revision, { timeout: 30_000 })
+          .toBe(expectedRevision + 1);
+        artifact = await clientFor(index).get(id);
       } else {
         artifact = await clientFor(index).publish(
           id,

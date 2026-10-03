@@ -59,6 +59,7 @@ export const RelayRequest = Schema.Struct({
   contentType: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(256))),
 });
 export type RelayRequest = typeof RelayRequest.Type;
+export const RELAY_WAKE_HEADER = "Scope-Relay-Wake";
 export const RelayEvent = Schema.Union([
   RelayRequest,
   Schema.Struct({ type: Schema.Literal("ready") }),

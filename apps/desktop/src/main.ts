@@ -89,10 +89,6 @@ async function main() {
     throw error;
   });
   store.maintenance.start();
-  powerMonitor.on("resume", () => {
-    void store.maintenance.check();
-    void artifacts.store.maintenance.check();
-  });
   const window = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -125,6 +121,11 @@ async function main() {
     installation?.commit,
   );
   await remotes.start();
+  powerMonitor.on("resume", () => {
+    void store.maintenance.check();
+    void artifacts.store.maintenance.check();
+    void remotes.resume().catch(() => console.error("Could not reconnect remotes after waking."));
+  });
   const updates = new AppUpdates(installation, join(app.getAppPath(), "install.sh"), (status) => {
     if (!window.isDestroyed()) window.webContents.send("scope:updates-changed", status);
   });

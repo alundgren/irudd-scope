@@ -76,7 +76,7 @@ Open Scope on this Mac to publish locally without connection setup.
 Environment: SCOPE_CONNECTION_FILE, or SCOPE_ENDPOINT with SCOPE_TOKEN_FILE or SCOPE_TOKEN
 Output is JSON. Updates read the current revision and reject concurrent changes.
 Offline updates use the paired hub's saved revision and block on delivery if the tab changed.
-Paired hubs buffer publications while the Mac is offline, up to 50 tabs for 48 hours.
+Paired hubs store publications before delivery, up to 50 tabs for 48 hours.
 Queued publications return an expiry receipt. Use hub queue to inspect them or hub discard ID to cancel.
 `;
 
