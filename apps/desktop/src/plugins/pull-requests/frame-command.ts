@@ -12,6 +12,25 @@ export function frameCommand(
   tabId: string,
 ): PullRequestsCommand {
   const base = { name: snapshot.artifact.name!, requestId: crypto.randomUUID(), tabId };
+  if (["readPrState", "setPrState", "patchPrState", "deletePrState"].includes(call.method))
+    return decode(PullRequestsCommand, {
+      ...(call.method === "readPrState" ? { name: base.name, tabId } : base),
+      nodeId: call.args[0],
+      action:
+        call.method === "readPrState"
+          ? "pr-state-read"
+          : call.method === "setPrState"
+            ? "pr-state-set"
+            : call.method === "patchPrState"
+              ? "pr-state-patch"
+              : "pr-state-delete",
+      ...(call.method === "readPrState"
+        ? {}
+        : {
+            expectedVersion: call.args[2],
+            [call.method === "deletePrState" ? "keys" : "value"]: call.args[1],
+          }),
+    });
   if (call.method === "readState") return { name: snapshot.artifact.name!, action: "read" };
   if (call.method === "setState" || call.method === "patchState")
     return decode(PullRequestsCommand, {

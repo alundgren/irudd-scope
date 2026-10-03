@@ -551,6 +551,43 @@ const current = await state.read();
 await state.patch({ hiddenFiles: ["src/example.ts"] }, current.version);
 ```
 
+Each open PR also has its own JSON object, initially `{version:0,value:{}}`,
+accessed through `scope.pullRequests.state.forPR(nodeId)`. It exposes the same
+`read`, `set`, `patch`, `delete`, and `watch` methods as inbox state. PR state
+has no storage byte quota; finite-number JSON and the 32-level nesting limit
+still apply. Root inbox state retains its 32 KiB limit.
+
+Agents use `pr-state-read` with `name`, `tabId`, and `nodeId`. The commands
+`pr-state-set`, `pr-state-patch`, and `pr-state-delete` also require
+`requestId` and `expectedVersion` from that PR's state, with `value` or `keys`
+as above. They return `{type:"pr-state",tabId,nodeId,state:{version,value}}`.
+State bytes are loaded separately and never added to inventory snapshots.
+The existing 256 KiB command and 32 MiB reply limits still apply to individual
+transfers; use separate patches for larger accumulated objects. An object
+larger than the reply limit cannot be read in full; use known keys to delete
+or replace its content before reading it.
+
+PR state survives HTML replacement, commit changes, restart, and Trashcan
+retention. A complete sync removing a PR deletes its state and receipts;
+reappearance of that node starts at version 0. Permanent tab deletion removes
+all its PR state. State is isolated by both inbox tab UUID and PR node ID.
+Each accepted write advances only that PR's state version and the inbox
+generation. Identical retries do not repeat writes or notifications.
+
+Per-PR live events carry only
+`prStateChange:{nodeId,operation,version}`. HTML watchers load the current value
+through a separate read and recover after reconnect. If several writes happen
+before retrieval completes, the watcher can receive one `snapshot` containing
+the latest version. Unsubscribe when a component closes. Writes and
+`beforeClose` callbacks participate in the normal frame flush.
+
+```js
+const state = scope.pullRequests.state.forPR(pr.nodeId);
+const current = await state.read();
+await state.patch({ reviewedFiles: { "src/example.ts": file.sha } }, current.version);
+const stop = state.watch(({ value }) => renderReviewedFiles(value.reviewedFiles ?? {}));
+```
+
 Live events contain the artifact ID, name, generation, and owning `tabId`.
 Older notices may omit `tabId`; state payloads require a matching tab UUID
 before the host delivers them to HTML frames. State mutations add

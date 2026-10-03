@@ -488,7 +488,12 @@ test("HTML replacement and Trashcan preserve records, permanent deletion cascade
   ).rejects.toThrow();
   const db = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
   try {
-    for (const table of ["pull_requests_state", "pull_requests_current", "pull_requests_receipts"])
+    for (const table of [
+      "pull_requests_state",
+      "pull_requests_current",
+      "pull_requests_receipts",
+      "pull_requests_pr_state",
+    ])
       expect(db.prepare(`SELECT count(*) AS count FROM ${table}`).get()?.count).toBe(0);
   } finally {
     db.close();
@@ -606,7 +611,7 @@ test("version 6 databases migrate additively and reopen current inbox state", as
   const db = new DatabaseSync(join(f.directory, "scope.db"));
   try {
     db.exec(
-      "DROP TABLE publications; DROP TABLE pull_requests_receipts; DROP TABLE pull_requests_current; DROP TABLE pull_requests_state; PRAGMA user_version = 6;",
+      "DROP TABLE publications; DROP TABLE pull_requests_pr_state; DROP TABLE pull_requests_receipts; DROP TABLE pull_requests_current; DROP TABLE pull_requests_state; PRAGMA user_version = 6;",
     );
   } finally {
     db.close();
@@ -617,7 +622,7 @@ test("version 6 databases migrate additively and reopen current inbox state", as
   expect((await reopened.list()).items[0].kind).toBe("pull-requests");
   const check = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
   try {
-    expect(check.prepare("PRAGMA user_version").get()?.user_version).toBe(9);
+    expect(check.prepare("PRAGMA user_version").get()?.user_version).toBe(10);
   } finally {
     check.close();
   }
@@ -1423,7 +1428,9 @@ test("schema 8 inboxes migrate with empty JSON state and retain existing records
   await f.server.close();
   const db = new DatabaseSync(join(f.directory, "scope.db"));
   try {
-    db.exec("ALTER TABLE pull_requests_state DROP COLUMN app_state; PRAGMA user_version = 8;");
+    db.exec(
+      "DROP TABLE pull_requests_pr_state; ALTER TABLE pull_requests_state DROP COLUMN app_state; PRAGMA user_version = 8;",
+    );
   } finally {
     db.close();
   }
@@ -1434,4 +1441,217 @@ test("schema 8 inboxes migrate with empty JSON state and retain existing records
   expect(migrated.prs.map((pr) => pr.nodeId)).toEqual(["PR_1"]);
   expect(migrated.repository).toEqual(repository);
   expect(migrated.tabId).toBe(initial.tabId);
+});
+
+test("per-PR JSON storage exceeds the root quota, stays isolated and sends bounded events", async () => {
+  const f = await fixture();
+  await f.configure();
+  const initial = await f.read();
+  const inventory = { repository, viewer: "viewer", prs: [facts(1), facts(2)], completedAt: now };
+  await f.server.store.pullRequests.commitInventory(initial.tabId, inventory);
+  const read = async (nodeId: string) => {
+    const reply = await f.client.pullRequests({
+      action: "pr-state-read",
+      name,
+      tabId: initial.tabId,
+      nodeId,
+    });
+    if (reply.type !== "pr-state") throw new Error("Expected PR state");
+    return reply.state;
+  };
+  const events: unknown[] = [];
+  const controller = new AbortController();
+  let ready!: () => void;
+  const connected = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  const watching = f.client
+    .watch((event) => {
+      if (event.type === "ready") ready();
+      if (event.type === "pull-requests" && event.prStateChange) events.push(event.prStateChange);
+    }, controller.signal)
+    .catch(() => {});
+  cleanup.push(async () => {
+    controller.abort();
+    await watching;
+  });
+  await connected;
+  const value = { files: { "src/large.ts": "x".repeat(80_000) }, nullable: null };
+  const command = {
+    action: "pr-state-set" as const,
+    name,
+    tabId: initial.tabId,
+    nodeId: "PR_1",
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    value,
+  };
+  const saved = await f.client.pullRequests(command);
+  expect(saved).toEqual({
+    type: "pr-state",
+    tabId: initial.tabId,
+    nodeId: "PR_1",
+    state: { version: 1, value },
+  });
+  expect(await f.client.pullRequests(command)).toEqual(saved);
+  await expect.poll(() => events).toEqual([{ nodeId: "PR_1", operation: "set", version: 1 }]);
+  expect(await read("PR_2")).toEqual({ version: 0, value: {} });
+  expect((await f.read()).appState).toEqual({ version: 0, value: {} });
+  expect(JSON.stringify(await f.read())).not.toContain("xxxxx");
+  await expect(
+    f.client.pullRequests({
+      action: "state-set",
+      name,
+      tabId: initial.tabId,
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      value,
+    }),
+  ).rejects.toThrow("32 KiB");
+  await expect(
+    f.client.pullRequests({ ...command, requestId: randomUUID() }),
+  ).rejects.toMatchObject({ status: 409 });
+  await expect(
+    f.client.pullRequests({ ...command, value: {}, expectedVersion: 1 }),
+  ).rejects.toMatchObject({ status: 409 });
+  await f.client.pullRequests({
+    ...command,
+    nodeId: "PR_2",
+    requestId: randomUUID(),
+    value: { selected: true },
+  });
+  await f.client.pullRequests({
+    ...command,
+    action: "pr-state-patch",
+    requestId: randomUUID(),
+    expectedVersion: 1,
+    value: JSON.parse('{"files":{"next":true},"__proto__":{"polluted":true}}'),
+  });
+  expect(await read("PR_1")).toEqual({
+    version: 2,
+    value: JSON.parse('{"files":{"next":true},"nullable":null,"__proto__":{"polluted":true}}'),
+  });
+  await f.client.pullRequests({
+    action: "pr-state-delete",
+    name,
+    tabId: initial.tabId,
+    nodeId: "PR_1",
+    requestId: randomUUID(),
+    expectedVersion: 2,
+    keys: ["files", "absent", "__proto__"],
+  });
+  expect(await read("PR_1")).toEqual({ version: 3, value: { nullable: null } });
+  expect(await read("PR_2")).toEqual({ version: 1, value: { selected: true } });
+  await expect(
+    f.client.pullRequests({ action: "pr-state-read", name, tabId: randomUUID(), nodeId: "PR_1" }),
+  ).rejects.toMatchObject({ status: 409 });
+  await expect(read("PR_absent")).rejects.toMatchObject({ status: 404 });
+  // The same node in another inbox starts independently.
+  await f.client.publish(
+    "other",
+    {
+      name: "other",
+      title: "Other",
+      kind: "pull-requests",
+      mediaType: "text/html",
+      fileName: "inbox.html",
+      expectedRevision: 0,
+    },
+    Buffer.from("<h1>Other</h1>"),
+  );
+  const other = snapshot(await f.client.pullRequests({ action: "read", name: "other" }));
+  await f.client.pullRequests({
+    action: "configure",
+    name: "other",
+    tabId: other.tabId,
+    requestId: randomUUID(),
+    repository,
+  });
+  await f.server.store.pullRequests.commitInventory(other.tabId, inventory);
+  expect(
+    await f.client.pullRequests({
+      action: "pr-state-read",
+      name: "other",
+      tabId: other.tabId,
+      nodeId: "PR_2",
+    }),
+  ).toMatchObject({ state: { version: 0, value: {} } });
+  await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    ...inventory,
+    prs: [facts(1)],
+  });
+  await expect(read("PR_2")).rejects.toMatchObject({ status: 404 });
+  await f.server.store.pullRequests.commitInventory(initial.tabId, inventory);
+  expect(await read("PR_1")).toEqual({ version: 3, value: { nullable: null } });
+  expect(await read("PR_2")).toEqual({ version: 0, value: {} });
+});
+
+test("schema 9 upgrades preserve root and PR records; PR state survives restart and trash", async () => {
+  const f = await fixture();
+  await f.configure();
+  const initial = await f.read();
+  await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [facts()],
+    completedAt: now,
+  });
+  await f.client.pullRequests({
+    action: "state-set",
+    name,
+    tabId: initial.tabId,
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    value: { width: 400 },
+  });
+  await f.server.close();
+  const db = new DatabaseSync(join(f.directory, "scope.db"));
+  try {
+    db.exec("DROP TABLE pull_requests_pr_state; PRAGMA user_version = 9;");
+  } finally {
+    db.close();
+  }
+  const migrated = await ArtifactStore.open(f.directory);
+  const read = { action: "pr-state-read" as const, name, tabId: initial.tabId, nodeId: "PR_1" };
+  const current = await migrated.pullRequests.snapshot(name);
+  expect(current.appState).toEqual({ version: 1, value: { width: 400 } });
+  expect(current.prs.map((pr) => pr.nodeId)).toEqual(["PR_1"]);
+  expect(await migrated.pullRequests.command(read)).toMatchObject({
+    state: { version: 0, value: {} },
+  });
+  const write = {
+    ...read,
+    action: "pr-state-set" as const,
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    value: { hashes: "x".repeat(40_000) },
+  };
+  const saved = await migrated.pullRequests.command(write);
+  await migrated.close();
+  const reopened = await ArtifactStore.open(f.directory);
+  cleanup.push(() => reopened.close());
+  expect(await reopened.pullRequests.command(read)).toEqual(saved);
+  expect(await reopened.pullRequests.command(write)).toEqual(saved);
+  await reopened.openTab({
+    id: initial.tabId,
+    groupId: randomUUID(),
+    type: "pull-requests",
+    title: "Inbox",
+    state: { version: 1, data: { artifactId: initial.artifact.id } },
+  });
+  await reopened.trashTab(initial.tabId, 123);
+  expect(await reopened.pullRequests.command(read)).toEqual(saved);
+  await expect(
+    reopened.pullRequests.command({ ...write, requestId: randomUUID(), expectedVersion: 1 }),
+  ).rejects.toMatchObject({ status: 409 });
+  await reopened.emptyTrash([{ id: initial.tabId, trashedAt: 123 }]);
+  await expect(reopened.pullRequests.command(read)).rejects.toMatchObject({ status: 404 });
+  const check = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
+  try {
+    expect(check.prepare("SELECT count(*) AS count FROM pull_requests_pr_state").get()?.count).toBe(
+      0,
+    );
+  } finally {
+    check.close();
+  }
 });

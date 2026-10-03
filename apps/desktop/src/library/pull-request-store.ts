@@ -5,6 +5,7 @@ import { Artifact, ScopeError, decode, type LiveEvent } from "@irudd-scope/proto
 import {
   PullRequestsCommand,
   PullRequestsAppState,
+  PullRequestAppState,
   type PullRequestsStateChange,
   PullRequestsReply,
   PullRequestsSnapshot,
@@ -602,6 +603,13 @@ export class PullRequestStore {
 
   async command(value: PullRequestsCommand): Promise<PullRequestsReply> {
     const command = decode(PullRequestsCommand, value);
+    if (
+      command.action === "pr-state-read" ||
+      command.action === "pr-state-set" ||
+      command.action === "pr-state-patch" ||
+      command.action === "pr-state-delete"
+    )
+      return this.prStateCommand(command);
     if (command.action !== "detail" && command.action !== "details")
       return this.executeCommand(command);
     const controller = new AbortController();
@@ -613,8 +621,121 @@ export class PullRequestStore {
     }
   }
 
+  private async prStateCommand(
+    command: Extract<
+      PullRequestsCommand,
+      { action: "pr-state-read" | "pr-state-set" | "pr-state-patch" | "pr-state-delete" }
+    >,
+  ): Promise<PullRequestsReply> {
+    const { sql, run, mutate } = this.database;
+    const owner = this.owner.bind(this),
+      active = this.active.bind(this);
+    const payload =
+      "requestId" in command
+        ? createHash("sha256")
+            .update(
+              JSON.stringify(command, (_key, value: unknown) =>
+                value && typeof value === "object" && !Array.isArray(value)
+                  ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+                  : value,
+              ),
+            )
+            .digest("hex")
+        : null;
+    const task = sql.withTransaction(
+      Effect.gen(function* () {
+        const current = yield* owner(command.name);
+        if (current.tab_id !== command.tabId)
+          return yield* Effect.fail(
+            new ScopeError(
+              409,
+              "This command belongs to a previous tab. Read the current snapshot before retrying.",
+            ),
+          );
+        if (command.action !== "pr-state-read") yield* active(current);
+        const [pr] =
+          yield* sql`SELECT node_id FROM pull_requests_current WHERE tab_id = ${current.tab_id} AND node_id = ${command.nodeId}`;
+        if (!pr) return yield* Effect.fail(new ScopeError(404, "Open pull request not found."));
+        const [row] = yield* sql<{
+          state: string;
+        }>`SELECT state FROM pull_requests_pr_state WHERE tab_id = ${current.tab_id} AND node_id = ${command.nodeId}`;
+        const saved = decode(
+          PullRequestAppState,
+          row ? JSON.parse(row.state) : { version: 0, value: {} },
+        );
+        if (command.action === "pr-state-read") return { current, state: saved, changed: false };
+        const [receipt] = yield* sql<{
+          payload: string;
+        }>`SELECT payload FROM pull_requests_receipts WHERE tab_id = ${current.tab_id} AND request_id = ${command.requestId}`;
+        if (receipt) {
+          if (receipt.payload !== payload)
+            return yield* Effect.fail(
+              new ScopeError(409, "This request ID was already used with different content."),
+            );
+          return { current, state: saved, changed: false };
+        }
+        if (saved.version !== command.expectedVersion)
+          return yield* Effect.fail(
+            new ScopeError(
+              409,
+              "Pull request app state changed. Read the current state before saving.",
+            ),
+          );
+        const value = command.action === "pr-state-set" ? { ...command.value } : { ...saved.value };
+        if (command.action === "pr-state-patch")
+          for (const [key, item] of Object.entries(command.value))
+            Object.defineProperty(value, key, {
+              value: item,
+              enumerable: true,
+              writable: true,
+              configurable: true,
+            });
+        if (command.action === "pr-state-delete") for (const key of command.keys) delete value[key];
+        const state = decode(PullRequestAppState, { version: saved.version + 1, value });
+        yield* sql`INSERT INTO pull_requests_pr_state(tab_id, node_id, state) VALUES (${current.tab_id}, ${command.nodeId}, ${JSON.stringify(state)}) ON CONFLICT(tab_id, node_id) DO UPDATE SET state = excluded.state`;
+        yield* sql`INSERT INTO pull_requests_receipts(tab_id, request_id, node_id, payload) VALUES (${current.tab_id}, ${command.requestId}, ${command.nodeId}, ${payload})`;
+        yield* sql`UPDATE pull_requests_state SET generation = generation + 1 WHERE tab_id = ${current.tab_id}`;
+        return {
+          current: { ...current, generation: current.generation + 1 },
+          state,
+          changed: true,
+        };
+      }),
+    );
+    const result =
+      command.action === "pr-state-read"
+        ? await run(task)
+        : await mutate(task, (result) =>
+            result.changed
+              ? [
+                  {
+                    type: "pull-requests",
+                    name: command.name,
+                    id: JSON.parse(result.current.document).id,
+                    tabId: command.tabId,
+                    generation: result.current.generation,
+                    prStateChange: {
+                      nodeId: command.nodeId,
+                      version: result.state.version,
+                      operation:
+                        command.action === "pr-state-set"
+                          ? "set"
+                          : command.action === "pr-state-patch"
+                            ? "patch"
+                            : "delete",
+                    },
+                  },
+                ]
+              : [],
+          );
+    return { type: "pr-state", tabId: command.tabId, nodeId: command.nodeId, state: result.state };
+  }
+
   private async executeCommand(
-    command: PullRequestsCommand,
+    command: Exclude<
+      PullRequestsCommand,
+      { action: "pr-state-read" | "pr-state-set" | "pr-state-patch" | "pr-state-delete" }
+    >,
     signal?: AbortSignal,
   ): Promise<PullRequestsReply> {
     if (command.action === "read")

@@ -3,6 +3,7 @@ import type {
   PullRequestsSnapshot,
   PullRequestsAppState,
   PullRequestsStateChange,
+  PullRequestStateChange,
 } from "@irudd-scope/protocol/pull-requests";
 import type { WorkspaceFlushPurpose } from "../../workspace/contract.ts";
 import { PullRequestsInterest } from "./interest.ts";
@@ -139,6 +140,14 @@ export class PullRequestsFrameHost {
     this.appState = { version: change.version, value: change.value };
     for (const frame of this.frames.values())
       if (frame.ready) this.post(frame, { type: "scope-pull-requests-state", value: change });
+  }
+  prStateChanged(change: PullRequestStateChange) {
+    for (const frame of this.frames.values())
+      if (frame.ready) this.post(frame, { type: "scope-pull-request-state-change", value: change });
+  }
+  refreshPrStates() {
+    for (const frame of this.frames.values())
+      if (frame.ready) this.post(frame, { type: "scope-pull-request-state-refresh" });
   }
   setTheme(theme: string) {
     this.theme = theme;
@@ -422,6 +431,12 @@ export class PullRequestsFrameHost {
         (result.type === "snapshot" ? result.snapshot.tabId : result.tabId) !== frame.identity.tabId
       )
         throw new Error("This reply belongs to another PR inbox.");
+      if (result.type === "pr-state") {
+        if (result.nodeId !== call.args[0])
+          throw new Error("This state belongs to another pull request.");
+        reply(result.state);
+        return;
+      }
       if (result.type === "detail" && result.nodeId !== call.args[0])
         throw new Error("These details belong to another pull request.");
       if (result.type === "details") {

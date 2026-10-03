@@ -82,6 +82,7 @@ export function contentCounts(directory: string) {
       "plan_drafts",
       "pull_requests_state",
       "pull_requests_current",
+      "pull_requests_pr_state",
       "pull_requests_receipts",
     ];
     const databaseTables = db
