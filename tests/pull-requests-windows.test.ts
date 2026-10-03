@@ -2,7 +2,7 @@ import { expect, test } from "vite-plus/test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PullRequest, PullRequestsSnapshot } from "@irudd-scope/protocol/pull-requests";
+import type { PullRequest } from "@irudd-scope/protocol/pull-requests";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 const head = "a".repeat(40),
@@ -57,7 +57,7 @@ async function save(){await api.saveNote(current.nodeId,$('draft').value,current
 $('save').onclick=()=>save().catch(error=>$('error').textContent=error.message);
 $('broadcast').onclick=()=>scope.windows.broadcast({selection:'chosen'});
 $('nested').onclick=()=>scope.windows.open({title:'Nested content',html:'<input aria-label="Nested draft">',context:{child:true}});
-api.beforeClose(async()=>{if($('draft').value==='blocked')throw new Error('Keep this draft');if($('draft').value)await save();});
+api.beforeClose(async()=>{window.beforeCloseCalls=(window.beforeCloseCalls||0)+1;if($('draft').value==='blocked')throw new Error('Keep this draft');if($('draft').value)await save();});
 addEventListener('keydown',event=>{if(event.key==='Escape'&&$('draft').value==='consume'){event.preventDefault();$('error').textContent='Escape consumed';}});
 </script>`;
 }
@@ -111,6 +111,9 @@ test("authored windows share snapshots, context, messages and detail interests a
           interests: [] as { active: boolean; details: { nodeId: string }[] }[],
           batches: [] as string[][],
           urls: [] as string[],
+          noteCalls: 0,
+          holdNoteReply: false,
+          releaseNote: undefined as (() => void) | undefined,
         };
         Object.assign(globalThis, { windowInboxTest: state });
         shell.openExternal = async (url) => {
@@ -121,8 +124,9 @@ test("authored windows share snapshots, context, messages and detail interests a
           state.interests.push(value);
         });
         ipcMain.removeHandler("scope:pull-requests-command");
-        ipcMain.handle("scope:pull-requests-command", (_event, command) => {
+        ipcMain.handle("scope:pull-requests-command", async (_event, command) => {
           if (command.action === "note") {
+            state.noteCalls++;
             const row = state.snapshot.prs.find((pr) => pr.nodeId === command.nodeId)!;
             if (row.local.noteVersion !== command.expectedVersion)
               throw new Error("Note version conflict");
@@ -146,6 +150,13 @@ test("authored windows share snapshots, context, messages and detail interests a
               name: "window-inbox",
               id: snapshot.artifact.id,
             });
+            if (state.holdNoteReply) {
+              state.holdNoteReply = false;
+              await new Promise<void>((resolve) => {
+                state.releaseNote = resolve;
+              });
+              state.releaseNote = undefined;
+            }
           }
           if (command.action === "details") {
             state.batches.push(command.nodeIds);
@@ -249,6 +260,11 @@ test("authored windows share snapshots, context, messages and detail interests a
       )
       .toBe(true);
     expect(await a.getByText("A PR_1", { exact: true }).count()).toBe(1);
+    await app.evaluate(() => {
+      (
+        globalThis as unknown as { windowInboxTest: { holdNoteReply: boolean } }
+      ).windowInboxTest.holdNoteReply = true;
+    });
     await b.getByLabel("Window draft").fill("Saved from B");
     await b.getByRole("button", { name: "Save in window" }).click();
     await a.getByText("Saved from B", { exact: true }).waitFor();
@@ -285,7 +301,40 @@ test("authored windows share snapshots, context, messages and detail interests a
       )
       .toBe(true);
     await b.getByRole("link", { name: "Project link" }).click();
+    const beforeCloseCalls = await b.locator("body").evaluate(() => {
+      const state = window as unknown as { beforeCloseCalls?: number; closeRequested?: boolean };
+      state.closeRequested = false;
+      addEventListener("message", (event) => {
+        if (event.data?.type === "scope-pull-requests-close") state.closeRequested = true;
+      });
+      return state.beforeCloseCalls ?? 0;
+    });
     await bChrome.getByRole("button", { name: "Close content window" }).click();
+    await expect
+      .poll(() =>
+        b
+          .locator("body")
+          .evaluate(() => (window as unknown as { closeRequested?: boolean }).closeRequested),
+      )
+      .toBe(true);
+    expect(
+      await b
+        .locator("body")
+        .evaluate(() => (window as unknown as { beforeCloseCalls?: number }).beforeCloseCalls ?? 0),
+    ).toBe(beforeCloseCalls);
+    await app.evaluate(() => {
+      (
+        globalThis as unknown as { windowInboxTest: { releaseNote?: () => void } }
+      ).windowInboxTest.releaseNote?.();
+    });
+    await bChrome.waitFor({ state: "hidden" });
+    expect(
+      await app.evaluate(
+        () =>
+          (globalThis as unknown as { windowInboxTest: { noteCalls: number } }).windowInboxTest
+            .noteCalls,
+      ),
+    ).toBe(1);
     await a.getByRole("link", { name: "Project link" }).click();
     await expect
       .poll(() =>
@@ -349,6 +398,18 @@ test("authored windows share snapshots, context, messages and detail interests a
       .getByText("Incoming app", { exact: true })
       .waitFor();
   } finally {
+    await app.evaluate(() => {
+      (
+        globalThis as unknown as { windowInboxTest?: { releaseNote?: () => void } }
+      ).windowInboxTest?.releaseNote?.();
+    });
+    const page = await app.firstWindow();
+    await page.evaluate(() => {
+      for (const frame of document.querySelectorAll<HTMLIFrameElement>(".scope-content-document")) {
+        const draft = frame.contentDocument?.getElementById("draft") as HTMLInputElement | null;
+        if (draft) draft.value = "";
+      }
+    });
     await app.close();
     await rm(fixture.directory, { recursive: true, force: true });
     await rm(ghDirectory, { recursive: true, force: true });

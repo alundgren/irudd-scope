@@ -177,6 +177,7 @@ else throw new Error('Unexpected GitHub read');
     await writeFile(stateFile, JSON.stringify({ head: newerHead, fail: true }));
     await viewer.getByRole("button", { name: "Load latest comparison" }).click();
     await viewer.getByRole("alert").waitFor();
+    await viewer.getByRole("button", { name: "Retry loading diff" }).waitFor();
     await writeFile(stateFile, JSON.stringify({ head: newerHead, fail: false }));
     await viewer.getByRole("button", { name: "Retry loading diff" }).click();
     await viewer.getByText("new value").waitFor();

@@ -45,17 +45,21 @@ function installPullRequestsSDK(identity: FrameIdentity, windowContext: WindowCo
     }
     return promise;
   }
+  function waitForWrites() {
+    return Promise.all(
+      [...pending.values()]
+        .filter((call) =>
+          ["saveNote", "setSnooze", "inspect", "markReviewed"].includes(call.method),
+        )
+        .map((call) => call.promise),
+    );
+  }
   async function flush(id: string) {
     let error: string | undefined;
     try {
+      await waitForWrites();
       await Promise.all([...closing].map((callback) => callback()));
-      await Promise.all(
-        [...pending.values()]
-          .filter((call) =>
-            ["saveNote", "setSnooze", "inspect", "markReviewed"].includes(call.method),
-          )
-          .map((call) => call.promise),
-      );
+      await waitForWrites();
     } catch (failure) {
       error = failure instanceof Error ? failure.message : "Could not save inbox edits.";
     }
