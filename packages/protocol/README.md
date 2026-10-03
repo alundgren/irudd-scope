@@ -488,6 +488,23 @@ an oversized complete snapshot fails rather than silently trimming the list.
 Detail replies also limit diff text to 2,097,152 characters and files and
 reviews to 10,000 records each. Oversized details fail the read; Open on GitHub
 remains available from the cached PR row.
+
+`details` loads a selective batch using `nodeIds`, a nonempty list of at most
+20 distinct PR node IDs, with the same `name`, `tabId`, and `requestId` as
+`detail`. It returns `{type: "details", tabId, results}`. Each result contains
+`{nodeId, captured: {headOid, baseOid}, detail}` or `{nodeId, error}` in request
+order. There is no load-all selector. A batch runs at most three reads at once,
+shares concurrent and completed reads with individual requests, and does not
+subscribe to live updates. The desktop bounds its completed cache by entry
+count and serialized bytes, and removes obsolete comparisons.
+
+Batches stop after 20 seconds and stay within the existing 32 MiB serialized
+UTF-8 reply limit. A failed, changed, timed-out, or over-capacity PR returns an
+error while successful results remain available. Retry failed IDs separately
+or in a smaller batch. GitHub account changes, suspension, and tab removal
+cancel pending reads. The existing single-PR commands and transport timeout
+defaults remain compatible.
+
 Live events contain the artifact ID, name, and generation. They are transient
 invalidations. Read a complete snapshot after reconnect or remount.
 

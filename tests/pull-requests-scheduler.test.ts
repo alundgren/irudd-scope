@@ -1249,3 +1249,418 @@ test("admitted inspected jobs finish their reviews after crossing the routine ta
   expect(currentCalls).toBe(1);
   expect(reviewCalls).toBe(1);
 });
+
+function syntheticDetail(pr: PullRequestFacts, diff = "diff") {
+  return {
+    headOid: pr.headOid,
+    body: "description",
+    diff,
+    reviews: [],
+    files: [],
+    fetchedAt: stamp,
+  };
+}
+
+async function detailFixture(
+  count = 3,
+  scheduling: ConstructorParameters<typeof PullRequestSync>[2] = {},
+) {
+  const remote = reader();
+  remote.github.inventory = async () => ({
+    repository,
+    queriedRepository: repository,
+    viewer: "viewer",
+    account: "VIEWER",
+    startedAt: stamp,
+    cost: 1,
+    prs: Array.from({ length: count }, (_, index) => facts(index + 1)),
+  });
+  const f = await fixture(remote.github, scheduling);
+  const tabId = await f.tab("selective");
+  await f.service.sync(tabId);
+  f.store.setHandlers({
+    sync: (id) => f.service.sync(id),
+    detail: (id, nodeId, captured, signal) => f.service.detail(id, nodeId, captured, signal),
+  });
+  const client = new ScopeClient(f.server.url, "synthetic-scheduler-token-123456789");
+  const command = (nodeIds: string[], requestId = randomUUID()) =>
+    client.pullRequests({ action: "details", name: "selective", tabId, requestId, nodeIds });
+  return { ...f, remote, tabId, client, command };
+}
+
+test("selective batches reuse individual reads, preserve partial failures, and never load other PRs", async () => {
+  const f = await detailFixture(4);
+  const calls: string[] = [];
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.remote.github.detail = async (_repository, pr) => {
+    calls.push(pr.nodeId);
+    await held;
+    if (pr.nodeId === "PR_2") throw new GitHubReadError("Synthetic PR read failed.");
+    return syntheticDetail(pr);
+  };
+  const individual = f.service.detail(f.tabId, "PR_1");
+  const first = f.command(["PR_1", "PR_2", "PR_missing"]);
+  const second = f.command(["PR_1", "PR_3"]);
+  await expect.poll(() => calls.length).toBe(3);
+  expect(calls.sort()).toEqual(["PR_1", "PR_2", "PR_3"]);
+  release();
+  await expect(individual).resolves.toMatchObject({ diff: "diff" });
+  expect(await first).toMatchObject({
+    type: "details",
+    tabId: f.tabId,
+    results: [
+      {
+        nodeId: "PR_1",
+        captured: { headOid: facts().headOid, baseOid: facts().baseOid },
+        detail: { diff: "diff" },
+      },
+      { nodeId: "PR_2", error: "Synthetic PR read failed." },
+      { nodeId: "PR_missing", error: "Open pull request not found." },
+    ],
+  });
+  expect(await second).toMatchObject({
+    results: [
+      { nodeId: "PR_1", detail: { diff: "diff" } },
+      { nodeId: "PR_3", detail: { diff: "diff" } },
+    ],
+  });
+  await f.service.detail(f.tabId, "PR_3");
+  expect(calls).toHaveLength(3);
+});
+
+test("batches require a bounded explicit list of unique IDs and pin tab identity", async () => {
+  const f = await detailFixture();
+  for (const nodeIds of [
+    [],
+    Array.from({ length: 21 }, (_, index) => `PR_${index}`),
+    ["PR_1", "PR_1"],
+  ])
+    expect(
+      (
+        await fetch(`${f.server.url}/v1/pull-requests`, {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer synthetic-scheduler-token-123456789",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "details",
+            name: "selective",
+            tabId: f.tabId,
+            requestId: randomUUID(),
+            nodeIds,
+          }),
+        })
+      ).status,
+    ).toBe(400);
+  await expect(
+    f.client.pullRequests({
+      action: "details",
+      name: "selective",
+      tabId: randomUUID(),
+      requestId: randomUUID(),
+      nodeIds: ["PR_1"],
+    }),
+  ).rejects.toMatchObject({ status: 409 });
+});
+
+test("watch switches preserve request ownership and canceling a frame preserves a shared reader", async () => {
+  const f = await detailFixture();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const signals: AbortSignal[] = [];
+  f.remote.github.detail = async (_repository, pr, signal) => {
+    signals.push(signal);
+    await held;
+    return syntheticDetail(pr);
+  };
+  const firstId = randomUUID();
+  const first = f.command(["PR_1"], firstId);
+  const second = f.command(["PR_1"]);
+  await expect.poll(() => signals.length).toBe(1);
+  await f.service.interest({
+    tabId: f.tabId,
+    active: true,
+    details: [{ nodeId: "PR_2", headOid: facts().headOid, baseOid: facts().baseOid }],
+  });
+  expect(signals[0].aborted).toBe(false);
+  f.store.cancelReads(f.tabId, [firstId]);
+  await expect(first).resolves.toMatchObject({
+    results: [{ nodeId: "PR_1", error: expect.stringContaining("canceled") }],
+  });
+  expect(signals[0].aborted).toBe(false);
+  release();
+  await expect(second).resolves.toMatchObject({
+    results: [{ nodeId: "PR_1", detail: { diff: "diff" } }],
+  });
+});
+
+test("canceling the final request aborts its read and retry does fresh work", async () => {
+  const f = await detailFixture();
+  const signals: AbortSignal[] = [];
+  f.remote.github.detail = async (_repository, pr, signal) => {
+    signals.push(signal);
+    if (signals.length > 1) return syntheticDetail(pr);
+    return new Promise((_, reject) =>
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true }),
+    );
+  };
+  const requestId = randomUUID();
+  const loading = f.command(["PR_1"], requestId);
+  await expect.poll(() => signals.length).toBe(1);
+  f.store.cancelReads(f.tabId, [requestId]);
+  await expect(loading).resolves.toMatchObject({
+    results: [{ error: expect.stringContaining("canceled") }],
+  });
+  expect(signals[0].aborted).toBe(true);
+  await expect(f.command(["PR_1"])).resolves.toMatchObject({
+    results: [{ detail: { diff: "diff" } }],
+  });
+  expect(signals).toHaveLength(2);
+});
+
+test("stale comparisons and closed PRs become per-ID failures without discarding completed results", async () => {
+  const f = await detailFixture();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let calls = 0;
+  f.remote.github.detail = async (_repository, pr) => {
+    calls++;
+    if (pr.nodeId !== "PR_1") await held;
+    return syntheticDetail(pr);
+  };
+  const loading = f.command(["PR_1", "PR_2", "PR_3"]);
+  await expect.poll(() => calls).toBe(3);
+  const second = facts(2);
+  const moved = {
+    ...second,
+    baseOid: "c".repeat(40),
+    merge: { ...second.merge, baseOid: "c".repeat(40), observedAt: "2026-10-02T00:01:00.000Z" },
+  };
+  await f.store.commitCurrent(f.tabId, repository, second, moved);
+  await f.store.commitCurrent(
+    f.tabId,
+    repository,
+    facts(3),
+    null,
+    undefined,
+    "2026-10-02T00:01:00.000Z",
+  );
+  release();
+  expect(await loading).toMatchObject({
+    results: [
+      { nodeId: "PR_1", detail: { diff: "diff" } },
+      { nodeId: "PR_2", error: expect.stringContaining("changed") },
+      { nodeId: "PR_3", error: expect.stringContaining("changed") },
+    ],
+  });
+});
+
+test("batch execution limits concurrent reads and returns timeout errors while preserving successes", async () => {
+  const f = await detailFixture(5);
+  let active = 0,
+    maximum = 0;
+  const signals: AbortSignal[] = [];
+  f.remote.github.detail = async (_repository, pr, signal) => {
+    active++;
+    maximum = Math.max(maximum, active);
+    signals.push(signal);
+    if (pr.nodeId === "PR_1") {
+      active--;
+      return syntheticDetail(pr);
+    }
+    return new Promise((_, reject) =>
+      signal.addEventListener(
+        "abort",
+        () => {
+          active--;
+          reject(signal.reason);
+        },
+        { once: true },
+      ),
+    );
+  };
+  const loading = f.command(["PR_1", "PR_2", "PR_3", "PR_4", "PR_5"]);
+  await expect.poll(() => signals.length).toBe(4);
+  expect(maximum).toBe(3);
+  const reply = await loading;
+  expect(reply).toMatchObject({
+    results: [
+      { detail: { diff: "diff" } },
+      { error: expect.stringContaining("deadline") },
+      { error: expect.stringContaining("deadline") },
+      { error: expect.stringContaining("deadline") },
+      { error: expect.stringContaining("deadline") },
+    ],
+  });
+  expect(signals.every((signal) => signal.aborted)).toBe(true);
+  expect(signals).toHaveLength(4);
+});
+
+test("UTF-8 batch replies stay within the existing response cap and capacity errors can retry individually", async () => {
+  const f = await detailFixture(6);
+  const diff = "漢".repeat(2 * 1024 * 1024);
+  let calls = 0;
+  f.remote.github.detail = async (_repository, pr) => {
+    calls++;
+    return syntheticDetail(pr, diff);
+  };
+  const reply = await f.command(Array.from({ length: 6 }, (_, index) => `PR_${index + 1}`));
+  if (reply.type !== "details") throw new Error("Expected batch");
+  expect(Buffer.byteLength(JSON.stringify(reply), "utf8")).toBeLessThanOrEqual(32 * 1024 * 1024);
+  expect(reply.results.filter((result) => "detail" in result)).toHaveLength(5);
+  const failed = reply.results.find((result) => "error" in result)!;
+  expect(failed).toMatchObject({ error: expect.stringContaining("response limit") });
+  expect((await f.service.detail(f.tabId, failed.nodeId)).diff).toBe(diff);
+  expect(calls).toBe(6);
+});
+
+test("completed detail cache evicts old comparisons and limits retained entry count", async () => {
+  const f = await detailFixture(65);
+  const calls: string[] = [];
+  f.remote.github.detail = async (_repository, pr) => {
+    calls.push(pr.nodeId);
+    return syntheticDetail(pr);
+  };
+  for (let number = 1; number <= 65; number++) await f.service.detail(f.tabId, `PR_${number}`);
+  await f.service.detail(f.tabId, "PR_65");
+  expect(calls).toHaveLength(65);
+  await f.service.detail(f.tabId, "PR_1");
+  expect(calls).toHaveLength(66);
+  const original = facts(65);
+  const changed = {
+    ...original,
+    baseOid: "c".repeat(40),
+    merge: { ...original.merge, baseOid: "c".repeat(40), observedAt: "2026-10-02T00:01:00.000Z" },
+  };
+  await f.store.commitCurrent(f.tabId, repository, original, changed);
+  await f.service.detail(f.tabId, "PR_65");
+  expect(calls).toHaveLength(67);
+  await expect(f.service.detail(f.tabId, "PR_65", original)).rejects.toThrow("comparison changed");
+  expect(calls).toHaveLength(67);
+});
+
+test("multi-detail interests refresh every captured PR and preserve subscriptions after one closes", async () => {
+  let task: (() => void) | undefined;
+  const updates: { nodeId: string; body?: string }[] = [];
+  const f = await detailFixture(2, {
+    now: () => Date.parse(stamp),
+    onDetail: (update) => updates.push(update),
+    setTimeout: (callback) => {
+      task = callback;
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: () => {
+      task = undefined;
+    },
+  });
+  f.remote.github.current = async (_repository, pr) => facts(pr.number, "2026-10-02T00:00:10.000Z");
+  const reviews: string[] = [];
+  f.remote.github.reviews = async (_repository, pr) => {
+    reviews.push(pr.nodeId);
+    return { body: `Discussion ${pr.nodeId}`, reviews: [], fetchedAt: stamp };
+  };
+  await f.service.start();
+  await f.service.interest({
+    tabId: f.tabId,
+    active: true,
+    details: [1, 2].map((number) => ({
+      nodeId: `PR_${number}`,
+      headOid: facts().headOid,
+      baseOid: facts().baseOid,
+    })),
+  });
+  task!();
+  await expect.poll(() => updates.length).toBe(2);
+  expect(reviews).toEqual(["PR_1", "PR_2"]);
+  expect(updates).toMatchObject([
+    { nodeId: "PR_1", body: "Discussion PR_1" },
+    { nodeId: "PR_2", body: "Discussion PR_2" },
+  ]);
+  await f.service.interest({
+    tabId: f.tabId,
+    active: true,
+    details: [{ nodeId: "PR_2", headOid: facts().headOid, baseOid: facts().baseOid }],
+    refresh: true,
+  });
+  task!();
+  await expect.poll(() => updates.length).toBe(3);
+  expect(reviews).toEqual(["PR_1", "PR_2", "PR_2"]);
+});
+
+test("completed detail cache limits retained UTF-8 bytes", async () => {
+  const f = await detailFixture(12);
+  const diff = "漢".repeat(2 * 1024 * 1024);
+  let calls = 0;
+  f.remote.github.detail = async (_repository, pr) => {
+    calls++;
+    return syntheticDetail(pr, diff);
+  };
+  for (let number = 1; number <= 12; number++) await f.service.detail(f.tabId, `PR_${number}`);
+  await f.service.detail(f.tabId, "PR_12");
+  expect(calls).toBe(12);
+  await f.service.detail(f.tabId, "PR_1");
+  expect(calls).toBe(13);
+});
+
+test("removing one tab cancels its batch while another tab keeps a shared read", async () => {
+  const f = await detailFixture();
+  const secondTab = await f.tab("second-reader");
+  await f.service.reconcile();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const signals: AbortSignal[] = [];
+  f.remote.github.detail = async (_repository, pr, signal) => {
+    signals.push(signal);
+    await held;
+    return syntheticDetail(pr);
+  };
+  const first = f.command(["PR_1"]);
+  const second = f.client.pullRequests({
+    action: "details",
+    name: "second-reader",
+    tabId: secondTab,
+    requestId: randomUUID(),
+    nodeIds: ["PR_1"],
+  });
+  await expect.poll(() => signals.length).toBe(1);
+  f.service.cancelTabs([f.tabId]);
+  await expect(first).resolves.toMatchObject({
+    results: [{ error: expect.stringContaining("canceled") }],
+  });
+  expect(signals[0].aborted).toBe(false);
+  release();
+  await expect(second).resolves.toMatchObject({ results: [{ detail: { diff: "diff" } }] });
+});
+
+test("suspension cancels pending batches and drops completed cache before resuming", async () => {
+  const f = await detailFixture();
+  const signals: AbortSignal[] = [];
+  f.remote.github.detail = async (_repository, pr, signal) => {
+    signals.push(signal);
+    if (pr.nodeId === "PR_1") return syntheticDetail(pr);
+    return new Promise((_, reject) =>
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true }),
+    );
+  };
+  await f.command(["PR_1"]);
+  const loading = f.command(["PR_2"]);
+  await expect.poll(() => signals.length).toBe(2);
+  f.service.cancelPending();
+  await expect(loading).resolves.toMatchObject({
+    results: [{ error: expect.stringContaining("canceled") }],
+  });
+  expect(signals[1].aborted).toBe(true);
+  await f.service.resume();
+  await f.command(["PR_1"]);
+  expect(signals).toHaveLength(3);
+});

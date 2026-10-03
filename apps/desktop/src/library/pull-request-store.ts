@@ -12,6 +12,7 @@ import {
   PullRequestLocal,
   PullRequestAgent,
   PullRequestDetail,
+  type PullRequestDetailResult,
   type PullRequestCommitPair,
   MAX_PULL_REQUESTS_REPLY_BYTES,
 } from "@irudd-scope/protocol/pull-requests";
@@ -52,6 +53,7 @@ export type PullRequestsHandlers = {
     tabId: string,
     nodeId: string,
     captured?: PullRequestCommitPair,
+    signal?: AbortSignal,
   ) => Promise<PullRequestDetail>;
 };
 export type PullRequestsInventory = {
@@ -76,9 +78,31 @@ export function initializePullRequestsTab(
 
 export class PullRequestStore {
   private handlers: PullRequestsHandlers | undefined;
+  private readonly reads = new Map<AbortController, { tabId: string; requestId: string }>();
   constructor(private readonly database: Database) {}
   setHandlers(handlers: PullRequestsHandlers | undefined): void {
     this.handlers = handlers;
+  }
+
+  cancelReads(tabId?: string, requestIds?: readonly string[]): void {
+    for (const [controller, read] of this.reads)
+      if ((!tabId || read.tabId === tabId) && (!requestIds || requestIds.includes(read.requestId)))
+        controller.abort(new Error("Pull request detail loading was canceled. Retry when ready."));
+  }
+
+  async currentComparisons(): Promise<
+    readonly { repository: string; nodeId: string; headOid: string; baseOid: string }[]
+  > {
+    const { sql, run } = this.database;
+    return run(sql<{ repository: string; nodeId: string; headOid: string; baseOid: string }>`
+      SELECT lower(json_extract(state.repository, '$.owner') || '/' || json_extract(state.repository, '$.name')) AS repository,
+        json_extract(current.facts, '$.nodeId') AS nodeId,
+        json_extract(current.facts, '$.headOid') AS headOid,
+        json_extract(current.facts, '$.baseOid') AS baseOid
+      FROM pull_requests_current AS current
+      JOIN pull_requests_state AS state ON state.tab_id = current.tab_id
+      JOIN live_tabs ON live_tabs.id = current.tab_id
+      WHERE live_tabs.trashed_at IS NULL`);
   }
 
   async initialize(): Promise<void> {
@@ -446,11 +470,122 @@ export class PullRequestStore {
     );
   }
 
+  private async details(
+    pinned: PullRequestsSnapshot,
+    nodeIds: readonly string[],
+    signal: AbortSignal,
+  ): Promise<PullRequestsReply> {
+    const controller = new AbortController();
+    const cancel = () => controller.abort(signal.reason);
+    signal.addEventListener("abort", cancel, { once: true });
+    if (signal.aborted) cancel();
+    const timer = setTimeout(
+      () =>
+        controller.abort(new Error("Detail batch reached its deadline. Retry this PR separately.")),
+      20_000,
+    );
+    const results: PullRequestDetailResult[] = nodeIds.map((nodeId) => ({
+      nodeId,
+      error: "Detail batch reached its deadline. Retry this PR separately.",
+    }));
+    const reply = () => ({ type: "details" as const, tabId: pinned.tabId, results });
+    let replyBytes = Buffer.byteLength(JSON.stringify(reply()), "utf8");
+    const replace = (index: number, result: PullRequestDetailResult) => {
+      const previousBytes = Buffer.byteLength(JSON.stringify(results[index]), "utf8");
+      let resultBytes = Buffer.byteLength(JSON.stringify(result), "utf8");
+      if (
+        "detail" in result &&
+        replyBytes - previousBytes + resultBytes >
+          MAX_PULL_REQUESTS_REPLY_BYTES - nodeIds.length * 4096
+      ) {
+        result = {
+          nodeId: result.nodeId,
+          error: "Detail batch reached its response limit. Retry this PR separately.",
+        };
+        resultBytes = Buffer.byteLength(JSON.stringify(result), "utf8");
+      }
+      results[index] = result;
+      replyBytes += resultBytes - previousBytes;
+    };
+    let next = 0;
+    const load = async () => {
+      while (next < nodeIds.length) {
+        const index = next++;
+        const nodeId = nodeIds[index]!;
+        try {
+          controller.signal.throwIfAborted();
+          const pr = pinned.prs.find((pr) => pr.nodeId === nodeId);
+          if (!pr) throw new Error("Open pull request not found.");
+          const captured = { headOid: pr.headOid, baseOid: pr.baseOid };
+          const task = this.handlers!.detail(pinned.tabId, nodeId, captured, controller.signal);
+          const detail = decode(
+            PullRequestDetail,
+            await new Promise<PullRequestDetail>((resolve, reject) => {
+              const abort = () => reject(controller.signal.reason);
+              controller.signal.addEventListener("abort", abort, { once: true });
+              if (controller.signal.aborted) abort();
+              void task
+                .then(resolve, reject)
+                .finally(() => controller.signal.removeEventListener("abort", abort));
+            }),
+          );
+          controller.signal.throwIfAborted();
+          const current = await this.snapshotByTab(pinned.tabId);
+          await this.database.run(
+            this.active(await this.database.run(this.owner(pinned.tabId, true))),
+          );
+          controller.signal.throwIfAborted();
+          const currentPr = current.prs.find((pr) => pr.nodeId === nodeId);
+          if (
+            detail.headOid !== captured.headOid ||
+            currentPr?.headOid !== captured.headOid ||
+            currentPr.baseOid !== captured.baseOid
+          )
+            throw new Error(
+              "Pull request changed while loading detail. Retry with its current commit.",
+            );
+          replace(index, { nodeId, captured, detail });
+        } catch (error) {
+          replace(index, {
+            nodeId,
+            error:
+              error instanceof Error
+                ? error.message.slice(0, 512)
+                : "Pull request detail could not be loaded. Retry this PR separately.",
+          });
+        }
+      }
+    };
+    try {
+      await Promise.all(Array.from({ length: Math.min(3, nodeIds.length) }, load));
+      return decode(PullRequestsReply, reply());
+    } finally {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", cancel);
+      controller.abort();
+    }
+  }
+
   async command(value: PullRequestsCommand): Promise<PullRequestsReply> {
     const command = decode(PullRequestsCommand, value);
+    if (command.action !== "detail" && command.action !== "details")
+      return this.executeCommand(command);
+    const controller = new AbortController();
+    this.reads.set(controller, { tabId: command.tabId, requestId: command.requestId });
+    try {
+      return await this.executeCommand(command, controller.signal);
+    } finally {
+      this.reads.delete(controller);
+    }
+  }
+
+  private async executeCommand(
+    command: PullRequestsCommand,
+    signal?: AbortSignal,
+  ): Promise<PullRequestsReply> {
     if (command.action === "read")
       return { type: "snapshot", snapshot: await this.snapshot(command.name) };
-    if (command.action === "sync" || command.action === "detail") {
+    if (command.action === "sync" || command.action === "detail" || command.action === "details") {
       const owner = this.owner.bind(this),
         active = this.active.bind(this),
         read = this.read.bind(this);
@@ -478,6 +613,8 @@ export class PullRequestStore {
           type: "snapshot",
           snapshot: await this.handlers.sync(pinned.tabId),
         });
+      signal!.throwIfAborted();
+      if (command.action === "details") return this.details(pinned, command.nodeIds, signal!);
       const pr = pinned.prs.find((pr) => pr.nodeId === command.nodeId);
       if (!pr) throw new ScopeError(404, "Open pull request not found.");
       if (
@@ -490,8 +627,9 @@ export class PullRequestStore {
         );
       const detail = decode(
         PullRequestDetail,
-        await this.handlers.detail(pinned.tabId, pr.nodeId, command.captured),
+        await this.handlers.detail(pinned.tabId, pr.nodeId, command.captured, signal),
       );
+      signal!.throwIfAborted();
       const current = await this.snapshotByTab(pinned.tabId);
       await this.database.run(this.active(await this.database.run(this.owner(pinned.tabId, true))));
       if (
