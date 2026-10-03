@@ -116,6 +116,18 @@ read-only startup and preservation of legacy HTML records across database reopen
 Failure evidence is saved under `/tmp/scope-web-*-evidence.json` with screenshots
 and observed command traffic.
 
+## Remote cursors
+
+Presence is transient and process-local, with a 15-second lease. Pointer updates bypass PGlite and durable command transactions. Each tab sends at most 30 updates per second, with two requests in flight and one coalesced latest position. A 500 ms timeout and a bounded retry deliver the last point even after movement stops. Presence traffic does not acknowledge a durable comment or HTML change.
+
+The optional `sequence` field is a nonnegative safe integer. The browser keeps its per-session high-water value in sessionStorage across reloads. The server ignores lower or repeated sequence numbers. An old client without sequence numbers can use a fresh session, but cannot overwrite a sequenced session until its lease expires. Sequence values are transport ordering, not persisted plan revisions or wall-clock timestamps.
+
+Presence writes wake subscribed event streams immediately, while retaining replay fairness and stalled-reader limits. Receiving browsers update keyed cursor elements on animation frames instead of removing and recreating them on each message. Actor lists update only when membership or identity changes. Comment pin updates remain separate from pointer-only updates.
+
+Anchored positions are normalized to their element's bounds. Unanchored positions use document coordinates so viewers with different scroll offsets see the same point. Negative unanchored coordinates mean the pointer left the plan. History views, missing anchors and points outside the receiving viewport hide cursors. Stationary anchored cursors update after a viewer scrolls or resizes.
+
+Focused Chromium tests exercise two independent browser contexts, injected request jitter, six concurrent agents, reordered packets, reloads, identity switches, stable DOM elements, geometry and eight same-origin tabs sharing one event connection. They measure capture to visible remote position, update cadence and final stopped-point arrival. Actual network links and Safari, Firefox and mobile backgrounding need separate validation.
+
 ## Agent CLI and MCP
 
 Build the app-owned CLI with `vp run plan-web#build`, or build only the server

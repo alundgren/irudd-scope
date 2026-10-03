@@ -82,6 +82,9 @@ export function parseCommand(input: unknown): PlanCommand {
 }
 export function parsePresence(input: unknown): Presence {
   const value = object(input);
+  const sequence = value.sequence === undefined ? undefined : number(value.sequence);
+  if (sequence !== undefined && (!Number.isSafeInteger(sequence) || sequence < 0))
+    throw new InvalidInput("Invalid presence sequence.");
   return {
     sessionId: string(value.sessionId),
     actor: actor(value.actor),
@@ -89,6 +92,7 @@ export function parsePresence(input: unknown): Presence {
     x: number(value.x),
     y: number(value.y),
     updatedAt: Date.now(),
+    ...(sequence === undefined ? {} : { sequence }),
   };
 }
 export function parseCursor(input: string | null, fallback: number): number {

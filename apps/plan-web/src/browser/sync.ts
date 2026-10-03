@@ -21,12 +21,15 @@ export class PlanSync {
     storageError: false,
     commentReady: false,
   };
-  private position = { elementId: null as string | null, x: 0, y: 0 };
+  private position = { elementId: null as string | null, x: -1, y: -1 };
   private reconnecting = false;
   private incoming: PlanEvent[] = [];
   private incomingScheduled = false;
-  private presenceSending = false;
+  private presenceSending = 0;
   private presencePending = false;
+  private presenceTimer: ReturnType<typeof setTimeout> | undefined;
+  private presenceStarted = 0;
+  private presenceSequence = 0;
 
   constructor(
     readonly name: string,
@@ -34,7 +37,14 @@ export class PlanSync {
     public actor: Actor,
     private changed: (view: SyncView) => void,
     private presence: (people: Presence[]) => void,
-  ) {}
+  ) {
+    try {
+      const stored = Number(sessionStorage.getItem(`scope-plan-presence:${editor}`));
+      if (Number.isSafeInteger(stored) && stored >= 0) this.presenceSequence = stored;
+    } catch {
+      /* Without session storage, the editor identity is new on reload. */
+    }
+  }
 
   async start() {
     try {
@@ -280,28 +290,52 @@ export class PlanSync {
     void this.sendPresence();
   }
   private async sendPresence() {
-    if (this.presenceSending) {
-      this.presencePending = true;
+    this.presencePending = true;
+    if (this.presenceSending >= 2) {
       return;
     }
-    this.presenceSending = true;
+    if (this.presenceTimer !== undefined) return;
+    const wait = 33 - (performance.now() - this.presenceStarted);
+    if (wait > 0) {
+      this.presenceTimer = setTimeout(() => {
+        this.presenceTimer = undefined;
+        void this.sendPresence();
+      }, wait);
+      return;
+    }
+    this.presenceSending++;
     this.presencePending = false;
+    this.presenceStarted = performance.now();
+    const sequence = ++this.presenceSequence;
+    try {
+      sessionStorage.setItem(`scope-plan-presence:${this.editor}`, String(sequence));
+    } catch {
+      /* Presence stays usable in memory when tab storage is unavailable. */
+    }
     try {
       const response = await fetch(`${planApi(this.name)}/presence`, {
         method: "POST",
-        signal: AbortSignal.timeout(3000),
+        signal: AbortSignal.timeout(500),
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: this.editor, actor: this.actor, ...this.position }),
+        body: JSON.stringify({
+          sessionId: this.editor,
+          actor: this.actor,
+          sequence,
+          ...this.position,
+        }),
       });
       await response.arrayBuffer();
     } catch {
       /* Presence can disappear while offline without affecting durable edits. */
-    } finally {
-      this.presenceSending = false;
-      if (this.presencePending)
-        setTimeout(() => {
+      this.presencePending = true;
+      if (this.presenceTimer === undefined)
+        this.presenceTimer = setTimeout(() => {
+          this.presenceTimer = undefined;
           void this.sendPresence();
-        }, 100);
+        }, 250);
+    } finally {
+      this.presenceSending--;
+      if (this.presencePending) void this.sendPresence();
     }
   }
 }
