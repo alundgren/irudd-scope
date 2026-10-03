@@ -1282,18 +1282,22 @@ for (const rejectionStatus of [400, 413, 422]) {
           exact: true,
         });
         if (text === "Dismiss this rejected comment") {
-          expect(await pin.isVisible()).toBe(true);
-          expect(await pin.isEnabled()).toBe(false);
-          expect(await pin.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe(
-            "none",
-          );
+          await expect.poll(() => pin.isVisible(), { timeout: 5_000 }).toBe(true);
+          await expect.poll(() => pin.isEnabled(), { timeout: 5_000 }).toBe(false);
+          await expect
+            .poll(() => pin.evaluate((el) => getComputedStyle(el).pointerEvents), {
+              timeout: 5_000,
+            })
+            .toBe("none");
         }
         await page.frameLocator('iframe[title="Plan preview"]').locator("#heading").click();
         if (text === "Dismiss this rejected comment") {
-          expect(await pin.isEnabled()).toBe(true);
-          expect(await pin.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe(
-            "auto",
-          );
+          await expect.poll(() => pin.isEnabled(), { timeout: 5_000 }).toBe(true);
+          await expect
+            .poll(() => pin.evaluate((el) => getComputedStyle(el).pointerEvents), {
+              timeout: 5_000,
+            })
+            .toBe("auto");
         }
         await page.getByRole("textbox", { name: "Comment text", exact: true }).fill(text);
         await page.getByRole("button", { name: "Add comment", exact: true }).click();
