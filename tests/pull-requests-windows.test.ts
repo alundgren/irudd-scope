@@ -56,7 +56,8 @@ ${both ? `api.watchDetail('PR_2','${head}','${base}',update=>$('detail').textCon
 async function save(){await api.saveNote(current.nodeId,$('draft').value,current.local.noteVersion);$('draft').value='';}
 $('save').onclick=()=>save().catch(error=>$('error').textContent=error.message);
 $('broadcast').onclick=()=>scope.windows.broadcast({selection:'chosen'});
-$('nested').onclick=()=>scope.windows.open({title:'Nested content',html:'<input aria-label="Nested draft">',context:{child:true}});
+$('nested').onclick=async()=>{window.nestedOpen={status:'requested'};try{const id=await scope.windows.open({title:'Nested content',html:'<input aria-label="Nested draft">',context:{child:true}});window.nestedOpen={status:'opened',id};}catch(error){window.nestedOpen={status:'error',message:error.message};}};
+window.nestedPointers={down:0,up:0,click:0};for(const [event,key] of [['pointerdown','down'],['pointerup','up'],['click','click']])$('nested').addEventListener(event,()=>window.nestedPointers[key]++);
 api.beforeClose(async()=>{window.beforeCloseCalls=(window.beforeCloseCalls||0)+1;if($('draft').value==='blocked')throw new Error('Keep this draft');if($('draft').value)await save();});
 addEventListener('keydown',event=>{if(event.key==='Escape'&&$('draft').value==='consume'){event.preventDefault();$('error').textContent='Escape consumed';}});
 </script>`;
@@ -88,8 +89,10 @@ test("authored windows share snapshots, context, messages and detail interests a
     process.env.PATH = previousPath;
   }
   const app = await fixture.launch();
+  const pageErrors: string[] = [];
   try {
     const page = await app.firstWindow();
+    page.on("pageerror", (error) => pageErrors.push(error.message));
     page.setDefaultTimeout(8_000);
     const artifact = await page.evaluate(
       async (html) =>
@@ -272,6 +275,10 @@ test("authored windows share snapshots, context, messages and detail interests a
     await b.getByRole("button", { name: "Tell siblings" }).click();
     await main.getByText("chosen", { exact: true }).waitFor();
     await expect.poll(() => a.locator("#message").textContent()).toMatch(/:chosen$/);
+    // B's own message moves its buttons; wait for its layout before the next click.
+    await expect
+      .poll(() => b.locator("#message").textContent(), { timeout: 8_000 })
+      .toMatch(/:chosen$/);
     await app.evaluate(
       ({ BrowserWindow }, tabId) =>
         BrowserWindow.getAllWindows()[0]!.webContents.send("scope:pull-requests-detail-update", {
@@ -288,8 +295,30 @@ test("authored windows share snapshots, context, messages and detail interests a
     );
     await a.getByText("Second watched PR refreshed", { exact: true }).waitFor();
     await b.getByRole("button", { name: "Open nested" }).click();
+    const nestedResult = () =>
+      b.locator("body").evaluate(
+        () =>
+          (
+            window as unknown as {
+              nestedOpen?: { status: string; id?: string; message?: string };
+            }
+          ).nestedOpen,
+      );
+    await expect
+      .poll(nestedResult, { timeout: 8_000 })
+      .toMatchObject({ status: expect.stringMatching(/^(opened|error)$/) });
+    const opened = await nestedResult();
+    expect(opened).toMatchObject({ status: "opened", id: expect.any(String) });
     const nestedChrome = page.getByRole("dialog", { name: "Nested content" });
     const nested = nestedChrome.frameLocator("iframe");
+    await nested.getByLabel("Nested draft").waitFor();
+    expect(
+      await nested
+        .locator("body")
+        .evaluate(
+          () => (window as unknown as { scope: { window: { id: string } } }).scope.window.id,
+        ),
+    ).toBe(opened!.id);
     await nested.getByLabel("Nested draft").fill("Temporary nested draft");
     await nested.getByLabel("Nested draft").press("Escape");
     await nestedChrome.waitFor({ state: "hidden" });
@@ -397,6 +426,35 @@ test("authored windows share snapshots, context, messages and detail interests a
       .frameLocator(".pull-requests-document")
       .getByText("Incoming app", { exact: true })
       .waitFor();
+  } catch (failure) {
+    try {
+      const page = await app.firstWindow();
+      const frames = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLIFrameElement>("iframe")].map((frame) => {
+          const state = frame.contentWindow as unknown as {
+            scope?: { window?: { id: string } };
+            nestedOpen?: unknown;
+            nestedPointers?: unknown;
+          };
+          return {
+            title: frame.title,
+            visible: frame.offsetWidth > 0 && frame.offsetHeight > 0,
+            readyState: frame.contentDocument?.readyState,
+            id: state?.scope?.window?.id,
+            nestedOpen: state?.nestedOpen,
+            nestedPointers: state?.nestedPointers,
+            message: frame.contentDocument?.getElementById("message")?.textContent,
+            nestedInput: Boolean(
+              frame.contentDocument?.querySelector('[aria-label="Nested draft"]'),
+            ),
+          };
+        }),
+      );
+      console.error("Authored window test diagnostics", JSON.stringify({ pageErrors, frames }));
+    } catch (diagnosticFailure) {
+      console.error("Could not inspect authored windows", diagnosticFailure);
+    }
+    throw failure;
   } finally {
     await app.evaluate(() => {
       (
