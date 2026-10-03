@@ -64,6 +64,13 @@ Tailcat is experimental; its hosted relays can observe connection metadata and
 provide rate-limited service without uptime guarantees.
 
 Send flushes edits and freezes an ordinary artifact or current diagram document.
+Sharing links and Scope-to-Scope pairings are created only in the Mac app.
+The receiver can give an agent a tab sharing link and authorize
+`irudd-scope import-link LINK`. The authenticated publication API exposes only
+`POST /v1/transfers/import` for this operation. Desktop main performs Inspect
+then Import without a renderer confirmation; pairing keys stay in Keychain.
+The CLI uses normal receiver discovery or a connected paired hub. Imports are
+never queued, and the import request has a bounded five-minute deadline.
 Conversations, proposals, credentials, and agent sessions remain local. Inspect
 authenticates and retains the approved manifest in main. Import validates the
 download against that manifest and requests final source authorization.
@@ -75,7 +82,7 @@ authorized bytes.
 receipt together in `scope.db`. New local identities and omission of the
 original unique name prevent overwrites. Repeated imports return the existing
 copy. Removing that copy retains its receipt until expiry and prevents
-recreation. Explicit Import precedes HTML execution under the existing trusted
+recreation. Explicit desktop Import or an authorized agent command precedes HTML execution under the existing trusted
 content behavior. Both apps must be online and awake. Invitations and snapshots
 exist only in memory, with no offline queue or continuing synchronization.
 Plans and PR inboxes are excluded because their additional records are not in

@@ -42,6 +42,25 @@ export const TransferManifest = Schema.Struct({
 });
 export type TransferManifest = typeof TransferManifest.Type;
 
+export const MAX_TRANSFER_IMPORT_REQUEST_BYTES = 16 * 1024;
+export const MAX_TRANSFER_IMPORT_REPLY_BYTES = 32 * 1024;
+export const TRANSFER_IMPORT_TIMEOUT_MS = 300_000;
+export const TransferImportRequest = Schema.Struct({
+  url: Schema.String.check(Schema.isMaxLength(8192)),
+});
+export const TransferImportReceipt = Schema.Struct({
+  artifact: Artifact,
+  alreadyImported: Schema.Boolean,
+});
+export type TransferImportReceipt = typeof TransferImportReceipt.Type;
+
+export function decodeTransferImportRequest(value: unknown) {
+  const input = decode(TransferImportRequest, value);
+  if (readTransferUrl(input.url).mode !== "tab")
+    throw new Error("Use a tab sharing link. Complete pairing in Scope first.");
+  return input;
+}
+
 export function decodeTransferManifest(value: unknown): TransferManifest {
   const manifest = decode(TransferManifest, value);
   validateArtifactContent(manifest);

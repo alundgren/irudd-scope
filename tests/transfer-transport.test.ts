@@ -5,7 +5,7 @@ import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
-import { readTransferUrl } from "@irudd-scope/protocol/transfer";
+import { readTransferUrl, transferUrl } from "@irudd-scope/protocol/transfer";
 import { TailcatCliTransport } from "../apps/desktop/src/transfer/transport.ts";
 
 const address = "tc" + "a".repeat(80);
@@ -328,6 +328,9 @@ test("Electron main supervises the installed CLI when creating and cancelling a 
     const parsed = readTransferUrl(invitation.url);
     expect(parsed.version).toBe(2);
     expect(parsed.port).toBe(Number((await f.calls())[0].args[3]));
+    await expect(
+      desktop.cli("import-link", transferUrl({ ...parsed, mode: "tab" })),
+    ).rejects.toMatchObject({ stderr: expect.stringContaining("Pair these Scope instances") });
     const pid = (await f.calls())[0].pid;
     await page.evaluate((id) => window.scope.cancelTransfer(id), invitation.id);
     await expect

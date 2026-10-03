@@ -34,6 +34,13 @@ import {
 } from "./diagram.ts";
 import { readRemoteJson } from "./remote.ts";
 import {
+  decodeTransferImportRequest,
+  TransferImportReceipt,
+  MAX_TRANSFER_IMPORT_REQUEST_BYTES,
+  MAX_TRANSFER_IMPORT_REPLY_BYTES,
+  TRANSFER_IMPORT_TIMEOUT_MS,
+} from "./transfer.ts";
+import {
   ShrinkRequest,
   ShrinkReceipt,
   MaintenanceStatus,
@@ -105,6 +112,24 @@ export class ScopeClient {
       throw new ScopeError(response.status, message);
     }
     return response;
+  }
+
+  async importLink(url: string): Promise<TransferImportReceipt> {
+    const body = JSON.stringify(decodeTransferImportRequest({ url }));
+    if (new TextEncoder().encode(body).byteLength > MAX_TRANSFER_IMPORT_REQUEST_BYTES)
+      throw new Error("Transfer import request exceeds 16 KiB.");
+    return decode(
+      TransferImportReceipt,
+      await readRemoteJson(
+        await this.request("/v1/transfers/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          signal: AbortSignal.timeout(TRANSFER_IMPORT_TIMEOUT_MS),
+        }),
+        MAX_TRANSFER_IMPORT_REPLY_BYTES,
+      ),
+    );
   }
 
   async publications(input: PublicationsCommand): Promise<PublicationsReply> {

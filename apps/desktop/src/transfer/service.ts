@@ -328,6 +328,11 @@ export class TabTransfers {
     return { invitation, peer, secret };
   }
 
+  async importLink(url: string): Promise<TransferImport> {
+    await this.inspect(url);
+    return this.import(url);
+  }
+
   async inspect(url: string): Promise<TransferPreview> {
     const { invitation, peer, secret } = await this.incoming(url);
     const receipt = await this.lifecycle.artifacts.transferReceipt(

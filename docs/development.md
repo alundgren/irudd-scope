@@ -35,6 +35,14 @@ an already installed Tailcat CLI and sends synthetic content through its hosted
 relay. It runs separately from `ready`, never installs dependencies, and uses
 no personal artifacts or provider credentials.
 
+Sharing-link creation and Scope-to-Scope pairing stay in the Mac app. A receiver
+can authorize an agent to run `irudd-scope import-link 'scope-transfer://v2/#...'`
+through its normal Scope connection. Main imports without a desktop receive
+click, retaining the same pairing, expiry, validation and retry guarantees.
+Both Macs must be awake and online; a connected paired hub can forward the
+request, but imports are never queued. The command defaults to a bounded
+300,000 ms timeout. Retry the same link if its result is uncertain.
+
 ## Validation and tests
 
 `vp run ready` builds the CLI, hub, and desktop, runs `vp run check`, then runs

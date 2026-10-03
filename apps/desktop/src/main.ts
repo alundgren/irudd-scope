@@ -11,7 +11,7 @@ import {
 import { homedir } from "node:os";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_CONNECTION_FILE } from "@irudd-scope/protocol";
+import { DEFAULT_CONNECTION_FILE, ScopeError } from "@irudd-scope/protocol";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { DesktopLifecycle } from "./lifecycle.ts";
 import { DesktopStore } from "./desktop-store.ts";
@@ -70,7 +70,13 @@ async function main() {
   await voice.start();
   nativeTheme.themeSource = store.settings().appearance;
   let lifecycle: DesktopLifecycle;
+  let transfers: TabTransfers | undefined;
   const artifacts = await startLocalArtifacts({
+    importLink: (url) => {
+      if (!transfers)
+        throw new ScopeError(503, "Scope is still starting. Retry the same link shortly.");
+      return transfers.importLink(url);
+    },
     voice,
     diagramAgent: (command, signal) => desktopIpc.diagramAgent(command, signal),
     diagram: (command, signal) => desktopIpc.diagram(command, signal),
@@ -119,7 +125,7 @@ async function main() {
     },
   });
   transferLinks.attach(window);
-  const transfers = new TabTransfers(store, lifecycle!, new TailcatCliTransport());
+  transfers = new TabTransfers(store, lifecycle!, new TailcatCliTransport());
   if (process.platform === "darwin") window.setWindowButtonVisibility(false);
   const client = new ScopeClient(artifacts.url, artifacts.token);
   const setDiagramMenu = createApplicationMenu(window);
@@ -217,7 +223,7 @@ async function main() {
     desktopIpc.dispose();
     externalLinks.dispose();
     library.close();
-    await transfers.close();
+    await transfers?.close();
     await remotes.close();
     await voice.close();
     await Promise.all([artifacts.close(), store.close()]);

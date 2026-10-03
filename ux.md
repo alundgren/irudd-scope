@@ -22,6 +22,13 @@ details and source before opening the artifact. Repeated imports open the
 existing copy. Dialogs preserve the mounted source tab and return keyboard
 focus to the workspace.
 
+Sharing-link creation and Scope-to-Scope pairing remain Mac-app actions. A
+receiver can authorize an agent to run `irudd-scope import-link LINK` instead
+of using the import dialog. That command imports immediately after main's
+authenticated inspection and validation, with no desktop confirmation click.
+Opening a transfer URL normally still shows the dialog. Same-link agent retries
+return the existing copy.
+
 Scope is a Mac workspace for inspecting artifacts left by coding agents and
 editing diagrams and reviewing HTML plans. The selected artifact gets the window. One compact strip
 contains open tabs and a search button on the right. Search opens a roomy

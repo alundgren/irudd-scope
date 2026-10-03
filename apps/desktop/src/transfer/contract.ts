@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { TransferId, TransferName, TransferSecret } from "@irudd-scope/protocol/transfer";
-import type { Artifact } from "@irudd-scope/protocol";
+import type { TransferImportReceipt } from "@irudd-scope/protocol/transfer";
 
 export const ScopePeer = Schema.Struct({
   id: TransferId,
@@ -32,7 +32,7 @@ export type TransferPreview = {
   expiresAt: number;
   alreadyImported?: boolean;
 };
-export type TransferImport = { artifact: Artifact; alreadyImported: boolean };
+export type TransferImport = TransferImportReceipt;
 export const PairScopeInput = Schema.Struct({
   url: Schema.String.check(Schema.isMaxLength(8192)),
   secret: TransferSecret,
