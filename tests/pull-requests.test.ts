@@ -617,7 +617,7 @@ test("version 6 databases migrate additively and reopen current inbox state", as
   expect((await reopened.list()).items[0].kind).toBe("pull-requests");
   const check = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
   try {
-    expect(check.prepare("PRAGMA user_version").get()?.user_version).toBe(8);
+    expect(check.prepare("PRAGMA user_version").get()?.user_version).toBe(9);
   } finally {
     check.close();
   }
@@ -1186,4 +1186,252 @@ test("failed, invalid and cancelled inventories preserve commit-sensitive snooze
     f.server.store.pullRequests.commitInventory(initial.tabId, inventory, controller.signal),
   ).rejects.toThrow();
   expect(await f.read()).toEqual(saved);
+});
+
+test("inbox JSON state supports versioned replacement, patch, deletion and live events", async () => {
+  const f = await fixture();
+  const initial = await f.read();
+  expect(initial.appState).toEqual({ version: 0, value: {} });
+  const events: unknown[] = [];
+  const controller = new AbortController();
+  let ready!: () => void;
+  const connected = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  const watching = f.client
+    .watch((event) => {
+      if (event.type === "ready") ready();
+      if (event.type === "pull-requests" && event.stateChange) events.push(event.stateChange);
+    }, controller.signal)
+    .catch(() => {});
+  cleanup.push(async () => {
+    controller.abort();
+    await watching;
+  });
+  await connected;
+  const set = {
+    action: "state-set" as const,
+    name,
+    tabId: initial.tabId,
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    value: { hidden: ["src/one.ts"], settings: { width: 300, selected: true } },
+  };
+  const saved = snapshot(await f.client.pullRequests(set));
+  expect(saved.appState).toEqual({ version: 1, value: set.value });
+  expect(snapshot(await f.client.pullRequests(set)).generation).toBe(saved.generation);
+  await expect(f.client.pullRequests({ ...set, value: {} })).rejects.toMatchObject({ status: 409 });
+  const competing = await Promise.allSettled(
+    ["one", "two"].map((selected) =>
+      f.client.pullRequests({
+        ...set,
+        action: "state-patch",
+        requestId: randomUUID(),
+        expectedVersion: 1,
+        value: { settings: { selected }, nullable: null },
+      }),
+    ),
+  );
+  expect(competing.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  const conflict = competing.find((result) => result.status === "rejected");
+  expect(conflict).toMatchObject({ status: "rejected", reason: { status: 409 } });
+  const patched = await f.read();
+  expect(patched.appState?.version).toBe(2);
+  expect(patched.appState?.value.hidden).toEqual(["src/one.ts"]);
+  expect(patched.appState?.value.settings).not.toHaveProperty("width");
+  expect(patched.appState?.value.nullable).toBeNull();
+  const deleted = snapshot(
+    await f.client.pullRequests({
+      action: "state-delete",
+      name,
+      tabId: initial.tabId,
+      requestId: randomUUID(),
+      expectedVersion: 2,
+      keys: ["hidden", "absent"],
+    }),
+  );
+  expect(deleted.appState).toEqual({
+    version: 3,
+    value: {
+      settings: patched.appState?.value.settings,
+      nullable: null,
+    },
+  });
+  const replaced = snapshot(
+    await f.client.pullRequests({ ...set, requestId: randomUUID(), expectedVersion: 3, value: {} }),
+  );
+  expect(replaced.appState).toEqual({ version: 4, value: {} });
+  await expect
+    .poll(() => events)
+    .toEqual([
+      { operation: "set", ...saved.appState },
+      { operation: "patch", ...patched.appState },
+      { operation: "delete", ...deleted.appState },
+      { operation: "set", ...replaced.appState },
+    ]);
+});
+
+test("state validation and accumulated size limits leave the saved value and version intact", async () => {
+  const f = await fixture();
+  const initial = await f.read();
+  const command = {
+    action: "state-set" as const,
+    name,
+    tabId: initial.tabId,
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    value: {},
+  };
+  let deep: unknown = null;
+  for (let depth = 0; depth < 34; depth++) deep = { nested: deep };
+  for (const value of [
+    [],
+    new Date(),
+    new Map(),
+    { sparse: Array(2) },
+    null,
+    { number: Infinity },
+    { missing: undefined },
+    { invalid: new Date() },
+    { deep },
+    { large: "é".repeat(17_000) },
+  ]) {
+    await expect(
+      f.server.store.pullRequests.command({ ...command, value } as unknown as Parameters<
+        typeof f.server.store.pullRequests.command
+      >[0]),
+    ).rejects.toThrow();
+  }
+  const saved = snapshot(
+    await f.client.pullRequests({ ...command, value: { retained: "x".repeat(20_000) } }),
+  );
+  await expect(
+    f.client.pullRequests({
+      ...command,
+      action: "state-patch",
+      requestId: randomUUID(),
+      expectedVersion: 1,
+      value: { more: "x".repeat(20_000) },
+    }),
+  ).rejects.toThrow();
+  expect((await f.read()).appState).toEqual(saved.appState);
+  const special = JSON.parse('{"__proto__":{"polluted":true},"constructor":null}') as NonNullable<
+    PullRequestsSnapshot["appState"]
+  >["value"];
+  const patched = snapshot(
+    await f.client.pullRequests({
+      ...command,
+      action: "state-patch",
+      requestId: randomUUID(),
+      expectedVersion: 1,
+      value: special,
+    }),
+  );
+  expect(Object.hasOwn(patched.appState!.value, "__proto__")).toBe(true);
+  expect(patched.appState!.value.__proto__).toEqual({ polluted: true });
+  expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+});
+
+test("inbox state survives HTML updates, sync, restart and trash while replacement tabs start empty", async () => {
+  const f = await fixture();
+  await f.configure();
+  const initial = await f.read();
+  const command = {
+    action: "state-set" as const,
+    name,
+    tabId: initial.tabId,
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    value: { hidden: ["test.ts"] },
+  };
+  const saved = snapshot(await f.client.pullRequests(command));
+  await f.client.publish(
+    initial.artifact.id,
+    {
+      name,
+      title: "Updated inbox",
+      kind: "pull-requests",
+      mediaType: "text/html",
+      fileName: "inbox.html",
+      expectedRevision: initial.artifact.revision,
+    },
+    Buffer.from("<h1>Updated</h1>"),
+  );
+  await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [],
+    completedAt: now,
+  });
+  expect((await f.read()).appState).toEqual(saved.appState);
+  await f.server.close();
+  const resumed = await startArtifactServer({ directory: f.directory, token, port: 0 });
+  cleanup.push(resumed.close);
+  const reopened = resumed.store;
+  const client = new ScopeClient(resumed.url, token);
+  expect((await reopened.pullRequests.snapshot(name)).appState).toEqual(saved.appState);
+  await reopened.openTab({
+    id: initial.tabId,
+    groupId: randomUUID(),
+    type: "pull-requests",
+    title: "Inbox",
+    state: { version: 1, data: { artifactId: initial.artifact.id } },
+  });
+  await reopened.trashTab(initial.tabId, 123);
+  expect((await reopened.pullRequests.snapshot(name)).appState).toEqual(saved.appState);
+  await expect(
+    reopened.pullRequests.command({ ...command, requestId: randomUUID(), expectedVersion: 1 }),
+  ).rejects.toMatchObject({ status: 409 });
+  await reopened.emptyTrash([{ id: initial.tabId, trashedAt: 123 }]);
+  const check = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
+  try {
+    expect(
+      check
+        .prepare("SELECT count(*) AS count FROM pull_requests_receipts WHERE tab_id = ?")
+        .get(initial.tabId)?.count,
+    ).toBe(0);
+  } finally {
+    check.close();
+  }
+  const artifact = await client.publish(
+    "replacement",
+    {
+      name,
+      title: "Replacement",
+      kind: "pull-requests",
+      mediaType: "text/html",
+      fileName: "inbox.html",
+      expectedRevision: 0,
+    },
+    Buffer.from("<h1>Replacement</h1>"),
+  );
+  expect(artifact.id).not.toBe(initial.artifact.id);
+  expect((await reopened.pullRequests.snapshot(name)).appState).toEqual({ version: 0, value: {} });
+  await expect(reopened.pullRequests.command(command)).rejects.toMatchObject({ status: 409 });
+});
+
+test("schema 8 inboxes migrate with empty JSON state and retain existing records", async () => {
+  const f = await fixture();
+  await f.configure();
+  const initial = await f.read();
+  await f.server.store.pullRequests.commitInventory(initial.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [facts()],
+    completedAt: now,
+  });
+  await f.server.close();
+  const db = new DatabaseSync(join(f.directory, "scope.db"));
+  try {
+    db.exec("ALTER TABLE pull_requests_state DROP COLUMN app_state; PRAGMA user_version = 8;");
+  } finally {
+    db.close();
+  }
+  const reopened = await ArtifactStore.open(f.directory);
+  cleanup.push(() => reopened.close());
+  const migrated = await reopened.pullRequests.snapshot(name);
+  expect(migrated.appState).toEqual({ version: 0, value: {} });
+  expect(migrated.prs.map((pr) => pr.nodeId)).toEqual(["PR_1"]);
+  expect(migrated.repository).toEqual(repository);
+  expect(migrated.tabId).toBe(initial.tabId);
 });

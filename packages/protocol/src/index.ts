@@ -1,3 +1,4 @@
+import { PullRequestsStateChange } from "./pull-requests-state.ts";
 import * as Schema from "effect/Schema";
 
 export const MAX_CONTENT_BYTES = 32 * 1024 * 1024;
@@ -143,6 +144,8 @@ export const PullRequestsEvent = Schema.Struct({
   name: ArtifactName,
   id: ArtifactId,
   generation: Revision,
+  tabId: Schema.optionalKey(PublicationTabId),
+  stateChange: Schema.optionalKey(PullRequestsStateChange),
 });
 export type PullRequestsEvent = typeof PullRequestsEvent.Type;
 export const LiveEvent = Schema.Union([

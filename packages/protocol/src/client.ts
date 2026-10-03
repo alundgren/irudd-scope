@@ -494,14 +494,15 @@ export class ScopeClient {
         const { value, done } = await reader.read();
         if (done) break;
         pending += value;
-        if (pending.length > 64 * 1024) throw new Error("Scope event exceeds the size limit.");
         let boundary: number;
         while ((boundary = pending.indexOf("\n\n")) !== -1) {
+          if (boundary > 64 * 1024) throw new Error("Scope event exceeds the size limit.");
           const frame = pending.slice(0, boundary);
           pending = pending.slice(boundary + 2);
           const line = frame.split("\n").find((item) => item.startsWith("data: "));
           if (line) onEvent(decode(LiveEvent, JSON.parse(line.slice(6))));
         }
+        if (pending.length > 64 * 1024) throw new Error("Scope event exceeds the size limit.");
       }
     } finally {
       await reader.cancel().catch(() => {});

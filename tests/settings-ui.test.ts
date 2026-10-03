@@ -150,8 +150,8 @@ test("shared key checks require an open OpenRouter section and failed access can
             .scopeTestDiagramAccess.checks,
       );
 
-    await page.getByRole("button", { name: "Create diagram", exact: true }).click();
-    await page.getByRole("button", { name: "Open diagram settings" }).click();
+    await page.keyboard.press("ControlOrMeta+,");
+    await page.getByLabel("Search settings").fill("diagram generation");
     const settings = page.getByRole("dialog", { name: "Settings", exact: true });
     const search = settings.getByLabel("Search settings");
     const enable = settings.getByRole("switch", { name: "Diagram generation", exact: true });
@@ -196,9 +196,6 @@ test("shared key checks require an open OpenRouter section and failed access can
     await search.fill("no matching setting");
     await settings.getByRole("button", { name: "Clear search" }).click();
     await settings.getByRole("button", { name: "Close", exact: true }).click();
-    await page
-      .getByLabel("What should the diagram show?")
-      .fill("Keep this prompt while generation is off.");
     await page.keyboard.press("ControlOrMeta+,");
     await search.waitFor();
     expect(await key.isVisible()).toBe(false);
@@ -214,14 +211,12 @@ test("shared key checks require an open OpenRouter section and failed access can
     await search.fill("diagram generation");
     expect(await checks()).toBe(3);
     await settings.getByRole("button", { name: "Close", exact: true }).click();
-    await page.getByRole("button", { name: "Open diagram settings" }).click();
+    await page.keyboard.press("ControlOrMeta+,");
+    await search.fill("diagram generation");
     await enable.click();
     await search.fill("credentials");
     await settings.getByText("Key saved", { exact: true }).waitFor();
     await settings.getByRole("button", { name: "Close", exact: true }).click();
-    expect(await page.getByLabel("What should the diagram show?").inputValue()).toBe(
-      "Keep this prompt while generation is off.",
-    );
   } finally {
     await application.close();
     await rm(directory, { recursive: true, force: true });

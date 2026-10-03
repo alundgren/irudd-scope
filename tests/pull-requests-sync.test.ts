@@ -340,6 +340,7 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
   });
 
   test("reads ordinary REST detail responses with extra fields through GitHub.com despite GH_HOST", async () => {
+    const fileSha = "d".repeat(40);
     const view = {
       id: "PR_1",
       state: "OPEN",
@@ -353,7 +354,7 @@ if(args[0] === 'pr' && !args.includes('github.com/example/project')) throw new E
 if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));
 else if(args.some(a=>a.includes('ScopePullRequestReviewBody'))) console.log(JSON.stringify({data:{viewer:{login:"viewer"},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:"2026-10-03T00:00:00Z"},repository:{nameWithOwner:'example/project',pullRequest:${JSON.stringify(view)}}}}));
 else if(args[0] === 'pr' && args[1] === 'diff') console.log('diff --git a/test b/test');
-else if(args.some(a => a.includes('/files?'))) console.log(JSON.stringify([{sha:'${head}',filename:'test.ts',additions:0,deletions:0,changes:0,status:'modified',blob_url:'https://github.com/example/project/blob/${head}/test.ts',raw_url:'https://github.com/example/project/raw/${head}/test.ts',contents_url:'https://api.github.com/repos/example/project/contents/test.ts',patch:'@@ -1 +1 @@'}]));
+else if(args.some(a => a.includes('/files?'))) console.log(JSON.stringify([{sha:'${fileSha}',filename:'test.ts',additions:0,deletions:0,changes:0,status:'modified',blob_url:'https://github.com/example/project/blob/${head}/test.ts',raw_url:'https://github.com/example/project/raw/${head}/test.ts',contents_url:'https://api.github.com/repos/example/project/contents/test.ts',patch:'@@ -1 +1 @@'}]));
 else if(args.some(a => a.includes('/reviews?'))) console.log(JSON.stringify([{id:2,node_id:'REVIEW_2',user:{login:'reviewer',id:7,node_id:'USER_7',avatar_url:'https://avatars.githubusercontent.com/u/7',type:'User',site_admin:false},state:'APPROVED',body:'Looks good',submitted_at:'2026-10-01T12:00:00Z',commit_id:'${head}',html_url:'https://github.com/example/project/pull/1#pullrequestreview-2',pull_request_url:'https://api.github.com/repos/example/project/pulls/1',author_association:'MEMBER',_links:{html:{href:'https://github.com/example/project/pull/1#pullrequestreview-2'}}}]));
 else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
     const previousHost = process.env.GH_HOST;
@@ -365,7 +366,7 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
       expect(detail).toMatchObject({
         headOid: head,
         body: "Review this change",
-        files: [{ path: "test.ts" }],
+        files: [{ path: "test.ts", sha: fileSha }],
         reviews: [{ author: "reviewer", headOid: head }],
       });
       expect(detail.diff).toContain("diff --git");

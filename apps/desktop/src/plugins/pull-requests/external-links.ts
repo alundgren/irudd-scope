@@ -38,7 +38,8 @@ export function registerPullRequestsExternalLinks({
     );
     if (candidates.length !== 1)
       throw new Error("The PR inbox document is not ready. Retry the link.");
-    for (const [id, frame] of frames) if (frame.tabId === input.tabId) frames.delete(id);
+    for (const [id, frame] of frames)
+      if (frame.tabId === input.tabId && frame.channel === input.channel) frames.delete(id);
     frames.set(candidates[0]!.frameTreeNodeId, input);
   });
   handle("scope:unregister-pull-requests-frame", (value) => {

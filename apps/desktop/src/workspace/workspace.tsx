@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
   Maximize2,
@@ -6,7 +6,6 @@ import {
   Settings,
   X,
   Info,
-  Plus,
   Bookmark,
   Trash2,
   Send,
@@ -40,7 +39,7 @@ import { TabHost } from "./tab-host.tsx";
 import { TabEventRouter } from "./events.ts";
 import { PresentationPointer } from "./presentation-pointer.tsx";
 import { observeFrameKeyboard } from "./frame-documents.ts";
-import { pluginTools, pluginForArtifact, tabArtifactId } from "../plugins/registry.renderer.ts";
+import { pluginForArtifact, tabArtifactId } from "../plugins/registry.renderer.ts";
 
 type FullscreenMode = "edit" | "view" | "present";
 type TransferLink = { kind: "pair" | "tab"; url: string };
@@ -51,8 +50,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const [preferences, setPreferences] = useState(initialSettings);
   const [settings, setSettings] = useState(false);
   const [settingsQuery, setSettingsQuery] = useState("");
-  const [creating, setCreating] = useState<string | null>(null);
-  const Creation = pluginTools.find((tool) => tool.id === creating)?.View;
   const [search, setSearch] = useState(false);
   const [overflow, setOverflow] = useState(false);
   const [query, setQuery] = useState("");
@@ -204,8 +201,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     retention.ready,
   ]);
   useEffect(() => {
-    if (!workspaceReady || !retention.ready || creating || !arrivals.length || receivingArrivals)
-      return;
+    if (!workspaceReady || !retention.ready || !arrivals.length || receivingArrivals) return;
     const existing = new Set(workspace.tabs.map(tabArtifactId));
     const pending = arrivals.filter(
       (artifact) => !existing.has(artifact.id) && !trashedArtifacts.has(artifact.id),
@@ -240,15 +236,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       .finally(() => {
         setReceivingArrivals(false);
       });
-  }, [
-    arrivals,
-    workspace,
-    workspaceReady,
-    creating,
-    receivingArrivals,
-    retention.tabs,
-    retention.ready,
-  ]);
+  }, [arrivals, workspace, workspaceReady, receivingArrivals, retention.tabs, retention.ready]);
   useEffect(() => {
     tabButtons.current
       .get(workspace.selected ?? "")
@@ -264,7 +252,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     if (artifactId) markRead(artifactId);
     if (tab.id !== workspace.selected) setFullscreenMode("edit");
     setSearch(false);
-    setCreating(null);
     if (keyboard) requestAnimationFrame(() => tabButtons.current.get(tab.id)?.focus());
   }
   function select(id: string, keyboard = false) {
@@ -379,13 +366,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       } else if (event.key === "Escape" && focus) {
         event.preventDefault();
         toggleFocus();
-      } else if (
-        command &&
-        event.shiftKey &&
-        event.key.toLowerCase() === "f" &&
-        active &&
-        !creating
-      ) {
+      } else if (command && event.shiftKey && event.key.toLowerCase() === "f" && active) {
         event.preventDefault();
         toggleFocus();
       } else if (command && event.key.toLowerCase() === "w" && workspace.selected) {
@@ -414,7 +395,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           onRestore={restore}
           onVisible={retention.reportVisible}
           selectedId={workspace.selected}
-          creating={Boolean(creating)}
           artifacts={artifacts}
           unread={activeUnread}
           tabButtons={tabButtons}
@@ -435,43 +415,37 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           key={active.id}
           className="focus-controls"
           label="fullscreen controls"
-          handleSize="icon-xs"
           position={active.overlayPositions?.fullscreen}
           onPosition={(position) => updateOverlayPosition(active.id, "fullscreen", position)}
         >
-          {(handle) => (
-            <>
-              {handle}
-              {hasModes ? (
-                <NativeSelect
-                  size="sm"
-                  className="fullscreen-mode-select"
-                  ref={modeSelect}
-                  aria-label={html ? "Fullscreen HTML mode" : "Fullscreen diagram mode"}
-                  value={html && fullscreenMode === "edit" ? "view" : fullscreenMode}
-                  onChange={(event) => {
-                    if (event.target.value === "tabs") toggleFocus();
-                    else setFullscreenMode(event.target.value as FullscreenMode);
-                  }}
-                >
-                  {!html && <NativeSelectOption value="edit">Edit</NativeSelectOption>}
-                  <NativeSelectOption value="view">View</NativeSelectOption>
-                  <NativeSelectOption value="present">Present</NativeSelectOption>
-                  <NativeSelectOption value="tabs">Back to tabs</NativeSelectOption>
-                </NativeSelect>
-              ) : (
-                <Button
-                  variant="secondary"
-                  size="icon-xs"
-                  ref={controlsButton}
-                  aria-label="Exit focus mode"
-                  title="Exit fullscreen · Escape"
-                  onClick={toggleFocus}
-                >
-                  <Minimize2 />
-                </Button>
-              )}
-            </>
+          {hasModes ? (
+            <NativeSelect
+              size="sm"
+              className="fullscreen-mode-select"
+              ref={modeSelect}
+              aria-label={html ? "Fullscreen HTML mode" : "Fullscreen diagram mode"}
+              value={html && fullscreenMode === "edit" ? "view" : fullscreenMode}
+              onChange={(event) => {
+                if (event.target.value === "tabs") toggleFocus();
+                else setFullscreenMode(event.target.value as FullscreenMode);
+              }}
+            >
+              {!html && <NativeSelectOption value="edit">Edit</NativeSelectOption>}
+              <NativeSelectOption value="view">View</NativeSelectOption>
+              <NativeSelectOption value="present">Present</NativeSelectOption>
+              <NativeSelectOption value="tabs">Back to tabs</NativeSelectOption>
+            </NativeSelect>
+          ) : (
+            <Button
+              variant="secondary"
+              size="icon-xs"
+              ref={controlsButton}
+              aria-label="Exit focus mode"
+              title="Exit fullscreen · Escape"
+              onClick={toggleFocus}
+            >
+              <Minimize2 />
+            </Button>
           )}
         </FloatingOverlay>
       )}
@@ -516,11 +490,11 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
               aria-labelledby={focus ? undefined : `tab-${id}`}
               aria-label={artifact?.title ?? tab.title}
               key={id}
-              hidden={id !== workspace.selected || Boolean(creating)}
+              hidden={id !== workspace.selected}
             >
               <TabHost
                 tab={tab}
-                active={id === workspace.selected && !creating}
+                active={id === workspace.selected}
                 artifact={artifact}
                 router={events}
                 updateState={updateState}
@@ -532,37 +506,11 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             </div>
           );
         })}
-        {Creation && (
-          <div className="artifact-pane">
-            <Suspense fallback={<p role="status">Opening tool…</p>}>
-              <Creation
-                onClose={() => setCreating(null)}
-                onCreated={({ artifact, ...tab }) => {
-                  if (artifact) recordPublication(artifact);
-                  void activate(
-                    {
-                      ...tab,
-                      id: crypto.randomUUID(),
-                      groupId: active?.groupId ?? workspace.groups[0].id,
-                    },
-                    false,
-                    artifact?.revision,
-                  );
-                }}
-              />
-            </Suspense>
-          </div>
-        )}
-        {!workspace.selected && !creating && (
+        {!workspace.selected && (
           <div className="artifact-pane">
             <section className="empty-state">
               <h1>Things your agents leave for you</h1>
               <p>Open an artifact to inspect it.</p>
-              {pluginTools.map((tool) => (
-                <Button key={tool.id} variant="secondary" onClick={() => setCreating(tool.id)}>
-                  <Plus /> {tool.title}
-                </Button>
-              ))}
               {activeArtifacts.length ? (
                 <div className="artifact-list">
                   {activeArtifacts
@@ -609,7 +557,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             shortcut: "⌘,",
             onSelect: () => openSettings(),
           },
-          ...(active && !creating
+          ...(active
             ? [
                 {
                   id: "fullscreen",
@@ -625,20 +573,9 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                 },
               ]
             : []),
-          ...pluginTools.map((tool) => ({
-            id: tool.id,
-            title: tool.title,
-            keywords: tool.keywords,
-            icon: Plus,
-            onSelect: () => {
-              setCreating(tool.id);
-              setSearch(false);
-              setFocus(false);
-            },
-          })),
         ]}
         currentTab={
-          active && !creating
+          active
             ? {
                 title: activeArtifact?.title ?? active.title,
                 actions: [

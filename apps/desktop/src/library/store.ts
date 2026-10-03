@@ -95,6 +95,8 @@ export class ArtifactStore {
         sql`CREATE TABLE IF NOT EXISTS transfer_receipts (source_id TEXT NOT NULL, invitation_id TEXT NOT NULL, expires_at INTEGER NOT NULL, artifact TEXT NOT NULL CHECK(json_valid(artifact)), tab TEXT NOT NULL CHECK(json_valid(tab)), PRIMARY KEY(source_id, invitation_id)) STRICT`,
       );
       await store.initializePublicationHistory();
+      await store.initializePullRequestsAppState();
+      await store.pullRequests.recoverInterruptedSync();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -128,6 +130,20 @@ export class ArtifactStore {
     return task;
   }
 
+  private async initializePullRequestsAppState(): Promise<void> {
+    const sql = this.sql;
+    const [{ user_version }] = await this.run(sql<{ user_version: number }>`PRAGMA user_version`);
+    if (user_version >= 9) return;
+    await this.run(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`ALTER TABLE pull_requests_state ADD COLUMN app_state TEXT NOT NULL DEFAULT '{"version":0,"value":{}}' CHECK(json_valid(app_state))`;
+          yield* sql`PRAGMA user_version = 9`;
+        }),
+      ),
+    );
+  }
+
   private async initializePublicationHistory(): Promise<void> {
     const sql = this.sql;
     const [{ user_version }] = await this.run(sql<{ user_version: number }>`PRAGMA user_version`);
@@ -149,7 +165,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 8) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 9) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");

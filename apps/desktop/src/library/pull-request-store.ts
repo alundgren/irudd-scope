@@ -4,6 +4,8 @@ import type { SqliteClient } from "@effect/sql-sqlite-node";
 import { Artifact, ScopeError, decode, type LiveEvent } from "@irudd-scope/protocol";
 import {
   PullRequestsCommand,
+  PullRequestsAppState,
+  type PullRequestsStateChange,
   PullRequestsReply,
   PullRequestsSnapshot,
   PullRequestsSync,
@@ -12,6 +14,7 @@ import {
   PullRequestLocal,
   PullRequestAgent,
   PullRequestDetail,
+  type PullRequestDetailResult,
   type PullRequestCommitPair,
   MAX_PULL_REQUESTS_REPLY_BYTES,
 } from "@irudd-scope/protocol/pull-requests";
@@ -29,6 +32,7 @@ type Owner = {
   repository: string | null;
   viewer: string | null;
   sync: string;
+  app_state: string;
 };
 const emptySync: PullRequestsSync = {
   state: "idle",
@@ -52,6 +56,7 @@ export type PullRequestsHandlers = {
     tabId: string,
     nodeId: string,
     captured?: PullRequestCommitPair,
+    signal?: AbortSignal,
   ) => Promise<PullRequestDetail>;
 };
 export type PullRequestsInventory = {
@@ -76,16 +81,37 @@ export function initializePullRequestsTab(
 
 export class PullRequestStore {
   private handlers: PullRequestsHandlers | undefined;
+  private readonly reads = new Map<AbortController, { tabId: string; requestId: string }>();
   constructor(private readonly database: Database) {}
   setHandlers(handlers: PullRequestsHandlers | undefined): void {
     this.handlers = handlers;
+  }
+
+  cancelReads(tabId?: string, requestIds?: readonly string[]): void {
+    for (const [controller, read] of this.reads)
+      if ((!tabId || read.tabId === tabId) && (!requestIds || requestIds.includes(read.requestId)))
+        controller.abort(new Error("Pull request detail loading was canceled. Retry when ready."));
+  }
+
+  async currentComparisons(): Promise<
+    readonly { repository: string; nodeId: string; headOid: string; baseOid: string }[]
+  > {
+    const { sql, run } = this.database;
+    return run(sql<{ repository: string; nodeId: string; headOid: string; baseOid: string }>`
+      SELECT lower(json_extract(state.repository, '$.owner') || '/' || json_extract(state.repository, '$.name')) AS repository,
+        json_extract(current.facts, '$.nodeId') AS nodeId,
+        json_extract(current.facts, '$.headOid') AS headOid,
+        json_extract(current.facts, '$.baseOid') AS baseOid
+      FROM pull_requests_current AS current
+      JOIN pull_requests_state AS state ON state.tab_id = current.tab_id
+      JOIN live_tabs ON live_tabs.id = current.tab_id
+      WHERE live_tabs.trashed_at IS NULL`);
   }
 
   async initialize(): Promise<void> {
     const { sql, run } = this.database;
     const [{ user_version }] = await run(sql<{ user_version: number }>`PRAGMA user_version`);
     if (user_version >= 7) {
-      await this.recoverInterruptedSync();
       return;
     }
     await run(
@@ -108,10 +134,9 @@ export class PullRequestStore {
         }),
       ),
     );
-    await this.recoverInterruptedSync();
   }
 
-  private async recoverInterruptedSync(): Promise<void> {
+  async recoverInterruptedSync(): Promise<void> {
     const { sql, mutate } = this.database;
     const owner = this.owner.bind(this),
       read = this.read.bind(this);
@@ -135,7 +160,7 @@ export class PullRequestStore {
     const { sql } = this.database;
     return Effect.gen(function* () {
       const rows =
-        yield* sql<Owner>`SELECT artifacts.tab_id, artifacts.document, live_tabs.trashed_at, pull_requests_state.generation, pull_requests_state.repository, pull_requests_state.viewer, pull_requests_state.sync FROM artifacts JOIN live_tabs ON live_tabs.id = artifacts.tab_id JOIN pull_requests_state ON pull_requests_state.tab_id = artifacts.tab_id WHERE ${byTab ? sql`artifacts.tab_id = ${key}` : sql`json_extract(artifacts.document, '$.name') = ${key}`} AND json_extract(artifacts.document, '$.kind') = 'pull-requests'`;
+        yield* sql<Owner>`SELECT artifacts.tab_id, artifacts.document, live_tabs.trashed_at, pull_requests_state.generation, pull_requests_state.repository, pull_requests_state.viewer, pull_requests_state.sync, pull_requests_state.app_state FROM artifacts JOIN live_tabs ON live_tabs.id = artifacts.tab_id JOIN pull_requests_state ON pull_requests_state.tab_id = artifacts.tab_id WHERE ${byTab ? sql`artifacts.tab_id = ${key}` : sql`json_extract(artifacts.document, '$.name') = ${key}`} AND json_extract(artifacts.document, '$.kind') = 'pull-requests'`;
       if (!rows[0]) return yield* Effect.fail(new ScopeError(404, "Pull request tab not found."));
       return rows[0];
     });
@@ -162,6 +187,7 @@ export class PullRequestStore {
         repository: owner.repository ? JSON.parse(owner.repository) : null,
         viewer: owner.viewer,
         sync: JSON.parse(owner.sync),
+        appState: JSON.parse(owner.app_state),
         prs: rows.map((row) => ({
           ...JSON.parse(row.facts),
           local: JSON.parse(row.local),
@@ -173,13 +199,18 @@ export class PullRequestStore {
       return snapshot;
     });
   }
-  private event(snapshot: PullRequestsSnapshot): LiveEvent[] {
+  private event(
+    snapshot: PullRequestsSnapshot,
+    stateChange?: PullRequestsStateChange,
+  ): LiveEvent[] {
     return [
       {
         type: "pull-requests",
         name: snapshot.artifact.name!,
         id: snapshot.artifact.id,
         generation: snapshot.generation,
+        tabId: snapshot.tabId,
+        ...(stateChange ? { stateChange } : {}),
       },
     ];
   }
@@ -446,11 +477,149 @@ export class PullRequestStore {
     );
   }
 
+  private async details(
+    pinned: PullRequestsSnapshot,
+    nodeIds: readonly string[],
+    signal: AbortSignal,
+  ): Promise<PullRequestsReply> {
+    const controller = new AbortController();
+    const cancel = () => controller.abort(signal.reason);
+    signal.addEventListener("abort", cancel, { once: true });
+    if (signal.aborted) cancel();
+    const timer = setTimeout(
+      () =>
+        controller.abort(new Error("Detail batch reached its deadline. Retry this PR separately.")),
+      20_000,
+    );
+    const results: PullRequestDetailResult[] = nodeIds.map((nodeId) => ({
+      nodeId,
+      error: "Detail batch reached its deadline. Retry this PR separately.",
+    }));
+    const reply = () => ({ type: "details" as const, tabId: pinned.tabId, results });
+    let replyBytes = Buffer.byteLength(JSON.stringify(reply()), "utf8");
+    const replace = (index: number, result: PullRequestDetailResult) => {
+      const previousBytes = Buffer.byteLength(JSON.stringify(results[index]), "utf8");
+      let resultBytes = Buffer.byteLength(JSON.stringify(result), "utf8");
+      if (
+        "detail" in result &&
+        replyBytes - previousBytes + resultBytes >
+          MAX_PULL_REQUESTS_REPLY_BYTES - nodeIds.length * 4096
+      ) {
+        result = {
+          nodeId: result.nodeId,
+          error: "Detail batch reached its response limit. Retry this PR separately.",
+        };
+        resultBytes = Buffer.byteLength(JSON.stringify(result), "utf8");
+      }
+      results[index] = result;
+      replyBytes += resultBytes - previousBytes;
+    };
+    let next = 0;
+    const load = async () => {
+      while (next < nodeIds.length) {
+        const index = next++;
+        const nodeId = nodeIds[index]!;
+        try {
+          controller.signal.throwIfAborted();
+          const pr = pinned.prs.find((pr) => pr.nodeId === nodeId);
+          if (!pr) throw new Error("Open pull request not found.");
+          const captured = { headOid: pr.headOid, baseOid: pr.baseOid };
+          const task = this.handlers!.detail(pinned.tabId, nodeId, captured, controller.signal);
+          const detail = decode(
+            PullRequestDetail,
+            await new Promise<PullRequestDetail>((resolve, reject) => {
+              const abort = () => reject(controller.signal.reason);
+              controller.signal.addEventListener("abort", abort, { once: true });
+              if (controller.signal.aborted) abort();
+              void task
+                .then(resolve, reject)
+                .finally(() => controller.signal.removeEventListener("abort", abort));
+            }),
+          );
+          controller.signal.throwIfAborted();
+          const current = await this.snapshotByTab(pinned.tabId);
+          await this.database.run(
+            this.active(await this.database.run(this.owner(pinned.tabId, true))),
+          );
+          controller.signal.throwIfAborted();
+          const currentPr = current.prs.find((pr) => pr.nodeId === nodeId);
+          if (
+            detail.headOid !== captured.headOid ||
+            currentPr?.headOid !== captured.headOid ||
+            currentPr.baseOid !== captured.baseOid
+          )
+            throw new Error(
+              "Pull request changed while loading detail. Retry with its current commit.",
+            );
+          replace(index, { nodeId, captured, detail });
+        } catch (error) {
+          replace(index, {
+            nodeId,
+            error:
+              error instanceof Error
+                ? error.message.slice(0, 512)
+                : "Pull request detail could not be loaded. Retry this PR separately.",
+          });
+        }
+      }
+    };
+    try {
+      await Promise.all(Array.from({ length: Math.min(3, nodeIds.length) }, load));
+      try {
+        signal.throwIfAborted();
+        const current = await this.snapshotByTab(pinned.tabId);
+        await this.database.run(
+          this.active(await this.database.run(this.owner(pinned.tabId, true))),
+        );
+        signal.throwIfAborted();
+        for (const [index, result] of results.entries()) {
+          if (!("detail" in result)) continue;
+          const pr = current.prs.find((pr) => pr.nodeId === result.nodeId);
+          if (pr?.headOid !== result.captured.headOid || pr.baseOid !== result.captured.baseOid)
+            replace(index, {
+              nodeId: result.nodeId,
+              error: "Pull request changed while loading detail. Retry with its current commit.",
+            });
+        }
+      } catch (error) {
+        for (const [index, result] of results.entries())
+          if ("detail" in result)
+            replace(index, {
+              nodeId: result.nodeId,
+              error:
+                error instanceof Error
+                  ? error.message.slice(0, 512)
+                  : "Pull request tab is no longer available.",
+            });
+      }
+      return decode(PullRequestsReply, reply());
+    } finally {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", cancel);
+      controller.abort();
+    }
+  }
+
   async command(value: PullRequestsCommand): Promise<PullRequestsReply> {
     const command = decode(PullRequestsCommand, value);
+    if (command.action !== "detail" && command.action !== "details")
+      return this.executeCommand(command);
+    const controller = new AbortController();
+    this.reads.set(controller, { tabId: command.tabId, requestId: command.requestId });
+    try {
+      return await this.executeCommand(command, controller.signal);
+    } finally {
+      this.reads.delete(controller);
+    }
+  }
+
+  private async executeCommand(
+    command: PullRequestsCommand,
+    signal?: AbortSignal,
+  ): Promise<PullRequestsReply> {
     if (command.action === "read")
       return { type: "snapshot", snapshot: await this.snapshot(command.name) };
-    if (command.action === "sync" || command.action === "detail") {
+    if (command.action === "sync" || command.action === "detail" || command.action === "details") {
       const owner = this.owner.bind(this),
         active = this.active.bind(this),
         read = this.read.bind(this);
@@ -478,6 +647,8 @@ export class PullRequestStore {
           type: "snapshot",
           snapshot: await this.handlers.sync(pinned.tabId),
         });
+      signal!.throwIfAborted();
+      if (command.action === "details") return this.details(pinned, command.nodeIds, signal!);
       const pr = pinned.prs.find((pr) => pr.nodeId === command.nodeId);
       if (!pr) throw new ScopeError(404, "Open pull request not found.");
       if (
@@ -490,8 +661,9 @@ export class PullRequestStore {
         );
       const detail = decode(
         PullRequestDetail,
-        await this.handlers.detail(pinned.tabId, pr.nodeId, command.captured),
+        await this.handlers.detail(pinned.tabId, pr.nodeId, command.captured, signal),
       );
+      signal!.throwIfAborted();
       const current = await this.snapshotByTab(pinned.tabId);
       await this.database.run(this.active(await this.database.run(this.owner(pinned.tabId, true))));
       if (
@@ -558,6 +730,34 @@ export class PullRequestStore {
               );
             if (!same)
               yield* sql`UPDATE pull_requests_state SET repository = ${JSON.stringify(command.repository)}, viewer = NULL, sync = ${JSON.stringify(emptySync)} WHERE tab_id = ${tabId}`;
+          } else if (
+            command.action === "state-set" ||
+            command.action === "state-patch" ||
+            command.action === "state-delete"
+          ) {
+            const saved = decode(PullRequestsAppState, JSON.parse(current.app_state));
+            if (saved.version !== command.expectedVersion)
+              return yield* Effect.fail(
+                new ScopeError(
+                  409,
+                  "Inbox app state changed. Read the current state before saving.",
+                ),
+              );
+            const value =
+              command.action === "state-set" ? { ...command.value } : { ...saved.value };
+            if (command.action === "state-patch") {
+              for (const [key, item] of Object.entries(command.value))
+                Object.defineProperty(value, key, {
+                  value: item,
+                  enumerable: true,
+                  writable: true,
+                  configurable: true,
+                });
+            }
+            if (command.action === "state-delete")
+              for (const key of command.keys) delete value[key];
+            const appState = decode(PullRequestsAppState, { version: saved.version + 1, value });
+            yield* sql`UPDATE pull_requests_state SET app_state = ${JSON.stringify(appState)} WHERE tab_id = ${tabId}`;
           } else {
             const [row] = yield* sql<{
               facts: string;
@@ -621,11 +821,25 @@ export class PullRequestStore {
           }
           yield* sql`UPDATE pull_requests_state SET generation = generation + 1 WHERE tab_id = ${tabId}`;
           const updated = yield* owner(tabId, true);
-          yield* sql`INSERT INTO pull_requests_receipts(tab_id, request_id, node_id, payload) VALUES (${tabId}, ${command.requestId}, ${command.action === "configure" ? null : command.nodeId}, ${payload})`;
+          yield* sql`INSERT INTO pull_requests_receipts(tab_id, request_id, node_id, payload) VALUES (${tabId}, ${command.requestId}, ${"nodeId" in command ? command.nodeId : null}, ${payload})`;
           return { snapshot: yield* read(updated), changed: true };
         }),
       ),
-      (result) => (result.changed ? this.event(result.snapshot) : []),
+      (result) => {
+        if (!result.changed) return [];
+        const operation =
+          command.action === "state-set"
+            ? "set"
+            : command.action === "state-patch"
+              ? "patch"
+              : command.action === "state-delete"
+                ? "delete"
+                : undefined;
+        return this.event(
+          result.snapshot,
+          operation ? { operation, ...result.snapshot.appState! } : undefined,
+        );
+      },
     );
     return { type: "snapshot", snapshot: result.snapshot };
   }

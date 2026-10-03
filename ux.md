@@ -87,7 +87,7 @@ changing its permanence does not reorder it.
 
 New publications open in tabs without a fixed count limit. The first arrival
 selects itself when no artifact is open; later arrivals keep the current
-selection and appear unread. Arrivals wait while a creation tool is open.
+selection and appear unread.
 Startup restores saved tabs and opens queued publications. Revisions update
 unread indicators without changing selection. File content loads when first
 selected and stays mounted afterward to preserve reading position and HTML
@@ -148,9 +148,9 @@ on file tabs.
 
 Fullscreen in the search panel enters native fullscreen, keeps the selected
 artifact mounted, and hides workspace navigation. Other artifact tabs leave a
-small exit at the top right, clear of Excalidraw's centered toolbar. A grip on
-Scope's fullscreen controls lets the person drag them away from content. The
-focused grip accepts arrow keys, with Shift for larger steps, and Home restores
+small exit at the top right, clear of Excalidraw's centered toolbar. Dragging the
+frame around Scope's fullscreen controls moves them away from content. The
+focused frame accepts arrow keys, with Shift for larger steps, and Home restores
 the default position. Positions are saved per tab and stay within the window
 when it narrows.
 Diagram tabs start in Edit, with the Excalidraw tools and left menu available.
@@ -177,8 +177,7 @@ browser, preserving the artifact and unsaved input in Scope. In-page anchors,
 downloads, and forms targeting embedded frames stay in the document. If the
 browser cannot open, the artifact stays in place. The document keeps its own styling.
 
-Search opens with labeled icon controls for Settings, Fullscreen, creation
-tools. A tinted current-tab area shows the title
+Search opens with labeled icon controls for Import tab, Settings, and Fullscreen. A tinted current-tab area shows the title
 and its Download, Artifact details, retention toggle, and Move to Trashcan actions. Unavailable actions
 are omitted. Workspace controls and current-tab actions have distinct areas.
 Artifact results appear only after typing, alongside matching actions and
@@ -272,7 +271,9 @@ identify the conflicting path and recovery commands; Retry update rechecks the
 skill without rebuilding tools already at the requested commit. A completed
 skill update reminds the person to refresh or start a new agent session.
 
-Create diagram is available in the empty workspace and search panel.
+Coding agents create diagrams, plans, and PR inboxes through the publication
+commands. Search and the empty workspace offer no manual creation controls.
+The empty workspace shows existing artifacts or an example publication command.
 An existing diagram has an Ask agent conversation, closed by default.
 It sits beside the canvas at desktop widths and overlays it in a narrow
 window. Enter sends, Shift+Enter adds a line, and a pending request offers
@@ -338,16 +339,19 @@ respect the person's permanence choice. Ordinary trusted HTML remains the
 content, including scripts and external resources. The reading page uses the
 available width and height. A small floating pin control starts a comment;
 Copy and Send appear beside it when feedback is collected. The toolbar and
-Feedback overlay each have a grip for dragging away from page content. Arrow keys move a focused grip, Shift makes larger steps, and Home
-restores its default position. Scope saves positions per tab in SQLite and
+Feedback overlay move by dragging their frame or heading. Buttons and feedback
+content retain their normal interactions. Arrow keys move a focused frame,
+Shift makes larger steps, and Home restores its default position. Scope saves
+positions per tab in SQLite and
 keeps the controls inside the available area after resizing. Comment pins stay
 attached to their captured content. Focus mode hides these controls. Feedback and version history open in a compact overlay on
 request, with no reserved column or comment list. The page stays mounted when
-controls toggle, a comment is canceled, or an agent responds.
+controls toggle, a comment is canceled, or an agent responds without changing HTML.
 
 The pin control freezes the visible page at its current revision. Clicking the
-capture places one pin and opens a small comment editor beside it. Before
-placement, the capture shows only the crosshair cursor. Adding a comment
+capture places one pin and opens a small comment editor beside it with the
+text box focused for immediate typing. Moving the pin returns focus to that
+text box. Before placement, the capture shows only the crosshair cursor. Adding a comment
 saves it for the next feedback round. Enter adds it; Shift+Enter adds a line.
 The original image, marked image, geometry and text stay together. Unresolved
 pins, including unsent drafts, remain over the live page and move with document
@@ -359,7 +363,7 @@ after HTML changes or responsive reflow. Captured pins in Feedback provide
 access to saved comments and screenshots when their live pins are unavailable, including comments without capture
 position metadata.
 Unfinished comments persist across restart. Back to plan retains the draft;
-Discard comment removes it and returns to the same live page.
+Discard comment removes it and returns to the live page.
 
 Queued comments offer Delete comment in both their pin and Feedback. Deleting
 removes the comment and any screenshots no other comment uses. Submitted comments
@@ -373,9 +377,13 @@ also offer a request for the individual round. Pasting that request into a codin
 session lets the agent retrieve the saved round and its screenshots even when
 no listener is connected. Responses appear in Feedback with the original comments and a link to
 the resulting revision. Seeing a response, resolving a comment and approving a
-revision are separate actions. A response leaves the current reading page in
-place until the person chooses another revision. Restoring history creates a
-new latest revision and retains the previous versions.
+revision are separate actions. New HTML revisions automatically replace the
+reading page and select the latest version, including while viewing history.
+An open comment capture keeps its frozen image, text, and original revision
+while the live page updates behind it. An in-progress screenshot finishes
+before the live page switches. Metadata-only responses leave the page and
+its interactive state in place. Restoring history creates a new latest
+revision and retains the previous versions.
 
 ## Pull request inboxes
 
@@ -432,3 +440,28 @@ Scope supplies native stack membership and active review approval in the PR
 model. Agent-authored inboxes decide how to display or filter them. Stack
 readiness depends on all open members being out of draft; approval and CI are
 separate facts.
+
+PR inbox HTML can open movable, resizable content windows over the mounted
+inbox. The HTML supplies each window's content and opening context, including
+which PR and comparison to display. Scope supplies the same SDK, live PR data,
+window controls, and a transient message channel between the main view and
+all its windows. Each project decides its diff presentation. The starter app
+uses an HTML template that displays the raw diff, file metadata and reviews.
+It keeps the displayed comparison stable and offers Load latest comparison.
+
+Windows move by dragging their title or outer frame, leaving window buttons
+and document content interactive. They maximize to the available workspace.
+The focused frame and resize control accept arrow keys. Escape closes the
+focused window after its HTML has an opportunity to handle the key. Closing
+returns to a surviving opener or the inbox. Window
+position, size, content, and drafts remain temporary; switching tabs preserves
+the mounted windows. Failed edit flushes keep the affected windows open.
+Replacing the inbox HTML closes its old windows after all their local edits
+finish saving. Quitting flushes every window too.
+
+Projects can load PR content when opening a window or preload explicit
+candidates in batches. The starter app lets the person select up to twenty
+rows and choose Preload selected. It never loads every diff automatically.
+Partial failures retain successful loads and identify candidates to retry.
+Preloading does not mark a PR inspected or reviewed and does not subscribe it
+to continuous detail refreshes.

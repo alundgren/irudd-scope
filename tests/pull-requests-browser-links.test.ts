@@ -87,7 +87,10 @@ test("PR inbox links use the default browser across targets, modifiers, popups, 
     await opened("https://github.com/synthetic/private/pull/1");
     await frame.locator("#blank").click();
     await opened("https://github.com/synthetic/private/pull/2");
-    for (const modifier of ["Control", "Meta", "Shift"] as const) {
+    // macOS Control-click opens a context menu rather than activating the link.
+    for (const modifier of (["Control", "Meta", "Shift"] as const).filter(
+      (value) => process.platform !== "darwin" || value !== "Control",
+    )) {
       await frame.locator("#ordinary").click({ modifiers: [modifier] });
       await opened("https://github.com/synthetic/private/pull/1");
     }
@@ -111,7 +114,7 @@ test("PR inbox links use the default browser across targets, modifiers, popups, 
     await opened("https://github.com/synthetic/private/pull/9");
     await frame.locator("#stopped-popup").click({ button: "middle" });
     await opened("https://github.com/synthetic/private/pull/9");
-    await frame.locator("#stopped-popup").click({ modifiers: ["Control"] });
+    await frame.locator("#stopped-popup").click({ modifiers: ["ControlOrMeta"] });
     await opened("https://github.com/synthetic/private/pull/9");
     await frame.locator("#cancelled").click();
     await frame.locator("#scripted").click();

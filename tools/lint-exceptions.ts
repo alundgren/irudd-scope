@@ -315,8 +315,8 @@ export const lintExceptions: readonly LintException[] = [
       "These publication tests share real CLI, HTTP server, and isolated library fixtures. The file groups successful publication with authentication, forwarding, deadlines, and provenance failures at the same public entry points.",
   },
   {
-    file: "tests/desktop.test.ts",
-    at: 'test("the diagram tool creates an editable Excalidraw artifact in desktop storage", async () => {',
+    file: "tests/diagram-desktop.test.ts",
+    at: 'test("an agent-created diagram preserves editing, drafts, conflicts, and cancellation", async () => {',
     limits: { "max-lines-per-function": 311 },
     reason:
       "This complete editor journey carries one artifact and its draft through generation, editing, cancellation, failed writes, conflicts, restart, copy, and permanent close. Splitting it would lose the continuity the assertions verify.",

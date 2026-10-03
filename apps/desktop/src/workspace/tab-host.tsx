@@ -99,7 +99,7 @@ export function TabHost({
             updateOverlayPosition: (name, position) =>
               updateOverlayPosition(tab.id, name, position),
             onBeforeClose: (save) => {
-              const remove = beforeClose(save);
+              const remove = beforeClose(save, tab.id);
               saves.add(remove);
               return () => {
                 remove();

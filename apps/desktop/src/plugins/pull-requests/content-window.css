@@ -1,0 +1,55 @@
+.scope-content-window {
+  position: absolute;
+  left: 4%;
+  top: 4%;
+  width: 92%;
+  height: 92%;
+  max-width: 100%;
+  max-height: 100%;
+  background: var(--scope-panel);
+  color: var(--scope-text);
+  border: 1px solid var(--scope-outline);
+  border-radius: var(--scope-radius-dialog);
+  box-shadow: var(--scope-shadow);
+  overflow: hidden;
+  padding: var(--scope-space-1);
+}
+.scope-content-maximized {
+  border-radius: 0;
+}
+.scope-content-window > section {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.scope-content-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--scope-space-2);
+  padding: var(--scope-space-2);
+  border-bottom: 1px solid var(--scope-line);
+  background: var(--scope-strip);
+  touch-action: none;
+}
+.scope-content-toolbar h2 {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--scope-text-ui);
+  font-weight: var(--scope-weight-strong);
+}
+.scope-content-document {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+.scope-content-resize {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: var(--scope-panel);
+}

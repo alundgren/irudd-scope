@@ -1,70 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { decode } from "@irudd-scope/protocol";
-import {
-  PullRequestsCommand,
-  type PullRequestsSnapshot,
-} from "@irudd-scope/protocol/pull-requests";
+import { type PullRequestsSnapshot } from "@irudd-scope/protocol/pull-requests";
 import type { TabProps } from "../api.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
-import { pullRequestsDocument, type FrameIdentity } from "./frame-sdk.ts";
-import { PullRequestsInterest } from "./interest.ts";
+import { pullRequestsDocument } from "./frame-sdk.ts";
+import { PullRequestsFrameHost } from "./frame-host.ts";
+import { ContentWindowView } from "./content-window.tsx";
+import type { ContentWindow } from "./window-content.ts";
 
 const failureMessage = (error: unknown) =>
   error instanceof Error ? error.message : "Could not load the PR inbox.";
-type FrameCall = FrameIdentity & { id: string; method: string; args: unknown[] };
-
-function frameCommand(
-  call: FrameCall,
-  snapshot: PullRequestsSnapshot,
-  tabId: string,
-): PullRequestsCommand {
-  const base = { name: snapshot.artifact.name!, requestId: crypto.randomUUID(), tabId };
-  if (call.method === "sync") return { ...base, action: "sync" };
-  const pr = snapshot.prs.find((row) => row.nodeId === call.args[0]);
-  if (!pr) throw new Error("This pull request is no longer open. Refresh the inbox.");
-  const row = { ...base, nodeId: pr.nodeId };
-  switch (call.method) {
-    case "detail":
-      return decode(PullRequestsCommand, {
-        ...row,
-        action: "detail",
-        ...(call.args[2] === undefined ? {} : { captured: call.args[2] }),
-      });
-    case "saveNote":
-      return decode(PullRequestsCommand, {
-        ...row,
-        action: "note",
-        expectedVersion: call.args[2],
-        text: call.args[1],
-      });
-    case "setSnooze": {
-      const value = call.args[1];
-      if (!value || typeof value !== "object" || !("until" in value))
-        throw new Error("Choose a snooze date or clear the snooze.");
-      return decode(PullRequestsCommand, {
-        ...row,
-        action: "snooze",
-        expectedVersion: call.args[2],
-        snooze:
-          value.until === null
-            ? null
-            : { ...value, headOid: "headOid" in value ? value.headOid : pr.headOid },
-      });
-    }
-    case "markReviewed":
-    case "inspect":
-      return decode(PullRequestsCommand, {
-        ...row,
-        action: "review",
-        expectedVersion: call.args[2],
-        baseline: call.method === "inspect" ? "inspected" : "reviewed",
-        headOid: call.args[1],
-      });
-    default:
-      throw new Error("Unknown PR inbox operation.");
-  }
-}
-
 export function PullRequestsView({ artifact, active, theme, context }: TabProps) {
   const name = artifact?.name;
   const [content, setContent] = useState<{ html: string; revision: number }>();
@@ -74,67 +18,46 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
   const [retry, setRetry] = useState(0);
   const [freshness, setFreshness] = useState<PullRequestsSnapshot["sync"]>();
   const [prCount, setPrCount] = useState(0);
+  const [windows, setWindows] = useState<ContentWindow[]>([]);
   const [now, setNow] = useState(Date.now());
-  const iframe = useRef<HTMLIFrameElement>(null);
   const snapshot = useRef<PullRequestsSnapshot | undefined>(undefined);
-  const frameReady = useRef(false);
-  const closeRequests = useRef(
-    new Map<
-      string,
-      { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
-    >(),
-  );
-  const flushFrame = useRef<() => Promise<void>>(async () => {});
-  const sent = useRef("");
   const refresh = useRef<() => Promise<void>>(async () => {});
-  const detailInterest = useRef<PullRequestsInterest["detail"]>(null);
-  const activeRef = useRef(active);
-  activeRef.current = active;
   const identity = useMemo(
     () => ({ channel: crypto.randomUUID(), tabId: context.tabId }),
     [context.tabId, content?.revision],
   );
-  const identityRef = useRef(identity);
-  identityRef.current = identity;
-  const themeRef = useRef(theme);
-  themeRef.current = theme;
+  const host = useMemo(
+    () =>
+      new PullRequestsFrameHost({
+        name: name ?? "",
+        identity,
+        refresh: () => refresh.current(),
+        onSnapshot: (value) => {
+          snapshot.current = value;
+          setFreshness(value.sync);
+          setPrCount(value.prs.length);
+        },
+        onWindows: setWindows,
+        onError: setReadError,
+        onLinkError: setLinkError,
+      }),
+    [identity, name],
+  );
   const document = useMemo(
     () => (content ? pullRequestsDocument(content.html, identity) : undefined),
     [content, identity],
   );
-  function reportInterest(forceRefresh = false) {
-    return window.scope.pullRequestsInterest({
-      tabId: context.tabId,
-      active: activeRef.current,
-      detail: detailInterest.current,
-      ...(forceRefresh ? { refresh: true } : {}),
-    });
-  }
-  function sendSnapshot() {
-    const value = snapshot.current;
-    if (!value || value.tabId !== context.tabId || !frameReady.current) return;
-    const signature = `${identityRef.current.channel}:${value.generation}:${themeRef.current}`;
-    if (sent.current === signature) return;
-    sent.current = signature;
-    iframe.current?.contentWindow?.postMessage(
-      {
-        ...identityRef.current,
-        type: "scope-pull-requests-snapshot",
-        generation: value.generation,
-        value: {
-          pullRequests: value.prs,
-          context: {
-            name,
-            repository: value.repository,
-            viewer: value.viewer,
-            theme: themeRef.current,
-          },
-          sync: value.sync,
-        },
-      },
-      "*",
-    );
-  }
+  const flushFrame = useRef<() => Promise<void>>(async () => {});
+  flushFrame.current = () => host.flushAll("close");
+  useEffect(() => {
+    setWindows([]);
+    const stop = host.start();
+    const stopClosing = context.onBeforeClose((purpose) => host.flushAll(purpose));
+    return () => {
+      stopClosing();
+      stop();
+    };
+  }, [host, context.tabId]);
   useEffect(() => {
     if (!name) return;
     let mounted = true;
@@ -159,10 +82,7 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
               reply.snapshot.tabId === context.tabId &&
               reply.snapshot.generation >= (snapshot.current?.generation ?? -1)
             ) {
-              snapshot.current = reply.snapshot;
-              setFreshness(reply.snapshot.sync);
-              setPrCount(reply.snapshot.prs.length);
-              sendSnapshot();
+              host.setSnapshot(reply.snapshot);
               setReadError("");
             }
           } catch (error) {
@@ -177,11 +97,15 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
     refresh.current = reload;
     // Subscribe first so a write during the initial read always triggers another full read.
     const stopChanges = window.scope.onPullRequestsChanged((event) => {
-      if (event.name === name && event.id === artifact?.id) void reload();
+      if (event.name === name && event.id === artifact?.id) {
+        if (event.stateChange && event.tabId === context.tabId)
+          host.stateChanged(event.stateChange);
+        void reload();
+      }
     });
     const stopReconnect = window.scope.onPullRequestsReconnected(() => {
       void reload();
-      void reportInterest(true).catch(() => {});
+      void host.refreshInterest().catch(() => {});
     });
     void reload();
     return () => {
@@ -189,7 +113,7 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
       stopChanges();
       stopReconnect();
     };
-  }, [name, context.tabId, retry]);
+  }, [name, context.tabId, retry, host]);
   useEffect(() => {
     if (!artifact) return;
     let mounted = true;
@@ -213,239 +137,15 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
     };
   }, [artifact?.id, artifact?.revision, retry]);
   useEffect(() => {
-    let commands = Promise.resolve();
-    let mounted = true;
-    let registration: Promise<void> | undefined;
-    const stopLinks = window.scope.onPullRequestsLinkResult((result) => {
-      if (result.tabId !== context.tabId || result.channel !== identity.channel) return;
-      setLinkError(
-        result.error ? `Could not open the browser. ${result.error} Retry the link.` : "",
-      );
-      iframe.current?.contentWindow?.postMessage(
-        {
-          ...identity,
-          type: "scope-pull-requests-link-result",
-          url: result.url,
-          error: result.error,
-        },
-        "*",
-      );
-    });
-    flushFrame.current = () => {
-      if (!frameReady.current) return Promise.resolve();
-      const id = crypto.randomUUID();
-      return new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          closeRequests.current.delete(id);
-          reject(new Error("The PR app did not finish saving. Retry before closing."));
-        }, 8_000);
-        closeRequests.current.set(id, { resolve, reject, timer });
-        iframe.current?.contentWindow?.postMessage(
-          { ...identity, type: "scope-pull-requests-close", id },
-          "*",
-        );
-      });
-    };
-    const stopClosing = context.onBeforeClose(() => flushFrame.current());
-    function receive(event: MessageEvent) {
-      const call = event.data;
-      if (
-        event.source !== iframe.current?.contentWindow ||
-        call?.channel !== identity.channel ||
-        call?.tabId !== context.tabId
-      )
-        return;
-      if (call.type === "scope-pull-requests-flushed") {
-        const pending = closeRequests.current.get(call.id);
-        if (!pending) return;
-        clearTimeout(pending.timer);
-        closeRequests.current.delete(call.id);
-        if (call.error) pending.reject(new Error(call.error));
-        else pending.resolve();
-        return;
-      }
-      if (call.type === "scope-pull-requests-ready") {
-        if (!registration && name) {
-          registration = window.scope.registerPullRequestsFrame({ ...identity, name });
-          void registration.catch(() => {
-            if (mounted) setLinkError("Could not set up browser links. Reopen the inbox.");
-          });
-        }
-        sent.current = "";
-        frameReady.current = true;
-        sendSnapshot();
-        return;
-      }
-      if (call.type === "scope-pull-requests-interest") {
-        try {
-          const input = decode(PullRequestsInterest, {
-            tabId: context.tabId,
-            active: activeRef.current,
-            detail: call.detail,
-          });
-          detailInterest.current = input.detail;
-          void reportInterest().catch((error: unknown) => {
-            if (mounted) setReadError(failureMessage(error));
-          });
-        } catch (error) {
-          setReadError(failureMessage(error));
-        }
-        return;
-      }
-      if (
-        call.type !== "scope-pull-requests-call" ||
-        typeof call.id !== "string" ||
-        typeof call.method !== "string" ||
-        !Array.isArray(call.args)
-      )
-        return;
-      if (call.method === "openExternal") {
-        void (async () => {
-          let error: string | undefined;
-          try {
-            if (!name || call.args.length !== 1 || typeof call.args[0] !== "string")
-              throw new Error("Choose a valid PR inbox link.");
-            await window.scope.openPullRequestsLink({
-              name,
-              tabId: context.tabId,
-              url: call.args[0],
-            });
-            if (mounted) setLinkError("");
-          } catch (failure) {
-            error = failureMessage(failure).replace(
-              /^Error invoking remote method 'scope:open-pull-requests-link': Error: /,
-              "",
-            );
-            if (mounted) setLinkError(`Could not open the browser. ${error} Retry the link.`);
-          }
-          if (mounted)
-            iframe.current?.contentWindow?.postMessage(
-              { ...identity, type: "scope-pull-requests-reply", id: call.id, error },
-              "*",
-            );
-        })();
-        return;
-      }
-      const execute = async () => {
-        if (!mounted) return;
-        try {
-          if (!snapshot.current) {
-            await refresh.current();
-            if (!snapshot.current)
-              throw new Error("The inbox is still loading. Retry in a moment.");
-          }
-          const reply = await window.scope.pullRequestsCommand(
-            frameCommand(call, snapshot.current, context.tabId),
-          );
-          if (!mounted) return;
-          if ((reply.type === "snapshot" ? reply.snapshot.tabId : reply.tabId) !== context.tabId)
-            throw new Error("This reply belongs to another PR inbox.");
-          if (reply.type === "detail" && reply.nodeId !== call.args[0])
-            throw new Error("These details belong to another pull request.");
-          if (
-            reply.type === "snapshot" &&
-            reply.snapshot.generation >= snapshot.current.generation
-          ) {
-            snapshot.current = reply.snapshot;
-            setFreshness(reply.snapshot.sync);
-            setPrCount(reply.snapshot.prs.length);
-            sendSnapshot();
-          }
-          const local =
-            reply.type === "snapshot"
-              ? reply.snapshot.prs.find((pr) => pr.nodeId === call.args[0])?.local
-              : undefined;
-          const version =
-            call.method === "saveNote"
-              ? local?.noteVersion
-              : call.method === "setSnooze"
-                ? local?.snoozeVersion
-                : local?.reviewVersion;
-          iframe.current?.contentWindow?.postMessage(
-            {
-              ...identity,
-              type: "scope-pull-requests-reply",
-              id: call.id,
-              value:
-                reply.type === "detail"
-                  ? reply.detail
-                  : version === undefined
-                    ? undefined
-                    : { version },
-            },
-            "*",
-          );
-        } catch (error) {
-          await refresh.current();
-          if (mounted)
-            iframe.current?.contentWindow?.postMessage(
-              {
-                ...identity,
-                type: "scope-pull-requests-reply",
-                id: call.id,
-                error: failureMessage(error),
-              },
-              "*",
-            );
-        }
-      };
-      if (call.method === "sync" || call.method === "detail") void execute();
-      else commands = commands.then(execute);
-    }
-    window.addEventListener("message", receive);
-    const stopDetails = window.scope.onPullRequestsDetailUpdate((update) => {
-      const current = detailInterest.current;
-      if (
-        !mounted ||
-        !frameReady.current ||
-        !current ||
-        update.tabId !== context.tabId ||
-        update.nodeId !== current?.nodeId ||
-        update.headOid !== current.headOid ||
-        update.baseOid !== current.baseOid
-      )
-        return;
-      iframe.current?.contentWindow?.postMessage(
-        { ...identity, type: "scope-pull-requests-detail-update", value: update },
-        "*",
-      );
-    });
-    return () => {
-      mounted = false;
-      frameReady.current = false;
-      stopClosing();
-      stopLinks();
-      if (registration && name)
-        void registration
-          .then(() => window.scope.unregisterPullRequestsFrame({ ...identity, name }))
-          .catch(() => {});
-      for (const pending of closeRequests.current.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error("The PR app closed before saving completed."));
-      }
-      closeRequests.current.clear();
-      window.removeEventListener("message", receive);
-      stopDetails();
-      detailInterest.current = null;
-      void reportInterest().catch(() => {});
-    };
-  }, [identity, context.tabId]);
-  useEffect(() => {
-    sendSnapshot();
-  }, [theme]);
+    host.setTheme(theme);
+  }, [theme, host]);
   useEffect(() => {
     if (!name) return;
-    void reportInterest().catch((error: unknown) => setReadError(failureMessage(error)));
+    void host.setActive(active).catch((error: unknown) => setReadError(failureMessage(error)));
     return () => {
-      void window.scope
-        .pullRequestsInterest({
-          tabId: context.tabId,
-          active: false,
-          detail: null,
-        })
-        .catch(() => {});
+      void host.setActive(false).catch(() => {});
     };
-  }, [active, name, context.tabId]);
+  }, [active, name, host]);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15_000);
     return () => clearInterval(timer);
@@ -480,7 +180,7 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
       ? ` · Retrying at ${new Date(freshness.nextAttemptAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
       : "";
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", position: "relative" }}>
       {freshness && (
         <div
           role="status"
@@ -509,20 +209,38 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
           </Button>
         </div>
       )}
-      {document && (
-        <iframe
-          key={identity.channel}
-          ref={iframe}
-          name={`scope-pull-requests-${context.tabId}-${identity.channel}`}
-          title={artifact?.title ?? "PR inbox"}
-          className="html-preview pull-requests-document"
-          style={{ flex: 1, minHeight: 0 }}
-          srcDoc={document}
-          onLoad={() => {
-            if (content?.revision === artifact?.revision) setContentError("");
-          }}
-        />
-      )}
+      <div
+        style={{
+          position: "relative",
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        {document && (
+          <iframe
+            key={identity.channel}
+            ref={(element) => host.attach("main", element)}
+            name={`scope-pull-requests-${context.tabId}-${identity.channel}`}
+            title={artifact?.title ?? "PR inbox"}
+            className="html-preview pull-requests-document"
+            style={{ flex: 1, minHeight: 0 }}
+            srcDoc={document}
+            onLoad={() => {
+              if (content?.revision === artifact?.revision) setContentError("");
+            }}
+          />
+        )}
+        {windows.map((content) => (
+          <ContentWindowView
+            key={content.environment.id}
+            content={content}
+            host={host}
+            onError={setReadError}
+          />
+        ))}
+      </div>
     </div>
   );
 }
