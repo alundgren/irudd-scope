@@ -169,7 +169,10 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
             detail: {
               headOid: row.headOid,
               body: "A synthetic pull request description.",
-              diff: "diff --git a/example.ts b/example.ts\n+const commit = " + row.headOid + ";",
+              diff:
+                "diff --git a/example.ts b/example.ts\n--- a/example.ts\n+++ b/example.ts\n@@ -0,0 +1 @@\n+const commit = " +
+                row.headOid +
+                ";",
               reviews: [
                 {
                   id: "review-1",
@@ -283,13 +286,15 @@ test("live reviews preserve captured code and drafts, and closing the pane stops
     await frame.getByText("reviewer · APPROVED\nLive review arrived", { exact: true }).waitFor();
     expect(await frame.getByLabel("Your notes").inputValue()).toBe("Keep my unfinished note");
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
-    await expect.poll(() => frame.locator("#content").textContent()).toContain(head);
+    const diffWindow = page.getByRole("dialog", { name: "Changes in #1" });
+    await diffWindow.getByText("const commit = " + head + ";", { exact: true }).waitFor();
     await sendChange(app, "new-head");
     await frame
       .getByRole("button", { name: "New commit available · Load latest commit" })
       .waitFor();
     expect(await frame.locator("#head").textContent()).toBe(head.slice(0, 12));
-    await expect.poll(() => frame.locator("#content").textContent()).toContain(head);
+    await diffWindow.getByText("const commit = " + head + ";", { exact: true }).waitFor();
+    await diffWindow.getByRole("button", { name: "Load latest comparison" }).waitFor();
     await app.evaluate(
       ({ BrowserWindow }, value) => {
         BrowserWindow.getAllWindows()[0]!.webContents.send(
@@ -304,6 +309,7 @@ test("live reviews preserve captured code and drafts, and closing the pane stops
         fetchedAt: "2026-10-02T12:01:00.000Z",
       },
     );
+    await diffWindow.getByRole("button", { name: "Close diff window" }).click();
     await frame.getByRole("button", { name: "Body", exact: true }).click();
     await expect.poll(() => frame.locator("#content").textContent()).toBe("Updated description");
     await frame.getByRole("button", { name: "Back to inbox" }).click();
@@ -401,7 +407,10 @@ test("a captured pane rejects a changed base until loading the latest comparison
       .click();
     await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
-    await expect.poll(() => frame.locator("#content").textContent()).toContain(head);
+    await page
+      .getByRole("dialog", { name: "Changes in #1" })
+      .getByText("const commit = " + head + ";", { exact: true })
+      .waitFor();
     const captured = await app.evaluate(() =>
       (
         globalThis as unknown as {
@@ -415,6 +424,7 @@ test("a captured pane rejects a changed base until loading the latest comparison
     );
     expect(captured).toEqual([
       { headOid: head, baseOid: base },
+      { headOid: head, baseOid: changedBase },
       { headOid: head, baseOid: changedBase },
     ]);
   } finally {
@@ -826,11 +836,9 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
       .click();
     await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
-    await frame
-      .getByText("diff --git a/example.ts b/example.ts\n+const commit = " + head + ";", {
-        exact: true,
-      })
-      .waitFor();
+    const diffWindow = page.getByRole("dialog", { name: "Changes in #1" });
+    await diffWindow.getByText("const commit = " + head + ";", { exact: true }).waitFor();
+    await diffWindow.getByRole("button", { name: "Close diff window" }).click();
     await sendChange(app, "note-error");
     await frame.getByLabel("Your notes").fill("Keep this note after a failure");
     await page.getByRole("button", { name: "Search and controls" }).click();
@@ -860,7 +868,9 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
         .count(),
     ).toBe(1);
     expect(await frame.locator("#head").textContent()).toBe(head.slice(0, 12));
-    expect(await frame.locator("#content").textContent()).toContain(head);
+    expect(await frame.locator("#content").textContent()).toBe(
+      "A synthetic pull request description.",
+    );
     expect(await frame.getByLabel("Your notes").inputValue()).toBe(
       "Keep this note after a failure",
     );
@@ -880,7 +890,9 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
     await frame.getByRole("heading", { name: "New head while inspecting" }).waitFor();
     await frame.getByText("Changed since your review of " + head.slice(0, 12)).waitFor();
     expect(await frame.locator("#head").textContent()).toBe(newerHead.slice(0, 12));
-    await expect.poll(() => frame.locator("#content").textContent()).toContain(newerHead);
+    await expect
+      .poll(() => frame.locator("#content").textContent())
+      .toBe("A synthetic pull request description.");
     await frame.getByRole("button", { name: "Mark this commit reviewed" }).click();
     await frame.getByText("This commit is marked reviewed.").waitFor();
     expect(
@@ -1076,6 +1088,10 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
     });
     await frame.getByLabel("Your notes").fill("User draft begun at version zero");
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Changes in #1" })
+      .getByRole("button", { name: "Close diff window" })
+      .click();
     await expect
       .poll(() =>
         app.evaluate(

@@ -12,6 +12,9 @@
   --scope-on-accent: light-dark(#ffffff, #121212);
   --scope-selected: light-dark(#e3e2fe, #403e6a);
   --scope-danger: light-dark(#b42335, #ff99a4);
+  --scope-success: light-dark(#16652d, #7ee787);
+  --scope-diff-added: light-dark(#dafbe1, #20352a);
+  --scope-diff-removed: light-dark(#ffebe9, #48282f);
   --scope-shadow: 0 2px 12px light-dark(#1b1b1f12, #00000045);
   --scope-overlay: light-dark(#1b1b1f30, #00000066);
   --scope-font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;

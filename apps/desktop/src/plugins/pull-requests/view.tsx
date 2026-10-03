@@ -8,6 +8,7 @@ import type { TabProps } from "../api.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { pullRequestsDocument, type FrameIdentity } from "./frame-sdk.ts";
 import { PullRequestsInterest } from "./interest.ts";
+import { DiffWindow, type DiffRequest } from "./diff-window.tsx";
 
 const failureMessage = (error: unknown) =>
   error instanceof Error ? error.message : "Could not load the PR inbox.";
@@ -25,6 +26,7 @@ function frameCommand(
   const row = { ...base, nodeId: pr.nodeId };
   switch (call.method) {
     case "detail":
+    case "openDiff":
       return decode(PullRequestsCommand, {
         ...row,
         action: "detail",
@@ -74,6 +76,7 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
   const [retry, setRetry] = useState(0);
   const [freshness, setFreshness] = useState<PullRequestsSnapshot["sync"]>();
   const [prCount, setPrCount] = useState(0);
+  const [diff, setDiff] = useState<DiffRequest>();
   const [now, setNow] = useState(Date.now());
   const iframe = useRef<HTMLIFrameElement>(null);
   const snapshot = useRef<PullRequestsSnapshot | undefined>(undefined);
@@ -88,6 +91,7 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
   const sent = useRef("");
   const refresh = useRef<() => Promise<void>>(async () => {});
   const detailInterest = useRef<PullRequestsInterest["detail"]>(null);
+  const diffInterest = useRef<PullRequestsInterest["detail"]>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
   const identity = useMemo(
@@ -106,7 +110,7 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
     return window.scope.pullRequestsInterest({
       tabId: context.tabId,
       active: activeRef.current,
-      detail: detailInterest.current,
+      detail: diffInterest.current ?? detailInterest.current,
       ...(forceRefresh ? { refresh: true } : {}),
     });
   }
@@ -212,6 +216,16 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
       mounted = false;
     };
   }, [artifact?.id, artifact?.revision, retry]);
+  useEffect(() => {
+    setDiff(undefined);
+  }, [identity]);
+  useEffect(() => {
+    diffInterest.current = diff ? { nodeId: diff.pr.nodeId, ...diff.command.captured! } : null;
+    void reportInterest().catch(() => {});
+    return () => {
+      diffInterest.current = null;
+    };
+  }, [diff]);
   useEffect(() => {
     let commands = Promise.resolve();
     let mounted = true;
@@ -334,9 +348,24 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
             if (!snapshot.current)
               throw new Error("The inbox is still loading. Retry in a moment.");
           }
-          const reply = await window.scope.pullRequestsCommand(
-            frameCommand(call, snapshot.current, context.tabId),
-          );
+          if (!mounted) return;
+          const command = frameCommand(call, snapshot.current, context.tabId);
+          if (call.method === "openDiff" && command.action === "detail") {
+            const pr = snapshot.current.prs.find((row) => row.nodeId === command.nodeId)!;
+            setDiff({
+              pr,
+              command: {
+                ...command,
+                captured: command.captured ?? { headOid: pr.headOid, baseOid: pr.baseOid },
+              },
+            });
+            iframe.current?.contentWindow?.postMessage(
+              { ...identity, type: "scope-pull-requests-reply", id: call.id },
+              "*",
+            );
+            return;
+          }
+          const reply = await window.scope.pullRequestsCommand(command);
           if (!mounted) return;
           if ((reply.type === "snapshot" ? reply.snapshot.tabId : reply.tabId) !== context.tabId)
             throw new Error("This reply belongs to another PR inbox.");
@@ -389,7 +418,7 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
             );
         }
       };
-      if (call.method === "sync" || call.method === "detail") void execute();
+      if (["sync", "detail", "openDiff"].includes(call.method)) void execute();
       else commands = commands.then(execute);
     }
     window.addEventListener("message", receive);
@@ -480,7 +509,7 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
       ? ` · Retrying at ${new Date(freshness.nextAttemptAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
       : "";
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", position: "relative" }}>
       {freshness && (
         <div
           role="status"
@@ -520,6 +549,25 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
           srcDoc={document}
           onLoad={() => {
             if (content?.revision === artifact?.revision) setContentError("");
+          }}
+        />
+      )}
+      {diff && (
+        <DiffWindow
+          request={diff}
+          latest={snapshot.current?.prs.find((pr) => pr.nodeId === diff.pr.nodeId)}
+          onLatest={(pr) =>
+            setDiff({
+              pr,
+              command: { ...diff.command, captured: { headOid: pr.headOid, baseOid: pr.baseOid } },
+            })
+          }
+          onClose={() => {
+            setDiff(undefined);
+            iframe.current?.contentWindow?.focus();
+            const focused = iframe.current?.contentDocument?.activeElement;
+            if (focused && "focus" in focused && typeof focused.focus === "function")
+              focused.focus();
           }}
         />
       )}

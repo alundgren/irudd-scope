@@ -39,7 +39,7 @@ function installPullRequestsSDK(identity: FrameIdentity) {
       await Promise.all([...closing].map((callback) => callback()));
       await Promise.all(
         [...pending.values()]
-          .filter((call) => !["sync", "detail", "openExternal"].includes(call.method))
+          .filter((call) => !["sync", "detail", "openExternal", "openDiff"].includes(call.method))
           .map((call) => call.promise),
       );
     } catch (failure) {
@@ -123,6 +123,8 @@ function installPullRequestsSDK(identity: FrameIdentity) {
   });
   const sdk = Object.freeze({
     openExternal: (url: string) => send("openExternal", [url]),
+    openDiff: (pullRequestId: string, captured?: { headOid: string; baseOid: string }) =>
+      send("openDiff", [pullRequestId, "diff", captured]),
     watch(watcher: Watcher) {
       watchers.add(watcher);
       if (latest) watcher(latest.pullRequests, latest.context, latest.sync);

@@ -269,6 +269,15 @@ snapshot. The array and all nested records are frozen. Derive views with
 ordinary predicates, sorting a copied array rather than mutating `prs`.
 Named views, selection, and review navigation belong to the HTML app.
 
+Call `openDiff(nodeId, { headOid, baseOid })` from the file action to open
+Scope's movable, resizable diff window. The commit pair is optional; omitting
+it captures the host's current comparison. Supply the displayed pair when the
+HTML keeps an older selection. The Promise resolves when the host opens the
+window and rejects invalid requests. File loading, errors, Retry, and Load
+latest comparison are handled in the window. It offers file navigation,
+unified and split diffs, and maximize/restore. Closing returns to the mounted
+inbox. This operation does not write review decisions or submit GitHub reviews.
+
 `watchDetail` updates include `tabId`, `nodeId`, captured `headOid` and `baseOid`,
 `body`, `reviews`, `fetchedAt`, and `error`. Error updates omit body/reviews; keep
 the prior content. Unsubscribe when closing or switching the pane. Initial

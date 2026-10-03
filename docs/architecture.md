@@ -185,6 +185,12 @@ reloads durable state after invalidation or reconnect. Refreshing PR state
 preserves the iframe; publishing a new HTML revision replaces it after pending
 local edits finish saving. Transient notices carry no replay history.
 
+The HTML SDK's `openDiff` operation opens the plugin's renderer-owned diff
+window. It uses the existing validated detail command with captured head and
+base commits. The renderer parses Git's unified diff for numbered unified and
+split views; credentials and GitHub reads stay in main. Window position, size,
+layout, and file selection exist only in renderer memory.
+
 Configured inboxes refresh automatically while Scope is running and awake.
 Selection, wake, and reconnect request coalesced fresh reads; Sync remains a
 fallback. Foreground, background, and inspected-PR reads use different target
