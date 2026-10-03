@@ -148,9 +148,9 @@ on file tabs.
 
 Fullscreen in the search panel enters native fullscreen, keeps the selected
 artifact mounted, and hides workspace navigation. Other artifact tabs leave a
-small exit at the top right, clear of Excalidraw's centered toolbar. A grip on
-Scope's fullscreen controls lets the person drag them away from content. The
-focused grip accepts arrow keys, with Shift for larger steps, and Home restores
+small exit at the top right, clear of Excalidraw's centered toolbar. Dragging the
+frame around Scope's fullscreen controls moves them away from content. The
+focused frame accepts arrow keys, with Shift for larger steps, and Home restores
 the default position. Positions are saved per tab and stay within the window
 when it narrows.
 Diagram tabs start in Edit, with the Excalidraw tools and left menu available.
@@ -338,8 +338,10 @@ respect the person's permanence choice. Ordinary trusted HTML remains the
 content, including scripts and external resources. The reading page uses the
 available width and height. A small floating pin control starts a comment;
 Copy and Send appear beside it when feedback is collected. The toolbar and
-Feedback overlay each have a grip for dragging away from page content. Arrow keys move a focused grip, Shift makes larger steps, and Home
-restores its default position. Scope saves positions per tab in SQLite and
+Feedback overlay move by dragging their frame or heading. Buttons and feedback
+content retain their normal interactions. Arrow keys move a focused frame,
+Shift makes larger steps, and Home restores its default position. Scope saves
+positions per tab in SQLite and
 keeps the controls inside the available area after resizing. Comment pins stay
 attached to their captured content. Focus mode hides these controls. Feedback and version history open in a compact overlay on
 request, with no reserved column or comment list. The page stays mounted when
@@ -446,9 +448,11 @@ all its windows. Each project decides its diff presentation. The starter app
 uses an HTML template that displays the raw diff, file metadata and reviews.
 It keeps the displayed comparison stable and offers Load latest comparison.
 
-Windows maximize to the available workspace. Move and resize controls accept
-arrow keys. Escape closes the focused window after its HTML has an opportunity
-to handle the key. Closing returns to a surviving opener or the inbox. Window
+Windows move by dragging their title or outer frame, leaving window buttons
+and document content interactive. They maximize to the available workspace.
+The focused frame and resize control accept arrow keys. Escape closes the
+focused window after its HTML has an opportunity to handle the key. Closing
+returns to a surviving opener or the inbox. Window
 position, size, content, and drafts remain temporary; switching tabs preserves
 the mounted windows. Failed edit flushes keep the affected windows open.
 Replacing the inbox HTML closes its old windows after all their local edits

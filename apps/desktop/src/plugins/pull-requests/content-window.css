@@ -12,6 +12,7 @@
   border-radius: var(--scope-radius-dialog);
   box-shadow: var(--scope-shadow);
   overflow: hidden;
+  padding: var(--scope-space-1);
 }
 .scope-content-maximized {
   border-radius: 0;
@@ -28,6 +29,7 @@
   padding: var(--scope-space-2);
   border-bottom: 1px solid var(--scope-line);
   background: var(--scope-strip);
+  touch-action: none;
 }
 .scope-content-toolbar h2 {
   flex: 1;
@@ -37,10 +39,6 @@
   white-space: nowrap;
   font-size: var(--scope-text-ui);
   font-weight: var(--scope-weight-strong);
-}
-.scope-content-toolbar .floating-overlay-move {
-  touch-action: none;
-  cursor: move;
 }
 .scope-content-document {
   flex: 1;

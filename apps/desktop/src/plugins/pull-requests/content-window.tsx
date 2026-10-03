@@ -46,59 +46,54 @@ export function ContentWindowView({
       label="content window"
       position={maximized ? { x: 0, y: 0 } : position}
       onPosition={setPosition}
+      disabled={maximized}
+      onActivate={() => host.focus(content.environment.id)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          void close();
+        }
+      }}
       style={{ ...(maximized ? { width: "100%", height: "100%" } : size), zIndex: content.z }}
     >
-      {(handle) => (
-        <section
-          role="dialog"
-          aria-label={content.title}
-          onFocusCapture={() => host.focus(content.environment.id)}
-          onPointerDown={() => host.focus(content.environment.id)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && !event.defaultPrevented) {
-              event.preventDefault();
-              event.stopPropagation();
-              void close();
-            }
+      <section role="dialog" aria-label={content.title}>
+        <header
+          className="scope-content-toolbar"
+          onDoubleClick={(event) => {
+            if (!(event.target as Element).closest("button")) setMaximized((value) => !value);
           }}
         >
-          <header
-            className="scope-content-toolbar"
-            onDoubleClick={(event) => {
-              if (!(event.target as Element).closest("button")) setMaximized((value) => !value);
-            }}
+          <h2 title={content.title}>{content.title}</h2>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={maximized ? "Restore content window" : "Maximize content window"}
+            onClick={() => setMaximized((value) => !value)}
           >
-            {!maximized && handle}
-            <h2 title={content.title}>{content.title}</h2>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={maximized ? "Restore content window" : "Maximize content window"}
-              onClick={() => setMaximized((value) => !value)}
-            >
-              {maximized ? <Minimize2 /> : <Maximize2 />}
-            </Button>
-            <Button
-              ref={closeButton}
-              variant="ghost"
-              size="icon-sm"
-              disabled={closing}
-              aria-label="Close content window"
-              onClick={() => void close()}
-            >
-              <X />
-            </Button>
-          </header>
-          <iframe
-            ref={(element) => host.attach(content.environment.id, element)}
-            name={`scope-pull-requests-${content.identity.tabId}-${content.identity.channel}`}
-            title={content.title}
-            className="html-preview scope-content-document"
-            srcDoc={document}
-          />
-          {!maximized && <ResizeGrip onSize={setSize} />}
-        </section>
-      )}
+            {maximized ? <Minimize2 /> : <Maximize2 />}
+          </Button>
+          <Button
+            ref={closeButton}
+            variant="ghost"
+            size="icon-sm"
+            disabled={closing}
+            aria-label="Close content window"
+            onClick={() => void close()}
+          >
+            <X />
+          </Button>
+        </header>
+        <iframe
+          ref={(element) => host.attach(content.environment.id, element)}
+          name={`scope-pull-requests-${content.identity.tabId}-${content.identity.channel}`}
+          title={content.title}
+          className="html-preview scope-content-document"
+          data-floating-overlay-content
+          srcDoc={document}
+        />
+        {!maximized && <ResizeGrip onSize={setSize} />}
+      </section>
     </FloatingOverlay>
   );
 }

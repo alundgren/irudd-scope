@@ -435,43 +435,37 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           key={active.id}
           className="focus-controls"
           label="fullscreen controls"
-          handleSize="icon-xs"
           position={active.overlayPositions?.fullscreen}
           onPosition={(position) => updateOverlayPosition(active.id, "fullscreen", position)}
         >
-          {(handle) => (
-            <>
-              {handle}
-              {hasModes ? (
-                <NativeSelect
-                  size="sm"
-                  className="fullscreen-mode-select"
-                  ref={modeSelect}
-                  aria-label={html ? "Fullscreen HTML mode" : "Fullscreen diagram mode"}
-                  value={html && fullscreenMode === "edit" ? "view" : fullscreenMode}
-                  onChange={(event) => {
-                    if (event.target.value === "tabs") toggleFocus();
-                    else setFullscreenMode(event.target.value as FullscreenMode);
-                  }}
-                >
-                  {!html && <NativeSelectOption value="edit">Edit</NativeSelectOption>}
-                  <NativeSelectOption value="view">View</NativeSelectOption>
-                  <NativeSelectOption value="present">Present</NativeSelectOption>
-                  <NativeSelectOption value="tabs">Back to tabs</NativeSelectOption>
-                </NativeSelect>
-              ) : (
-                <Button
-                  variant="secondary"
-                  size="icon-xs"
-                  ref={controlsButton}
-                  aria-label="Exit focus mode"
-                  title="Exit fullscreen · Escape"
-                  onClick={toggleFocus}
-                >
-                  <Minimize2 />
-                </Button>
-              )}
-            </>
+          {hasModes ? (
+            <NativeSelect
+              size="sm"
+              className="fullscreen-mode-select"
+              ref={modeSelect}
+              aria-label={html ? "Fullscreen HTML mode" : "Fullscreen diagram mode"}
+              value={html && fullscreenMode === "edit" ? "view" : fullscreenMode}
+              onChange={(event) => {
+                if (event.target.value === "tabs") toggleFocus();
+                else setFullscreenMode(event.target.value as FullscreenMode);
+              }}
+            >
+              {!html && <NativeSelectOption value="edit">Edit</NativeSelectOption>}
+              <NativeSelectOption value="view">View</NativeSelectOption>
+              <NativeSelectOption value="present">Present</NativeSelectOption>
+              <NativeSelectOption value="tabs">Back to tabs</NativeSelectOption>
+            </NativeSelect>
+          ) : (
+            <Button
+              variant="secondary"
+              size="icon-xs"
+              ref={controlsButton}
+              aria-label="Exit focus mode"
+              title="Exit fullscreen · Escape"
+              onClick={toggleFocus}
+            >
+              <Minimize2 />
+            </Button>
           )}
         </FloatingOverlay>
       )}
