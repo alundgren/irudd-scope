@@ -1,5 +1,5 @@
 import { expect, test } from "vite-plus/test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PullRequestsSnapshot } from "@irudd-scope/protocol/pull-requests";
@@ -8,6 +8,7 @@ import { desktopFixture } from "./desktop-fixture.ts";
 test("a native inbox syncs through gh, preserves local edits across refresh and HTML updates, and restores after restart", async () => {
   const ghDirectory = await mkdtemp(join(tmpdir(), "scope-pr-journey-gh-"));
   const stateFile = join(ghDirectory, "state.json");
+  const readsFile = join(ghDirectory, "reads.jsonl");
   const head = "a".repeat(40),
     newerHead = "b".repeat(40),
     base = "c".repeat(40);
@@ -37,8 +38,9 @@ Binary files a/image.png and b/image.png differ
   await writeFile(
     join(ghDirectory, "gh"),
     `#!${process.execPath}
-import { readFileSync } from 'node:fs';
+import { readFileSync, appendFileSync } from 'node:fs';
 const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(readsFile)}, JSON.stringify(args)+'\\n');
 const state = JSON.parse(readFileSync(${JSON.stringify(stateFile)}, 'utf8'));
 if (state.fail) { console.error('Synthetic offline GitHub'); process.exit(1); }
 const complete = { hasNextPage: false, endCursor: null };
@@ -79,39 +81,36 @@ else throw new Error('Unexpected GitHub read');
     await page.getByLabel("Name, optional", { exact: true }).fill("journey-inbox");
     await page.getByRole("button", { name: "Create PR inbox", exact: true }).click();
     let frame = page.frameLocator(".pull-requests-document");
+    await frame.getByRole("checkbox", { name: "Preload content for #1", exact: true }).check();
+    await frame.getByRole("button", { name: "Preload selected 1", exact: true }).click();
+    await frame.getByText("Selected PR content is ready.", { exact: true }).waitFor();
     await frame
       .getByRole("button", { name: "View changed files for #1", exact: true })
       .locator("svg path")
       .click();
-    const viewer = page.getByRole("dialog", { name: "Changes in #1" });
-    await viewer.getByText("new value", { exact: true }).waitFor();
-    expect(await viewer.getByRole("row").filter({ hasText: "old value" }).textContent()).toBe(
-      "11−old value",
-    );
-    expect(await viewer.getByText("<script>literal code</script>", { exact: true }).count()).toBe(
-      1,
-    );
-    await viewer.getByRole("button", { name: "Split", exact: true }).click();
-    expect(await viewer.getByRole("row").filter({ hasText: "old value" }).textContent()).toBe(
-      "11−old value11+new value",
-    );
-    await viewer.getByRole("button", { name: /new name.ts/ }).click();
-    await viewer.getByText("Renamed from old name.ts", { exact: true }).waitFor();
-    await viewer.getByRole("button", { name: /café.ts/ }).click();
-    await viewer.getByText("new café", { exact: true }).waitFor();
-    await viewer.getByRole("button", { name: /image.png/ }).click();
-    await viewer
-      .getByText("Binary files a/image.png and b/image.png differ", { exact: true })
-      .first()
-      .waitFor();
-    await viewer.getByRole("button", { name: /example.ts/ }).click();
-    const window = page.locator(".pr-diff-window");
+    const viewerChrome = page.getByRole("dialog", { name: "Changes in #1" });
+    const viewer = page.frameLocator(".scope-content-document");
+    await viewer.getByText("new value").waitFor();
+    expect(
+      (await readFile(readsFile, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as string[])
+        .filter((args) => args[0] === "pr" && args[1] === "diff"),
+    ).toHaveLength(1);
+    await viewer.getByText("<script>literal code</script>").waitFor();
+    await viewer.getByText("rename from old name.ts").waitFor();
+    await viewer.getByText("new café").waitFor();
+    await viewer.getByText("Binary files a/image.png and b/image.png differ").waitFor();
+    const window = page.locator(".scope-content-window");
     const original = (await window.boundingBox())!;
-    await viewer.getByRole("button", { name: "Move diff window" }).focus();
+    await viewerChrome.getByRole("button", { name: "Move content window" }).focus();
     await page.keyboard.press("ArrowLeft");
     await page.keyboard.press("ArrowDown");
     expect((await window.boundingBox())!.x).toBeCloseTo(original.x - 10, 1);
-    const grip = (await viewer.getByRole("button", { name: "Move diff window" }).boundingBox())!;
+    const grip = (await viewerChrome
+      .getByRole("button", { name: "Move content window" })
+      .boundingBox())!;
     await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
     await page.mouse.down();
     await page.mouse.move(grip.x + grip.width / 2 + 15, grip.y + grip.height / 2 + 10, {
@@ -119,8 +118,8 @@ else throw new Error('Unexpected GitHub read');
     });
     await page.mouse.up();
     expect((await window.boundingBox())!.x).toBeCloseTo(original.x + 5, 1);
-    const handle = (await viewer
-      .getByRole("button", { name: "Resize diff window" })
+    const handle = (await viewerChrome
+      .getByRole("button", { name: "Resize content window" })
       .boundingBox())!;
     await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
     await page.mouse.down();
@@ -129,9 +128,9 @@ else throw new Error('Unexpected GitHub read');
     const resized = (await window.boundingBox())!;
     expect(resized.width).toBeLessThan(original.width - 100);
     expect(resized.height).toBeLessThan(original.height - 80);
-    await viewer.getByRole("button", { name: "Maximize diff window" }).click();
+    await viewerChrome.getByRole("button", { name: "Maximize content window" }).click();
     expect((await window.boundingBox())!.width).toBe(1100);
-    await viewer.getByRole("button", { name: "Restore diff window" }).click();
+    await viewerChrome.getByRole("button", { name: "Restore content window" }).click();
     expect((await window.boundingBox())!.width).toBeCloseTo(resized.width, 1);
     if (process.env.SCOPE_TEST_SCREENSHOTS) {
       await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
@@ -139,20 +138,20 @@ else throw new Error('Unexpected GitHub read');
         path: join(process.env.SCOPE_TEST_SCREENSHOTS, "pr-diff-light.png"),
       });
     }
-    await viewer.getByRole("button", { name: "Close diff window" }).click();
+    await viewerChrome.getByRole("button", { name: "Close content window" }).click();
     await frame
       .getByRole("button", { name: "View changed files for #1", exact: true })
       .press("Enter");
-    await viewer.getByText("new value", { exact: true }).waitFor();
+    await viewer.getByText("new value").waitFor();
     await page.keyboard.press("Escape");
-    await viewer.waitFor({ state: "hidden" });
+    await viewerChrome.waitFor({ state: "hidden" });
     await frame.getByRole("button", { name: "Review persistent state", exact: true }).click();
     await frame.getByText("Inspect this synthetic change", { exact: true }).waitFor();
     await frame.getByLabel("Your notes").fill("Keep this note across updates");
     await frame.getByRole("button", { name: "Save note", exact: true }).click();
     await frame.getByText("Saved", { exact: true }).waitFor();
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
-    await viewer.getByText("new value", { exact: true }).waitFor();
+    await viewer.getByText("new value").waitFor();
     const client = await fixture.connect();
     async function snapshot(): Promise<PullRequestsSnapshot> {
       const reply = await client.pullRequests({ action: "read", name: "journey-inbox" });
@@ -172,7 +171,7 @@ else throw new Error('Unexpected GitHub read');
     });
     await frame.getByRole("button", { name: /Load latest commit/ }).waitFor();
     await viewer.getByRole("button", { name: "Load latest comparison" }).waitFor();
-    expect(await viewer.locator(".pr-diff-commits").textContent()).toBe(
+    expect(await viewer.locator("#comparison").textContent()).toBe(
       `${base.slice(0, 7)} → ${head.slice(0, 7)}`,
     );
     await writeFile(stateFile, JSON.stringify({ head: newerHead, fail: true }));
@@ -180,8 +179,8 @@ else throw new Error('Unexpected GitHub read');
     await viewer.getByRole("alert").waitFor();
     await writeFile(stateFile, JSON.stringify({ head: newerHead, fail: false }));
     await viewer.getByRole("button", { name: "Retry loading diff" }).click();
-    await viewer.getByText("new value", { exact: true }).waitFor();
-    expect(await viewer.locator(".pr-diff-commits").textContent()).toBe(
+    await viewer.getByText("new value").waitFor();
+    expect(await viewer.locator("#comparison").textContent()).toBe(
       `${base.slice(0, 7)} → ${newerHead.slice(0, 7)}`,
     );
     await app.evaluate(({ BrowserWindow }) =>
@@ -199,12 +198,11 @@ else throw new Error('Unexpected GitHub read');
     expect(narrow.x + narrow.width).toBeLessThanOrEqual(
       await page.evaluate(() => globalThis.innerWidth + 1),
     );
-    await viewer.getByRole("button", { name: "Split", exact: true }).click();
     if (process.env.SCOPE_TEST_SCREENSHOTS)
       await page.screenshot({
         path: join(process.env.SCOPE_TEST_SCREENSHOTS, "pr-diff-narrow-dark.png"),
       });
-    await viewer.getByRole("button", { name: "Close diff window" }).click();
+    await viewerChrome.getByRole("button", { name: "Close content window" }).click();
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]!.setContentSize(1100, 780),
     );
@@ -232,11 +230,12 @@ else throw new Error('Unexpected GitHub read');
       .toBe("true");
     expect(await page.getByRole("alert").count()).toBe(0);
     expect((await snapshot()).prs[0].local.note).toBe("Keep this note across updates");
-    const html = `<!doctype html><div id="restored">Loading</div><input aria-label="Authored draft"><button id="files" aria-label="Authored file action"><svg width="24" height="24"><path d="M4 4h16v16H4z"/></svg></button><button id="invalid">Invalid comparison</button><div id="result"></div><script>
+    const projectHTML = `<p id="project"></p><script>document.getElementById('project').textContent='Project content for '+scope.window.context.nodeId;</script>`;
+    const html = `<!doctype html><div id="restored">Loading</div><input aria-label="Authored draft"><button id="files" aria-label="Authored file action"><svg width="24" height="24"><path d="M4 4h16v16H4z"/></svg></button><button id="invalid">Invalid context</button><div id="result"></div><script>
 const api=window.scope.pullRequests;let current;
 api.watch((prs)=>{current=prs[0];document.getElementById('restored').textContent=current?.local.note||'Empty';});
-document.getElementById('files').onclick=()=>api.openDiff(current.nodeId).then(()=>document.getElementById('result').textContent='Opened').catch(error=>document.getElementById('result').textContent=error.message);
-document.getElementById('invalid').onclick=()=>api.openDiff(current.nodeId,{headOid:'invalid',baseOid:'invalid'}).catch(()=>document.getElementById('result').textContent='Invalid comparison rejected');
+document.getElementById('files').onclick=()=>scope.windows.open({title:'Project view',html:${JSON.stringify(projectHTML).replaceAll("<", "\\u003c")},context:{nodeId:current.nodeId}}).then(()=>document.getElementById('result').textContent='Opened').catch(error=>document.getElementById('result').textContent=error.message);
+document.getElementById('invalid').onclick=()=>scope.windows.open({title:'Invalid',html:'<p>Invalid</p>',context:{number:NaN}}).catch(()=>document.getElementById('result').textContent='Invalid context rejected');
 </script>`;
     const current = await snapshot();
     await client.publish(
@@ -259,17 +258,20 @@ document.getElementById('invalid').onclick=()=>api.openDiff(current.nodeId,{head
     await frame.getByLabel("Authored draft").fill("Keep the authored page mounted");
     await frame.getByRole("button", { name: "Authored file action" }).locator("svg path").click();
     await frame.getByText("Opened", { exact: true }).waitFor();
-    await viewer.getByText("new value", { exact: true }).waitFor();
-    expect(await viewer.locator(".pr-diff-commits").textContent()).toBe(
-      `${base.slice(0, 7)} → ${newerHead.slice(0, 7)}`,
-    );
-    await viewer.getByRole("button", { name: "Close diff window" }).click();
+    await page
+      .frameLocator(".scope-content-document")
+      .getByText("Project content for PR_JOURNEY_1", { exact: true })
+      .waitFor();
+    await page
+      .getByRole("dialog", { name: "Project view" })
+      .getByRole("button", { name: "Close content window" })
+      .click();
     expect(await frame.getByLabel("Authored draft").inputValue()).toBe(
       "Keep the authored page mounted",
     );
-    await frame.getByRole("button", { name: "Invalid comparison" }).click();
-    await frame.getByText("Invalid comparison rejected", { exact: true }).waitFor();
-    expect(await viewer.count()).toBe(0);
+    await frame.getByRole("button", { name: "Invalid context" }).click();
+    await frame.getByText("Invalid context rejected", { exact: true }).waitFor();
+    expect(await page.locator(".scope-content-window").count()).toBe(0);
     await app.close();
     app = await fixture.launch();
     page = await app.firstWindow();

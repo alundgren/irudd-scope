@@ -187,11 +187,25 @@ reloads durable state after invalidation or reconnect. Refreshing PR state
 preserves the iframe; publishing a new HTML revision replaces it after pending
 local edits finish saving. Transient notices carry no replay history.
 
-The HTML SDK's `openDiff` operation opens the plugin's renderer-owned diff
-window. It uses the existing validated detail command with captured head and
-base commits. The renderer parses Git's unified diff for numbered unified and
-split views; credentials and GitHub reads stay in main. Window position, size,
-layout, and file selection exist only in renderer memory.
+`plugins/pull-requests/frame-host.ts` owns the inbox's authored frames and
+floating content windows. `scope.windows.open` accepts HTML and JSON context;
+the host injects the same Scope SDK into each window before its scripts run.
+The host broadcasts current snapshots and matching detail refreshes to all
+subscribed frames. A tab-scoped transient message channel lets project HTML
+coordinate its own interactions. Window content, layout, and selection belong
+to the project. Scope renders window controls and validates operations.
+Frames have separate identities and link registrations. Closing releases their
+read requests and subscriptions, and returns focus to a surviving opener.
+All affected frames flush local edits before an HTML replacement or quit.
+
+Explicit `details` commands load bounded batches of PR IDs into the same
+temporary main-process detail cache used by individual reads. Each result
+identifies its captured head and base commits or reports its own failure.
+The batch has a time and reply-byte budget; successful results survive a
+partial failure. Request ownership is separate from live detail subscriptions,
+so changing a watched PR does not cancel selected preloads. Cache retention is
+bounded; account changes and lifecycle cancellation release pending work.
+No detail bytes or floating-window state are persisted.
 
 Configured inboxes refresh automatically while Scope is running and awake.
 Selection, wake, and reconnect request coalesced fresh reads; Sync remains a
@@ -200,7 +214,7 @@ intervals, lengthened to fit observed GitHub cost and remaining quota. The
 500-point hourly account target controls admission of new automatic jobs;
 admitted jobs finish. Manual Sync and detail reads bypass that routine wait,
 while every request respects actual quota reserve and throttling. Main owns
-the timers; renderer interests identify the visible inbox and inspected PR.
+the timers; renderer interests identify the visible inbox and every subscribed PR.
 An inspected PR's reviews refresh without downloading its captured diff again.
 Native creation publishes the built-in flat-list app;
 agents can publish their own HTML with named JavaScript views. GitHub access is

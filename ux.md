@@ -438,17 +438,25 @@ model. Agent-authored inboxes decide how to display or filter them. Stack
 readiness depends on all open members being out of draft; approval and CI are
 separate facts.
 
-The file action opens Scope's diff window over the inbox. Its file list shows
-paths and change counts; the selected file shows numbered additions, deletions,
-and context in unified or split layout. Renames and binary changes retain their
-available metadata. The window moves with its grip, resizes from its lower-right
-corner, and maximizes to the available workspace. Move and resize controls also
-accept arrow keys; Escape closes the window and returns to the inbox. These
-window controls and the selected file are temporary. The inbox stays mounted.
-Narrow windows put the file list above the code, and Files toggles the list.
-Large files initially show 2,000 diff lines and offer the next batch.
+PR inbox HTML can open movable, resizable content windows over the mounted
+inbox. The HTML supplies each window's content and opening context, including
+which PR and comparison to display. Scope supplies the same SDK, live PR data,
+window controls, and a transient message channel between the main view and
+all its windows. Each project decides its diff presentation. The starter app
+uses an HTML template that displays the raw diff, file metadata and reviews.
+It keeps the displayed comparison stable and offers Load latest comparison.
 
-Opening a diff captures its head and base commits. Background refreshes keep
-that comparison visible and offer Load latest comparison when either changes.
-Loading failures stay in the window with Retry loading diff. Diff visualization
-does not submit a GitHub review or mark the commit reviewed locally.
+Windows maximize to the available workspace. Move and resize controls accept
+arrow keys. Escape closes the focused window after its HTML has an opportunity
+to handle the key. Closing returns to a surviving opener or the inbox. Window
+position, size, content, and drafts remain temporary; switching tabs preserves
+the mounted windows. Failed edit flushes keep the affected windows open.
+Replacing the inbox HTML closes its old windows after all their local edits
+finish saving. Quitting flushes every window too.
+
+Projects can load PR content when opening a window or preload explicit
+candidates in batches. The starter app lets the person select up to twenty
+rows and choose Preload selected. It never loads every diff automatically.
+Partial failures retain successful loads and identify candidates to retry.
+Preloading does not mark a PR inspected or reviewed and does not subscribe it
+to continuous detail refreshes.

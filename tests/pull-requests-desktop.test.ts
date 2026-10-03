@@ -80,7 +80,7 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
       interests: {
         tabId: string;
         active: boolean;
-        detail: { nodeId: string; headOid: string; baseOid: string } | null;
+        details: { nodeId: string; headOid: string; baseOid: string }[];
       }[];
     };
     const state: State = {
@@ -249,9 +249,9 @@ test("live reviews preserve captured code and drafts, and closing the pane stops
           () =>
             (
               globalThis as unknown as {
-                prInboxTest: { interests: { detail: { nodeId: string } | null }[] };
+                prInboxTest: { interests: { details: { nodeId: string }[] }[] };
               }
-            ).prInboxTest.interests.at(-1)?.detail?.nodeId,
+            ).prInboxTest.interests.at(-1)?.details[0]?.nodeId,
         ),
       )
       .toBe("PR_1");
@@ -286,14 +286,14 @@ test("live reviews preserve captured code and drafts, and closing the pane stops
     await frame.getByText("reviewer · APPROVED\nLive review arrived", { exact: true }).waitFor();
     expect(await frame.getByLabel("Your notes").inputValue()).toBe("Keep my unfinished note");
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
-    const diffWindow = page.getByRole("dialog", { name: "Changes in #1" });
-    await diffWindow.getByText("const commit = " + head + ";", { exact: true }).waitFor();
+    const diffWindow = page.frameLocator(".scope-content-document");
+    await diffWindow.getByText("const commit = " + head + ";").waitFor();
     await sendChange(app, "new-head");
     await frame
       .getByRole("button", { name: "New commit available · Load latest commit" })
       .waitFor();
     expect(await frame.locator("#head").textContent()).toBe(head.slice(0, 12));
-    await diffWindow.getByText("const commit = " + head + ";", { exact: true }).waitFor();
+    await diffWindow.getByText("const commit = " + head + ";").waitFor();
     await diffWindow.getByRole("button", { name: "Load latest comparison" }).waitFor();
     await app.evaluate(
       ({ BrowserWindow }, value) => {
@@ -309,7 +309,10 @@ test("live reviews preserve captured code and drafts, and closing the pane stops
         fetchedAt: "2026-10-02T12:01:00.000Z",
       },
     );
-    await diffWindow.getByRole("button", { name: "Close diff window" }).click();
+    await page
+      .getByRole("dialog", { name: "Changes in #1" })
+      .getByRole("button", { name: "Close content window" })
+      .click();
     await frame.getByRole("button", { name: "Body", exact: true }).click();
     await expect.poll(() => frame.locator("#content").textContent()).toBe("Updated description");
     await frame.getByRole("button", { name: "Back to inbox" }).click();
@@ -318,11 +321,11 @@ test("live reviews preserve captured code and drafts, and closing the pane stops
         app.evaluate(
           () =>
             (
-              globalThis as unknown as { prInboxTest: { interests: { detail: unknown }[] } }
-            ).prInboxTest.interests.at(-1)?.detail,
+              globalThis as unknown as { prInboxTest: { interests: { details: unknown[] }[] } }
+            ).prInboxTest.interests.at(-1)?.details,
         ),
       )
-      .toBe(null);
+      .toEqual([]);
     await app.evaluate(
       ({ BrowserWindow }, value) => {
         BrowserWindow.getAllWindows()[0]!.webContents.send(
@@ -409,7 +412,8 @@ test("a captured pane rejects a changed base until loading the latest comparison
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
     await page
       .getByRole("dialog", { name: "Changes in #1" })
-      .getByText("const commit = " + head + ";", { exact: true })
+      .frameLocator("iframe")
+      .getByText("const commit = " + head + ";")
       .waitFor();
     const captured = await app.evaluate(() =>
       (
@@ -836,9 +840,12 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
       .click();
     await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
-    const diffWindow = page.getByRole("dialog", { name: "Changes in #1" });
-    await diffWindow.getByText("const commit = " + head + ";", { exact: true }).waitFor();
-    await diffWindow.getByRole("button", { name: "Close diff window" }).click();
+    const diffWindow = page.frameLocator(".scope-content-document");
+    await diffWindow.getByText("const commit = " + head + ";").waitFor();
+    await page
+      .getByRole("dialog", { name: "Changes in #1" })
+      .getByRole("button", { name: "Close content window" })
+      .click();
     await sendChange(app, "note-error");
     await frame.getByLabel("Your notes").fill("Keep this note after a failure");
     await page.getByRole("button", { name: "Search and controls" }).click();
@@ -1003,7 +1010,10 @@ test("a failed HTML replacement keeps Retry after note recovery until the new ap
     await sendChange(app, "note-error");
     await frame.getByLabel("Your notes").fill("Keep my draft during the app update");
     const html = (await readFile("apps/desktop/src/plugins/pull-requests/starter.html", "utf8"))
-      .replace("/* SCOPE_TOKENS */", await readFile("apps/desktop/src/renderer/tokens.css", "utf8"))
+      .replaceAll(
+        "/* SCOPE_TOKENS */",
+        await readFile("apps/desktop/src/renderer/tokens.css", "utf8"),
+      )
       .replace("<body>", '<body><p id="revision-two">Updated inbox app</p>');
     const client = await fixture.connect();
     await client.publish(
@@ -1054,7 +1064,10 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
     const client = await fixture.connect();
     const html = (
       await readFile("apps/desktop/src/plugins/pull-requests/starter.html", "utf8")
-    ).replace("/* SCOPE_TOKENS */", await readFile("apps/desktop/src/renderer/tokens.css", "utf8"));
+    ).replaceAll(
+      "/* SCOPE_TOKENS */",
+      await readFile("apps/desktop/src/renderer/tokens.css", "utf8"),
+    );
     const artifact = await client.publish(
       "concurrent-inbox",
       {
@@ -1088,7 +1101,7 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
     await page
       .getByRole("dialog", { name: "Changes in #1" })
-      .getByRole("button", { name: "Close diff window" })
+      .getByRole("button", { name: "Close content window" })
       .click();
     await expect
       .poll(() =>
