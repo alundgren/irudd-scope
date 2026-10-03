@@ -21,8 +21,12 @@ Historical versions and diffs must remain available.
 
 Use isolated worktrees for implementers and child PRs against this branch.
 Research storage and durable stream systems using primary sources. Independently
-review changes before integration. Run `vp run ready` before every push and
-completion. Exercise multiple browser users and agents, dropped connections,
+review changes before integration. This is an independent app: use its build,
+format, type/lint and API/stream/browser/concurrency checks. Do not repeatedly
+run whole-Scope validation for app-only work. Run Scope validation only when a
+change directly affects Scope. This policy follows the user’s explicit override
+of the repository-wide gate. Exercise multiple browser users and agents,
+dropped connections,
 duplicate delivery, process restart, competing edits, and comment detachment.
 
 ## Current implementation
@@ -70,50 +74,107 @@ keeps the discussion detached; restoring its ID reconnects it. Generated or
 ambiguous elements remain detached. A real HTML parser supplies source offsets
 without serializing the runtime DOM or rewriting authored attributes/scripts.
 
-## Integration and verification
+## Handoff for tomorrow
 
-Child PRs target this permanent branch; this branch never targets main.
-The backend was independently reviewed and merged in
-[PR #82](https://github.com/alundgren/irudd-scope/pull/82).
-The multiplexed backend and its asynchronous startup correction were
-independently reviewed in [PR #83](https://github.com/alundgren/irudd-scope/pull/83).
-Focused API and stream validation covers 24 cases, including malformed Unicode,
-encoded request budgets, presence fairness during a five-plan replay and
-competing SQLite initialization. Startup retries a competing SQLite writer
-asynchronously for up to five seconds, then fails with a useful timeout.
-Browser rejection recovery parks permanent HTTP 400, 413 and 422 failures while
-preserving payloads and allowing other editors to continue. Restoring saved or
-rejected HTML makes source and merge inputs read-only until the durable
-operation is confirmed. Retries keep one operation ID and replace the draft once.
-The top-bar User menu offers exactly Alex, Blair and Casey;
-each tab independently remembers its selection for reloads. Existing queued
-commands keep their captured author when a tab switches users.
-The final browser child PR includes the independently reviewed tests and app
-guide. Find implementation PRs by their target branch above; exact final PR
-and CI receipts are also retained in the Scope HTML exploration report.
+The permanent branch incorporates `origin/main` at `8f8d630` through merge
+`e9ac271`. Client integration `305a76d` was independently reviewed; its app,
+browser tests and Chromium setup are byte-identical to reviewed `cdfdcfb`.
+No product code changed in this handoff/validation update.
 
-The extended Chromium scenario runs 50 rounds with two human editors, two
-witness tabs and six API agents: 400 accepted HTML edits and 300 duplicate
-agent requests, with a server restart midway. Every round checks both humans
-and all six agents in every browser preview. Twenty-six browser scenarios cover
-the recovery and visibility cases below. `vp run ready` must pass on the exact
-source before any push; CI runs that same gate.
+- [PR #82](https://github.com/alundgren/irudd-scope/pull/82): backend, merged.
+- [PR #83](https://github.com/alundgren/irudd-scope/pull/83): multiplexed streams
+  and asynchronous SQLite startup correction, merged.
+- [PR #85](https://github.com/alundgren/irudd-scope/pull/85): complete browser
+  app, recovery, tests, CI and this handoff, open against the permanent branch.
+  Never retarget it to main.
 
-Run the regular suites and extended concurrent pressure scenario with:
+Completed: versioned HTML/comments/replies/resolution, native Git diffs,
+transactional server receipts, multiplexed durable replay, PGlite drafts and
+outbox, closed-editor delivery, concurrent reconciliation, presence, HTML
+source/live preview, authored DOM anchors, history, export and recovery.
+The User menu offers exactly Alex, Blair and Casey independently in each tab;
+queued commands retain their original actor. Permanent HTTP 400/413/422
+rejections preserve work without blocking valid editors. Saved/rejected HTML
+restoration locks competing controls and retries one journaled operation.
+The latest pin fix makes existing pins pass pointer clicks through during
+comment placement and regain discussion focus afterward.
+
+The client worktree is `/tmp/scope-plan-web-client` on
+`explore/plan-web-client`. The root worktree is
+`/home/dev/.t3/worktrees/irudd-scope/t3code-a3fabf72`. The preview is currently stopped. Its last URL was
+`http://localhost:43130/plans/two-window-smoke` on the development machine.
+Its retained SQLite file is
+`/home/dev/.t3/worktrees/irudd-scope/t3code-a3fabf72/apps/plan-web/plan-web.sqlite`.
+Keep its WAL/SHM files together with the database. To restart the current client:
 
 ```sh
-vp run test tests/plan-web-api.test.ts tests/plan-web-stream.test.ts tests/plan-web-browser.test.ts --maxWorkers=1
-PLAN_WEB_PRESSURE_ROUNDS=50 vp run test tests/plan-web-browser.test.ts -t 'multiple humans' --maxWorkers=1
-vp run ready
+cd /tmp/scope-plan-web-client
+PLAN_WEB_DB=/home/dev/.t3/worktrees/irudd-scope/t3code-a3fabf72/apps/plan-web/plan-web.sqlite vp run plan-web
 ```
 
-Tests use isolated SQLite databases and real Chromium, without credentials or
-models. Browser failures save screenshots and observations to
-`/tmp/scope-web-*-evidence.json`. The browser scenarios cover reload, offline
-edits, duplicates, lost acknowledgements, hanging responses, owner closure,
-worker termination, server restart, overlapping edits, comment detachment,
-copied tabs, eight tabs, eight simultaneous plans and a frozen renderer
-returning after its subscription lease expires.
+The parent worktree does not yet contain the browser implementation; restart
+its preview there after PR #85 merges.
+
+Remaining: inspect both exact-head PR/push CI results, run a renewed quiet-host
+50-round scenario, and merge PR #85 into the permanent branch after review and
+passing app checks. Then restart the preview from the parent branch and perform
+a two-window smoke check. Preserve the branch for further exploration; never
+merge it into main or a release branch.
+
+## Validation state and commands
+
+Historical evidence is not a claim that the current handoff commit passed a
+whole-repository gate. Earlier reviewed heads passed all 503 tests in 72 files.
+A native-input 50-round run on `15998db` passed in 175.19 seconds: two human
+editors, two witnesses, six API agents, 400 accepted edits, 300 duplicate
+requests and a server restart; every preview was checked each round.
+The pin fix on `cdfdcfb` passed five focused comment scenarios in 49.29 seconds
+and independent review. Backend API/stream coverage comprises 24 cases,
+and the browser suite comprises 26 cases plus six text-merge cases.
+
+Later extended runs encountered latency under extreme host CPU contention.
+An untracked diagnostic captured 18–21 second database replies that subsequently
+completed, with bounded outstanding calls and ongoing stream messages; it did
+not expose a controller promise cycle. These failed runs remain failures.
+Whole-repository retries were interrupted, including the latest `305a76d` run
+at the user’s request. Its build/check passed but its test gate did not finish.
+The updated full 56-case app suite and renewed 50-round run remain pending.
+No further local tests were run during the final wrap-up, as requested.
+The scoped validation scripts and CI changes are new; inspect their exact-head
+CI results tomorrow. Historical passes are not current-head passes.
+
+Use these scoped commands; they do not launch Scope, Electron or Xvfb:
+
+```sh
+vp install --frozen-lockfile
+vp run plan-web#build
+vp run plan-web:check
+vp run plan-web:test
+# App build + format/type/lint + all 56 app tests:
+vp run plan-web:ready
+# API/stream + bounded text merge:
+vp test run --project=standard tests/plan-web-api.test.ts tests/plan-web-stream.test.ts tests/plan-web-merge.test.ts --maxWorkers=1
+# Pin focus/placement and authored/removed anchors (five browser cases):
+vp test run --project=standard tests/plan-web-browser.test.ts -t 'rejected comment HTTP|humans can attach|generated nodes' --maxWorkers=1
+# Renew extended native-input concurrency pressure on a quiet host:
+PLAN_WEB_PRESSURE_ROUNDS=50 vp test run --project=standard tests/plan-web-browser.test.ts -t 'multiple humans' --maxWorkers=1
+```
+
+`plan-web:check` formats/checks only the app, four app test files and this
+change’s handoff/workflow/catalog files; lint includes type-aware and TypeScript
+checks. `plan-web:test` directly runs those four files with one file worker.
+The browser scenarios still run several users and agents concurrently.
+CI runs `plan-web:ready` for the permanent exploration branch, pushes under
+`explore/plan-web-*`, and PRs targeting the permanent branch. Other branches
+retain the Scope `vp run ready` path. Chromium is installed only for app CI.
+
+Tests use isolated SQLite databases and real headless Chromium without
+credentials or models. Browser failures save screenshots/observations to
+`/tmp/scope-web-*-evidence.json`. Coverage includes offline reload, duplicates,
+lost/hanging replies, owner closure, worker/server restart, conflicts, comment
+detachment, copied tabs, eight tabs/plans, fake users, permanent rejection,
+delayed restoration and recovery after committed replies are lost.
+Startup retries a competing SQLite writer asynchronously for up to five seconds.
 
 ## Research notes
 
@@ -156,6 +217,6 @@ safe. Browser data is still subject to
 
 Native IndexedDB remains a useful comparison for the small recovery records.
 Measure startup, enqueue latency, database size, and leader-change recovery
-before making a long-term browser storage choice. V1's conservative source
-rebase may reject independent edits when one edit spans several distant parts
-of the HTML; it must retain the draft for explicit reconciliation.
+before making a long-term browser storage choice. The current browser merge
+uses bounded multiple text edits to preserve distant independent changes. True overlaps or an exhausted merge work limit retain the
+draft for explicit reconciliation.

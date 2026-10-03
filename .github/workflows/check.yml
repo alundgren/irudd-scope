@@ -8,13 +8,20 @@ jobs:
   ready:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      PLAN_WEB_ONLY: ${{ (github.event_name == 'pull_request' && github.base_ref == 't3code/collaborative-plan-web-exploration') || (github.event_name == 'push' && (github.ref == 'refs/heads/t3code/collaborative-plan-web-exploration' || startsWith(github.ref, 'refs/heads/explore/plan-web-'))) }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: voidzero-dev/setup-vp@v1.21.1
         with:
           version: 1.0.0-rc.1
           run-install: false
-      - run: sudo apt-get update && sudo apt-get install -y xvfb libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2t64
+      - if: env.PLAN_WEB_ONLY != 'true'
+        run: sudo apt-get update && sudo apt-get install -y xvfb libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2t64
       - run: vp install --frozen-lockfile
-      - run: vp exec playwright install --with-deps chromium
-      - run: vp run ready
+      - if: env.PLAN_WEB_ONLY == 'true'
+        run: vp exec playwright install --with-deps chromium
+      - if: env.PLAN_WEB_ONLY == 'true'
+        run: vp run plan-web:ready
+      - if: env.PLAN_WEB_ONLY != 'true'
+        run: vp run ready

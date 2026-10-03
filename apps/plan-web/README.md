@@ -96,9 +96,8 @@ replay safely share SQLite across server processes; presence does not.
 Run API and browser scenarios with:
 
 ```sh
-vp run test tests/plan-web-api.test.ts tests/plan-web-stream.test.ts tests/plan-web-browser.test.ts --maxWorkers=1
-PLAN_WEB_PRESSURE_ROUNDS=50 vp run test tests/plan-web-browser.test.ts -t 'multiple humans' --maxWorkers=1
-vp run ready
+vp run plan-web:ready
+PLAN_WEB_PRESSURE_ROUNDS=50 vp test run --project=standard tests/plan-web-browser.test.ts -t 'multiple humans' --maxWorkers=1
 ```
 
 The browser tests launch real Chromium against an isolated SQLite server. They
