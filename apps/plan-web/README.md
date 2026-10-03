@@ -11,7 +11,7 @@ vp run plan-web#build
 vp run plan-web
 ```
 
-Open `http://localhost:43130/plans/team-plan`. Visiting a new plan URL creates
+Open `http://127.0.0.1:43130/plans/team-plan`. Visiting a new plan URL creates
 it. Change the name in the URL to start another plan. The app accepts ordinary
 HTML, including scripts. The v1 browser and plan REST API remain open. MCP tools
 require an agent credential approved in the browser.
@@ -121,9 +121,9 @@ in your browser:
 
 ```sh
 vp install /absolute/path/to/apps/plan-web/dist/plan-web-cli-0.1.0.tgz
-vp exec plan-web login --server http://localhost:43130 --agent 'My coding agent'
-vp exec plan-web whoami --server http://localhost:43130
-vp exec plan-web mcp-config --server http://localhost:43130
+vp exec plan-web login --server http://127.0.0.1:43130 --agent 'My coding agent'
+vp exec plan-web whoami --server http://127.0.0.1:43130
+vp exec plan-web mcp-config --server http://127.0.0.1:43130
 ```
 
 Login displays an approval code and opens a browser. For a remote terminal, add
@@ -168,10 +168,10 @@ send its `htmlRevision` as `baseHtmlRevision`. Conflicts preserve the original
 receipt. Reconcile under a new request ID.
 
 ```sh
-vp exec plan-web tools --server http://localhost:43130
+vp exec plan-web tools --server http://127.0.0.1:43130
 vp exec plan-web call plan_read --json '{"name":"team-plan"}'
 vp exec plan-web call plan_apply_html --json @command.json
-vp exec plan-web logout --server http://localhost:43130
+vp exec plan-web logout --server http://127.0.0.1:43130
 ```
 
 MCP approval grants read and write access to every plan on that endpoint.

@@ -81,13 +81,24 @@ function environment() {
     PLAN_WEB_CLI_HOME: join(directory, "private-cli"),
   };
 }
-function cli(args: string[]) {
-  return command(executable, [...args, "--server", server.url], directory, environment());
+function cli(args: string[], defaults = false) {
+  return command(
+    executable,
+    [...args, ...(defaults ? [] : ["--server", server.url])],
+    directory,
+    environment(),
+  );
 }
-async function login(identity = "Alex", action = "Approve agent") {
+async function login(identity = "Alex", action = "Approve agent", defaults = false) {
   const child = spawn(
     executable,
-    ["login", "--server", server.url, "--agent", "Installed test agent", "--no-browser"],
+    [
+      "login",
+      ...(defaults ? [] : ["--server", server.url]),
+      "--agent",
+      "Installed test agent",
+      "--no-browser",
+    ],
     { cwd: directory, env: environment(), stdio: ["ignore", "pipe", "pipe"] },
   );
   children.push(child);
@@ -223,3 +234,21 @@ test("installed stdio bridge serves legacy clients while sending stateless HTTP 
   expect(accepted.html).toContain("Installed bridge changed the plan.");
   lines.close();
 }, 20_000);
+
+test("default installed CLI origin matches the app listener without a server override", async () => {
+  await server.close();
+  server = await startPlanWebServer({
+    databasePath: join(directory, "default-plans.sqlite"),
+    port: 43130,
+  });
+  const approved = await login("Blair", "Approve agent", true);
+  expect(approved.code, approved.stderr).toBe(0);
+  expect(approved.uri).toContain("http://127.0.0.1:43130/auth/");
+  const who = await cli(["whoami"], true);
+  expect(who.code, who.stderr).toBe(0);
+  expect(JSON.parse(who.stdout).actor.name).toBe("Blair / Installed test agent");
+  const config = await cli(["mcp-config"], true);
+  expect(config.code).toBe(0);
+  expect(config.stdout).toContain("http://127.0.0.1:43130/mcp");
+  expect((await cli(["logout"], true)).code).toBe(0);
+}, 30_000);

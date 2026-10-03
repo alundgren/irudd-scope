@@ -20,11 +20,11 @@ function output(value: unknown) {
 async function run() {
   if (!command || command === "--help" || command === "help") {
     process.stdout.write(
-      `plan-web login [--server URL] [--agent NAME] [--no-browser]\nplan-web whoami [--server URL]\nplan-web logout [--server URL]\nplan-web tools [--server URL]\nplan-web call TOOL --json JSON_OR_@FILE [--server URL]\nplan-web mcp [--server URL]\nplan-web mcp-config [--server URL]\n\nDefaults to http://localhost:43130. Login approves Alex, Blair or Casey in the browser.\n`,
+      `plan-web login [--server URL] [--agent NAME] [--no-browser]\nplan-web whoami [--server URL]\nplan-web logout [--server URL]\nplan-web tools [--server URL]\nplan-web call TOOL --json JSON_OR_@FILE [--server URL]\nplan-web mcp [--server URL]\nplan-web mcp-config [--server URL]\n\nDefaults to http://127.0.0.1:43130. Login approves Alex, Blair or Casey in the browser.\n`,
     );
     return;
   }
-  const url = endpoint(option("--server", "http://localhost:43130"));
+  const url = endpoint(option("--server", "http://127.0.0.1:43130"));
   if (command === "mcp-config") {
     output({
       mcpServers: {

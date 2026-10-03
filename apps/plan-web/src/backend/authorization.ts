@@ -11,10 +11,9 @@ import {
 
 export class AuthorizationRoutes {
   readonly store: AuthStore;
-  constructor(
-    path: string,
-    private origin: () => string,
-  ) {
+  private origin: () => string;
+  constructor(path: string, origin: () => string) {
+    this.origin = origin;
     this.store = new AuthStore(path);
   }
   resource() {

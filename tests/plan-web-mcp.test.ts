@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "vite-plus/test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
@@ -431,3 +433,59 @@ describe("MCP browser approvals and stateless requests", () => {
     ).toBe(403);
   });
 });
+
+test("source development entry starts under the provisioned Node runtime", async () => {
+  const child = spawn(process.execPath, [resolve("apps/plan-web/src/server-main.ts")], {
+    env: {
+      ...process.env,
+      PORT: "0",
+      HOST: "127.0.0.1",
+      PLAN_WEB_ORIGIN: "",
+      PLAN_WEB_DB: join(directory, "source-entry.sqlite"),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const exited = once(child, "exit");
+  let stderr = "";
+  child.stderr.on("data", (bytes: Buffer) => {
+    stderr += bytes.toString();
+  });
+  try {
+    const url = await new Promise<string>((ready, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`Development entry did not start: ${stderr}`)),
+        10_000,
+      );
+      child.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.once("exit", () => {
+        clearTimeout(timer);
+        reject(new Error(`Development entry exited: ${stderr}`));
+      });
+      let output = "";
+      child.stdout.on("data", (bytes: Buffer) => {
+        output += bytes.toString();
+        const found = /http:\/\/127\.0\.0\.1:\d+/.exec(output);
+        if (found) {
+          clearTimeout(timer);
+          ready(found[0]);
+        }
+      });
+    });
+    expect((await fetch(`${url}/api/plans/source-entry`)).status).toBe(200);
+    expect(
+      (
+        await fetch(`${url}/auth/pairing`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agent: "Development entry agent", resource: `${url}/mcp` }),
+        })
+      ).status,
+    ).toBe(200);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+    await exited;
+  }
+}, 15_000);
