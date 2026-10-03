@@ -55,6 +55,9 @@ test.each(["trash", "delete"] as const)(
       const create = () =>
         client.diagram({ action: "create", id: "reused", title: "Reused diagram", operations });
       await create();
+      await expect
+        .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
+        .toBe(1);
       const firstTab = await page.evaluate(
         async () => (await window.scope.workspace())!.tabs[0].id,
       );
@@ -87,6 +90,9 @@ test.each(["trash", "delete"] as const)(
         await page.locator(".tab-overflow-popup [data-tab-result]").click();
       } else await create();
       await page.getByRole("tab", { name: "Reused diagram", exact: true }).waitFor();
+      await expect
+        .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
+        .toBe(1);
       const nextTab = await page.evaluate(async () => (await window.scope.workspace())!.tabs[0].id);
       expect(nextTab === firstTab).toBe(action === "trash");
       if (!(await recipient.isVisible())) {
