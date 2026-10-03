@@ -488,6 +488,23 @@ an oversized complete snapshot fails rather than silently trimming the list.
 Detail replies also limit diff text to 2,097,152 characters and files and
 reviews to 10,000 records each. Oversized details fail the read; Open on GitHub
 remains available from the cached PR row.
+
+`details` loads a selective batch using `nodeIds`, a nonempty list of at most
+20 distinct PR node IDs, with the same `name`, `tabId`, and `requestId` as
+`detail`. It returns `{type: "details", tabId, results}`. Each result contains
+`{nodeId, captured: {headOid, baseOid}, detail}` or `{nodeId, error}` in request
+order. There is no load-all selector. A batch runs at most three reads at once,
+shares concurrent and completed reads with individual requests, and does not
+subscribe to live updates. The desktop bounds its completed cache by entry
+count and serialized bytes, and removes obsolete comparisons.
+
+Batches stop after 20 seconds and stay within the existing 32 MiB serialized
+UTF-8 reply limit. A failed, changed, timed-out, or over-capacity PR returns an
+error while successful results remain available. Retry failed IDs separately
+or in a smaller batch. GitHub account changes, suspension, and tab removal
+cancel pending reads. The existing single-PR commands and transport timeout
+defaults remain compatible.
+
 Live events contain the artifact ID, name, and generation. They are transient
 invalidations. Read a complete snapshot after reconnect or remount.
 
@@ -518,7 +535,7 @@ reply. `watchDetail(nodeId, displayedHeadOid, displayedBaseOid, callback)` repor
 the inspected PR and receives refreshed `{ body, reviews, fetchedAt, error }`
 alongside its tab, PR, and captured commit IDs. It returns an unsubscribe function.
 Subscribe when opening or switching a PR and unsubscribe on closing the pane.
-The most recently registered detail subscription identifies the inspected PR.
+All current detail subscriptions across the inbox and its content windows identify inspected PRs. Removing one subscription preserves the others.
 Failed updates retain the prior content and carry an error; they do not replace
 the captured diff. Existing apps using only `detail` remain supported.
 Each review retains its own `headOid`; the subscription commit IDs identify the
@@ -547,6 +564,29 @@ to load newer code.
 cleanup function. The host awaits them and already issued local mutations
 before closing or replacing the HTML revision. A rejected flush keeps the app
 open with its in-memory edits. Scope does not persist arbitrary renderer drafts.
+
+`scope.pullRequests.loadDetails(nodeIds)` exposes the selective `details` batch
+and resolves to its ordered per-ID results. Loading warms the temporary cache
+without recording inspection or starting live subscriptions.
+
+`scope.windows.open({ title, html, context })` opens caller-authored HTML in a
+movable, resizable floating window and resolves to its ID. The same SDK is
+injected before its scripts run. Each frame exposes immutable
+`scope.window = { id, openerId, context }`; the main frame has ID `main` and null
+opener/context. All frames share live snapshots, theme and matching detail
+updates. Window content and its diff presentation belong to the HTML app.
+
+`scope.windows.close(id)` flushes that child before closing it; omit `id` to
+close the current child. Failure keeps it open. Escape closes the focused
+window unless its HTML consumes the key. Closing returns focus to a surviving
+opener or the main inbox. HTML replacement and quit flush all affected frames.
+Window contents, position, size and arbitrary UI drafts are temporary.
+
+`scope.windows.broadcast(value)` sends transient `{ senderId, value }` messages
+to every mounted frame in this inbox, including the sender.
+`scope.windows.watch(callback)` returns unsubscribe; it has no replay.
+Context and broadcast values must be JSON, at most 64 KiB and 32 nested levels.
+HTML is limited to 32 MiB. Each inbox supports eight simultaneous windows.
 
 ## Named HTML plan review
 

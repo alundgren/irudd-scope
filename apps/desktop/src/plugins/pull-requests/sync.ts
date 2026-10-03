@@ -38,12 +38,26 @@ const key = (repository: PullRequestsRepository) =>
 export class PullRequestSync {
   private readonly groups = new Map<string, Group>();
   private readonly interests = new Map<string, PullRequestsInterest>();
-  private readonly detailCache = new Map<string, Promise<PullRequestDetail>>();
+  private readonly detailCache = new Map<
+    string,
+    {
+      detail: PullRequestDetail;
+      bytes: number;
+      repository: string;
+      nodeId: string;
+      headOid: string;
+      baseOid: string;
+    }
+  >();
+  private cacheBytes = 0;
   private readonly pendingDetails = new Map<
     string,
     {
       controller: AbortController;
-      users: Set<string>;
+      users: Map<symbol, string>;
+      promise: Promise<PullRequestDetail>;
+      discussion?: Pick<PullRequestDetail, "body" | "reviews" | "fetchedAt">;
+      repository: string;
       nodeId: string;
       headOid: string;
       baseOid: string;
@@ -99,9 +113,12 @@ export class PullRequestSync {
 
   private useAccount(account: string) {
     if (this.account !== null && this.account !== account) {
+      this.store.cancelReads();
+      for (const pending of this.pendingDetails.values()) pending.controller.abort();
       for (const group of this.groups.values()) group.controller.abort();
       this.groups.clear();
       this.detailCache.clear();
+      this.cacheBytes = 0;
       this.charges.length = 0;
       this.reserveUntil = 0;
       void this.reconcile().catch(() => {});
@@ -211,13 +228,14 @@ export class PullRequestSync {
         else if (added.length) group.next = this.now();
       }
     }
+    if (this.detailCache.size || this.pendingDetails.size)
+      this.pruneDetails(await this.store.currentComparisons());
     if (this.started && !this.paused) this.arm();
   }
 
   async interest(interest: PullRequestsInterest): Promise<void> {
     const previous = this.interests.get(interest.tabId);
     this.interests.set(interest.tabId, interest);
-    this.releaseDetail(interest);
     await this.reconcile();
     const group = [...this.groups.values()].find((group) => group.tabs.has(interest.tabId));
     if (!group) return;
@@ -225,8 +243,10 @@ export class PullRequestSync {
       if (interest.refresh || !previous?.active || !group.inventory)
         group.next = Math.min(group.next, this.now());
       if (
-        interest.detail &&
-        (interest.refresh || JSON.stringify(previous?.detail) !== JSON.stringify(interest.detail))
+        this.watched(interest).length &&
+        (interest.refresh ||
+          JSON.stringify(previous && this.watched(previous)) !==
+            JSON.stringify(this.watched(interest)))
       )
         group.targetNext = Math.min(group.targetNext, this.now());
     }
@@ -254,12 +274,21 @@ export class PullRequestSync {
     if (this.reserveUntil > this.now()) return "GitHub query reserve";
     return this.budgetUntil() > this.now() || this.factor() > 1 ? "Account query budget" : null;
   }
+  private watched(interest: PullRequestsInterest) {
+    const details = interest.details ?? (interest.detail ? [interest.detail] : []);
+    return [
+      ...new Map(
+        details.map((detail) => [`${detail.nodeId}/${detail.headOid}/${detail.baseOid}`, detail]),
+      ).values(),
+    ];
+  }
   private inspected(group: Group) {
-    return [...group.tabs]
-      .map((tabId) => this.interests.get(tabId))
-      .filter(
-        (interest): interest is PullRequestsInterest => !!interest?.active && !!interest.detail,
-      );
+    return [...group.tabs].flatMap((tabId) => {
+      const interest = this.interests.get(tabId);
+      return interest?.active
+        ? this.watched(interest).map((detail) => ({ tabId, detail, interest }))
+        : [];
+    });
   }
   private baseInterval(group: Group) {
     return [...group.tabs].some((tabId) => this.interests.get(tabId)?.active) ? 30_000 : 300_000;
@@ -538,34 +567,48 @@ export class PullRequestSync {
         for (const tabId of [...group.tabs])
           await this.store.commitCurrent(tabId, group.repository, source, facts, signal, closedAt);
         if (!facts) continue;
-        const captured = interests.find(
-          (interest) =>
-            interest.detail?.nodeId === nodeId && this.interests.get(interest.tabId) === interest,
-        )?.detail;
-        if (!captured) continue;
-        const reviews = await this.github.reviews(
-          group.repository,
-          { ...source, headOid: captured.headOid, baseOid: captured.baseOid },
-          signal,
-        );
-        for (const interest of interests) {
-          if (interest.detail?.nodeId !== nodeId || this.interests.get(interest.tabId) !== interest)
-            continue;
-          const cacheKey = `${this.account}/${key(group.repository)}/${nodeId}/${interest.detail.headOid}/${interest.detail.baseOid}`;
-          const cached = this.detailCache.get(cacheKey);
-          if (cached) {
-            const updated = cached.then((detail) => ({ ...detail, ...reviews }));
-            this.detailCache.set(cacheKey, updated);
-            void updated.catch(() => {
-              if (this.detailCache.get(cacheKey) === updated) this.detailCache.delete(cacheKey);
+        const comparisons = new Map<string, (typeof interests)[number]>();
+        for (const interest of interests)
+          if (
+            interest.detail.nodeId === nodeId &&
+            this.interests.get(interest.tabId) === interest.interest
+          )
+            comparisons.set(`${interest.detail.headOid}/${interest.detail.baseOid}`, interest);
+        for (const comparison of comparisons.values()) {
+          const captured = comparison.detail;
+          const reviews = await this.github.reviews(
+            group.repository,
+            { ...source, headOid: captured.headOid, baseOid: captured.baseOid },
+            signal,
+          );
+          signal.throwIfAborted();
+          for (const interest of interests) {
+            if (
+              interest.detail.nodeId !== nodeId ||
+              interest.detail.headOid !== captured.headOid ||
+              interest.detail.baseOid !== captured.baseOid ||
+              this.interests.get(interest.tabId) !== interest.interest
+            )
+              continue;
+            const cacheKey = `${this.account}/${key(group.repository)}/${nodeId}/${captured.headOid}/${captured.baseOid}`;
+            const pending = this.pendingDetails.get(cacheKey);
+            if (pending) pending.discussion = reviews;
+            const cached = this.detailCache.get(cacheKey);
+            if (cached)
+              this.cacheDetail(
+                cacheKey,
+                { ...cached.detail, ...reviews },
+                key(group.repository),
+                nodeId,
+                captured,
+              );
+            this.options.onDetail?.({
+              tabId: interest.tabId,
+              ...interest.detail,
+              ...reviews,
+              error: null,
             });
           }
-          this.options.onDetail?.({
-            tabId: interest.tabId,
-            ...interest.detail,
-            ...reviews,
-            error: null,
-          });
         }
       }
       const spent = this.charges.reduce((sum, charge) => sum + charge.cost, 0) - chargesBefore;
@@ -580,7 +623,7 @@ export class PullRequestSync {
       if (!signal.aborted) {
         await this.failure(group, error);
         for (const interest of interests)
-          if (this.interests.get(interest.tabId) === interest)
+          if (this.interests.get(interest.tabId) === interest.interest)
             this.options.onDetail?.({
               tabId: interest.tabId,
               ...interest.detail!,
@@ -612,9 +655,15 @@ export class PullRequestSync {
     tabId: string,
     nodeId: string,
     captured?: PullRequestCommitPair,
+    signal?: AbortSignal,
   ): Promise<PullRequestDetail> {
+    signal?.throwIfAborted();
+    if (this.account === null) await this.checkAccount();
+    signal?.throwIfAborted();
     await this.reconcile();
+    signal?.throwIfAborted();
     const snapshot = await this.store.snapshotByTab(tabId);
+    signal?.throwIfAborted();
     const pr = snapshot.prs.find((row) => row.nodeId === nodeId);
     const group =
       snapshot.repository && [...this.groups.values()].find((group) => group.tabs.has(tabId));
@@ -623,51 +672,156 @@ export class PullRequestSync {
       throw new GitHubReadError(
         "This comparison changed. Load the latest comparison to view its details.",
       );
-    const cacheKey = `${this.account}/${key(group.repository)}/${nodeId}/${pr.headOid}/${pr.baseOid}`;
-    let detail = this.detailCache.get(cacheKey);
-    if (!detail) {
+    const repository = key(group.repository);
+    const cacheKey = `${this.account}/${repository}/${nodeId}/${pr.headOid}/${pr.baseOid}`;
+    const cached = this.detailCache.get(cacheKey);
+    if (cached) {
+      this.detailCache.delete(cacheKey);
+      this.detailCache.set(cacheKey, cached);
+      return cached.detail;
+    }
+    let pending = this.pendingDetails.get(cacheKey);
+    if (!pending || pending.controller.signal.aborted) {
       const controller = new AbortController();
       const abort = () => controller.abort();
       group.controller.signal.addEventListener("abort", abort, { once: true });
       if (group.controller.signal.aborted) controller.abort();
-      this.pendingDetails.set(cacheKey, {
+      const entry = {
         controller,
-        users: new Set([tabId]),
+        users: new Map<symbol, string>(),
+        repository,
         nodeId,
         headOid: pr.headOid,
         baseOid: pr.baseOid,
+        discussion: undefined as
+          | Pick<PullRequestDetail, "body" | "reviews" | "fetchedAt">
+          | undefined,
+        promise: Promise.resolve(undefined as unknown as PullRequestDetail),
+      };
+      this.pendingDetails.set(cacheKey, entry);
+      entry.promise = this.github
+        .detail(group.repository, pr, controller.signal)
+        .then((detail) => {
+          controller.signal.throwIfAborted();
+          const updated = { ...detail, ...entry.discussion };
+          this.cacheDetail(cacheKey, updated, repository, nodeId, pr);
+          return updated;
+        })
+        .finally(() => {
+          group.controller.signal.removeEventListener("abort", abort);
+        });
+      pending = entry;
+    }
+    const entry = pending;
+    const token = Symbol();
+    entry.users.set(token, tabId);
+    try {
+      const detail = await new Promise<PullRequestDetail>((resolve, reject) => {
+        const cleanup = () => {
+          signal?.removeEventListener("abort", canceled);
+          entry.controller.signal.removeEventListener("abort", stopped);
+        };
+        const canceled = () => {
+          cleanup();
+          reject(signal?.reason ?? new Error("Pull request detail loading was canceled."));
+        };
+        const stopped = () => {
+          cleanup();
+          reject(new Error("Pull request detail loading was canceled. Retry when ready."));
+        };
+        signal?.addEventListener("abort", canceled, { once: true });
+        entry.controller.signal.addEventListener("abort", stopped, { once: true });
+        if (signal?.aborted) canceled();
+        if (entry.controller.signal.aborted) stopped();
+        void entry.promise.then(
+          (detail) => {
+            cleanup();
+            resolve(detail);
+          },
+          (error) => {
+            cleanup();
+            reject(error);
+          },
+        );
       });
-      detail = this.github.detail(group.repository, pr, controller.signal).finally(() => {
-        group.controller.signal.removeEventListener("abort", abort);
+      signal?.throwIfAborted();
+      entry.controller.signal.throwIfAborted();
+      return { ...detail, ...entry.discussion };
+    } finally {
+      entry.users.delete(token);
+      this.releaseUnusedDetail(entry);
+      if (!entry.users.size && this.pendingDetails.get(cacheKey) === entry)
         this.pendingDetails.delete(cacheKey);
-      });
-      this.detailCache.set(cacheKey, detail);
-      const result = detail;
-      void detail.catch(() => {
-        if (this.detailCache.get(cacheKey) === result) this.detailCache.delete(cacheKey);
-      });
-    } else this.pendingDetails.get(cacheKey)?.users.add(tabId);
-    return detail;
+    }
   }
 
-  private releaseDetail(interest: PullRequestsInterest) {
-    for (const pending of this.pendingDetails.values()) {
-      if (
-        !interest.active ||
-        !interest.detail ||
-        interest.detail.nodeId !== pending.nodeId ||
-        interest.detail.headOid !== pending.headOid ||
-        interest.detail.baseOid !== pending.baseOid
-      )
-        pending.users.delete(interest.tabId);
-      if (!pending.users.size) pending.controller.abort();
+  private cacheDetail(
+    cacheKey: string,
+    detail: PullRequestDetail,
+    repository: string,
+    nodeId: string,
+    captured: PullRequestCommitPair,
+  ) {
+    const previous = this.detailCache.get(cacheKey);
+    if (previous) this.cacheBytes -= previous.bytes;
+    this.detailCache.delete(cacheKey);
+    const bytes = Buffer.byteLength(JSON.stringify(detail), "utf8");
+    if (bytes <= 32 * 1024 * 1024) {
+      this.detailCache.set(cacheKey, { detail, bytes, repository, nodeId, ...captured });
+      this.cacheBytes += bytes;
     }
+    while (this.detailCache.size > 64 || this.cacheBytes > 64 * 1024 * 1024) {
+      const oldest = this.detailCache.keys().next().value!;
+      this.cacheBytes -= this.detailCache.get(oldest)!.bytes;
+      this.detailCache.delete(oldest);
+    }
+  }
+
+  private pruneDetails(
+    comparisons: readonly {
+      repository: string;
+      nodeId: string;
+      headOid: string;
+      baseOid: string;
+    }[],
+  ) {
+    const current = (entry: {
+      repository: string;
+      nodeId: string;
+      headOid: string;
+      baseOid: string;
+    }) =>
+      comparisons.some(
+        (comparison) =>
+          comparison.repository === entry.repository &&
+          comparison.nodeId === entry.nodeId &&
+          comparison.headOid === entry.headOid &&
+          comparison.baseOid === entry.baseOid,
+      );
+    for (const [cacheKey, entry] of this.detailCache)
+      if (!current(entry)) {
+        this.cacheBytes -= entry.bytes;
+        this.detailCache.delete(cacheKey);
+      }
+    for (const pending of this.pendingDetails.values())
+      if (!current(pending)) pending.controller.abort();
+  }
+
+  private releaseUnusedDetail(pending: {
+    controller: AbortController;
+    users: Map<symbol, string>;
+  }) {
+    if (!pending.users.size) pending.controller.abort();
   }
 
   cancelTabs(tabIds: readonly string[]) {
     for (const tabId of tabIds) {
+      this.store.cancelReads(tabId);
       this.interests.delete(tabId);
-      this.releaseDetail({ tabId, active: false, detail: null });
+      for (const pending of this.pendingDetails.values())
+        for (const [token, owner] of pending.users)
+          if (owner === tabId) pending.users.delete(token);
+      for (const pending of this.pendingDetails.values()) this.releaseUnusedDetail(pending);
       for (const [repoKey, group] of this.groups) {
         group.tabs.delete(tabId);
         if (!group.tabs.size) {
@@ -680,12 +834,15 @@ export class PullRequestSync {
   }
   cancelPending() {
     this.paused = true;
+    this.store.cancelReads();
+    for (const pending of this.pendingDetails.values()) pending.controller.abort();
     this.probeController?.abort();
     if (this.timer) this.unschedule(this.timer);
     this.timer = undefined;
     for (const group of this.groups.values()) group.controller.abort();
     this.groups.clear();
     this.detailCache.clear();
+    this.cacheBytes = 0;
   }
   async resume() {
     this.paused = false;

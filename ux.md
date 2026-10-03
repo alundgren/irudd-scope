@@ -437,3 +437,26 @@ Scope supplies native stack membership and active review approval in the PR
 model. Agent-authored inboxes decide how to display or filter them. Stack
 readiness depends on all open members being out of draft; approval and CI are
 separate facts.
+
+PR inbox HTML can open movable, resizable content windows over the mounted
+inbox. The HTML supplies each window's content and opening context, including
+which PR and comparison to display. Scope supplies the same SDK, live PR data,
+window controls, and a transient message channel between the main view and
+all its windows. Each project decides its diff presentation. The starter app
+uses an HTML template that displays the raw diff, file metadata and reviews.
+It keeps the displayed comparison stable and offers Load latest comparison.
+
+Windows maximize to the available workspace. Move and resize controls accept
+arrow keys. Escape closes the focused window after its HTML has an opportunity
+to handle the key. Closing returns to a surviving opener or the inbox. Window
+position, size, content, and drafts remain temporary; switching tabs preserves
+the mounted windows. Failed edit flushes keep the affected windows open.
+Replacing the inbox HTML closes its old windows after all their local edits
+finish saving. Quitting flushes every window too.
+
+Projects can load PR content when opening a window or preload explicit
+candidates in batches. The starter app lets the person select up to twenty
+rows and choose Preload selected. It never loads every diff automatically.
+Partial failures retain successful loads and identify candidates to retry.
+Preloading does not mark a PR inspected or reviewed and does not subscribe it
+to continuous detail refreshes.

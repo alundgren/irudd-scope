@@ -1,5 +1,5 @@
 import { powerMonitor } from "electron";
-import { PullRequestsInterest } from "./interest.ts";
+import { PullRequestsInterest, PullRequestsCancelReads } from "./interest.ts";
 import { randomUUID } from "node:crypto";
 import { Schema } from "effect";
 import { ArtifactName, decode } from "@irudd-scope/protocol";
@@ -33,7 +33,11 @@ export function registerPullRequestsIpc(context: MainPluginContext) {
   );
   artifacts.pullRequests.setHandlers({
     sync: (tabId) => syncing.sync(tabId),
-    detail: (tabId, nodeId, captured) => syncing.detail(tabId, nodeId, captured),
+    detail: (tabId, nodeId, captured, signal) => syncing.detail(tabId, nodeId, captured, signal),
+  });
+  handle("scope:pull-requests-cancel-reads", (value) => {
+    const { tabId, requestIds } = decode(PullRequestsCancelReads, value);
+    artifacts.pullRequests.cancelReads(tabId, requestIds);
   });
   handle("scope:create-pull-requests", async (value) => {
     const input = decode(

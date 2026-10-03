@@ -64,10 +64,13 @@ test.each(["html", "plan"])(
         .getByRole("link", { name: "New window", exact: true })
         .click({ noWaitAfter: true });
       await opened("blank");
-      for (const modifiers of [["Control"], ["Meta"], ["Shift"]] as const) {
+      // macOS Control-click opens a context menu rather than activating the link.
+      for (const modifier of (["Control", "Meta", "Shift"] as const).filter(
+        (value) => process.platform !== "darwin" || value !== "Control",
+      )) {
         await frame
           .getByRole("link", { name: "Ordinary link", exact: true })
-          .click({ modifiers: [...modifiers] });
+          .click({ modifiers: [modifier] });
         await opened("ordinary");
       }
       await frame

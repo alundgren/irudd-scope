@@ -16,6 +16,7 @@ const bridge: ScopeBridge = {
   createPullRequests: (input) => ipcRenderer.invoke("scope:create-pull-requests", input),
   pullRequestsCommand: (input) => ipcRenderer.invoke("scope:pull-requests-command", input),
   pullRequestsInterest: (input) => ipcRenderer.invoke("scope:pull-requests-interest", input),
+  pullRequestsCancelReads: (input) => ipcRenderer.invoke("scope:pull-requests-cancel-reads", input),
   onPullRequestsDetailUpdate: (listener) => {
     const receive = (_event: unknown, event: PullRequestsDetailUpdate) => listener(event);
     ipcRenderer.on("scope:pull-requests-detail-update", receive);

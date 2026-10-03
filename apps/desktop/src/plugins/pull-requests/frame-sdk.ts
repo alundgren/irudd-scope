@@ -1,6 +1,12 @@
 export type FrameIdentity = { channel: string; tabId: string };
 
-function installPullRequestsSDK(identity: FrameIdentity) {
+export type WindowContext = {
+  id: string;
+  openerId: string | null;
+  context: unknown;
+};
+
+function installPullRequestsSDK(identity: FrameIdentity, windowContext: WindowContext) {
   type Watcher = (pullRequests: readonly unknown[], context: unknown, sync: unknown) => void;
   const pending = new Map<
     string,
@@ -19,6 +25,7 @@ function installPullRequestsSDK(identity: FrameIdentity) {
     watcher: (update: unknown) => void;
   }>();
   const closing = new Set<() => Promise<void>>();
+  const messages = new Set<(message: unknown) => void>();
   let latest: { pullRequests: readonly unknown[]; context: unknown; sync: unknown } | undefined;
   let generation = -1;
   function send(method: string, args: unknown[]) {
@@ -30,18 +37,29 @@ function installPullRequestsSDK(identity: FrameIdentity) {
       reject = no;
     });
     pending.set(id, { resolve, reject, promise, method });
-    parent.postMessage({ ...identity, type: "scope-pull-requests-call", id, method, args }, "*");
+    try {
+      parent.postMessage({ ...identity, type: "scope-pull-requests-call", id, method, args }, "*");
+    } catch (error) {
+      pending.delete(id);
+      reject(error instanceof Error ? error : new Error("Could not send the operation."));
+    }
     return promise;
+  }
+  function waitForWrites() {
+    return Promise.all(
+      [...pending.values()]
+        .filter((call) =>
+          ["saveNote", "setSnooze", "inspect", "markReviewed"].includes(call.method),
+        )
+        .map((call) => call.promise),
+    );
   }
   async function flush(id: string) {
     let error: string | undefined;
     try {
+      await waitForWrites();
       await Promise.all([...closing].map((callback) => callback()));
-      await Promise.all(
-        [...pending.values()]
-          .filter((call) => !["sync", "detail", "openExternal"].includes(call.method))
-          .map((call) => call.promise),
-      );
+      await waitForWrites();
     } catch (failure) {
       error = failure instanceof Error ? failure.message : "Could not save inbox edits.";
     }
@@ -55,14 +73,15 @@ function installPullRequestsSDK(identity: FrameIdentity) {
     return value;
   }
   function reportDetailInterest() {
-    const current = [...detailWatchers].at(-1);
     parent.postMessage(
       {
         ...identity,
         type: "scope-pull-requests-interest",
-        detail: current
-          ? { nodeId: current.nodeId, headOid: current.headOid, baseOid: current.baseOid }
-          : null,
+        details: [...detailWatchers].map(({ nodeId, headOid, baseOid }) => ({
+          nodeId,
+          headOid,
+          baseOid,
+        })),
       },
       "*",
     );
@@ -77,26 +96,28 @@ function installPullRequestsSDK(identity: FrameIdentity) {
       return;
     if (value.type === "scope-pull-requests-close") void flush(value.id);
     if (value.type === "scope-pull-requests-detail-update") {
-      const current = [...detailWatchers].at(-1);
-      if (
-        current &&
-        value.value?.nodeId === current.nodeId &&
-        value.value?.headOid === current.headOid &&
-        value.value?.baseOid === current.baseOid
-      ) {
-        const update = freeze(value.value);
-        for (const subscription of detailWatchers) {
-          if (
-            subscription.nodeId !== current.nodeId ||
-            subscription.headOid !== current.headOid ||
-            subscription.baseOid !== current.baseOid
-          )
-            continue;
-          try {
-            subscription.watcher(update);
-          } catch (error) {
-            console.error(error);
-          }
+      const update = freeze(value.value);
+      for (const subscription of detailWatchers) {
+        if (
+          value.value?.nodeId !== subscription.nodeId ||
+          value.value?.headOid !== subscription.headOid ||
+          value.value?.baseOid !== subscription.baseOid
+        )
+          continue;
+        try {
+          subscription.watcher(update);
+        } catch (error) {
+          console.error(error);
+        }
+      }
+    }
+    if (value.type === "scope-window-message") {
+      const message = freeze(value.value);
+      for (const watcher of messages) {
+        try {
+          watcher(message);
+        } catch (error) {
+          console.error(error);
         }
       }
     }
@@ -123,6 +144,7 @@ function installPullRequestsSDK(identity: FrameIdentity) {
   });
   const sdk = Object.freeze({
     openExternal: (url: string) => send("openExternal", [url]),
+    loadDetails: (nodeIds: readonly string[]) => send("loadDetails", [nodeIds]),
     watch(watcher: Watcher) {
       watchers.add(watcher);
       if (latest) watcher(latest.pullRequests, latest.context, latest.sync);
@@ -161,7 +183,29 @@ function installPullRequestsSDK(identity: FrameIdentity) {
       captured?: { headOid: string; baseOid: string },
     ) => send("detail", [pullRequestId, section, captured]),
   });
-  Object.defineProperty(window, "scope", { value: Object.freeze({ pullRequests: sdk }) });
+  const windows = Object.freeze({
+    open: (content: { title: string; html: string; context?: unknown }) =>
+      send("openWindow", [content]),
+    close: (id: string = windowContext.id) => send("closeWindow", [id]),
+    broadcast: (value: unknown) => send("broadcast", [value]),
+    watch(watcher: (message: unknown) => void) {
+      messages.add(watcher);
+      return () => messages.delete(watcher);
+    },
+  });
+  Object.defineProperty(window, "scope", {
+    value: Object.freeze({ pullRequests: sdk, windows, window: freeze(windowContext) }),
+  });
+  addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || windowContext.openerId === null) return;
+    // Authored handlers run first and can keep Escape for their own interaction.
+    setTimeout(() => {
+      if (!event.defaultPrevented && document.hasFocus()) {
+        event.preventDefault();
+        void windows.close().catch((error: Error) => console.error(error));
+      }
+    }, 0);
+  });
   function externalURL(value: string): string | undefined {
     try {
       const url = new URL(value, document.baseURI);
@@ -186,11 +230,18 @@ function installPullRequestsSDK(identity: FrameIdentity) {
     openLink(external);
     return null;
   };
+  addEventListener("focus", () =>
+    parent.postMessage({ ...identity, type: "scope-window-focus" }, "*"),
+  );
   parent.postMessage({ ...identity, type: "scope-pull-requests-ready" }, "*");
 }
 
-export function pullRequestsDocument(html: string, identity: FrameIdentity): string {
-  const script = `<script>(${installPullRequestsSDK.toString()})(${JSON.stringify(identity).replaceAll("<", "\\u003c")});</script>`;
+export function pullRequestsDocument(
+  html: string,
+  identity: FrameIdentity,
+  context: WindowContext = { id: "main", openerId: null, context: null },
+): string {
+  const script = `<script>(${installPullRequestsSDK.toString()})(${JSON.stringify(identity).replaceAll("<", "\\u003c")},${JSON.stringify(context).replaceAll("<", "\\u003c")});</script>`;
   // Insertion before the authored document also covers scripts before its head tag.
   const doctype = /^\s*<!doctype[^>]*>/i;
   return doctype.test(html)

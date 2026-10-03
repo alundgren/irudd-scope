@@ -3,6 +3,7 @@ import { Artifact, ArtifactName, PublicationTabId, Revision } from "./index.ts";
 
 export const MAX_PULL_REQUESTS_REQUEST_BYTES = 256 * 1024;
 export const MAX_PULL_REQUESTS_REPLY_BYTES = 32 * 1024 * 1024;
+export const MAX_PULL_REQUESTS_DETAIL_IDS = 20;
 const Text = Schema.String.check(Schema.isMaxLength(20_000));
 const ShortText = Schema.String.check(Schema.isMaxLength(512));
 export const PullRequestNodeId = Schema.String.check(
@@ -110,6 +111,15 @@ export const PullRequestDetail = Schema.Struct({
   fetchedAt: Timestamp,
 });
 export type PullRequestDetail = typeof PullRequestDetail.Type;
+export const PullRequestDetailResult = Schema.Union([
+  Schema.Struct({
+    nodeId: PullRequestNodeId,
+    captured: PullRequestCommitPair,
+    detail: PullRequestDetail,
+  }),
+  Schema.Struct({ nodeId: PullRequestNodeId, error: ShortText }),
+]);
+export type PullRequestDetailResult = typeof PullRequestDetailResult.Type;
 export const PullRequestSnooze = Schema.Struct({
   until: Timestamp,
   wakeOnNewCommit: Schema.Boolean,
@@ -192,6 +202,15 @@ export const PullRequestsCommand = Schema.Union([
   }),
   Schema.Struct({ ...Versioned, action: Schema.Literal("note"), text: Text }),
   Schema.Struct({
+    ...Write,
+    action: Schema.Literal("details"),
+    nodeIds: Schema.Array(PullRequestNodeId).check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(MAX_PULL_REQUESTS_DETAIL_IDS),
+      Schema.makeFilter((ids) => new Set(ids).size === ids.length),
+    ),
+  }),
+  Schema.Struct({
     ...Versioned,
     action: Schema.Literal("snooze"),
     snooze: Schema.NullOr(PullRequestSnooze),
@@ -211,6 +230,13 @@ export const PullRequestsCommand = Schema.Union([
 ]);
 export type PullRequestsCommand = typeof PullRequestsCommand.Type;
 export const PullRequestsReply = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("details"),
+    tabId: PublicationTabId,
+    results: Schema.Array(PullRequestDetailResult).check(
+      Schema.isMaxLength(MAX_PULL_REQUESTS_DETAIL_IDS),
+    ),
+  }),
   Schema.Struct({ type: Schema.Literal("snapshot"), snapshot: PullRequestsSnapshot }),
   Schema.Struct({
     type: Schema.Literal("detail"),

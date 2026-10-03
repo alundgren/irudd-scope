@@ -19,6 +19,7 @@ import type {
 import type { DiagramMenuAction, DiagramMenuState } from "./menu-contract.ts";
 import type {
   PullRequestsInterest,
+  PullRequestsCancelReads,
   PullRequestsDetailUpdate,
 } from "./plugins/pull-requests/interest.ts";
 import type {
@@ -53,6 +54,7 @@ export type ScopeBridge = {
   }) => Promise<Artifact>;
   pullRequestsCommand: (command: PullRequestsCommand) => Promise<PullRequestsReply>;
   pullRequestsInterest: (input: PullRequestsInterest) => Promise<void>;
+  pullRequestsCancelReads: (input: PullRequestsCancelReads) => Promise<void>;
   onPullRequestsDetailUpdate: (listener: (event: PullRequestsDetailUpdate) => void) => () => void;
   openPullRequestsLink: (input: PullRequestsExternalLink) => Promise<void>;
   registerPullRequestsFrame: (input: PullRequestsFrame) => Promise<void>;

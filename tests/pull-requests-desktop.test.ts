@@ -80,7 +80,7 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
       interests: {
         tabId: string;
         active: boolean;
-        detail: { nodeId: string; headOid: string; baseOid: string } | null;
+        details: { nodeId: string; headOid: string; baseOid: string }[];
       }[];
     };
     const state: State = {
@@ -169,7 +169,10 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
             detail: {
               headOid: row.headOid,
               body: "A synthetic pull request description.",
-              diff: "diff --git a/example.ts b/example.ts\n+const commit = " + row.headOid + ";",
+              diff:
+                "diff --git a/example.ts b/example.ts\n--- a/example.ts\n+++ b/example.ts\n@@ -0,0 +1 @@\n+const commit = " +
+                row.headOid +
+                ";",
               reviews: [
                 {
                   id: "review-1",
@@ -246,9 +249,9 @@ test("live reviews preserve captured code and drafts, and closing the pane stops
           () =>
             (
               globalThis as unknown as {
-                prInboxTest: { interests: { detail: { nodeId: string } | null }[] };
+                prInboxTest: { interests: { details: { nodeId: string }[] }[] };
               }
-            ).prInboxTest.interests.at(-1)?.detail?.nodeId,
+            ).prInboxTest.interests.at(-1)?.details[0]?.nodeId,
         ),
       )
       .toBe("PR_1");
@@ -283,13 +286,15 @@ test("live reviews preserve captured code and drafts, and closing the pane stops
     await frame.getByText("reviewer · APPROVED\nLive review arrived", { exact: true }).waitFor();
     expect(await frame.getByLabel("Your notes").inputValue()).toBe("Keep my unfinished note");
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
-    await expect.poll(() => frame.locator("#content").textContent()).toContain(head);
+    const diffWindow = page.frameLocator(".scope-content-document");
+    await diffWindow.getByText("const commit = " + head + ";").waitFor();
     await sendChange(app, "new-head");
     await frame
       .getByRole("button", { name: "New commit available · Load latest commit" })
       .waitFor();
     expect(await frame.locator("#head").textContent()).toBe(head.slice(0, 12));
-    await expect.poll(() => frame.locator("#content").textContent()).toContain(head);
+    await diffWindow.getByText("const commit = " + head + ";").waitFor();
+    await diffWindow.getByRole("button", { name: "Load latest comparison" }).waitFor();
     await app.evaluate(
       ({ BrowserWindow }, value) => {
         BrowserWindow.getAllWindows()[0]!.webContents.send(
@@ -304,6 +309,10 @@ test("live reviews preserve captured code and drafts, and closing the pane stops
         fetchedAt: "2026-10-02T12:01:00.000Z",
       },
     );
+    await page
+      .getByRole("dialog", { name: "Changes in #1" })
+      .getByRole("button", { name: "Close content window" })
+      .click();
     await frame.getByRole("button", { name: "Body", exact: true }).click();
     await expect.poll(() => frame.locator("#content").textContent()).toBe("Updated description");
     await frame.getByRole("button", { name: "Back to inbox" }).click();
@@ -312,11 +321,11 @@ test("live reviews preserve captured code and drafts, and closing the pane stops
         app.evaluate(
           () =>
             (
-              globalThis as unknown as { prInboxTest: { interests: { detail: unknown }[] } }
-            ).prInboxTest.interests.at(-1)?.detail,
+              globalThis as unknown as { prInboxTest: { interests: { details: unknown[] }[] } }
+            ).prInboxTest.interests.at(-1)?.details,
         ),
       )
-      .toBe(null);
+      .toEqual([]);
     await app.evaluate(
       ({ BrowserWindow }, value) => {
         BrowserWindow.getAllWindows()[0]!.webContents.send(
@@ -401,7 +410,11 @@ test("a captured pane rejects a changed base until loading the latest comparison
       .click();
     await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
-    await expect.poll(() => frame.locator("#content").textContent()).toContain(head);
+    await page
+      .getByRole("dialog", { name: "Changes in #1" })
+      .frameLocator("iframe")
+      .getByText("const commit = " + head + ";")
+      .waitFor();
     const captured = await app.evaluate(() =>
       (
         globalThis as unknown as {
@@ -415,6 +428,7 @@ test("a captured pane rejects a changed base until loading the latest comparison
     );
     expect(captured).toEqual([
       { headOid: head, baseOid: base },
+      { headOid: head, baseOid: changedBase },
       { headOid: head, baseOid: changedBase },
     ]);
   } finally {
@@ -826,11 +840,12 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
       .click();
     await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
-    await frame
-      .getByText("diff --git a/example.ts b/example.ts\n+const commit = " + head + ";", {
-        exact: true,
-      })
-      .waitFor();
+    const diffWindow = page.frameLocator(".scope-content-document");
+    await diffWindow.getByText("const commit = " + head + ";").waitFor();
+    await page
+      .getByRole("dialog", { name: "Changes in #1" })
+      .getByRole("button", { name: "Close content window" })
+      .click();
     await sendChange(app, "note-error");
     await frame.getByLabel("Your notes").fill("Keep this note after a failure");
     await page.getByRole("button", { name: "Search and controls" }).click();
@@ -860,7 +875,9 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
         .count(),
     ).toBe(1);
     expect(await frame.locator("#head").textContent()).toBe(head.slice(0, 12));
-    expect(await frame.locator("#content").textContent()).toContain(head);
+    expect(await frame.locator("#content").textContent()).toBe(
+      "A synthetic pull request description.",
+    );
     expect(await frame.getByLabel("Your notes").inputValue()).toBe(
       "Keep this note after a failure",
     );
@@ -880,7 +897,9 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
     await frame.getByRole("heading", { name: "New head while inspecting" }).waitFor();
     await frame.getByText("Changed since your review of " + head.slice(0, 12)).waitFor();
     expect(await frame.locator("#head").textContent()).toBe(newerHead.slice(0, 12));
-    await expect.poll(() => frame.locator("#content").textContent()).toContain(newerHead);
+    await expect
+      .poll(() => frame.locator("#content").textContent())
+      .toBe("A synthetic pull request description.");
     await frame.getByRole("button", { name: "Mark this commit reviewed" }).click();
     await frame.getByText("This commit is marked reviewed.").waitFor();
     expect(
@@ -914,9 +933,7 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
       )
       .toBe("true");
     expect(await page.getByRole("alert").count()).toBe(0);
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0]!.setContentSize(560, 620),
-    );
+    await page.setViewportSize({ width: 560, height: 620 });
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "Appearance", exact: true }).click();
@@ -931,7 +948,7 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
       .frames()
       .find((f) => f.url() === "about:srcdoc")!
       .evaluate(() => ({
-        width: innerWidth,
+        width: document.documentElement.clientWidth,
         content: document.documentElement.scrollWidth,
         theme: document.documentElement.dataset.theme,
       }));
@@ -993,7 +1010,10 @@ test("a failed HTML replacement keeps Retry after note recovery until the new ap
     await sendChange(app, "note-error");
     await frame.getByLabel("Your notes").fill("Keep my draft during the app update");
     const html = (await readFile("apps/desktop/src/plugins/pull-requests/starter.html", "utf8"))
-      .replace("/* SCOPE_TOKENS */", await readFile("apps/desktop/src/renderer/tokens.css", "utf8"))
+      .replaceAll(
+        "/* SCOPE_TOKENS */",
+        await readFile("apps/desktop/src/renderer/tokens.css", "utf8"),
+      )
       .replace("<body>", '<body><p id="revision-two">Updated inbox app</p>');
     const client = await fixture.connect();
     await client.publish(
@@ -1044,7 +1064,10 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
     const client = await fixture.connect();
     const html = (
       await readFile("apps/desktop/src/plugins/pull-requests/starter.html", "utf8")
-    ).replace("/* SCOPE_TOKENS */", await readFile("apps/desktop/src/renderer/tokens.css", "utf8"));
+    ).replaceAll(
+      "/* SCOPE_TOKENS */",
+      await readFile("apps/desktop/src/renderer/tokens.css", "utf8"),
+    );
     const artifact = await client.publish(
       "concurrent-inbox",
       {
@@ -1076,6 +1099,10 @@ test("dirty notes and snooze Undo preserve changes made after their captured ver
     });
     await frame.getByLabel("Your notes").fill("User draft begun at version zero");
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Changes in #1" })
+      .getByRole("button", { name: "Close content window" })
+      .click();
     await expect
       .poll(() =>
         app.evaluate(

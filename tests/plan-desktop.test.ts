@@ -204,10 +204,22 @@ test("a plan keeps interactive HTML while captured comments, feedback, replies, 
     await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).waitFor();
     expect(await page.getByRole("complementary", { name: "Plan feedback" }).count()).toBe(0);
     await page.screenshot({ path: join(evidence, "focus.png") });
+    await expect
+      .poll(() =>
+        application.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0]!.isFullScreen(),
+        ),
+      )
+      .toBe(true);
     await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
-    await application.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0]!.setContentSize(560, 620),
-    );
+    await expect
+      .poll(() =>
+        application.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0]!.isFullScreen(),
+        ),
+      )
+      .toBe(false);
+    await page.setViewportSize({ width: 560, height: 620 });
     await page.getByRole("button", { name: "Search and controls" }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "Appearance", exact: true }).click();

@@ -269,6 +269,41 @@ snapshot. The array and all nested records are frozen. Derive views with
 ordinary predicates, sorting a copied array rather than mutating `prs`.
 Named views, selection, and review navigation belong to the HTML app.
 
+Use `scope.windows.open({ title, html, context })` to open a project-authored
+content window over the inbox. It resolves to a window ID. Each document gets
+the same `scope.pullRequests` and `scope.windows` APIs, plus immutable
+`scope.window = { id, openerId, context }`. The main frame has ID `main`, with
+null opener and context. Opening context is copied once; use snapshots or
+messages for subsequent changes. Projects supply the complete HTML, including
+the diff presentation, loading indicators, retry actions and newer-comparison
+handling. Scope supplies move, resize, maximize and close controls.
+
+`scope.windows.close(id)` flushes the target window before closing it. Omit
+`id` in a child to close itself. A failed flush keeps it open. Closing returns
+focus to a surviving opener or the main inbox. Escape closes the focused
+child after authored handlers run; call `event.preventDefault()` to consume it.
+Each inbox supports eight simultaneous windows. HTML has the artifact's
+32 MiB content limit. Context and message values must be JSON, at most
+64 KiB and 32 nested levels. Windows and their UI drafts are temporary;
+switching tabs retains mounted windows, but restart does not restore them.
+
+`scope.windows.broadcast(value)` sends a transient `{ senderId, value }` event
+to all mounted frames in this inbox, including the sender.
+`scope.windows.watch(callback)` returns an unsubscribe function. There is no
+message replay. Register before sending, and use `pullRequests.watch` for
+current authoritative PR and local review data. Snapshots, theme changes and
+matching detail updates reach all windows without replacing their documents.
+
+`loadDetails(nodeIds)` loads 1 to 20 unique explicit PR IDs and returns an array
+of `{ nodeId, captured: { headOid, baseOid }, detail }` or `{ nodeId, error }`.
+There is no load-all operation. Select likely candidates in the HTML, then
+request only their IDs. Loads share the temporary commit-bound cache with
+`detail`, so opening a preloaded comparison can reuse its content. Cache
+entries can be evicted. Batch execution stops within its time budget and fits
+the existing reply-size limit; successes remain available when other IDs fail.
+Retry failed IDs or use a smaller batch. Loading alone does not record
+inspection, mark reviewed, or establish ongoing detail subscriptions.
+
 `watchDetail` updates include `tabId`, `nodeId`, captured `headOid` and `baseOid`,
 `body`, `reviews`, `fetchedAt`, and `error`. Error updates omit body/reviews; keep
 the prior content. Unsubscribe when closing or switching the pane. Initial

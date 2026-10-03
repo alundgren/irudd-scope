@@ -107,7 +107,7 @@ async function edit(
   counters: Stats,
 ): Promise<Model> {
   let model = initial;
-  const deadline = Date.now() + 30_000;
+  let progressDeadline = Date.now() + 30_000;
   for (;;) {
     const document = mutate(model.document, agent, step);
     const result = await command(
@@ -131,7 +131,10 @@ async function edit(
     }
     if (result.type !== "conflict") throw new Error(`Unexpected write result: ${result.type}`);
     counters.conflicts++;
-    if (Date.now() > deadline) throw new Error("A competing writer starved for 30 seconds.");
+    // Another writer committing is progress while this writer waits for its turn.
+    if (result.version !== model.version) progressDeadline = Date.now() + 30_000;
+    if (Date.now() > progressDeadline)
+      throw new Error("The diagram version did not advance for 30 seconds.");
     model = result.delta
       ? { version: result.version, document: applyDiagramDelta(model.document, result.delta) }
       : await read(client, counters, model);
