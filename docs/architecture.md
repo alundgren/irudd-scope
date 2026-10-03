@@ -2,8 +2,8 @@
 
 Scope stores artifacts from coding agents and displays them in a Mac desktop
 workspace. The desktop owns the library. Direct publication requires an awake
-Mac running Scope. Paired hubs temporarily store offline publications and
-deliver them when the Mac reconnects.
+Mac running Scope. Paired hubs temporarily store CLI publications before
+attempting delivery while the Mac is connected.
 
 ```mermaid
 flowchart LR
@@ -65,7 +65,7 @@ refresh durable review state even when the HTML revision did not change.
 `library/plan-http.ts` serves authenticated review commands, retained HTML and
 plan-owned images. Hubs forward those routes but store no review data. Review
 commands require the desktop online. Initial publications use the existing
-optional offline publication queue.
+hub publication queue.
 
 The CLI's `plan.ts` exports HTML and a visual feedback packet to explicit files,
 validates response files and submits replies. `plan-watch.ts` recovers pending
@@ -278,11 +278,16 @@ through the protocol client. It does not read transcripts or launch agents.
 
 `apps/hub` authenticates and forwards requests and event streams. `state.ts`
 owns hub configuration, pairing expiry, and credential hashes in `hub.db`.
-`paired-server.ts` owns live relay transfers and accepts opted-in offline
+`paired-server.ts` owns live relay transfers and always stores opted-in
 publications through the same tab-first protocol. `publication-queue.ts`
 stores their metadata and bytes in `hub.db`, capped at 50 tabs with a fixed
 48-hour expiry. `publication-delivery.ts` delivers complete entries through
-the existing Mac-initiated relay and retains conflicts for inspection.
+the existing Mac-initiated relay while connected and retains conflicts for inspection.
+Transient delivery failures use a bounded exponential cooldown. Desktop
+`remotes.ts` reconnects enabled remotes on the Electron resume event, sending
+a one-time authenticated wake header that resets the hub cooldown. Ordinary
+reconnects respect it. Retry timing is temporary process state; queued content
+remains in SQLite.
 `artifact-metadata.ts` retains up to 1,000 recently observed artifact records
 in hub SQLite for 48 hours. Opted-in update reads can use their saved IDs,
 names, titles, and revisions while offline. Delivery checks the saved revision

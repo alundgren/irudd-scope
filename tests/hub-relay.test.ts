@@ -73,11 +73,11 @@ async function fixture() {
         )
       ).stdout,
     );
-  const openRelay = async () => {
+  const openRelay = async (waking = false) => {
     const controller = new AbortController();
     const response = await request(
       "/v1/relay/events",
-      { signal: controller.signal },
+      { signal: controller.signal, headers: waking ? { "Scope-Relay-Wake": "1" } : {} },
       desktop.token,
     );
     expect(response.status).toBe(200);
@@ -115,6 +115,7 @@ async function fixture() {
     };
     await next("ready");
     return {
+      waitingRequests: () => events.filter((event) => event.type === "request").length,
       next: async () => (await next("request")) as RelayRequest,
       cancel: () => next("cancel"),
       close,
@@ -143,6 +144,56 @@ async function fixture() {
     client: new ScopeClient(hub.url, local.token),
   };
 }
+
+test("delivery retries back off to five minutes and new publications cannot bypass the cooldown", async () => {
+  vi.useFakeTimers({
+    toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"],
+  });
+  const f = await fixture();
+  await f.client.publishOrQueue("retrying", metadata, Buffer.from("Retained bytes"));
+  const relay = await f.openRelay();
+  let event = await relay.next();
+  for (const [index, waitMs] of [
+    3000, 6000, 12_000, 24_000, 48_000, 96_000, 192_000, 300_000, 300_000,
+  ].entries()) {
+    expect((await f.answer(event.id, 503, { error: "Synthetic temporary failure." })).status).toBe(
+      200,
+    );
+    await f.client.publishOrQueue(
+      `new-arrival-${index}`,
+      metadata,
+      Buffer.from("New queued bytes"),
+    );
+    await vi.advanceTimersByTimeAsync(waitMs - 1);
+    expect(relay.waitingRequests()).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    event = await relay.next();
+    expect(event).toMatchObject({ method: "GET", path: "/v1/artifacts/retrying" });
+  }
+  expect((await f.queue()).items).toHaveLength(10);
+});
+
+test("ordinary reconnects respect cooldown and a Mac wake resumes delivery immediately", async () => {
+  vi.useFakeTimers({
+    toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"],
+  });
+  const f = await fixture();
+  await f.client.publishOrQueue("wake-up", metadata, Buffer.from("Waiting for the Mac"));
+  const old = await f.openRelay();
+  const event = await old.next();
+  expect((await f.answer(event.id, 503, { error: "Synthetic temporary failure." })).status).toBe(
+    200,
+  );
+  expect(old.waitingRequests()).toBe(0);
+  await old.close();
+  await vi.waitFor(async () => expect(await f.status()).toMatchObject({ connected: false }));
+  const normal = await f.openRelay();
+  expect(normal.waitingRequests()).toBe(0);
+  await normal.close();
+  await vi.waitFor(async () => expect(await f.status()).toMatchObject({ connected: false }));
+  const replacement = await f.openRelay(true);
+  expect((await replacement.next()).path).toBe("/v1/artifacts/wake-up");
+});
 
 test("an unstarted write timeout retires the relay and the next CLI publication queues", async () => {
   const f = await fixture();

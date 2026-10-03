@@ -26,6 +26,7 @@ import {
   PairRequest,
   HubUpdateRequest,
   type RelayEvent,
+  RELAY_WAKE_HEADER,
 } from "@irudd-scope/protocol/remote";
 import type { HubState } from "./state.ts";
 import type { HubUpdates } from "./updates.ts";
@@ -343,7 +344,8 @@ export async function startPairedHub(
         "Cache-Control": "no-store",
       });
       send({ type: "ready" });
-      delivery.start();
+      if (request.headers[RELAY_WAKE_HEADER.toLowerCase()] === "1") delivery.wake();
+      else delivery.start();
       const timer = setInterval(() => send({ type: "ready" }), 10_000);
       response.on("close", () => {
         clearInterval(timer);
@@ -481,7 +483,7 @@ export async function startPairedHub(
       json(response, 404, { error: "Artifact endpoint not found." });
       return;
     }
-    if (await buffered.handle(request, response, !desktop, Boolean(state.status().pairedMac))) {
+    if (await buffered.handle(request, response, Boolean(state.status().pairedMac))) {
       delivery.start();
       return;
     }

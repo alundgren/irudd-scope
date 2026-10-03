@@ -129,7 +129,9 @@ development keeps connection tokens in memory; after restart, re-pair using
 The hub uses the same private discovery format as local desktop publishing,
 with its own publishing token. Do not share one discovery file between a hub
 and a desktop on the same host. Set `SCOPE_CONNECTION_FILE` to separate paths.
-Hub state includes undelivered publication bytes and metadata. Back up its
+Hub state includes undelivered publication bytes and metadata. CLI publications
+persist there even when the Mac is connected; delivery failures retain them
+until delivery, discard, or expiry. Back up its
 database and discovery file together if you need to retain pairings and
 pending publications. The paired hub retains at most 50 entries including
 incomplete uploads, with at most 32 MiB content each. Full queues reject new

@@ -8,6 +8,7 @@ import {
   readRemoteJson,
   readRelayEvents,
   type RelayRequest,
+  RELAY_WAKE_HEADER,
 } from "@irudd-scope/protocol/remote";
 import type { DesktopStore } from "./desktop-store.ts";
 import type { Remote, RemoteStatus } from "./remote-contract.ts";
@@ -99,6 +100,15 @@ export class Remotes {
   setEnabled(id: string, enabled: boolean) {
     return this.change(() => this.changeEnabled(id, enabled));
   }
+  resume() {
+    return this.change(async () => {
+      for (const remote of this.statuses.values()) {
+        if (!remote.enabled) continue;
+        await this.disconnect(remote.id);
+        this.connect(remote, true);
+      }
+    });
+  }
   private async changeEnabled(id: string, enabled: boolean) {
     const previous = this.statuses.get(id);
     if (!previous) throw new Error("Remote not found.");
@@ -174,13 +184,13 @@ export class Remotes {
     ).finally(() => this.updating.delete(remote.id));
     this.updating.set(remote.id, { controller, task });
   }
-  private connect(remote: Remote) {
+  private connect(remote: Remote, waking = false) {
     if (this.closed) return;
     const controller = new AbortController();
-    const task = this.run(remote, controller.signal);
+    const task = this.run(remote, controller.signal, waking);
     this.connections.set(remote.id, { controller, task });
   }
-  private async run(remote: Remote, signal: AbortSignal) {
+  private async run(remote: Remote, signal: AbortSignal, waking: boolean) {
     while (!signal.aborted) {
       this.status(remote, "connecting", "Connecting…");
       const session = new AbortController();
@@ -200,13 +210,17 @@ export class Remotes {
         const endpoint = validateEndpoint(remote.endpoint);
         alive();
         const response = await fetch(`${endpoint}/v1/relay/events`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(waking ? { [RELAY_WAKE_HEADER]: "1" } : {}),
+          },
           redirect: "error",
           signal: sessionSignal,
         });
         await readRelayEvents(response, (event) => {
           alive();
           if (event.type === "ready") {
+            waking = false;
             this.status(remote, "connected", "Connected. Publications arrive while Scope is open.");
             if (!checkedUpdates) {
               checkedUpdates = true;

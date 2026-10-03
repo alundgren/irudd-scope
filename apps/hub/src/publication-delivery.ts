@@ -19,6 +19,8 @@ export class PublicationDelivery {
   private running?: Promise<void>;
   private current?: { id: string; controller: AbortController };
   private closed = false;
+  private retryDelayMs = 0;
+  private retryAt = 0;
   constructor(
     private readonly queue: PublicationQueue,
     private readonly relay: RelayCall,
@@ -26,12 +28,19 @@ export class PublicationDelivery {
   ) {}
 
   start() {
-    if (this.closed || this.running || !this.connected()) return;
+    if (this.closed || this.running || !this.connected() || Date.now() < this.retryAt) return;
     this.running = this.drain()
       .catch(() => {})
       .finally(() => {
         this.running = undefined;
       });
+  }
+  wake() {
+    this.retryDelayMs = 0;
+    this.retryAt = 0;
+    this.cancel();
+    if (this.running) void this.running.then(() => this.start());
+    else this.start();
   }
   cancel(id?: string) {
     if (!id || this.current?.id === id) this.current?.controller.abort();
@@ -50,6 +59,8 @@ export class PublicationDelivery {
       try {
         await this.deliver(item, controller.signal);
         this.queue.remove(item.id, item.tabId);
+        this.retryDelayMs = 0;
+        this.retryAt = 0;
       } catch (error) {
         if (controller.signal.aborted) return;
         if (
@@ -59,7 +70,11 @@ export class PublicationDelivery {
           ![408, 429].includes(error.status)
         ) {
           this.queue.block(item.id, item.tabId, error.message);
-        } else return;
+        } else {
+          this.retryDelayMs = Math.min(this.retryDelayMs ? this.retryDelayMs * 2 : 3000, 300_000);
+          this.retryAt = Date.now() + this.retryDelayMs;
+          return;
+        }
       } finally {
         this.current = undefined;
       }

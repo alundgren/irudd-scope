@@ -118,12 +118,13 @@ test("a Mac pairs once and receives live and buffered CLI publications over conn
   const receipt = JSON.parse(
     (await f.cli("text", "Remote finding", "--id", "remote-review")).stdout,
   );
-  expect(receipt).toMatchObject({ id: "remote-review", revision: 1 });
+  expect(receipt).toMatchObject({ id: "remote-review", queued: true });
   await expect.poll(() => events).toContain("artifact");
   const bytes = Buffer.alloc(2 * 1024 * 1024, 73);
   const file = join(f.directory, "report.bin");
   await writeFile(file, bytes);
   await f.cli("add", file, "--id", "large-file");
+  await expect.poll(async () => (await f.client.get("large-file")).revision).toBe(1);
   expect(Buffer.from(await f.client.content("large-file")).equals(bytes)).toBe(true);
   const direct = new ScopeClient(f.desktop.url, f.token);
   expect(new TextDecoder().decode(await direct.content("remote-review"))).toBe("Remote finding");
@@ -138,7 +139,7 @@ test("a Mac pairs once and receives live and buffered CLI publications over conn
     .poll(async () => (await f.client.list()).map((artifact) => artifact.id))
     .toContain("offline");
   await f.cli("update", "remote-review", file);
-  expect((await f.client.get("remote-review")).revision).toBe(2);
+  await expect.poll(async () => (await f.client.get("remote-review")).revision).toBe(2);
 });
 
 test("pairing credentials stay out of SQLite and removal revokes access without removing the provider key", async () => {
@@ -269,6 +270,7 @@ test("CLI deletion and desktop shrink cross the relay, while hub shrink works wi
   await f.remotes.pair(f.state.pairUrl());
   await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
   await f.cli("text", "Delete through the relay", "--id", "delete-me");
+  await expect.poll(async () => (await f.client.get("delete-me")).revision).toBe(1);
   expect(JSON.parse((await f.cli("delete", "delete-me", "--timeout-ms", "120000")).stdout)).toEqual(
     { id: "delete-me", deleted: true },
   );
@@ -386,9 +388,12 @@ test("paired hubs forward named native edits larger than metadata and compact hu
     file,
     JSON.stringify({ type: "excalidraw", version: 2, elements: [], appState: {}, files: {} }),
   );
-  const artifact = JSON.parse(
+  const receipt = JSON.parse(
     (await f.cli("add", file, "--named", "--title", "Remote native")).stdout,
   );
+  await expect.poll(async () => (await f.client.get(receipt.id)).revision).toBe(1);
+  const artifact = await f.client.get(receipt.id);
+  if (!artifact.name) throw new Error("Expected a named diagram.");
   expect((await f.client.named(artifact.name)).id).toBe(artifact.id);
   await f.client.syncDiagram({
     action: "write",
@@ -632,6 +637,7 @@ test("paired hubs forward pull request snapshots and local writes, and reject ov
   const html = join(f.directory, "inbox.html");
   await writeFile(html, "<h1>PR inbox</h1>");
   await f.cli("add", html, "--pull-requests", "--name", "remote-inbox");
+  await expect.poll(async () => (await f.client.named("remote-inbox")).revision).toBe(1);
   await f.cli("pull-requests", "configure", "remote-inbox", "example/project");
   const read = await f.client.pullRequests({ action: "read", name: "remote-inbox" });
   if (read.type !== "snapshot") throw new Error("Expected snapshot");

@@ -154,8 +154,54 @@ test("offline CLI publications survive hub restart and arrive automatically with
   await expect.poll(async () => (await f.queue()).items.length).toBe(0);
   expect(await f.cli("text", "Connected finding", "--id", "online-report")).toMatchObject({
     id: "online-report",
-    revision: 1,
+    queued: true,
   });
+  await expect.poll(async () => (await f.direct.get("online-report")).revision).toBe(1);
+  expect(Buffer.from(await f.direct.content("online-report")).toString()).toBe("Connected finding");
+});
+
+test("CLI publications persist while the relay is connected but unresponsive and deliver after hub restart", async () => {
+  const f = await fixture();
+  await f.offline();
+  const controller = new AbortController();
+  const token = await f.store.remoteToken(f.remotes.snapshot()[0].id);
+  const response = await f.request("/v1/relay/events", {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: controller.signal,
+  });
+  expect(response.status).toBe(200);
+  cleanup.push(async () => {
+    controller.abort();
+    await response.body?.cancel().catch(() => {});
+  });
+  expect(await (await f.request("/v1/hub/status")).json()).toMatchObject({ connected: true });
+  const file = join(f.directory, "report.html");
+  await writeFile(file, "<h1>Retained while the Mac sleeps</h1>");
+  for (const args of [
+    ["text", "Retained finding", "--id", "stalled-text"],
+    ["add", file, "--id", "stalled-html"],
+    ["add", file, "--id", "stalled-plan", "--plan", "--name", "stalled-plan"],
+  ]) {
+    const receipt = await f.cli(...args, "--timeout-ms", "2000");
+    expect(receipt).toMatchObject({ queued: true });
+    expect(receipt).not.toHaveProperty("revision");
+  }
+  expect((await f.queue()).items).toEqual([
+    expect.objectContaining({ id: "stalled-text", status: "queued" }),
+    expect.objectContaining({ id: "stalled-html", status: "queued" }),
+    expect.objectContaining({ id: "stalled-plan", status: "queued" }),
+  ]);
+  await expect(f.direct.get("stalled-text")).rejects.toMatchObject({ status: 404 });
+  expect(await (await f.request("/v1/hub/status")).json()).toMatchObject({ connected: true });
+  await f.restart();
+  expect((await f.queue()).items).toHaveLength(3);
+  await f.reconnect();
+  await expect.poll(async () => (await f.queue()).items.length).toBe(0);
+  expect(Buffer.from(await f.direct.content("stalled-text")).toString()).toBe("Retained finding");
+  expect(Buffer.from(await f.direct.content("stalled-html")).toString()).toBe(
+    "<h1>Retained while the Mac sleeps</h1>",
+  );
+  expect(await f.direct.named("stalled-plan")).toMatchObject({ id: "stalled-plan", kind: "plan" });
 });
 
 test.each(["artifact-id", "plan-tab-design"])(
@@ -201,7 +247,7 @@ test("offline named HTML plan updates preserve the plan kind and revision histor
   await f.reconnect();
   const file = join(f.directory, "plan.html");
   await writeFile(file, "<h1>Original plan</h1>");
-  const original = await f.cli(
+  const receipt = await f.cli(
     "add",
     file,
     "--plan",
@@ -210,6 +256,9 @@ test("offline named HTML plan updates preserve the plan kind and revision histor
     "--name",
     "plan-tab-design",
   );
+  expect(receipt).toMatchObject({ id: "plan-id", queued: true });
+  await expect.poll(async () => (await f.queue()).items.length).toBe(0);
+  const original = await f.direct.get(receipt.id);
   await f.offline();
   await writeFile(file, "<h1>Updated offline</h1>");
   expect(await f.cli("update", "plan-tab-design", file)).toMatchObject({
