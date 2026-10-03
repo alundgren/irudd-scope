@@ -35,7 +35,7 @@ function claim(id: string, wait = false) {
 
 export async function editorIdentity() {
   let id = remembered();
-  // Duplicating a browser tab copies sessionStorage; its draft must stay independent.
+  // Duplicating a browser tab copies sessionStorage; its presence session must stay independent.
   const navigation = performance.getEntriesByType("navigation")[0] as
     | PerformanceNavigationTiming
     | undefined;

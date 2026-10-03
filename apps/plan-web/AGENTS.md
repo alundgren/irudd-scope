@@ -9,9 +9,9 @@ PGlite with IndexedDB and an app-owned SharedWorker. Complete local database
 operations run inside that worker. The worker owns one multiplexed event stream
 for all subscribed plans and resumes from committed cursors. Use
 `relaxedDurability: false`. Never acknowledge a
-queued edit as durable until browser persistence succeeds. Never advance a
+queued comment as durable until browser persistence succeeds. Never advance a
 replay cursor without storing the corresponding snapshot in the same local
-transaction. Preserve newer draft generations when retiring commands.
+transaction. Retire only acknowledged comment requests. Freeze legacy HTML records before any accepted snapshot can change them; never send archived HTML.
 
 Keep web app contracts in `src/contracts.ts`, shared by its browser and server.
 Do not import desktop internals or change existing artifact contracts.

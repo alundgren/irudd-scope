@@ -10,6 +10,7 @@ const server = await startPlanWebServer({
   databasePath: process.env.PLAN_WEB_DB ?? "./plan-web.sqlite",
   port: Number(process.env.PORT ?? 43130),
   host: process.env.HOST ?? "127.0.0.1",
+  publicOrigin: process.env.PLAN_WEB_ORIGIN,
   assetsDirectory: fileURLToPath(assets),
 });
 console.log(server.url);

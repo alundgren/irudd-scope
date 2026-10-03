@@ -12,14 +12,21 @@ import {
   validatePlanName,
 } from "./validation.ts";
 import { parseSubscriptions, subscribePlan, subscribePlans } from "./stream.ts";
+import { createMcpRoutes } from "./mcp-http.ts";
 
-type Options = { databasePath: string; port?: number; host?: string; assetsDirectory?: string };
+type Options = {
+  databasePath: string;
+  port?: number;
+  host?: string;
+  assetsDirectory?: string;
+  publicOrigin?: string;
+};
 const presenceLease = 15_000;
-async function openStore(path: string): Promise<PlanStore> {
+async function openSqlite<T>(open: () => T): Promise<T> {
   const deadline = Date.now() + 5000;
   while (true) {
     try {
-      return new PlanStore(path);
+      return open();
     } catch (error) {
       const code = (error as { errcode?: number }).errcode;
       const primaryCode = typeof code === "number" ? code & 255 : 0;
@@ -84,7 +91,25 @@ async function staticFile(response: ServerResponse, pathname: string, assetsDire
 export async function startPlanWebServer(
   options: Options,
 ): Promise<{ url: string; close(): Promise<void> }> {
-  const store = await openStore(options.databasePath);
+  const publicOriginUrl = options.publicOrigin ? new URL(options.publicOrigin) : undefined;
+  if (
+    publicOriginUrl &&
+    (publicOriginUrl.origin !== options.publicOrigin ||
+      !(
+        publicOriginUrl.protocol === "https:" ||
+        (publicOriginUrl.protocol === "http:" &&
+          ["127.0.0.1", "localhost", "[::1]"].includes(publicOriginUrl.hostname))
+      ))
+  )
+    throw new Error("Public origin must be an HTTPS origin or loopback HTTP origin.");
+  let publicOrigin = options.publicOrigin ?? "";
+  const store = await openSqlite(() => new PlanStore(options.databasePath));
+  const mcp = await openSqlite(() =>
+    createMcpRoutes(options.databasePath, store, () => publicOrigin),
+  ).catch((error: unknown) => {
+    store.close();
+    throw error;
+  });
   const presence = new Map<string, Map<string, Presence>>();
   const presenceListeners = new Set<(name: string) => void>();
   const watchPresence = (changed: (name: string) => void) => {
@@ -101,6 +126,7 @@ export async function startPlanWebServer(
     return [...sessions.values()];
   };
   const handle = async (request: IncomingMessage, response: ServerResponse) => {
+    if (await mcp.route(request, response)) return;
     const url = new URL(request.url ?? "/", "http://localhost");
     if (url.pathname === "/api/events") {
       if (request.method !== "GET") {
@@ -227,6 +253,7 @@ export async function startPlanWebServer(
       });
     });
   } catch (error) {
+    await mcp.close();
     store.close();
     throw error;
   }
@@ -234,9 +261,11 @@ export async function startPlanWebServer(
   if (!address || typeof address === "string")
     throw new Error("Server did not bind a TCP address.");
   const host = address.family === "IPv6" ? `[${address.address}]` : address.address;
+  const boundUrl = `http://${host}:${address.port}`;
+  publicOrigin ||= boundUrl;
   let closed = false;
   return {
-    url: `http://${host}:${address.port}`,
+    url: boundUrl,
     async close() {
       if (closed) return;
       closed = true;
@@ -244,6 +273,7 @@ export async function startPlanWebServer(
         server.close((error) => (error ? reject(error) : resolveClosed()));
         server.closeAllConnections();
       });
+      await mcp.close();
       store.close();
     },
   };

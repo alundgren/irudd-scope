@@ -4,13 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vp pack && vp build",
-    "dev": "vp exec node src/server-main.ts"
+    "build": "vp pack && vp exec node cli/package.ts && vp build",
+    "dev": "vp exec node src/server-main.ts",
+    "cli:build": "vp pack && vp exec node cli/package.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "catalog:",
+    "@modelcontextprotocol/node": "catalog:",
+    "@modelcontextprotocol/server": "catalog:",
     "diff": "catalog:",
     "effect": "catalog:",
-    "parse5": "catalog:"
+    "parse5": "catalog:",
+    "zod": "catalog:"
   }
 }
