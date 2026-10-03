@@ -235,7 +235,6 @@ export class PullRequestSync {
   async interest(interest: PullRequestsInterest): Promise<void> {
     const previous = this.interests.get(interest.tabId);
     this.interests.set(interest.tabId, interest);
-    this.releaseDetail();
     await this.reconcile();
     const group = [...this.groups.values()].find((group) => group.tabs.has(interest.tabId));
     if (!group) return;
@@ -581,6 +580,7 @@ export class PullRequestSync {
             { ...source, headOid: captured.headOid, baseOid: captured.baseOid },
             signal,
           );
+          signal.throwIfAborted();
           for (const interest of interests) {
             if (
               interest.detail.nodeId !== nodeId ||
@@ -797,25 +797,8 @@ export class PullRequestSync {
   private releaseUnusedDetail(pending: {
     controller: AbortController;
     users: Map<symbol, string>;
-    nodeId: string;
-    headOid: string;
-    baseOid: string;
   }) {
-    const watched = [...this.interests.values()].some(
-      (interest) =>
-        interest.active &&
-        this.watched(interest).some(
-          (detail) =>
-            detail.nodeId === pending.nodeId &&
-            detail.headOid === pending.headOid &&
-            detail.baseOid === pending.baseOid,
-        ),
-    );
-    if (!pending.users.size && !watched) pending.controller.abort();
-  }
-
-  private releaseDetail() {
-    for (const pending of this.pendingDetails.values()) this.releaseUnusedDetail(pending);
+    if (!pending.users.size) pending.controller.abort();
   }
 
   cancelTabs(tabIds: readonly string[]) {
@@ -825,7 +808,7 @@ export class PullRequestSync {
       for (const pending of this.pendingDetails.values())
         for (const [token, owner] of pending.users)
           if (owner === tabId) pending.users.delete(token);
-      this.releaseDetail();
+      for (const pending of this.pendingDetails.values()) this.releaseUnusedDetail(pending);
       for (const [repoKey, group] of this.groups) {
         group.tabs.delete(tabId);
         if (!group.tabs.size) {

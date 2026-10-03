@@ -1379,10 +1379,16 @@ test("watch switches preserve request ownership and canceling a frame preserves 
     await held;
     return syntheticDetail(pr);
   };
+  await f.service.interest({
+    tabId: f.tabId,
+    active: true,
+    details: [{ nodeId: "PR_1", headOid: facts().headOid, baseOid: facts().baseOid }],
+  });
   const firstId = randomUUID();
   const first = f.command(["PR_1"], firstId);
-  const second = f.command(["PR_1"]);
   await expect.poll(() => signals.length).toBe(1);
+  const second = f.command(["PR_1", "PR_3"]);
+  await expect.poll(() => signals.length).toBe(2);
   await f.service.interest({
     tabId: f.tabId,
     active: true,
@@ -1396,7 +1402,10 @@ test("watch switches preserve request ownership and canceling a frame preserves 
   expect(signals[0].aborted).toBe(false);
   release();
   await expect(second).resolves.toMatchObject({
-    results: [{ nodeId: "PR_1", detail: { diff: "diff" } }],
+    results: [
+      { nodeId: "PR_1", detail: { diff: "diff" } },
+      { nodeId: "PR_3", detail: { diff: "diff" } },
+    ],
   });
 });
 
@@ -1410,6 +1419,11 @@ test("canceling the final request aborts its read and retry does fresh work", as
       signal.addEventListener("abort", () => reject(signal.reason), { once: true }),
     );
   };
+  await f.service.interest({
+    tabId: f.tabId,
+    active: true,
+    details: [{ nodeId: "PR_1", headOid: facts().headOid, baseOid: facts().baseOid }],
+  });
   const requestId = randomUUID();
   const loading = f.command(["PR_1"], requestId);
   await expect.poll(() => signals.length).toBe(1);
@@ -1487,6 +1501,11 @@ test("batch execution limits concurrent reads and returns timeout errors while p
       ),
     );
   };
+  await f.service.interest({
+    tabId: f.tabId,
+    active: true,
+    details: [{ nodeId: "PR_2", headOid: facts().headOid, baseOid: facts().baseOid }],
+  });
   const loading = f.command(["PR_1", "PR_2", "PR_3", "PR_4", "PR_5"]);
   await expect.poll(() => signals.length).toBe(4);
   expect(maximum).toBe(3);
@@ -1625,21 +1644,27 @@ test("removing one tab cancels its batch while another tab keeps a shared read",
     return syntheticDetail(pr);
   };
   const first = f.command(["PR_1"]);
+  await expect.poll(() => signals.length).toBe(1);
   const second = f.client.pullRequests({
     action: "details",
     name: "second-reader",
     tabId: secondTab,
     requestId: randomUUID(),
-    nodeIds: ["PR_1"],
+    nodeIds: ["PR_1", "PR_2"],
   });
-  await expect.poll(() => signals.length).toBe(1);
+  await expect.poll(() => signals.length).toBe(2);
   f.service.cancelTabs([f.tabId]);
   await expect(first).resolves.toMatchObject({
     results: [{ error: expect.stringContaining("canceled") }],
   });
   expect(signals[0].aborted).toBe(false);
   release();
-  await expect(second).resolves.toMatchObject({ results: [{ detail: { diff: "diff" } }] });
+  await expect(second).resolves.toMatchObject({
+    results: [
+      { nodeId: "PR_1", detail: { diff: "diff" } },
+      { nodeId: "PR_2", detail: { diff: "diff" } },
+    ],
+  });
 });
 
 test("suspension cancels pending batches and drops completed cache before resuming", async () => {
@@ -1730,4 +1755,69 @@ test("batch completion rechecks early successes when a PR changes during another
       { nodeId: "PR_2", detail: { diff: "diff" } },
     ],
   });
+});
+
+test("an account change cancels a batch including its earlier completed result", async () => {
+  const remote = reader();
+  let observe!: Parameters<GitHubPullRequests["setReadHooks"]>[0];
+  remote.github.setReadHooks = (callback) => {
+    observe = callback;
+  };
+  remote.github.inventory = async () => ({
+    repository,
+    queriedRepository: repository,
+    viewer: "viewer",
+    account: "VIEWER",
+    startedAt: stamp,
+    cost: 1,
+    prs: [facts(), facts(2)],
+  });
+  const f = await fixture(remote.github);
+  const tabId = await f.tab("account-batch");
+  await f.service.sync(tabId);
+  f.store.setHandlers({
+    sync: (id) => f.service.sync(id),
+    detail: (id, nodeId, captured, signal) => f.service.detail(id, nodeId, captured, signal),
+  });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const signals: AbortSignal[] = [];
+  remote.github.detail = async (_repository, pr, signal) => {
+    signals.push(signal);
+    if (pr.nodeId === "PR_2") {
+      await held;
+      observe({
+        account: "OTHER_VIEWER",
+        cost: 1,
+        limit: 5000,
+        remaining: 4000,
+        resetAt: "2026-10-02T01:00:00.000Z",
+      });
+    }
+    return syntheticDetail(pr);
+  };
+  const client = new ScopeClient(f.server.url, "synthetic-scheduler-token-123456789");
+  const command = (nodeIds: string[]) =>
+    client.pullRequests({
+      action: "details",
+      name: "account-batch",
+      tabId,
+      requestId: randomUUID(),
+      nodeIds,
+    });
+  const loading = command(["PR_1", "PR_2"]);
+  await expect.poll(() => signals.length).toBe(2);
+  await command(["PR_1"]);
+  release();
+  await expect(loading).resolves.toMatchObject({
+    results: [
+      { nodeId: "PR_1", error: expect.stringContaining("canceled") },
+      { nodeId: "PR_2", error: expect.any(String) },
+    ],
+  });
+  expect(signals[1].aborted).toBe(true);
+  await command(["PR_1"]);
+  expect(signals).toHaveLength(3);
 });

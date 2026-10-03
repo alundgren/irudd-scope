@@ -559,10 +559,12 @@ export class PullRequestStore {
     try {
       await Promise.all(Array.from({ length: Math.min(3, nodeIds.length) }, load));
       try {
+        signal.throwIfAborted();
         const current = await this.snapshotByTab(pinned.tabId);
         await this.database.run(
           this.active(await this.database.run(this.owner(pinned.tabId, true))),
         );
+        signal.throwIfAborted();
         for (const [index, result] of results.entries()) {
           if (!("detail" in result)) continue;
           const pr = current.prs.find((pr) => pr.nodeId === result.nodeId);
