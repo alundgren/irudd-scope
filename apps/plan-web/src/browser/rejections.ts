@@ -3,32 +3,39 @@ import type { Pending } from "./local-database.ts";
 import { createId } from "./identity.ts";
 
 export class RejectedChanges {
+  private articles = new Map<string, HTMLElement>();
+  private initialized = false;
   constructor(
     private container: HTMLElement,
     private read: () => Promise<Pending[]>,
     private actor: () => Actor,
-    private restore: (requestId: string) => Promise<void>,
     private dismiss: (requestId: string, replacement?: PlanCommand) => Promise<void>,
-    private busy: () => boolean,
   ) {}
 
   async open() {
-    this.container.replaceChildren();
-    const heading = document.createElement("h2");
-    heading.textContent = "Rejected changes";
-    const hint = document.createElement("p");
-    hint.className = "hint";
-    hint.textContent =
-      "These changes remain in this browser. Other edits can still reach the server. Edit rejected content before retrying.";
-    this.container.append(heading, hint);
+    if (!this.initialized) {
+      this.initialized = true;
+      const heading = document.createElement("h2");
+      heading.textContent = "Rejected comments";
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent =
+        "These comments remain in this browser. Edit rejected content before retrying.";
+      const empty = document.createElement("p");
+      empty.className = "rejections-empty";
+      empty.textContent = "No rejected changes.";
+      this.container.append(heading, hint, empty);
+    }
     try {
       const rows = await this.read();
-      if (!rows.length) {
-        const empty = document.createElement("p");
-        empty.textContent = "No rejected changes.";
-        this.container.append(empty);
+      this.container.querySelector<HTMLElement>(".rejections-empty")!.hidden = rows.length !== 0;
+      for (const [id, article] of this.articles) {
+        if (!rows.some((row) => row.requestId === id)) {
+          article.remove();
+          this.articles.delete(id);
+        }
       }
-      for (const row of rows) this.add(row);
+      for (const row of rows) if (!this.articles.has(row.requestId)) this.add(row);
     } catch (error) {
       this.error(error);
     }
@@ -57,18 +64,8 @@ export class RejectedChanges {
           button.disabled = false;
         });
     };
-    if (row.command.kind === "html") {
-      const excerpt = document.createElement("pre");
-      excerpt.className = "draft-excerpt";
-      excerpt.textContent = row.command.html.slice(0, 240);
-      const restore = document.createElement("button");
-      restore.textContent = "Restore rejected HTML";
-      restore.className = "restore-rejected";
-      restore.disabled = this.busy();
-      restore.addEventListener("click", () => run(restore, () => this.restore(row.requestId)));
-      actions.append(restore);
-      article.append(excerpt);
-    } else {
+    if (row.command.kind === "html") return;
+    {
       const input = document.createElement("textarea");
       input.setAttribute("aria-label", "Rejected comment text");
       input.value = "text" in row.command ? row.command.text : "";
@@ -107,6 +104,7 @@ export class RejectedChanges {
     dismiss.addEventListener("click", () => run(dismiss, () => this.dismiss(row.requestId)));
     actions.append(exportButton, dismiss);
     article.append(reason, actions);
+    this.articles.set(row.requestId, article);
     this.container.append(article);
   }
 }

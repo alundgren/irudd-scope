@@ -48,7 +48,7 @@ export class HtmlPreview {
   constructor(
     private iframe: HTMLIFrameElement,
     private markers: HTMLElement,
-    private anchored: (html: string, anchor: CommentAnchor) => void,
+    private anchored: (anchor: CommentAnchor) => void,
     private cursor: (elementId: string | null, x: number, y: number) => void,
   ) {
     iframe.addEventListener("load", () => this.attach());
@@ -92,7 +92,8 @@ export class HtmlPreview {
     const source = this.canonical;
     const live = this.iframe.contentDocument;
     const element = live ? uniqueId(live, anchor.elementId) : null;
-    return Boolean(uniqueId(source, anchor.elementId) && element && this.authored(element));
+    const authored = element ? this.authored(element) : null;
+    return Boolean(uniqueId(source, anchor.elementId) && authored?.id === anchor.elementId);
   }
 
   private attach() {
@@ -144,24 +145,21 @@ export class HtmlPreview {
       canonical.tagName !== target.tagName ||
       (canonical.textContent ?? "").trim().slice(0, 180) !== quote
     ) {
-      this.anchored(this.html, { elementId: null, quote, x, y });
+      this.anchored({ elementId: null, quote, x, y });
       return;
     }
     if (canonical.id) {
       const valid =
-        uniqueId(parsed, canonical.id) && uniqueId(this.iframe.contentDocument!, canonical.id);
-      this.anchored(this.html, { elementId: valid ? canonical.id : null, ...point });
+        uniqueId(parsed, canonical.id) &&
+        uniqueId(this.iframe.contentDocument!, canonical.id) === target;
+      this.anchored({ elementId: valid ? canonical.id : null, ...point });
       return;
     }
     if (canonical.hasAttribute("id")) {
-      this.anchored(this.html, { elementId: null, quote, x, y });
+      this.anchored({ elementId: null, quote, x, y });
       return;
     }
-    const token = this.locations[Number(target.getAttribute(this.attribute))];
-    const id = `plan-${createId()}`;
-    const offset = token.offset;
-    const html = this.html.slice(0, offset) + ` id="${id}"` + this.html.slice(offset);
-    this.anchored(html, { elementId: id, ...point });
+    this.anchored({ elementId: null, quote, x, y });
   }
 
   private authored(target: Element): Element | null {

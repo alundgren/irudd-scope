@@ -6,18 +6,12 @@ import { PlanEventStream, type StreamRequest } from "./event-stream.ts";
 const operations = new Set([
   "read",
   "initialize",
-  "saveDraft",
-  "queueHtml",
   "queueCommand",
   "pending",
   "accept",
-  "conflict",
-  "resolve",
-  "drafts",
-  "recover",
+  "archive",
   "reject",
   "dismissRejected",
-  "restoreRejected",
 ]);
 const database = new Promise<PGlite>((resolve, reject) => {
   void navigator.locks
