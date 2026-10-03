@@ -127,7 +127,7 @@ Presence writes wake subscribed event streams immediately, while retaining repla
 
 Anchored positions are normalized to their element's bounds. Unanchored positions use document coordinates so viewers with different scroll offsets see the same point. Negative unanchored coordinates mean the pointer left the plan. History views, missing anchors and points outside the receiving viewport hide cursors. Stationary anchored cursors update after a viewer scrolls or resizes.
 
-Focused Chromium tests exercise two independent browser contexts, injected request jitter, six concurrent agents, reordered packets, reloads, identity switches, stable DOM elements, geometry and eight same-origin tabs sharing one event connection. They measure capture to visible remote position, update cadence and final stopped-point arrival. Actual network links and Safari, Firefox and mobile backgrounding need separate validation.
+Focused Chromium tests exercise two independent browser contexts, injected request jitter, agent writes during pointer movement, reordered packets, reloads, identity switches, stable DOM elements, geometry and eight same-origin tabs sharing one event connection. They measure capture to visible remote position, update cadence and final stopped-point arrival. The broader reader pressure test exercises six distinct concurrent API agents and three human readers. Actual network links and Safari, Firefox and mobile backgrounding need separate validation.
 
 ## Agent CLI and MCP
 
@@ -181,7 +181,10 @@ stdio bridge. The CLI's polling endpoints are app-owned pairing; they do not
 claim to implement the OAuth device authorization extension.
 
 The tools read current plans, immutable revisions, paginated history and Git
-diffs, apply HTML, add comments, reply, and resolve or reopen discussions. The
+diffs, apply HTML, add comments, reply, and resolve or reopen discussions.
+New comments do not automatically start an agent turn. MCP tools expose comments
+when called; MCP requests do not publish agent heartbeats. Agents can use the
+REST presence endpoint for activity indicators. The
 server injects the approved development user and agent name into every command.
 Mutations require a caller-supplied stable `requestId`; keep it and the payload
 after a timeout or lost reply. Read current content before applying HTML, and
