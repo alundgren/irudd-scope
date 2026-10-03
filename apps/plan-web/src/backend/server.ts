@@ -86,6 +86,13 @@ export async function startPlanWebServer(
 ): Promise<{ url: string; close(): Promise<void> }> {
   const store = await openStore(options.databasePath);
   const presence = new Map<string, Map<string, Presence>>();
+  const presenceListeners = new Set<(name: string) => void>();
+  const watchPresence = (changed: (name: string) => void) => {
+    presenceListeners.add(changed);
+    return () => {
+      presenceListeners.delete(changed);
+    };
+  };
   const getPresence = (name: string) => {
     const sessions = presence.get(name);
     if (!sessions) return [];
@@ -109,7 +116,7 @@ export async function startPlanWebServer(
         if (after > store.snapshot(name).revision)
           throw new InvalidInput("Replay cursor exceeds the latest revision.");
       }
-      subscribePlans(response, store, subscriptions, getPresence);
+      subscribePlans(response, store, subscriptions, getPresence, watchPresence);
       return;
     }
     const route =
@@ -152,7 +159,7 @@ export async function startPlanWebServer(
         );
         if (after > snapshot.revision)
           throw new InvalidInput("Replay cursor exceeds the latest revision.");
-        subscribePlan(response, store, name, after, getPresence);
+        subscribePlan(response, store, name, after, getPresence, watchPresence);
         return;
       }
       if (action === "versions") {
@@ -176,14 +183,23 @@ export async function startPlanWebServer(
         return;
       }
       if (action === "presence") {
-        store.snapshot(name);
+        if (!presence.has(name)) store.snapshot(name);
         const entry = parsePresence(await body(request));
         let sessions = presence.get(name);
         if (!sessions) {
           sessions = new Map();
           presence.set(name, sessions);
         }
-        sessions.set(entry.sessionId, entry);
+        const previous = sessions.get(entry.sessionId);
+        const current = previous && Date.now() - previous.updatedAt <= presenceLease;
+        if (
+          !current ||
+          previous.sequence === undefined ||
+          (entry.sequence !== undefined && entry.sequence > previous.sequence)
+        ) {
+          sessions.set(entry.sessionId, entry);
+          for (const changed of presenceListeners) changed(name);
+        }
         json(response, 200, getPresence(name));
         return;
       }

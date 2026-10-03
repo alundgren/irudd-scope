@@ -80,12 +80,14 @@ type Frames = {
   plan(event: PlanEvent, cursors: Map<string, number>): string;
   presence(name: string, people: Presence[]): string;
 };
+export type WatchPresence = (changed: (name: string) => void) => () => void;
 function stream(
   response: ServerResponse,
   store: PlanStore,
   subscriptions: PlanSubscription[],
   getPresence: (name: string) => Presence[],
   frames: Frames,
+  watchPresence: WatchPresence,
 ) {
   response.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -101,19 +103,28 @@ function stream(
   let stall: ReturnType<typeof setTimeout> | undefined;
   let heartbeat = Date.now();
   let stopped = false;
+  let waitingForDrain = false;
+  const unwatch = watchPresence((name) => {
+    if (!cursors.has(name) || stopped || waitingForDrain) return;
+    schedule(0);
+  });
   const stop = () => {
     stopped = true;
     clearTimeout(timer);
     clearTimeout(stall);
+    unwatch();
   };
   const schedule = (delay: number) => {
+    clearTimeout(timer);
     timer = setTimeout(tick, delay);
   };
   const write = (text: string) => {
     if (response.write(text)) return true;
+    waitingForDrain = true;
     stall = setTimeout(() => response.destroy(), 5000);
     response.once("drain", () => {
       clearTimeout(stall);
+      waitingForDrain = false;
       if (!stopped) schedule(0);
     });
     return false;
@@ -160,12 +171,20 @@ export function subscribePlans(
   store: PlanStore,
   subscriptions: PlanSubscription[],
   getPresence: (name: string) => Presence[],
+  watchPresence: WatchPresence,
 ) {
-  stream(response, store, subscriptions, getPresence, {
-    plan: (event, cursors) =>
-      `id: ${cursorId(cursors)}\nevent: plan\ndata: ${JSON.stringify(event)}\n\n`,
-    presence: (name, people) => `event: presence\ndata: ${JSON.stringify({ name, people })}\n\n`,
-  });
+  stream(
+    response,
+    store,
+    subscriptions,
+    getPresence,
+    {
+      plan: (event, cursors) =>
+        `id: ${cursorId(cursors)}\nevent: plan\ndata: ${JSON.stringify(event)}\n\n`,
+      presence: (name, people) => `event: presence\ndata: ${JSON.stringify({ name, people })}\n\n`,
+    },
+    watchPresence,
+  );
 }
 export function subscribePlan(
   response: ServerResponse,
@@ -173,9 +192,17 @@ export function subscribePlan(
   name: string,
   after: number,
   getPresence: (name: string) => Presence[],
+  watchPresence: WatchPresence,
 ) {
-  stream(response, store, [{ name, after }], getPresence, {
-    plan: (event) => `id: ${event.revision}\nevent: plan\ndata: ${JSON.stringify(event)}\n\n`,
-    presence: (_name, people) => `event: presence\ndata: ${JSON.stringify(people)}\n\n`,
-  });
+  stream(
+    response,
+    store,
+    [{ name, after }],
+    getPresence,
+    {
+      plan: (event) => `id: ${event.revision}\nevent: plan\ndata: ${JSON.stringify(event)}\n\n`,
+      presence: (_name, people) => `event: presence\ndata: ${JSON.stringify(people)}\n\n`,
+    },
+    watchPresence,
+  );
 }

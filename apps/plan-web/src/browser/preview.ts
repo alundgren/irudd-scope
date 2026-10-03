@@ -29,7 +29,7 @@ function sourceTags(html: string) {
 }
 
 function uniqueId(document: Document, id: string) {
-  const matches = Array.from(document.querySelectorAll("[id]")).filter(
+  const matches = Array.from(document.querySelectorAll(`#${CSS.escape(id)}`)).filter(
     (element) => element.id === id,
   );
   return matches.length === 1 ? matches[0] : null;
@@ -44,6 +44,10 @@ export class HtmlPreview {
   private people: Presence[] = [];
   private comments: PlanComment[] = [];
   private history = false;
+  private cursorMarkers = new Map<string, HTMLElement>();
+  private frame: number | undefined;
+  private commentsChanged = false;
+  private pointerPosition: { x: number; y: number } | null = null;
 
   constructor(
     private iframe: HTMLIFrameElement,
@@ -52,10 +56,18 @@ export class HtmlPreview {
     private cursor: (elementId: string | null, x: number, y: number) => void,
   ) {
     iframe.addEventListener("load", () => this.attach());
+    const leave = () => {
+      this.pointerPosition = null;
+      this.cursor(null, -1, -1);
+    };
+    iframe.addEventListener("pointerleave", leave);
+    window.addEventListener("blur", leave);
+    new ResizeObserver(() => this.renderPresence(true)).observe(iframe);
   }
 
   show(html: string, history: boolean) {
     this.history = history;
+    this.renderPresence();
     if (html === this.html && this.iframe.srcdoc) return;
     this.html = html;
     this.attribute = `data-scope-source-${createId()}`;
@@ -79,7 +91,7 @@ export class HtmlPreview {
   }
   setComments(comments: PlanComment[]) {
     this.comments = comments;
-    this.renderPresence();
+    this.renderPresence(true);
   }
 
   setPresence(people: Presence[]) {
@@ -110,23 +122,45 @@ export class HtmlPreview {
       },
       true,
     );
-    let lastCursor = 0;
     document.addEventListener("pointermove", (event) => {
-      if (Date.now() - lastCursor < 90) return;
-      lastCursor = Date.now();
-      const target = event.target as Element;
-      const id = target.closest?.("[id]")?.id ?? null;
-      const element = id ? uniqueId(document, id) : null;
-      const rect = element?.getBoundingClientRect();
-      this.cursor(
-        element?.id ?? null,
-        rect ? (event.clientX - rect.left) / Math.max(rect.width, 1) : event.clientX,
-        rect ? (event.clientY - rect.top) / Math.max(rect.height, 1) : event.clientY,
-      );
+      if (this.history) return;
+      this.pointerPosition = { x: event.clientX, y: event.clientY };
+      this.sendCursor(document, event.target as Element, event.clientX, event.clientY);
     });
-    document.addEventListener("scroll", () => this.renderPresence(), true);
-    this.renderPresence();
+    document.addEventListener("pointerleave", () => {
+      this.pointerPosition = null;
+      this.cursor(null, -1, -1);
+    });
+    document.addEventListener(
+      "scroll",
+      () => {
+        this.renderPresence(true);
+        const point = this.pointerPosition;
+        const target = point && document.elementFromPoint(point.x, point.y);
+        if (target) this.sendCursor(document, target, point!.x, point!.y);
+      },
+      true,
+    );
+    new MutationObserver(() => this.renderPresence(true)).observe(document, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["id", "style", "class"],
+    });
+    this.renderPresence(true);
     this.iframe.dispatchEvent(new CustomEvent("previewready"));
+  }
+
+  private sendCursor(document: Document, target: Element, x: number, y: number) {
+    if (this.history || document !== this.iframe.contentDocument) return;
+    const id = target.closest?.("[id]")?.id ?? null;
+    const element = id ? uniqueId(document, id) : null;
+    const rect = element?.getBoundingClientRect();
+    this.cursor(
+      element?.id ?? null,
+      rect ? (x - rect.left) / Math.max(rect.width, 1) : x + document.defaultView!.scrollX,
+      rect ? (y - rect.top) / Math.max(rect.height, 1) : y + document.defaultView!.scrollY,
+    );
   }
 
   private anchor(target: Element, x: number, y: number) {
@@ -175,10 +209,61 @@ export class HtmlPreview {
     return token?.tag === target.tagName.toLowerCase() ? source[0] : null;
   }
 
-  private renderPresence() {
-    this.markers.replaceChildren();
+  private renderPresence(commentsChanged = false) {
+    this.commentsChanged ||= commentsChanged;
+    if (this.frame !== undefined) return;
+    this.frame = requestAnimationFrame(() => {
+      this.frame = undefined;
+      this.paintPresence();
+    });
+  }
+
+  private paintPresence() {
     const document = this.iframe.contentDocument;
     if (!document) return;
+    if (this.commentsChanged) this.paintComments(document);
+    const active = new Set<string>();
+    for (const person of this.people) {
+      active.add(person.sessionId);
+      let marker = this.cursorMarkers.get(person.sessionId);
+      if (!marker) {
+        marker = window.document.createElement("div");
+        marker.className = "cursor";
+        marker.dataset.sessionId = person.sessionId;
+        this.cursorMarkers.set(person.sessionId, marker);
+        this.markers.append(marker);
+      }
+      const point = this.cursorPoint(document, person);
+      marker.hidden = this.history || !point;
+      if (point) {
+        marker.style.left = `${point.x}px`;
+        marker.style.top = `${point.y}px`;
+      }
+      const label = `↖ ${person.actor.name}${person.actor.kind === "agent" ? " · agent" : ""}`;
+      if (marker.textContent !== label) marker.textContent = label;
+    }
+    for (const [sessionId, marker] of this.cursorMarkers) {
+      if (active.has(sessionId)) continue;
+      marker.remove();
+      this.cursorMarkers.delete(sessionId);
+    }
+  }
+
+  private cursorPoint(document: Document, person: Presence) {
+    const element = person.elementId ? uniqueId(document, person.elementId) : null;
+    if (person.elementId && !element) return null;
+    if (!person.elementId && (person.x < 0 || person.y < 0)) return null;
+    const rect = element?.getBoundingClientRect();
+    const x = rect ? rect.left + person.x * rect.width : person.x - document.defaultView!.scrollX;
+    const y = rect ? rect.top + person.y * rect.height : person.y - document.defaultView!.scrollY;
+    return x < 0 || y < 0 || x > this.iframe.clientWidth || y > this.iframe.clientHeight
+      ? null
+      : { x, y };
+  }
+
+  private paintComments(document: Document) {
+    this.commentsChanged = false;
+    this.markers.querySelectorAll(".comment-marker").forEach((marker) => marker.remove());
     for (const [index, comment] of this.comments.entries()) {
       if (!comment.anchor.elementId || !this.connected(comment.anchor)) continue;
       const element = uniqueId(document, comment.anchor.elementId)!;
@@ -193,19 +278,6 @@ export class HtmlPreview {
       marker.addEventListener("click", () =>
         this.iframe.dispatchEvent(new CustomEvent("commentselected", { detail: comment.id })),
       );
-      this.markers.append(marker);
-    }
-    for (const person of this.people) {
-      const element = person.elementId ? uniqueId(document, person.elementId) : null;
-      const rect = element?.getBoundingClientRect();
-      const x = rect ? rect.left + person.x * rect.width : person.elementId ? -100 : person.x;
-      const y = rect ? rect.top + person.y * rect.height : person.elementId ? -100 : person.y;
-      if (x < 0 || y < 0 || x > this.iframe.clientWidth || y > this.iframe.clientHeight) continue;
-      const marker = window.document.createElement("div");
-      marker.className = "cursor";
-      marker.style.left = `${x}px`;
-      marker.style.top = `${y}px`;
-      marker.textContent = `↖ ${person.actor.name}${person.actor.kind === "agent" ? " · agent" : ""}`;
       this.markers.append(marker);
     }
   }

@@ -71,6 +71,7 @@ export type Presence = {
   x: number;
   y: number;
   updatedAt: number;
+  sequence?: number;
 };
 
 export function planApi(name: string) {
