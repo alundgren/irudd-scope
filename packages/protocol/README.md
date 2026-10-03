@@ -41,7 +41,7 @@ external-agent conversations and native versioned diagram synchronization.
 
 The desktop owns the API and persistent library. `LocalConnection` defines the version 1 discovery file with `endpoint` and `token`, validated as loopback HTTP. Its default path is `~/.config/irudd-scope/desktop.json`, overridable through `SCOPE_CONNECTION_FILE`. Desktop main writes it with mode `0600`; the CLI reads it when no endpoint or token override is supplied. Explicit endpoints require explicit credentials and never receive the discovered local token implicitly.
 
-The paired hub forwards live requests and temporarily stores opted-in offline publications. Direct connections and stateless forwarding hubs require an available desktop. A failed response does not prove a write was rolled back; read the artifact and inspect the hub queue before retrying an uncertain publication.
+The paired hub forwards live requests and persists opted-in publications before attempting delivery, regardless of desktop connection state. Direct connections and stateless forwarding hubs require an available desktop. A failed response does not prove a write was rolled back; read the artifact and inspect the hub queue before retrying an uncertain publication.
 
 The API uses a bearer token on every `/v1` request. It has no browser CORS access. Content responses are downloads; desktop rendering applies its own isolation. HTTP is allowed only on loopback. Remote clients use HTTPS, normally Tailscale Serve.
 
@@ -115,7 +115,13 @@ uses the `scope-response-status` header. Only the listed artifact and desktop ma
 PUT, or DELETE are accepted; the Mac supplies its own local publishing token.
 
 The hub permits sixteen active requests, bounded request bodies, and one
-connected Mac. Event heartbeats keep the connection active. Disconnecting
+connected Mac. Event heartbeats keep the connection active. On system resume,
+new desktops reconnect enabled remotes with `Scope-Relay-Wake: 1` on
+`GET /v1/relay/events`. This authenticated, one-time wake signal clears delivery
+backoff and attempts queued publications immediately. Ordinary reconnects and
+new publications respect the cooldown. Older hubs ignore the header; older
+desktops retain their existing reconnection behavior. No relay event or persisted
+field changes. Disconnecting
 cancels every transfer and returns 503 where headers have not been sent.
 If a non-GET request times out before the Mac fetches its body, the hub closes
 that relay connection. The timed-out request keeps its timeout error; other
@@ -124,20 +130,25 @@ have completed. The hub does not replay live requests. Later opted-in
 publications can queue while disconnected. A GET timeout or a timeout after
 body retrieval does not close the relay, so those stalls can still require
 reconnection. Caller cancellation does not close the relay either.
-Live requests end on disconnect. Offline publications can instead opt into
+Live requests end on disconnect. Publications can instead opt into durable
 buffering by sending `Scope-Buffer-Publication: 1` on the tab reservation.
 `ScopeClient.publishOrQueue` uses this option; `publish` retains synchronous
 Artifact-only behavior. The hub issues its own tab ID, accepts one bounded
 content upload, and returns 202 with `QueuedPublication` from the final PUT.
 That receipt is `{ id, queued: true, expiresAt }`, with no desktop revision.
-A reservation made offline continues using the hub queue if the Mac connects
-before the upload finishes. Existing clients and older hubs keep working
+Every opted-in reservation uses the hub queue, including while the Mac is
+connected or unresponsive. Connection state only controls background delivery
+attempts; it never decides whether to persist an opted-in publication.
+Existing synchronous clients retain live forwarding. Existing clients and older hubs keep working
 online because reservation JSON and relay events are unchanged. Older hubs
 return 503 offline.
 
 The hub caps pending tabs, including incomplete uploads, at 50. Entries
 expire 48 hours after reservation without retry extensions. Complete entries
-deliver automatically on reconnect and survive hub restart. Delivery reads
+deliver automatically while connected and survive hub restart. Transient
+delivery failures back off for 3 seconds, doubling to a 5-minute cap. A successful
+delivery or Mac wake resets the cooldown. Retry timing exists only in hub memory;
+a hub restart starts fresh without discarding queued content. Delivery reads
 the current desktop artifact and checks its revision before writing. After
 an uncertain metadata acknowledgement, matching desktop content and metadata
 confirm delivery; newer conflicting content remains untouched. Conflicts
@@ -591,45 +602,3 @@ The CLI documents the agent workflow and schema with `irudd-scope plan guide`.
 Feedback exports include `packet.json`, originating `plan.html` and both PNGs for
 each comment. Export retrieves only the selected round, not the entire history.
 They are explicit copies; plan storage stays in SQLite.
-
-## Outbound HTML publication
-
-`src/publications.ts` defines validated agent-assisted publishing commands and
-snapshots. `ScopeClient.publications` posts commands to `/v1/publications` with a
-256 KiB request bound and 1 MiB reply bound. `publicationContent(id, operationId)`
-reads the operation's exact retained HTML through
-`GET /v1/publications/:id/operations/:operationId/content`. Content retains the
-ordinary 32 MiB bound. Both routes require authentication and an online desktop;
-hubs forward them without offline buffering.
-
-Snapshots identify the artifact, owning tab UUID, and Claude/Sites destinations.
-Each destination contains a nullable successful checkpoint and unresolved
-operation. `prepare` pins the current revision and blob to an operation UUID.
-`authorize` acknowledges the operation's overwrite warning and checks the displayed `expectedObservation` against current semantic facts. `refresh` accepts a
-fresh observation and preserves acknowledgement only when the destination,
-account, audience, permission, version and date are unchanged. `start` records
-permission before the first provider mutation. `progress` records returned
-remote IDs and Sites version/deployment IDs. `complete` records confirmed
-success. `cancel` and `unlink` require explicit uncertainty acknowledgement for
-started work. Neither deletes provider content.
-
-Provider observations are supplied by the authenticated agent. Unknown or public
-privacy blocks writes. Changed remote versions, newer edit dates, or missing
-comparable metadata warn. Sites requires owner-only native deployment and an
-explicit acknowledgement for existing destinations because its tools cannot
-conditionally reject concurrent content edits. Claude keeps its native version
-guard; its list alone does not establish the audience. A provider failure must
-be reconciled before a started operation can be retried.
-
-The latest checkpoint and unresolved operation protect their stored HTML bytes.
-Operations survive desktop restart and preparation expiry. Completion uses the
-operation UUID for idempotency and rejects changed result replays. Sites
-completion needs an exact saved version, source commit, deployment ID, and
-attested terminal success for the matching project/version. A saved version or
-pending deployment is insufficient. Scope performs no provider calls, pull,
-conflict resolution, or background synchronization.
-
-`{ type: "publications", id, tabId }` live events notify changed publication
-state. Reconnect and read the snapshot to recover missed events. Read commands
-do not refresh provider metadata. The CLI's `publications guide` exposes the
-installed exact schema and workflow.

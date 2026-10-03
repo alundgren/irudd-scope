@@ -2,8 +2,8 @@
 
 Scope stores artifacts from coding agents and displays them in a Mac desktop
 workspace. The desktop owns the library. Direct publication requires an awake
-Mac running Scope. Paired hubs temporarily store offline publications and
-deliver them when the Mac reconnects.
+Mac running Scope. Paired hubs temporarily store CLI publications before
+attempting delivery while the Mac is connected.
 
 ```mermaid
 flowchart LR
@@ -125,7 +125,7 @@ refresh durable review state even when the HTML revision did not change.
 `library/plan-http.ts` serves authenticated review commands, retained HTML and
 plan-owned images. Hubs forward those routes but store no review data. Review
 commands require the desktop online. Initial publications use the existing
-optional offline publication queue.
+hub publication queue.
 
 The CLI's `plan.ts` exports HTML and a visual feedback packet to explicit files,
 validates response files and submits replies. `plan-watch.ts` recovers pending
@@ -338,11 +338,16 @@ through the protocol client. It does not read transcripts or launch agents.
 
 `apps/hub` authenticates and forwards requests and event streams. `state.ts`
 owns hub configuration, pairing expiry, and credential hashes in `hub.db`.
-`paired-server.ts` owns live relay transfers and accepts opted-in offline
+`paired-server.ts` owns live relay transfers and always stores opted-in
 publications through the same tab-first protocol. `publication-queue.ts`
 stores their metadata and bytes in `hub.db`, capped at 50 tabs with a fixed
 48-hour expiry. `publication-delivery.ts` delivers complete entries through
-the existing Mac-initiated relay and retains conflicts for inspection.
+the existing Mac-initiated relay while connected and retains conflicts for inspection.
+Transient delivery failures use a bounded exponential cooldown. Desktop
+`remotes.ts` reconnects enabled remotes on the Electron resume event, sending
+a one-time authenticated wake header that resets the hub cooldown. Ordinary
+reconnects respect it. Retry timing is temporary process state; queued content
+remains in SQLite.
 `artifact-metadata.ts` retains up to 1,000 recently observed artifact records
 in hub SQLite for 48 hours. Opted-in update reads can use their saved IDs,
 names, titles, and revisions while offline. Delivery checks the saved revision
@@ -634,40 +639,3 @@ agent host continues its existing tool loop. Running a wait command outside
 that loop does not attach it to a model. This mode does not resume an idle or
 closed host session. Connected-agent selection is temporary; existing named
 or embedded recipient preferences remain in the draft.
-
-## Outbound HTML publication
-
-An existing coding session uses its native Claude Artifact or OpenAI Sites tools
-to publish stored Scope HTML. Scope exports an immutable document and stores
-agent-supplied destination metadata, publication checkpoints, and unresolved
-operations in `scope.db`. It does not launch agents or hold provider credentials.
-
-`packages/protocol/src/publications.ts` owns the commands and snapshots.
-`library/publication-store.ts` owns tab-bound state and retained content through
-the artifact store's serialized SQL transactions. HTTP and paired relays expose
-the same commands while the desktop is online. They do not buffer provider
-operations. The CLI validates explicit command files and exports exact bytes.
-The desktop dialog copies a request for an existing session and records explicit
-overwrite acknowledgement.
-
-Privacy and edit observations come from authenticated native provider tools or
-an authenticated sharing inspection. Scope evaluates those observations; it
-cannot independently monitor either provider. Claude updates need authenticated
-Share-dialog inspection and retain the provider's native version guard. Sites
-uses owner-only deployment enforcement and requires overwrite acknowledgement
-for existing destinations because its deployment tools have no conditional
-content version parameter. Unknown privacy blocks publication. Unknown edit
-metadata warns before replacement.
-
-```mermaid
-flowchart LR
-    Human[Human in Scope] --> Request[Copy agent request]
-    Request --> Agent[Existing coding session]
-    Agent --> Observe[Native tools: audience and remote edits]
-    Observe --> Prepare[Scope: prepare immutable HTML]
-    Prepare --> Warning[Human acknowledges overwrite warning]
-    Warning --> Agent
-    Agent --> Provider[Claude artifact or owner-private Site]
-    Provider --> Result[Confirmed publication result]
-    Result --> Checkpoint[Scope: durable checkpoint]
-```

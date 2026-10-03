@@ -1,4 +1,3 @@
-import { MAX_PUBLICATIONS_REQUEST_BYTES } from "@irudd-scope/protocol/publications";
 import { MAX_PULL_REQUESTS_REQUEST_BYTES } from "@irudd-scope/protocol/pull-requests";
 import { MAX_VOICE_REQUEST_BYTES } from "@irudd-scope/protocol/voice";
 import { MAX_PLAN_REQUEST_BYTES } from "@irudd-scope/protocol/plan";
@@ -30,6 +29,7 @@ import {
   PairRequest,
   HubUpdateRequest,
   type RelayEvent,
+  RELAY_WAKE_HEADER,
 } from "@irudd-scope/protocol/remote";
 import type { HubState } from "./state.ts";
 import type { HubUpdates } from "./updates.ts";
@@ -347,7 +347,8 @@ export async function startPairedHub(
         "Cache-Control": "no-store",
       });
       send({ type: "ready" });
-      delivery.start();
+      if (request.headers[RELAY_WAKE_HEADER.toLowerCase()] === "1") delivery.wake();
+      else delivery.start();
       const timer = setInterval(() => send({ type: "ready" }), 10_000);
       response.on("close", () => {
         clearInterval(timer);
@@ -375,19 +376,17 @@ export async function startPairedHub(
       await pipeline(
         item.request,
         bounded(
-          item.path === "/v1/publications"
-            ? MAX_PUBLICATIONS_REQUEST_BYTES
-            : item.path === "/v1/pull-requests"
-              ? MAX_PULL_REQUESTS_REQUEST_BYTES
-              : item.path === "/v1/plans"
-                ? MAX_PLAN_REQUEST_BYTES
-                : item.path === "/v1/voice"
-                  ? MAX_VOICE_REQUEST_BYTES
-                  : ["/v1/diagrams", "/v1/diagram-agents"].includes(item.path)
-                    ? MAX_DIAGRAM_REQUEST_BYTES
-                    : item.path.endsWith("/blobs") || item.path === "/v1/diagrams/sync"
-                      ? MAX_CONTENT_BYTES
-                      : MAX_METADATA_BYTES,
+          item.path === "/v1/pull-requests"
+            ? MAX_PULL_REQUESTS_REQUEST_BYTES
+            : item.path === "/v1/plans"
+              ? MAX_PLAN_REQUEST_BYTES
+              : item.path === "/v1/voice"
+                ? MAX_VOICE_REQUEST_BYTES
+                : ["/v1/diagrams", "/v1/diagram-agents"].includes(item.path)
+                  ? MAX_DIAGRAM_REQUEST_BYTES
+                  : item.path.endsWith("/blobs") || item.path === "/v1/diagrams/sync"
+                    ? MAX_CONTENT_BYTES
+                    : MAX_METADATA_BYTES,
         ),
         response,
         { signal: item.controller.signal },
@@ -485,7 +484,7 @@ export async function startPairedHub(
       json(response, 404, { error: "Artifact endpoint not found." });
       return;
     }
-    if (await buffered.handle(request, response, !desktop, Boolean(state.status().pairedMac))) {
+    if (await buffered.handle(request, response, Boolean(state.status().pairedMac))) {
       delivery.start();
       return;
     }
@@ -512,13 +511,11 @@ export async function startPairedHub(
     const limit =
       request.url === "/v1/transfers/import"
         ? MAX_TRANSFER_IMPORT_REQUEST_BYTES
-        : request.url === "/v1/publications"
-          ? MAX_PUBLICATIONS_REQUEST_BYTES
-          : request.url === "/v1/pull-requests"
-            ? MAX_PULL_REQUESTS_REQUEST_BYTES
-            : request.url === "/v1/plans"
-              ? MAX_PLAN_REQUEST_BYTES
-              : MAX_CONTENT_BYTES;
+        : request.url === "/v1/pull-requests"
+          ? MAX_PULL_REQUESTS_REQUEST_BYTES
+          : request.url === "/v1/plans"
+            ? MAX_PLAN_REQUEST_BYTES
+            : MAX_CONTENT_BYTES;
     if (Number(request.headers["content-length"]) > limit) {
       json(response, 413, { error: `Request exceeds the ${limit / (1024 * 1024)} MiB limit.` });
       return;

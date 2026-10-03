@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { PublicationsGuide, publicationsCommand } from "./publications.ts";
 import { PullRequestsGuide, pullRequestsCommand } from "./pull-requests.ts";
 import { VoiceGuide } from "@irudd-scope/protocol/voice";
 import { voiceCommand, voiceHelp } from "./voice.ts";
@@ -54,7 +53,6 @@ irudd-scope diagram rebase WORKING.json
 irudd-scope diagram propose WORKING.json --note TEXT [--resolved]
 irudd-scope diagram reply NAME TEXT
 irudd-scope diagram watch NAME [--claude-channel | --t3-thread ID | --codex-thread ID] [--watch-edits]
-irudd-scope publications guide|read|apply|content [ID_OR_FILE] [OPERATION_ID] [--output FILE]
 irudd-scope pull-requests guide|read|configure|sync|detail|apply [NAME_OR_FILE] [OWNER/REPO_OR_NODE_ID]
 irudd-scope plan guide
 irudd-scope plan read NAME [--since VERSION]
@@ -81,7 +79,7 @@ Open Scope on this Mac to publish locally without connection setup.
 Environment: SCOPE_CONNECTION_FILE, or SCOPE_ENDPOINT with SCOPE_TOKEN_FILE or SCOPE_TOKEN
 Output is JSON. Updates read the current revision and reject concurrent changes.
 Offline updates use the paired hub's saved revision and block on delivery if the tab changed.
-Paired hubs buffer publications while the Mac is offline, up to 50 tabs for 48 hours.
+Paired hubs store publications before delivery, up to 50 tabs for 48 hours.
 Queued publications return an expiry receipt. Use hub queue to inspect them or hub discard ID to cancel.
 Import-link imports a tab sharing link into the receiver's paired Scope without a desktop confirmation.
 Create sharing links and pair in the Mac app. Both Macs must be online with Tailcat installed separately.
@@ -459,23 +457,6 @@ async function main() {
     }
     const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"] ?? "330000"));
     await voiceCommand(argument, replacement, values, () => connect(values, signal), signal);
-    return;
-  }
-  if (command === "publications") {
-    if (argument === "guide") {
-      console.log(JSON.stringify(PublicationsGuide, null, 2));
-      return;
-    }
-    const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"] ?? "10000"));
-    const result = await publicationsCommand(
-      await connect(values, signal),
-      positionals,
-      values.output,
-      signal,
-    );
-    console.log(JSON.stringify(result, null, 2));
-    if (argument === "apply" && "decision" in result && result.decision !== "allowed")
-      process.exitCode = 2;
     return;
   }
   if (command === "pull-requests") {

@@ -1,8 +1,6 @@
-import { PublicationDialog } from "./publication-dialog.tsx";
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
-  Upload,
   Maximize2,
   Minimize2,
   Settings,
@@ -61,7 +59,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const [focus, setFocus] = useState(false);
   const [fullscreenMode, setFullscreenMode] = useState<FullscreenMode>("edit");
   const [details, setDetails] = useState(false);
-  const [publishing, setPublishing] = useState(false);
   const [transfer, setTransfer] = useState<TransferDialog>();
   const [transferLinks, setTransferLinks] = useState<TransferLink[]>([]);
   const pendingTransferLinks = useRef<TransferLink[]>([]);
@@ -85,12 +82,12 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     [],
   );
   useEffect(() => {
-    if (transfer || settings || publishing || details || overflow || !transferLinks.length) return;
+    if (transfer || settings || details || overflow || !transferLinks.length) return;
     const [next, ...pending] = pendingTransferLinks.current;
     setTransfer(next);
     pendingTransferLinks.current = pending;
     setTransferLinks(pending);
-  }, [transfer, settings, publishing, details, overflow, transferLinks]);
+  }, [transfer, settings, details, overflow, transferLinks]);
   function closeTransfer(dialog: TransferDialog) {
     setTransfer((current) => (current === dialog ? undefined : current));
   }
@@ -338,14 +335,12 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     setSettingsQuery(filter);
     setSettings(true);
     setDetails(false);
-    setPublishing(false);
     setSearch(false);
   }
   function openSearch() {
     setOverflow(false);
     setSettings(false);
     setDetails(false);
-    setPublishing(false);
     setQuery("");
     setSearch(true);
   }
@@ -374,7 +369,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       } else if (command && event.key === ",") {
         event.preventDefault();
         openSettings();
-      } else if (search || settings || details || publishing || overflow || transferOpen) return;
+      } else if (search || settings || details || overflow || transferOpen) return;
       else if (event.key === "Escape" && html && presentation) {
         event.preventDefault();
         setFullscreenMode("view");
@@ -594,7 +589,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         artifacts={activeArtifacts}
         onOpenArtifact={open}
         onOpenSettings={openSettings}
-        finalFocus={settings || details || publishing || transferOpen ? false : returnFocus}
+        finalFocus={settings || details || transferOpen ? false : returnFocus}
         actions={[
           {
             id: "import-tab",
@@ -676,20 +671,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                           icon: Download,
                           onSelect: () => void download(),
                         },
-                        ...(activeArtifact.kind === "html" || activeArtifact.kind === "plan"
-                          ? [
-                              {
-                                id: "publish",
-                                title: "Publish with coding agent",
-                                keywords: "publish claude artifact codex openai sites sync",
-                                icon: Upload,
-                                onSelect: () => {
-                                  setPublishing(true);
-                                  setSearch(false);
-                                },
-                              },
-                            ]
-                          : []),
                         {
                           id: "details",
                           title: "Artifact details",
@@ -766,16 +747,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             }}
           />
         </SettingsDialog>
-      </Dialog>
-      <Dialog open={publishing} onOpenChange={setPublishing}>
-        {activeArtifact && (
-          <PublicationDialog
-            key={activeArtifact.id}
-            artifact={activeArtifact}
-            open={publishing}
-            finalFocus={search ? false : returnFocus}
-          />
-        )}
       </Dialog>
       <Dialog open={details} onOpenChange={setDetails}>
         <DialogContent finalFocus={search ? false : returnFocus}>

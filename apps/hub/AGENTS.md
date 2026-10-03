@@ -12,11 +12,14 @@ desktop relay credentials have separate roles. Pairing links expire and can
 be used once. Revocation closes the connection and all current requests.
 
 Bind to loopback. Preserve authentication, browser-origin rejection, bounded
-requests, streaming, and cancellation when either connection closes. Opted-in publications may reserve a buffered tab while the paired Mac is offline.
+requests, streaming, and cancellation when either connection closes. Opted-in publications always reserve a buffered tab, regardless of the paired Mac's connection state.
 Keep the queue durable, capped at 50 tabs including incomplete uploads, and
-expire entries 48 hours after reservation. Deliver complete publications on
-reconnect, preserve revision checks, and recover uncertain acknowledgements
-without overwriting newer desktop content. Other requests fail during outages.
+expire entries 48 hours after reservation. Attempt complete publications while
+connected, preserve revision checks, and recover uncertain acknowledgements
+without overwriting newer desktop content. Transient delivery failures back off
+from 3 seconds to 5 minutes; new arrivals and ordinary reconnects must respect
+the cooldown. Only a successful delivery or an authenticated Mac wake resets it.
+Other requests fail during outages.
 Retain at most 1,000 recently observed artifact metadata records for 48 hours;
 only opted-in update reads can use them offline. Never infer a current desktop
 revision from saved metadata. Revocation clears both metadata and the queue

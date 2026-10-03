@@ -565,9 +565,15 @@ The Mac opens all relay connections through the remote's Tailscale Serve
 endpoint. The hub only binds to loopback. A tailnet rule permitting Mac-to-remote
 HTTPS is sufficient; remote-to-Mac initiation is unnecessary. CLI publication
 uses its private local discovery file without endpoint flags. The hub streams
-active requests. While the paired Mac is offline, CLI `add`, `text`, and eligible `update`
-publications are buffered in hub SQLite, up to 50 tabs for 48 hours from
-reservation. Complete entries arrive automatically when Scope reconnects.
+active requests. CLI `add`, `text`, and eligible `update` publications always
+persist in hub SQLite before delivery, up to 50 tabs for 48 hours from
+reservation. Connection state only controls delivery attempts. Complete entries
+deliver in the background while Scope is connected, including after reconnect.
+Transient failures wait 3 seconds before retrying, doubling to a 5-minute cap.
+New publications and ordinary reconnects respect that cooldown. On the system
+resume event, Scope reconnects enabled remotes with a one-time wake signal that
+resumes delivery immediately. Manually disconnected remotes stay off. This adds
+no periodic Mac ping task.
 A queued JSON receipt reports `id`, `queued: true`, and `expiresAt`; it does
 not mean the Mac has received or rendered the artifact. Inspect with
 `irudd-scope hub queue` and cancel with `irudd-scope hub discard ID`.
@@ -578,7 +584,8 @@ The hub retains up to 1,000 recent artifact records for 48 hours after observati
 If the saved revision is missing, read the artifact through the hub while connected first.
 If the desktop revision changed, delivery blocks without replacing newer content.
 Interactive diagram operations, speech generation, and maintenance are
-never buffered. A live request interrupted by disconnection can fail;
+never buffered. Synchronous clients that omit the buffering header retain live
+forwarding. A live request interrupted by disconnection can fail;
 check the artifact and queue before retrying an uncertain publication.
 
 Enabled remotes reconnect automatically while Scope runs. Disconnect remains

@@ -138,7 +138,7 @@ async function screenshot(page: Page, name: string) {
   await page.screenshot({ animations: "disabled", path: join(process.env.SCOPE_REVIEW_DIR, name) });
 }
 
-test("Transfer links wait until artifact details and publishing dialogs close", async () => {
+test("Transfer links wait until artifact details close", async () => {
   const f = await desktopFixture();
   const app = await f.launch();
   try {
@@ -169,25 +169,21 @@ test("Transfer links wait until artifact details and publishing dialogs close", 
     );
     await page.getByRole("button", { name: "Close", exact: true }).click();
     await page.getByRole("button", { name: "Search and controls" }).click();
-    await page.getByRole("button", { name: "Publish with coding agent", exact: true }).click();
-    const publication = page.getByRole("dialog", {
-      name: "Publish with coding agent",
-      exact: true,
-    });
-    await publication.waitFor();
+    await page.getByRole("button", { name: "Artifact details", exact: true }).click();
+    await details.waitFor();
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].webContents.send("scope:transfer-link", {
-        url: "scope-transfer://v2/#publishing-queued-link",
+        url: "scope-transfer://v2/#details-pair-queued-link",
         kind: "pair",
       }),
     );
     expect(
       await page.getByRole("dialog", { name: "Pair another Scope", exact: true }).count(),
     ).toBe(0);
-    await publication.getByRole("button", { name: "Close", exact: true }).click();
+    await details.getByRole("button", { name: "Close", exact: true }).click();
     await page.getByLabel("Pairing link", { exact: true }).waitFor();
     expect(await page.getByLabel("Pairing link", { exact: true }).inputValue()).toBe(
-      "scope-transfer://v2/#publishing-queued-link",
+      "scope-transfer://v2/#details-pair-queued-link",
     );
   } finally {
     await app.close();

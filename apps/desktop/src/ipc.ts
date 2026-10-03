@@ -1,4 +1,3 @@
-import { PublicationsCommand, PublicationsReply } from "@irudd-scope/protocol/publications";
 import { connectedDiagramAgents } from "./plugins/diagram/connected-agent.ts";
 import { diagramCommands } from "./plugins/diagram/command-main.ts";
 import { clipboard, dialog, ipcMain, nativeTheme, type BrowserWindow } from "electron";
@@ -126,15 +125,6 @@ export function registerDesktopIpc({
     client,
     artifacts: lifecycle.artifacts,
     workspace: () => lifecycle.workspace(),
-  });
-  handle("scope:publications-command", async (input) =>
-    decode(PublicationsReply, await client.publications(decode(PublicationsCommand, input))),
-  );
-  const stopPublicationEvents = library.onPublicationsChanged((event) => {
-    if (!window.isDestroyed()) window.webContents.send("scope:publications-changed", event);
-  });
-  const stopPublicationReconnects = library.onPublicationsReconnected(() => {
-    if (!window.isDestroyed()) window.webContents.send("scope:publications-reconnected");
   });
   const stopPlanEvents = library.onPlanChanged((event) => {
     if (!window.isDestroyed()) window.webContents.send("scope:plan-changed", event);
@@ -292,8 +282,6 @@ export function registerDesktopIpc({
     dispose: () => {
       stopPlanEvents();
       stopPlanReconnects();
-      stopPublicationEvents();
-      stopPublicationReconnects();
       stopPullRequestsEvents();
       stopPullRequestsReconnects();
       window.webContents.removeListener("render-process-gone", rendererUnavailable);

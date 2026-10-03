@@ -32,7 +32,7 @@ name. A new inbox starts permanent. The name and artifact kind cannot change.
 Keep artifact IDs and names distinct from the snapshot's desktop `tabId` UUID.
 
 All `pull-requests` commands other than `guide` need an online desktop, directly
-or through a paired hub. Initial publication can use the ordinary offline hub
+or through a paired hub. Initial publication can use the ordinary hub
 queue; wait for delivery before configuring it. The awake desktop runs its
 installed `gh` under the Mac user's current GitHub login. A remote agent does
 not need a separate GitHub login to use the inbox commands. Only `github.com`

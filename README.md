@@ -2,11 +2,11 @@
 
 # irudd-scope
 
-A private workspace where coding agents leave things for a human to inspect. An Electron app stores and displays artifacts on the Mac. Local publishing works while Scope is open, without a VM. An optional paired hub forwards remote requests and buffers offline publications until the Mac reconnects. Codex and Claude can publish through the same CLI.
+A private workspace where coding agents leave things for a human to inspect. An Electron app stores and displays artifacts on the Mac. Local publishing works while Scope is open, without a VM. An optional paired hub persists remote CLI publications before delivery and attempts delivery while the Mac is connected. Codex and Claude can publish through the same CLI.
 
 The repository is public. Artifact data and credentials stay private. Remote publishing belongs on a private tailnet. Paired Scope instances can exchange selected tabs over a separate encrypted connection.
 
-SQLite stores artifact contents, metadata, ordinary settings, and workspace preferences. Mac provider and remote connection credentials live directly in Keychain. The private discovery file holds the CLI publishing token. The Mac owns delivered artifacts. Direct publishing requires Scope to be running; paired hubs buffer up to 50 offline publications for 48 hours.
+SQLite stores artifact contents, metadata, ordinary settings, and workspace preferences. Mac provider and remote connection credentials live directly in Keychain. The private discovery file holds the CLI publishing token. The Mac owns delivered artifacts. Direct publishing requires Scope to be running; paired hubs buffer up to 50 pending publications for 48 hours.
 
 ## Install on macOS
 
@@ -83,23 +83,6 @@ restarting the hub. Offline remotes catch up when they reconnect. Settings →
 Remotes shows progress and failed updates with Retry. Older installations need
 one manual run of the standalone installer and `irudd-scope setup` to enable
 this behavior.
-
-## Publish HTML to Claude or Sites
-
-For an HTML artifact or plan, choose **Publish with coding agent** in the
-current-tab controls and copy the request into an existing coding session.
-Scope keeps the destination link and publication checkpoint. The agent uses
-native provider tools, verifies the audience, and checks for remote edits.
-Overwrite warnings require acknowledgement before replacement.
-
-Claude updates require a signed-in Claude Code session and authenticated access
-to the artifact's sharing settings. OpenAI Sites requires Sites tools in the
-current host and supports owner-only destinations in this workflow. A normal
-Codex terminal session does not automatically have those tools. Public or
-unverifiable audiences are blocked. There is no pull or automatic sync.
-
-Use `irudd-scope publications guide` for the CLI workflow. Publication records
-and exports require the desktop online, including through a paired hub.
 
 ## Development
 
