@@ -16,6 +16,9 @@
     "hub": "vp run hub#dev",
     "desktop": "vp run desktop#dev",
     "plan-web": "vp run plan-web#dev",
+    "plan-web:check": "vp fmt --check apps/plan-web tests/plan-web-api.test.ts tests/plan-web-stream.test.ts tests/plan-web-browser.test.ts tests/plan-web-merge.test.ts HANDOFF.md .github/workflows/check.yml package.json pnpm-workspace.yaml pnpm-lock.yaml && vp lint --type-aware --type-check apps/plan-web tests/plan-web-api.test.ts tests/plan-web-stream.test.ts tests/plan-web-browser.test.ts tests/plan-web-merge.test.ts",
+    "plan-web:test": "vp test run --project=standard tests/plan-web-api.test.ts tests/plan-web-stream.test.ts tests/plan-web-browser.test.ts tests/plan-web-merge.test.ts --maxWorkers=1",
+    "plan-web:ready": "vp run plan-web#build && vp run plan-web:check && vp run plan-web:test",
     "scope": "vp exec node packages/cli/src/main.ts"
   },
   "devDependencies": {

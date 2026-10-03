@@ -21,36 +21,131 @@ Historical versions and diffs must remain available.
 
 Use isolated worktrees for implementers and child PRs against this branch.
 Research storage and durable stream systems using primary sources. Independently
-review changes before integration. Run `vp run ready` before every push and
-completion. Exercise multiple browser users and agents, dropped connections,
+review changes before integration. This is an independent app: use its build,
+format, type/lint and API/stream/browser/concurrency checks. Do not repeatedly
+run whole-Scope validation for app-only work. Run Scope validation only when a
+change directly affects Scope. This policy follows the user's explicit override
+of the repository-wide gate. Exercise multiple browser users and agents,
+dropped connections,
 duplicate delivery, process restart, competing edits, and comment detachment.
 
-## Status
+## Current implementation
 
-Repository and storage/stream scouts are investigating. No implementation is
-complete yet. Architecture, run commands, PR links, verification evidence, and
-remaining work will be recorded here as the prototype develops.
+`apps/plan-web` is a separate package with its own contracts. It does not import
+desktop internals or change the deployed artifact API. Start it with:
 
-## Proposed ownership and persistence
+```sh
+vp install
+vp run plan-web#build
+vp run plan-web
+```
 
-The exploration owns a separate `apps/plan-web` package. It does not import
-desktop internals or change the deployed artifact API. Its backend owns SQLite
-records for HTML snapshots, Git-generated unified diffs, comments, accepted
-commands, and replayable events. One transaction commits a mutation and its
-event before clients can observe success.
+Open `http://localhost:43130/plans/team-plan`; unknown plan URLs create plans.
+Read [the app guide](apps/plan-web/README.md) for API commands and operating limits.
+The backend stores HTML snapshots, native Git unified diffs, comments, accepted
+commands and replayable events in SQLite. One `BEGIN IMMEDIATE` transaction
+commits state, revision, event and immutable command receipt. WAL and full
+synchronous writes are enabled. Reusing a command ID requires the same payload.
+Disjoint source edits rebase through each accepted HTML revision; overlaps keep
+the local draft and require explicit reconciliation.
 
-Browser drafts, outgoing commands, cached snapshots, and replay cursors use a
-PGlite multi-tab worker backed by IndexedDB, with normal durability. This is
-the web app's local recovery database, separate from desktop-owned SQLite.
-Every tab keeps its own draft. Stable command IDs make competing tab retries
-safe. Browser eviction or clearing can still remove locally unsynced work.
+PGlite 0.5.8 stores browser drafts, outgoing commands, snapshots and replay
+cursors in IndexedDB with `relaxedDurability: false`. An app-owned SharedWorker
+holds a Web Lock and serializes complete database operations. Each tab owns a
+separate draft identity; another tab can deliver its durable commands after it
+closes. Snapshot/cursor advancement, acknowledgement retirement and preservation
+of newer draft generations are atomic. Editing is enabled after its recovery
+row exists. Browser eviction or clearing can remove unsynced work; export it
+when needed. Browser editing requires HTTPS or localhost and SharedWorker/Web
+Locks support. Plain HTTP shows the server plan read-only with an explanation.
 
-HTTP commands and a typed SSE feed provide both directions of communication.
-The durable event log determines accepted order. Disjoint HTML edits can rebase;
-overlapping edits must keep the local draft and show a conflict. Presence is a
-transient lease and does not create plan history for every pointer movement.
+HTTP commands and a typed multiplexed SSE stream provide both directions.
+One origin-wide browser connection covers all active plans, avoiding the
+[six-connection HTTP/1 browser limit](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events).
+The worker persists events before notifying tabs and reconnects only from
+committed cursors. The server bounds replay batches, rotates subscribed plans
+and disconnects a stalled reader after five seconds. Presence is a transient
+15-second lease owned by one server process, rather than durable plan history.
+HTML, comments, replies and resolution state are immutable versioned records.
 
-An independent reviewer is evaluating these decisions before implementation.
+Authored HTML runs with scripts. Humans can edit its source beside a live
+preview. Comment anchors use unique authored element IDs. Removing an element
+keeps the discussion detached; restoring its ID reconnects it. Generated or
+ambiguous elements remain detached. A real HTML parser supplies source offsets
+without serializing the runtime DOM or rewriting authored attributes/scripts.
+
+## Integration
+
+The permanent branch incorporates `origin/main` at `8f8d630`. Backend work is
+in [PR #82](https://github.com/alundgren/irudd-scope/pull/82) and multiplexed
+streams are in [PR #83](https://github.com/alundgren/irudd-scope/pull/83).
+[PR #85](https://github.com/alundgren/irudd-scope/pull/85) contains the browser
+implementation and scoped validation. These PRs target the permanent branch.
+Never retarget them or this branch to main.
+
+The User menu offers exactly Alex, Blair and Casey independently in each tab.
+Queued commands retain their original actor. Permanent HTTP 400/413/422
+rejections preserve work without blocking other editors. Saved and rejected
+HTML restoration locks competing controls and retries one journaled operation.
+Existing pins allow clicks through during comment placement and regain
+interaction afterward.
+
+## Run and validate
+
+Run from a checkout containing the browser implementation:
+
+```sh
+vp install --frozen-lockfile
+vp run plan-web#build
+vp run plan-web
+```
+
+Open `http://localhost:43130/plans/team-plan` in two browser windows. Choose
+Alex in one and Blair in the other. Each tab remembers its own selection on
+reload. Visiting a new plan URL creates that plan.
+
+The default SQLite database is `apps/plan-web/plan-web.sqlite`. Set
+`PLAN_WEB_DB` to use another database. Retain its WAL and SHM files with the
+database. Browser storage belongs to the origin; changing the host or port
+creates a separate local recovery database. The app requires HTTPS or localhost
+for durable browser editing.
+
+Use focused app validation:
+
+```sh
+# App build, format/type/lint checks and all 56 app tests:
+vp run plan-web:ready
+# API/stream and bounded text merge:
+vp test run --project=standard tests/plan-web-api.test.ts tests/plan-web-stream.test.ts tests/plan-web-merge.test.ts --maxWorkers=1
+# Extended native-input concurrency pressure:
+PLAN_WEB_PRESSURE_ROUNDS=50 vp test run --project=standard tests/plan-web-browser.test.ts -t 'multiple humans' --maxWorkers=1
+```
+
+`plan-web:check` checks only the app, its four test files and supporting
+handoff/workflow/catalog files. Lint includes type-aware and TypeScript checks.
+`plan-web:test` directly runs the four files with one file worker, without
+launching Scope, Electron or Xvfb. The browser scenarios still run several
+users and agents concurrently. CI uses this app gate for the exploration
+branch and PRs targeting it. Other branches retain their Scope validation.
+
+The app suite has 24 API/stream cases, six text-merge cases and 26 real
+Chromium cases. It covers offline reload, duplicates, lost and hanging replies,
+owner closure, worker/server restart, conflicts, comment detachment, copied
+tabs, eight tabs/plans, fake users, permanent rejection and recovery after
+committed replies are lost. Tests use isolated SQLite databases and headless
+Chromium without credentials or models. Browser failures save screenshots and
+observations to `/tmp/scope-web-*-evidence.json`.
+
+The extended scenario runs two human editors, two witness tabs and six API
+agents through 50 rounds. It checks every participant's rendered fields after
+each round, accepts 400 edits, repeats 300 agent requests, and restarts the
+server midway. Source edits use real native keyboard input. Comment tests use
+unforced clicks and assertions that re-resolve pins when presence updates
+replace their DOM nodes.
+
+Keep current validation receipts and review evidence in the PR or external
+report. Do not substitute historical passes for exact-head results. No Scope
+suite is required for changes confined to this independent app.
 
 ## Research notes
 
@@ -79,8 +174,11 @@ its larger download and startup cost than native IndexedDB.
 | [Redis Streams](https://redis.io/docs/latest/develop/use-cases/streaming/)                      | Ordered entries, acknowledgements, and pending-message recovery. Adds a service and a second persistence system.                                                    |
 | [Durable Objects](https://developers.cloudflare.com/durable-objects/best-practices/websockets/) | A room owner, persistent storage, and socket hibernation. Useful hosted alternative that requires the Cloudflare runtime.                                           |
 
-[PGlite's worker](https://pglite.dev/docs/multi-tab-worker) elects one database
-owner across tabs and serializes SQL access. Its
+The [PGlite worker design](https://pglite.dev/docs/multi-tab-worker) informed
+the multi-tab database owner. We reproduced an SDK teardown failure when a
+closed tab interrupted transaction RPC and replaced that wrapper with complete
+app-owned worker operations; see the related
+[upstream report](https://github.com/electric-sql/pglite/issues/1084). Its
 [IndexedDB filesystem](https://pglite.dev/docs/filesystems) loads database files
 into memory and flushes changed files after queries. Normal durability is
 required for the local recovery database. A leader change can leave a request
@@ -90,6 +188,6 @@ safe. Browser data is still subject to
 
 Native IndexedDB remains a useful comparison for the small recovery records.
 Measure startup, enqueue latency, database size, and leader-change recovery
-before making a long-term browser storage choice. V1's conservative source
-rebase may reject independent edits when one edit spans several distant parts
-of the HTML; it must retain the draft for explicit reconciliation.
+before making a long-term browser storage choice. The current browser merge
+uses bounded multiple text edits to preserve distant independent changes. True overlaps or an exhausted merge work limit retain the
+draft for explicit reconciliation.

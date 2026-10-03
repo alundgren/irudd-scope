@@ -32,6 +32,8 @@ catalog:
   "@electron/packager": 20.3.0
   qrcode: 1.5.4
   "@types/qrcode": 1.5.6
+  parse5: 8.0.1
+  diff: 9.0.0
 
 overrides:
   vite@*: "catalog:"

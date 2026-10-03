@@ -5,7 +5,10 @@ This package belongs only to the permanent exploration branch described in
 
 The backend owns accepted plan state, immutable revisions, command receipts,
 and replayable events in SQLite. The browser owns its recovery database in
-PGlite with IndexedDB and the official multi-tab worker. Never acknowledge a
+PGlite with IndexedDB and an app-owned SharedWorker. Complete local database
+operations run inside that worker. The worker owns one multiplexed event stream
+for all subscribed plans and resumes from committed cursors. Use
+`relaxedDurability: false`. Never acknowledge a
 queued edit as durable until browser persistence succeeds. Never advance a
 replay cursor without storing the corresponding snapshot in the same local
 transaction. Preserve newer draft generations when retiring commands.
