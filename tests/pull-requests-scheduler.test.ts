@@ -1890,3 +1890,79 @@ test("initial detail replies and cache hits retain live discussion updates recei
   });
   expect(calls).toBe(1);
 });
+
+test.each(["same turn", "next microtask"])(
+  "detail delivery retains a live refresh when full detail resolves first and reviews resolve in the %s",
+  async (ordering) => {
+    let task: (() => void) | undefined;
+    const updates: { body?: string }[] = [];
+    const f = await detailFixture(1, {
+      now: () => Date.parse(stamp),
+      onDetail: (update) => updates.push(update),
+      setTimeout: (callback) => {
+        task = callback;
+        return 1 as unknown as ReturnType<typeof setTimeout>;
+      },
+      clearTimeout: () => {
+        task = undefined;
+      },
+    });
+    let finishDetail!: () => void;
+    let finishReviews!: () => void;
+    let calls = 0;
+    let reviewsWaiting = false;
+    f.remote.github.detail = (_repository, pr) =>
+      new Promise((resolve) => {
+        calls++;
+        finishDetail = () =>
+          resolve({
+            ...syntheticDetail(pr, "captured diff"),
+            body: "Initial body",
+            fetchedAt: "2026-10-02T00:01:00.000Z",
+          });
+      });
+    f.remote.github.current = async (_repository, pr) =>
+      facts(pr.number, "2026-10-02T00:00:10.000Z");
+    const reviews = [
+      {
+        id: "review-1",
+        author: "reviewer",
+        state: "APPROVED",
+        body: "Live review",
+        submittedAt: stamp,
+        headOid: facts().headOid,
+      },
+    ];
+    f.remote.github.reviews = () =>
+      new Promise((resolve) => {
+        reviewsWaiting = true;
+        finishReviews = () =>
+          resolve({ body: "Updated body", reviews, fetchedAt: "2026-10-02T00:00:20.000Z" });
+      });
+    const loading = f.service.detail(f.tabId, "PR_1");
+    await expect.poll(() => calls).toBe(1);
+    await f.service.start();
+    await f.service.interest({
+      tabId: f.tabId,
+      active: true,
+      details: [{ nodeId: "PR_1", headOid: facts().headOid, baseOid: facts().baseOid }],
+    });
+    task!();
+    await expect.poll(() => reviewsWaiting).toBe(true);
+    finishDetail();
+    if (ordering === "same turn") finishReviews();
+    else queueMicrotask(finishReviews);
+    await expect(loading).resolves.toMatchObject({
+      body: "Updated body",
+      reviews,
+      diff: "captured diff",
+    });
+    expect(updates).toMatchObject([{ body: "Updated body" }]);
+    await expect(f.service.detail(f.tabId, "PR_1")).resolves.toMatchObject({
+      body: "Updated body",
+      reviews,
+      diff: "captured diff",
+    });
+    expect(calls).toBe(1);
+  },
+);

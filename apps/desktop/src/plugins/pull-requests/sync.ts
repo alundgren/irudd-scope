@@ -709,44 +709,50 @@ export class PullRequestSync {
         })
         .finally(() => {
           group.controller.signal.removeEventListener("abort", abort);
-          if (this.pendingDetails.get(cacheKey) === entry) this.pendingDetails.delete(cacheKey);
         });
       pending = entry;
     }
     const entry = pending;
     const token = Symbol();
     entry.users.set(token, tabId);
-    return new Promise<PullRequestDetail>((resolve, reject) => {
-      const cleanup = () => {
-        signal?.removeEventListener("abort", canceled);
-        entry.controller.signal.removeEventListener("abort", stopped);
-      };
-      const canceled = () => {
-        cleanup();
-        reject(signal?.reason ?? new Error("Pull request detail loading was canceled."));
-      };
-      const stopped = () => {
-        cleanup();
-        reject(new Error("Pull request detail loading was canceled. Retry when ready."));
-      };
-      signal?.addEventListener("abort", canceled, { once: true });
-      entry.controller.signal.addEventListener("abort", stopped, { once: true });
-      if (signal?.aborted) canceled();
-      if (entry.controller.signal.aborted) stopped();
-      void entry.promise.then(
-        (detail) => {
+    try {
+      const detail = await new Promise<PullRequestDetail>((resolve, reject) => {
+        const cleanup = () => {
+          signal?.removeEventListener("abort", canceled);
+          entry.controller.signal.removeEventListener("abort", stopped);
+        };
+        const canceled = () => {
           cleanup();
-          resolve(detail);
-        },
-        (error) => {
+          reject(signal?.reason ?? new Error("Pull request detail loading was canceled."));
+        };
+        const stopped = () => {
           cleanup();
-          reject(error);
-        },
-      );
-    }).finally(() => {
+          reject(new Error("Pull request detail loading was canceled. Retry when ready."));
+        };
+        signal?.addEventListener("abort", canceled, { once: true });
+        entry.controller.signal.addEventListener("abort", stopped, { once: true });
+        if (signal?.aborted) canceled();
+        if (entry.controller.signal.aborted) stopped();
+        void entry.promise.then(
+          (detail) => {
+            cleanup();
+            resolve(detail);
+          },
+          (error) => {
+            cleanup();
+            reject(error);
+          },
+        );
+      });
+      signal?.throwIfAborted();
+      entry.controller.signal.throwIfAborted();
+      return { ...detail, ...entry.discussion };
+    } finally {
       entry.users.delete(token);
       this.releaseUnusedDetail(entry);
-    });
+      if (!entry.users.size && this.pendingDetails.get(cacheKey) === entry)
+        this.pendingDetails.delete(cacheKey);
+    }
   }
 
   private cacheDetail(
