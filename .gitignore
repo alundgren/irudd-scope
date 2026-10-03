@@ -10,3 +10,6 @@ test-results/
 playwright-report/
 .DS_Store
 .scope-dev/
+/apps/plan-web/*.sqlite
+/apps/plan-web/*.sqlite-wal
+/apps/plan-web/*.sqlite-shm

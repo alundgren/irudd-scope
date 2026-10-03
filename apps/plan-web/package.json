@@ -9,6 +9,8 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "catalog:",
-    "effect": "catalog:"
+    "diff": "catalog:",
+    "effect": "catalog:",
+    "parse5": "catalog:"
   }
 }
