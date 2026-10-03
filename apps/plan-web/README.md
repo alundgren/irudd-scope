@@ -104,7 +104,8 @@ Run API and browser scenarios with:
 
 ```sh
 vp run plan-web:ready
-vp test run --project=standard tests/plan-web-browser.test.ts --maxWorkers=1
+flock /tmp/plan-web-browser-validation.lock vp test run --project=standard tests/plan-web-browser.test.ts --maxWorkers=1
+PLAN_WEB_PRESSURE_ROUNDS=50 flock /tmp/plan-web-browser-validation.lock vp test run --project=standard tests/plan-web-browser.test.ts -t 'three readers' --maxWorkers=1
 ```
 
 The browser tests launch real Chromium against an isolated SQLite server. They
@@ -118,7 +119,7 @@ and observed command traffic.
 
 ## Remote cursors
 
-Presence is transient and process-local, with a 15-second lease. Pointer updates bypass PGlite and durable command transactions. Each tab sends at most 30 updates per second, with two requests in flight and one coalesced latest position. A 500 ms timeout and a bounded retry deliver the last point even after movement stops. Presence traffic does not acknowledge a durable comment or HTML change.
+Presence is transient and process-local, with a 15-second lease. Pointer updates bypass PGlite and durable command transactions. Each tab sends approximately 30 updates per second, with two requests in flight and one coalesced latest position. A 500 ms timeout and a bounded retry deliver the last point even after movement stops. Presence traffic does not acknowledge a durable comment or HTML change.
 
 The optional `sequence` field is a nonnegative safe integer. The browser keeps its per-session high-water value in sessionStorage across reloads. The server ignores lower or repeated sequence numbers. An old client without sequence numbers can use a fresh session, but cannot overwrite a sequenced session until its lease expires. Sequence values are transport ordering, not persisted plan revisions or wall-clock timestamps.
 

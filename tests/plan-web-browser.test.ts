@@ -25,6 +25,9 @@ const { PGlite } = createRequire(new URL("../apps/plan-web/package.json", import
     }): Promise<ConstructorParameters<typeof LocalDatabase>[0]>;
   };
 };
+const pressureRounds = Number(process.env.PLAN_WEB_PRESSURE_ROUNDS ?? 3);
+if (!Number.isSafeInteger(pressureRounds) || pressureRounds < 1 || pressureRounds > 100)
+  throw new Error("PLAN_WEB_PRESSURE_ROUNDS must be between 1 and 100.");
 const actor = (name: string, kind: Actor["kind"] = "agent"): Actor => ({ id: name, name, kind });
 const html = (agents = 6) => `<!doctype html><html><head><title>Shared planning</title></head><body>
 <h1 id="heading">Launch plan</h1>
@@ -295,53 +298,54 @@ async function withFixture(
   }
 }
 
-test("three readers comment while six API agents edit, replay duplicate requests and restart", async () => {
-  await withFixture(
-    "reader-pressure",
-    async (f) => {
-      const readers = await Promise.all(
-        ["Alex", "Blair", "Casey"].map(async (name) => f.page(await f.context(), name)),
-      );
-      for (let round = 0; round < 3; round++) {
-        await Promise.all([
-          ...readers.map((page, index) => add(page, `Reader ${index} round ${round}`)),
-          ...Array.from({ length: 6 }, (_, i) =>
-            agentEdit(
-              f,
-              `Agent${i}-${round === 0 ? "000" : round - 1}`,
-              `Agent${i}-${round}`,
-              `Agent ${i}`,
+test(
+  "three readers comment while six API agents edit, replay duplicate requests and restart",
+  async () => {
+    await withFixture(
+      "reader-pressure",
+      async (f) => {
+        const readers = await Promise.all(
+          ["Alex", "Blair", "Casey"].map(async (name) => f.page(await f.context(), name)),
+        );
+        for (let round = 0; round < pressureRounds; round++) {
+          await Promise.all([
+            ...readers.map((page, index) => add(page, `Reader ${index} round ${round}`)),
+            ...Array.from({ length: 6 }, (_, i) =>
+              agentEdit(
+                f,
+                `Agent${i}-${round === 0 ? "000" : round - 1}`,
+                `Agent${i}-${round}`,
+                `Agent ${i}`,
+              ),
             ),
-          ),
-        ]);
-        if (round === 1) await f.restart();
-      }
-      await expect
-        .poll(async () => (await f.snapshot()).comments.length, { timeout: 30_000 })
-        .toBe(9);
-      for (const page of readers) {
-        for (let i = 0; i < 6; i++) await visible(page, `agent-${i}`, `Agent${i}-2`);
-        for (let i = 0; i < 3; i++)
-          await page.getByText(`Reader ${i} round 2`, { exact: true }).waitFor();
-        expect(await page.locator("#source,#save,#merge-html").count()).toBe(0);
-      }
-      const snapshot = await f.snapshot();
-      expect(snapshot.comments.map((c) => c.actor.name).sort()).toEqual([
-        "Alex",
-        "Alex",
-        "Alex",
-        "Blair",
-        "Blair",
-        "Blair",
-        "Casey",
-        "Casey",
-        "Casey",
-      ]);
-      expect(snapshot.htmlRevision).toBe(20);
-    },
-    6,
-  );
-}, 180_000);
+          ]);
+          if (round === Math.floor(pressureRounds / 2)) await f.restart();
+        }
+        await expect
+          .poll(async () => (await f.snapshot()).comments.length, { timeout: 30_000 })
+          .toBe(pressureRounds * 3);
+        for (const page of readers) {
+          for (let i = 0; i < 6; i++)
+            await visible(page, `agent-${i}`, `Agent${i}-${pressureRounds - 1}`);
+          for (let i = 0; i < 3; i++)
+            await page
+              .getByText(`Reader ${i} round ${pressureRounds - 1}`, { exact: true })
+              .waitFor();
+          expect(await page.locator("#source,#save,#merge-html").count()).toBe(0);
+        }
+        const snapshot = await f.snapshot();
+        expect(snapshot.comments.map((c) => c.actor.name).sort()).toEqual(
+          ["Alex", "Blair", "Casey"]
+            .flatMap((name) => Array.from({ length: pressureRounds }, () => name))
+            .sort(),
+        );
+        expect(snapshot.htmlRevision).toBe(2 + pressureRounds * 6);
+      },
+      6,
+    );
+  },
+  Math.max(180_000, pressureRounds * 10_000),
+);
 
 test("comments panel toggles and returns its width to the HTML; history is read-only", async () => {
   await withFixture("reader-layout", async (f) => {

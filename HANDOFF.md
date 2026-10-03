@@ -1,285 +1,78 @@
 # Collaborative plan web exploration
 
-This is a permanent experimental branch: `t3code/collaborative-plan-web-exploration`.
-**Never merge this branch into `main` or any release branch.** Do not create a
-pull request from this branch to `main`. Implementation PRs target this branch
-and may be merged here after review and validation. Preserve this branch for
-continued exploration and handoff between agents.
+Permanent branch: `t3code/collaborative-plan-web-exploration`.
+**Never merge this branch into `main` or any release branch. Never create a PR from it to main.** Implementation PRs target this branch and merge here after independent review and app-only validation.
 
-## Goal
+## Product and workflow
 
-Explore a standalone web app where people and coding agents plan together in
-ordinary HTML. Each plan has a name and URL; visiting an unknown plan URL
-creates it. V1 intentionally has no authentication or authorization.
+This is a standalone web app in `apps/plan-web`. A plan is ordinary authored HTML with a name and URL. Visiting an unknown plan creates it. Humans read and comment; agents edit through REST or MCP. Each browser tab selects Alex, Blair or Casey independently. Comments attach to unique authored IDs, detach when those IDs disappear and reconnect when restored. Runtime-only and duplicate IDs remain detached. Comment placement never edits HTML.
 
-The app needs durable versioned edits and comments, replayable realtime events,
-optimistic local editing with explicit reconciliation, presence indicators,
-and comments attached to DOM elements that survive removal of those elements.
-Historical versions and diffs must remain available.
+The app is independent of Scope. Do not run Scope builds or tests, including repository `ready`, recursive builds, Electron, Xvfb or Scope CLI builds. Use Vite+ and the app-only commands below. Keep implementers in isolated worktrees with child PRs against this permanent branch. Independently review frozen heads before integrating, then test the combined app. The explicit user override takes precedence over the repository-wide validation gate.
 
-## Workflow
-
-Use isolated worktrees for implementers and child PRs against this branch.
-Research storage and durable stream systems using primary sources. Independently
-review changes before integration. This is an independent app: use its build,
-format, type/lint and API/stream/browser/concurrency checks. Do not repeatedly
-run whole-Scope validation for app-only work. Run Scope validation only when a
-change directly affects Scope. This policy follows the user's explicit override
-of the repository-wide gate. Exercise multiple browser users and agents,
-dropped connections,
-duplicate delivery, process restart, competing edits, and comment detachment.
-
-## Current implementation
-
-`apps/plan-web` is a separate package with its own contracts. It does not import
-desktop internals or change the deployed artifact API. Start it with:
-
-```sh
-vp install
-vp run plan-web#build
-vp run plan-web
-```
-
-Open `http://localhost:43130/plans/team-plan`; unknown plan URLs create plans.
-Read [the app guide](apps/plan-web/README.md) for API commands and operating limits.
-The backend stores HTML snapshots, native Git unified diffs, comments, accepted
-commands and replayable events in SQLite. One `BEGIN IMMEDIATE` transaction
-commits state, revision, event and immutable command receipt. WAL and full
-synchronous writes are enabled. Reusing a command ID requires the same payload.
-Disjoint source edits rebase through each accepted HTML revision; overlaps keep
-the local draft and require explicit reconciliation.
-
-PGlite 0.5.8 stores browser drafts, outgoing commands, snapshots and replay
-cursors in IndexedDB with `relaxedDurability: false`. An app-owned SharedWorker
-holds a Web Lock and serializes complete database operations. Each tab owns a
-separate draft identity; another tab can deliver its durable commands after it
-closes. Snapshot/cursor advancement, acknowledgement retirement and preservation
-of newer draft generations are atomic. Editing is enabled after its recovery
-row exists. Browser eviction or clearing can remove unsynced work; export it
-when needed. Browser editing requires HTTPS or localhost and SharedWorker/Web
-Locks support. Plain HTTP shows the server plan read-only with an explanation.
-
-HTTP commands and a typed multiplexed SSE stream provide both directions.
-One origin-wide browser connection covers all active plans, avoiding the
-[six-connection HTTP/1 browser limit](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events).
-The worker persists events before notifying tabs and reconnects only from
-committed cursors. The server bounds replay batches, rotates subscribed plans
-and disconnects a stalled reader after five seconds. Presence is a transient
-15-second lease owned by one server process, rather than durable plan history.
-HTML, comments, replies and resolution state are immutable versioned records.
-
-Authored HTML runs with scripts. Humans can edit its source beside a live
-preview. Comment anchors use unique authored element IDs. Removing an element
-keeps the discussion detached; restoring its ID reconnects it. Generated or
-ambiguous elements remain detached. A real HTML parser supplies source offsets
-without serializing the runtime DOM or rewriting authored attributes/scripts.
-
-## Integration
-
-The permanent branch incorporates `origin/main` at `8f8d630`. Backend work is
-in [PR #82](https://github.com/alundgren/irudd-scope/pull/82) and multiplexed
-streams are in [PR #83](https://github.com/alundgren/irudd-scope/pull/83).
-[PR #85](https://github.com/alundgren/irudd-scope/pull/85) contains the browser
-implementation and scoped validation. All three PRs are merged into the
-permanent branch.
-Never retarget them or this branch to main.
-
-The User menu offers exactly Alex, Blair and Casey independently in each tab.
-Queued commands retain their original actor. Permanent HTTP 400/413/422
-rejections preserve work without blocking other editors. Saved and rejected
-HTML restoration locks competing controls and retries one journaled operation.
-Existing pins allow clicks through during comment placement and regain
-interaction afterward.
-
-## Tailnet preview
-
-Open [the team plan](https://cloudbox.tail5db861.ts.net:8455/plans/team-plan)
-from a device on the tailnet. Use two windows and choose Alex and Blair in the
-User menu. Changing the final URL segment creates another plan.
-
-Tailscale Serve proxies HTTPS port `8455` to `http://127.0.0.1:43130`. The
-existing routes on this host are preserved. The app runs as the enabled user
-service `collaborative-plan-web-preview.service`, with restart on failure and
-user lingering enabled. It stays running for review, including after this
-agent session ends and after a host restart. The service definition is at
-`~/.config/systemd/user/collaborative-plan-web-preview.service` on cloudbox.
-Its working directory is this checkout's `apps/plan-web`; it runs the compiled
-`dist/server/server-main.mjs` and uses the existing SQLite database.
-
-Check or restart it on cloudbox:
-
-```sh
-systemctl --user status collaborative-plan-web-preview.service
-journalctl --user -u collaborative-plan-web-preview.service -n 50
-# After changing app code, rebuild from the repository root before restarting:
-vp run plan-web#build
-systemctl --user restart collaborative-plan-web-preview.service
-```
-
-The service already owns port `43130`; do not start a second copy on that port.
-To restore the HTTPS route if removed:
-
-```sh
-sudo tailscale serve --bg --https=8455 http://127.0.0.1:43130
-```
-
-To stop this preview and disable its automatic startup, remove only its route:
-
-```sh
-sudo tailscale serve --https=8455 off
-systemctl --user disable --now collaborative-plan-web-preview.service
-```
-
-The HTTPS URL uses the same server plans as localhost, but browser recovery
-storage is separate for each origin. Unsynced localhost drafts do not appear
-automatically on the HTTPS origin. Export those drafts from their original tab
-before moving work between origins.
-
-## Remaining work
-
-The requested v1 is implemented and integrated. The next work is review and
-measurement; the experiments below are proposals for continued exploration.
-Keep changes on this permanent branch and continue using app-only validation.
-
-1. Review the actual planning flow with two people over the tailnet. Exercise
-   the User menu, simultaneous source edits, overlap reconciliation, comment
-   placement, replies, resolution, element removal/restoration, history and
-   export. Turn concrete usability problems into small follow-up changes.
-2. Check the browsers and devices the team uses. Automated coverage is real
-   Chromium. Safari, Firefox, mobile backgrounding and cross-device recovery
-   have not been validated. Check SharedWorker/Web Locks availability, local
-   database startup, reload, offline edits and reconnect on each target.
-3. Measure startup and realtime latency with slower links and larger plans.
-   The accepted stress run checks complete eight-edit rounds; its roughly
-   three-second median is not a single-message latency measurement. Earlier
-   loaded-host runs exceeded deadlines. Add separate measurements for typing
-   to local preview, local persistence, server acceptance and remote display
-   before deciding which part needs improvement.
-4. Compare PGlite with native IndexedDB for the actual recovery records.
-   Measure first-open download/startup, enqueue latency, storage size, memory
-   and owner-loss recovery. PGlite currently ships its Postgres WASM/data files
-   and loads database files into memory. Its SQL convenience does not establish
-   that it is the best long-term browser store.
-5. Decide whether richer human editing is worth adding. The current human
-   editor is HTML source with a live preview. Direct editing in the preview
-   is unimplemented. Server merging remains conservative for broad source
-   replacements; overlaps require a decision. Explore a text editor/CRDT only
-   if source editing and the current conflict flow cause problems. Preserve
-   authored HTML, scripts, element identity and versioned discussions.
-6. Measure server history growth and Git diff cost before choosing a different
-   backend. Current history lives in SQLite with native Git-generated diffs;
-   full Git object storage and gix/libgit2 performance comparisons are not
-   implemented. Postgres or a hosted durable stream is a future scaling option.
-   The current process owns presence, and the multiplexed endpoint admits at
-   most 20 plans. Expanding those limits needs measured demand and new tests.
-7. Establish a backup/restore procedure if this becomes an ongoing team tool.
-   The preview now has process supervision and automatic startup. Database
-   backups, restore drills, disk-growth monitoring, packaging and a migration
-   procedure beyond this exploration are still outstanding. Browser recovery
-   remains origin-local and can be cleared or evicted; export unresolved work.
-
-Security remains outside v1 scope, as requested. No new authentication work is
-required to review this exploration.
-
-## Run and validate
-
-For local development outside the running cloudbox service, run from a
-checkout containing the browser implementation:
+## Start and validate
 
 ```sh
 vp install --frozen-lockfile
 vp run plan-web#build
 vp run plan-web
+# Only this app's build, formatting, types and tests:
+flock /tmp/plan-web-browser-validation.lock vp run plan-web:ready
 ```
 
-Open `http://localhost:43130/plans/team-plan` in two browser windows. Choose
-Alex in one and Blair in the other. Each tab remembers its own selection on
-reload. Visiting a new plan URL creates that plan.
+Open `http://127.0.0.1:43130/plans/team-plan`. The app build also creates its CLI tarball. The shared lock avoids concurrent browser suites and CPU-heavy benchmarks corrupting cursor measurements. No credentials or production data are needed for tests.
 
-The default SQLite database is `apps/plan-web/plan-web.sqlite`. Set
-`PLAN_WEB_DB` to use another database. Retain its WAL and SHM files with the
-database. Browser storage belongs to the origin; changing the host or port
-creates a separate local recovery database. The app requires HTTPS or localhost
-for durable browser editing.
+## Current behavior
 
-Use focused app validation:
+The browser is a full-width reader with a compact header. Comments toggle into a side panel. History, export, rejected comments and archived old HTML records are under More. Humans cannot edit or restore HTML in the browser. Agent API edits appear live. Old browser HTML drafts and outgoing HTML requests are frozen in a read-only archive with their original actor, revision, generations and IDs; they are never automatically resent. Export the archive for deliberate agent recovery.
+
+The server owns accepted HTML, comments, immutable revisions, Git-generated display diffs, receipts and replayable events in SQLite. WAL, full synchronous writes and one `BEGIN IMMEDIATE` transaction commit state, event and receipt together. The existing durable stream is already authoritative; Git is not the primary database. Disjoint HTML replacements rebase; overlapping replacements return an immutable conflict receipt. Agents reconcile under a new request ID. REST and presence remain open for v1.
+
+The app-owned SharedWorker owns PGlite in IndexedDB with `relaxedDurability: false`, serializes complete local transactions and holds a Web Lock. It persists comment requests before acknowledging them and commits snapshot/cursor changes atomically. Another tab can deliver a closed tab's queued comments. One multiplexed SSE connection covers all plans on the origin. Reconnect uses committed cursors; replay and stalled readers are bounded. Browser storage is origin-local and may be cleared or evicted. HTTPS or localhost and SharedWorker/Web Locks are required for durable commenting.
+
+Presence remains process-local and expires after 15 seconds. Pointer capture is immediate; each tab sends approximately 30 updates per second, with at most two requests in flight and one latest pending point. Monotonic sequence numbers reject reordered positions. Sequence high-water values survive tab reload in sessionStorage. Server presence changes wake the stream immediately. Receiving browsers keep cursor DOM nodes and update positions on animation frames. Leaving the plan, viewing history or losing an authored anchor hides the affected cursor.
+
+## Agent connection
 
 ```sh
-# App build, format/type/lint checks and all 56 app tests:
-vp run plan-web:ready
-# API/stream and bounded text merge:
-vp test run --project=standard tests/plan-web-api.test.ts tests/plan-web-stream.test.ts tests/plan-web-merge.test.ts --maxWorkers=1
-# Extended native-input concurrency pressure:
-PLAN_WEB_PRESSURE_ROUNDS=50 vp test run --project=standard tests/plan-web-browser.test.ts -t 'multiple humans' --maxWorkers=1
+vp install /absolute/path/to/apps/plan-web/dist/plan-web-cli-0.1.0.tgz
+vp exec plan-web login --server http://127.0.0.1:43130 --agent 'Planning agent'
+vp exec plan-web whoami --server http://127.0.0.1:43130
+vp exec plan-web mcp-config --server http://127.0.0.1:43130
 ```
 
-`plan-web:check` checks only the app, its four test files and supporting
-handoff/workflow/catalog files. Lint includes type-aware and TypeScript checks.
-`plan-web:test` directly runs the four files with one file worker, without
-launching Scope, Electron or Xvfb. The browser scenarios still run several
-users and agents concurrently. CI uses this app gate for the exploration
-branch and PRs targeting it. Other branches retain their Scope validation.
+Login opens a browser approval page. Choose Alex, Blair or Casey after comparing the displayed code, agent name and endpoint. `--no-browser` supports a remote terminal. These are development identities; no real provider is configured. Paste `mcp-config` output into the agent client. The CLI stdio bridge supports older MCP clients; `/mcp` uses the 2026-07-28 stateless HTTP protocol and creates a fresh SDK server for each request.
 
-The app suite has 24 API/stream cases, six text-merge cases and 26 real
-Chromium cases. It covers offline reload, duplicates, lost and hanging replies,
-owner closure, worker/server restart, conflicts, comment detachment, copied
-tabs, eight tabs/plans, fake users, permanent rejection and recovery after
-committed replies are lost. Tests use isolated SQLite databases and headless
-Chromium without credentials or models. Browser failures save screenshots and
-observations to `/tmp/scope-web-*-evidence.json`.
+Direct modern HTTP clients can use OAuth discovery, public-client registration and S256 PKCE. MCP tools read plans, versions, history and diffs, apply HTML, add comments, reply and resolve discussions. Mutations require a stable caller-supplied `requestId`. The server derives actor identity from the approved credential. Grants and credentials are durable; approval redeems once, access expires after eight hours and logout revokes it. CLI credentials live outside the repository in a private SQLite file. This protects MCP, not the intentionally open browser and REST API. See [the app guide](apps/plan-web/README.md) for supported OAuth features and limits.
 
-The extended scenario runs two human editors, two witness tabs and six API
-agents through 50 rounds. It checks every participant's rendered fields after
-each round, accepts 400 edits, repeats 300 agent requests, and restarts the
-server midway. Source edits use real native keyboard input. Comment tests use
-unforced clicks and assertions that re-resolve pins when presence updates
-replace their DOM nodes.
+## Preview is stopped
 
-Keep current validation receipts and review evidence in the PR or external
-report. Do not substitute historical passes for exact-head results. No Scope
-suite is required for changes confined to this independent app.
+The user requested shutdown. `collaborative-plan-web-preview.service` is disabled and inactive, port 43130 has no listener and only the Tailscale Serve route on HTTPS port 8455 was removed. Other host routes remain. The old tailnet URL is unavailable while stopped.
 
-## Research notes
+The retained user unit is at `~/.config/systemd/user/collaborative-plan-web-preview.service` on cloudbox. It runs this checkout's compiled `apps/plan-web/dist/server/server-main.mjs` with the existing SQLite database. For a later explicitly requested preview, configure `PLAN_WEB_ORIGIN=https://cloudbox.tail5db861.ts.net:8455`, rebuild the app, start the unit and restore only that route:
 
-Primary sources were checked on 2026-10-03. The server choice is SQLite plus
-native Git diffs. This keeps the accepted state, event, and command receipt in
-one transaction. The browser prototype deliberately explores PGlite despite
-its larger download and startup cost than native IndexedDB.
+```sh
+vp run plan-web#build
+systemctl --user start collaborative-plan-web-preview.service
+sudo tailscale serve --bg --https=8455 http://127.0.0.1:43130
+```
 
-| Option                                                             | Practical fit for this exploration                                                                                                       |
-| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| [Native Git](https://git-scm.com/docs/git-fast-import.html)        | Mature diff tooling and packed history. Full Git repositories add refs, maintenance, and locking beyond the current need.                |
-| [libgit2](https://libgit2.org/docs/reference/main/diff/index.html) | In-process diffs and custom object storage are available, with native binding and deployment costs.                                      |
-| [gix](https://docs.rs/gix/latest/gix/)                             | Modern Rust implementation; worth benchmarking for a Rust service, without assuming it beats Git on our workload.                        |
-| [isomorphic-git](https://isomorphic-git.org/docs/en/quickstart)    | JavaScript integration is convenient; no evidence establishes better server performance for this workload.                               |
-| [SQLite WAL](https://www.sqlite.org/wal.html)                      | Concurrent reads and serialized writers suit a small standalone server. Accepted state and replay records share one durable transaction. |
-| [Postgres](https://www.postgresql.org/docs/current/mvcc.html)      | A possible next step for distributed service deployment. It introduces another service to operate.                                       |
+Preserve the HTTPS Host header. The configured origin controls issuer, approval URLs and credential audience. Do not enable automatic startup unless requested. The browser has separate recovery storage on localhost and the HTTPS origin.
 
-| Realtime system                                                                                 | Relevant mechanism and remaining application work                                                                                                                   |
-| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Durable Streams](https://github.com/durable-streams/durable-streams/blob/main/PROTOCOL.md)     | Persistent offsets, catch-up reads, live HTTP tailing, and producer deduplication inform our replay protocol. This prototype does not claim protocol compatibility. |
-| [Replicache](https://v12.doc.replicache.dev/reference/server-push)                              | Optimistic client mutations with an atomically committed server mutation cursor. Application write endpoints and conflict behavior remain necessary.                |
-| [Zero](https://zero.rocicorp.dev/docs/self-host)                                                | Optimistic sync with Postgres replication and a cache service. More infrastructure than the standalone prototype needs.                                             |
-| [Yjs](https://docs.yjs.dev/api/document-updates)                                                | Commutative, idempotent updates support simultaneous text editing. HTML semantics and comment anchors still need an application policy.                             |
-| [Automerge](https://automerge.org/docs/reference/documents/conflicts/)                          | Concurrent document changes merge, with explicit conflicting values. A source editor integration would still be required.                                           |
-| [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream/consumers)                        | Durable consumers and replay are useful at larger scale. Database writes and broker publication still need reliable coordination.                                   |
-| [Redis Streams](https://redis.io/docs/latest/develop/use-cases/streaming/)                      | Ordered entries, acknowledgements, and pending-message recovery. Adds a service and a second persistence system.                                                    |
-| [Durable Objects](https://developers.cloudflare.com/durable-objects/best-practices/websockets/) | A room owner, persistent storage, and socket hibernation. Useful hosted alternative that requires the Cloudflare runtime.                                           |
+## Semantic history experiment
 
-The [PGlite worker design](https://pglite.dev/docs/multi-tab-worker) informed
-the multi-tab database owner. We reproduced an SDK teardown failure when a
-closed tab interrupted transaction RPC and replaced that wrapper with complete
-app-owned worker operations; see the related
-[upstream report](https://github.com/electric-sql/pglite/issues/1084). Its
-[IndexedDB filesystem](https://pglite.dev/docs/filesystems) loads database files
-into memory and flushes changed files after queries. Normal durability is
-required for the local recovery database. A leader change can leave a request
-outcome uncertain, so command IDs and database constraints must make retries
-safe. Browser data is still subject to
-[quota and eviction](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria).
+[The isolated experiment](apps/plan-web/experiments/semantic-history/README.md) keeps canonical HTML while recording stable-ID operations, actor intent, explicit conflicts, immutable receipts, logical branches, merge ancestry, restore and checkpoints. It has no production routes or migration. The three-agent case retains independent deployment context and both competing SQLite/DynamoDB choices; resolution appends history.
 
-Native IndexedDB remains a useful comparison for the small recovery records.
-Measure startup, enqueue latency, database size, and leader-change recovery
-before making a long-term browser storage choice. The current browser merge
-uses bounded multiple text edits to preserve distant independent changes. True overlaps or an exhausted merge work limit retain the
-draft for explicit reconciliation.
+A local synthetic 27.8 KB document with 1,000 changes used 88.3 MB of SQLite in the current store and 2.4 MB in the candidate. Median writes were 15.9 ms current and 75.6 ms candidate. Candidate checkpoint read was 40.3 ms; full replay was 2.61 s. Block replacements also conflict on independent words the current text merger can retain. These results support an optional stable-ID operation API with intent, not replacing the running store wholesale. Preserve arbitrary scripts, styles and authored markup. The supplied AST design is not implemented.
+
+## Review and validation
+
+The reader, MCP, cursor performance and isolated operation experiment were independently reviewed before merge through PRs [90](https://github.com/alundgren/irudd-scope/pull/90), [91](https://github.com/alundgren/irudd-scope/pull/91), [93](https://github.com/alundgren/irudd-scope/pull/93) and [92](https://github.com/alundgren/irudd-scope/pull/92). Exact final validation receipts follow the combined app gate. Earlier backend, stream and browser work is merged through PRs [82](https://github.com/alundgren/irudd-scope/pull/82), [83](https://github.com/alundgren/irudd-scope/pull/83) and [85](https://github.com/alundgren/irudd-scope/pull/85). The branch incorporates origin/main at `8f8d630`.
+
+## Next work
+
+1. Try the reader/comment/agent loop with two humans over the tailnet when preview is requested again. Check cursor behavior on real network links and actual team devices. Automated browser coverage is Chromium; Safari, Firefox and mobile background behavior remain unvalidated.
+2. Add or reject a production stable-ID operation API using real agent edits. Decide how nested HTML, structural conflicts, reviewed merge heads, grouped intent and finer text edits should work before integrating the experiment. No reconciliation agent is wired up.
+3. Measure PGlite download/startup, memory and comment enqueue cost against native IndexedDB. SQL convenience does not establish the best browser store. Storage eviction remains a limit.
+4. Measure large-document Git diff blocking and retained history growth. Native Git runs synchronously on the server; do not replace it without measured need. Add backup/restore drills before this becomes a persistent team tool.
+5. Package the CLI for distribution if wanted. The local tarball is tested; nothing has been published to npm. Real login, application-wide access control, confidential OAuth clients, refresh tokens and client metadata documents remain outside v1.
+6. Multi-server presence, more than 20 subscribed plans and hosting beyond this exploratory process require additional work. Current durable commands/replay can share SQLite, while presence belongs to one process.
