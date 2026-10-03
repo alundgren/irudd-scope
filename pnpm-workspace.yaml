@@ -4,6 +4,7 @@ packages:
 
 catalogMode: prefer
 catalog:
+  "@electric-sql/pglite": 0.5.8
   vite-plus: 1.0.0-rc.1
   vite: npm:@voidzero-dev/vite-plus-core@1.0.0-rc.1
   typescript: 7.0.2

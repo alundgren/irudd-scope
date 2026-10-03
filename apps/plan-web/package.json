@@ -1,0 +1,14 @@
+{
+  "name": "plan-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp pack && vp build",
+    "dev": "vp exec node src/server-main.ts"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "catalog:",
+    "effect": "catalog:"
+  }
+}

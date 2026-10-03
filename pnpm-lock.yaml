@@ -170,6 +170,9 @@ catalogs:
     '@effect/sql-sqlite-node':
       specifier: 4.0.0-rc.117
       version: 4.0.0-rc.117
+    '@electric-sql/pglite':
+      specifier: 0.5.8
+      version: 0.5.8
     '@electron/packager':
       specifier: 20.3.0
       version: 20.3.0
@@ -353,6 +356,15 @@ importers:
       '@irudd-scope/sqlite':
         specifier: workspace:*
         version: link:../../packages/sqlite
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.117
+
+  apps/plan-web:
+    dependencies:
+      '@electric-sql/pglite':
+        specifier: 'catalog:'
+        version: 0.5.8
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.117
@@ -581,6 +593,9 @@ packages:
     resolution: {integrity: sha512-/u0ShTwVKltYZPpulckLV6ZUkMjSr/Kc+bpipX1Ac/OyLtZH6ScOL2AeBTLDiIq5ATnvXABzFSheydzoudBxgQ==}
     peerDependencies:
       effect: ^4.0.0-rc.117
+
+  '@electric-sql/pglite@0.5.8':
+    resolution: {integrity: sha512-n9tsbUOhwx2epK1V0ZG9Ar4SHWUju04dhmzZXiSBXwBoleOvIfals33NAaWgagQVAL4Rbvx/Ptsu3P+pA09f6Q==}
 
   '@electron-internal/extract-zip@1.0.5':
     resolution: {integrity: sha512-+bqFCP98pLI0Tt0XQo1TmlXtwjWchISndDOxCkEcIuUgXWpBnLyRI+2DU+mesvnMMX6L1XDqYNA0lXNDHd/yiA==}
@@ -4909,6 +4924,8 @@ snapshots:
   '@effect/sql-sqlite-node@4.0.0-rc.117(effect@4.0.0-rc.117)':
     dependencies:
       effect: 4.0.0-rc.117
+
+  '@electric-sql/pglite@0.5.8': {}
 
   '@electron-internal/extract-zip@1.0.5': {}
 

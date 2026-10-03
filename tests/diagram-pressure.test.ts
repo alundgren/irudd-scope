@@ -135,6 +135,7 @@ async function edit(
     model = result.delta
       ? { version: result.version, document: applyDiagramDelta(model.document, result.delta) }
       : await read(client, counters, model);
+    await delay(2 + ((counters.conflicts * 7 + agent * 11 + seed) % 23));
   }
 }
 
