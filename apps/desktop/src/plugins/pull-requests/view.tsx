@@ -97,7 +97,11 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
     refresh.current = reload;
     // Subscribe first so a write during the initial read always triggers another full read.
     const stopChanges = window.scope.onPullRequestsChanged((event) => {
-      if (event.name === name && event.id === artifact?.id) void reload();
+      if (event.name === name && event.id === artifact?.id) {
+        if (event.stateChange && event.tabId === context.tabId)
+          host.stateChanged(event.stateChange);
+        void reload();
+      }
     });
     const stopReconnect = window.scope.onPullRequestsReconnected(() => {
       void reload();

@@ -160,7 +160,7 @@ A pull request inbox is a permanent named `pull-requests` HTML artifact bound
 to one GitHub repository. `packages/protocol/src/pull-requests.ts` owns its
 validated commands and snapshots. `library/pull-request-store.ts` owns the
 repository binding, current open PR facts, local notes and snoozes, review
-baselines, and current agent assessments in `scope.db`. These records belong
+baselines, current agent assessments, and inbox-owned JSON app state in `scope.db`. These records belong
 to the tab UUID. Publishing another HTML revision preserves them.
 
 `plugins/pull-requests/gh-process.ts` runs the installed `gh` executable without
@@ -196,6 +196,11 @@ coordinate its own interactions. Window content, layout, and selection belong
 to the project. Scope renders window controls and validates operations.
 Frames have separate identities and link registrations. Closing releases their
 read requests and subscriptions, and returns focus to a surviving opener.
+`scope.pullRequests.state` reads and writes one versioned JSON object owned by
+the inbox. Validated set, patch, and delete commands commit through the existing
+store transaction and emit committed state on the inbox event stream. The host
+delivers these events only to that inbox's HTML frames; desktop controls do not
+interpret the state. State versions are independent of PR and HTML versions.
 All affected frames flush local edits before an HTML replacement or quit.
 Workspace flush callbacks receive a save or close purpose. Retention checks and
 Send flush edits while allowing authored windows to open; quit, tab removal,

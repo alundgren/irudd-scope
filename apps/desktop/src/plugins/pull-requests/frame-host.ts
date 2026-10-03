@@ -1,5 +1,9 @@
 import { decode } from "@irudd-scope/protocol";
-import type { PullRequestsSnapshot } from "@irudd-scope/protocol/pull-requests";
+import type {
+  PullRequestsSnapshot,
+  PullRequestsAppState,
+  PullRequestsStateChange,
+} from "@irudd-scope/protocol/pull-requests";
 import type { WorkspaceFlushPurpose } from "../../workspace/contract.ts";
 import { PullRequestsInterest } from "./interest.ts";
 import { frameCommand, type FrameCall } from "./frame-command.ts";
@@ -45,6 +49,7 @@ export class PullRequestsFrameHost {
     }
   >();
   private snapshot?: PullRequestsSnapshot;
+  private appState?: PullRequestsAppState;
   private theme = "light";
   private active = false;
   private disposed = false;
@@ -124,8 +129,16 @@ export class PullRequestsFrameHost {
     )
       return;
     this.snapshot = snapshot;
+    const appState = snapshot.appState ?? { version: 0, value: {} };
+    if (appState.version > (this.appState?.version ?? -1)) this.appState = appState;
     this.options.onSnapshot(snapshot);
     for (const frame of this.frames.values()) this.sendSnapshot(frame);
+  }
+  stateChanged(change: PullRequestsStateChange) {
+    if (change.version <= (this.appState?.version ?? -1)) return;
+    this.appState = { version: change.version, value: change.value };
+    for (const frame of this.frames.values())
+      if (frame.ready) this.post(frame, { type: "scope-pull-requests-state", value: change });
   }
   setTheme(theme: string) {
     this.theme = theme;
@@ -165,6 +178,7 @@ export class PullRequestsFrameHost {
       generation: snapshot.generation,
       value: {
         pullRequests: snapshot.prs,
+        appState: this.appState,
         context: {
           name: this.options.name,
           repository: snapshot.repository,
@@ -424,7 +438,22 @@ export class PullRequestsFrameHost {
         reply(result.detail);
         return;
       }
+      if (result.snapshot.appState) {
+        const operation =
+          call.method === "setState"
+            ? "set"
+            : call.method === "patchState"
+              ? "patch"
+              : call.method === "deleteState"
+                ? "delete"
+                : undefined;
+        if (operation) this.stateChanged({ operation, ...result.snapshot.appState });
+      }
       this.setSnapshot(result.snapshot);
+      if (["readState", "setState", "patchState", "deleteState"].includes(call.method)) {
+        reply(result.snapshot.appState ?? { version: 0, value: {} });
+        return;
+      }
       const local = result.snapshot.prs.find((pr) => pr.nodeId === call.args[0])?.local;
       const version =
         call.method === "saveNote"

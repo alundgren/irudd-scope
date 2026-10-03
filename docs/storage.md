@@ -178,7 +178,7 @@ token. The library and preferences remain intact.
 
 ## Supported data imports
 
-Scope reads artifact schema version 8, desktop schema version 7, and hub schema
+Scope reads artifact schema version 9, desktop schema version 7, and hub schema
 version 4. It rejects
 newer schema versions. Back up the complete data directories before an upgrade
 when you need the option to return to an older desktop.
@@ -318,6 +318,14 @@ retries do not repeat the write; changed payloads under the same ID conflict.
 Every command except a name lookup pins the saved tab UUID, so a command for a
 deleted tab cannot modify a new tab that reuses its name. Exported command and
 snapshot files are explicit copies and are not Scope's persistent store.
+
+Artifact schema 9 adds the inbox-owned JSON `appState` value and its version
+to `pull_requests_state`. Existing inboxes start with an empty object at
+version 0 and retain their repository, PRs, local values, and receipts. State
+mutations use tab-owned receipts and persist separately from the HTML revision.
+Complete syncs and PR removal preserve it. Trash retains it; permanent tab
+deletion cascades through its owning row and receipts. Older builds reject
+schema 9. Restore a complete pre-upgrade backup to downgrade.
 
 ## Retained external publication records
 
