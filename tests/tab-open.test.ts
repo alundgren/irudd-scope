@@ -110,7 +110,6 @@ test.for(["before", "after"] as const)(
       };
       const original = await client.publish("open-race", metadata, Buffer.from("Original bytes"));
       await expect.poll(gate.started).toBe(true);
-      await page.getByRole("button", { name: "Create diagram", exact: true }).click();
       await client.delete(original.id);
       const recreated = await client.publish(
         original.id,
@@ -125,13 +124,13 @@ test.for(["before", "after"] as const)(
         .toBe(recreated.revision);
       await gate.release();
       await expect.poll(gate.finished).toBe(true);
-      expect((await page.evaluate(() => window.scope.workspace()))?.tabs).toEqual([]);
-      expect(await page.getByRole("tab").count()).toBe(0);
-      expect(await page.getByRole("alert").allTextContents()).toEqual([]);
-      await page.getByRole("button", { name: "Done", exact: true }).click();
       await page.getByRole("tab", { name: "Replacement publication", exact: true }).waitFor();
       await page.getByText("Replacement bytes", { exact: true }).waitFor();
       expect(await page.getByRole("tab").count()).toBe(1);
+      expect(
+        await page.getByRole("tab", { name: "Original publication", exact: true }).count(),
+      ).toBe(0);
+      expect(await page.getByRole("alert").allTextContents()).toEqual([]);
       await page.keyboard.press("ControlOrMeta+w");
       await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
       expect(await page.getByRole("alert").allTextContents()).toEqual([]);

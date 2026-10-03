@@ -1,7 +1,6 @@
 # Diagram plugin
 
-`renderer.tsx` registers the editor and creation tool. `view.tsx` owns editing;
-`create.tsx` owns generation of a new published diagram. `main.ts` registers
+`renderer.tsx` registers the editor. `view.tsx` owns editing. `main.ts` registers
 provider, publication, and draft IPC operations. `provider-settings.ts` owns
 the configured model. `contract.ts` owns provider contracts. Public diagram operations are defined in
 `packages/protocol/src/diagram.ts`; `scene.ts` validates their relationships and

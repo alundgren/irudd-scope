@@ -119,7 +119,7 @@ export function SettingsViewPanel({
             onCheckedChange={(enabled) => void save({ diagramGenerationEnabled: enabled })}
           />
           <p className="secondary" id="diagram-generation-description">
-            Create diagrams and edit them with the Scope diagram agent.
+            Edit diagrams with the Scope diagram agent.
           </p>
           <dl className="provider-details">
             <div>

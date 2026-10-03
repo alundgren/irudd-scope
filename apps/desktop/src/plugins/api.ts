@@ -27,13 +27,6 @@ export type TabProps = {
   viewing: boolean;
   artifact?: Artifact;
 };
-export type CreatedTab = Pick<Tab, "type" | "title" | "state"> & { artifact?: Artifact };
-export type PluginTool = {
-  id: string;
-  title: string;
-  keywords: string;
-  View: ComponentType<{ onCreated: (tab: CreatedTab) => void; onClose: () => void }>;
-};
 export type TabPlugin = {
   type: string;
   View: ComponentType<TabProps>;
@@ -42,5 +35,4 @@ export type TabPlugin = {
     artifactId: (state: TabState) => string;
     state: (artifact: Artifact) => TabState;
   };
-  tools?: readonly PluginTool[];
 };

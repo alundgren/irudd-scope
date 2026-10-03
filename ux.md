@@ -87,7 +87,7 @@ changing its permanence does not reorder it.
 
 New publications open in tabs without a fixed count limit. The first arrival
 selects itself when no artifact is open; later arrivals keep the current
-selection and appear unread. Arrivals wait while a creation tool is open.
+selection and appear unread.
 Startup restores saved tabs and opens queued publications. Revisions update
 unread indicators without changing selection. File content loads when first
 selected and stays mounted afterward to preserve reading position and HTML
@@ -177,8 +177,7 @@ browser, preserving the artifact and unsaved input in Scope. In-page anchors,
 downloads, and forms targeting embedded frames stay in the document. If the
 browser cannot open, the artifact stays in place. The document keeps its own styling.
 
-Search opens with labeled icon controls for Settings, Fullscreen, creation
-tools. A tinted current-tab area shows the title
+Search opens with labeled icon controls for Import tab, Settings, and Fullscreen. A tinted current-tab area shows the title
 and its Download, Artifact details, retention toggle, and Move to Trashcan actions. Unavailable actions
 are omitted. Workspace controls and current-tab actions have distinct areas.
 Artifact results appear only after typing, alongside matching actions and
@@ -272,7 +271,9 @@ identify the conflicting path and recovery commands; Retry update rechecks the
 skill without rebuilding tools already at the requested commit. A completed
 skill update reminds the person to refresh or start a new agent session.
 
-Create diagram is available in the empty workspace and search panel.
+Coding agents create diagrams, plans, and PR inboxes through the publication
+commands. Search and the empty workspace offer no manual creation controls.
+The empty workspace shows existing artifacts or an example publication command.
 An existing diagram has an Ask agent conversation, closed by default.
 It sits beside the canvas at desktop widths and overlays it in a narrow
 window. Enter sends, Shift+Enter adds a line, and a pending request offers

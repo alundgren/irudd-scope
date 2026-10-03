@@ -316,7 +316,7 @@ export const lintExceptions: readonly LintException[] = [
   },
   {
     file: "tests/desktop.test.ts",
-    at: 'test("the diagram tool creates an editable Excalidraw artifact in desktop storage", async () => {',
+    at: 'test("an agent-created diagram preserves editing, drafts, conflicts, and cancellation", async () => {',
     limits: { "max-lines-per-function": 311 },
     reason:
       "This complete editor journey carries one artifact and its draft through generation, editing, cancellation, failed writes, conflicts, restart, copy, and permanent close. Splitting it would lose the continuity the assertions verify.",

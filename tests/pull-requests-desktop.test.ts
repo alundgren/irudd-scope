@@ -222,7 +222,7 @@ test("live reviews preserve captured code and drafts, and closing the pane stops
   const fixture = await offlineFixture();
   const app = await fixture.launch();
   try {
-    const { artifact, tabId } = await createStarterInbox(app);
+    const { artifact, tabId } = await createStarterInbox(app, fixture);
     await installCommands(app, {
       ...snapshot(artifact, tabId),
       prs: [pr(1)],
@@ -383,7 +383,7 @@ test("a captured pane rejects a changed base until loading the latest comparison
   const fixture = await offlineFixture();
   const app = await fixture.launch();
   try {
-    const { artifact, tabId } = await createStarterInbox(app);
+    const { artifact, tabId } = await createStarterInbox(app, fixture);
     await installCommands(app, { ...snapshot(artifact, tabId), prs: [pr(1)] });
     await sendChange(app, "reconnect");
     const page = await app.firstWindow();
@@ -442,7 +442,7 @@ test("a pending GitHub refresh does not delay saving a local note", async () => 
   const fixture = await offlineFixture();
   const app = await fixture.launch();
   try {
-    const { artifact, tabId } = await createStarterInbox(app);
+    const { artifact, tabId } = await createStarterInbox(app, fixture);
     await installCommands(app, { ...snapshot(artifact, tabId), prs: [pr(1)] });
     await sendChange(app, "reconnect");
     const page = await app.firstWindow();
@@ -583,15 +583,30 @@ async function publish(
     tabId: workspace!.tabs.find((t) => t.state.data.artifactId === artifact.id)!.id,
   };
 }
-async function createStarterInbox(app: ElectronApplication) {
+async function createStarterInbox(
+  app: ElectronApplication,
+  fixture: Awaited<ReturnType<typeof desktopFixture>>,
+) {
   const page = await app.firstWindow();
   page.setDefaultTimeout(5_000);
-  await page.getByRole("button", { name: "Search and controls" }).click();
-  await page.getByRole("button", { name: "Create PR inbox", exact: true }).click();
-  await page.getByLabel("Repository", { exact: true }).fill("synthetic/project");
-  await page.getByLabel("Title", { exact: true }).fill("Synthetic PR inbox");
-  await page.getByLabel("Name, optional", { exact: true }).fill("default-inbox");
-  await page.getByRole("button", { name: "Create PR inbox", exact: true }).click();
+  const html = (
+    await readFile("apps/desktop/src/plugins/pull-requests/starter.html", "utf8")
+  ).replaceAll(
+    "/* SCOPE_TOKENS */",
+    await readFile("apps/desktop/src/renderer/tokens.css", "utf8"),
+  );
+  const file = join(fixture.directory, "starter-inbox.html");
+  await writeFile(file, html);
+  await fixture.cli(
+    "add",
+    file,
+    "--pull-requests",
+    "--name",
+    "default-inbox",
+    "--title",
+    "Synthetic PR inbox",
+  );
+  await fixture.cli("pull-requests", "configure", "default-inbox", "synthetic/project");
   await page.locator(".pull-requests-document").waitFor();
   const workspace = await page.evaluate(() => window.scope.workspace());
   const tab = workspace!.tabs.find((t) => t.type === "pull-requests")!;
@@ -814,7 +829,7 @@ test("the default inbox keeps a captured review queue, note edits, snooze undo, 
   const evidence = "/tmp/scope-pr-inbox-build/ui-evidence";
   try {
     await mkdir(evidence, { recursive: true });
-    const { artifact, tabId } = await createStarterInbox(app);
+    const { artifact, tabId } = await createStarterInbox(app, fixture);
     const initial = {
       ...snapshot(artifact, tabId),
       prs: [pr(1), { ...pr(2), hasUnresolvedConversations: null }],
@@ -999,7 +1014,7 @@ test("a failed HTML replacement keeps Retry after note recovery until the new ap
   const fixture = await offlineFixture();
   const app = await fixture.launch();
   try {
-    const { artifact, tabId } = await createStarterInbox(app);
+    const { artifact, tabId } = await createStarterInbox(app, fixture);
     await installCommands(app, snapshot(artifact, tabId));
     await sendChange(app, "reconnect");
     const page = await app.firstWindow(),
