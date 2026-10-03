@@ -1277,7 +1277,24 @@ for (const rejectionStatus of [400, 413, 422]) {
       const add = async (text: string) => {
         await page.getByRole("button", { name: "Comments", exact: true }).click();
         await page.getByRole("button", { name: "Comment on preview", exact: true }).click();
+        const pin = page.getByRole("button", {
+          name: "Comment 1: Smaller accepted comment",
+          exact: true,
+        });
+        if (text === "Dismiss this rejected comment") {
+          expect(await pin.isVisible()).toBe(true);
+          expect(await pin.isEnabled()).toBe(false);
+          expect(await pin.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe(
+            "none",
+          );
+        }
         await page.frameLocator('iframe[title="Plan preview"]').locator("#heading").click();
+        if (text === "Dismiss this rejected comment") {
+          expect(await pin.isEnabled()).toBe(true);
+          expect(await pin.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe(
+            "auto",
+          );
+        }
         await page.getByRole("textbox", { name: "Comment text", exact: true }).fill(text);
         await page.getByRole("button", { name: "Add comment", exact: true }).click();
         await expect
@@ -1307,6 +1324,29 @@ for (const rejectionStatus of [400, 413, 422]) {
         })
         .toEqual(["Smaller accepted comment"]);
       expect(ids.at(-1)).not.toBe(originalId);
+      const pin = page.getByRole("button", {
+        name: "Comment 1: Smaller accepted comment",
+        exact: true,
+      });
+      await pin.waitFor();
+      const pinBounds = (await pin.boundingBox())!;
+      const headingBounds = (await page
+        .frameLocator('iframe[title="Plan preview"]')
+        .locator("#heading")
+        .boundingBox())!;
+      const x = headingBounds.x + headingBounds.width / 2;
+      const y = headingBounds.y + headingBounds.height / 2;
+      expect(x).toBeGreaterThanOrEqual(pinBounds.x);
+      expect(x).toBeLessThanOrEqual(pinBounds.x + pinBounds.width);
+      expect(y).toBeGreaterThanOrEqual(pinBounds.y);
+      expect(y).toBeLessThanOrEqual(pinBounds.y + pinBounds.height);
+      expect(await page.getByRole("textbox", { name: "Reply text", exact: true }).count()).toBe(0);
+      await pin.click();
+      expect(
+        await page
+          .getByRole("textbox", { name: "Reply text", exact: true })
+          .evaluate((element) => element === document.activeElement),
+      ).toBe(true);
       rejecting = true;
       await add("Dismiss this rejected comment");
       await page.getByRole("button", { name: "Rejected changes", exact: true }).click();

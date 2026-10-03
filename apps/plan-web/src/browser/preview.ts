@@ -72,6 +72,10 @@ export class HtmlPreview {
   setCommenting(value: boolean) {
     this.commenting = value;
     this.iframe.classList.toggle("commenting", value);
+    this.markers.classList.toggle("commenting", value);
+    this.markers.querySelectorAll<HTMLButtonElement>(".comment-marker").forEach((marker) => {
+      marker.disabled = value;
+    });
   }
   setComments(comments: PlanComment[]) {
     this.comments = comments;
@@ -181,6 +185,7 @@ export class HtmlPreview {
       const rect = element.getBoundingClientRect();
       const marker = window.document.createElement("button");
       marker.className = "comment-marker";
+      marker.disabled = this.commenting;
       marker.style.left = `${rect.left + comment.anchor.x * rect.width}px`;
       marker.style.top = `${rect.top + comment.anchor.y * rect.height}px`;
       marker.textContent = String(index + 1);

@@ -410,6 +410,9 @@ blockquote {
   font-weight: 600;
   transform: translate(-50%, -50%);
 }
+#cursor-markers.commenting .comment-marker {
+  pointer-events: none;
+}
 
 .draft-excerpt {
   white-space: pre-wrap;
