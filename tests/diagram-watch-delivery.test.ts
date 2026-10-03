@@ -292,7 +292,8 @@ test("T3 startup retries service unavailability, but an uncertain dispatch termi
     await expect.poll(listener.diagnostics, { timeout: 5_000 }).toContain("Listening");
     fixture.setDeliveryStatus(503);
     fixture.emit("message", "One request, with a bounded delivery retry.");
-    await expect.poll(() => listener.process.exitCode).toBe(1);
+    await listener.closed;
+    expect(listener.process.exitCode).toBe(1);
     expect(fixture.requests).toHaveLength(2);
     expect(listener.diagnostics()).toContain("T3 returned 503");
   } finally {
