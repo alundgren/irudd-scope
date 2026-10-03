@@ -39,7 +39,7 @@ async function draw(page: Page, from: [number, number], to: [number, number]) {
 }
 
 test("a plan keeps interactive HTML while captured comments, feedback, replies, and versions persist", async () => {
-  const { directory, launch, connect } = await desktopFixture({
+  const { directory, launch, connect, cli } = await desktopFixture({
     showWindow: process.platform === "darwin",
   });
   let application = await launch();
@@ -48,15 +48,17 @@ test("a plan keeps interactive HTML while captured comments, feedback, replies, 
     let page = await application.firstWindow();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.getByRole("button", { name: "Search and controls" }).click();
-    await page.getByRole("button", { name: "Create plan", exact: true }).click();
-    await page
-      .getByLabel("Title", { exact: true })
-      .fill("Checkout plan with a deliberately long readable title");
     const file = join(directory, "checkout.html");
     await writeFile(file, html);
-    await page.getByLabel("HTML file, optional").setInputFiles(file);
-    await page.getByRole("button", { name: "Create plan", exact: true }).click();
+    await cli(
+      "add",
+      file,
+      "--plan",
+      "--name",
+      "plan-checkout",
+      "--title",
+      "Checkout plan with a deliberately long readable title",
+    );
     let frame = page.frameLocator(".plan-document");
     await frame.getByRole("heading", { name: "Interactive checkout" }).waitFor();
     expect(await page.getByRole("complementary", { name: "Plan feedback" }).count()).toBe(0);

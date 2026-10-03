@@ -102,37 +102,77 @@ test("new CLI publications open visible tabs and preserve reading and saved sele
   }
 }, 60_000);
 
-test("publications wait while a diagram is being composed", async () => {
+test("empty and populated workspaces offer no manual artifact creation", async () => {
   const { directory, launch, cli } = await desktopFixture();
   const application = await launch();
   try {
     const page = await application.firstWindow();
-    await page.getByRole("button", { name: "Create diagram", exact: true }).click();
-    await page.getByRole("button", { name: "Open diagram settings" }).click();
-    await page.getByRole("switch", { name: "Diagram generation", exact: true }).click();
-    await page
-      .getByRole("dialog", { name: "Settings", exact: true })
-      .getByRole("button", { name: "Close", exact: true })
-      .click();
-    await page
-      .getByLabel("What should the diagram show?")
-      .fill("Keep this unsent diagram request.");
-    const file = join(directory, "arrival.txt");
-    await writeFile(file, "The publication arrived while composing.");
-    await cli("add", file, "--id", "arrival", "--title", "Publication while composing");
-    await page.getByRole("img", { name: "New artifacts" }).waitFor();
-    expect(await page.getByRole("tab").count()).toBe(0);
-    expect(await page.getByLabel("What should the diagram show?").inputValue()).toBe(
-      "Keep this unsent diagram request.",
-    );
-    await page
-      .getByRole("region", { name: "Create diagram" })
-      .getByRole("button", { name: "Done", exact: true })
-      .click();
-    await page.getByText("The publication arrived while composing.", { exact: true }).waitFor();
-    expect(await page.getByRole("tab", { selected: true }).textContent()).toBe(
-      "Publication while composing",
-    );
+    const creationButtons = page.getByRole("button", {
+      name: /^Create (diagram|plan|PR inbox)$/,
+    });
+    for (const appearance of ["light", "dark"] as const) {
+      await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+      await page.keyboard.press("ControlOrMeta+,");
+      await page.getByLabel("Search settings").fill("appearance");
+      await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
+      await page
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      await page.getByRole("dialog").waitFor({ state: "hidden" });
+      await page.setViewportSize(
+        appearance === "light" ? { width: 1280, height: 820 } : { width: 640, height: 620 },
+      );
+      expect(await creationButtons.count()).toBe(0);
+      if (process.env.SCOPE_TEST_SCREENSHOTS) {
+        await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
+        await page.screenshot({
+          path: join(process.env.SCOPE_TEST_SCREENSHOTS, `empty-${appearance}.png`),
+        });
+      }
+      await page.keyboard.press("ControlOrMeta+k");
+      const controls = page.getByRole("dialog", { name: "Search and controls", exact: true });
+      await controls.waitFor();
+      expect(await creationButtons.count()).toBe(0);
+      expect(
+        await controls.getByRole("button", { name: "Import tab", exact: true }).isVisible(),
+      ).toBe(true);
+      expect(
+        await controls.getByRole("button", { name: "Settings", exact: true }).isVisible(),
+      ).toBe(true);
+      const search = controls.getByLabel("Search artifacts", { exact: true });
+      await search.fill("create");
+      await controls.getByText("No matches. Try another title, action, or setting.").waitFor();
+      expect(await creationButtons.count()).toBe(0);
+      await page.keyboard.press("Escape");
+      await cli(
+        "text",
+        "Agent publication",
+        "--id",
+        `agent-${appearance}`,
+        "--title",
+        "Agent publication",
+      );
+      await page.getByRole("tab", { name: "Agent publication", exact: true }).waitFor();
+      await page.keyboard.press("ControlOrMeta+k");
+      await controls.getByRole("region", { name: "Current tab" }).waitFor();
+      expect(await creationButtons.count()).toBe(0);
+      expect(
+        await controls.getByRole("button", { name: "Fullscreen", exact: true }).isVisible(),
+      ).toBe(true);
+      expect(
+        await controls.getByRole("button", { name: "Download", exact: true }).isVisible(),
+      ).toBe(true);
+      if (process.env.SCOPE_TEST_SCREENSHOTS) {
+        await page.screenshot({
+          path: join(process.env.SCOPE_TEST_SCREENSHOTS, `controls-${appearance}.png`),
+        });
+      }
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("ControlOrMeta+w");
+      await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+      expect(await creationButtons.count()).toBe(0);
+    }
   } finally {
     await application.close();
     await rm(directory, { recursive: true, force: true });
@@ -169,7 +209,7 @@ test("the compact workspace preserves reading position, supports overflowing tab
     await page.keyboard.press("ArrowUp");
     await expect
       .poll(() => page.evaluate(() => document.activeElement?.textContent))
-      .toBe("Create PR inbox");
+      .toBe("Settings");
     await page.keyboard.press("Escape");
     await expect
       .poll(() => searchTrigger.evaluate((element) => element === document.activeElement))

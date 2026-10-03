@@ -1,5 +1,5 @@
 import { expect, test } from "vite-plus/test";
-import { rm, readFile, stat } from "node:fs/promises";
+import { rm, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { desktopFixture } from "./desktop-fixture.ts";
@@ -33,16 +33,33 @@ test("the CLI commits artifacts while diagram generation is pending and the rend
       .getByRole("button", { name: "Close", exact: true })
       .click();
     await expect.poll(() => page.getByRole("dialog").count()).toBe(0);
-    await page.getByRole("button", { name: "Create diagram", exact: true }).click();
-    await page.getByLabel("What should the diagram show?").fill("A request that stays pending.");
-    await page.getByRole("button", { name: "Create diagram", exact: true }).click();
+    const operations = JSON.parse(
+      await readFile(new URL("./fixtures/diagram-response.json", import.meta.url), "utf8"),
+    ).operations;
+    const file = join(directory, "operations.json");
+    await writeFile(file, JSON.stringify(operations));
+    await cli("diagram", "create", file, "--id", "pending", "--title", "Pending diagram");
+    await page.getByTestId("main-menu-trigger").click();
+    await page.getByRole("button", { name: "Ask agent", exact: true }).click();
+    await page
+      .getByRole("combobox", { name: "Conversation recipient", exact: true })
+      .selectOption("embedded");
+    await page.getByLabel("Change diagram", { exact: true }).fill("A request that stays pending.");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
     await page.getByRole("button", { name: "Cancel", exact: true }).waitFor();
 
     const debuggerSession = await page.context().newCDPSession(page);
     await debuggerSession.send("Debugger.enable");
     await debuggerSession.send("Debugger.pause");
     try {
-      const receipt = await cli("text", "Published during rendering", "--id", "independent");
+      const receipt = await cli(
+        "text",
+        "Published during rendering",
+        "--id",
+        "independent",
+        "--title",
+        "Independent publication",
+      );
       expect(JSON.parse(receipt.stdout)).toMatchObject({ id: "independent", revision: 1 });
       const client = await connect();
       expect(new TextDecoder().decode(await client.content("independent"))).toBe(
@@ -53,7 +70,7 @@ test("the CLI commits artifacts while diagram generation is pending and the rend
       await debuggerSession.detach();
     }
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
-    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page.getByRole("tab", { name: "Independent publication", exact: true }).click();
     await page.getByText("Published during rendering", { exact: true }).waitFor();
   } finally {
     await application.close();
@@ -61,8 +78,8 @@ test("the CLI commits artifacts while diagram generation is pending and the rend
   }
 }, 60_000);
 
-test("the diagram tool creates an editable Excalidraw artifact in desktop storage", async () => {
-  const { directory, settingsDirectory, launch, connect } = await desktopFixture();
+test("an agent-created diagram preserves editing, drafts, conflicts, and cancellation", async () => {
+  const { directory, settingsDirectory, launch, connect, cli } = await desktopFixture();
   let application = await launch();
   let client = await connect();
   try {
@@ -70,16 +87,6 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
       new URL("./fixtures/diagram-response.json", import.meta.url),
       "utf8",
     );
-    await application.evaluate((_electron, output) => {
-      const original = globalThis.fetch;
-      globalThis.fetch = async (url, init) =>
-        url === "https://openrouter.ai/api/v1/chat/completions"
-          ? Response.json({
-              choices: [{ message: { content: output }, finish_reason: "stop" }],
-              usage: { prompt_tokens: 80, completion_tokens: 40, cost: 0.001 },
-            })
-          : original(url, init);
-    }, result);
     let page = await application.firstWindow();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -101,11 +108,14 @@ test("the diagram tool creates an editable Excalidraw artifact in desktop storag
     await expect
       .poll(() => page.locator('[data-slot="dialog-content"]').count(), { timeout: 5000 })
       .toBe(0);
-    await page.getByRole("button", { name: "Create diagram", exact: true }).click();
-    await page.getByLabel("What should the diagram show?").fill("A browser talks to an API.");
-    await page.getByRole("button", { name: "Create diagram", exact: true }).click();
+    const operationsFile = join(directory, "operations.json");
+    await writeFile(operationsFile, JSON.stringify(JSON.parse(result).operations));
+    await cli("diagram", "create", operationsFile, "--id", "editable", "--title", "Architecture");
     await page.getByTestId("main-menu-trigger").click();
     await page.getByRole("button", { name: "Ask agent", exact: true }).click();
+    await page
+      .getByRole("combobox", { name: "Conversation recipient", exact: true })
+      .selectOption("embedded");
     await page.getByLabel("Change diagram", { exact: true }).waitFor();
     await page.locator(".excalidraw canvas").first().waitFor();
     await page.locator(".excalidraw.theme--dark").waitFor();

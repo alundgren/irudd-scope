@@ -7,7 +7,6 @@ import { planPlugin } from "./plan/renderer.tsx";
 import { pullRequestsPlugin } from "./pull-requests/renderer.tsx";
 
 export const tabPlugins = [diagramPlugin, planPlugin, pullRequestsPlugin, filePlugin];
-export const pluginTools = tabPlugins.flatMap((plugin) => plugin.tools ?? []);
 export const findPlugin = (type: string) => tabPlugins.find((plugin) => plugin.type === type);
 export function pluginForArtifact(artifact: Artifact) {
   return tabPlugins.find((plugin) => plugin.publication?.accepts(artifact))!;

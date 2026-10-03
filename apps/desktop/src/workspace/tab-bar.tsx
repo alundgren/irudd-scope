@@ -22,7 +22,6 @@ export function TabBar({
   onRestore,
   onVisible,
   selectedId,
-  creating,
   artifacts,
   unread,
   tabButtons,
@@ -43,7 +42,6 @@ export function TabBar({
   onRestore: (id: string) => Promise<void>;
   onVisible: (ids: string[]) => void;
   selectedId: string | null;
-  creating: boolean;
   artifacts: ReadonlyMap<string, Artifact>;
   unread: ReadonlySet<string>;
   tabButtons: RefObject<Map<string, HTMLButtonElement>>;
@@ -132,7 +130,7 @@ export function TabBar({
             const artifact = artifacts.get(artifactId ?? "");
             const title = artifact?.title ?? tab.title;
             const permanent = retainedTabs.find((entry) => entry.tab.id === id)?.permanent ?? false;
-            const isSelected = id === selectedId && !creating;
+            const isSelected = id === selectedId;
             return (
               <div
                 className={`artifact-tab${isSelected ? " selected" : ""}`}

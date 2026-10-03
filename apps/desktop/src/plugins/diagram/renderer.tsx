@@ -6,9 +6,6 @@ import { publishedArtifactId, publishedTabState } from "../../library/tab-state.
 const DiagramView = lazy(() =>
   import("./view.tsx").then((module) => ({ default: module.DiagramView })),
 );
-const CreateDiagram = lazy(() =>
-  import("./create.tsx").then((module) => ({ default: module.CreateDiagram })),
-);
 
 export const diagramPlugin: TabPlugin = {
   type: "diagram",
@@ -30,24 +27,4 @@ export const diagramPlugin: TabPlugin = {
       )}
     </PublishedContent>
   ),
-  tools: [
-    {
-      id: "create-diagram",
-      title: "Create diagram",
-      keywords: "create diagram drawing",
-      View: ({ onCreated, onClose }) => (
-        <CreateDiagram
-          onClose={onClose}
-          onCreated={(artifact) =>
-            onCreated({
-              type: "diagram",
-              title: artifact.title,
-              state: publishedTabState(artifact),
-              artifact,
-            })
-          }
-        />
-      ),
-    },
-  ],
 };

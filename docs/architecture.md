@@ -219,8 +219,7 @@ admitted jobs finish. Manual Sync and detail reads bypass that routine wait,
 while every request respects actual quota reserve and throttling. Main owns
 the timers; renderer interests identify the visible inbox and every subscribed PR.
 An inspected PR's reviews refresh without downloading its captured diff again.
-Native creation publishes the built-in flat-list app;
-agents can publish their own HTML with named JavaScript views. GitHub access is
+Agents publish inbox HTML with named JavaScript views. GitHub access is
 read-only. Review submission and merges remain on GitHub. Authenticated HTTP
 commands work without the tab being mounted. Paired hubs forward them and keep
 no PR state.
@@ -331,14 +330,14 @@ display an unavailable view.
 
 Each directory under `plugins/` owns one built-in implementation. `file/`
 keeps the existing image, Markdown, HTML, text, and download fallback views
-together. `diagram/` owns the editor, creation tool, semantic operations,
+together. `diagram/` owns the editor, semantic operations,
 canvas conversion, provider calls, and draft contracts. A plugin can render
-content without referencing a library item. Publication support and creation
-tools are optional registrations. These are trusted modules in one renderer.
+content without referencing a library item. Publication support is an optional
+registration. These are trusted modules in one renderer.
 Published HTML is trusted agent output and runs in an iframe without added restrictions.
 
 `plugins/registry.ts` registers process-independent saved-state validators.
-`registry.renderer.ts` registers views and tools; `registry.main.ts` registers
+`registry.renderer.ts` registers views; `registry.main.ts` registers
 main handlers. Main validates callers before invoking those handlers. Plugins
 use shared contracts and host operations. Lint rejects imports between plugin
 implementations and imports of registries from inside a plugin.

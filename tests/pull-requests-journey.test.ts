@@ -74,12 +74,24 @@ else throw new Error('Unexpected GitHub read');
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0]!.setContentSize(1100, 780),
     );
-    await page.getByRole("button", { name: "Search and controls" }).click();
-    await page.getByRole("button", { name: "Create PR inbox", exact: true }).click();
-    await page.getByLabel("Repository", { exact: true }).fill("synthetic/project");
-    await page.getByLabel("Title", { exact: true }).fill("Persistent PR inbox");
-    await page.getByLabel("Name, optional", { exact: true }).fill("journey-inbox");
-    await page.getByRole("button", { name: "Create PR inbox", exact: true }).click();
+    const starterHtml = (
+      await readFile("apps/desktop/src/plugins/pull-requests/starter.html", "utf8")
+    ).replaceAll(
+      "/* SCOPE_TOKENS */",
+      await readFile("apps/desktop/src/renderer/tokens.css", "utf8"),
+    );
+    const file = join(fixture.directory, "inbox.html");
+    await writeFile(file, starterHtml);
+    await fixture.cli(
+      "add",
+      file,
+      "--pull-requests",
+      "--name",
+      "journey-inbox",
+      "--title",
+      "Persistent PR inbox",
+    );
+    await fixture.cli("pull-requests", "configure", "journey-inbox", "synthetic/project");
     let frame = page.frameLocator(".pull-requests-document");
     await frame.getByRole("checkbox", { name: "Preload content for #1", exact: true }).check();
     await frame.getByRole("button", { name: "Preload selected 1", exact: true }).click();
