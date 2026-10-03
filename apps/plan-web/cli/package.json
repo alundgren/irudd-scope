@@ -1,0 +1,19 @@
+{
+  "name": "@irudd/plan-web-cli",
+  "version": "0.1.0",
+  "description": "Agent CLI and MCP bridge for collaborative HTML plans",
+  "license": "MIT",
+  "bin": {
+    "plan-web": "main.mjs"
+  },
+  "files": [
+    "main.mjs",
+    "LICENSE",
+    "LICENSE-MCP",
+    "LICENSE-ZOD"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=26.10.0"
+  }
+}

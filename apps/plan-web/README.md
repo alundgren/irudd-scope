@@ -11,7 +11,7 @@ vp run plan-web#build
 vp run plan-web
 ```
 
-Open `http://localhost:43130/plans/team-plan`. Visiting a new plan URL creates
+Open `http://127.0.0.1:43130/plans/team-plan`. Visiting a new plan URL creates
 it. Change the name in the URL to start another plan. The app accepts ordinary
 HTML, including scripts. V1 has no authentication or authorization.
 
@@ -115,3 +115,98 @@ mutation, physical database worker termination, eight tabs, eight separate plans
 read-only startup and preservation of legacy HTML records across database reopen.
 Failure evidence is saved under `/tmp/scope-web-*-evidence.json` with screenshots
 and observed command traffic.
+
+## Agent CLI and MCP
+
+Build the app-owned CLI with `vp run plan-web#build`, or build only the server
+and CLI bundle with `vp run plan-web#cli:build`. The build writes
+`apps/plan-web/dist/plan-web-cli-0.1.0.tgz`. The tarball bundles its runtime
+JavaScript dependencies and requires Node 26.10 or newer. It is a local package;
+this exploration does not publish it to npm.
+
+Install the tarball into an agent's project with Vite+, then approve the agent
+in your browser:
+
+```sh
+vp install /absolute/path/to/apps/plan-web/dist/plan-web-cli-0.1.0.tgz
+vp exec plan-web login --server http://127.0.0.1:43130 --agent 'My coding agent'
+vp exec plan-web whoami --server http://127.0.0.1:43130
+vp exec plan-web mcp-config --server http://127.0.0.1:43130
+```
+
+Login displays an approval code and opens a browser. For a remote terminal, add
+`--no-browser` and open the displayed URL on your own computer. Compare the
+code, agent name and MCP endpoint before selecting Alex, Blair or Casey and
+clicking Approve agent. Deny and Cancel refuse the grant. Ctrl+C cancels a
+pending CLI login. These are development identities, with no external accounts
+or Cloudflare credentials. The install, login, remote approval and whoami flow
+follows the [Cloudflare CLI example](https://developers.cloudflare.com/cf/get-started/).
+
+Paste the JSON from `mcp-config` into an MCP client's server configuration.
+The installed CLI runs `mcp` over stdio and forwards tool requests to `/mcp`.
+The bridge supports clients using the 2025 initialization handshake and modern
+clients. The remote endpoint implements only the
+[2026-07-28 Streamable HTTP protocol](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http).
+Each HTTP POST includes its protocol version, client metadata and mirrored
+method/tool-name headers. HTTP does not use initialize, a session ID, GET event
+streams or shared transport instances. The maintained TypeScript SDK creates a
+fresh server for each HTTP request. The app pins `@modelcontextprotocol/server`
+2.3.0 and the Node adapter 2.1.1. The browser's plan event stream remains a
+separate REST connection.
+
+Generic modern HTTP MCP clients can connect directly to the public `/mcp`
+endpoint. A 401 supplies protected-resource discovery; authorization-server
+metadata advertises public-client registration and authorization code with
+S256 PKCE. Register exact HTTPS or loopback HTTP redirect URIs, use the endpoint
+as the OAuth resource at authorization and token exchange, and validate the
+returned issuer and state. Approval chooses the same three development
+identities. This implements the public-client flow from the
+[MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
+Client ID metadata documents, confidential clients, refresh tokens and other
+grant types are not supported. Clients requiring those features must use the
+stdio bridge. The CLI's polling endpoints are app-owned pairing; they do not
+claim to implement the OAuth device authorization extension.
+
+The tools read current plans, immutable revisions, paginated history and Git
+diffs, apply HTML, add comments, reply, and resolve or reopen discussions. The
+server injects the approved development user and agent name into every command.
+Mutations require a caller-supplied stable `requestId`; keep it and the payload
+after a timeout or lost reply. Read current content before applying HTML, and
+send its `htmlRevision` as `baseHtmlRevision`. Conflicts preserve the original
+receipt. Reconcile under a new request ID.
+
+```sh
+vp exec plan-web tools --server http://127.0.0.1:43130
+vp exec plan-web call plan_read --json '{"name":"team-plan"}'
+vp exec plan-web call plan_apply_html --json @command.json
+vp exec plan-web logout --server http://127.0.0.1:43130
+```
+
+MCP approval grants read and write access to every plan on that endpoint.
+Access tokens expire after eight hours; login again after expiry. Logout revokes
+the saved credential on the server before removing it locally. The server
+stores only credential and redemption-secret hashes in its app-owned SQLite
+authorization tables. Pending grants expire after ten minutes, retain their
+terminal state for at most another ten minutes, and redeem once. Pairing polling
+starts at two seconds and slows repeated early polls. Authorization storage
+allows at most 1,000 grants, 1,000 live credentials and 100 registered OAuth
+clients. Grant and credential limits prune expired rows before new issuance;
+registered clients persist across restarts.
+
+CLI credentials live in a private SQLite file under
+`~/.config/plan-web/credentials.sqlite`, outside the repository. The directory
+uses mode 0700 and the file uses 0600. `PLAN_WEB_CLI_HOME` selects a different
+private directory. Bearer tokens travel in headers and are absent from CLI
+output and URLs. A lost token-issuance reply requires a new login, because a
+grant cannot redeem twice.
+
+For a reverse proxy, set `PLAN_WEB_ORIGIN` to its exact HTTPS origin before
+starting the server. OAuth issuer, resource audience, Host and browser Origin
+checks use that configured origin. Keep the proxy's Host header consistent.
+Changing the endpoint invalidates credentials bound to the old endpoint.
+Loopback HTTP works for local development; remote CLI endpoints require HTTPS.
+
+MCP authentication protects MCP tool calls and the credential inspection route.
+The v1 browser, plan REST reads, commands and presence remain open. Fake identity
+approval does not authenticate a real person or provide application-wide access
+control.
