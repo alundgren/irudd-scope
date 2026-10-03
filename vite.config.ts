@@ -7,6 +7,9 @@ const plugins = readdirSync(new URL("./apps/desktop/src/plugins/", import.meta.u
   .filter((entry) => entry.isDirectory())
   .map((entry) => entry.name);
 
+const diagramTests = ["tests/diagram*.test.ts", "tests/connected-diagram*.test.ts"];
+const remoteUpdateTests = ["tests/remote-updates*.test.ts"];
+
 export default defineConfig({
   fmt: {},
   lint: {
@@ -47,6 +50,14 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     testTimeout: 30_000,
     reporters: ["minimal"],
+    projects: [
+      {
+        extends: true,
+        test: { name: "standard", exclude: [...diagramTests, ...remoteUpdateTests] },
+      },
+      { extends: true, test: { name: "diagram", include: diagramTests } },
+      { extends: true, test: { name: "remote-updates", include: remoteUpdateTests } },
+    ],
   },
   run: { cache: false },
 });

@@ -7,7 +7,9 @@
   "scripts": {
     "ready": "vp run build && vp run check && vp run test",
     "check": "vp fmt --check && vp exec node tools/lint.ts",
-    "test": "vp exec node tools/test.ts",
+    "test": "vp exec node tools/test.ts --project=standard",
+    "test:diagram": "vp exec node tools/test.ts --project=diagram",
+    "test:remote-updates": "vp exec node tools/test.ts --project=remote-updates",
     "build": "vp run -r build",
     "package:desktop": "vp exec node tools/package-desktop.ts",
     "check:credentials": "vp exec node tools/check-credential-helper.ts",

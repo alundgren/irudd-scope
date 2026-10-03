@@ -14,5 +14,6 @@ is separate from saving a draft. Incoming revisions and failed writes must
 retain local edits. Cancel pending work on unmount and desktop shutdown.
 
 Keep stable element IDs through conversions. Validate a complete operation
-batch before changing the canvas. Standard tests use synthetic provider
-responses and require no model credentials.
+batch before changing the canvas. Run `vp run test:diagram` only when diagram
+plugin implementation changes. This suite is excluded from `ready`; use
+synthetic provider responses and no model credentials.
