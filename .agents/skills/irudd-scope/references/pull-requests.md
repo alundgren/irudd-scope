@@ -368,6 +368,29 @@ Agents use `state-set` or `state-patch` with `value`, or `state-delete` with
 `appState`; treat it as `{version:0,value:{}}`. Update desktop, CLI, and hub
 together for the added snapshot and event fields.
 
+Use `scope.pullRequests.state.forPR(nodeId)` for data owned by one PR, such as
+reviewed file hashes. It provides the same `read`, `set`, `patch`, `delete`, and
+`watch` methods, with an independent version starting at 0. PR state has no
+storage byte quota and stays out of inventory snapshots. JSON still requires
+finite numbers and at most 32 nested levels. Individual commands are limited
+to 256 KiB and replies to 32 MiB; build larger values with separate patches.
+Objects exceeding the reply limit require deleting known keys or replacing the
+object before a complete read. Root inbox state keeps the 32 KiB limit.
+
+Agents use `pr-state-read` with `name`, `tabId`, and `nodeId`, or
+`pr-state-set`, `pr-state-patch`, and `pr-state-delete` with the same fields plus
+`requestId` and `expectedVersion` from that PR's state. Writes supply `value`
+or `keys`. Replies are `{type:"pr-state",tabId,nodeId,state:{version,value}}`.
+Each PR's state is isolated within its inbox. It survives HTML updates, commit
+changes, restart, and Trashcan retention; removing the PR during a complete
+sync deletes its state and receipts. Reappearing PRs start empty at version 0.
+
+Live events use small `prStateChange:{nodeId,operation,version}` invalidations.
+SDK watchers read the value separately and recover after reconnect. Rapid
+writes can produce one `snapshot` of the latest state. Unsubscribe when the
+component closes, and use `beforeClose` for unsent edits. Update desktop, CLI,
+and hub together for the new commands, replies, and event field.
+
 Diff detail `files` include `sha`, GitHub's reported file blob SHA, or `null`
 when unavailable. Older replies may omit it. Use it to identify file content;
 it is separate from the PR commit and does not hash the diff text. Scope keeps

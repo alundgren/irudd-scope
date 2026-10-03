@@ -100,11 +100,13 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
       if (event.name === name && event.id === artifact?.id) {
         if (event.stateChange && event.tabId === context.tabId)
           host.stateChanged(event.stateChange);
+        if (event.prStateChange && event.tabId === context.tabId)
+          host.prStateChanged(event.prStateChange);
         void reload();
       }
     });
     const stopReconnect = window.scope.onPullRequestsReconnected(() => {
-      void reload();
+      void reload().then(() => host.refreshPrStates());
       void host.refreshInterest().catch(() => {});
     });
     void reload();

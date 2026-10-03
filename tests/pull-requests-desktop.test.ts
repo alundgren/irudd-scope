@@ -471,7 +471,7 @@ test("a pending GitHub refresh does not delay saving a local note", async () => 
       )
       .toBe(true);
     await frame.getByLabel("Your notes").fill("Saved while GitHub is still reading");
-    await frame.getByRole("button", { name: "Save note", exact: true }).click();
+    await frame.getByLabel("Your notes").press("Tab");
     await frame.getByText("Saved", { exact: true }).waitFor();
     expect(
       await app.evaluate(
@@ -1050,7 +1050,7 @@ test("a failed HTML replacement keeps Retry after note recovery until the new ap
     );
     expect(await frame.locator("#revision-two").count()).toBe(0);
     await sendChange(app, "note-ok");
-    await frame.getByRole("button", { name: "Save note", exact: true }).click();
+    await frame.getByLabel("Your notes").press("Tab");
     await frame.getByText("Saved", { exact: true }).waitFor();
     // Note recovery refreshes the snapshot, but only loading the pending HTML can clear Retry.
     await sendChange(app, "new-head");
@@ -1059,7 +1059,7 @@ test("a failed HTML replacement keeps Retry after note recovery until the new ap
     expect(await frame.locator("#revision-two").count()).toBe(0);
     await retry.click();
     await frame.getByText("Updated inbox app", { exact: true }).waitFor();
-    await expect.poll(() => page.getByRole("alert").count()).toBe(0);
+    await retry.waitFor({ state: "detached" });
     await frame.getByRole("button", { name: "New head while inspecting", exact: true }).click();
     expect(await frame.getByLabel("Your notes").inputValue()).toBe(
       "Keep my draft during the app update",

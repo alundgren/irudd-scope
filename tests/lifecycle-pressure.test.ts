@@ -115,6 +115,15 @@ test("pressure cleanup counts include populated plan and pull request content ow
         },
       ],
     });
+    await client.pullRequests({
+      action: "pr-state-set",
+      name: "pressure-inbox",
+      tabId: inbox.tabId,
+      nodeId: "PR_pressure",
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      value: { file: "reviewed" },
+    });
     const populated = contentCounts(f.settingsDirectory);
     for (const table of [
       "plan_state",
@@ -124,6 +133,7 @@ test("pressure cleanup counts include populated plan and pull request content ow
       "plan_receipts",
       "pull_requests_state",
       "pull_requests_current",
+      "pull_requests_pr_state",
       "pull_requests_receipts",
     ])
       expect(populated.rows[table]).toBeGreaterThan(0);

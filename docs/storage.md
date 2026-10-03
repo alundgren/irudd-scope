@@ -327,6 +327,16 @@ Complete syncs and PR removal preserve it. Trash retains it; permanent tab
 deletion cascades through its owning row and receipts. Older builds reject
 schema 9. Restore a complete pre-upgrade backup to downgrade.
 
+Artifact schema 10 adds `pull_requests_pr_state`, keyed by inbox tab UUID and
+PR node ID. Existing root state and PR records are preserved. Each PR starts
+with an empty object at version 0 and gains a row on its first write. Per-PR
+state has no storage byte quota; the root inbox object retains its 32 KiB limit.
+It survives commit changes, HTML updates, restart, and Trashcan retention.
+A complete sync removing a PR deletes its state through the current PR's
+foreign key, and permanent tab deletion removes all its PR state. Mutation
+receipts follow the same PR lifetime. Older builds reject schema 10; restore
+a complete pre-upgrade backup to downgrade.
+
 ## Retained external publication records
 
 Artifact schema 8 retains the `publications` table and its referenced HTML bytes

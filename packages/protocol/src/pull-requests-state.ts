@@ -21,20 +21,42 @@ function isJSON(value: unknown, depth: number): boolean {
   return Object.values(value).every((item) => isJSON(item, depth + 1));
 }
 
-export const PullRequestsStateObject = Schema.Unknown.check(
+export const PullRequestStateObject = Schema.Unknown.check(
   Schema.makeFilter(
     (value) =>
-      value !== null &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      isJSON(value, 0) &&
-      new TextEncoder().encode(JSON.stringify(value)).byteLength <= MAX_PULL_REQUESTS_STATE_BYTES,
+      value !== null && typeof value === "object" && !Array.isArray(value) && isJSON(value, 0),
     {
-      expected: "a JSON object within 32 KiB and 32 nested levels",
+      expected: "a JSON object with finite numbers and at most 32 nested levels",
       toJsonSchema: () => ({ type: "object", additionalProperties: true }),
     },
   ),
 ).pipe(Schema.decodeTo(Schema.JsonObject));
+export const PullRequestsStateObject = PullRequestStateObject.check(
+  Schema.makeFilter(
+    (value) =>
+      new TextEncoder().encode(JSON.stringify(value)).byteLength <= MAX_PULL_REQUESTS_STATE_BYTES,
+    {
+      expected: "a JSON object within 32 KiB",
+      toJsonSchema: () => ({ type: "object", additionalProperties: true }),
+    },
+  ),
+);
+export const PullRequestAppState = Schema.Struct({
+  version: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
+  value: PullRequestStateObject,
+});
+export type PullRequestAppState = typeof PullRequestAppState.Type;
+export const PullRequestNodeId = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(128),
+  Schema.isPattern(/^[A-Za-z0-9_=-]+$/),
+);
+export const PullRequestStateChange = Schema.Struct({
+  nodeId: PullRequestNodeId,
+  operation: Schema.Literals(["set", "patch", "delete"]),
+  version: PullRequestAppState.fields.version,
+});
+export type PullRequestStateChange = typeof PullRequestStateChange.Type;
 export const PullRequestsAppState = Schema.Struct({
   version: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
   value: PullRequestsStateObject,

@@ -1,7 +1,17 @@
 import * as Schema from "effect/Schema";
 import { Artifact, ArtifactName, PublicationTabId, Revision } from "./index.ts";
-import { PullRequestsAppState, PullRequestsStateObject } from "./pull-requests-state.ts";
+import {
+  PullRequestsAppState,
+  PullRequestsStateObject,
+  PullRequestAppState,
+  PullRequestStateObject,
+  PullRequestNodeId,
+} from "./pull-requests-state.ts";
 export {
+  PullRequestAppState,
+  PullRequestStateObject,
+  PullRequestStateChange,
+  PullRequestNodeId,
   PullRequestsAppState,
   PullRequestsStateObject,
   PullRequestsStateChange,
@@ -13,11 +23,6 @@ export const MAX_PULL_REQUESTS_REPLY_BYTES = 32 * 1024 * 1024;
 export const MAX_PULL_REQUESTS_DETAIL_IDS = 20;
 const Text = Schema.String.check(Schema.isMaxLength(20_000));
 const ShortText = Schema.String.check(Schema.isMaxLength(512));
-export const PullRequestNodeId = Schema.String.check(
-  Schema.isMinLength(1),
-  Schema.isMaxLength(128),
-  Schema.isPattern(/^[A-Za-z0-9_=-]+$/),
-);
 export const PullRequestCommit = Schema.String.check(Schema.isPattern(/^[a-f0-9]{40,64}$/));
 export const PullRequestCommitPair = Schema.Struct({
   headOid: PullRequestCommit,
@@ -197,6 +202,27 @@ const Write = { ...Named, tabId: PublicationTabId, requestId: PublicationTabId }
 const Versioned = { ...Write, nodeId: PullRequestNodeId, expectedVersion: Revision };
 export const PullRequestsCommand = Schema.Union([
   Schema.Struct({
+    ...Named,
+    tabId: PublicationTabId,
+    nodeId: PullRequestNodeId,
+    action: Schema.Literal("pr-state-read"),
+  }),
+  Schema.Struct({
+    ...Versioned,
+    action: Schema.Literal("pr-state-set"),
+    value: PullRequestStateObject,
+  }),
+  Schema.Struct({
+    ...Versioned,
+    action: Schema.Literal("pr-state-patch"),
+    value: PullRequestStateObject,
+  }),
+  Schema.Struct({
+    ...Versioned,
+    action: Schema.Literal("pr-state-delete"),
+    keys: Schema.Array(Schema.String).check(Schema.isMaxLength(1000)),
+  }),
+  Schema.Struct({
     ...Write,
     action: Schema.Literal("state-set"),
     expectedVersion: Revision,
@@ -259,6 +285,12 @@ export const PullRequestsCommand = Schema.Union([
 ]);
 export type PullRequestsCommand = typeof PullRequestsCommand.Type;
 export const PullRequestsReply = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("pr-state"),
+    tabId: PublicationTabId,
+    nodeId: PullRequestNodeId,
+    state: PullRequestAppState,
+  }),
   Schema.Struct({
     type: Schema.Literal("details"),
     tabId: PublicationTabId,

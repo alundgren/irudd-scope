@@ -15,6 +15,8 @@ function installPullRequestsSDK(identity: FrameIdentity, windowContext: WindowCo
       reject: (error: Error) => void;
       promise: Promise<unknown>;
       method: string;
+      args: unknown[];
+      stateEntry?: PrStateEntry;
     }
   >();
   const watchers = new Set<Watcher>();
@@ -40,9 +42,85 @@ function installPullRequestsSDK(identity: FrameIdentity, windowContext: WindowCo
       }
     }
   }
+  type PrStateEntry = {
+    state?: AppState;
+    watchers: Set<(update: StateUpdate) => void>;
+    reading?: Promise<unknown>;
+    revision: number;
+    notice?: { version: number; operation: StateUpdate["operation"] };
+  };
+  const prStates = new Map<string, PrStateEntry>();
+  function prEntry(nodeId: string): PrStateEntry {
+    let entry = prStates.get(nodeId);
+    if (!entry) {
+      entry = { watchers: new Set(), revision: 0 };
+      prStates.set(nodeId, entry);
+    }
+    return entry;
+  }
+  function prStateUpdate(entry: PrStateEntry, update: StateUpdate) {
+    if (update.version <= (entry.state?.version ?? -1)) return;
+    entry.state = freeze({ version: update.version, value: update.value }) as AppState;
+    const frozen = freeze(update) as StateUpdate;
+    for (const watcher of entry.watchers) {
+      try {
+        watcher(frozen);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+  }
+  function refreshPrState(nodeId: string, notice?: PrStateEntry["notice"]) {
+    const entry = prEntry(nodeId);
+    entry.revision++;
+    entry.notice = notice;
+    if (entry.reading) return;
+    entry.reading = (async () => {
+      let read: number;
+      do {
+        read = entry.revision;
+        const captured = entry.notice;
+        try {
+          const state = (await send("readPrState", [nodeId])) as AppState;
+          if (prStates.get(nodeId) !== entry) return;
+          prStateUpdate(entry, {
+            ...state,
+            operation: captured?.version === state.version ? captured.operation : "snapshot",
+          });
+        } catch (error) {
+          console.error(error);
+        }
+      } while (prStates.get(nodeId) === entry && entry.watchers.size && read !== entry.revision);
+    })().finally(() => {
+      entry.reading = undefined;
+    });
+  }
+  function stateForPR(nodeId: string) {
+    return Object.freeze({
+      read: () => send("readPrState", [nodeId]),
+      set: (value: Readonly<Record<string, unknown>>, expectedVersion: number) =>
+        send("setPrState", [nodeId, value, expectedVersion]),
+      patch: (value: Readonly<Record<string, unknown>>, expectedVersion: number) =>
+        send("patchPrState", [nodeId, value, expectedVersion]),
+      delete: (keys: readonly string[], expectedVersion: number) =>
+        send("deletePrState", [nodeId, keys, expectedVersion]),
+      watch(watcher: (update: StateUpdate) => void) {
+        const entry = prEntry(nodeId);
+        entry.watchers.add(watcher);
+        if (entry.state) watcher(freeze({ ...entry.state, operation: "snapshot" }) as StateUpdate);
+        if (!latest || latest.pullRequests.some((pr) => pr.nodeId === nodeId))
+          refreshPrState(nodeId);
+        return () => {
+          entry.watchers.delete(watcher);
+        };
+      },
+    });
+  }
   const closing = new Set<() => Promise<void>>();
   const messages = new Set<(message: unknown) => void>();
-  let latest: { pullRequests: readonly unknown[]; context: unknown; sync: unknown } | undefined;
+  let latest:
+    | { pullRequests: readonly { nodeId: string }[]; context: unknown; sync: unknown }
+    | undefined;
   let generation = -1;
   function send(method: string, args: unknown[]) {
     const id = crypto.randomUUID();
@@ -52,7 +130,14 @@ function installPullRequestsSDK(identity: FrameIdentity, windowContext: WindowCo
       resolve = yes;
       reject = no;
     });
-    pending.set(id, { resolve, reject, promise, method });
+    pending.set(id, {
+      resolve,
+      reject,
+      promise,
+      method,
+      args,
+      ...(method.endsWith("PrState") ? { stateEntry: prEntry(args[0] as string) } : {}),
+    });
     try {
       parent.postMessage({ ...identity, type: "scope-pull-requests-call", id, method, args }, "*");
     } catch (error) {
@@ -73,6 +158,9 @@ function installPullRequestsSDK(identity: FrameIdentity, windowContext: WindowCo
             "setState",
             "patchState",
             "deleteState",
+            "setPrState",
+            "patchPrState",
+            "deletePrState",
           ].includes(call.method),
         )
         .map((call) => call.promise),
@@ -119,6 +207,19 @@ function installPullRequestsSDK(identity: FrameIdentity, windowContext: WindowCo
     )
       return;
     if (value.type === "scope-pull-requests-state") stateUpdate(value.value);
+    if (value.type === "scope-pull-request-state-change") {
+      const entry = prStates.get(value.value.nodeId);
+      if (entry?.watchers.size && value.value.version > (entry.state?.version ?? -1))
+        refreshPrState(value.value.nodeId, value.value);
+    }
+    if (value.type === "scope-pull-request-state-refresh") {
+      for (const [nodeId, entry] of prStates) {
+        // A missed removal and reappearance resets the persisted version to zero.
+        prStates.set(nodeId, { watchers: entry.watchers, revision: 0 });
+        if (entry.watchers.size && latest?.pullRequests.some((pr) => pr.nodeId === nodeId))
+          refreshPrState(nodeId);
+      }
+    }
     if (value.type === "scope-pull-requests-close") void flush(value.id);
     if (value.type === "scope-pull-requests-detail-update") {
       const update = freeze(value.value);
@@ -150,6 +251,13 @@ function installPullRequestsSDK(identity: FrameIdentity, windowContext: WindowCo
       reportExternalError(value.url, value.error);
     if (value.type === "scope-pull-requests-snapshot" && value.generation >= generation) {
       generation = value.generation;
+      const ids = new Set(value.value.pullRequests.map((pr: { nodeId: string }) => pr.nodeId));
+      for (const [nodeId, entry] of prStates) {
+        if (!ids.has(nodeId)) {
+          // Retain subscriptions, but discard values and detach any in-flight reply from the removed PR.
+          prStates.set(nodeId, { watchers: entry.watchers, revision: 0 });
+        } else if (!entry.state && entry.watchers.size && !entry.reading) refreshPrState(nodeId);
+      }
       latest = freeze(value.value) as typeof latest;
       stateUpdate({
         ...(value.value.appState ?? { version: 0, value: {} }),
@@ -168,15 +276,44 @@ function installPullRequestsSDK(identity: FrameIdentity, windowContext: WindowCo
       if (!call) return;
       pending.delete(value.id);
       if (value.error) call.reject(new Error(value.error));
-      else
+      else if (call.stateEntry && prStates.get(call.args[0] as string) !== call.stateEntry)
+        call.reject(
+          new Error("This pull request was removed while loading state. Refresh the inbox."),
+        );
+      else {
+        if (
+          call.stateEntry &&
+          prStates.get(call.args[0] as string) === call.stateEntry &&
+          call.method !== "readPrState"
+        )
+          prStateUpdate(call.stateEntry, {
+            ...value.value,
+            operation:
+              call.method === "setPrState"
+                ? "set"
+                : call.method === "patchPrState"
+                  ? "patch"
+                  : "delete",
+          });
         call.resolve(
-          ["readState", "setState", "patchState", "deleteState"].includes(call.method)
+          [
+            "readState",
+            "setState",
+            "patchState",
+            "deleteState",
+            "readPrState",
+            "setPrState",
+            "patchPrState",
+            "deletePrState",
+          ].includes(call.method)
             ? freeze(value.value)
             : value.value,
         );
+      }
     }
   });
   const state = Object.freeze({
+    forPR: stateForPR,
     read: () => send("readState", []),
     set: (value: Readonly<Record<string, unknown>>, expectedVersion: number) =>
       send("setState", [value, expectedVersion]),
