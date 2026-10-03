@@ -125,16 +125,19 @@ export function CommentCapture({
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const capture = useRef<HTMLDivElement>(null);
+  const comment = useRef<HTMLTextAreaElement>(null);
   const mark = draft.annotations.find((annotation) => annotation.type === "pin");
   const at = mark?.at ?? { x: 0.25, y: 0.25 };
   const placed = draft.annotations.length > 0;
   useEffect(() => {
-    if (!placed) capture.current?.focus();
-  }, [placed]);
+    if (placed) comment.current?.focus();
+    else capture.current?.focus();
+  }, [placed, at.x, at.y]);
   function placePin(event: PointerEvent<SVGSVGElement>) {
     if (busy) return;
     const matrix = svg.current?.getScreenCTM();
     if (!matrix) return;
+    event.preventDefault();
     const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
     onChange({
       ...draft,
@@ -213,9 +216,9 @@ export function CommentCapture({
             </div>
           </div>
           <Textarea
+            ref={comment}
             aria-label="Comment"
             placeholder="Add a comment…"
-            autoFocus
             disabled={busy}
             maxLength={16_384}
             rows={2}

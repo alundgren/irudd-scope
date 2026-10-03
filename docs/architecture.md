@@ -119,7 +119,9 @@ after Electron captures its viewport. `plugins/plan/view.tsx` retains the live
 HTML iframe independently of review state. `annotation.tsx` overlays normalized
 marks on a frozen capture and rasterizes a marked PNG; `review.tsx` displays the
 feedback queue, responses and history. Explicit revision navigation replaces
-the iframe content. Incoming metadata and feedback leave it in place. Reconnected event streams
+the iframe content. New HTML revisions select and load the latest content;
+unfinished captures retain their original revision. Incoming metadata and
+feedback without HTML changes leave the iframe in place. Reconnected event streams
 refresh durable review state even when the HTML revision did not change.
 
 `library/plan-http.ts` serves authenticated review commands, retained HTML and

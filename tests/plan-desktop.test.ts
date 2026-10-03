@@ -94,11 +94,17 @@ test("a plan keeps interactive HTML while captured comments, feedback, replies, 
     expect(captureBounds.height).toBeCloseTo(pageBounds.height, 0);
     expect(await page.getByRole("button", { name: "Arrow", exact: true }).count()).toBe(0);
     await draw(page, [0.12, 0.12], [0.35, 0.22]);
+    const commentInput = page.getByRole("textbox", { name: "Comment", exact: true });
+    await expect
+      .poll(() => commentInput.evaluate((input) => input === document.activeElement))
+      .toBe(true);
+    await page.keyboard.type("Make the payment step easier to find.");
     await draw(page, [0.2, 0.3], [0.55, 0.5]);
     await draw(page, [0.4, 0.4], [0.4, 0.4]);
-    await page
-      .getByRole("textbox", { name: "Comment", exact: true })
-      .fill("Make the payment step easier to find.");
+    await expect
+      .poll(() => commentInput.evaluate((input) => input === document.activeElement))
+      .toBe(true);
+    expect(await commentInput.inputValue()).toBe("Make the payment step easier to find.");
     await page.screenshot({ path: join(evidence, "captured-marks.png") });
     await page.getByRole("button", { name: "Back to plan", exact: true }).click();
     expect(await frame.getByRole("textbox", { name: "Order reference" }).inputValue()).toBe(
@@ -173,12 +179,15 @@ test("a plan keeps interactive HTML while captured comments, feedback, replies, 
     });
     expect(response.type).toBe("receipt");
     await page.getByText("The payment heading is clearer.", { exact: true }).waitFor();
-    await frame.getByRole("heading", { name: "Interactive checkout" }).waitFor();
+    await frame.getByRole("heading", { name: "Revised checkout" }).waitFor();
+    expect(await page.getByLabel("Version", { exact: true }).inputValue()).toBe("2");
+    await frame.getByRole("textbox", { name: "Order reference" }).fill("keep after response");
     await page.getByRole("button", { name: "Mark seen", exact: true }).click();
     await expect.poll(async () => (await snapshot()).responses[0].seen).toBe(true);
     expect((await snapshot()).comments[0].resolved).toBe(false);
-    await page.getByRole("button", { name: "View version 2", exact: true }).click();
-    await frame.getByRole("heading", { name: "Revised checkout" }).waitFor();
+    expect(await frame.getByRole("textbox", { name: "Order reference" }).inputValue()).toBe(
+      "keep after response",
+    );
     await page.getByRole("button", { name: "Captured comment 1", exact: true }).click();
     await page.getByRole("button", { name: "Resolve comment", exact: true }).click();
     await expect.poll(async () => (await snapshot()).comments[0].resolved).toBe(true);
@@ -217,6 +226,21 @@ test("a plan keeps interactive HTML while captured comments, feedback, replies, 
     expect(iframeWidth).toBeLessThanOrEqual(700);
     await page.getByRole("button", { name: "Hide feedback" }).click();
     await page.screenshot({ path: join(evidence, "reading-narrow-dark.png") });
+    await page.getByRole("button", { name: "Comment", exact: true }).click();
+    await draw(page, [0.4, 0.4], [0.4, 0.4]);
+    await expect
+      .poll(() =>
+        page
+          .getByRole("textbox", { name: "Comment", exact: true })
+          .evaluate((input) => input === document.activeElement),
+      )
+      .toBe(true);
+    await page.keyboard.type("Typing immediately in a narrow dark window.");
+    expect(await page.getByRole("textbox", { name: "Comment", exact: true }).inputValue()).toBe(
+      "Typing immediately in a narrow dark window.",
+    );
+    await page.screenshot({ path: join(evidence, "pin-focus-narrow-dark.png") });
+    await page.getByRole("button", { name: "Discard comment", exact: true }).click();
     expect(errors).toEqual([]);
   } finally {
     await application.close();
@@ -224,7 +248,7 @@ test("a plan keeps interactive HTML while captured comments, feedback, replies, 
   }
 }, 120_000);
 
-test("plan navigation preserves authored state, historical capture, and unsent work while ordinary publication updates history", async () => {
+test("plan publications switch to the latest page while historical captures and unsent work survive navigation", async () => {
   const { directory, launch, connect } = await desktopFixture({
     showWindow: process.platform === "darwin",
   });
@@ -264,6 +288,14 @@ test("plan navigation preserves authored state, historical capture, and unsent w
     await expect
       .poll(() => page.getByLabel("Version", { exact: true }).locator("option").count())
       .toBe(2);
+    await frame.getByRole("heading", { name: "Published next checkout" }).waitFor();
+    expect(await page.getByLabel("Version", { exact: true }).inputValue()).toBe("2");
+    await page.getByLabel("Version", { exact: true }).selectOption("1");
+    await frame.getByRole("heading", { name: "Interactive checkout" }).waitFor();
+    await frame.getByRole("textbox", { name: "Order reference" }).fill("keep-input");
+    await frame
+      .locator("body")
+      .evaluate((body) => body.ownerDocument.defaultView!.scrollTo(0, 280));
     expect(await frame.getByRole("textbox", { name: "Order reference" }).inputValue()).toBe(
       "keep-input",
     );
@@ -277,6 +309,28 @@ test("plan navigation preserves authored state, historical capture, and unsent w
     await page
       .getByRole("textbox", { name: "Comment", exact: true })
       .fill("Unsent historical comment");
+    await client.publish(
+      artifact.id,
+      {
+        name: artifact.name,
+        title: artifact.title,
+        kind: "plan",
+        mediaType: "text/html",
+        fileName: "latest.html",
+        expectedRevision: 2,
+      },
+      new TextEncoder().encode(html.replace("Interactive checkout", "Latest checkout")),
+    );
+    await frame.getByRole("heading", { name: "Latest checkout" }).waitFor();
+    expect(await page.getByRole("textbox", { name: "Comment", exact: true }).inputValue()).toBe(
+      "Unsent historical comment",
+    );
+    expect(
+      await page
+        .getByRole("textbox", { name: "Comment", exact: true })
+        .evaluate((input) => input === document.activeElement),
+    ).toBe(true);
+    await page.keyboard.type(" retained");
     await client.publish(
       crypto.randomUUID(),
       {
@@ -303,12 +357,27 @@ test("plan navigation preserves authored state, historical capture, and unsent w
       )
       .toBe(true);
     expect(await page.getByRole("textbox", { name: "Comment", exact: true }).inputValue()).toBe(
-      "Unsent historical comment",
+      "Unsent historical comment retained",
     );
+    const workspace = await page.evaluate(() => window.scope.workspace());
+    const planTab = workspace!.tabs.find((tab) => tab.state.data.artifactId === artifact.id)!;
+    expect(
+      (await page.evaluate((id) => window.scope.loadPlanDraft(id), planTab.id))?.revision,
+    ).toBe(1);
     await page.getByRole("button", { name: "Discard comment", exact: true }).click();
     await page
       .getByRole("dialog", { name: "Comment on captured page" })
       .waitFor({ state: "hidden" });
+    await frame.getByRole("heading", { name: "Latest checkout" }).waitFor();
+    await page.getByRole("button", { name: "Feedback", exact: true }).click();
+    expect(await page.getByLabel("Version", { exact: true }).inputValue()).toBe("3");
+    await page.getByLabel("Version", { exact: true }).selectOption("1");
+    await frame.getByRole("heading", { name: "Interactive checkout" }).waitFor();
+    await page.getByRole("button", { name: "Hide feedback" }).click();
+    await frame.getByRole("textbox", { name: "Order reference" }).fill("keep-input");
+    await frame
+      .locator("body")
+      .evaluate((body) => body.ownerDocument.defaultView!.scrollTo(0, 280));
     expect(await frame.getByRole("textbox", { name: "Order reference" }).inputValue()).toBe(
       "keep-input",
     );

@@ -41,6 +41,7 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
   const iframe = useRef<HTMLIFrameElement>(null);
   const observeDocument = useDocumentScroll(iframe, active, content?.revision);
   const savedDraft = useRef<PlanDraft | null | undefined>(undefined);
+  const latestRevision = useRef(artifact?.revision);
   const refreshNumber = useRef(0);
   const tabState = useRef(tab.state);
   tabState.current = tab.state;
@@ -87,6 +88,16 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
     });
   }, [name, artifact?.revision]);
   useEffect(() => window.scope.onPlanReconnected(() => void refresh()), [name]);
+  useEffect(() => {
+    const incoming = snapshot?.artifact.revision;
+    if (incoming === undefined || incoming === latestRevision.current || capturing) return;
+    latestRevision.current = incoming;
+    setRevision(incoming);
+    context.updateState({
+      version: 1,
+      data: { ...tabState.current.data, revision: incoming },
+    });
+  }, [snapshot?.artifact.revision, capturing]);
   useEffect(() => {
     let mounted = true;
     void window.scope
