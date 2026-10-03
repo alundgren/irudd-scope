@@ -1,10 +1,4 @@
 import {
-  PublicationsCommand,
-  PublicationsReply,
-  MAX_PUBLICATIONS_REQUEST_BYTES,
-  MAX_PUBLICATIONS_REPLY_BYTES,
-} from "./publications.ts";
-import {
   PullRequestsCommand,
   PullRequestsReply,
   MAX_PULL_REQUESTS_REQUEST_BYTES,
@@ -51,7 +45,6 @@ import {
   DeleteReceipt,
   HubQueue,
   PublicationReceipt,
-  PublicationTabId,
   PublicationRequest,
   PublicationResult,
   LiveEvent,
@@ -105,34 +98,6 @@ export class ScopeClient {
       throw new ScopeError(response.status, message);
     }
     return response;
-  }
-
-  async publications(input: PublicationsCommand): Promise<PublicationsReply> {
-    const body = JSON.stringify(decode(PublicationsCommand, input));
-    if (new TextEncoder().encode(body).byteLength > MAX_PUBLICATIONS_REQUEST_BYTES)
-      throw new Error("Publication command exceeds 256 KiB.");
-    return decode(
-      PublicationsReply,
-      await readRemoteJson(
-        await this.request("/v1/publications", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body,
-        }),
-        MAX_PUBLICATIONS_REPLY_BYTES,
-      ),
-    );
-  }
-
-  async publicationContent(id: string, operationId: string): Promise<Uint8Array> {
-    decode(ArtifactId, id);
-    decode(PublicationTabId, operationId);
-    return readRemoteBytes(
-      await this.request(
-        `/v1/publications/${encodeURIComponent(id)}/operations/${operationId}/content`,
-      ),
-      MAX_CONTENT_BYTES,
-    );
   }
 
   async pullRequests(input: PullRequestsCommand): Promise<PullRequestsReply> {
@@ -518,24 +483,4 @@ export class ScopeClient {
     }
     if (!signal.aborted) throw new Error("Scope disconnected.");
   }
-}
-
-async function readRemoteBytes(response: Response, limit: number): Promise<Uint8Array> {
-  if (Number(response.headers.get("content-length")) > limit)
-    throw new Error("Publication exceeds the content limit.");
-  if (!response.body) throw new Error("Scope returned no content.");
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for await (const chunk of response.body) {
-    total += chunk.byteLength;
-    if (total > limit) throw new Error("Publication exceeds the content limit.");
-    chunks.push(chunk);
-  }
-  const result = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return result;
 }

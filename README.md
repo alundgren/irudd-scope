@@ -66,23 +66,6 @@ Remotes shows progress and failed updates with Retry. Older installations need
 one manual run of the standalone installer and `irudd-scope setup` to enable
 this behavior.
 
-## Publish HTML to Claude or Sites
-
-For an HTML artifact or plan, choose **Publish with coding agent** in the
-current-tab controls and copy the request into an existing coding session.
-Scope keeps the destination link and publication checkpoint. The agent uses
-native provider tools, verifies the audience, and checks for remote edits.
-Overwrite warnings require acknowledgement before replacement.
-
-Claude updates require a signed-in Claude Code session and authenticated access
-to the artifact's sharing settings. OpenAI Sites requires Sites tools in the
-current host and supports owner-only destinations in this workflow. A normal
-Codex terminal session does not automatically have those tools. Public or
-unverifiable audiences are blocked. There is no pull or automatic sync.
-
-Use `irudd-scope publications guide` for the CLI workflow. Publication records
-and exports require the desktop online, including through a paired hub.
-
 ## Development
 
 Install the Vite+ version in the [workspace catalog](pnpm-workspace.yaml), then run:

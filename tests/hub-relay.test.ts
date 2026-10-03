@@ -317,31 +317,3 @@ test("a canceled old session deadline cannot retire its replacement", async () =
   expect((await f.answer(event.id, 404, { error: "Not found." })).status).toBe(200);
   expect((await read).status).toBe(404);
 });
-
-test("outbound publication state forwards only to the connected desktop and is never queued", async () => {
-  const f = await fixture();
-  const command = { action: "read", id: "presentation-id" };
-  const offline = await f.request("/v1/publications", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Scope-Buffer-Publication": "1" },
-    body: JSON.stringify(command),
-  });
-  expect(offline.status).toBe(503);
-  expect((await f.queue()).items).toHaveLength(0);
-  const relay = await f.openRelay();
-  const longBody = " ".repeat(20 * 1024) + JSON.stringify(command);
-  const pending = f.request("/v1/publications", { method: "POST", body: longBody });
-  const forwarded = await relay.next();
-  expect(forwarded).toMatchObject({ method: "POST", path: "/v1/publications" });
-  const transferred = await (await f.body(forwarded.id)).text();
-  expect(transferred).toBe(longBody);
-  expect(JSON.parse(transferred)).toEqual(command);
-  await f.answer(forwarded.id, 200, { synthetic: "desktop-only" });
-  expect(await (await pending).json()).toEqual({ synthetic: "desktop-only" });
-  await relay.close();
-  const content = await f.request(
-    `/v1/publications/presentation-id/operations/${crypto.randomUUID()}/content`,
-  );
-  expect(content.status).toBe(503);
-  expect((await f.queue()).items).toHaveLength(0);
-});
