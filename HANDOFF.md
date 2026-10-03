@@ -80,7 +80,8 @@ The permanent branch incorporates `origin/main` at `8f8d630`. Backend work is
 in [PR #82](https://github.com/alundgren/irudd-scope/pull/82) and multiplexed
 streams are in [PR #83](https://github.com/alundgren/irudd-scope/pull/83).
 [PR #85](https://github.com/alundgren/irudd-scope/pull/85) contains the browser
-implementation and scoped validation. These PRs target the permanent branch.
+implementation and scoped validation. All three PRs are merged into the
+permanent branch.
 Never retarget them or this branch to main.
 
 The User menu offers exactly Alex, Blair and Casey independently in each tab.
@@ -90,9 +91,100 @@ HTML restoration locks competing controls and retries one journaled operation.
 Existing pins allow clicks through during comment placement and regain
 interaction afterward.
 
+## Tailnet preview
+
+Open [the team plan](https://cloudbox.tail5db861.ts.net:8455/plans/team-plan)
+from a device on the tailnet. Use two windows and choose Alex and Blair in the
+User menu. Changing the final URL segment creates another plan.
+
+Tailscale Serve proxies HTTPS port `8455` to `http://127.0.0.1:43130`. The
+existing routes on this host are preserved. The app runs as the enabled user
+service `collaborative-plan-web-preview.service`, with restart on failure and
+user lingering enabled. It stays running for review, including after this
+agent session ends and after a host restart. The service definition is at
+`~/.config/systemd/user/collaborative-plan-web-preview.service` on cloudbox.
+Its working directory is this checkout's `apps/plan-web`; it runs the compiled
+`dist/server/server-main.mjs` and uses the existing SQLite database.
+
+Check or restart it on cloudbox:
+
+```sh
+systemctl --user status collaborative-plan-web-preview.service
+journalctl --user -u collaborative-plan-web-preview.service -n 50
+# After changing app code, rebuild from the repository root before restarting:
+vp run plan-web#build
+systemctl --user restart collaborative-plan-web-preview.service
+```
+
+The service already owns port `43130`; do not start a second copy on that port.
+To restore the HTTPS route if removed:
+
+```sh
+sudo tailscale serve --bg --https=8455 http://127.0.0.1:43130
+```
+
+To stop this preview and disable its automatic startup, remove only its route:
+
+```sh
+sudo tailscale serve --https=8455 off
+systemctl --user disable --now collaborative-plan-web-preview.service
+```
+
+The HTTPS URL uses the same server plans as localhost, but browser recovery
+storage is separate for each origin. Unsynced localhost drafts do not appear
+automatically on the HTTPS origin. Export those drafts from their original tab
+before moving work between origins.
+
+## Remaining work
+
+The requested v1 is implemented and integrated. The next work is review and
+measurement; the experiments below are proposals for continued exploration.
+Keep changes on this permanent branch and continue using app-only validation.
+
+1. Review the actual planning flow with two people over the tailnet. Exercise
+   the User menu, simultaneous source edits, overlap reconciliation, comment
+   placement, replies, resolution, element removal/restoration, history and
+   export. Turn concrete usability problems into small follow-up changes.
+2. Check the browsers and devices the team uses. Automated coverage is real
+   Chromium. Safari, Firefox, mobile backgrounding and cross-device recovery
+   have not been validated. Check SharedWorker/Web Locks availability, local
+   database startup, reload, offline edits and reconnect on each target.
+3. Measure startup and realtime latency with slower links and larger plans.
+   The accepted stress run checks complete eight-edit rounds; its roughly
+   three-second median is not a single-message latency measurement. Earlier
+   loaded-host runs exceeded deadlines. Add separate measurements for typing
+   to local preview, local persistence, server acceptance and remote display
+   before deciding which part needs improvement.
+4. Compare PGlite with native IndexedDB for the actual recovery records.
+   Measure first-open download/startup, enqueue latency, storage size, memory
+   and owner-loss recovery. PGlite currently ships its Postgres WASM/data files
+   and loads database files into memory. Its SQL convenience does not establish
+   that it is the best long-term browser store.
+5. Decide whether richer human editing is worth adding. The current human
+   editor is HTML source with a live preview. Direct editing in the preview
+   is unimplemented. Server merging remains conservative for broad source
+   replacements; overlaps require a decision. Explore a text editor/CRDT only
+   if source editing and the current conflict flow cause problems. Preserve
+   authored HTML, scripts, element identity and versioned discussions.
+6. Measure server history growth and Git diff cost before choosing a different
+   backend. Current history lives in SQLite with native Git-generated diffs;
+   full Git object storage and gix/libgit2 performance comparisons are not
+   implemented. Postgres or a hosted durable stream is a future scaling option.
+   The current process owns presence, and the multiplexed endpoint admits at
+   most 20 plans. Expanding those limits needs measured demand and new tests.
+7. Establish a backup/restore procedure if this becomes an ongoing team tool.
+   The preview now has process supervision and automatic startup. Database
+   backups, restore drills, disk-growth monitoring, packaging and a migration
+   procedure beyond this exploration are still outstanding. Browser recovery
+   remains origin-local and can be cleared or evicted; export unresolved work.
+
+Security remains outside v1 scope, as requested. No new authentication work is
+required to review this exploration.
+
 ## Run and validate
 
-Run from a checkout containing the browser implementation:
+For local development outside the running cloudbox service, run from a
+checkout containing the browser implementation:
 
 ```sh
 vp install --frozen-lockfile
