@@ -13,41 +13,45 @@ vp run plan-web
 
 Open `http://127.0.0.1:43130/plans/team-plan`. Visiting a new plan URL creates
 it. Change the name in the URL to start another plan. The app accepts ordinary
-HTML, including scripts. The v1 browser and plan REST API remain open. MCP tools
-require an agent credential approved in the browser.
+HTML, including scripts. V1 has no authentication or authorization.
 
-People edit HTML source beside a live preview. Edits first commit to the
-browser recovery database and then send to the server. Disjoint source changes
-reconcile across multiple separate text changes; overlapping changes preserve
-the draft and open a merge editor. Browser merging uses bounded
-[jsdiff character changes](https://github.com/kpdecker/jsdiff). Each changed-region
-search allows 100 ms and 10,000 insertions/deletions; exceeding either budget
-preserves the draft for manual reconciliation. Pure insertions/deletions avoid
-that search. A whole-source paste replaces the visible source, including any
-older content it deliberately reintroduces; that change receives its own version.
-The top-bar User menu offers Alex, Blair and Casey with stable fake user IDs.
-Each tab selects its user independently and remembers that choice for tab
-reloads. Switching changes future edits and presence; already queued commands
-keep their original author. API agents still supply their own actor.
-Each tab owns an independent editor identity. Other tabs can deliver its saved
-commands after it closes. Saved browser drafts also exposes unresolved work.
-Permanent HTTP 400, 413 or 422 rejection parks the immutable command without
-blocking other editors. Rejected changes retains its reason and original payload
-across reloads, with export and dismissal. Rejected HTML stays editable; a changed
-draft sends under a new ID. Restore rejected HTML lets another tab recover it
-for editing, without automatically resending it. Both saved browser drafts and
-rejected HTML keep source and merge inputs read-only during restoration so typing
-cannot race the recovered generation. Recovery retries reuse the same durable
-operation ID rather than replacing the draft again. An
-uncertain local restore keeps editing locked until Retry local save confirms
-the durable row; HTML export remains available. Rejected comments offer an
-editable retry. Network errors, timeouts and server errors keep the original ID.
+The browser is a reader and discussion tool. Agents edit HTML through the API.
+The accepted HTML fills the content area and runs authored scripts. Comments
+opens a panel; closing it gives the space back to the HTML. More contains
+read-only history, exports, rejected comments and the browser HTML archive.
+Returning from history shows the current accepted plan.
 
-Use Comment on preview to choose an element or position. Authored elements
-receive persistent HTML IDs when needed. Generated or ambiguous elements stay
-detached. Removing an element keeps its discussion; restoring its unique ID
-reconnects it. History shows immutable HTML, comments, replies, resolution
+The User menu offers Alex, Blair and Casey with stable fake user IDs. Each tab
+remembers its own choice through reload. Switching changes future comments and
+presence; queued commands keep their captured author. Separate tabs keep
+independent session identities, including tabs using the same fake user.
+API agents supply their own actor.
+
+Use Comment on preview, then click an element or position. A unique existing
+authored HTML ID connects the comment. Missing IDs, duplicate IDs, generated
+elements and ambiguous source matches produce detached comments. Selection,
+cancellation and submission never insert IDs or change canonical HTML bytes.
+Removing an element keeps its discussion; restoring its unique authored ID
+reconnects it. History includes immutable HTML, comments, replies, resolution
 state and the corresponding Git diff.
+
+Comments, replies and resolution changes commit to the browser database before
+the composer clears. Other tabs can deliver saved commands after their owner
+closes. Network errors, timeouts and server errors retry the exact original ID
+and payload. A permanent HTTP 400, 413 or 422 refusal parks the command without
+blocking other comments. Rejected comments retains the original reason and
+payload across reloads and offers edited retry, export and dismissal.
+
+On the first database opening with this reader, a transaction freezes all old
+browser HTML drafts and HTML outbox records into a read-only archive before
+snapshot acceptance. It preserves HTML and base HTML bytes, actors,
+generations, conflicts, request IDs, original status and rejection details.
+HTML requests leave the live queue in that same transaction and never retry or
+autoqueue. Pending records may already have reached the server, so their
+original outcome remains unknown. Old draft rows also remain unchanged.
+Export the archive for deliberate recovery by an agent. There are no browser
+HTML editing, merging, saving or restoration controls. Archived HTML cannot
+block comments or replace the accepted server HTML in the preview.
 
 SQLite initialization retries competing writers asynchronously for up to five
 seconds before reporting a timeout. The server requires native Git. It persists accepted state, events, snapshots,
@@ -58,11 +62,13 @@ defaults to `127.0.0.1`. Source development runs from this package, so its defau
 
 The browser uses PGlite in a SharedWorker with IndexedDB and
 `relaxedDurability: false`. Complete database operations run inside the worker.
-A local transaction stores the accepted snapshot and replay cursor, retires
-acknowledged commands and preserves newer draft generations together. Browser
-editing needs HTTPS or localhost, SharedWorker and Web Locks support. Browser
-eviction or clearing can remove unsent drafts. Export HTML saves the live local
-draft, including while viewing history.
+A local transaction stores the accepted snapshot and replay cursor and retires
+acknowledged comments together. Comment readiness belongs to a separate reader
+row, independently of archived HTML. Durable comments need HTTPS or localhost,
+SharedWorker and Web Locks support. Until storage is ready, cached or fetched
+HTML remains readable while comment controls stay unavailable. Browser eviction
+or clearing can remove unsent comments and archived work. Export HTML saves the
+accepted HTML currently being viewed, including a selected historical version.
 
 Agents use `/api/plans/:name`. GET returns the latest snapshot. POST
 `/commands` accepts the command union in [contracts.ts](src/contracts.ts).
@@ -98,15 +104,17 @@ Run API and browser scenarios with:
 
 ```sh
 vp run plan-web:ready
-PLAN_WEB_PRESSURE_ROUNDS=50 vp test run --project=standard tests/plan-web-browser.test.ts -t 'multiple humans' --maxWorkers=1
+vp test run --project=standard tests/plan-web-browser.test.ts --maxWorkers=1
 ```
 
 The browser tests launch real Chromium against an isolated SQLite server. They
-exercise humans and agents, independent tabs, duplicates, restart, offline
-reload, uncertain responses, copied tab identities, successor drafts, conflict
-recovery, comments, authored DOM identity, physical database worker termination,
-permanent rejection recovery, eight tabs, eight separate plans and read-only startup before local recovery is ready. Failure evidence is saved under
-`/tmp/scope-web-*-evidence.json` with screenshots and observed command traffic.
+exercise comment readers and external API agents, independent tabs, duplicate
+commands, restart, offline reload, lost and delayed acknowledgements, owner
+closure, comment rejection recovery, authored DOM identity without HTML
+mutation, physical database worker termination, eight tabs, eight separate plans,
+read-only startup and preservation of legacy HTML records across database reopen.
+Failure evidence is saved under `/tmp/scope-web-*-evidence.json` with screenshots
+and observed command traffic.
 
 ## Agent CLI and MCP
 

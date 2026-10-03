@@ -1,24 +1,18 @@
 import DatabaseWorker from "./database-worker.ts?sharedworker";
-import type { Actor, PlanCommand, PlanSnapshot } from "../contracts.ts";
-import type { Draft, Pending, LocalDatabase, EditorRow } from "./local-database.ts";
+import type { PlanCommand, PlanSnapshot } from "../contracts.ts";
+import type { Pending, LocalDatabase, HtmlArchive } from "./local-database.ts";
 import type { StreamMessage, StreamRequest } from "./event-stream.ts";
-export type { Draft, Pending } from "./local-database.ts";
+export type { Pending } from "./local-database.ts";
 
 export type StoreOperation =
   | "read"
   | "initialize"
-  | "saveDraft"
-  | "queueHtml"
   | "queueCommand"
   | "pending"
   | "accept"
-  | "conflict"
-  | "resolve"
-  | "drafts"
-  | "recover"
+  | "archive"
   | "reject"
-  | "dismissRejected"
-  | "restoreRejected";
+  | "dismissRejected";
 export type StoreRequest = {
   id: number;
   plan: string;
@@ -75,7 +69,7 @@ export class BrowserStore {
   static async open(plan: string, editor: string) {
     if (!globalThis.isSecureContext || !navigator.locks || typeof SharedWorker === "undefined")
       throw new Error(
-        "Open through HTTPS or localhost in a browser with SharedWorker support for durable editing.",
+        "Open through HTTPS or localhost in a browser with SharedWorker support for durable comments.",
       );
     const worker = new DatabaseWorker({ name: "scope-plan-web-v1" });
     const store = new BrowserStore(worker, plan, editor);
@@ -117,12 +111,6 @@ export class BrowserStore {
   initialize(snapshot: PlanSnapshot) {
     return this.call<void>("initialize", [snapshot]);
   }
-  saveDraft(draft: Draft, previousHtml?: string) {
-    return this.call<void>("saveDraft", [draft, previousHtml]);
-  }
-  queueHtml(actor: Actor, requestId: string) {
-    return this.call<void>("queueHtml", [actor, requestId]);
-  }
   queueCommand(command: PlanCommand) {
     return this.call<void>("queueCommand", [command]);
   }
@@ -132,26 +120,14 @@ export class BrowserStore {
   accept(snapshot: PlanSnapshot, requestId?: string | string[]) {
     return this.call<void>("accept", [snapshot, requestId]);
   }
-  conflict(requestId: string, snapshot: PlanSnapshot) {
-    return this.call<void>("conflict", [requestId, snapshot]);
-  }
-  resolve(draft: Draft) {
-    return this.call<void>("resolve", [draft]);
-  }
-  drafts() {
-    return this.call<EditorRow[]>("drafts", []);
-  }
-  recover(editor: string, actor: Actor, operationId: string) {
-    return this.call<void>("recover", [editor, actor, operationId]);
+  archive() {
+    return this.call<HtmlArchive | null>("archive", []);
   }
   reject(requestId: string, status: number, message: string) {
     return this.call<void>("reject", [requestId, status, message]);
   }
   dismissRejected(requestId: string, replacement?: PlanCommand) {
     return this.call<void>("dismissRejected", [requestId, replacement]);
-  }
-  restoreRejected(requestId: string, actor: Actor, operationId: string) {
-    return this.call<void>("restoreRejected", [requestId, actor, operationId]);
   }
   watchEvents(listener: (message: StreamMessage) => void) {
     this.listener = listener;
@@ -176,7 +152,7 @@ export class BrowserStore {
       try {
         this.worker.port.postMessage({ kind: "unwatch", plan: this.plan } satisfies StreamRequest);
       } catch {
-        /* Worker termination preserves previously committed subscriptions and drafts. */
+        /* Worker termination preserves previously committed subscriptions and comments. */
       }
     };
     window.addEventListener(
