@@ -444,3 +444,138 @@ test("block-level replacement deliberately conflicts on independent words that t
     }
   });
 });
+
+test("a stale conflict resolution cannot overwrite a later accepted same-node edit", async () => {
+  await fixture((store) => {
+    store.propose("plan", edit("a"));
+    const contested = store.propose("plan", edit("b", 0, "Use DynamoDB."));
+    store.propose("plan", {
+      ...edit("new-context", contested.revision),
+      operation: {
+        kind: "replace-text",
+        nodeId: "database",
+        expectedText: "Use SQLite.",
+        text: "Use SQLite with WAL and backups.",
+      },
+    });
+    const resolution: Proposal = {
+      ...edit("resolution", contested.revision),
+      operation: { kind: "resolve", conflictId: contested.conflictIds[0], text: "Use DynamoDB." },
+    };
+    expect(() => store.propose("plan", resolution)).toThrow("changed after the parent");
+    expect(store.read("plan").html).toContain("Use SQLite with WAL and backups.");
+    expect(store.history("plan")).toHaveLength(3);
+    expect(store.read("plan").conflicts[contested.conflictIds[0]].status).toBe("unresolved");
+    const resolved = store.propose("plan", { ...resolution, parentRevision: store.head("plan") });
+    expect(resolved.outcome).toBe("applied");
+    expect(store.read("plan", resolved.revision, false)).toEqual(store.read("plan"));
+  });
+});
+
+test("every HTML raw-text or escaped-text element is excluded from ordinary text replacement", () => {
+  for (const tag of [
+    "script",
+    "style",
+    "textarea",
+    "title",
+    "xmp",
+    "iframe",
+    "noembed",
+    "noframes",
+    "plaintext",
+    "noscript",
+  ]) {
+    const source = `<${tag} id="raw">Old</${tag}>`;
+    const operation = {
+      kind: "replace-text" as const,
+      nodeId: "raw",
+      expectedText: "Old",
+      text: "A & B < C",
+    };
+    const change: Change = {
+      ...edit(`raw-${tag}`),
+      operation,
+      revision: 1,
+      parents: [0],
+      reducerVersion: 1,
+      createdAt: 123,
+    };
+    const state = applyEdit(initialState(source), change, operation);
+    expect(state.html).toBe(source);
+    expect(Object.values(state.conflicts)).toHaveLength(1);
+  }
+});
+
+test("authored prototype names preserve provenance and readable conflict history across checkpoints", async () => {
+  await fixture((store) => {
+    const document =
+      '<p id="__proto__">Use PostgreSQL.</p><section id="parent"><p id="constructor">Use PostgreSQL.</p></section>';
+    store.create("keys", document);
+    const a: Proposal = {
+      ...edit("a"),
+      operation: {
+        kind: "replace-text",
+        nodeId: "__proto__",
+        expectedText: "Use PostgreSQL.",
+        text: "Use SQLite.",
+      },
+    };
+    store.propose("keys", a);
+    store.propose("keys", {
+      ...a,
+      id: "b",
+      operation: {
+        ...(a.operation as Extract<Proposal["operation"], { kind: "replace-text" }>),
+        text: "Use DynamoDB.",
+      },
+    });
+    expect(store.read("keys").conflicts["conflict-b"].competingChanges).toEqual(["a", "b"]);
+    store.propose("keys", {
+      ...edit("remove-parent", store.head("keys")),
+      operation: {
+        kind: "delete-node",
+        nodeId: "parent",
+        expectedHtml: '<section id="parent"><p id="constructor">Use PostgreSQL.</p></section>',
+      },
+    });
+    const child = store.propose("keys", {
+      ...edit("child", 0),
+      operation: {
+        kind: "replace-text",
+        nodeId: "constructor",
+        expectedText: "Use PostgreSQL.",
+        text: "Use SQLite.",
+      },
+    });
+    expect(child.outcome).toBe("conflict");
+    expect(store.read("keys").conflicts["conflict-child"].competingChanges).toEqual(["child"]);
+    expect(store.read("keys", store.head("keys"), false)).toEqual(store.read("keys"));
+    expect(Object.hasOwn(store.read("keys").provenance, "__proto__")).toBe(true);
+  });
+});
+
+test("merging a resolved branch rejects changed resolution context and preserves both branch histories", async () => {
+  await fixture((store) => {
+    store.branch("plan", "choice", 0);
+    store.propose("plan", { ...edit("a"), branch: "choice" });
+    const contested = store.propose("plan", { ...edit("b", 0, "Use DynamoDB."), branch: "choice" });
+    const source = store.propose("plan", {
+      ...edit("resolve-source", contested.revision),
+      branch: "choice",
+      operation: { kind: "resolve", conflictId: contested.conflictIds[0], text: "Use DynamoDB." },
+    });
+    const target = store.propose("plan", edit("target", 0, "Use PostgreSQL with backups."));
+    expect(() =>
+      store.merge("plan", "main", "choice", {
+        id: "merge",
+        actor,
+        reason: "Review the resolved alternative.",
+      }),
+    ).toThrow("changed after the parent");
+    expect(store.head("plan")).toBe(target.revision);
+    expect(store.head("plan", "choice")).toBe(source.revision);
+    expect(store.read("plan").html).toContain("Use PostgreSQL with backups.");
+    expect(store.read("plan", source.revision).html).toContain("Use DynamoDB.");
+    expect(store.footprint().events).toBe(4);
+  });
+});

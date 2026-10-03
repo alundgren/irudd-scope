@@ -61,7 +61,21 @@ function target(html: string, id: string) {
   return matches.length === 1 && matches[0].sourceCodeLocation ? matches[0] : null;
 }
 function plainText(node: Element) {
-  if (["script", "style", "textarea", "title"].includes(node.tagName)) return null;
+  if (
+    [
+      "script",
+      "style",
+      "textarea",
+      "title",
+      "xmp",
+      "iframe",
+      "noembed",
+      "noframes",
+      "plaintext",
+      "noscript",
+    ].includes(node.tagName)
+  )
+    return null;
   if (node.childNodes.some((child) => child.nodeName !== "#text")) return null;
   return node.childNodes.map((child) => ("value" in child ? child.value : "")).join("");
 }
@@ -78,7 +92,9 @@ function conflict(
   actual: string | null,
 ) {
   const id = `conflict-${change.id}`;
-  const previous = state.provenance[operation.nodeId];
+  const previous = Object.hasOwn(state.provenance, operation.nodeId)
+    ? state.provenance[operation.nodeId]
+    : undefined;
   state.conflicts[id] = {
     id,
     nodeId: operation.nodeId,
@@ -148,9 +164,10 @@ export function applyEdit(input: State, change: Change, operation: EditOperation
       return state;
     }
     state.html = patch(state.html, location.endOffset, location.endOffset, operation.html);
-    for (const id of ids) state.provenance[id] = change.id;
+    for (const id of ids) state.provenance = { ...state.provenance, [id]: change.id };
   }
-  if (operation.kind !== "insert-after") state.provenance[operation.nodeId] = change.id;
+  if (operation.kind !== "insert-after")
+    state.provenance = { ...state.provenance, [operation.nodeId]: change.id };
   return state;
 }
 
@@ -158,15 +175,22 @@ export function applyResolution(
   input: State,
   change: Change,
   operation: Extract<Operation, { kind: "resolve" }>,
+  parent: State = input,
 ): State {
   const pending = input.conflicts[operation.conflictId];
-  if (!pending || pending.status !== "unresolved") throw new Error("Conflict is not unresolved.");
+  const original = parent.conflicts[operation.conflictId];
+  if (!pending || !original || pending.status !== "unresolved" || original.status !== "unresolved")
+    throw new Error("Conflict is not unresolved.");
   if (pending.operation.kind !== "replace-text")
     throw new Error("Only text-choice conflicts support resolution in this experiment.");
   const node = target(input.html, pending.nodeId);
   const text = node ? plainText(node) : null;
-  if (text === null)
+  if (text === null || !node?.sourceCodeLocation?.startTag || !node.sourceCodeLocation.endTag)
     throw new Error("Conflict target is no longer an ordinary authored text block.");
+  const originalNode = target(parent.html, original.nodeId);
+  const expected = originalNode ? plainText(originalNode) : null;
+  if (pending.nodeId !== original.nodeId || text !== expected)
+    throw new Error("Conflict target changed after the parent revision.");
   const state = applyEdit(input, change, {
     kind: "replace-text",
     nodeId: pending.nodeId,

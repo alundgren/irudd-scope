@@ -143,7 +143,8 @@ export class SemanticHistory {
   ): State {
     const op = change.operation;
     if (op.kind === "restore") return structuredClone(read(op.revision));
-    if (op.kind === "resolve") return applyResolution(previous, change, op);
+    if (op.kind === "resolve")
+      return applyResolution(previous, change, op, read(change.parentRevision));
     if (op.kind === "merge") {
       let result = previous;
       for (const revision of op.revisions)
