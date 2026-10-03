@@ -1,5 +1,12 @@
 import * as Schema from "effect/Schema";
 import { Artifact, ArtifactName, PublicationTabId, Revision } from "./index.ts";
+import { PullRequestsAppState, PullRequestsStateObject } from "./pull-requests-state.ts";
+export {
+  PullRequestsAppState,
+  PullRequestsStateObject,
+  PullRequestsStateChange,
+  MAX_PULL_REQUESTS_STATE_BYTES,
+} from "./pull-requests-state.ts";
 
 export const MAX_PULL_REQUESTS_REQUEST_BYTES = 256 * 1024;
 export const MAX_PULL_REQUESTS_REPLY_BYTES = 32 * 1024 * 1024;
@@ -103,6 +110,7 @@ export const PullRequestDetail = Schema.Struct({
   files: Schema.Array(
     Schema.Struct({
       path: Schema.String.check(Schema.isMaxLength(4096)),
+      sha: Schema.optionalKey(Schema.NullOr(PullRequestCommit)),
       additions: Revision,
       deletions: Revision,
       status: ShortText,
@@ -181,12 +189,33 @@ export const PullRequestsSnapshot = Schema.Struct({
   viewer: Schema.NullOr(ShortText),
   sync: PullRequestsSync,
   prs: Schema.Array(PullRequest),
+  appState: Schema.optionalKey(PullRequestsAppState),
 });
 export type PullRequestsSnapshot = typeof PullRequestsSnapshot.Type;
 const Named = { name: ArtifactName };
 const Write = { ...Named, tabId: PublicationTabId, requestId: PublicationTabId };
 const Versioned = { ...Write, nodeId: PullRequestNodeId, expectedVersion: Revision };
 export const PullRequestsCommand = Schema.Union([
+  Schema.Struct({
+    ...Write,
+    action: Schema.Literal("state-set"),
+    expectedVersion: Revision,
+    value: PullRequestsStateObject,
+  }),
+  Schema.Struct({
+    ...Write,
+    action: Schema.Literal("state-patch"),
+    expectedVersion: Revision,
+    value: PullRequestsStateObject,
+  }),
+  Schema.Struct({
+    ...Write,
+    action: Schema.Literal("state-delete"),
+    expectedVersion: Revision,
+    keys: Schema.Array(Schema.String.check(Schema.isMaxLength(32 * 1024))).check(
+      Schema.isMaxLength(1000),
+    ),
+  }),
   Schema.Struct({ ...Named, action: Schema.Literal("read") }),
   Schema.Struct({
     ...Write,

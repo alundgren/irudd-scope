@@ -52,7 +52,7 @@ else if(args.some(a => a.includes('ScopeEnrichPullRequests'))) console.log(JSON.
 else if(args.some(a => a.includes('ScopeCurrentPullRequest'))) console.log(JSON.stringify({data:{...common,repository:{...repository,pullRequest:row}}}));
 else if(args.some(a => a.includes('ScopePullRequestReviewBody'))) console.log(JSON.stringify({data:{...common,repository:{...repository,pullRequest:{id:row.id,state:'OPEN',headRefOid:state.head,baseRefOid:'${base}',body:'Inspect this synthetic change'}}}}));
 else if(args[0]==='pr' && args[1]==='diff') console.log(${JSON.stringify(diff)});
-else if(args.some(a=>a.includes('/files?'))) console.log(JSON.stringify(['example.ts','new name.ts','café.ts','image.png'].map(filename=>({sha:'synthetic-file',filename,additions:14,deletions:3,changes:17,status:filename==='new name.ts'?'renamed':'modified',blob_url:'https://github.com/synthetic/project/blob/example.ts'}))));
+else if(args.some(a=>a.includes('/files?'))) console.log(JSON.stringify(['example.ts','new name.ts','café.ts','image.png'].map(filename=>({sha:'dddddddddddddddddddddddddddddddddddddddd',filename,additions:14,deletions:3,changes:17,status:filename==='new name.ts'?'renamed':'modified',blob_url:'https://github.com/synthetic/project/blob/example.ts'}))));
 else if(args.some(a=>a.includes('/reviews?'))) console.log(JSON.stringify([{id:1,node_id:'REVIEW_1',user:{id:1,node_id:'USER_1',login:'reviewer'},state:'COMMENTED',body:'Looks straightforward',submitted_at:'2026-10-01T12:00:00Z',commit_id:state.head,html_url:'https://github.com/synthetic/project/pull/1'}]));
 else if(args.includes('user')) console.log(JSON.stringify({login:'viewer'}));
 else throw new Error('Unexpected GitHub read');

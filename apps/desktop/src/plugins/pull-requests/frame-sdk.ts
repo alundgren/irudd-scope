@@ -24,6 +24,22 @@ function installPullRequestsSDK(identity: FrameIdentity, windowContext: WindowCo
     baseOid: string;
     watcher: (update: unknown) => void;
   }>();
+  type AppState = { version: number; value: Readonly<Record<string, unknown>> };
+  type StateUpdate = AppState & { operation: "snapshot" | "set" | "patch" | "delete" };
+  const stateWatchers = new Set<(update: StateUpdate) => void>();
+  let appState: AppState | undefined;
+  function stateUpdate(update: StateUpdate) {
+    if (update.version <= (appState?.version ?? -1)) return;
+    appState = freeze({ version: update.version, value: update.value }) as AppState;
+    const frozen = freeze(update) as StateUpdate;
+    for (const watcher of stateWatchers) {
+      try {
+        watcher(frozen);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+  }
   const closing = new Set<() => Promise<void>>();
   const messages = new Set<(message: unknown) => void>();
   let latest: { pullRequests: readonly unknown[]; context: unknown; sync: unknown } | undefined;
@@ -49,7 +65,15 @@ function installPullRequestsSDK(identity: FrameIdentity, windowContext: WindowCo
     return Promise.all(
       [...pending.values()]
         .filter((call) =>
-          ["saveNote", "setSnooze", "inspect", "markReviewed"].includes(call.method),
+          [
+            "saveNote",
+            "setSnooze",
+            "inspect",
+            "markReviewed",
+            "setState",
+            "patchState",
+            "deleteState",
+          ].includes(call.method),
         )
         .map((call) => call.promise),
     );
@@ -94,6 +118,7 @@ function installPullRequestsSDK(identity: FrameIdentity, windowContext: WindowCo
       value?.tabId !== identity.tabId
     )
       return;
+    if (value.type === "scope-pull-requests-state") stateUpdate(value.value);
     if (value.type === "scope-pull-requests-close") void flush(value.id);
     if (value.type === "scope-pull-requests-detail-update") {
       const update = freeze(value.value);
@@ -126,6 +151,10 @@ function installPullRequestsSDK(identity: FrameIdentity, windowContext: WindowCo
     if (value.type === "scope-pull-requests-snapshot" && value.generation >= generation) {
       generation = value.generation;
       latest = freeze(value.value) as typeof latest;
+      stateUpdate({
+        ...(value.value.appState ?? { version: 0, value: {} }),
+        operation: "snapshot",
+      });
       for (const watcher of watchers) {
         try {
           watcher(latest!.pullRequests, latest!.context, latest!.sync);
@@ -139,10 +168,30 @@ function installPullRequestsSDK(identity: FrameIdentity, windowContext: WindowCo
       if (!call) return;
       pending.delete(value.id);
       if (value.error) call.reject(new Error(value.error));
-      else call.resolve(value.value);
+      else
+        call.resolve(
+          ["readState", "setState", "patchState", "deleteState"].includes(call.method)
+            ? freeze(value.value)
+            : value.value,
+        );
     }
   });
+  const state = Object.freeze({
+    read: () => send("readState", []),
+    set: (value: Readonly<Record<string, unknown>>, expectedVersion: number) =>
+      send("setState", [value, expectedVersion]),
+    patch: (value: Readonly<Record<string, unknown>>, expectedVersion: number) =>
+      send("patchState", [value, expectedVersion]),
+    delete: (keys: readonly string[], expectedVersion: number) =>
+      send("deleteState", [keys, expectedVersion]),
+    watch(watcher: (update: StateUpdate) => void) {
+      stateWatchers.add(watcher);
+      if (appState) watcher(freeze({ ...appState, operation: "snapshot" }) as StateUpdate);
+      return () => stateWatchers.delete(watcher);
+    },
+  });
   const sdk = Object.freeze({
+    state,
     openExternal: (url: string) => send("openExternal", [url]),
     loadDetails: (nodeIds: readonly string[]) => send("loadDetails", [nodeIds]),
     watch(watcher: Watcher) {

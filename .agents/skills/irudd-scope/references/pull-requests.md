@@ -149,6 +149,7 @@ commands also return this envelope, except `detail`. A snapshot contains:
 | `repository` | `{ owner, name }`, or `null` before configuration.                                                                             |
 | `viewer`     | Desktop GitHub login, or `null` before a successful refresh.                                                                   |
 | `sync`       | `{ state, updatedAt, lastSuccessAt, error }`. The HTML SDK also supplies adaptive `intervalMs`, `nextAttemptAt`, and `reason`. |
+| `appState`   | `{ version, value }`, one durable custom JSON object owned by this inbox.                                                      |
 | `prs`        | Complete flat array of currently cached open PR records, including drafts.                                                     |
 
 Each PR has the following GitHub facts at its top level:
@@ -341,6 +342,37 @@ must finish within the host's eight-second flush deadline. Arbitrary UI drafts
 are not persisted, so keep them in memory and save supported durable values
 through the SDK. Do not add renderer localStorage persistence.
 
+Use `scope.pullRequests.state` for durable app preferences such as hidden files
+or sidebar width. `read()` returns `{version,value}`. `set(value,expectedVersion)`
+replaces the object, `patch(value,expectedVersion)` replaces supplied top-level
+keys, and `delete(keys,expectedVersion)` removes named keys. Each write returns
+saved `{version,value}`. A patch replaces nested objects and arrays as whole
+values; `null` is stored rather than deleted. Every accepted new write advances
+the version, even for an empty edit. State starts at version 0 with `{}` and
+survives sync, PR removal, HTML updates, restart, and Trashcan retention.
+
+`state.watch(callback)` returns unsubscribe and supplies frozen
+`{operation,version,value}` updates. `operation` is `snapshot` for initial or
+recovered state, or `set`, `patch`, or `delete` for live writes from HTML or an
+agent. All HTML frames in the owning inbox receive them; unrelated tabs and
+desktop controls do not consume this state. Events are transient, and reconnect
+loads current state rather than replaying history. Capture the version when an
+edit begins. After a conflict, preserve the edit and reconcile against
+`state.read()` before saving. Already issued state writes participate in flush;
+use `beforeClose` to send any unsaved edits. State is limited to 32 KiB of UTF-8
+JSON, finite numbers, and 32 nested levels. Deletion accepts up to 1,000 keys.
+
+Agents use `state-set` or `state-patch` with `value`, or `state-delete` with
+`keys`, along with `name`, `tabId`, `requestId`, and `expectedVersion` from
+`appState.version`. These commands need no PR `nodeId`. Old snapshots can omit
+`appState`; treat it as `{version:0,value:{}}`. Update desktop, CLI, and hub
+together for the added snapshot and event fields.
+
+Diff detail `files` include `sha`, GitHub's reported file blob SHA, or `null`
+when unavailable. Older replies may omit it. Use it to identify file content;
+it is separate from the PR commit and does not hash the diff text. Scope keeps
+it from the existing GitHub file read, with no extra API calls.
+
 The HTML SDK has no assessment writer. Agents write assessments and typed
 custom fields through the CLI. All SDK writes stay local to Scope. Provide
 Open on GitHub links for public comments, GitHub reviews, and merges.
@@ -441,7 +473,9 @@ values must be finite. Detail body allows 256 Ki characters, diff allows
 2,097,152 characters, and files and reviews allow 10,000 entries each. Oversized
 details fail; retain the PR's GitHub link as a fallback.
 
-Live events carry artifact ID, name, and generation as transient change notices.
+Live events carry artifact ID, name, generation, and owning tab UUID as transient
+change notices. State payloads reach only frames with the matching tab UUID.
+State writes also carry `stateChange: {operation,version,value}`.
 Read a complete snapshot after reconnecting. The HTML host handles these reads
 and delivers them through `watch`. The hub only forwards PR commands while the
 desktop is connected; it does not cache PR snapshots or queue local mutations.

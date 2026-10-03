@@ -12,6 +12,21 @@ export function frameCommand(
   tabId: string,
 ): PullRequestsCommand {
   const base = { name: snapshot.artifact.name!, requestId: crypto.randomUUID(), tabId };
+  if (call.method === "readState") return { name: snapshot.artifact.name!, action: "read" };
+  if (call.method === "setState" || call.method === "patchState")
+    return decode(PullRequestsCommand, {
+      ...base,
+      action: call.method === "setState" ? "state-set" : "state-patch",
+      value: call.args[0],
+      expectedVersion: call.args[1],
+    });
+  if (call.method === "deleteState")
+    return decode(PullRequestsCommand, {
+      ...base,
+      action: "state-delete",
+      keys: call.args[0],
+      expectedVersion: call.args[1],
+    });
   if (call.method === "sync") return { ...base, action: "sync" };
   if (call.method === "loadDetails")
     return decode(PullRequestsCommand, { ...base, action: "details", nodeIds: call.args[0] });

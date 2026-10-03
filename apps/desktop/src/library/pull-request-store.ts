@@ -4,6 +4,8 @@ import type { SqliteClient } from "@effect/sql-sqlite-node";
 import { Artifact, ScopeError, decode, type LiveEvent } from "@irudd-scope/protocol";
 import {
   PullRequestsCommand,
+  PullRequestsAppState,
+  type PullRequestsStateChange,
   PullRequestsReply,
   PullRequestsSnapshot,
   PullRequestsSync,
@@ -30,6 +32,7 @@ type Owner = {
   repository: string | null;
   viewer: string | null;
   sync: string;
+  app_state: string;
 };
 const emptySync: PullRequestsSync = {
   state: "idle",
@@ -109,7 +112,6 @@ export class PullRequestStore {
     const { sql, run } = this.database;
     const [{ user_version }] = await run(sql<{ user_version: number }>`PRAGMA user_version`);
     if (user_version >= 7) {
-      await this.recoverInterruptedSync();
       return;
     }
     await run(
@@ -132,10 +134,9 @@ export class PullRequestStore {
         }),
       ),
     );
-    await this.recoverInterruptedSync();
   }
 
-  private async recoverInterruptedSync(): Promise<void> {
+  async recoverInterruptedSync(): Promise<void> {
     const { sql, mutate } = this.database;
     const owner = this.owner.bind(this),
       read = this.read.bind(this);
@@ -159,7 +160,7 @@ export class PullRequestStore {
     const { sql } = this.database;
     return Effect.gen(function* () {
       const rows =
-        yield* sql<Owner>`SELECT artifacts.tab_id, artifacts.document, live_tabs.trashed_at, pull_requests_state.generation, pull_requests_state.repository, pull_requests_state.viewer, pull_requests_state.sync FROM artifacts JOIN live_tabs ON live_tabs.id = artifacts.tab_id JOIN pull_requests_state ON pull_requests_state.tab_id = artifacts.tab_id WHERE ${byTab ? sql`artifacts.tab_id = ${key}` : sql`json_extract(artifacts.document, '$.name') = ${key}`} AND json_extract(artifacts.document, '$.kind') = 'pull-requests'`;
+        yield* sql<Owner>`SELECT artifacts.tab_id, artifacts.document, live_tabs.trashed_at, pull_requests_state.generation, pull_requests_state.repository, pull_requests_state.viewer, pull_requests_state.sync, pull_requests_state.app_state FROM artifacts JOIN live_tabs ON live_tabs.id = artifacts.tab_id JOIN pull_requests_state ON pull_requests_state.tab_id = artifacts.tab_id WHERE ${byTab ? sql`artifacts.tab_id = ${key}` : sql`json_extract(artifacts.document, '$.name') = ${key}`} AND json_extract(artifacts.document, '$.kind') = 'pull-requests'`;
       if (!rows[0]) return yield* Effect.fail(new ScopeError(404, "Pull request tab not found."));
       return rows[0];
     });
@@ -186,6 +187,7 @@ export class PullRequestStore {
         repository: owner.repository ? JSON.parse(owner.repository) : null,
         viewer: owner.viewer,
         sync: JSON.parse(owner.sync),
+        appState: JSON.parse(owner.app_state),
         prs: rows.map((row) => ({
           ...JSON.parse(row.facts),
           local: JSON.parse(row.local),
@@ -197,13 +199,18 @@ export class PullRequestStore {
       return snapshot;
     });
   }
-  private event(snapshot: PullRequestsSnapshot): LiveEvent[] {
+  private event(
+    snapshot: PullRequestsSnapshot,
+    stateChange?: PullRequestsStateChange,
+  ): LiveEvent[] {
     return [
       {
         type: "pull-requests",
         name: snapshot.artifact.name!,
         id: snapshot.artifact.id,
         generation: snapshot.generation,
+        tabId: snapshot.tabId,
+        ...(stateChange ? { stateChange } : {}),
       },
     ];
   }
@@ -723,6 +730,34 @@ export class PullRequestStore {
               );
             if (!same)
               yield* sql`UPDATE pull_requests_state SET repository = ${JSON.stringify(command.repository)}, viewer = NULL, sync = ${JSON.stringify(emptySync)} WHERE tab_id = ${tabId}`;
+          } else if (
+            command.action === "state-set" ||
+            command.action === "state-patch" ||
+            command.action === "state-delete"
+          ) {
+            const saved = decode(PullRequestsAppState, JSON.parse(current.app_state));
+            if (saved.version !== command.expectedVersion)
+              return yield* Effect.fail(
+                new ScopeError(
+                  409,
+                  "Inbox app state changed. Read the current state before saving.",
+                ),
+              );
+            const value =
+              command.action === "state-set" ? { ...command.value } : { ...saved.value };
+            if (command.action === "state-patch") {
+              for (const [key, item] of Object.entries(command.value))
+                Object.defineProperty(value, key, {
+                  value: item,
+                  enumerable: true,
+                  writable: true,
+                  configurable: true,
+                });
+            }
+            if (command.action === "state-delete")
+              for (const key of command.keys) delete value[key];
+            const appState = decode(PullRequestsAppState, { version: saved.version + 1, value });
+            yield* sql`UPDATE pull_requests_state SET app_state = ${JSON.stringify(appState)} WHERE tab_id = ${tabId}`;
           } else {
             const [row] = yield* sql<{
               facts: string;
@@ -786,11 +821,25 @@ export class PullRequestStore {
           }
           yield* sql`UPDATE pull_requests_state SET generation = generation + 1 WHERE tab_id = ${tabId}`;
           const updated = yield* owner(tabId, true);
-          yield* sql`INSERT INTO pull_requests_receipts(tab_id, request_id, node_id, payload) VALUES (${tabId}, ${command.requestId}, ${command.action === "configure" ? null : command.nodeId}, ${payload})`;
+          yield* sql`INSERT INTO pull_requests_receipts(tab_id, request_id, node_id, payload) VALUES (${tabId}, ${command.requestId}, ${"nodeId" in command ? command.nodeId : null}, ${payload})`;
           return { snapshot: yield* read(updated), changed: true };
         }),
       ),
-      (result) => (result.changed ? this.event(result.snapshot) : []),
+      (result) => {
+        if (!result.changed) return [];
+        const operation =
+          command.action === "state-set"
+            ? "set"
+            : command.action === "state-patch"
+              ? "patch"
+              : command.action === "state-delete"
+                ? "delete"
+                : undefined;
+        return this.event(
+          result.snapshot,
+          operation ? { operation, ...result.snapshot.appState! } : undefined,
+        );
+      },
     );
     return { type: "snapshot", snapshot: result.snapshot };
   }
