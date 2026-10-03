@@ -166,7 +166,7 @@ export class PlanSync {
     return response.json();
   }
   private async connect() {
-    if (!this.store || this.stream) return;
+    if (!this.store || this.stream || this.state.storageError) return;
     this.stream = this.store.watchEvents((message) => {
       if (message.event === "plan") {
         this.incoming.push(message.data);
@@ -212,8 +212,9 @@ export class PlanSync {
     this.reconnecting = true;
     try {
       if (!this.stream) {
+        const snapshot = await this.getSnapshot();
         await this.enqueue(async () => {
-          await this.store!.initialize(await this.getSnapshot());
+          await this.store!.initialize(snapshot);
           await this.refresh();
         });
         await this.connect();

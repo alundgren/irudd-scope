@@ -1011,3 +1011,31 @@ test("a committed comment with lost local acknowledgements keeps composer text a
     expect(new Set(requestIds).size).toBe(1);
   });
 }, 120_000);
+
+test("failed network reconnect keeps cached comments available and automatically catches up", async () => {
+  await withFixture("reader-network-reconnect", async (f) => {
+    const context = await f.context();
+    const page = await f.page(context, "Alex");
+    let snapshotFailures = 0;
+    await context.route("**/api/plans/reader-network-reconnect", (route) => {
+      snapshotFailures++;
+      return route.abort();
+    });
+    await context.route("**/api/plans/**/commands", (route) => route.abort());
+    await page.reload();
+    await expect.poll(() => snapshotFailures, { timeout: 15_000 }).toBeGreaterThanOrEqual(2);
+    expect(await page.locator("#comment-mode").isEnabled()).toBe(true);
+    expect(await page.locator("#storage-recovery").isVisible()).toBe(false);
+    await add(page, "Comment while network reconnect fails");
+    await expect.poll(() => page.locator("#sync-status").textContent()).toContain("Saved locally");
+    await context.unroute("**/api/plans/reader-network-reconnect");
+    await context.unroute("**/api/plans/**/commands");
+    await expect
+      .poll(async () => (await f.snapshot()).comments.map((c) => c.text), { timeout: 30_000 })
+      .toEqual(["Comment while network reconnect fails"]);
+    await expect
+      .poll(() => page.locator("#connection").textContent(), { timeout: 30_000 })
+      .toBe("Live");
+    expect(await page.locator("#storage-recovery").isVisible()).toBe(false);
+  });
+}, 90_000);
