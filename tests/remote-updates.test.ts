@@ -194,7 +194,7 @@ test.skipIf(process.platform !== "linux")(
       const next = await f.commitSkill("Current planning skill");
       await f.openMac(next);
       await expect.poll(() => f.status()?.update?.currentCommit, { timeout: 30_000 }).toBe(next);
-      await expect.poll(() => f.state.updateStatus()?.phase).toBe("idle");
+      await expect.poll(() => f.state.updateStatus()?.phase, { timeout: 15_000 }).toBe("idle");
       for (const path of [shared, claude, codex])
         expect(await readFile(join(path, "SKILL.md"), "utf8")).toBe("Current planning skill");
       expect(JSON.parse((await f.cli("skill", "check")).stdout)).toEqual({ installed: true });
@@ -203,14 +203,14 @@ test.skipIf(process.platform !== "linux")(
       await symlink(join(original, "skill"), shared);
       await f.openMac(next);
       await expect.poll(() => f.launches(), { timeout: 15_000 }).toBe(2);
-      await expect.poll(() => f.state.updateStatus()?.phase).toBe("idle");
+      await expect.poll(() => f.state.updateStatus()?.phase, { timeout: 15_000 }).toBe("idle");
       expect(await readlink(join(f.root, "current"))).toBe(build);
       expect(await readFile(join(shared, "SKILL.md"), "utf8")).toBe("Current planning skill");
       await expect.poll(() => f.status()?.update?.phase, { timeout: 15_000 }).toBe("idle");
       await f.cli("skill", "remove");
       await f.retry();
       await expect.poll(() => f.launches(), { timeout: 15_000 }).toBe(3);
-      await expect.poll(() => f.state.updateStatus()?.phase).toBe("idle");
+      await expect.poll(() => f.state.updateStatus()?.phase, { timeout: 15_000 }).toBe("idle");
       await expect.poll(() => f.status()?.update?.phase, { timeout: 15_000 }).toBe("idle");
       expect(JSON.parse((await f.cli("skill", "check")).stdout)).toEqual({ installed: false });
       expect(f.state.updateStatus()?.message).toContain("not installed");

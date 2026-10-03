@@ -340,6 +340,7 @@
       ><button id="sync" aria-label="Sync pull requests" title="Sync pull requests">↻</button>
     </header>
     <nav id="views" aria-label="Inbox views"></nav>
+    <button id="preload" disabled>Preload selected</button>
     <main>
       <div id="intro">
         <h1 id="view-title">All open</h1>
@@ -433,6 +434,127 @@
       <span id="toast-text"></span><button id="undo">Undo</button
       ><button id="dismiss-toast" aria-label="Dismiss notification">×</button>
     </div>
+    <template id="pr-content-window">
+      <style>
+        /* SCOPE_TOKENS */
+        * {
+          box-sizing: border-box;
+        }
+        body {
+          margin: 0;
+          padding: 16px;
+          background: var(--scope-canvas);
+          color: var(--scope-text);
+          font: var(--scope-text-ui)/var(--scope-leading-ui) var(--scope-font-ui);
+        }
+        button {
+          color: inherit;
+          background: var(--scope-panel);
+          border: 1px solid var(--scope-outline);
+          border-radius: var(--scope-radius-control);
+          padding: 6px 12px;
+          font: inherit;
+          cursor: pointer;
+        }
+        :focus-visible {
+          outline: var(--scope-focus-width) solid var(--scope-accent);
+          outline-offset: var(--scope-focus-offset);
+        }
+        #diff {
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+          font: var(--scope-text-detail)/var(--scope-leading-detail) var(--scope-font-mono);
+        }
+        #comparison,
+        #reviews {
+          color: var(--scope-muted);
+        }
+        #error {
+          color: var(--scope-danger);
+        }
+      </style>
+      <p id="comparison"></p>
+      <p id="changed" hidden>
+        This comparison has changed. <button id="latest">Load latest comparison</button>
+      </p>
+      <p id="removed" hidden>
+        This PR is no longer in the open inbox. The displayed comparison is kept here.
+      </p>
+      <p id="error" role="alert" hidden></p>
+      <button id="retry" hidden>Retry loading diff</button>
+      <pre id="diff" role="status">Loading changed files...</pre>
+      <p id="files"></p>
+      <p id="reviews"></p>
+      <script>
+        const api = scope.pullRequests,
+          selected = scope.window.context;
+        const $ = (id) => document.getElementById(id);
+        let captured = { headOid: selected.headOid, baseOid: selected.baseOid },
+          latest,
+          stop,
+          request = 0;
+        function watchDetail() {
+          stop?.();
+          stop = api.watchDetail(selected.nodeId, captured.headOid, captured.baseOid, (update) => {
+            if (update.error) {
+              $("error").textContent = update.error;
+              $("error").hidden = false;
+              return;
+            }
+            $("reviews").textContent =
+              update.reviews
+                ?.map(
+                  (review) =>
+                    (review.author || "Unknown author") + " · " + review.state + "\n" + review.body,
+                )
+                .join("\n\n") || "No reviews.";
+          });
+        }
+        async function load() {
+          const read = ++request;
+          $("comparison").textContent =
+            captured.baseOid.slice(0, 7) + " → " + captured.headOid.slice(0, 7);
+          $("error").hidden = $("retry").hidden = true;
+          $("diff").textContent = "Loading changed files...";
+          watchDetail();
+          try {
+            const detail = await api.detail(selected.nodeId, "diff", captured);
+            if (read !== request) return;
+            $("diff").textContent = detail.diff || "No diff available.";
+            $("files").textContent = detail.files
+              .map((file) => file.path + " +" + file.additions + " −" + file.deletions)
+              .join(" · ");
+            $("reviews").textContent =
+              detail.reviews
+                .map(
+                  (review) =>
+                    (review.author || "Unknown author") + " · " + review.state + "\n" + review.body,
+                )
+                .join("\n\n") || "No reviews.";
+          } catch (error) {
+            if (read !== request) return;
+            $("error").textContent = error.message;
+            $("error").hidden = $("retry").hidden = false;
+            $("diff").textContent = "";
+          }
+        }
+        api.watch((prs, context) => {
+          document.documentElement.dataset.theme = context.theme;
+          latest = prs.find((pr) => pr.nodeId === selected.nodeId);
+          $("removed").hidden = !!latest;
+          $("changed").hidden =
+            !latest || (latest.headOid === captured.headOid && latest.baseOid === captured.baseOid);
+        });
+        $("latest").onclick = () => {
+          if (!latest) return;
+          captured = { headOid: latest.headOid, baseOid: latest.baseOid };
+          $("changed").hidden = true;
+          void load();
+        };
+        $("retry").onclick = () => void load();
+        void load();
+      </script>
+    </template>
     <script>
       "use strict";
       const api = window.scope.pullRequests,
@@ -453,7 +575,38 @@
       const drafts = new Map(),
         details = new Map(),
         captured = new Map();
+      const preloads = new Set();
+      let preloading = false;
       let snoozeIntent;
+      function openContent(p) {
+        return scope.windows.open({
+          title: "Changes in #" + p.number,
+          html: $("pr-content-window").innerHTML,
+          context: { nodeId: p.nodeId, headOid: p.headOid, baseOid: p.baseOid },
+        });
+      }
+      $("preload").onclick = async () => {
+        preloading = true;
+        render();
+        try {
+          const results = await api.loadDetails([...preloads]);
+          const failures = results.filter((result) => result.error);
+          for (const result of results)
+            if (result.detail) {
+              preloads.delete(result.nodeId);
+            }
+          notify(
+            failures.length
+              ? failures.length + " could not preload. " + failures[0].error
+              : "Selected PR content is ready.",
+          );
+        } catch (error) {
+          notify(error.message);
+        } finally {
+          preloading = false;
+          render();
+        }
+      };
       const views = [
         {
           id: "mine",
@@ -616,6 +769,11 @@
             return b;
           }),
         );
+        for (const id of preloads) if (!prs.some((pr) => pr.nodeId === id)) preloads.delete(id);
+        $("preload").disabled = preloading || !preloads.size;
+        $("preload").textContent = preloading
+          ? "Preloading selected..."
+          : "Preload selected" + (preloads.size ? " " + preloads.size : "");
         const visible = filtered();
         $("empty").hidden = visible.length > 0;
         $("empty").textContent = prs.length
@@ -650,7 +808,24 @@
             inspect.dataset.open = p.nodeId;
             const snooze = node("button", "Snooze");
             snooze.dataset.snooze = p.nodeId;
-            actions.append(inspect, snooze);
+            const diff = node("button", undefined);
+            diff.dataset.diff = p.nodeId;
+            diff.title = "View changed files";
+            diff.setAttribute("aria-label", "View changed files for #" + p.number);
+            diff.innerHTML =
+              '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"/></svg>';
+            const preload = node("input");
+            preload.type = "checkbox";
+            preload.setAttribute("aria-label", "Preload content for #" + p.number);
+            preload.title = "Select content to preload";
+            preload.checked = preloads.has(p.nodeId);
+            preload.disabled = preloading || (!preload.checked && preloads.size >= 20);
+            preload.onchange = () => {
+              if (preload.checked) preloads.add(p.nodeId);
+              else preloads.delete(p.nodeId);
+              render();
+            };
+            actions.append(preload, diff, inspect, snooze);
             row.append(info, actions);
             return row;
           }),
@@ -741,6 +916,11 @@
           : "";
       }
       function openReview(id, button) {
+        for (const id of preloads) if (!prs.some((pr) => pr.nodeId === id)) preloads.delete(id);
+        $("preload").disabled = preloading || !preloads.size;
+        $("preload").textContent = preloading
+          ? "Preloading selected..."
+          : "Preload selected" + (preloads.size ? " " + preloads.size : "");
         const visible = filtered();
         queue = visible.map((p) => p.nodeId);
         captured.clear();
@@ -935,9 +1115,13 @@
       };
       $("rows").onclick = (e) => {
         const b = e.target.closest("[data-open]"),
+          diff = e.target.closest("[data-diff]"),
           s = e.target.closest("[data-snooze]");
         if (b) openReview(b.dataset.open, b);
-        else if (s) openSnooze(s.dataset.snooze);
+        else if (diff) {
+          const p = prs.find((row) => row.nodeId === diff.dataset.diff);
+          if (p) void openContent(p).catch((error) => notify(error.message));
+        } else if (s) openSnooze(s.dataset.snooze);
       };
       $("close-review").onclick = closeReview;
       $("previous").onclick = () => navigate(-1);
@@ -945,6 +1129,11 @@
       $("sections").onclick = (e) => {
         const b = e.target.closest("[data-section]");
         if (b && current()) {
+          if (b.dataset.section === "diff") {
+            const p = current();
+            void openContent(p).catch((error) => notify(error.message));
+            return;
+          }
           section = b.dataset.section;
           renderReview(true);
         }

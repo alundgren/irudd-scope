@@ -7,7 +7,9 @@ const html = `<!doctype html><html><head><title>Marking plan</title><style>body{
 const evidence = "/tmp/scope-plan-ui-evidence";
 
 test("comment pins stay beside the page content through scrolling and restart with a compact editor", async () => {
-  const { directory, launch, connect } = await desktopFixture();
+  const { directory, launch, connect } = await desktopFixture({
+    showWindow: process.platform === "darwin",
+  });
   let application = await launch();
   try {
     await mkdir(evidence, { recursive: true });

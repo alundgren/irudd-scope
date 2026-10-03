@@ -401,7 +401,8 @@ validates requests and replies. Normal publishing credentials and connected
 desktop requirements apply. Paired hubs forward the route without storing PRs.
 
 `read` looks up a named tab and returns a complete snapshot with `tabId`,
-`generation`, repository, viewer, sync status, and a flat `prs` array. All other
+`generation`, repository, viewer, sync status, a flat `prs` array, and
+`appState: { version, value }`. All other
 commands require that `tabId`, the immutable name, and a UUID `requestId`.
 Repository configuration can be repeated with the same repository, but changing
 it requires another tab. The first complete inventory can normalize an alias to
@@ -488,8 +489,83 @@ an oversized complete snapshot fails rather than silently trimming the list.
 Detail replies also limit diff text to 2,097,152 characters and files and
 reviews to 10,000 records each. Oversized details fail the read; Open on GitHub
 remains available from the cached PR row.
-Live events contain the artifact ID, name, and generation. They are transient
-invalidations. Read a complete snapshot after reconnect or remount.
+
+`details` loads a selective batch using `nodeIds`, a nonempty list of at most
+20 distinct PR node IDs, with the same `name`, `tabId`, and `requestId` as
+`detail`. It returns `{type: "details", tabId, results}`. Each result contains
+`{nodeId, captured: {headOid, baseOid}, detail}` or `{nodeId, error}` in request
+order. There is no load-all selector. A batch runs at most three reads at once,
+shares concurrent and completed reads with individual requests, and does not
+subscribe to live updates. The desktop bounds its completed cache by entry
+count and serialized bytes, and removes obsolete comparisons.
+
+Batches stop after 20 seconds and stay within the existing 32 MiB serialized
+UTF-8 reply limit. A failed, changed, timed-out, or over-capacity PR returns an
+error while successful results remain available. Retry failed IDs separately
+or in a smaller batch. GitHub account changes, suspension, and tab removal
+cancel pending reads. The existing single-PR commands and transport timeout
+defaults remain compatible.
+
+Each inbox owns one JSON object in `appState`, initially `{ version: 0, value: {} }`.
+It belongs to the inbox rather than individual PRs and survives HTML updates,
+complete syncs, removal of PRs, restart, and Trashcan retention. Permanent tab
+deletion removes it and its mutation receipts. Scope's desktop UI does not
+interpret or display this object.
+
+The following commands require `name`, `tabId`, `requestId`, and
+`expectedVersion` from `appState.version`:
+
+| Action         | Additional fields | Behavior                                                   |
+| -------------- | ----------------- | ---------------------------------------------------------- |
+| `state-set`    | `value: object`   | Replace the complete object. Use `{}` to clear it.         |
+| `state-patch`  | `value: object`   | Replace supplied top-level keys and retain other keys.     |
+| `state-delete` | `keys: string[]`  | Remove the named top-level keys. Missing keys are allowed. |
+
+Nested objects and arrays replace entire values during a patch. `null` is a
+stored value; deletion is explicit. Every accepted new write increments the
+state version and inbox generation, including empty edits. Identical retries
+with the same UUID do not repeat the mutation or its event. Stale versions
+return 409. Read current state, reconcile the intended change, and use a new
+request ID rather than silently overwriting another writer.
+
+State must be a JSON object with finite numbers, at most 32 KiB of serialized
+UTF-8 JSON and 32 nested levels. Patch input and the resulting object both
+respect these limits. Deletion accepts at most 1,000 keys per command.
+
+Authored HTML uses `scope.pullRequests.state.read()`, which resolves to
+`{version,value}`, and `set(value,expectedVersion)`,
+`patch(value,expectedVersion)`, or `delete(keys,expectedVersion)`, which resolve
+to the saved `{version,value}`. `watch(callback)` returns unsubscribe and
+supplies frozen `{operation,version,value}` updates. `operation` is `snapshot`
+for current state on subscription, load, or reconnect, and `set`, `patch`, or
+`delete` for live mutations. Main and child HTML frames in the same inbox
+receive updates without replacing their documents. Use `beforeClose` for
+unsent edits; already issued state writes participate in the normal flush.
+
+```js
+const state = scope.pullRequests.state;
+const stop = state.watch(({ value, version, operation }) => {
+  renderHiddenFiles(value.hiddenFiles ?? []);
+});
+const current = await state.read();
+await state.patch({ hiddenFiles: ["src/example.ts"] }, current.version);
+```
+
+Live events contain the artifact ID, name, generation, and owning `tabId`.
+Older notices may omit `tabId`; state payloads require a matching tab UUID
+before the host delivers them to HTML frames. State mutations add
+`stateChange: {operation,version,value}` with the committed state so HTML can
+react without waiting for another snapshot read. Other events remain transient
+invalidations. No edit history is replayed. Read a complete snapshot after
+reconnect or remount. Older snapshots may omit `appState`; treat it as empty
+version 0. Upgrade desktop, CLI, and hub together because older strict clients
+cannot decode the additional snapshot and event fields.
+
+Diff detail files expose optional `sha`, the file blob SHA reported by GitHub's
+PR files API, or `null` when unavailable. Existing replies may omit it. This
+identifies Git content, not the PR head commit or a hash of the diff text.
+The loader preserves it from the existing paginated request without additional
+GitHub calls. A captured comparison still identifies the head and base commits.
 
 The CLI provides `pull-requests guide`, `read`, `configure`, `sync`, `detail`, and
 `apply`. `apply` submits a validated JSON command file unchanged. Exported
@@ -501,8 +577,9 @@ The host installs `window.scope.pullRequests` before authored scripts execute.
 `watch(callback)` receives `(prs, context, sync)` initially and whenever the
 durable snapshot or theme changes. It returns an unsubscribe function. Arrays
 and their nested records are frozen. Context includes the tab name, repository,
-GitHub viewer, and theme. Keep app UI state in memory and derive named views
-with ordinary JavaScript predicates.
+GitHub viewer, and theme. Keep transient UI state in memory, save durable
+preferences through `state`, and derive named views with ordinary JavaScript
+predicates.
 
 ```js
 const inbox = window.scope.pullRequests;
@@ -518,7 +595,7 @@ reply. `watchDetail(nodeId, displayedHeadOid, displayedBaseOid, callback)` repor
 the inspected PR and receives refreshed `{ body, reviews, fetchedAt, error }`
 alongside its tab, PR, and captured commit IDs. It returns an unsubscribe function.
 Subscribe when opening or switching a PR and unsubscribe on closing the pane.
-The most recently registered detail subscription identifies the inspected PR.
+All current detail subscriptions across the inbox and its content windows identify inspected PRs. Removing one subscription preserves the others.
 Failed updates retain the prior content and carry an error; they do not replace
 the captured diff. Existing apps using only `detail` remain supported.
 Each review retains its own `headOid`; the subscription commit IDs identify the
@@ -547,6 +624,29 @@ to load newer code.
 cleanup function. The host awaits them and already issued local mutations
 before closing or replacing the HTML revision. A rejected flush keeps the app
 open with its in-memory edits. Scope does not persist arbitrary renderer drafts.
+
+`scope.pullRequests.loadDetails(nodeIds)` exposes the selective `details` batch
+and resolves to its ordered per-ID results. Loading warms the temporary cache
+without recording inspection or starting live subscriptions.
+
+`scope.windows.open({ title, html, context })` opens caller-authored HTML in a
+movable, resizable floating window and resolves to its ID. The same SDK is
+injected before its scripts run. Each frame exposes immutable
+`scope.window = { id, openerId, context }`; the main frame has ID `main` and null
+opener/context. All frames share live snapshots, theme and matching detail
+updates. Window content and its diff presentation belong to the HTML app.
+
+`scope.windows.close(id)` flushes that child before closing it; omit `id` to
+close the current child. Failure keeps it open. Escape closes the focused
+window unless its HTML consumes the key. Closing returns focus to a surviving
+opener or the main inbox. HTML replacement and quit flush all affected frames.
+Window contents, position, size and arbitrary UI drafts are temporary.
+
+`scope.windows.broadcast(value)` sends transient `{ senderId, value }` messages
+to every mounted frame in this inbox, including the sender.
+`scope.windows.watch(callback)` returns unsubscribe; it has no replay.
+Context and broadcast values must be JSON, at most 64 KiB and 32 nested levels.
+HTML is limited to 32 MiB. Each inbox supports eight simultaneous windows.
 
 ## Named HTML plan review
 

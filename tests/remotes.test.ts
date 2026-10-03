@@ -684,6 +684,39 @@ test("paired hubs forward pull request snapshots and local writes, and reject ov
   });
   if (written.type !== "snapshot") throw new Error("Expected snapshot");
   expect(written.snapshot.prs[0].local.note).toBe(text);
+  f.desktop.store.pullRequests.setHandlers({
+    sync: (tabId) => f.desktop.store.pullRequests.snapshotByTab(tabId),
+    detail: async (_tabId, nodeId) => {
+      expect(nodeId).toBe("PR_remote");
+      return {
+        headOid: head,
+        body: "Paired PR body",
+        diff: "漢".repeat(400_000),
+        reviews: [],
+        files: [],
+        fetchedAt: now,
+      };
+    },
+  });
+  const batch = await f.client.pullRequests({
+    action: "details",
+    name: "remote-inbox",
+    tabId: read.snapshot.tabId,
+    requestId: randomUUID(),
+    nodeIds: ["PR_remote", "PR_missing"],
+  });
+  expect(batch).toMatchObject({
+    type: "details",
+    tabId: read.snapshot.tabId,
+    results: [
+      {
+        nodeId: "PR_remote",
+        captured: { headOid: head, baseOid: base },
+        detail: { body: "Paired PR body", diff: "漢".repeat(400_000) },
+      },
+      { nodeId: "PR_missing", error: "Open pull request not found." },
+    ],
+  });
   const oversized = await fetch(`${f.hub.url}/v1/pull-requests`, {
     method: "POST",
     headers: { Authorization: `Bearer ${f.local.token}`, "Content-Type": "application/json" },

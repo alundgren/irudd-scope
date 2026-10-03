@@ -328,9 +328,12 @@ svg.lucide {
 }
 .focus-controls {
   position: absolute;
+  width: max-content;
   display: flex;
   align-items: center;
   gap: var(--scope-space-1);
+  padding: var(--scope-space-1);
+  touch-action: none;
   background: var(--scope-panel);
   border-radius: var(--scope-radius-control);
   right: var(--scope-space-2);
@@ -1408,6 +1411,7 @@ h2 {
 }
 .plan-controls {
   position: absolute;
+  width: max-content;
   z-index: 2;
   right: var(--scope-space-3);
   top: var(--scope-space-3);
@@ -1415,6 +1419,7 @@ h2 {
   align-items: center;
   gap: var(--scope-space-1);
   padding: var(--scope-space-1);
+  touch-action: none;
   background: var(--scope-panel);
   border-radius: var(--scope-radius-control);
   box-shadow: var(--scope-shadow);
@@ -1432,6 +1437,7 @@ h2 {
   background: var(--scope-panel);
   color: var(--scope-text);
   border: 1px solid var(--scope-line);
+  padding: var(--scope-space-1);
   box-shadow: var(--scope-shadow);
 }
 .plan-review-heading {
@@ -1440,6 +1446,7 @@ h2 {
   align-items: center;
   justify-content: space-between;
   padding: var(--scope-space-3) var(--scope-space-4);
+  touch-action: none;
 }
 .plan-review-heading h2 {
   flex: 1;
@@ -1634,12 +1641,13 @@ h2 {
   display: none;
 }
 
-.floating-overlay-move {
+.floating-overlay {
   cursor: grab;
-  touch-action: none;
-  color: var(--scope-muted);
 }
-.floating-overlay-move:active {
+.floating-overlay:active {
   cursor: grabbing;
-  translate: none;
+}
+.floating-overlay [data-floating-overlay-content] {
+  cursor: auto;
+  touch-action: auto;
 }

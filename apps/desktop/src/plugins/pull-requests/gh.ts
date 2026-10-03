@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import {
   PullRequestFacts,
+  PullRequestCommit,
   PullRequestStack,
   PullRequestDetail,
   PullRequestsRepository,
@@ -237,6 +238,7 @@ const DetailView = Schema.Struct({
 const Files = Schema.Array(
   Schema.Struct({
     filename: Schema.String,
+    sha: Schema.optionalKey(Schema.NullOr(PullRequestCommit)),
     additions: Schema.Int,
     deletions: Schema.Int,
     status: Schema.String,
@@ -1191,6 +1193,7 @@ export class GitHubPullRequests {
       files.push(
         ...result.map((file) => ({
           path: file.filename,
+          sha: file.sha ?? null,
           additions: file.additions,
           deletions: file.deletions,
           status: file.status,

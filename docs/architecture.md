@@ -119,7 +119,9 @@ after Electron captures its viewport. `plugins/plan/view.tsx` retains the live
 HTML iframe independently of review state. `annotation.tsx` overlays normalized
 marks on a frozen capture and rasterizes a marked PNG; `review.tsx` displays the
 feedback queue, responses and history. Explicit revision navigation replaces
-the iframe content. Incoming metadata and feedback leave it in place. Reconnected event streams
+the iframe content. New HTML revisions select and load the latest content;
+unfinished captures retain their original revision. Incoming metadata and
+feedback without HTML changes leave the iframe in place. Reconnected event streams
 refresh durable review state even when the HTML revision did not change.
 
 `library/plan-http.ts` serves authenticated review commands, retained HTML and
@@ -158,7 +160,7 @@ A pull request inbox is a permanent named `pull-requests` HTML artifact bound
 to one GitHub repository. `packages/protocol/src/pull-requests.ts` owns its
 validated commands and snapshots. `library/pull-request-store.ts` owns the
 repository binding, current open PR facts, local notes and snoozes, review
-baselines, and current agent assessments in `scope.db`. These records belong
+baselines, current agent assessments, and inbox-owned JSON app state in `scope.db`. These records belong
 to the tab UUID. Publishing another HTML revision preserves them.
 
 `plugins/pull-requests/gh-process.ts` runs the installed `gh` executable without
@@ -185,6 +187,34 @@ reloads durable state after invalidation or reconnect. Refreshing PR state
 preserves the iframe; publishing a new HTML revision replaces it after pending
 local edits finish saving. Transient notices carry no replay history.
 
+`plugins/pull-requests/frame-host.ts` owns the inbox's authored frames and
+floating content windows. `scope.windows.open` accepts HTML and JSON context;
+the host injects the same Scope SDK into each window before its scripts run.
+The host broadcasts current snapshots and matching detail refreshes to all
+subscribed frames. A tab-scoped transient message channel lets project HTML
+coordinate its own interactions. Window content, layout, and selection belong
+to the project. Scope renders window controls and validates operations.
+Frames have separate identities and link registrations. Closing releases their
+read requests and subscriptions, and returns focus to a surviving opener.
+`scope.pullRequests.state` reads and writes one versioned JSON object owned by
+the inbox. Validated set, patch, and delete commands commit through the existing
+store transaction and emit committed state on the inbox event stream. The host
+delivers these events only to that inbox's HTML frames; desktop controls do not
+interpret the state. State versions are independent of PR and HTML versions.
+All affected frames flush local edits before an HTML replacement or quit.
+Workspace flush callbacks receive a save or close purpose. Retention checks and
+Send flush edits while allowing authored windows to open; quit, tab removal,
+and HTML replacement prevent new windows in the affected inbox until saving finishes.
+
+Explicit `details` commands load bounded batches of PR IDs into the same
+temporary main-process detail cache used by individual reads. Each result
+identifies its captured head and base commits or reports its own failure.
+The batch has a time and reply-byte budget; successful results survive a
+partial failure. Request ownership is separate from live detail subscriptions,
+so changing a watched PR does not cancel selected preloads. Cache retention is
+bounded; account changes and lifecycle cancellation release pending work.
+No detail bytes or floating-window state are persisted.
+
 Configured inboxes refresh automatically while Scope is running and awake.
 Selection, wake, and reconnect request coalesced fresh reads; Sync remains a
 fallback. Foreground, background, and inspected-PR reads use different target
@@ -192,10 +222,9 @@ intervals, lengthened to fit observed GitHub cost and remaining quota. The
 500-point hourly account target controls admission of new automatic jobs;
 admitted jobs finish. Manual Sync and detail reads bypass that routine wait,
 while every request respects actual quota reserve and throttling. Main owns
-the timers; renderer interests identify the visible inbox and inspected PR.
+the timers; renderer interests identify the visible inbox and every subscribed PR.
 An inspected PR's reviews refresh without downloading its captured diff again.
-Native creation publishes the built-in flat-list app;
-agents can publish their own HTML with named JavaScript views. GitHub access is
+Agents publish inbox HTML with named JavaScript views. GitHub access is
 read-only. Review submission and merges remain on GitHub. Authenticated HTTP
 commands work without the tab being mounted. Paired hubs forward them and keep
 no PR state.
@@ -306,14 +335,14 @@ display an unavailable view.
 
 Each directory under `plugins/` owns one built-in implementation. `file/`
 keeps the existing image, Markdown, HTML, text, and download fallback views
-together. `diagram/` owns the editor, creation tool, semantic operations,
+together. `diagram/` owns the editor, semantic operations,
 canvas conversion, provider calls, and draft contracts. A plugin can render
-content without referencing a library item. Publication support and creation
-tools are optional registrations. These are trusted modules in one renderer.
+content without referencing a library item. Publication support is an optional
+registration. These are trusted modules in one renderer.
 Published HTML is trusted agent output and runs in an iframe without added restrictions.
 
 `plugins/registry.ts` registers process-independent saved-state validators.
-`registry.renderer.ts` registers views and tools; `registry.main.ts` registers
+`registry.renderer.ts` registers views; `registry.main.ts` registers
 main handlers. Main validates callers before invoking those handlers. Plugins
 use shared contracts and host operations. Lint rejects imports between plugin
 implementations and imports of registries from inside a plugin.

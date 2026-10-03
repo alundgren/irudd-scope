@@ -7,9 +7,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
-import { GripVertical } from "lucide-react";
 import type { OverlayPosition } from "../../../workspace/contract.ts";
-import { Button } from "./button.tsx";
 
 export function FloatingOverlay({
   as: Element = "div",
@@ -20,7 +18,9 @@ export function FloatingOverlay({
   onPosition,
   children,
   style,
-  handleSize = "icon-sm",
+  disabled = false,
+  onActivate,
+  onKeyDown,
 }: {
   as?: "div" | "aside";
   className: string;
@@ -28,9 +28,11 @@ export function FloatingOverlay({
   ariaLabel?: string;
   position?: OverlayPosition;
   onPosition: (position: OverlayPosition | undefined) => void;
-  children: (handle: ReactNode) => ReactNode;
+  children: ReactNode;
   style?: CSSProperties;
-  handleSize?: "icon-sm" | "icon-xs";
+  disabled?: boolean;
+  onActivate?: () => void;
+  onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
 }) {
   const element = useRef<HTMLElement>(null);
   const [placement, setPlacement] = useState(position);
@@ -92,13 +94,25 @@ export function FloatingOverlay({
     return () => observer.disconnect();
   }, []);
 
-  function start(event: PointerEvent<HTMLButtonElement>) {
-    if (event.button !== 0 || !event.isPrimary) return;
+  function start(event: PointerEvent<HTMLElement>) {
+    onActivate?.();
+    const target = event.target as HTMLElement;
+    if (
+      disabled ||
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      !event.isPrimary ||
+      target.closest(
+        '[data-floating-overlay-content], button, a, input, textarea, select, label, [contenteditable], [role="button"], [role="textbox"], [role="combobox"]',
+      )
+    )
+      return;
     const bounds = measure();
     if (!bounds) return;
     event.preventDefault();
     event.currentTarget.focus();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    // Keep title clicks on their original element so double-click still maximizes the window.
+    target.setPointerCapture(event.pointerId);
     drag.current = {
       pointerId: event.pointerId,
       x: event.clientX,
@@ -107,7 +121,7 @@ export function FloatingOverlay({
       previous: current.current,
     };
   }
-  function move(event: PointerEvent<HTMLButtonElement>) {
+  function move(event: PointerEvent<HTMLElement>) {
     const interaction = drag.current;
     if (!interaction || interaction.pointerId !== event.pointerId) return;
     place(
@@ -117,7 +131,7 @@ export function FloatingOverlay({
       }),
     );
   }
-  function finish(event: PointerEvent<HTMLButtonElement>) {
+  function finish(event: PointerEvent<HTMLElement>) {
     if (drag.current?.pointerId !== event.pointerId) return;
     move(event);
     drag.current = null;
@@ -129,8 +143,15 @@ export function FloatingOverlay({
     drag.current = null;
     place(interaction.previous ? fit(interaction.previous) : undefined);
   }
-  function keyboard(event: KeyboardEvent<HTMLButtonElement>) {
-    if (event.altKey || event.ctrlKey || event.metaKey) return;
+  function keyboard(event: KeyboardEvent<HTMLElement>) {
+    if (
+      disabled ||
+      event.target !== event.currentTarget ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    )
+      return;
     if (event.key === "Escape" && drag.current) {
       event.preventDefault();
       event.stopPropagation();
@@ -160,36 +181,35 @@ export function FloatingOverlay({
     place(next);
     commit.current(next);
   }
-  const handle = (
-    <Button
-      variant="ghost"
-      size={handleSize}
-      className="floating-overlay-move"
-      aria-label={`Move ${label}`}
-      title="Drag to move. Arrow keys move; Shift moves farther. Home resets position."
-      onPointerDown={start}
-      onPointerMove={move}
-      onPointerUp={finish}
-      onPointerCancel={cancel}
-      onLostPointerCapture={cancel}
-      onKeyDown={keyboard}
-    >
-      <GripVertical />
-    </Button>
-  );
   return (
     <Element
       ref={(node) => {
         element.current = node;
       }}
-      aria-label={ariaLabel}
-      className={className}
+      aria-label={ariaLabel ?? `Move ${label}`}
+      aria-description={
+        disabled
+          ? undefined
+          : "Drag the frame to move. Arrow keys move; Shift moves farther. Home resets position."
+      }
+      tabIndex={disabled ? undefined : 0}
+      className={`${className} ${disabled ? "" : "floating-overlay"}`}
+      onFocus={onActivate}
+      onPointerDown={start}
+      onPointerMove={move}
+      onPointerUp={finish}
+      onPointerCancel={cancel}
+      onLostPointerCapture={cancel}
+      onKeyDown={(event) => {
+        keyboard(event);
+        if (!event.defaultPrevented) onKeyDown?.(event);
+      }}
       style={{
         ...style,
         ...(placement && { left: placement.x, top: placement.y, right: "auto", bottom: "auto" }),
       }}
     >
-      {children(handle)}
+      {children}
     </Element>
   );
 }

@@ -149,6 +149,7 @@ commands also return this envelope, except `detail`. A snapshot contains:
 | `repository` | `{ owner, name }`, or `null` before configuration.                                                                             |
 | `viewer`     | Desktop GitHub login, or `null` before a successful refresh.                                                                   |
 | `sync`       | `{ state, updatedAt, lastSuccessAt, error }`. The HTML SDK also supplies adaptive `intervalMs`, `nextAttemptAt`, and `reason`. |
+| `appState`   | `{ version, value }`, one durable custom JSON object owned by this inbox.                                                      |
 | `prs`        | Complete flat array of currently cached open PR records, including drafts.                                                     |
 
 Each PR has the following GitHub facts at its top level:
@@ -269,6 +270,41 @@ snapshot. The array and all nested records are frozen. Derive views with
 ordinary predicates, sorting a copied array rather than mutating `prs`.
 Named views, selection, and review navigation belong to the HTML app.
 
+Use `scope.windows.open({ title, html, context })` to open a project-authored
+content window over the inbox. It resolves to a window ID. Each document gets
+the same `scope.pullRequests` and `scope.windows` APIs, plus immutable
+`scope.window = { id, openerId, context }`. The main frame has ID `main`, with
+null opener and context. Opening context is copied once; use snapshots or
+messages for subsequent changes. Projects supply the complete HTML, including
+the diff presentation, loading indicators, retry actions and newer-comparison
+handling. Scope supplies move, resize, maximize and close controls.
+
+`scope.windows.close(id)` flushes the target window before closing it. Omit
+`id` in a child to close itself. A failed flush keeps it open. Closing returns
+focus to a surviving opener or the main inbox. Escape closes the focused
+child after authored handlers run; call `event.preventDefault()` to consume it.
+Each inbox supports eight simultaneous windows. HTML has the artifact's
+32 MiB content limit. Context and message values must be JSON, at most
+64 KiB and 32 nested levels. Windows and their UI drafts are temporary;
+switching tabs retains mounted windows, but restart does not restore them.
+
+`scope.windows.broadcast(value)` sends a transient `{ senderId, value }` event
+to all mounted frames in this inbox, including the sender.
+`scope.windows.watch(callback)` returns an unsubscribe function. There is no
+message replay. Register before sending, and use `pullRequests.watch` for
+current authoritative PR and local review data. Snapshots, theme changes and
+matching detail updates reach all windows without replacing their documents.
+
+`loadDetails(nodeIds)` loads 1 to 20 unique explicit PR IDs and returns an array
+of `{ nodeId, captured: { headOid, baseOid }, detail }` or `{ nodeId, error }`.
+There is no load-all operation. Select likely candidates in the HTML, then
+request only their IDs. Loads share the temporary commit-bound cache with
+`detail`, so opening a preloaded comparison can reuse its content. Cache
+entries can be evicted. Batch execution stops within its time budget and fits
+the existing reply-size limit; successes remain available when other IDs fail.
+Retry failed IDs or use a smaller batch. Loading alone does not record
+inspection, mark reviewed, or establish ongoing detail subscriptions.
+
 `watchDetail` updates include `tabId`, `nodeId`, captured `headOid` and `baseOid`,
 `body`, `reviews`, `fetchedAt`, and `error`. Error updates omit body/reviews; keep
 the prior content. Unsubscribe when closing or switching the pane. Initial
@@ -305,6 +341,37 @@ or replacing its HTML revision. A rejected flush keeps the app open. Callbacks
 must finish within the host's eight-second flush deadline. Arbitrary UI drafts
 are not persisted, so keep them in memory and save supported durable values
 through the SDK. Do not add renderer localStorage persistence.
+
+Use `scope.pullRequests.state` for durable app preferences such as hidden files
+or sidebar width. `read()` returns `{version,value}`. `set(value,expectedVersion)`
+replaces the object, `patch(value,expectedVersion)` replaces supplied top-level
+keys, and `delete(keys,expectedVersion)` removes named keys. Each write returns
+saved `{version,value}`. A patch replaces nested objects and arrays as whole
+values; `null` is stored rather than deleted. Every accepted new write advances
+the version, even for an empty edit. State starts at version 0 with `{}` and
+survives sync, PR removal, HTML updates, restart, and Trashcan retention.
+
+`state.watch(callback)` returns unsubscribe and supplies frozen
+`{operation,version,value}` updates. `operation` is `snapshot` for initial or
+recovered state, or `set`, `patch`, or `delete` for live writes from HTML or an
+agent. All HTML frames in the owning inbox receive them; unrelated tabs and
+desktop controls do not consume this state. Events are transient, and reconnect
+loads current state rather than replaying history. Capture the version when an
+edit begins. After a conflict, preserve the edit and reconcile against
+`state.read()` before saving. Already issued state writes participate in flush;
+use `beforeClose` to send any unsaved edits. State is limited to 32 KiB of UTF-8
+JSON, finite numbers, and 32 nested levels. Deletion accepts up to 1,000 keys.
+
+Agents use `state-set` or `state-patch` with `value`, or `state-delete` with
+`keys`, along with `name`, `tabId`, `requestId`, and `expectedVersion` from
+`appState.version`. These commands need no PR `nodeId`. Old snapshots can omit
+`appState`; treat it as `{version:0,value:{}}`. Update desktop, CLI, and hub
+together for the added snapshot and event fields.
+
+Diff detail `files` include `sha`, GitHub's reported file blob SHA, or `null`
+when unavailable. Older replies may omit it. Use it to identify file content;
+it is separate from the PR commit and does not hash the diff text. Scope keeps
+it from the existing GitHub file read, with no extra API calls.
 
 The HTML SDK has no assessment writer. Agents write assessments and typed
 custom fields through the CLI. All SDK writes stay local to Scope. Provide
@@ -406,7 +473,9 @@ values must be finite. Detail body allows 256 Ki characters, diff allows
 2,097,152 characters, and files and reviews allow 10,000 entries each. Oversized
 details fail; retain the PR's GitHub link as a fallback.
 
-Live events carry artifact ID, name, and generation as transient change notices.
+Live events carry artifact ID, name, generation, and owning tab UUID as transient
+change notices. State payloads reach only frames with the matching tab UUID.
+State writes also carry `stateChange: {operation,version,value}`.
 Read a complete snapshot after reconnecting. The HTML host handles these reads
 and delivers them through `watch`. The hub only forwards PR commands while the
 desktop is connected; it does not cache PR snapshots or queue local mutations.

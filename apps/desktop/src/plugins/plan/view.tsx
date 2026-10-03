@@ -41,6 +41,7 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
   const iframe = useRef<HTMLIFrameElement>(null);
   const observeDocument = useDocumentScroll(iframe, active, content?.revision);
   const savedDraft = useRef<PlanDraft | null | undefined>(undefined);
+  const latestRevision = useRef(artifact?.revision);
   const refreshNumber = useRef(0);
   const tabState = useRef(tab.state);
   tabState.current = tab.state;
@@ -87,6 +88,16 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
     });
   }, [name, artifact?.revision]);
   useEffect(() => window.scope.onPlanReconnected(() => void refresh()), [name]);
+  useEffect(() => {
+    const incoming = snapshot?.artifact.revision;
+    if (incoming === undefined || incoming === latestRevision.current || capturing) return;
+    latestRevision.current = incoming;
+    setRevision(incoming);
+    context.updateState({
+      version: 1,
+      data: { ...tabState.current.data, revision: incoming },
+    });
+  }, [snapshot?.artifact.revision, capturing]);
   useEffect(() => {
     let mounted = true;
     void window.scope
@@ -269,17 +280,14 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
             position={tab.overlayPositions?.planReview}
             onPosition={(position) => context.updateOverlayPosition("planReview", position)}
           >
-            {(handle) => (
-              <PlanReview
-                snapshot={snapshot}
-                revision={revision}
-                onRevision={selectRevision}
-                onClose={() => showReview(false)}
-                command={command}
-                busy={busy}
-                moveHandle={handle}
-              />
-            )}
+            <PlanReview
+              snapshot={snapshot}
+              revision={revision}
+              onRevision={selectRevision}
+              onClose={() => showReview(false)}
+              command={command}
+              busy={busy}
+            />
           </FloatingOverlay>
         )}
       </div>
@@ -291,43 +299,36 @@ export function PlanView({ artifact, tab, context, focus, active }: TabProps) {
           onPosition={(position) => context.updateOverlayPosition("planControls", position)}
           style={{ display: capturing || captureOpen ? "none" : undefined }}
         >
-          {(handle) => (
-            <>
-              {handle}
-              <Button
-                variant="outline"
-                size="icon-sm"
-                aria-label={draft ? "Resume comment" : "Comment"}
-                title={draft ? "Resume comment" : "Pin a comment"}
-                disabled={loading || busy || !draftLoaded}
-                onClick={() => void capture()}
-              >
-                <Pin />
-              </Button>
-              {snapshot && (
-                <FeedbackActions
-                  snapshot={snapshot}
-                  revision={revision}
-                  command={command}
-                  busy={busy}
-                />
-              )}
-              <Button
-                variant="outline"
-                size="icon-sm"
-                aria-label={
-                  snapshot?.responses.some((response) => !response.seen)
-                    ? "Feedback · new"
-                    : "Feedback"
-                }
-                title="Feedback and versions"
-                aria-expanded={reviewOpen && !focus}
-                onClick={() => showReview(!reviewOpen)}
-              >
-                <MessageSquare />
-              </Button>
-            </>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            aria-label={draft ? "Resume comment" : "Comment"}
+            title={draft ? "Resume comment" : "Pin a comment"}
+            disabled={loading || busy || !draftLoaded}
+            onClick={() => void capture()}
+          >
+            <Pin />
+          </Button>
+          {snapshot && (
+            <FeedbackActions
+              snapshot={snapshot}
+              revision={revision}
+              command={command}
+              busy={busy}
+            />
           )}
+          <Button
+            variant="outline"
+            size="icon-sm"
+            aria-label={
+              snapshot?.responses.some((response) => !response.seen) ? "Feedback · new" : "Feedback"
+            }
+            title="Feedback and versions"
+            aria-expanded={reviewOpen && !focus}
+            onClick={() => showReview(!reviewOpen)}
+          >
+            <MessageSquare />
+          </Button>
         </FloatingOverlay>
       )}
       {captureOpen && draft && active && !focus && (
