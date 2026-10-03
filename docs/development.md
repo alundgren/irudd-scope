@@ -46,12 +46,31 @@ request, but imports are never queued. The command defaults to a bounded
 ## Validation and tests
 
 `vp run ready` builds the CLI, hub, and desktop, runs `vp run check`, then runs
-the tests. The check script verifies formatting, lint, and types with compact
+the standard test suite. The check script verifies formatting, lint, and types with compact
 lint diagnostics. [CI](../.github/workflows/check.yml) uses that same command. It must pass
 on the finished changes before completion and every push, including the first
 push and documentation changes. Further edits require another successful run
 before completion or pushing. CI after a push does not replace this local check.
 Validation does not rewrite source or the lockfile. Do not install validation hooks.
+
+`vp run test` selects the `standard` Vitest project, which excludes the
+dedicated diagram and remote-update suites. These suites also stay out of
+`ready` and its CI job. Shared desktop, workspace, and publication journeys
+remain in the standard suite.
+
+Run `vp run test:diagram` only when diagram plugin implementation changes,
+including its diagram-specific protocol, CLI, or persistence behavior. Run
+`vp run test:remote-updates` only after direct changes to remote update logic,
+such as desktop update synchronization, hub update execution, rollback, or
+update-driven skill synchronization. Both commands use the same display setup
+and test settings as the standard suite. Build first with `vp run build`.
+Documentation, test-selection changes, and unrelated shared infrastructure
+changes alone do not require either suite.
+
+```sh
+vp run test:diagram
+vp run test:remote-updates
+```
 
 Standard validation runs at most two test files concurrently to keep Electron
 interaction responsive. Writers inside the pressure tests still compete concurrently.
@@ -717,7 +736,8 @@ removed on completion.
 
 ### Concurrent diagram editing
 
-After building, run `vp run test tests/diagram-pressure.test.ts --maxWorkers=1`.
+After building, and only when diagram plugin implementation changes, run
+`vp run test:diagram tests/diagram-pressure.test.ts --maxWorkers=1`.
 Four fake agents compete over one named diagram through the HTTP API while
 Playwright draws and types in the real editor. Three agents send deltas and one
 sends full documents. Each operation increments a shared counter, updates its
@@ -733,7 +753,7 @@ text entries. For a longer session:
 SCOPE_DIAGRAM_PRESSURE_EDITS=250 SCOPE_DIAGRAM_PRESSURE_HUMAN=80 \
 SCOPE_DIAGRAM_PRESSURE_SEED=7294 \
 SCOPE_DIAGRAM_PRESSURE_OUTPUT=/tmp/scope-diagram-pressure.json \
-vp run test tests/diagram-pressure.test.ts --maxWorkers=1
+vp run test:diagram tests/diagram-pressure.test.ts --maxWorkers=1
 ```
 
 The optional report records elapsed time, accepted edits, version conflicts,

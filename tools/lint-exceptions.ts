@@ -315,7 +315,7 @@ export const lintExceptions: readonly LintException[] = [
       "These publication tests share real CLI, HTTP server, and isolated library fixtures. The file groups successful publication with authentication, forwarding, deadlines, and provenance failures at the same public entry points.",
   },
   {
-    file: "tests/desktop.test.ts",
+    file: "tests/diagram-desktop.test.ts",
     at: 'test("an agent-created diagram preserves editing, drafts, conflicts, and cancellation", async () => {',
     limits: { "max-lines-per-function": 311 },
     reason:
