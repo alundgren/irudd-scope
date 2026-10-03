@@ -141,8 +141,8 @@ export class BrowserStore {
   drafts() {
     return this.call<EditorRow[]>("drafts", []);
   }
-  recover(editor: string, actor: Actor) {
-    return this.call<void>("recover", [editor, actor]);
+  recover(editor: string, actor: Actor, operationId: string) {
+    return this.call<void>("recover", [editor, actor, operationId]);
   }
   reject(requestId: string, status: number, message: string) {
     return this.call<void>("reject", [requestId, status, message]);

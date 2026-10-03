@@ -34,8 +34,10 @@ Permanent HTTP 400, 413 or 422 rejection parks the immutable command without
 blocking other editors. Rejected changes retains its reason and original payload
 across reloads, with export and dismissal. Rejected HTML stays editable; a changed
 draft sends under a new ID. Restore rejected HTML lets another tab recover it
-for editing, without automatically resending it. Source and merge inputs stay
-read-only during restoration so typing cannot race the recovered generation. An
+for editing, without automatically resending it. Both saved browser drafts and
+rejected HTML keep source and merge inputs read-only during restoration so typing
+cannot race the recovered generation. Recovery retries reuse the same durable
+operation ID rather than replacing the draft again. An
 uncertain local restore keeps editing locked until Retry local save confirms
 the durable row; HTML export remains available. Rejected comments offer an
 editable retry. Network errors, timeouts and server errors keep the original ID.

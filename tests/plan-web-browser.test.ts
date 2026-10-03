@@ -194,6 +194,9 @@ async function fixture(name: string, agents = 6, activePlayers = false) {
             editIntents: await page.evaluate(
               () => (window as unknown as { planEditIntents?: EditIntent[] }).planEditIntents ?? [],
             ),
+            recoveryFault: await page.evaluate(
+              () => (window as unknown as { recoveryFault?: unknown }).recoveryFault ?? null,
+            ),
             visibility: await page.evaluate(() => document.visibilityState),
             status: await page
               .locator("#sync-status")
@@ -1472,6 +1475,147 @@ test("restoring rejected HTML prevents editing until its delayed durable operati
     await expect
       .poll(async () => (await f.snapshot()).html, { timeout: 20_000 })
       .toContain("Human0-after-restoration");
+  } catch (error) {
+    await f.evidence();
+    throw error;
+  } finally {
+    await f.close();
+  }
+}, 120_000);
+
+test("saved browser draft recovery locks editing and survives committed but lost replies exactly once", async () => {
+  const f = await fixture("saved-draft-recovery", 1, true);
+  try {
+    const context = await f.context();
+    const page = await f.page(context, "Alex");
+    await context.route("**/commands", async (route) => {
+      if (route.request().postDataJSON().html?.includes("Human0-saved-recovery"))
+        await route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Park this draft for recovery" }),
+        });
+      else await route.continue();
+    });
+    const rejected = (await source(page).inputValue()).replace(
+      "Human0-000",
+      "Human0-saved-recovery",
+    );
+    await source(page).fill(rejected);
+    await page.getByRole("button", { name: "Save now", exact: true }).click();
+    await expect
+      .poll(() => page.locator("#sync-status").textContent(), { timeout: 20_000 })
+      .toMatch(/^Rejected/);
+    await page.evaluate(() => {
+      const original = MessagePort.prototype.postMessage;
+      const replies = new Set<number>();
+      const observed = new WeakSet<MessagePort>();
+      const fault = {
+        held: false,
+        lost: 0,
+        initialGeneration: -1,
+        operationIds: [] as string[],
+        generations: [] as number[],
+      };
+      let release: (() => void) | undefined;
+      MessagePort.prototype.postMessage = function (
+        message: unknown,
+        options?: Transferable[] | StructuredSerializeOptions,
+      ) {
+        const request = message as { id: number; operation?: string; args?: unknown[] };
+        if (!observed.has(this)) {
+          observed.add(this);
+          const handler = this.onmessage;
+          this.onmessage = (event: MessageEvent) => {
+            if (replies.has(event.data?.id) && fault.lost < 3) {
+              fault.lost++;
+              return;
+            }
+            if (event.data?.result?.[0]?.draft && fault.initialGeneration < 0)
+              fault.initialGeneration = event.data.result[0].draft.generation;
+            if (event.data?.result?.draft)
+              fault.generations.push(event.data.result.draft.generation);
+            handler?.call(this, event);
+          };
+        }
+        if (request.operation === "recover") {
+          replies.add(request.id);
+          fault.operationIds.push(request.args?.[2] as string);
+          if (!fault.held) {
+            fault.held = true;
+            release = () => original.call(this, message, options as StructuredSerializeOptions);
+            return;
+          }
+        }
+        original.call(this, message, options as StructuredSerializeOptions);
+      };
+      Object.assign(window, { recoveryFault: fault, releaseRecovery: () => release?.() });
+    });
+    await page.getByRole("button", { name: "Saved browser drafts", exact: true }).click();
+    await page.getByRole("button", { name: "Restore draft", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Restore draft", exact: true }).click();
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => (window as unknown as { recoveryFault: { held: boolean } }).recoveryFault.held,
+          ),
+        { timeout: 5000 },
+      )
+      .toBe(true);
+    expect(await source(page).isEditable()).toBe(false);
+    expect(
+      await page
+        .locator("#merge-html")
+        .evaluate((element) => (element as HTMLTextAreaElement).readOnly),
+    ).toBe(true);
+    expect(await page.locator("#retry-merged").isEnabled()).toBe(false);
+    expect(await page.locator("#use-server").isEnabled()).toBe(false);
+    await expect(
+      source(page).fill("Typing during recovery must be refused", { timeout: 500 }),
+    ).rejects.toThrow(/not editable|readonly|read-only/i);
+    await page.evaluate(() =>
+      (window as unknown as { releaseRecovery: () => void }).releaseRecovery(),
+    );
+    await page
+      .getByRole("button", { name: "Retry local save", exact: true })
+      .waitFor({ timeout: 60_000 });
+    expect(await source(page).isEditable()).toBe(false);
+    await page.getByRole("button", { name: "Saved browser drafts", exact: true }).click();
+    await page.getByRole("button", { name: "Restore draft", exact: true }).waitFor();
+    expect(await page.getByRole("button", { name: "Restore draft", exact: true }).isEnabled()).toBe(
+      false,
+    );
+    await page.getByRole("button", { name: "Retry local save", exact: true }).click();
+    await expect.poll(() => source(page).isEditable(), { timeout: 20_000 }).toBe(true);
+    expect(await source(page).inputValue()).toBe(rejected);
+    const fault = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            recoveryFault: {
+              lost: number;
+              initialGeneration: number;
+              operationIds: string[];
+              generations: number[];
+            };
+          }
+        ).recoveryFault,
+    );
+    expect(fault.lost).toBe(3);
+    expect(fault.operationIds).toHaveLength(4);
+    expect(new Set(fault.operationIds).size).toBe(1);
+    expect(fault.initialGeneration).toBeGreaterThanOrEqual(1);
+    expect(fault.generations).toContain(fault.initialGeneration + 1);
+    expect(Math.max(...fault.generations)).toBe(fault.initialGeneration + 1);
+    await edit(page, "Human0-saved-recovery", "Human0-after-saved-recovery");
+    await expect
+      .poll(async () => (await f.snapshot()).html, { timeout: 20_000 })
+      .toContain("Human0-after-saved-recovery");
+    await page.reload();
+    await expect
+      .poll(() => source(page).inputValue(), { timeout: 30_000 })
+      .toContain("Human0-after-saved-recovery");
   } catch (error) {
     await f.evidence();
     throw error;

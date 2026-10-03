@@ -34,7 +34,7 @@ export class PlanSync {
   private draftTimer: ReturnType<typeof setTimeout> | undefined;
   private presenceSending = false;
   private presencePending = false;
-  private restoreUncertain = false;
+  private pendingRestore: (() => Promise<void>) | null = null;
 
   constructor(
     readonly name: string,
@@ -217,16 +217,26 @@ export class PlanSync {
         return;
       }
     }
+    const restore = this.pendingRestore;
+    if (restore) {
+      const draft = this.state.draft;
+      await this.enqueue(async () => {
+        if (draft) await this.store!.saveDraft(draft);
+        await this.refresh();
+        this.state.storageError = false;
+      });
+      if (this.state.storageError) return;
+      await this.restoreDraft(restore);
+      if (this.state.storageError) return;
+      await this.reconnect();
+      await this.save();
+      return;
+    }
     const draft = this.state.draft;
     await this.enqueue(async () => {
       if (draft) await this.store!.saveDraft(draft);
       this.state.storageError = false;
       await this.refresh();
-      if (this.restoreUncertain) {
-        this.restoreUncertain = false;
-        this.state.restoring = false;
-        await this.refresh();
-      }
     });
     await this.reconnect();
     await this.save();
@@ -266,23 +276,30 @@ export class PlanSync {
   }
   async restoreRejected(requestId: string) {
     if (this.state.restoring) return;
+    const operationId = crypto.randomUUID();
+    const actor = this.actor;
+    await this.restoreDraft(() => this.store!.restoreRejected(requestId, actor, operationId));
+  }
+
+  private async restoreDraft(work: () => Promise<void>) {
+    this.pendingRestore = work;
     this.state.restoring = true;
     this.state.status = "Restoring HTML…";
     this.emit();
-    const operationId = crypto.randomUUID();
     try {
       while (this.pendingDraft || this.draftFlush) await this.persistDraft();
       if (this.state.storageError) return;
       await this.enqueue(async () => {
-        await this.store!.restoreRejected(requestId, this.actor, operationId);
+        await work();
         await this.refresh();
+        this.state.storageError = false;
       });
     } finally {
       if (this.state.storageError) {
         // The restore may have committed despite a lost reply; reconcile before accepting typing.
-        this.restoreUncertain = true;
         this.emit();
       } else {
+        this.pendingRestore = null;
         this.state.restoring = false;
         await this.refresh();
       }
@@ -291,11 +308,10 @@ export class PlanSync {
 
   async recover(editor: string) {
     if (this.state.restoring) return;
-    while (this.pendingDraft || this.draftFlush) await this.persistDraft();
-    await this.enqueue(async () => {
-      await this.store!.recover(editor, this.actor);
-      await this.refresh();
-    });
+    const operationId = crypto.randomUUID();
+    const actor = this.actor;
+    await this.restoreDraft(() => this.store!.recover(editor, actor, operationId));
+    if (this.state.storageError) return;
     await this.save();
   }
 

@@ -187,7 +187,7 @@ export class LocalDatabase {
     return rows.filter((row) => row.draft.dirty || row.draft.conflict);
   }
 
-  async recover(editor: string, actor: Actor) {
+  async recover(editor: string, actor: Actor, operationId: string) {
     await this.db.transaction(async (tx) => {
       const rows = (
         await tx.query<EditorRow>(
@@ -201,6 +201,11 @@ export class LocalDatabase {
         await tx.query<CacheRow>("SELECT snapshot FROM plan_cache WHERE plan=$1", [this.plan])
       ).rows[0]?.snapshot;
       if (!original || !current) return;
+      const attempt = await tx.query(
+        "INSERT INTO plan_queue_attempts(request_id) VALUES($1) ON CONFLICT DO NOTHING RETURNING request_id",
+        [operationId],
+      );
+      if (!attempt.rows.length) return;
       const html = mergeHtml(original.baseHtml, original.html, current.html);
       const draft: Draft = {
         html: html ?? original.html,

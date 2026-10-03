@@ -82,19 +82,20 @@ encoded request budgets, presence fairness during a five-plan replay and
 competing SQLite initialization. Startup retries a competing SQLite writer
 asynchronously for up to five seconds, then fails with a useful timeout.
 Browser rejection recovery parks permanent HTTP 400, 413 and 422 failures while
-preserving payloads and allowing other editors to continue. Restoring rejected
-HTML temporarily makes source and merge inputs read-only until the durable
-operation finishes. The top-bar User menu offers exactly Alex, Blair and Casey;
+preserving payloads and allowing other editors to continue. Restoring saved or
+rejected HTML makes source and merge inputs read-only until the durable
+operation is confirmed. Retries keep one operation ID and replace the draft once.
+The top-bar User menu offers exactly Alex, Blair and Casey;
 each tab independently remembers its selection for reloads. Existing queued
 commands keep their captured author when a tab switches users.
 The final browser child PR includes the independently reviewed tests and app
 guide. Find implementation PRs by their target branch above; exact final PR
 and CI receipts are also retained in the Scope HTML exploration report.
 
-The extended Chromium run completed 50 rounds with two human editors, two
+The extended Chromium scenario runs 50 rounds with two human editors, two
 witness tabs and six API agents: 400 accepted HTML edits and 300 duplicate
 agent requests, with a server restart midway. Every round checks both humans
-and all six agents in every browser preview. Twenty-five browser scenarios cover
+and all six agents in every browser preview. Twenty-six browser scenarios cover
 the recovery and visibility cases below. `vp run ready` must pass on the exact
 source before any push; CI runs that same gate.
 
@@ -103,7 +104,7 @@ Run the regular suites and extended concurrent pressure scenario with:
 ```sh
 vp run test tests/plan-web-api.test.ts tests/plan-web-stream.test.ts tests/plan-web-browser.test.ts --maxWorkers=1
 PLAN_WEB_PRESSURE_ROUNDS=50 vp run test tests/plan-web-browser.test.ts -t 'multiple humans' --maxWorkers=1
-VITEST_MAX_WORKERS=1 vp run ready
+vp run ready
 ```
 
 Tests use isolated SQLite databases and real Chromium, without credentials or

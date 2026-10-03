@@ -43,7 +43,7 @@ export class SavedDrafts {
         restore.addEventListener("click", () => {
           restore.disabled = true;
           void this.recover(row.editor).finally(() => {
-            restore.disabled = false;
+            restore.disabled = this.busy();
           });
         });
         const download = document.createElement("button");
