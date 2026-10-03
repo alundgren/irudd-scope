@@ -239,6 +239,27 @@ describe("collaborative plan HTTP API", () => {
     expect(replay[2].diff).toContain("+<p>Two</p>");
     expect((await readEvents(running.url, 0, 1, "2"))[0].revision).toBe(3);
   });
+  test("rejects malformed Unicode without aliasing request receipts or Git HTML bytes", async () => {
+    const { url } = await server();
+    for (const requestId of ["\ud800", "\ud801", "\udc00"]) {
+      const response = await fetch(`${url}/api/plans/team/commands`, {
+        method: "POST",
+        body: JSON.stringify({ ...comment("invalid"), requestId }),
+      });
+      expect(response.status).toBe(400);
+    }
+    const valid = comment("\ufffd");
+    const accepted = await command(url, valid);
+    await command(url, comment("after-valid"));
+    expect(await command(url, valid)).toEqual(accepted);
+    const current = await snapshot(url);
+    const invalidHtml = await fetch(`${url}/api/plans/team/commands`, {
+      method: "POST",
+      body: JSON.stringify(html("invalid-html", current.htmlRevision, "<p>\ud800</p>")),
+    });
+    expect(invalidHtml.status).toBe(400);
+    expect(await snapshot(url)).toEqual(current);
+  });
   test("versions comment anchors, replies and resolution without removing disconnected anchors", async () => {
     const { url } = await server();
     const added = await command(url, comment("topic"));

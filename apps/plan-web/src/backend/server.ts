@@ -3,7 +3,14 @@ import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import type { Presence } from "../contracts.ts";
 import { PlanStore } from "./store.ts";
-import { InvalidInput, parseCommand, parseCursor, parsePresence } from "./validation.ts";
+import {
+  InvalidInput,
+  parseCommand,
+  parseCursor,
+  parsePresence,
+  validatePlanName,
+} from "./validation.ts";
+import { parseSubscriptions, subscribePlan, subscribePlans } from "./stream.ts";
 
 type Options = { databasePath: string; port?: number; host?: string; assetsDirectory?: string };
 const presenceLease = 15_000;
@@ -12,10 +19,7 @@ function json(response: ServerResponse, status: number, body: unknown) {
   response.end(JSON.stringify(body));
 }
 function planName(encoded: string) {
-  const name = decodeURIComponent(encoded);
-  if (!name.trim() || name.length > 200)
-    throw new InvalidInput("Plan name must contain 1 to 200 characters.");
-  return name;
+  return validatePlanName(decodeURIComponent(encoded));
 }
 async function body(request: IncomingMessage): Promise<unknown> {
   const parts: Buffer[] = [];
@@ -31,69 +35,6 @@ async function body(request: IncomingMessage): Promise<unknown> {
   } catch {
     throw new InvalidInput("Invalid JSON body.");
   }
-}
-function subscribe(
-  response: ServerResponse,
-  store: PlanStore,
-  name: string,
-  after: number,
-  getPresence: () => Presence[],
-) {
-  response.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive",
-    "X-Accel-Buffering": "no",
-  });
-  response.flushHeaders();
-  let cursor = after;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let stall: ReturnType<typeof setTimeout> | undefined;
-  let lastPresence = "";
-  let heartbeat = Date.now();
-  let stopped = false;
-  const stop = () => {
-    stopped = true;
-    clearTimeout(timer);
-    clearTimeout(stall);
-  };
-  const schedule = (delay: number) => {
-    timer = setTimeout(tick, delay);
-  };
-  const write = (text: string) => {
-    if (response.write(text)) return true;
-    stall = setTimeout(() => response.destroy(), 5000);
-    response.once("drain", () => {
-      clearTimeout(stall);
-      if (!stopped) schedule(0);
-    });
-    return false;
-  };
-  const tick = () => {
-    if (stopped) return;
-    try {
-      const events = store.events(name, cursor);
-      for (const event of events) {
-        cursor = event.revision;
-        if (!write(`id: ${event.revision}\nevent: plan\ndata: ${JSON.stringify(event)}\n\n`))
-          return;
-      }
-      const present = JSON.stringify(getPresence());
-      if (present !== lastPresence) {
-        lastPresence = present;
-        if (!write(`event: presence\ndata: ${present}\n\n`)) return;
-      }
-      if (Date.now() - heartbeat > 15_000) {
-        heartbeat = Date.now();
-        if (!write(": heartbeat\n\n")) return;
-      }
-      schedule(events.length === 20 ? 0 : 50);
-    } catch {
-      response.destroy();
-    }
-  };
-  response.on("close", stop);
-  tick();
 }
 const contentTypes: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -139,6 +80,23 @@ export async function startPlanWebServer(
   };
   const handle = async (request: IncomingMessage, response: ServerResponse) => {
     const url = new URL(request.url ?? "/", "http://localhost");
+    if (url.pathname === "/api/events") {
+      if (request.method !== "GET") {
+        json(response, 405, { error: "Method not allowed." });
+        return;
+      }
+      const header =
+        typeof request.headers["last-event-id"] === "string"
+          ? request.headers["last-event-id"]
+          : null;
+      const subscriptions = parseSubscriptions(url.search, header);
+      for (const { name, after } of subscriptions) {
+        if (after > store.snapshot(name).revision)
+          throw new InvalidInput("Replay cursor exceeds the latest revision.");
+      }
+      subscribePlans(response, store, subscriptions, getPresence);
+      return;
+    }
     const route =
       /^\/api\/plans\/([^/]+)(?:\/(commands|events|versions|presence)(?:\/(\d+))?)?$/.exec(
         url.pathname,
@@ -179,7 +137,7 @@ export async function startPlanWebServer(
         );
         if (after > snapshot.revision)
           throw new InvalidInput("Replay cursor exceeds the latest revision.");
-        subscribe(response, store, name, after, () => getPresence(name));
+        subscribePlan(response, store, name, after, getPresence);
         return;
       }
       if (action === "versions") {

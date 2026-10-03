@@ -76,3 +76,20 @@ export type Presence = {
 export function planApi(name: string) {
   return `/api/plans/${encodeURIComponent(name)}`;
 }
+
+export type PlanSubscription = { name: string; after: number };
+export type PlanStreamPresence = { name: string; people: Presence[] };
+export const planStreamLimits = {
+  subscriptions: 20,
+  encodedQueryLength: 4096,
+  requestLength: 8192,
+};
+
+export function planEventsUrl(subscriptions: PlanSubscription[]) {
+  const encoded = encodeURIComponent(JSON.stringify(subscriptions));
+  if (!subscriptions.length || subscriptions.length > planStreamLimits.subscriptions)
+    throw new Error(`Subscribe to between 1 and ${planStreamLimits.subscriptions} plans.`);
+  if (encoded.length > planStreamLimits.encodedQueryLength)
+    throw new Error("Plan subscriptions exceed the event stream URL limit.");
+  return `/api/events?subscriptions=${encoded}`;
+}

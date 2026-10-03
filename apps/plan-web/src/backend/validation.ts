@@ -10,6 +10,7 @@ function object(input: unknown): Record<string, unknown> {
 function string(input: unknown, empty = false): string {
   if (typeof input !== "string" || (!empty && !input.length))
     throw new InvalidInput("Expected a string.");
+  if (!input.isWellFormed()) throw new InvalidInput("Text must contain valid Unicode.");
   return input;
 }
 function number(input: unknown): number {
@@ -96,4 +97,11 @@ export function parseCursor(input: string | null, fallback: number): number {
   const value = Number(input);
   if (!Number.isSafeInteger(value)) throw new InvalidInput("Invalid revision cursor.");
   return value;
+}
+
+export function validatePlanName(input: unknown): string {
+  const name = string(input);
+  if (!name.trim() || name.length > 200)
+    throw new InvalidInput("Plan name must contain 1 to 200 characters.");
+  return name;
 }
