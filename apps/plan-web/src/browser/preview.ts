@@ -56,7 +56,7 @@ export class HtmlPreview {
 
   show(html: string, history: boolean) {
     this.history = history;
-    if (html === this.html && this.iframe.srcdoc) return;
+    if (html === this.html && this.iframe.hasAttribute("srcdoc")) return;
     this.html = html;
     this.attribute = `data-scope-source-${createId()}`;
     this.locations = sourceTags(html);

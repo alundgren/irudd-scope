@@ -9,7 +9,7 @@ import {
   type ClientRequest,
   type ServerResponse,
 } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { startPlanWebServer } from "../apps/plan-web/src/backend/server.ts";
@@ -1037,5 +1037,41 @@ test("failed network reconnect keeps cached comments available and automatically
       .poll(() => page.locator("#connection").textContent(), { timeout: 30_000 })
       .toBe("Live");
     expect(await page.locator("#storage-recovery").isVisible()).toBe(false);
+  });
+}, 90_000);
+
+test("empty accepted HTML remains stable and exports an empty document", async () => {
+  await withFixture("reader-empty-html", async (f) => {
+    const page = await f.page(await f.context(), "Alex");
+    await page.evaluate(() => {
+      const frame = document.querySelector("iframe")!;
+      frame.dataset.loads = "0";
+      frame.addEventListener("load", () => {
+        frame.dataset.loads = String(Number(frame.dataset.loads) + 1);
+      });
+    });
+    const snapshot = await f.snapshot();
+    expect(
+      (
+        await f.command({
+          kind: "html",
+          requestId: randomUUID(),
+          actor: actor("Clear plan agent"),
+          baseHtmlRevision: snapshot.htmlRevision,
+          html: "",
+        })
+      ).status,
+    ).toBe(200);
+    await expect.poll(() => page.locator("iframe").getAttribute("srcdoc")).toBe("");
+    await expect.poll(() => page.locator("iframe").getAttribute("data-loads")).toBe("1");
+    const download = page.waitForEvent("download");
+    await menu(page, "#export");
+    const exported = await download;
+    expect(exported.suggestedFilename()).toBe("reader-empty-html.html");
+    const path = await exported.path();
+    expect(path).not.toBeNull();
+    expect(await readFile(path!, "utf8")).toBe("");
+    await page.waitForTimeout(300);
+    expect(await page.locator("iframe").getAttribute("data-loads")).toBe("1");
   });
 }, 90_000);

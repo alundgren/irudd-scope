@@ -211,8 +211,8 @@ app.querySelector("#return-live")!.addEventListener("click", () => {
   render(view);
 });
 app.querySelector("#export")!.addEventListener("click", () => {
-  if ((version ?? view.snapshot)?.html)
-    download((version ?? view.snapshot)!.html, `${name}.html`, "text/html");
+  const snapshot = version ?? view.snapshot;
+  if (snapshot) download(snapshot.html, `${name}.html`, "text/html");
 });
 app.querySelector("iframe")!.addEventListener("previewready", () => render(view));
 app.querySelector("iframe")!.addEventListener("commentselected", (event) => {
