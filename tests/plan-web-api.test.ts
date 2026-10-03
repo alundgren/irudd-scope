@@ -6,6 +6,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { get, type IncomingMessage } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
+import { DatabaseSync } from "node:sqlite";
 import { startPlanWebServer } from "../apps/plan-web/src/backend/server.ts";
 import type {
   Actor,
@@ -357,6 +358,45 @@ describe("collaborative plan HTTP API", () => {
     expect(current.revision).toBe(91);
     expect(current.comments).toHaveLength(81);
     expect((await readEvents(urls[1], 0, 91)).at(-1)!.snapshot).toEqual(current);
+  });
+  test("starts competing services while the event loop releases a database journal lock", async () => {
+    const blocker = new DatabaseSync(join(directory, "plan.sqlite"));
+    blocker.exec("CREATE TABLE startup_lock (value TEXT); BEGIN; SELECT * FROM startup_lock");
+    let settled = 0;
+    const starting = Promise.allSettled(
+      [
+        server().then((value) => value.url),
+        ...Array.from({ length: 4 }, () => processServer()),
+      ].map((startup) =>
+        startup.finally(() => {
+          settled++;
+        }),
+      ),
+    );
+    try {
+      await delay(300);
+      expect(settled).toBe(0);
+    } finally {
+      blocker.exec("ROLLBACK");
+      blocker.close();
+    }
+    const outcomes = await starting;
+    expect(outcomes.filter((outcome) => outcome.status === "rejected")).toEqual([]);
+    const urls = outcomes.map((outcome) => (outcome as PromiseFulfilledResult<string>).value);
+    const initial = await snapshot(urls[0]);
+    expect(initial.revision).toBe(1);
+    const receipts = await Promise.all(
+      urls.map((url, index) => command(url, comment(`startup-${index}`))),
+    );
+    expect(new Set(receipts.map((receipt) => receipt.revision)).size).toBe(5);
+    for (const url of urls) expect((await snapshot(url)).revision).toBe(6);
+  });
+  test("rejects a non-SQLite database without retrying initialization", async () => {
+    const path = join(directory, "invalid.sqlite");
+    await writeFile(path, "This is not a SQLite database.");
+    await expect(startPlanWebServer({ databasePath: path })).rejects.toMatchObject({
+      errcode: 26,
+    });
   });
   test("keeps presence transient, replaces session leases, and expires old sessions", async () => {
     const { url } = await server();

@@ -21,8 +21,11 @@ export class PlanStore {
   constructor(path: string) {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
     this.database = new DatabaseSync(path);
-    this.database
-      .exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
+    try {
+      // Journal conversion can return BUSY without waiting. The server retries
+      // initialization asynchronously so existing requests can keep running.
+      this.database
+        .exec(`PRAGMA busy_timeout=0; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS plans (name TEXT PRIMARY KEY, snapshot TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS versions (
         name TEXT NOT NULL REFERENCES plans(name), revision INTEGER NOT NULL,
@@ -31,6 +34,11 @@ export class PlanStore {
       CREATE TABLE IF NOT EXISTS receipts (
         name TEXT NOT NULL REFERENCES plans(name), request_id TEXT NOT NULL,
         command TEXT NOT NULL, outcome TEXT NOT NULL, PRIMARY KEY(name, request_id));`);
+      this.database.exec("PRAGMA busy_timeout=5000");
+    } catch (error) {
+      this.database.close();
+      throw error;
+    }
   }
   private transaction<T>(operation: () => T): T {
     this.database.exec("BEGIN IMMEDIATE");

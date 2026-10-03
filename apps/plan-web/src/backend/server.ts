@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type { Presence } from "../contracts.ts";
 import { PlanStore } from "./store.ts";
 import {
@@ -14,6 +15,20 @@ import { parseSubscriptions, subscribePlan, subscribePlans } from "./stream.ts";
 
 type Options = { databasePath: string; port?: number; host?: string; assetsDirectory?: string };
 const presenceLease = 15_000;
+async function openStore(path: string): Promise<PlanStore> {
+  const deadline = Date.now() + 5000;
+  while (true) {
+    try {
+      return new PlanStore(path);
+    } catch (error) {
+      const code = (error as { errcode?: number }).errcode;
+      const primaryCode = typeof code === "number" ? code & 255 : 0;
+      const remaining = deadline - Date.now();
+      if ((primaryCode !== 5 && primaryCode !== 6) || remaining <= 0) throw error;
+      await delay(Math.min(25, remaining));
+    }
+  }
+}
 function json(response: ServerResponse, status: number, body: unknown) {
   response.writeHead(status, { "Content-Type": "application/json" });
   response.end(JSON.stringify(body));
@@ -69,7 +84,7 @@ async function staticFile(response: ServerResponse, pathname: string, assetsDire
 export async function startPlanWebServer(
   options: Options,
 ): Promise<{ url: string; close(): Promise<void> }> {
-  const store = new PlanStore(options.databasePath);
+  const store = await openStore(options.databasePath);
   const presence = new Map<string, Map<string, Presence>>();
   const getPresence = (name: string) => {
     const sessions = presence.get(name);
