@@ -1,21 +1,36 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
-const saves = new Set<() => Promise<void>>();
+import type { WorkspaceFlushPurpose } from "./contract.ts";
+
+type Flush = (purpose: WorkspaceFlushPurpose, closingTabId?: string) => Promise<void>;
+const saves = new Set<Flush>();
 const tabSaves = new Map<string, Set<() => void>>();
 export function discardTabSaves(id: string): void {
   for (const discard of tabSaves.get(id) ?? []) discard();
   tabSaves.delete(id);
 }
 
-export function beforeClose(save: () => Promise<void>): () => void {
-  saves.add(save);
+export function beforeClose(
+  save: (purpose: WorkspaceFlushPurpose) => Promise<void>,
+  owningTabId?: string,
+): () => void {
+  const flush: Flush = (purpose, closingTabId) =>
+    save(
+      purpose === "close" && (closingTabId === undefined || closingTabId === owningTabId)
+        ? "close"
+        : "save",
+    );
+  saves.add(flush);
   return () => {
-    saves.delete(save);
+    saves.delete(flush);
   };
 }
 
-export async function flushWorkspace(): Promise<void> {
-  const results = await Promise.allSettled([...saves].map((save) => save()));
+export async function flushWorkspace(
+  purpose: WorkspaceFlushPurpose = "save",
+  closingTabId?: string,
+): Promise<void> {
+  const results = await Promise.allSettled([...saves].map((save) => save(purpose, closingTabId)));
   if (results.some((result) => result.status === "rejected"))
     throw new Error("Could not save the workspace.");
 }

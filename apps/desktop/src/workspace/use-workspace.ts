@@ -41,7 +41,7 @@ export function useWorkspace(onError: (message: string) => void) {
     current.current = next;
     setWorkspace(next);
   }
-  useEffect(() => window.scope.onBeforeClose(flushWorkspace), []);
+  useEffect(() => window.scope.onBeforeClose(() => flushWorkspace("close")), []);
   useEffect(
     () =>
       window.scope.onTabsClosed((ids) => {
@@ -184,7 +184,7 @@ export function useWorkspace(onError: (message: string) => void) {
 
   async function closeTab(id: string): Promise<boolean> {
     try {
-      await flushWorkspace();
+      await flushWorkspace("close", id);
       await window.scope.closeTab(id);
       return true;
     } catch {

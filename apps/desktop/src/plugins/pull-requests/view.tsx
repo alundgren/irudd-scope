@@ -48,11 +48,11 @@ export function PullRequestsView({ artifact, active, theme, context }: TabProps)
     [content, identity],
   );
   const flushFrame = useRef<() => Promise<void>>(async () => {});
-  flushFrame.current = () => host.flushAll();
+  flushFrame.current = () => host.flushAll("close");
   useEffect(() => {
     setWindows([]);
     const stop = host.start();
-    const stopClosing = context.onBeforeClose(() => host.flushAll());
+    const stopClosing = context.onBeforeClose((purpose) => host.flushAll(purpose));
     return () => {
       stopClosing();
       stop();

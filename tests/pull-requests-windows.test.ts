@@ -48,6 +48,7 @@ function childHTML(label: string, both = false) {
 <a href="https://github.com/synthetic/project/pull/1">Project link</a><p id="error"></p>
 <script>
 const api=scope.pullRequests, $=id=>document.getElementById(id);let current;
+window.flushRequests=0;addEventListener('message',event=>{if(event.data?.type==='scope-pull-requests-close')window.flushRequests++;});
 $('context').textContent=scope.window.context.project+' '+scope.window.context.nodeId;
 api.watch((prs,context)=>{current=prs[0];$('note').textContent=current.local.note||'No note';$('theme').textContent=context.theme;});
 scope.windows.watch(message=>$('message').textContent=message.senderId+':'+message.value.selection);
@@ -94,6 +95,39 @@ test("authored windows share snapshots, context, messages and detail interests a
     const page = await app.firstWindow();
     page.on("pageerror", (error) => pageErrors.push(error.message));
     page.setDefaultTimeout(8_000);
+    await page.clock.install();
+    await app.evaluate(({ ipcMain }) => {
+      type Handler = Parameters<typeof ipcMain.handle>[1];
+      const handlers = (ipcMain as typeof ipcMain & { _invokeHandlers: Map<string, Handler> })
+        ._invokeHandlers;
+      const check = handlers.get("scope:check-tab-retention")!;
+      const closeReady = handlers.get("scope:close-ready")!;
+      const state = { checks: 0, acknowledgements: [] as boolean[] };
+      Object.assign(globalThis, { windowLifecycleTest: state });
+      ipcMain.removeHandler("scope:check-tab-retention");
+      ipcMain.handle("scope:check-tab-retention", async (...args) => {
+        const result = await check(...args);
+        state.checks++;
+        return result;
+      });
+      ipcMain.removeHandler("scope:close-ready");
+      ipcMain.handle("scope:close-ready", (_event, saved) => {
+        state.acknowledgements.push(saved);
+        return closeReady(_event, saved);
+      });
+    });
+    await page.reload();
+    await expect
+      .poll(
+        () =>
+          app.evaluate(
+            () =>
+              (globalThis as unknown as { windowLifecycleTest: { checks: number } })
+                .windowLifecycleTest.checks,
+          ),
+        { timeout: 8_000 },
+      )
+      .toBeGreaterThan(0);
     const artifact = await page.evaluate(
       async (html) =>
         window.scope.createPullRequests({
@@ -272,6 +306,17 @@ test("authored windows share snapshots, context, messages and detail interests a
     await b.getByRole("button", { name: "Save in window" }).click();
     await a.getByText("Saved from B", { exact: true }).waitFor();
     await main.getByText("Saved from B", { exact: true }).waitFor();
+    const backgroundFlushes = await b
+      .locator("body")
+      .evaluate(() => (window as unknown as { flushRequests: number }).flushRequests);
+    await page.clock.fastForward(60_000);
+    await expect
+      .poll(() =>
+        b
+          .locator("body")
+          .evaluate(() => (window as unknown as { flushRequests: number }).flushRequests),
+      )
+      .toBeGreaterThan(backgroundFlushes);
     await b.getByRole("button", { name: "Tell siblings" }).click();
     await main.getByText("chosen", { exact: true }).waitFor();
     await expect.poll(() => a.locator("#message").textContent()).toMatch(/:chosen$/);
@@ -330,21 +375,34 @@ test("authored windows share snapshots, context, messages and detail interests a
       )
       .toBe(true);
     await b.getByRole("link", { name: "Project link" }).click();
-    const beforeCloseCalls = await b.locator("body").evaluate(() => {
-      const state = window as unknown as { beforeCloseCalls?: number; closeRequested?: boolean };
-      state.closeRequested = false;
-      addEventListener("message", (event) => {
-        if (event.data?.type === "scope-pull-requests-close") state.closeRequested = true;
-      });
-      return state.beforeCloseCalls ?? 0;
+    const beforeCloseCalls = await b
+      .locator("body")
+      .evaluate(() => (window as unknown as { beforeCloseCalls?: number }).beforeCloseCalls ?? 0);
+    // Quit must prevent new windows even while the background flush shares the pending write.
+    const aFlushes = await a
+      .locator("body")
+      .evaluate(() => (window as unknown as { flushRequests: number }).flushRequests);
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]!.webContents.send("scope:before-close");
+      BrowserWindow.getAllWindows()[0]!.webContents.send("scope:before-close");
+    });
+    await expect
+      .poll(() =>
+        a
+          .locator("body")
+          .evaluate(() => (window as unknown as { flushRequests: number }).flushRequests),
+      )
+      .toBeGreaterThan(aFlushes);
+    await b.getByRole("button", { name: "Open nested" }).click();
+    await expect.poll(nestedResult).toMatchObject({
+      status: "error",
+      message: "The inbox is closing. Retry after it finishes saving.",
     });
     await bChrome.getByRole("button", { name: "Close content window" }).click();
     await expect
-      .poll(() =>
-        b
-          .locator("body")
-          .evaluate(() => (window as unknown as { closeRequested?: boolean }).closeRequested),
-      )
+      .poll(() => bChrome.getByRole("button", { name: "Close content window" }).isDisabled(), {
+        timeout: 8_000,
+      })
       .toBe(true);
     expect(
       await b
@@ -357,6 +415,15 @@ test("authored windows share snapshots, context, messages and detail interests a
       ).windowInboxTest.releaseNote?.();
     });
     await bChrome.waitFor({ state: "hidden" });
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (globalThis as unknown as { windowLifecycleTest: { acknowledgements: boolean[] } })
+              .windowLifecycleTest.acknowledgements,
+        ),
+      )
+      .toEqual([true, true]);
     expect(
       await app.evaluate(
         () =>
@@ -427,6 +494,7 @@ test("authored windows share snapshots, context, messages and detail interests a
       .getByText("Incoming app", { exact: true })
       .waitFor();
   } catch (failure) {
+    console.error("Authored window failure", failure);
     try {
       const page = await app.firstWindow();
       const frames = await page.evaluate(() =>

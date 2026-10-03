@@ -197,6 +197,9 @@ to the project. Scope renders window controls and validates operations.
 Frames have separate identities and link registrations. Closing releases their
 read requests and subscriptions, and returns focus to a surviving opener.
 All affected frames flush local edits before an HTML replacement or quit.
+Workspace flush callbacks receive a save or close purpose. Retention checks and
+Send flush edits while allowing authored windows to open; quit, tab removal,
+and HTML replacement prevent new windows in the affected inbox until saving finishes.
 
 Explicit `details` commands load bounded batches of PR IDs into the same
 temporary main-process detail cache used by individual reads. Each result

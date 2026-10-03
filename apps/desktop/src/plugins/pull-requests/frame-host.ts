@@ -1,5 +1,6 @@
 import { decode } from "@irudd-scope/protocol";
 import type { PullRequestsSnapshot } from "@irudd-scope/protocol/pull-requests";
+import type { WorkspaceFlushPurpose } from "../../workspace/contract.ts";
 import { PullRequestsInterest } from "./interest.ts";
 import { frameCommand, type FrameCall } from "./frame-command.ts";
 import type { FrameIdentity } from "./frame-sdk.ts";
@@ -47,7 +48,7 @@ export class PullRequestsFrameHost {
   private theme = "light";
   private active = false;
   private disposed = false;
-  private closingAll = false;
+  private closingFlushes = 0;
   private focused = "main";
   private z = 20;
 
@@ -200,7 +201,7 @@ export class PullRequestsFrameHost {
     });
   }
   private open(value: unknown, openerId: string) {
-    if (this.closingAll || this.frames.get(openerId)?.closing)
+    if (this.closingFlushes > 0 || this.frames.get(openerId)?.closing)
       throw new Error("The inbox is closing. Retry after it finishes saving.");
     if (this.windows.size >= 8)
       throw new Error("Close a window before opening another. This inbox supports eight windows.");
@@ -242,8 +243,8 @@ export class PullRequestsFrameHost {
       })();
     return frame.closing;
   }
-  async flushAll() {
-    this.closingAll = true;
+  async flushAll(purpose: WorkspaceFlushPurpose = "save") {
+    if (purpose === "close") this.closingFlushes++;
     try {
       const results = await Promise.allSettled(
         [...this.frames.values()].map((frame) => this.flush(frame)),
@@ -251,7 +252,7 @@ export class PullRequestsFrameHost {
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
     } finally {
-      this.closingAll = false;
+      if (purpose === "close") this.closingFlushes--;
     }
   }
   private flush(frame: Frame): Promise<void> {
