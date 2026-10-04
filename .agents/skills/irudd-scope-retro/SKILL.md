@@ -1,6 +1,6 @@
 ---
 name: irudd-scope-retro
-description: Run an agent-initiated retrospective of historical Codex and Claude Code sessions in Scope, with interactive findings and optional approved corrections or memory proposals.
+description: Investigate historical Codex and Claude Code sessions for efficiency, correctness, speed and improvements to the coding environment; publish findings in Scope with optional approved corrections or memory proposals.
 ---
 
 # Scope retro
@@ -50,15 +50,24 @@ into additional sensitive details.
 
 ## Explain patterns and corrections
 
-Examine efficiency, correctness, speed, repeated steering, test waits and workflow.
-Connect each finding to concrete conversation or tool evidence and explain its
-practical effect. Native counters may establish measured usage; elapsed call/result
-intervals are estimates. Missing usage, duration or cost stays unknown. Do not turn
-silence or absent metadata into zero or a claim of successful work.
+Read and follow [session analysis](references/analysis.md) before analyzing history.
+Assess efficiency, correctness, speed and the coding environment for every selected
+readable session, then investigate patterns across repositories and time. Automated
+screening and short excerpts identify candidates; they do not complete a review.
+Mark a session reviewed only after examining its chronological evidence and
+recording the required assessment. A complete collector result is a prerequisite,
+not the assessment itself. Keep unfinished analysis unreviewed.
+
+Publish ranked findings with causes, effects, concrete evidence, recurrence and
+proposed prevention. Include useful practices and project/tooling improvements,
+not just user complaints or instruction changes. Explain categories with no
+supported findings and gaps that prevented assessment. Missing measurements stay
+unknown. A small number of findings needs an adequate investigation, not a quota.
 
 Consider both agent changes and clearer operator direction. General corrections
-are available with memory off. When memory is enabled, discover capabilities on
-the actual destination host. Use Claude's runtime-confirmed memory directory,
+are available with memory off. Memory is one optional destination for a finding,
+never the purpose or completion criterion of the retro. When memory is enabled,
+discover capabilities on the actual destination host. Use Claude's runtime-confirmed memory directory,
 editable Codex instructions, or the `okf-personal-*` destinations Scope lists
 while its memory sync is on (the synced irudd-okf `personal` bundle per machine).
 Do not enable native memory or write Codex's generated memory database. For every
