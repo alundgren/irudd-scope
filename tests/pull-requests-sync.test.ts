@@ -389,9 +389,14 @@ else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
     }
   });
 
-  test.each(["head", "base"])(
-    "refuses detail when the %s changes during diff collection",
-    async (commit) => {
+  test.each([
+    ["head", false],
+    ["base", false],
+    ["head", true],
+    ["base", true],
+  ])(
+    "refuses detail when the %s changes during diff collection, file count changed: %s",
+    async (commit, fileCountChanged) => {
       const view = {
         id: "PR_1",
         state: "OPEN",
@@ -405,14 +410,15 @@ const marker = process.argv[1] + '.viewed';
 if(args.some(a => a.includes('ScopeOpenPullRequests'))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))}));
 else if(args.some(a=>a.includes('ScopePullRequestReviewBody'))) { const moved = existsSync(marker); writeFileSync(marker, 'yes'); console.log(JSON.stringify({data:{viewer:{login:'viewer'},rateLimit:{cost:1,limit:5000,remaining:4999,resetAt:'2026-10-03T00:00:00Z'},repository:{nameWithOwner:'example/project',pullRequest:{...${JSON.stringify(view)},headRefOid:moved && '${commit}'==='head'?'${oldHead}':'${head}',baseRefOid:moved && '${commit}'==='base'?'${oldHead}':'${base}'}}}})); }
 else if(args[1] === 'diff') console.log('diff --git a/test b/test');
-else if(args.some(a => a.includes('/files?'))) console.log(JSON.stringify([{filename:'test',additions:0,deletions:0,status:'modified'}]));
+else if(args.some(a => a.includes('/files?'))) console.log(JSON.stringify([{filename:'test',additions:0,deletions:0,status:'modified'},...(${fileCountChanged}?[{filename:'another',additions:1,deletions:0,status:'added'}]:[])]));
 else if(args.some(a => a.includes('/reviews?'))) console.log('[]');
 else console.log(JSON.stringify(${JSON.stringify(threads(1, []))}));`);
       const service = new GitHubPullRequests(gh.process);
       const current = (await service.inventory(repository, signal())).prs[0];
-      await expect(service.detail(repository, current, signal())).rejects.toThrow(
-        "changed while loading",
-      );
+      await expect(service.detail(repository, current, signal())).rejects.toMatchObject({
+        message: expect.stringContaining("changed while loading"),
+        kind: "comparison",
+      });
     },
   );
 });

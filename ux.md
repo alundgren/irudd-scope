@@ -448,6 +448,9 @@ window controls, and a transient message channel between the main view and
 all its windows. Each project decides its diff presentation. The starter app
 uses an HTML template that displays the raw diff, file metadata and reviews.
 It keeps the displayed comparison stable and offers Load latest comparison.
+If GitHub changes the head or base during a detail load, Scope refreshes that PR
+immediately so the window can offer the current comparison. A failed refresh
+keeps the saved PR and asks for Sync.
 
 Windows move by dragging their title or outer frame, leaving window buttons
 and document content interactive. They maximize to the available workspace.

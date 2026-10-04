@@ -56,6 +56,7 @@ export class PullRequestSync {
       controller: AbortController;
       users: Map<symbol, string>;
       promise: Promise<PullRequestDetail>;
+      refreshingComparison: boolean;
       discussion?: Pick<PullRequestDetail, "body" | "reviews" | "fetchedAt">;
       repository: string;
       nodeId: string;
@@ -524,6 +525,40 @@ export class PullRequestSync {
         : "Pull requests could not be refreshed. Scope will retry automatically.",
     );
   }
+  private async refreshCurrent(
+    group: Group,
+    source: PullRequestFacts,
+    signal: AbortSignal,
+  ): Promise<PullRequestFacts | null> {
+    let closedAt = new Date(
+      Math.max(this.now(), Date.parse(source.merge.observedAt) + 1),
+    ).toISOString();
+    const facts = await this.github.current(group.repository, source, signal, (observedAt) => {
+      closedAt = observedAt;
+    });
+    signal.throwIfAborted();
+    if (!facts) {
+      group.closed.set(source.nodeId, closedAt);
+      if (group.inventory)
+        group.inventory = {
+          ...group.inventory,
+          prs: group.inventory.prs.filter(
+            (pr) => pr.nodeId !== source.nodeId || pr.merge.observedAt > closedAt,
+          ),
+        };
+    }
+    if (facts && group.inventory)
+      group.inventory = {
+        ...group.inventory,
+        prs: group.inventory.prs.map((pr) =>
+          pr.nodeId === facts.nodeId && pr.merge.observedAt < facts.merge.observedAt ? facts : pr,
+        ),
+      };
+    for (const tabId of [...group.tabs])
+      await this.store.commitCurrent(tabId, group.repository, source, facts, signal, closedAt);
+    return facts;
+  }
+
   private async target(group: Group) {
     const controller = new AbortController();
     group.targetController = controller;
@@ -538,34 +573,7 @@ export class PullRequestSync {
       for (const nodeId of new Set(interests.map((interest) => interest.detail!.nodeId))) {
         const source = snapshot.prs.find((pr) => pr.nodeId === nodeId);
         if (!source) continue;
-        let closedAt = new Date(
-          Math.max(this.now(), Date.parse(source.merge.observedAt) + 1),
-        ).toISOString();
-        const facts = await this.github.current(group.repository, source, signal, (observedAt) => {
-          closedAt = observedAt;
-        });
-        signal.throwIfAborted();
-        if (!facts) {
-          group.closed.set(nodeId, closedAt);
-          if (group.inventory)
-            group.inventory = {
-              ...group.inventory,
-              prs: group.inventory.prs.filter(
-                (pr) => pr.nodeId !== nodeId || pr.merge.observedAt > closedAt,
-              ),
-            };
-        }
-        if (facts && group.inventory)
-          group.inventory = {
-            ...group.inventory,
-            prs: group.inventory.prs.map((pr) =>
-              pr.nodeId === facts.nodeId && pr.merge.observedAt < facts.merge.observedAt
-                ? facts
-                : pr,
-            ),
-          };
-        for (const tabId of [...group.tabs])
-          await this.store.commitCurrent(tabId, group.repository, source, facts, signal, closedAt);
+        const facts = await this.refreshCurrent(group, source, signal);
         if (!facts) continue;
         const comparisons = new Map<string, (typeof interests)[number]>();
         for (const interest of interests)
@@ -689,6 +697,7 @@ export class PullRequestSync {
       const entry = {
         controller,
         users: new Map<symbol, string>(),
+        refreshingComparison: false,
         repository,
         nodeId,
         headOid: pr.headOid,
@@ -706,6 +715,23 @@ export class PullRequestSync {
           const updated = { ...detail, ...entry.discussion };
           this.cacheDetail(cacheKey, updated, repository, nodeId, pr);
           return updated;
+        })
+        .catch(async (error: unknown) => {
+          if (!(error instanceof GitHubReadError) || error.kind !== "comparison") throw error;
+          entry.refreshingComparison = true;
+          let facts: PullRequestFacts | null;
+          try {
+            facts = await this.refreshCurrent(group, pr, controller.signal);
+          } catch {
+            controller.signal.throwIfAborted();
+            throw error;
+          }
+          throw new GitHubReadError(
+            facts
+              ? "This comparison changed. Load the latest comparison to view its details."
+              : "This pull request is no longer open.",
+            "comparison",
+          );
         })
         .finally(() => {
           group.controller.signal.removeEventListener("abort", abort);
@@ -804,7 +830,7 @@ export class PullRequestSync {
         this.detailCache.delete(cacheKey);
       }
     for (const pending of this.pendingDetails.values())
-      if (!current(pending)) pending.controller.abort();
+      if (!pending.refreshingComparison && !current(pending)) pending.controller.abort();
   }
 
   private releaseUnusedDetail(pending: {
