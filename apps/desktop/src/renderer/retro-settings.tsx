@@ -24,6 +24,7 @@ export function RetroSettings({ query }: { query: string }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState(false);
+  const [machinesChanged, setMachinesChanged] = useState(false);
   async function load() {
     setBusy(true);
     setError("");
@@ -31,8 +32,9 @@ export function RetroSettings({ query }: { query: string }) {
       setConfiguration(await window.scope.retroConfiguration());
       setDirty(false);
       setNotice("");
+      setMachinesChanged(false);
     } catch (failure) {
-      setError(retroError(failure, "Could not read RETRO settings."));
+      setError(retroError(failure, "Could not read retrospective settings."));
     } finally {
       setBusy(false);
     }
@@ -40,6 +42,33 @@ export function RetroSettings({ query }: { query: string }) {
   useEffect(() => {
     void load();
   }, []);
+  useEffect(
+    () =>
+      window.scope.onRemotesChange((remotes) => {
+        if (!configuration) return;
+        const known = configuration.sources.filter((source) => source.location?.type === "remote");
+        if (
+          known.length === remotes.length &&
+          remotes.every((remote) =>
+            known.some(
+              (source) =>
+                source.location?.type === "remote" &&
+                source.location.remoteId === remote.id &&
+                source.location.endpoint === remote.endpoint &&
+                source.name === remote.name,
+            ),
+          )
+        )
+          return;
+        if (dirty) {
+          setMachinesChanged(true);
+          setNotice(
+            "Paired remotes changed. Reload saved settings to refresh the machine list. Your edits are kept until you reload.",
+          );
+        } else void load();
+      }),
+    [configuration, dirty],
+  );
   function change(value: RetroConfiguration) {
     setConfiguration(value);
     setDirty(true);
@@ -57,10 +86,10 @@ export function RetroSettings({ query }: { query: string }) {
       });
       setConfiguration(saved);
       setDirty(false);
-      setNotice("RETRO settings saved.");
+      setNotice("Retrospective settings saved.");
     } catch (failure) {
       setError(
-        `${retroError(failure, "Could not save RETRO settings.")} Your edits are kept. Retry, or reload the saved settings to discard them.`,
+        `${retroError(failure, "Could not save retrospective settings.")} Your edits are kept. Retry, or reload the saved settings to discard them.`,
       );
     } finally {
       setBusy(false);
@@ -78,65 +107,32 @@ export function RetroSettings({ query }: { query: string }) {
   return (
     <SettingsSection id="retros" query={query}>
       <p className="secondary">
-        Your coding agent reviews sessions from these sources using its local or SSH access. Ask it
-        for a Scope retro when you are ready.
+        Your coding agent reviews sessions on this machine and your paired remotes. Ask it for a
+        Scope retro when you are ready.
       </p>
       <Button type="button" variant="secondary" onClick={() => setHistory(true)}>
-        Open RETRO history
+        Open retrospective history
       </Button>
-      {!configuration && !error && <p role="status">Loading RETRO settings…</p>}
+      {!configuration && !error && <p role="status">Loading retrospective settings…</p>}
       {configuration && (
         <>
-          <h3>Session sources</h3>
-          {configuration.sources.length === 0 && (
-            <p className="secondary">
-              No sources configured. Add your Mac or an SSH source, or ask your coding agent to
-              configure them.
-            </p>
-          )}
+          <h3>Session locations</h3>
+          <p className="secondary">
+            This machine and your paired remotes appear automatically. Manage remotes in Remotes
+            settings.
+          </p>
           {configuration.sources.map((source) => (
             <fieldset className="retro-source" key={source.id} disabled={busy}>
-              <legend>{source.name || "New source"}</legend>
-              <label>
-                Source name
-                <Input
-                  value={source.name}
-                  maxLength={512}
-                  onChange={(event) => updateSource(source.id, { name: event.target.value })}
-                />
-              </label>
-              <div className="retro-source-location">
-                <label>
-                  Access
-                  <NativeSelect
-                    aria-label="Access"
-                    value={source.sshAlias === null ? "local" : "ssh"}
-                    onChange={(event) =>
-                      updateSource(source.id, {
-                        sshAlias: event.target.value === "local" ? null : "",
-                      })
-                    }
-                  >
-                    <NativeSelectOption value="local">Local machine</NativeSelectOption>
-                    <NativeSelectOption value="ssh">SSH alias</NativeSelectOption>
-                  </NativeSelect>
-                </label>
-                {source.sshAlias !== null && (
-                  <label>
-                    SSH alias
-                    <Input
-                      value={source.sshAlias}
-                      placeholder="dev-box"
-                      spellCheck={false}
-                      onChange={(event) =>
-                        updateSource(source.id, { sshAlias: event.target.value })
-                      }
-                    />
-                  </label>
-                )}
-              </div>
+              <legend>{source.name}</legend>
+              <p className="secondary">
+                {source.location?.type === "desktop"
+                  ? source.location.hostname
+                  : source.location?.type === "remote"
+                    ? source.location.endpoint
+                    : source.name}
+              </p>
               <Switch
-                label={`Include ${source.name || "source"}`}
+                label={`Include ${source.name}`}
                 checked={source.included}
                 onCheckedChange={(included) => updateSource(source.id, { included })}
               />
@@ -159,7 +155,7 @@ export function RetroSettings({ query }: { query: string }) {
               <details>
                 <summary>Runtime directories</summary>
                 <p className="secondary">
-                  Leave blank for the runtime's usual directory on this source.
+                  Leave blank for the runtime's usual directory on this machine.
                 </p>
                 {(["codex", "claude"] as const).map((runtime) => (
                   <label key={runtime}>
@@ -180,53 +176,11 @@ export function RetroSettings({ query }: { query: string }) {
                   </label>
                 ))}
               </details>
-              <Button
-                type="button"
-                variant="ghost"
-                className="retro-remove"
-                onClick={() =>
-                  change({
-                    ...configuration,
-                    sources: configuration.sources.filter((entry) => entry.id !== source.id),
-                    memory: {
-                      ...configuration.memory,
-                      destinations: configuration.memory.destinations.filter(
-                        (entry) => entry.sourceId !== source.id,
-                      ),
-                    },
-                  })
-                }
-              >
-                Remove source
-              </Button>
             </fieldset>
           ))}
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={busy}
-            onClick={() =>
-              change({
-                ...configuration,
-                sources: [
-                  ...configuration.sources,
-                  {
-                    id: crypto.randomUUID(),
-                    name: "",
-                    sshAlias: null,
-                    included: true,
-                    runtimes: ["codex", "claude"],
-                    runtimeRoots: { codex: null, claude: null },
-                  },
-                ],
-              })
-            }
-          >
-            Add source
-          </Button>
           <p className="secondary">
-            SSH uses your usual alias and credentials. Scope hub pairings are separate. Your agent
-            asks whether to include existing history when it first discovers a source.
+            Your agent uses its existing access to each machine and reports any it cannot reach. It
+            asks whether to include existing history the first time it reviews a machine.
           </p>
           <h3>Repository choices</h3>
           <p className="secondary">
@@ -325,23 +279,17 @@ export function RetroSettings({ query }: { query: string }) {
               )}
             </>
           )}
-          <Button
-            type="button"
-            disabled={
-              busy ||
-              !dirty ||
-              configuration.sources.some(
-                (source) =>
-                  !source.name.trim() || (source.sshAlias !== null && !source.sshAlias.trim()),
-              )
-            }
-            onClick={() => void save()}
-          >
-            {busy ? "Saving…" : "Save RETRO settings"}
+          <Button type="button" disabled={busy || !dirty} onClick={() => void save()}>
+            {busy ? "Saving…" : "Save settings"}
           </Button>
         </>
       )}
       {notice && <p role="status">{notice}</p>}
+      {machinesChanged && !error && (
+        <Button type="button" variant="secondary" disabled={busy} onClick={() => void load()}>
+          Reload saved settings
+        </Button>
+      )}
       {error && (
         <div role="alert">
           <p>{error}</p>

@@ -3,8 +3,10 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
+import { HubState } from "../apps/hub/src/state.ts";
+import { startPairedHub } from "../apps/hub/src/paired-server.ts";
 
-test("RETRO settings preserve unsaved source edits on conflict and persist named SSH sources without credentials", async () => {
+test("retrospective settings automatically include this machine and preserve edits on conflict and restart", async () => {
   const fixture = await desktopFixture();
   let application = await fixture.launch();
   try {
@@ -12,64 +14,54 @@ test("RETRO settings preserve unsaved source edits on conflict and persist named
     await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
     await page.keyboard.press("ControlOrMeta+,");
     let settings = page.getByRole("dialog", { name: "Settings", exact: true });
-    await settings.getByLabel("Search settings").fill("retro sources");
-    await settings.getByRole("button", { name: "Add source", exact: true }).click();
-    await settings
-      .getByRole("textbox", { name: "Source name", exact: true })
-      .fill("Devbox with a long descriptive source name");
-    await settings.getByLabel("Access", { exact: true }).selectOption("ssh");
-    await settings.getByRole("textbox", { name: "SSH alias", exact: true }).fill("dev-box");
-    const claude = settings.getByRole("switch", { name: "Claude sessions", exact: true });
+    await settings.getByLabel("Search settings").fill("retro locations");
+    const machine = settings.getByRole("group", { name: "This machine", exact: true });
+    await machine.waitFor();
+    expect(await settings.getByRole("button", { name: "Add source", exact: true }).count()).toBe(0);
+    expect(await settings.getByRole("button", { name: "Remove source", exact: true }).count()).toBe(
+      0,
+    );
+    expect(await settings.getByRole("textbox", { name: "Source name", exact: true }).count()).toBe(
+      0,
+    );
+    const claude = machine.getByRole("switch", { name: "Claude sessions", exact: true });
     await claude.focus();
     await page.keyboard.press("Space");
     expect(await claude.getAttribute("aria-checked")).toBe("false");
-    await page.keyboard.press("Space");
-    expect(await claude.getAttribute("aria-checked")).toBe("true");
-    await settings.getByText("Runtime directories", { exact: true }).click();
-    await settings.getByRole("textbox", { name: "Codex root", exact: true }).fill("~/.codex-work");
+    await machine.getByText("Runtime directories", { exact: true }).click();
+    await machine.getByRole("textbox", { name: "Codex root", exact: true }).fill("~/.codex-work");
     const client = await fixture.connect();
     const initial = await client.retro({ action: "settings" });
     if (initial.type !== "configuration") throw new Error("Expected configuration.");
+    expect(initial.configuration.sources).toMatchObject([
+      { id: "local", name: "This machine", location: { type: "desktop" }, included: true },
+    ]);
     await client.retro({
       action: "configure",
       requestId: randomUUID(),
       expectedVersion: initial.configuration.version,
       configuration: initial.configuration,
     });
-    await settings.getByRole("button", { name: "Save RETRO settings", exact: true }).click();
+    await settings.getByRole("button", { name: "Save settings", exact: true }).click();
     await expect
       .poll(() => settings.getByRole("alert").textContent())
       .toContain("Your edits are kept");
     expect(
-      await settings.getByRole("textbox", { name: "Source name", exact: true }).inputValue(),
-    ).toBe("Devbox with a long descriptive source name");
-    expect(
-      await settings.getByRole("textbox", { name: "SSH alias", exact: true }).inputValue(),
-    ).toBe("dev-box");
+      await machine.getByRole("textbox", { name: "Codex root", exact: true }).inputValue(),
+    ).toBe("~/.codex-work");
     await settings.getByRole("button", { name: "Reload saved settings", exact: true }).click();
-    await settings
-      .getByText(
-        "No sources configured. Add your Mac or an SSH source, or ask your coding agent to configure them.",
-        { exact: true },
-      )
-      .waitFor();
-    await settings.getByRole("button", { name: "Add source", exact: true }).click();
-    await settings.getByRole("textbox", { name: "Source name", exact: true }).fill("Devbox");
-    await settings.getByLabel("Access", { exact: true }).selectOption("ssh");
-    await settings.getByRole("textbox", { name: "SSH alias", exact: true }).fill("dev-box");
-    await settings.getByText("Runtime directories", { exact: true }).click();
-    await settings.getByRole("textbox", { name: "Codex root", exact: true }).fill("~/.codex-work");
-    const memory = settings.getByRole("switch", { name: "Memory suggestions", exact: true });
-    expect(await memory.getAttribute("aria-checked")).toBe("false");
-    await settings.getByRole("button", { name: "Save RETRO settings", exact: true }).click();
-    await settings.getByText("RETRO settings saved.", { exact: true }).waitFor();
+    await expect.poll(() => claude.getAttribute("aria-checked")).toBe("true");
+    await claude.click();
+    await machine.getByRole("textbox", { name: "Codex root", exact: true }).fill("~/.codex-work");
+    await settings.getByRole("button", { name: "Save settings", exact: true }).click();
+    await settings.getByText("Retrospective settings saved.", { exact: true }).waitFor();
     const saved = await client.retro({ action: "settings" });
     if (saved.type !== "configuration") throw new Error("Expected configuration.");
     expect(saved.configuration.sources[0]).toMatchObject({
-      name: "Devbox",
-      sshAlias: "dev-box",
+      id: "local",
+      sshAlias: null,
       runtimeRoots: { codex: "~/.codex-work", claude: null },
-      runtimes: ["codex", "claude"],
+      runtimes: ["codex"],
     });
     expect(saved.configuration.memory.enabled).toBe(false);
     await mkdir("/tmp/scope-retro-ui-evidence", { recursive: true });
@@ -96,88 +88,68 @@ test("RETRO settings preserve unsaved source edits on conflict and persist named
     settings = page.getByRole("dialog", { name: "Settings", exact: true });
     await settings.getByLabel("Search settings").fill("retro");
     await expect
-      .poll(() => settings.getByRole("textbox", { name: "Source name", exact: true }).inputValue())
-      .toBe("Devbox");
+      .poll(() =>
+        settings
+          .getByRole("switch", { name: "Claude sessions", exact: true })
+          .getAttribute("aria-checked"),
+      )
+      .toBe("false");
+    await settings.getByText("Runtime directories", { exact: true }).click();
     expect(
-      await settings.getByRole("textbox", { name: "SSH alias", exact: true }).inputValue(),
-    ).toBe("dev-box");
-    expect(
-      await settings.getByRole("textbox", { name: /password|secret|credential/i }).count(),
-    ).toBe(0);
+      await settings.getByRole("textbox", { name: "Codex root", exact: true }).inputValue(),
+    ).toBe("~/.codex-work");
   } finally {
     await application.close();
     await rm(fixture.directory, { recursive: true, force: true });
   }
 }, 60_000);
 
-test("removing a source also removes its hidden memory destinations and the saved settings reload", async () => {
+test("paired remotes automatically appear in retrospective settings and disappear when removed", async () => {
   const fixture = await desktopFixture();
+  const state = await HubState.open(join(fixture.directory, "hub"));
+  const connectionFile = join(fixture.directory, "hub-connection.json");
+  await state.configure({ endpoint: "http://127.0.0.1:1", port: 1, connectionFile });
+  const hub = await startPairedHub(state, 0);
+  await state.configure({ endpoint: hub.url, port: Number(new URL(hub.url).port), connectionFile });
   const application = await fixture.launch();
   try {
     const page = await application.firstWindow();
-    const client = await fixture.connect();
-    const initial = await client.retro({ action: "settings" });
-    if (initial.type !== "configuration") throw new Error("Expected configuration.");
-    await client.retro({
-      action: "configure",
-      requestId: randomUUID(),
-      expectedVersion: initial.configuration.version,
-      configuration: {
-        ...initial.configuration,
-        sources: [
-          {
-            id: "devbox",
-            name: "Devbox",
-            sshAlias: "dev-box",
-            included: true,
-            runtimes: ["codex"],
-            runtimeRoots: { codex: null, claude: null },
-          },
-        ],
-        memory: {
-          enabled: false,
-          destinations: [
-            {
-              id: "personal-rules",
-              sourceId: "devbox",
-              path: "~/.agents/AGENTS.md",
-              type: "instructions",
-              scope: "operator",
-              available: true,
-              verifiedAt: "2026-10-04T08:00:00.000Z",
-            },
-          ],
-        },
-      },
-    });
     await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
     await page.keyboard.press("ControlOrMeta+,");
     const settings = page.getByRole("dialog", { name: "Settings", exact: true });
     await settings.getByLabel("Search settings").fill("retro");
-    await settings.getByRole("textbox", { name: "Source name", exact: true }).waitFor();
-    expect(
-      await settings
-        .getByRole("switch", { name: "Memory suggestions" })
-        .getAttribute("aria-checked"),
-    ).toBe("false");
-    expect(await settings.getByRole("button", { name: "Remove destination" }).count()).toBe(0);
-    await settings.getByRole("button", { name: "Remove source", exact: true }).click();
-    await settings.getByRole("button", { name: "Save RETRO settings", exact: true }).click();
-    await settings.getByText("RETRO settings saved.", { exact: true }).waitFor();
+    await settings.getByRole("group", { name: "This machine", exact: true }).waitFor();
+    await page.evaluate((url) => window.scope.pairRemote(url), state.pairUrl());
+    const client = await fixture.connect();
+    const reply = await client.retro({ action: "settings" });
+    if (reply.type !== "configuration") throw new Error("Expected configuration.");
+    const remote = reply.configuration.sources.find(
+      (source) => source.location?.type === "remote",
+    )!;
+    expect(remote).toMatchObject({
+      included: true,
+      location: { type: "remote", endpoint: hub.url },
+      sshAlias: null,
+    });
+    const group = settings.getByRole("group", { name: remote.name, exact: true });
+    await group.getByText(hub.url, { exact: true }).waitFor();
+    await group.getByRole("switch", { name: `Include ${remote.name}`, exact: true }).click();
+    await settings.getByRole("button", { name: "Save settings", exact: true }).click();
+    await settings.getByText("Retrospective settings saved.", { exact: true }).waitFor();
     const saved = await client.retro({ action: "settings" });
     if (saved.type !== "configuration") throw new Error("Expected configuration.");
-    expect(saved.configuration.sources).toEqual([]);
-    expect(saved.configuration.memory).toEqual({ enabled: false, destinations: [] });
-    await settings.getByRole("button", { name: "Close", exact: true }).click();
-    await settings.waitFor({ state: "hidden" });
-    await page.keyboard.press("ControlOrMeta+,");
-    await settings.getByLabel("Search settings").fill("retro");
-    await settings.getByText(/No sources configured/).waitFor();
-    expect(await settings.getByRole("textbox", { name: "Source name", exact: true }).count()).toBe(
-      0,
+    expect(saved.configuration.sources.find((source) => source.id === remote.id)?.included).toBe(
+      false,
     );
+    await page.evaluate((id) => window.scope.removeRemote(id), remote.id);
+    await group.waitFor({ state: "hidden" });
+    const removed = await client.retro({ action: "settings" });
+    if (removed.type !== "configuration") throw new Error("Expected configuration.");
+    expect(removed.configuration.sources.map((source) => source.id)).toEqual(["local"]);
   } finally {
     await application.close();
+    await hub.close();
+    state.close();
     await rm(fixture.directory, { recursive: true, force: true });
   }
 }, 60_000);

@@ -241,9 +241,11 @@ native transcripts.
 
 `packages/protocol/src/retro.ts` owns public configuration, report, command,
 tracking, history and event contracts. `library/retro-store.ts` owns review
-records and bounded authored state in `scope.db`. Source, repository and
-optional memory preferences are in `desktop.db`. Hubs forward live retro
-commands and retain no retro tracking or native history.
+records and bounded authored state in `scope.db`. The desktop derives
+retrospective sources from its own machine and paired remotes. Machine identities and connection endpoints are included in the public
+configuration so an agent running elsewhere can identify the intended hosts.
+Per-machine, repository and optional memory preferences are in `desktop.db`.
+Hubs forward live retro commands and retain no retro tracking or native history.
 
 `plugins/retro` injects `window.scope.retros` before authored scripts. The HTML
 can record decisions, comments and investigation requests, update its own JSON

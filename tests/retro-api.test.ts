@@ -844,14 +844,23 @@ test("paired hub forwards retrospective commands live, then rejects edits to com
   await remotes.start();
   await remotes.pair(state.pairUrl());
   await expect.poll(() => remotes.snapshot()[0]?.connection).toBe("connected");
-  expect(await remote.retro({ action: "settings" })).toMatchObject({
+  const machines = await remote.retro({ action: "settings" });
+  expect(machines).toMatchObject({
     configuration: { version: 0 },
   });
+  if (machines.type !== "configuration") throw new Error("Expected configuration.");
   const configured = await remote.retro({
     action: "configure",
     requestId: randomUUID(),
     expectedVersion: 0,
-    configuration: configuration(),
+    configuration: {
+      ...configuration(),
+      sources: machines.configuration.sources.map((source) => ({
+        ...source,
+        included: source.id === "local",
+        runtimes: ["codex"],
+      })),
+    },
   });
   expect(configured).toMatchObject({ configuration: { version: 1 } });
   const owner = await f.create();
@@ -1072,39 +1081,59 @@ test.each(["excluded", "removed", "runtime"])(
   "finish does not initialize or audit a source whose %s configuration changed",
   async (changed) => {
     const f = await fixture();
-    await f.configure(configuration(["codex", "claude"]));
+    const sourceId = changed === "removed" ? randomUUID() : "local";
+    if (changed === "removed") {
+      await f.desktop.saveRemote({
+        id: sourceId,
+        name: "Synthetic remote",
+        endpoint: "https://remote.example.test",
+        enabled: false,
+      });
+      const settings = await f.desktop.retroConfiguration();
+      await f.configure({
+        ...settings,
+        repositories: [{ repository, included: true }],
+        sources: settings.sources.map((source) => ({
+          ...source,
+          included: source.id === sourceId,
+        })),
+      });
+    } else await f.configure(configuration(["codex", "claude"]));
     const owner = await f.create();
     const original = report("all", 1);
     const coverage: RetroReport = {
       ...original,
+      agent: { ...original.agent!, sourceId },
       sources: [
-        ...original.sources,
-        { ...original.sources[0], runtime: "claude", sessionCount: 0 },
+        ...original.sources.map((source) => ({ ...source, sourceId })),
+        { ...original.sources[0], sourceId, runtime: "claude", sessionCount: 0 },
       ],
     };
     await f.write(owner, { action: "publish", report: coverage });
-    await f.write(owner, { action: "inventory", sessions: [session("historical")] });
+    await f.write(owner, {
+      action: "inventory",
+      sessions: [{ ...session("historical"), sourceId }],
+    });
     const settings = await f.client.retro({ action: "settings" });
     if (settings.type !== "configuration") throw new Error("Expected configuration");
     const value = settings.configuration;
-    await f.configure({
-      ...value,
-      sources:
-        changed === "removed"
-          ? []
-          : value.sources.map((source) => ({
-              ...source,
-              included: changed !== "excluded",
-              runtimes: changed === "runtime" ? ["claude"] : source.runtimes,
-            })),
-      memory: changed === "removed" ? { enabled: false, destinations: [] } : value.memory,
-    });
+    if (changed === "removed") await f.desktop.removeRemote(sourceId);
+    else
+      await f.configure({
+        ...value,
+        sources: value.sources.map((source) => ({
+          ...source,
+          included: changed !== "excluded",
+          runtimes: changed === "runtime" ? ["claude"] : source.runtimes,
+        })),
+      });
     await expect(
       f.write(owner, { action: "finish", operatorInstruction: "Finish." }),
     ).rejects.toMatchObject({ status: 409 });
     expect((await f.read(owner.name)).status).toBe("active");
-    expect(
-      await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
-    ).toMatchObject({ initialized: false, audited: [] });
+    expect(await f.client.retro({ action: "tracking", sourceId, runtime: "codex" })).toMatchObject({
+      initialized: false,
+      audited: [],
+    });
   },
 );

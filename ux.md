@@ -483,8 +483,11 @@ list and reopen for inspection without starting or resuming a coding session.
 Finished reports cannot accept new edits. Explicit removal follows normal tab
 retention while audit tracking remains independent.
 
-Retrospective settings distinguish source SSH aliases from paired hubs and
-remember repository inclusion by canonical fetch origin. First-use history
+Retrospective settings automatically list the machine running Scope and its
+paired remotes. Machines are added and removed through Remotes settings; there
+is no separate source setup. The local machine remains listed without pairing.
+Per-machine inclusion and runtime choices remain editable. Settings remember
+repository inclusion by canonical fetch origin. First-use history
 choices are asked by the agent. Memory suggestions default off. Destination
 previews show the exact content, source host and personal or project scope.
 Unavailable destinations are omitted; OKF is shown only after its CLI was

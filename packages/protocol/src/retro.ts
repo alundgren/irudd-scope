@@ -63,6 +63,16 @@ export const RetroConfiguration = Schema.Struct({
       id: Id,
       name: Short,
       sshAlias: Schema.NullOr(Short),
+      location: Schema.optionalKey(
+        Schema.Union([
+          Schema.Struct({ type: Schema.Literal("desktop"), hostname: Short }),
+          Schema.Struct({
+            type: Schema.Literal("remote"),
+            remoteId: Id,
+            endpoint: Schema.String.check(Schema.isMaxLength(2048)),
+          }),
+        ]),
+      ),
       included: Schema.Boolean,
       runtimeRoots: Schema.Struct({ codex: Schema.NullOr(Short), claude: Schema.NullOr(Short) }),
       runtimes: Schema.Array(RetroRuntime).check(Schema.isMaxLength(2)),

@@ -20,7 +20,12 @@ skills together before proceeding.
 
 ## Choose the evidence
 
-Use configured sources and the agent's own SSH access. Exhaust Scope tracking
+Read Scope settings for the automatically listed desktop machine and paired
+remotes. Do not ask the operator to add sources. Use source `location` to identify
+each host, then resolve access with the agent's existing tools. The desktop is
+the machine running Scope, which may differ from the agent's machine. A remote
+with null `sshAlias` is still remote; its HTTPS endpoint is not an SSH alias.
+Record machines without confirmed access as unavailable. Exhaust Scope tracking
 pages and native metadata inventory pages before selecting history. Exclude the
 confirmed current native session, saved retro-agent identities, audited whole
 session IDs, child sessions and sessions without a reliable Git-origin identity.
