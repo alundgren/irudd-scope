@@ -1040,9 +1040,12 @@ test.each(["reviewed", "agent", "repository"])(
       });
     } else {
       const other = await f.create("other");
-      const value = report("none", changed === "reviewed" ? 1 : 0);
-      if (changed === "agent")
-        value.agent = { sourceId: "local", runtime: "codex", sessionId: "historical" };
+      const value: RetroReport = {
+        ...report("none", changed === "reviewed" ? 1 : 0),
+        ...(changed === "agent"
+          ? { agent: { sourceId: "local", runtime: "codex", sessionId: "historical" } as const }
+          : {}),
+      };
       await f.write(other, { action: "publish", report: value });
       if (changed === "reviewed") {
         await f.write(other, { action: "inventory", sessions: [session("historical")] });
@@ -1065,11 +1068,14 @@ test.each(["excluded", "removed", "runtime"])(
     const f = await fixture();
     await f.configure(configuration(["codex", "claude"]));
     const owner = await f.create();
-    const coverage = report("all", 1);
-    coverage.sources = [
-      ...coverage.sources,
-      { ...coverage.sources[0], runtime: "claude", sessionCount: 0 },
-    ];
+    const original = report("all", 1);
+    const coverage: RetroReport = {
+      ...original,
+      sources: [
+        ...original.sources,
+        { ...original.sources[0], runtime: "claude", sessionCount: 0 },
+      ],
+    };
     await f.write(owner, { action: "publish", report: coverage });
     await f.write(owner, { action: "inventory", sessions: [session("historical")] });
     const settings = await f.client.retro({ action: "settings" });
