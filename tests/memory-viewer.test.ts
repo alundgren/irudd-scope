@@ -323,7 +323,6 @@ test("a draft-state save failure prevents writing the personal memory file", asy
   const f = await fixture();
   await f.open();
   await f.page.getByRole("button", { name: "Edit Markdown", exact: true }).click();
-  await f.page.getByLabel("Memory Markdown").fill("# Keep this failed-save draft\n");
   const before = await readFile(join(f.memory.clone("mac"), "index.md"), "utf8");
   await f.application.evaluate(({ ipcMain }) => {
     type Handler = Parameters<typeof ipcMain.handle>[1];
@@ -345,6 +344,7 @@ test("a draft-state save failure prevents writing the personal memory file", asy
       (globalThis as typeof globalThis & { restoreDraftSave?: () => void }).restoreDraftSave?.(),
     ),
   );
+  await f.page.getByLabel("Memory Markdown").fill("# Keep this failed-save draft\n");
   await f.page.getByRole("button", { name: "Save note", exact: true }).click();
   await f.page.getByRole("alert").filter({ hasText: "Could not save the workspace." }).waitFor();
   expect(await readFile(join(f.memory.clone("mac"), "index.md"), "utf8")).toBe(before);
