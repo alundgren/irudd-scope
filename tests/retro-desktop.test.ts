@@ -153,6 +153,7 @@ type SDK = {
     open: (tabId: string) => Promise<unknown>;
   };
   finish?: unknown;
+  beforeClose: (callback: () => Promise<void>) => () => void;
 };
 
 test("RETRO preserves drafts through data updates, HTML replacement, navigation, restart, and completed history", async () => {
@@ -361,6 +362,153 @@ test("RETRO preserves drafts through data updates, HTML replacement, navigation,
     await history.waitFor({ state: "hidden" });
     await page.getByText("Saved final report · Read only", { exact: true }).waitFor();
     expect(errors).toEqual([]);
+  } finally {
+    await application.close();
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("finishing an unvisited report does not flush another report's dirty input", async () => {
+  const fixture = await desktopFixture();
+  const application = await fixture.launch();
+  try {
+    const page = await application.firstWindow();
+    const file = join(fixture.directory, "report.html");
+    await writeFile(file, await readFile("apps/desktop/src/plugins/retro/starter.html", "utf8"));
+    await fixture.cli("add", file, "--retro", "--name", name);
+    const client = await fixture.connect();
+    await configure(client);
+    await publishReport(client);
+    const frame = page.frameLocator(".retro-document");
+    await frame.getByRole("heading", { name: "Repeated full-file reads" }).waitFor();
+    await frame.getByRole("button", { name: "Comment", exact: true }).click();
+    await frame
+      .getByRole("textbox", { name: "Comment", exact: true })
+      .fill("Keep this other report's input pending.");
+    const otherName = "unvisited-retro";
+    await fixture.cli("add", file, "--retro", "--name", otherName, "--title", "Unvisited report");
+    await page.getByRole("tab", { name: "Unvisited report", exact: true }).waitFor();
+    expect(await page.locator(".retro-document").count()).toBe(1);
+    let other = await client.retro({ action: "read", name: otherName });
+    if (other.type !== "snapshot") throw new Error("Expected snapshot.");
+    await client.retro({
+      action: "publish",
+      name: otherName,
+      tabId: other.snapshot.tabId,
+      requestId: randomUUID(),
+      expectedVersion: other.snapshot.version,
+      report: {
+        ...report(0),
+        agent: { sourceId: "local", runtime: "codex", sessionId: "other-retro-agent" },
+        findings: [],
+        destinations: [],
+      },
+    });
+    other = await client.retro({ action: "read", name: otherName });
+    if (other.type !== "snapshot") throw new Error("Expected snapshot.");
+    await client.retro({
+      action: "finish",
+      name: otherName,
+      tabId: other.snapshot.tabId,
+      requestId: randomUUID(),
+      expectedVersion: other.snapshot.version,
+      operatorInstruction: "Finish this unvisited synthetic report.",
+    });
+    other = await client.retro({ action: "read", name: otherName });
+    if (other.type !== "snapshot") throw new Error("Expected snapshot.");
+    expect(other.snapshot.status).toBe("finished");
+    expect((await read(client)).appState).toEqual({ version: 0, value: {} });
+    expect(await frame.getByRole("textbox", { name: "Comment", exact: true }).inputValue()).toBe(
+      "Keep this other report's input pending.",
+    );
+  } finally {
+    await application.close();
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("finish saves unsent drafts and failed report flushes leave audit markers unchanged", async () => {
+  const fixture = await desktopFixture();
+  const application = await fixture.launch();
+  try {
+    const page = await application.firstWindow();
+    const file = join(fixture.directory, "report.html");
+    await writeFile(file, await readFile("apps/desktop/src/plugins/retro/starter.html", "utf8"));
+    await fixture.cli(
+      "add",
+      file,
+      "--retro",
+      "--name",
+      "earlier-retro",
+      "--title",
+      "Earlier report",
+    );
+    await page
+      .frameLocator('iframe[title="Earlier report"]')
+      .getByRole("heading", { name: "Session retrospective", exact: true })
+      .waitFor();
+    await fixture.cli("add", file, "--retro", "--name", name, "--title", "Target report");
+    const client = await fixture.connect();
+    await configure(client);
+    await publishReport(client);
+    await page.getByRole("tab", { name: "Target report", exact: true }).click();
+    const frame = page.frameLocator('iframe[title="Target report"]');
+    await frame.getByRole("heading", { name: "Repeated full-file reads" }).waitFor();
+    await frame.getByRole("button", { name: "Comment", exact: true }).click();
+    await frame
+      .getByRole("textbox", { name: "Comment", exact: true })
+      .fill("My unsent final note.");
+    async function finish() {
+      const current = await read(client);
+      return client.retro({
+        action: "finish",
+        name,
+        tabId: current.tabId,
+        requestId: randomUUID(),
+        expectedVersion: current.version,
+        operatorInstruction: "Finish after retaining this draft for reference.",
+      });
+    }
+    await expect(finish()).rejects.toThrow(/changed/i);
+    let current = await read(client);
+    expect(current.status).toBe("active");
+    expect(current.appState.value.drafts).toEqual({ "retrieval:comment": "My unsent final note." });
+    await frame.locator("body").evaluate(() => {
+      const sdk = (window as unknown as { scope: { retros: SDK } }).scope.retros;
+      Object.assign(window, {
+        syntheticRetroCloseFailure: sdk.beforeClose(async () => {
+          throw new Error("Synthetic draft failure.");
+        }),
+      });
+    });
+    await expect(finish()).rejects.toThrow(/Synthetic draft failure/i);
+    current = await read(client);
+    expect(current.status).toBe("active");
+    const tracking = await client.retro({
+      action: "tracking",
+      sourceId: "local",
+      runtime: "codex",
+    });
+    if (tracking.type !== "tracking") throw new Error("Expected tracking.");
+    expect(tracking.initialized).toBe(false);
+    expect(tracking.audited).toEqual([]);
+    await frame
+      .locator("body")
+      .evaluate(() =>
+        (
+          window as unknown as { syntheticRetroCloseFailure: () => void }
+        ).syntheticRetroCloseFailure(),
+      );
+    await finish();
+    await page.getByText("Saved final report · Read only", { exact: true }).waitFor();
+    await frame.getByRole("heading", { name: "Unsent drafts", exact: true }).waitFor();
+    await frame.getByText("My unsent final note.", { exact: true }).waitFor();
+    current = await read(client);
+    expect(current.comments).toEqual([]);
+    expect(current.requests).toEqual([]);
+    expect(current.appState.value.drafts).toEqual({ "retrieval:comment": "My unsent final note." });
+    await mkdir(evidence, { recursive: true });
+    await page.screenshot({ path: join(evidence, "finished-unsent-draft.png") });
   } finally {
     await application.close();
     await rm(fixture.directory, { recursive: true, force: true });

@@ -136,6 +136,13 @@
       </table>
     </div>
     <div id="findings"></div>
+    <section id="saved-drafts" hidden>
+      <h2>Unsent drafts</h2>
+      <p class="secondary">
+        Retained for reference. These were not submitted as comments or investigation requests.
+      </p>
+      <div></div>
+    </section>
     <script>
       const sdk = window.scope.retros;
       let snapshot;
@@ -463,6 +470,36 @@
           }
         }
         if (value.status === "finished") {
+          const retained = document.getElementById("saved-drafts");
+          const list = retained.querySelector("div");
+          list.replaceChildren();
+          const labels = {
+            comment: "Unsent comment",
+            request: "Unsent investigation request",
+            proposal: "Unsubmitted proposal edit",
+            destination: "Unsubmitted destination",
+          };
+          for (const [key, text] of Object.entries(value.appState.value.drafts ?? {})) {
+            if (!text) continue;
+            const separator = key.lastIndexOf(":");
+            const finding = value.report.findings.find(
+              (entry) => entry.id === key.slice(0, separator),
+            );
+            const field = key.slice(separator + 1);
+            list.append(
+              element(
+                "p",
+                (finding?.title ?? "Removed finding") + " · " + (labels[field] ?? "Unsent draft"),
+                "secondary",
+              ),
+            );
+            const destination =
+              field === "destination"
+                ? value.permittedDestinations.find((entry) => entry.id === text)
+                : null;
+            list.append(element("p", destination ? destination.path : text, "note"));
+          }
+          retained.hidden = !list.childElementCount;
           document.querySelectorAll("button,input,select,textarea").forEach((control) => {
             control.disabled = true;
           });

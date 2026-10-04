@@ -48,7 +48,11 @@ export function RetroView({ artifact, context }: TabProps) {
   useEffect(() => {
     const stop = host.start();
     const stopClosing = context.onBeforeClose(() => host.flush());
+    const stopFinishing = window.scope.onRetroFinishFlush(async (request) => {
+      if (request.tabId === context.tabId) await host.flush();
+    });
     return () => {
+      stopFinishing();
       stopClosing();
       stop();
     };
