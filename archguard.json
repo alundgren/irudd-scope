@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "include": ["apps/*/src/**/*.ts", "apps/*/src/**/*.tsx", "packages/*/src/**/*.ts"],
+  "exclude": ["**/*.d.ts", "**/dist/**", "**/node_modules/**"],
+  "rules": [
+    {
+      "id": "desktop-no-hub",
+      "kind": "forbiddenDependency",
+      "files": ["apps/desktop/src/**"],
+      "targets": ["apps/hub/src/**"],
+      "transitive": true
+    },
+    {
+      "id": "hub-no-consumer-internals",
+      "kind": "forbiddenDependency",
+      "files": ["apps/hub/src/**"],
+      "targets": ["apps/desktop/src/**", "packages/cli/src/**"],
+      "transitive": true
+    },
+    {
+      "id": "cli-no-app-internals",
+      "kind": "forbiddenDependency",
+      "files": ["packages/cli/src/**"],
+      "targets": ["apps/*/src/**"],
+      "transitive": true
+    },
+    {
+      "id": "shared-packages-no-consumers",
+      "kind": "forbiddenDependency",
+      "files": [
+        "packages/protocol/src/**",
+        "packages/sqlite/src/**",
+        "packages/memory-sync/src/**"
+      ],
+      "targets": ["apps/*/src/**", "packages/cli/src/**"],
+      "transitive": true
+    },
+    {
+      "id": "protocol-no-implementation-packages",
+      "kind": "forbiddenDependency",
+      "files": ["packages/protocol/src/**"],
+      "targets": ["packages/sqlite/src/**", "packages/memory-sync/src/**"],
+      "transitive": true
+    },
+    {
+      "id": "protocol-no-filesystem-or-electron",
+      "kind": "forbiddenImport",
+      "files": ["packages/protocol/src/**"],
+      "specifiers": ["node:fs", "node:fs/*", "fs", "fs/*", "electron"]
+    }
+  ]
+}

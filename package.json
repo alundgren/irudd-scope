@@ -15,7 +15,8 @@
     "check:credentials": "vp exec node tools/check-credential-helper.ts",
     "hub": "vp run hub#dev",
     "desktop": "vp run desktop#dev",
-    "scope": "vp exec node packages/cli/src/main.ts"
+    "scope": "vp exec node packages/cli/src/main.ts",
+    "check:architecture": "archguard check --root . --config archguard.json"
   },
   "devDependencies": {
     "@electron/packager": "catalog:",
