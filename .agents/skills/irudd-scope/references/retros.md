@@ -74,11 +74,16 @@ local log for a missing remote session.
 Snapshot selected historical sessions by explicit native ID and root using the
 public helper's `snapshot` command. Read its coverage notes and usage methods
 before presenting accounting as exact. An incomplete or unavailable snapshot becomes `failed`;
-only a complete snapshot actually analyzed becomes `reviewed`. Assess efficiency,
-correctness, tests, tool waits, workflow and repeated patterns across sessions.
-Distinguish measured facts, bounded evidence and estimates. Missing usage,
-duration or costs remain unknown, never zero. Native transcripts stay on their
-source hosts. Scope receives metadata, findings and compact evidence, not logs.
+only a complete snapshot actually analyzed becomes `reviewed`. Read
+`references/analysis.md` from the loaded `irudd-scope-retro` skill for chronological
+evidence, per-session assessments, efficiency/correctness/speed,
+coding-environment investigations, cross-session patterns and concrete actions.
+Short excerpts and automated screening do not establish a reviewed session.
+General findings and project/tooling proposals remain available with memory off;
+memory is an optional destination rather than the report's purpose. Distinguish
+measured facts, bounded evidence and estimates. Missing usage, duration or costs
+remain unknown, never zero. Native transcripts stay on their source hosts. Scope
+receives metadata, findings and compact evidence, not logs.
 
 Create a freely authored named HTML retrospective with the installed CLI's
 retro publication flags, then use `retro apply FILE.json` to publish its report

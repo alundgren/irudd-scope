@@ -94,6 +94,16 @@ include scheduling/transport, so they are estimates rather than measured test ti
 Identify tests from actual command inputs and inspect their outputs before making
 claims about test duration or correctness.
 
+These three helper metrics are collection evidence, not a full efficiency,
+correctness or speed analysis. The helper does not rank tool-output sizes,
+attribute nested wrapper calls, calculate billing categories or context pressure,
+or assess scouting quality. Follow [session analysis](analysis.md); retain the
+chronology needed to understand rework and repeated activity. A helper success
+followed only by first/last excerpts or keyword screening cannot establish
+`reviewed` status. If collection limits block important evidence, report the
+analysis gap and keep those sessions failed rather than drawing conclusions from
+the remaining smaller files alone.
+
 ## Destination host capabilities
 
 ```sh
