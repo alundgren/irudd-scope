@@ -7,6 +7,7 @@ export type GitHubReadErrorKind =
   | "network"
   | "throttle"
   | "invalid"
+  | "comparison"
   | "cancelled"
   | "unavailable"
   | "account";

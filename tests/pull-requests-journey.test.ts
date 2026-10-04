@@ -93,6 +93,37 @@ else throw new Error('Unexpected GitHub read');
     );
     await fixture.cli("pull-requests", "configure", "journey-inbox", "synthetic/project");
     let frame = page.frameLocator(".pull-requests-document");
+    // GitHub moves before the inbox's next scheduled refresh.
+    await frame.getByRole("button", { name: "View changed files for #1", exact: true }).waitFor();
+    await writeFile(stateFile, JSON.stringify({ head: newerHead, fail: false }));
+    await frame.getByRole("button", { name: "View changed files for #1", exact: true }).click();
+    const staleViewer = page.frameLocator(".scope-content-document");
+    await staleViewer
+      .getByRole("alert")
+      .filter({ hasText: "Load the latest comparison" })
+      .waitFor();
+    await staleViewer.getByRole("button", { name: "Load latest comparison" }).click();
+    await staleViewer.getByText("new value").waitFor();
+    expect(await staleViewer.locator("#comparison").textContent()).toBe(
+      `${base.slice(0, 7)} → ${newerHead.slice(0, 7)}`,
+    );
+    await page
+      .getByRole("dialog", { name: "Changes in #1" })
+      .getByRole("button", { name: "Close content window" })
+      .click();
+    await writeFile(stateFile, JSON.stringify({ head, fail: false }));
+    const initialClient = await fixture.connect();
+    const initialReply = await initialClient.pullRequests({
+      action: "read",
+      name: "journey-inbox",
+    });
+    if (initialReply.type !== "snapshot") throw new Error("Expected snapshot");
+    await initialClient.pullRequests({
+      action: "sync",
+      name: "journey-inbox",
+      tabId: initialReply.snapshot.tabId,
+      requestId: crypto.randomUUID(),
+    });
     await frame.getByRole("checkbox", { name: "Preload content for #1", exact: true }).check();
     await frame.getByRole("button", { name: "Preload selected 1", exact: true }).click();
     await frame.getByText("Selected PR content is ready.", { exact: true }).waitFor();
@@ -109,7 +140,7 @@ else throw new Error('Unexpected GitHub read');
         .split("\n")
         .map((line) => JSON.parse(line) as string[])
         .filter((args) => args[0] === "pr" && args[1] === "diff"),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     await viewer.getByText("<script>literal code</script>").waitFor();
     await viewer.getByText("rename from old name.ts").waitFor();
     await viewer.getByText("new café").waitFor();

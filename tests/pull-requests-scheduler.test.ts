@@ -1288,6 +1288,108 @@ async function detailFixture(
   return { ...f, remote, tabId, client, command };
 }
 
+test.each(["head", "base", "closed"])(
+  "a changed %s during detail loading refreshes only that PR across matching inboxes",
+  async (change) => {
+    const f = await detailFixture();
+    const secondTab = await f.tab("matching");
+    await f.service.reconcile();
+    const original = facts();
+    const commit = "c".repeat(40);
+    const moved = {
+      ...facts(1, "2026-10-02T00:01:00.000Z"),
+      headOid: change === "head" ? commit : original.headOid,
+      baseOid: change === "base" ? commit : original.baseOid,
+      merge: {
+        ...original.merge,
+        headOid: change === "head" ? commit : original.headOid,
+        baseOid: change === "base" ? commit : original.baseOid,
+        observedAt: "2026-10-02T00:01:00.000Z",
+      },
+      checks: { ...original.checks, headOid: change === "head" ? commit : original.headOid },
+    };
+    const reads: string[] = [];
+    f.remote.github.detail = async (_repository, pr) => {
+      if (pr.headOid === original.headOid && pr.baseOid === original.baseOid)
+        throw new GitHubReadError(
+          "This pull request changed. Sync before opening its details.",
+          "comparison",
+        );
+      return syntheticDetail(pr, "latest diff");
+    };
+    f.remote.github.current = async (_repository, pr, _signal, onClosed) => {
+      reads.push(pr.nodeId);
+      onClosed?.(moved.merge.observedAt);
+      return change === "closed" ? null : moved;
+    };
+    await expect(f.service.detail(f.tabId, original.nodeId, original)).rejects.toThrow(
+      change === "closed" ? "no longer open" : "Load the latest comparison",
+    );
+    expect(reads).toEqual([original.nodeId]);
+    for (const tabId of [f.tabId, secondTab]) {
+      const snapshot = await f.store.snapshotByTab(tabId);
+      if (change === "closed")
+        expect(snapshot.prs.some((pr) => pr.nodeId === original.nodeId)).toBe(false);
+      else
+        expect(snapshot.prs.find((pr) => pr.nodeId === original.nodeId)).toMatchObject({
+          headOid: moved.headOid,
+          baseOid: moved.baseOid,
+        });
+    }
+    expect(
+      (await f.store.snapshotByTab(f.tabId)).prs.find((pr) => pr.nodeId === "PR_2"),
+    ).toMatchObject(facts(2));
+    if (change !== "closed") {
+      await expect(f.service.detail(f.tabId, original.nodeId, original)).rejects.toThrow(
+        "Load the latest comparison",
+      );
+      await expect(f.service.detail(f.tabId, original.nodeId, moved)).resolves.toMatchObject({
+        headOid: moved.headOid,
+        diff: "latest diff",
+      });
+    }
+  },
+);
+
+test("a failed comparison refresh preserves the saved PR and original failure", async () => {
+  const f = await detailFixture();
+  const message = "This pull request changed. Sync before opening its details.";
+  f.remote.github.detail = async () => {
+    throw new GitHubReadError(message, "comparison");
+  };
+  f.remote.github.current = async () => {
+    throw new GitHubReadError("Offline", "network");
+  };
+  await expect(f.service.detail(f.tabId, "PR_1", facts())).rejects.toThrow(message);
+  expect(
+    (await f.store.snapshotByTab(f.tabId)).prs.find((pr) => pr.nodeId === "PR_1"),
+  ).toMatchObject(facts());
+});
+
+test("canceling detail loading also cancels its comparison refresh", async () => {
+  const f = await detailFixture();
+  f.remote.github.detail = async () => {
+    throw new GitHubReadError("Changed", "comparison");
+  };
+  let refreshing: AbortSignal | undefined;
+  f.remote.github.current = async (_repository, _pr, signal) => {
+    refreshing = signal;
+    return new Promise((_, reject) =>
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true }),
+    );
+  };
+  const controller = new AbortController();
+  const loading = f.service.detail(f.tabId, "PR_1", facts(), controller.signal);
+  const rejected = expect(loading).rejects.toThrow("cancelled by user");
+  await expect.poll(() => refreshing).toBeDefined();
+  controller.abort(new Error("cancelled by user"));
+  await rejected;
+  expect(refreshing?.aborted).toBe(true);
+  expect(
+    (await f.store.snapshotByTab(f.tabId)).prs.find((pr) => pr.nodeId === "PR_1"),
+  ).toMatchObject(facts());
+});
+
 test("selective batches reuse individual reads, preserve partial failures, and never load other PRs", async () => {
   const f = await detailFixture(4);
   const calls: string[] = [];

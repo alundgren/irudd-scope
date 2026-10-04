@@ -1168,7 +1168,10 @@ export class GitHubPullRequests {
       before.headRefOid !== pr.headOid ||
       before.baseRefOid !== pr.baseOid
     )
-      throw new GitHubReadError("This pull request changed. Sync before opening its details.");
+      throw new GitHubReadError(
+        "This pull request changed. Sync before opening its details.",
+        "comparison",
+      );
     const files: PullRequestDetail["files"][number][] = [];
     const reviews: PullRequestDetail["reviews"][number][] = [];
     const filePaths = new Set<string>();
@@ -1206,8 +1209,6 @@ export class GitHubPullRequests {
       }
       if (result.length < 100) break;
     }
-    if (files.length !== pr.changedFiles)
-      throw new GitHubReadError("GitHub did not return all changed files. Sync and try again.");
     reviews.push(...(await this.reviewPages(repository, pr, signal)));
     const diff = await this.run(
       [
@@ -1228,7 +1229,12 @@ export class GitHubPullRequests {
       after.headRefOid !== before.headRefOid ||
       after.baseRefOid !== before.baseRefOid
     )
-      throw new GitHubReadError("This pull request changed while loading. Sync and open it again.");
+      throw new GitHubReadError(
+        "This pull request changed while loading. Sync and open it again.",
+        "comparison",
+      );
+    if (files.length !== pr.changedFiles)
+      throw new GitHubReadError("GitHub did not return all changed files. Sync and try again.");
     return validated(PullRequestDetail, {
       headOid: before.headRefOid,
       body: before.body,
