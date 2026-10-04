@@ -1,9 +1,13 @@
+import { HubState } from "../apps/hub/src/state.ts";
+import { startPairedHub } from "../apps/hub/src/paired-server.ts";
+import { Remotes } from "../apps/desktop/src/remotes.ts";
+import { decodeLocalConnection } from "@irudd-scope/protocol";
 import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
 import { afterEach, expect, test } from "vite-plus/test";
 import { randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -183,6 +187,7 @@ async function fixture() {
   }
   return {
     directory,
+    desktop,
     get server() {
       return server;
     },
@@ -708,4 +713,202 @@ test("repository origins unify GitHub SSH/HTTPS and retain fork, non-GitHub case
   expect(canonicalRetroRepository("https://git.example/Team/../Project")).toBe(
     "git.example/Project",
   );
+});
+
+test("cumulative notes remain readable when the next write exceeds the document quota", async () => {
+  const f = await fixture();
+  await f.configure();
+  const owner = await f.create();
+  const findings = Array.from({ length: 105 }, (_, i) => ({
+    id: `finding-${i}`,
+    category: "efficiency" as const,
+    title: "Synthetic finding",
+    text: "x".repeat(16384),
+    evidence: [],
+    sessions: [],
+  }));
+  await f.write(owner, { action: "publish", report: { ...report(), findings } });
+  let version = 1;
+  let accepted = 0;
+  let rejected = false;
+  for (let i = 0; i < 40; i++) {
+    try {
+      const result = await f.client.retro({
+        action: "comment",
+        name: owner.name,
+        tabId: owner.tabId,
+        expectedVersion: version,
+        requestId: randomUUID(),
+        findingId: null,
+        text: "☃".repeat(16384),
+      });
+      if (result.type !== "receipt") throw new Error("Expected receipt");
+      version = result.version;
+      accepted++;
+    } catch (error) {
+      expect(error).toMatchObject({ status: 413 });
+      rejected = true;
+      break;
+    }
+  }
+  expect(rejected).toBe(true);
+  const current = await f.read();
+  expect(current.comments).toHaveLength(accepted);
+  expect(current.version).toBe(version);
+  await f.restart();
+  expect((await f.read()).comments).toHaveLength(accepted);
+});
+
+test("built watch delivers durable requests and stops after conversational finish", async () => {
+  const f = await fixture();
+  await f.configure();
+  const owner = await f.create();
+  await f.write(owner, { action: "publish", report: report() });
+  const child = spawn(
+    process.execPath,
+    [resolve("packages/cli/dist/main.mjs"), "retro", "watch", owner.name],
+    {
+      env: {
+        ...process.env,
+        SCOPE_ENDPOINT: f.server.url,
+        SCOPE_TOKEN: token,
+        SCOPE_TOKEN_FILE: undefined,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let output = "";
+  let diagnostics = "";
+  child.stdout.on("data", (chunk) => {
+    output += String(chunk);
+  });
+  child.stderr.on("data", (chunk) => {
+    diagnostics += String(chunk);
+  });
+  const stopped = new Promise<number | null>((resolve) => child.once("close", resolve));
+  cleanup.push(async () => {
+    if (child.exitCode === null) child.kill("SIGTERM");
+    await stopped;
+  });
+  await expect
+    .poll(() => diagnostics, { timeout: 10000 })
+    .toContain(`Listening for retrospective decisions on ${owner.name}`);
+  await f.write(owner, {
+    action: "request",
+    findingId: null,
+    text: "Verify the synthetic coverage",
+  });
+  await expect.poll(() => output, { timeout: 10000 }).toContain("Verify the synthetic coverage");
+  const notices = output
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(notices[0].name).toBe(owner.name);
+  expect(notices[0].text).toContain("Do not finish until the operator explicitly asks");
+  const request = (await f.read()).requests[0];
+  await f.write(owner, {
+    action: "resolve-request",
+    id: request.id,
+    status: "answered",
+    response: "Verified synthetic coverage.",
+  });
+  await f.write(owner, { action: "finish", operatorInstruction: "Please finish" });
+  expect(await stopped).toBe(0);
+});
+
+test("paired hub forwards retrospective commands live, then rejects edits to completed HTML", async () => {
+  const f = await fixture();
+  const state = await HubState.open(join(f.directory, "hub"));
+  cleanup.push(async () => state.close());
+  const connectionFile = join(f.directory, "hub-connection.json");
+  await state.configure({ endpoint: "http://127.0.0.1:1", port: 1, connectionFile });
+  const hub = await startPairedHub(state, 0);
+  cleanup.push(hub.close);
+  await state.configure({ endpoint: hub.url, port: Number(new URL(hub.url).port), connectionFile });
+  const connection = decodeLocalConnection(JSON.parse(await readFile(connectionFile, "utf8")));
+  const remote = new ScopeClient(hub.url, connection.token);
+  const remotes = new Remotes(f.desktop, { url: f.server.url, token }, () => {});
+  cleanup.push(async () => remotes.close());
+  await remotes.start();
+  await remotes.pair(state.pairUrl());
+  await expect.poll(() => remotes.snapshot()[0]?.connection).toBe("connected");
+  expect(await remote.retro({ action: "settings" })).toMatchObject({
+    configuration: { version: 0 },
+  });
+  const configured = await remote.retro({
+    action: "configure",
+    requestId: randomUUID(),
+    expectedVersion: 0,
+    configuration: configuration(),
+  });
+  expect(configured).toMatchObject({ configuration: { version: 1 } });
+  const owner = await f.create();
+  await f.write(owner, { action: "publish", report: report() });
+  const snapshot = await f.read();
+  await remote.retro({
+    action: "finish",
+    name: owner.name,
+    tabId: owner.tabId,
+    requestId: randomUUID(),
+    expectedVersion: snapshot.version,
+    operatorInstruction: "Finish from paired source",
+  });
+  expect(await remote.retro({ action: "history" })).toMatchObject({
+    entries: [{ artifact: { id: owner.artifact.id } }],
+  });
+  await expect(
+    remote.publish(
+      owner.artifact.id,
+      { ...metadata(owner.artifact), expectedRevision: owner.artifact.revision },
+      Buffer.from("Late publication"),
+    ),
+  ).rejects.toMatchObject({ status: 409 });
+  const malformed = await fetch(`${hub.url}/v1/retros`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${connection.token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "settings", execute: "must reject" }),
+  });
+  expect(malformed.status).toBe(400);
+});
+
+test("general code corrections use verified report destinations without enabling memory", async () => {
+  const f = await fixture();
+  await f.configure({ ...configuration(), memory: { enabled: false, destinations: [] } });
+  const owner = await f.create();
+  const file: RetroDestination = {
+    ...destination,
+    id: "test-command",
+    type: "file",
+    path: "/synthetic/tools/test.ts",
+  };
+  const finding = {
+    id: "fix-runner",
+    category: "correctness" as const,
+    title: "Correct runner",
+    text: "Use the correct executable",
+    evidence: ["Synthetic failing check"],
+    sessions: [],
+    proposal: { destination: file, kind: "correction" as const, text: "Use vp exec" },
+  };
+  await f.write(owner, {
+    action: "publish",
+    report: { ...report(), destinations: [file], findings: [finding] },
+  });
+  expect((await f.read()).permittedDestinations).toEqual([file]);
+  await f.write(owner, {
+    action: "decide",
+    findingId: finding.id,
+    decision: "accept",
+    text: "ignored client text",
+  });
+  expect((await f.read()).decisions[0]).toMatchObject({ text: "Use vp exec", destination: file });
+  await expect(
+    f.write(owner, {
+      action: "decide",
+      findingId: finding.id,
+      decision: "edit",
+      text: "Other",
+      destination: { ...file, type: "claude-memory" },
+    }),
+  ).rejects.toMatchObject({ status: 400 });
 });

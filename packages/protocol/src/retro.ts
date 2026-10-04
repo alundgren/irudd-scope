@@ -3,11 +3,18 @@ import { Artifact, ArtifactName, PublicationTabId, Revision } from "./index.ts";
 import { PullRequestsStateObject as JsonObject } from "./pull-requests-state.ts";
 
 export const MAX_RETRO_REQUEST_BYTES = 2 * 1024 * 1024;
-export const MAX_RETRO_REPLY_BYTES = 4 * 1024 * 1024;
+export const MAX_RETRO_REPLY_BYTES = 8 * 1024 * 1024;
 const Id = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256));
 const Text = Schema.String.check(Schema.isMaxLength(16384));
 const Short = Schema.String.check(Schema.isMaxLength(512));
-const Time = Schema.String.check(Schema.isPattern(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/));
+const Time = Schema.String.check(
+  Schema.isMaxLength(40),
+  Schema.makeFilter((value) => Number.isFinite(Date.parse(value)), {
+    expected: "a valid UTC timestamp",
+    toJsonSchema: () => ({ type: "string", format: "date-time" }),
+  }),
+  Schema.isPattern(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/),
+);
 export const RetroRuntime = Schema.Literals(["codex", "claude"]);
 export type RetroRuntime = typeof RetroRuntime.Type;
 export const RetroIdentity = Schema.Struct({ sourceId: Id, runtime: RetroRuntime, sessionId: Id });

@@ -128,12 +128,17 @@ export class RetroStore {
             };
           }
           if (command.action === "history") {
+            const cursor = command.after?.split("|");
+            if (cursor && (cursor.length !== 2 || !Number.isFinite(Date.parse(cursor[0]))))
+              return yield* fail("Invalid history cursor.", 400);
+            const before = cursor?.[0] ?? "9999";
+            const beforeId = cursor?.[1] ?? "";
             const rows = yield* sql<{
               tab_id: string;
               artifact: string;
               document: string;
               count: number;
-            }>`SELECT artifacts.tab_id,artifacts.document AS artifact,retro_reports.document, (SELECT count(*) FROM retro_sessions WHERE retro_sessions.tab_id = artifacts.tab_id AND json_extract(retro_sessions.document,'$.status') = 'reviewed') AS count FROM artifacts JOIN retro_reports ON retro_reports.tab_id = artifacts.tab_id WHERE json_extract(retro_reports.document,'$.status') = 'finished' AND artifacts.tab_id > ${command.after ?? ""} ORDER BY artifacts.tab_id LIMIT 101`;
+            }>`SELECT artifacts.tab_id,artifacts.document AS artifact,retro_reports.document, (SELECT count(*) FROM retro_sessions WHERE retro_sessions.tab_id = artifacts.tab_id AND json_extract(retro_sessions.document,'$.status') = 'reviewed') AS count FROM artifacts JOIN retro_reports ON retro_reports.tab_id = artifacts.tab_id WHERE json_extract(retro_reports.document,'$.status') = 'finished' AND (json_extract(retro_reports.document,'$.finishedAt') < ${before} OR (json_extract(retro_reports.document,'$.finishedAt') = ${before} AND artifacts.tab_id < ${beforeId})) ORDER BY json_extract(retro_reports.document,'$.finishedAt') DESC,artifacts.tab_id DESC LIMIT 101`;
             const page = rows.slice(0, 100);
             return {
               reply: {
@@ -148,7 +153,10 @@ export class RetroStore {
                     reviewedSessions: row.count,
                   };
                 }),
-                next: rows.length > 100 ? page.at(-1)!.tab_id : null,
+                next:
+                  rows.length > 100
+                    ? `${(JSON.parse(page.at(-1)!.document) as Document).finishedAt}|${page.at(-1)!.tab_id}`
+                    : null,
               } as RetroReply,
               events: [],
             };
@@ -392,6 +400,11 @@ export class RetroStore {
                 )
                   return yield* fail("This session is excluded from automatic review.", 400);
                 if (
+                  session.startedAt &&
+                  Date.parse(session.startedAt) > Date.parse(source.discoveredAt)
+                )
+                  return yield* fail("Session started after the discovery cutoff.", 400);
+                if (
                   session.lastActivityAt &&
                   Date.parse(session.lastActivityAt) > Date.parse(source.discoveredAt)
                 )
@@ -403,6 +416,12 @@ export class RetroStore {
               break;
             }
             case "decide":
+              if (
+                command.destination &&
+                ["claude-memory", "okf"].includes(command.destination.type) &&
+                finding?.proposal?.kind !== "memory"
+              )
+                return yield* fail("Native memory destinations require a memory proposal.", 400);
               if (!finding?.proposal)
                 return yield* fail("This finding has no correction proposal.", 400);
               if (
