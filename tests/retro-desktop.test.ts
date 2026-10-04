@@ -111,7 +111,7 @@ async function configure(client: ScopeClient) {
     },
   });
 }
-async function publishReport(client: ScopeClient, count = 1) {
+async function publishReport(client: ScopeClient, count = 1, value = report(count)) {
   let snapshot = await read(client);
   await client.retro({
     action: "publish",
@@ -119,7 +119,7 @@ async function publishReport(client: ScopeClient, count = 1) {
     tabId: snapshot.tabId,
     requestId: randomUUID(),
     expectedVersion: snapshot.version,
-    report: report(count),
+    report: value,
   });
   for (let start = 0; start < count; start += 200) {
     snapshot = await read(client);
@@ -373,13 +373,75 @@ test("RETRO preserves drafts through data updates, HTML replacement, navigation,
   }
 }, 60_000);
 
-test("finishing an unvisited report does not flush another report's dirty input", async () => {
+test("an investigation can add a proposal to the same finding without replacing its draft editor", async () => {
   const fixture = await desktopFixture();
   const application = await fixture.launch();
   try {
     const page = await application.firstWindow();
     const file = join(fixture.directory, "report.html");
     await writeFile(file, await readFile("apps/desktop/src/plugins/retro/starter.html", "utf8"));
+    await fixture.cli("add", file, "--retro", "--name", name);
+    const client = await fixture.connect();
+    await configure(client);
+    const initial = report();
+    await publishReport(client, 1, {
+      ...initial,
+      findings: initial.findings.map(({ proposal: _proposal, ...finding }) => finding),
+    });
+    const frame = page.frameLocator(".retro-document");
+    await frame.getByRole("heading", { name: "Repeated full-file reads" }).waitFor();
+    expect(await frame.getByRole("button", { name: "Accept", exact: true }).isDisabled()).toBe(
+      true,
+    );
+    await frame.getByRole("button", { name: "Ask agent to investigate", exact: true }).click();
+    await frame
+      .getByRole("textbox", { name: "Investigation request", exact: true })
+      .fill("Find a concrete correction for this repeated retrieval.");
+    await frame.getByRole("button", { name: "Send request", exact: true }).click();
+    await expect.poll(async () => (await read(client)).requests[0]?.status).toBe("pending");
+    await frame.getByRole("button", { name: "Comment", exact: true }).click();
+    const input = frame.getByRole("textbox", { name: "Comment", exact: true });
+    await input.fill("Keep my draft while the agent proposes a correction.");
+    const current = await read(client);
+    await client.retro({
+      action: "publish",
+      name,
+      tabId: current.tabId,
+      requestId: randomUUID(),
+      expectedVersion: current.version,
+      report: report(),
+    });
+    await expect
+      .poll(() => frame.getByRole("button", { name: "Accept", exact: true }).isEnabled())
+      .toBe(true);
+    expect(await input.inputValue()).toBe("Keep my draft while the agent proposes a correction.");
+    await frame.getByRole("button", { name: "Accept", exact: true }).click();
+    await expect.poll(async () => (await read(client)).decisions[0]?.decision).toBe("accept");
+    expect(await input.inputValue()).toBe("Keep my draft while the agent proposes a correction.");
+  } finally {
+    await application.close();
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("finishing an unvisited report does not flush another report's failing pending input", async () => {
+  const fixture = await desktopFixture();
+  const application = await fixture.launch();
+  try {
+    const page = await application.firstWindow();
+    const file = join(fixture.directory, "report.html");
+    const html = await readFile("apps/desktop/src/plugins/retro/starter.html", "utf8");
+    await writeFile(
+      file,
+      html.replace(
+        "<head>",
+        `<head><script>
+      window.syntheticUnrelatedSave = window.scope.retros.beforeClose(async () => {
+        throw new Error("Unrelated report is still being edited.");
+      });
+    </script>`,
+      ),
+    );
     await fixture.cli("add", file, "--retro", "--name", name);
     const client = await fixture.connect();
     await configure(client);
@@ -427,6 +489,13 @@ test("finishing an unvisited report does not flush another report's dirty input"
       "Keep this other report's input pending.",
     );
   } finally {
+    const page = await application.firstWindow();
+    await page
+      .frameLocator(".retro-document")
+      .locator("body")
+      .evaluate(() => {
+        (window as unknown as { syntheticUnrelatedSave: () => void }).syntheticUnrelatedSave();
+      });
     await application.close();
     await rm(fixture.directory, { recursive: true, force: true });
   }

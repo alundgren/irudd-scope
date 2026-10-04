@@ -188,6 +188,12 @@ export function RetroSettings({ query }: { query: string }) {
                   change({
                     ...configuration,
                     sources: configuration.sources.filter((entry) => entry.id !== source.id),
+                    memory: {
+                      ...configuration.memory,
+                      destinations: configuration.memory.destinations.filter(
+                        (entry) => entry.sourceId !== source.id,
+                      ),
+                    },
                   })
                 }
               >

@@ -109,3 +109,75 @@ test("RETRO settings preserve unsaved source edits on conflict and persist named
     await rm(fixture.directory, { recursive: true, force: true });
   }
 }, 60_000);
+
+test("removing a source also removes its hidden memory destinations and the saved settings reload", async () => {
+  const fixture = await desktopFixture();
+  const application = await fixture.launch();
+  try {
+    const page = await application.firstWindow();
+    const client = await fixture.connect();
+    const initial = await client.retro({ action: "settings" });
+    if (initial.type !== "configuration") throw new Error("Expected configuration.");
+    await client.retro({
+      action: "configure",
+      requestId: randomUUID(),
+      expectedVersion: initial.configuration.version,
+      configuration: {
+        ...initial.configuration,
+        sources: [
+          {
+            id: "devbox",
+            name: "Devbox",
+            sshAlias: "dev-box",
+            included: true,
+            runtimes: ["codex"],
+            runtimeRoots: { codex: null, claude: null },
+          },
+        ],
+        memory: {
+          enabled: false,
+          destinations: [
+            {
+              id: "personal-rules",
+              sourceId: "devbox",
+              path: "~/.agents/AGENTS.md",
+              type: "instructions",
+              scope: "operator",
+              available: true,
+              verifiedAt: "2026-10-04T08:00:00.000Z",
+            },
+          ],
+        },
+      },
+    });
+    await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+    await page.keyboard.press("ControlOrMeta+,");
+    const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+    await settings.getByLabel("Search settings").fill("retro");
+    await settings.getByRole("textbox", { name: "Source name", exact: true }).waitFor();
+    expect(
+      await settings
+        .getByRole("switch", { name: "Memory suggestions" })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
+    expect(await settings.getByRole("button", { name: "Remove destination" }).count()).toBe(0);
+    await settings.getByRole("button", { name: "Remove source", exact: true }).click();
+    await settings.getByRole("button", { name: "Save RETRO settings", exact: true }).click();
+    await settings.getByText("RETRO settings saved.", { exact: true }).waitFor();
+    const saved = await client.retro({ action: "settings" });
+    if (saved.type !== "configuration") throw new Error("Expected configuration.");
+    expect(saved.configuration.sources).toEqual([]);
+    expect(saved.configuration.memory).toEqual({ enabled: false, destinations: [] });
+    await settings.getByRole("button", { name: "Close", exact: true }).click();
+    await settings.waitFor({ state: "hidden" });
+    await page.keyboard.press("ControlOrMeta+,");
+    await settings.getByLabel("Search settings").fill("retro");
+    await settings.getByText(/No sources configured/).waitFor();
+    expect(await settings.getByRole("textbox", { name: "Source name", exact: true }).count()).toBe(
+      0,
+    );
+  } finally {
+    await application.close();
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
+}, 60_000);

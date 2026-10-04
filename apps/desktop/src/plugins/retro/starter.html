@@ -213,92 +213,84 @@
         const notes = element("div");
         const decision = element("p", undefined, "secondary");
         const controls = [];
-        if (finding.proposal) {
-          proposalText = element("p", finding.proposal.text);
-          proposalDestination = element("p", undefined, "secondary");
-          article.append(
-            element(
-              "p",
-              finding.proposal.kind === "memory" ? "Proposed memory" : "Proposed correction",
-              "secondary",
-            ),
-            proposalText,
-          );
-          article.append(proposalDestination);
-          controls.push(
-            addButton(actions, "Accept", () =>
-              act(() => sdk.decide(finding.id, "accept", snapshot.version)),
-            ),
-          );
-          controls.push(
-            addButton(actions, "Edit proposal", () => {
-              editor.replaceChildren();
-              const text = textField(
-                editor,
-                "Proposed text",
-                finding.id + ":proposal",
-                finding.proposal.text,
+        const proposalLabel = element("p", undefined, "secondary");
+        proposalText = element("p", finding.proposal?.text ?? "");
+        proposalDestination = element("p", undefined, "secondary");
+        article.append(proposalLabel, proposalText);
+        article.append(proposalDestination);
+        controls.push(
+          addButton(actions, "Accept", () =>
+            act(() => sdk.decide(finding.id, "accept", snapshot.version)),
+          ),
+        );
+        controls.push(
+          addButton(actions, "Edit proposal", () => {
+            editor.replaceChildren();
+            const text = textField(
+              editor,
+              "Proposed text",
+              finding.id + ":proposal",
+              finding.proposal.text,
+            );
+            const destinationLabel = element("label", "Destination and scope");
+            const choice = element("select");
+            const permitted = snapshot.permittedDestinations.filter(
+              (entry) =>
+                finding.proposal.kind !== "memory" || !["file", "issue"].includes(entry.type),
+            );
+            for (const entry of permitted) {
+              const option = element(
+                "option",
+                (entry.scope === "operator" ? "Personal" : "Project") +
+                  " · " +
+                  entry.sourceId +
+                  " · " +
+                  entry.path,
               );
-              const destinationLabel = element("label", "Destination and scope");
-              const choice = element("select");
-              const permitted = snapshot.permittedDestinations.filter(
-                (entry) =>
-                  finding.proposal.kind !== "memory" || !["file", "issue"].includes(entry.type),
-              );
-              for (const entry of permitted) {
-                const option = element(
-                  "option",
-                  (entry.scope === "operator" ? "Personal" : "Project") +
-                    " · " +
-                    entry.sourceId +
-                    " · " +
-                    entry.path,
+              option.value = entry.id;
+              choice.append(option);
+            }
+            choice.value = drafts[finding.id + ":destination"] ?? destination.id;
+            choice.dataset.draftKey = finding.id + ":destination";
+            choice.onchange = () => {
+              drafts[finding.id + ":destination"] = choice.value;
+            };
+            destinationLabel.append(choice);
+            editor.append(
+              destinationLabel,
+              element(
+                "p",
+                "Ask your agent to verify a new destination before selecting it here.",
+                "secondary",
+              ),
+            );
+            addButton(editor, "Save edited proposal", () =>
+              act(async () => {
+                const submittedText = text.value;
+                const submittedDestination = choice.value;
+                await sdk.decide(
+                  finding.id,
+                  {
+                    decision: "edit",
+                    text: submittedText,
+                    destination: permitted.find((entry) => entry.id === submittedDestination),
+                  },
+                  snapshot.version,
                 );
-                option.value = entry.id;
-                choice.append(option);
-              }
-              choice.value = drafts[finding.id + ":destination"] ?? destination.id;
-              choice.dataset.draftKey = finding.id + ":destination";
-              choice.onchange = () => {
-                drafts[finding.id + ":destination"] = choice.value;
-              };
-              destinationLabel.append(choice);
-              editor.append(
-                destinationLabel,
-                element(
-                  "p",
-                  "Ask your agent to verify a new destination before selecting it here.",
-                  "secondary",
-                ),
-              );
-              addButton(editor, "Save edited proposal", () =>
-                act(async () => {
-                  const submittedText = text.value;
-                  const submittedDestination = choice.value;
-                  await sdk.decide(
-                    finding.id,
-                    {
-                      decision: "edit",
-                      text: submittedText,
-                      destination: permitted.find((entry) => entry.id === submittedDestination),
-                    },
-                    snapshot.version,
-                  );
-                  if (text.value === submittedText && choice.value === submittedDestination) {
-                    delete drafts[finding.id + ":proposal"];
-                    delete drafts[finding.id + ":destination"];
-                    editor.replaceChildren();
-                  }
-                }),
-              );
-            }),
-          );
-          controls.push(
-            addButton(actions, "Reject", () =>
-              act(() => sdk.decide(finding.id, "reject", snapshot.version)),
-            ),
-          );
-        }
+                if (text.value === submittedText && choice.value === submittedDestination) {
+                  delete drafts[finding.id + ":proposal"];
+                  delete drafts[finding.id + ":destination"];
+                  editor.replaceChildren();
+                }
+              }),
+            );
+          }),
+        );
+        controls.push(
+          addButton(actions, "Reject", () =>
+            act(() => sdk.decide(finding.id, "reject", snapshot.version)),
+          ),
+        );
         controls.push(
           addButton(actions, "Comment", () => {
             editor.replaceChildren();
@@ -349,6 +341,11 @@
             evidence.replaceChildren(element("summary", "Evidence"));
             for (const reference of next.evidence) evidence.append(element("p", reference));
             destination = next.proposal?.destination;
+            proposalLabel.hidden = !next.proposal;
+            proposalLabel.textContent =
+              next.proposal?.kind === "memory" ? "Proposed memory" : "Proposed correction";
+            proposalText.hidden = !next.proposal;
+            proposalDestination.hidden = !next.proposal;
             if (proposalText)
               proposalText.textContent = next.proposal?.text ?? "Proposal withdrawn.";
             if (proposalDestination)
