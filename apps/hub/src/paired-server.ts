@@ -33,6 +33,8 @@ import {
 } from "@irudd-scope/protocol/remote";
 import type { HubState } from "./state.ts";
 import type { HubUpdates } from "./updates.ts";
+import type { MemorySync } from "@irudd-scope/memory-sync";
+import { MemoryConfiguration, disabledMemory } from "@irudd-scope/protocol/memory";
 import { BufferedPublication, readBody } from "./buffered-publication.ts";
 import { PublicationDelivery, type RelayCall } from "./publication-delivery.ts";
 import { artifactMetadataRequest } from "./artifact-metadata.ts";
@@ -100,7 +102,9 @@ export async function startPairedHub(
   state: HubState,
   port = state.configuration().port,
   updates?: HubUpdates,
+  memory?: MemorySync,
 ) {
+  memory?.configure(state.memoryConfiguration());
   let desktop: ServerResponse | undefined;
   const pending = new Map<string, Pending>();
   function forget(id: string) {
@@ -283,6 +287,10 @@ export async function startPairedHub(
       });
       return;
     }
+    if (url.pathname === "/v1/hub/memory" && request.method === "GET" && !url.search && memory) {
+      json(response, 200, memory.status());
+      return;
+    }
     if (url.pathname === "/v1/hub/queue" && request.method === "GET" && !url.search) {
       json(response, 200, state.queue.snapshot());
       return;
@@ -305,6 +313,7 @@ export async function startPairedHub(
     if (url.pathname === "/v1/hub/unpair" && request.method === "POST") {
       delivery.cancel();
       state.unpair();
+      memory?.configure(disabledMemory());
       disconnect();
       json(response, 200, { unpaired: true });
       return;
@@ -329,9 +338,24 @@ export async function startPairedHub(
       ["GET", "POST"].includes(request.method ?? "")
     )
       return handleUpdate(request, response, updates);
+    if (url.pathname === "/v1/relay/memory" && !url.search && memory) {
+      if (request.method === "PUT") {
+        const body = await readBody(request, 4096);
+        const configuration = decode(MemoryConfiguration, JSON.parse(body.toString()));
+        state.saveMemoryConfiguration(configuration);
+        memory.configure(configuration);
+        json(response, 200, memory.status());
+        return;
+      }
+      if (request.method === "GET") {
+        json(response, 200, memory.status());
+        return;
+      }
+    }
     if (url.pathname === "/v1/relay/disconnect" && request.method === "DELETE") {
       delivery.cancel();
       state.unpair();
+      memory?.configure(disabledMemory());
       disconnect();
       json(response, 200, { unpaired: true });
       return;
@@ -576,6 +600,7 @@ export async function startPairedHub(
       clearInterval(queueTimer);
       await delivery.close();
       await updates?.close();
+      await memory?.close();
       await state.maintenance.close();
       disconnect();
       server.closeAllConnections();

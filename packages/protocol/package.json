@@ -15,7 +15,8 @@
     "./plan": "./src/plan.ts",
     "./pull-requests": "./src/pull-requests.ts",
     "./transfer": "./src/transfer.ts",
-    "./retro": "./src/retro.ts"
+    "./retro": "./src/retro.ts",
+    "./memory": "./src/memory.ts"
   },
   "dependencies": {
     "effect": "catalog:"

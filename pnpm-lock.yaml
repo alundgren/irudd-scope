@@ -253,6 +253,9 @@ importers:
       '@electron/packager':
         specifier: 'catalog:'
         version: 20.3.0
+      '@irudd-scope/memory-sync':
+        specifier: workspace:*
+        version: link:packages/memory-sync
       '@irudd-scope/protocol':
         specifier: workspace:*
         version: link:packages/protocol
@@ -283,6 +286,9 @@ importers:
       '@excalidraw/excalidraw':
         specifier: 'catalog:'
         version: 0.18.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@irudd-scope/memory-sync':
+        specifier: workspace:*
+        version: link:../../packages/memory-sync
       '@irudd-scope/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -347,6 +353,9 @@ importers:
 
   apps/hub:
     dependencies:
+      '@irudd-scope/memory-sync':
+        specifier: workspace:*
+        version: link:../../packages/memory-sync
       '@irudd-scope/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -365,6 +374,12 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.117
+
+  packages/memory-sync:
+    dependencies:
+      '@irudd-scope/protocol':
+        specifier: workspace:*
+        version: link:../protocol
 
   packages/protocol:
     dependencies:

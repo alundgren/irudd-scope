@@ -15,12 +15,16 @@ import type { Remote, RemoteStatus } from "./remote-contract.ts";
 import { synchronizeRemote } from "./remote-updates.ts";
 
 type Connection = { controller: AbortController; task: Promise<void> };
+/** An authenticated request to a connected hub's relay API, valid until the session ends. */
+export type RemoteCall = (method: "GET" | "PUT", path: string, body?: unknown) => Promise<Response>;
+type SessionListener = (remote: Remote, call: RemoteCall, signal: AbortSignal) => void;
 
 export class Remotes {
   private readonly statuses = new Map<string, RemoteStatus>();
   private readonly connections = new Map<string, Connection>();
   private readonly updating = new Map<string, Connection>();
   private readonly pairing = new AbortController();
+  private readonly sessionListeners = new Set<SessionListener>();
   private pending = Promise.resolve();
   private closed = false;
 
@@ -33,6 +37,12 @@ export class Remotes {
 
   snapshot() {
     return [...this.statuses.values()];
+  }
+  onSession(listener: SessionListener) {
+    this.sessionListeners.add(listener);
+    return () => {
+      this.sessionListeners.delete(listener);
+    };
   }
   private status(remote: Remote, connection: RemoteStatus["connection"], message: string) {
     this.statuses.set(remote.id, {
@@ -225,6 +235,18 @@ export class Remotes {
             if (!checkedUpdates) {
               checkedUpdates = true;
               this.updateRemote(remote, token, sessionSignal);
+              const call: RemoteCall = (method, path, body) =>
+                fetch(`${endpoint}${path}`, {
+                  method,
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                    ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+                  },
+                  ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+                  redirect: "error",
+                  signal: AbortSignal.any([sessionSignal, AbortSignal.timeout(15_000)]),
+                });
+              for (const listener of this.sessionListeners) listener(remote, call, sessionSignal);
             }
             return;
           }

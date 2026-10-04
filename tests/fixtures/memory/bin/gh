@@ -1,0 +1,53 @@
+#!/usr/bin/env node
+// Synthetic gh for memory tests. Repositories are local bare repositories in FAKE_GH_REMOTES;
+// pull requests are JSON lines in FAKE_GH_STATE/prs.jsonl.
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const args = process.argv.slice(2);
+const option = (name) => args[args.indexOf(name) + 1];
+const prs = join(process.env.FAKE_GH_STATE, "prs.jsonl");
+const pulls = () =>
+  existsSync(prs)
+    ? readFileSync(prs, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line))
+    : [];
+
+if (args[0] === "repo" && args[1] === "view") {
+  if (process.env.FAKE_GH_DENY) {
+    process.stderr.write("HTTP 404: Not Found (https://api.github.com/graphql)\n");
+    process.exit(1);
+  }
+  const name = args[2].split("/")[1];
+  const directory = join(process.env.FAKE_GH_REMOTES, `${name}.git`);
+  let branch = null;
+  try {
+    execFileSync("git", ["--git-dir", directory, "rev-parse", "--verify", "--quiet", "HEAD"]);
+    branch = execFileSync("git", ["--git-dir", directory, "symbolic-ref", "--short", "HEAD"])
+      .toString()
+      .trim();
+  } catch {
+    branch = null;
+  }
+  process.stdout.write(
+    JSON.stringify({
+      url: `file://${directory}`,
+      defaultBranchRef: branch ? { name: branch } : null,
+    }),
+  );
+} else if (args[0] === "pr" && args[1] === "create") {
+  const number = pulls().length + 1;
+  const url = `https://github.com/${option("--repo")}/pull/${number}`;
+  appendFileSync(
+    prs,
+    `${JSON.stringify({ url, title: option("--title"), headRefName: option("--head"), baseRefName: option("--base"), state: "OPEN" })}\n`,
+  );
+  process.stdout.write(`${url}\n`);
+} else if (args[0] === "pr" && args[1] === "list") {
+  process.stdout.write(JSON.stringify(pulls()));
+} else if (args[0] === "auth" && args[1] === "git-credential") {
+  process.exit(0);
+} else {
+  process.stderr.write(`Unsupported synthetic gh command: ${args.join(" ")}\n`);
+  process.exit(1);
+}

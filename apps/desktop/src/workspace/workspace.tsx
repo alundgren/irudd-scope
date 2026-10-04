@@ -21,6 +21,7 @@ import {
 import { SettingsViewPanel } from "../renderer/settings-view.tsx";
 import { SettingsDialog } from "../renderer/settings-dialog.tsx";
 import { UpdateNotice } from "../renderer/installation-settings.tsx";
+import { MemoryNotice } from "../renderer/memory-settings.tsx";
 import { ImportTabDialog, PairScopeDialog, SendTabDialog } from "../renderer/transfer-dialog.tsx";
 import type { Artifact } from "@irudd-scope/protocol";
 import { isTransferKind } from "@irudd-scope/protocol/transfer";
@@ -498,6 +499,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         </div>
       )}
       {!focus && <UpdateNotice />}
+      {!focus && <MemoryNotice />}
       <div className="workspace-content">
         {paneTabs.map((tab) => {
           const { id } = tab;

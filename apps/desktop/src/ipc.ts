@@ -16,6 +16,7 @@ import { TabEventEnvelope } from "./plugins/events.ts";
 import type { AgentTools } from "./agent-tools.ts";
 import type { AppUpdates } from "./updates.ts";
 import type { Remotes } from "./remotes.ts";
+import type { MemoryService } from "./memory.ts";
 import { RemoteId } from "@irudd-scope/protocol/remote";
 import { openKeychainAccess } from "./signing.ts";
 import { DiagramCommand, DiagramReply } from "@irudd-scope/protocol/diagram";
@@ -34,6 +35,7 @@ export function registerDesktopIpc({
   updates,
   agentTools,
   remotes,
+  memory,
   transfers,
   onRestartToUpdate,
   setDiagramMenu,
@@ -47,6 +49,7 @@ export function registerDesktopIpc({
   updates: AppUpdates;
   agentTools: AgentTools;
   remotes: Remotes;
+  memory: MemoryService;
   transfers: TabTransfers;
   onRestartToUpdate: () => Promise<void>;
   setDiagramMenu: (state: DiagramMenuState) => void;
@@ -154,6 +157,14 @@ export function registerDesktopIpc({
   });
   handle("scope:remove-remote", (input) => remotes.remove(decode(RemoteId, input)));
   handle("scope:retry-remote-update", (input) => remotes.retryUpdate(decode(RemoteId, input)));
+  handle("scope:memory", () => memory.snapshot());
+  handle("scope:set-memory-enabled", (input) => memory.setEnabled(decode(Schema.Boolean, input)));
+  handle("scope:retry-memory", () => memory.retry());
+  handle("scope:copy-memory-request", (input) =>
+    clipboard.writeText(
+      memory.agentRequest(decode(Schema.Literals(["create", "conflicts"]), input)),
+    ),
+  );
   handle("scope:updates", () => updates.snapshot());
   handle("scope:check-for-updates", () => {
     if (agentTools.isBusy()) throw new Error("Wait for the agent tools installation to finish.");

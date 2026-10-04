@@ -6,6 +6,7 @@ import type { ScopeBridge, ArtifactLibrarySnapshot } from "./bridge.ts";
 import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
 import type { RetainedTab } from "./workspace/retention.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
+import type { MemoryStatus } from "@irudd-scope/protocol/memory";
 import type { DiagramMenuAction } from "./menu-contract.ts";
 
 import type { PlanEvent } from "@irudd-scope/protocol/plan";
@@ -140,6 +141,15 @@ const bridge: ScopeBridge = {
     return () => ipcRenderer.removeListener("scope:fullscreen-changed", receive);
   },
   remotes: () => ipcRenderer.invoke("scope:remotes"),
+  memory: () => ipcRenderer.invoke("scope:memory"),
+  setMemoryEnabled: (enabled) => ipcRenderer.invoke("scope:set-memory-enabled", enabled),
+  retryMemory: () => ipcRenderer.invoke("scope:retry-memory"),
+  copyMemoryRequest: (kind) => ipcRenderer.invoke("scope:copy-memory-request", kind),
+  onMemoryChange: (listener) => {
+    const receive = (_event: unknown, status: MemoryStatus) => listener(status);
+    ipcRenderer.on("scope:memory-changed", receive);
+    return () => ipcRenderer.removeListener("scope:memory-changed", receive);
+  },
   transferDevices: () => ipcRenderer.invoke("scope:transfer-devices"),
   createPairing: (name) => ipcRenderer.invoke("scope:create-pairing", name),
   copyPairingSecret: (id) => ipcRenderer.invoke("scope:copy-pairing-secret", id),

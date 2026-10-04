@@ -32,6 +32,13 @@ import { RemoteToken } from "@irudd-scope/protocol/remote";
 import { TransferName, TransferSecret } from "@irudd-scope/protocol/transfer";
 import { ScopeDevice, ScopePeer, ScopePeers } from "./transfer/contract.ts";
 import { machineRetroConfiguration } from "./retro-configuration.ts";
+import type { MemoryConfiguration } from "@irudd-scope/protocol/memory";
+import {
+  MemoryPreferences,
+  emptyMemoryPreferences,
+  withMemoryDestinations,
+  withoutMemoryDestinations,
+} from "./memory-contract.ts";
 
 const SavedSettings = Schema.Struct({
   version: Schema.Literal(2),
@@ -175,13 +182,22 @@ export class DesktopStore {
     const saved = row
       ? decode(RetroConfiguration, JSON.parse(row.document))
       : emptyRetroConfiguration();
-    return machineRetroConfiguration(saved, await this.remotes());
+    return withMemoryDestinations(
+      machineRetroConfiguration(saved, await this.remotes()),
+      await this.memory(),
+    );
   }
 
-  saveRetroConfiguration(
+  async saveRetroConfiguration(
     input: Extract<RetroCommand, { action: "configure" }>,
   ): Promise<RetroConfiguration> {
-    const command = decode(RetroConfiguration, input.configuration);
+    return withMemoryDestinations(await this.storeRetroConfiguration(input), await this.memory());
+  }
+
+  private storeRetroConfiguration(
+    input: Extract<RetroCommand, { action: "configure" }>,
+  ): Promise<RetroConfiguration> {
+    const command = withoutMemoryDestinations(decode(RetroConfiguration, input.configuration));
     const sql = this.sql!;
     const payload = createHash("sha256").update(JSON.stringify(input)).digest("hex");
     const task = this.pending.then(() =>
@@ -301,6 +317,50 @@ export class DesktopStore {
       () => {},
     );
     return task;
+  }
+
+  async memory(): Promise<MemoryPreferences> {
+    await this.pending;
+    const [row] = await this.run(
+      this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'memory'`,
+    );
+    return row ? decode(MemoryPreferences, JSON.parse(row.document)) : emptyMemoryPreferences();
+  }
+
+  /** Applies one memory change; a null bundle root forgets that machine's registration. */
+  saveMemory(change: {
+    configuration?: MemoryConfiguration;
+    bundle?: { machine: string; root: string | null; verifiedAt: string };
+  }): Promise<MemoryPreferences> {
+    return this.enqueue(async () => {
+      const [row] = await this.run(
+        this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'memory'`,
+      );
+      const prior = row
+        ? decode(MemoryPreferences, JSON.parse(row.document))
+        : emptyMemoryPreferences();
+      const bundles = { ...prior.bundles };
+      if (change.bundle) {
+        const { machine, root, verifiedAt } = change.bundle;
+        if (root === null) delete bundles[machine];
+        else if (bundles[machine]?.root !== root) bundles[machine] = { root, verifiedAt };
+      }
+      const next = decode(MemoryPreferences, {
+        ...prior,
+        ...change.configuration,
+        bundles:
+          change.configuration?.repository !== undefined &&
+          change.configuration.repository !== prior.repository
+            ? {}
+            : bundles,
+      });
+      if (JSON.stringify(next) !== JSON.stringify(prior))
+        await this.run(
+          this
+            .sql!`INSERT INTO preferences(name, document) VALUES ('memory', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+        );
+      return next;
+    });
   }
 
   private async readProviderCredentials() {

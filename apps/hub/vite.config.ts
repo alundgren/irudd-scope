@@ -11,6 +11,7 @@ export default defineConfig({
     deps: {
       alwaysBundle: [
         "@irudd-scope/sqlite",
+        "@irudd-scope/memory-sync",
         "@irudd-scope/protocol",
         "@irudd-scope/protocol/**",
         "effect",

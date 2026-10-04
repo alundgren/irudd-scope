@@ -791,3 +791,18 @@ before finish. The [retro authoring guide](../../.agents/skills/irudd-scope/refe
 contains the operational workflow. Live retro commands require an awake,
 connected desktop, including through a paired hub. Initial HTML publication
 uses the ordinary publication queue.
+
+## Personal memory
+
+`src/memory.ts` defines the memory configuration, per-machine status, and the
+agent guide printed by `irudd-scope memory guide`. `GET /v1/memory` returns the
+desktop view and `POST /v1/memory/connection` with `{ "repository": "OWNER/NAME" }`
+connects a repository after the operator turned memory on (409 otherwise).
+Paired hubs forward both routes. A hub also answers `GET /v1/hub/memory` with
+the local publishing credential, so `irudd-scope memory status` works while the
+Mac is offline.
+
+The Mac sends `PUT /v1/relay/memory` with its configuration when a relay
+session starts and after every change, and reads `GET /v1/relay/memory` once a
+minute. The last configuration from the Mac wins. An older hub answers 404 and
+the Mac reports that the remote needs an update.

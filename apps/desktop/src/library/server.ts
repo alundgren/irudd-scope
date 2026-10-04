@@ -1,5 +1,6 @@
 import { RetroCommand, RetroReply, MAX_RETRO_REQUEST_BYTES } from "@irudd-scope/protocol/retro";
 import type { RetroConfiguration } from "@irudd-scope/protocol/retro";
+import { MemoryConnectRequest, MemoryStatus } from "@irudd-scope/protocol/memory";
 import { handlePullRequestsHttp } from "./pull-requests-http.ts";
 import {
   VoiceRequest,
@@ -51,6 +52,10 @@ export async function startArtifactServer(options: {
     ) => Promise<RetroConfiguration>;
   };
   importLink?: (url: string) => Promise<TransferImportReceipt>;
+  memory?: {
+    status: () => MemoryStatus;
+    connect: (repository: string) => Promise<MemoryStatus>;
+  };
   voice?: VoiceService;
   diagramAgent?: (command: DiagramAgentCommand, signal: AbortSignal) => Promise<DiagramAgentReply>;
   diagram?: (command: DiagramCommand, signal: AbortSignal) => Promise<DiagramReply>;
@@ -134,6 +139,17 @@ export async function startArtifactServer(options: {
       );
       const input = validate(() => decode(RetroCommand, body));
       json(response, 200, decode(RetroReply, await store.retros.command(input)));
+      return;
+    }
+    if ((route === "GET /v1/memory" || route === "POST /v1/memory/connection") && !url.search) {
+      if (!options.memory) throw new ScopeError(503, "Memory is unavailable in this Scope.");
+      if (request.method === "GET") {
+        json(response, 200, decode(MemoryStatus, options.memory.status()));
+        return;
+      }
+      const body = await readJson(request, 4096, "Memory request exceeds 4 KiB.");
+      const input = validate(() => decode(MemoryConnectRequest, body));
+      json(response, 200, decode(MemoryStatus, await options.memory.connect(input.repository)));
       return;
     }
     if (await handlePlanHttp(request, response, url, store.plans)) return;

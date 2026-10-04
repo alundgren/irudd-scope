@@ -129,9 +129,12 @@ unavailable and obtain the directory from that runtime's `/memory` view. Scope
 never enables or disables native auto memory.
 
 Codex generated memory offers no supported CRUD contract here. Use supported
-personal or repository instruction files instead. Show irudd-okf only when its
-executable exists on the destination host; inspect installed help and use its
-supported commands. There is no generic file-writing service in Scope.
+personal or repository instruction files instead. irudd-okf destinations come
+from Scope's Memory settings: while memory sync is on, settings list an
+`okf-personal-SOURCE` operator destination for each machine whose `personal`
+bundle is synced, with the bundle folder as its path. Write there with
+`irudd-okf write` on that host; Scope commits and pushes the change. Do not
+propose OKF destinations while memory sync is off. There is no generic file-writing service in Scope.
 
 For every proposal, show the exact final text, destination host, path or supported
 store, and whether it is personal or belongs to the session's repository.

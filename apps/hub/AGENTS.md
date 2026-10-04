@@ -4,7 +4,9 @@ The hub authenticates and forwards the artifact API to the desktop. It owns
 its configuration, credential hashes, bounded publication queue, and saved
 artifact metadata in `hub.db`.
 The queue temporarily owns content and metadata until delivery or expiry;
-the desktop owns delivered artifacts. The hub does not execute models. Keep dependencies on the shared protocol; do not
+the desktop owns delivered artifacts. The hub does not execute models. It saves the
+Mac's memory configuration in `hub.db` and runs `@irudd-scope/memory-sync` with
+the remote user's own `git`, `gh`, and `irudd-okf`; it never stores GitHub tokens. Keep dependencies on the shared protocol; do not
 import desktop or CLI internals.
 
 The Mac opens the relay connection and every transfer. Local publishing and
@@ -26,7 +28,8 @@ revision from saved metadata. Revocation clears both metadata and the queue
 so another Mac cannot receive previous content.
 
 Verify changes through the forwarding cases in `../../tests/artifacts.test.ts`,
-and pairing cases in `../../tests/remotes.test.ts`, including unavailable
+pairing cases in `../../tests/remotes.test.ts`, and memory cases in
+`../../tests/memory-remotes.test.ts`, including unavailable
 desktops and live events. Use the built CLI when a
 change affects publication. Launch and environment details are in
 [development](../../docs/development.md#remote-access).

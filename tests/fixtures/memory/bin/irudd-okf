@@ -1,0 +1,40 @@
+#!/usr/bin/env node
+// Synthetic irudd-okf matching v0.1.0 JSON output. Registrations live in FAKE_OKF_CONFIG.
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+
+const args = process.argv.slice(2);
+const file = process.env.FAKE_OKF_CONFIG;
+const read = () => (existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { bundles: [] });
+const fail = (code, message, details = {}) => {
+  process.stdout.write(JSON.stringify({ version: 1, error: { code, message, details } }));
+  process.exit(2);
+};
+
+if (args[0] === "--version") process.stdout.write("irudd-okf v0.1.0\n");
+else if (args[0] === "bundle" && args[1] === "list") {
+  const bundles = read().bundles.map((bundle) => ({ ...bundle, kind: "personal", writable: true }));
+  process.stdout.write(JSON.stringify({ version: 1, bundles }));
+} else if (args[0] === "bundle" && args[1] === "add") {
+  const [, , name, root] = args;
+  const config = read();
+  if (config.bundles.some((bundle) => bundle.name === name))
+    fail("BUNDLE_COLLISION", "This bundle name is already registered.", { name });
+  if (!existsSync(root)) fail("BUNDLE_NOT_FOUND", "The selected bundle does not exist.", { name, root });
+  config.bundles.push({ name, root });
+  writeFileSync(file, JSON.stringify(config));
+  process.stdout.write(JSON.stringify({ version: 1, bundles: config.bundles, active: [name] }));
+} else if (args[0] === "bundle" && args[1] === "remove") {
+  const config = read();
+  config.bundles = config.bundles.filter((bundle) => bundle.name !== args[2]);
+  writeFileSync(file, JSON.stringify(config));
+  process.stdout.write(JSON.stringify({ version: 1, bundles: config.bundles }));
+} else if (args[0] === "upgrade" && process.env.FAKE_OKF_UPGRADE) {
+  if (args[1] === "--check")
+    process.stdout.write(
+      JSON.stringify({ current: "0.1.0", latest: "0.2.0", updateAvailable: true }),
+    );
+  else if (process.env.FAKE_OKF_UPGRADE === "fail") {
+    process.stdout.write(JSON.stringify({ version: 1, error: { code: "DOWNLOAD_FAILED", message: "Download failed." } }));
+    process.exit(1);
+  } else process.stdout.write(JSON.stringify({ previous: "0.1.0", current: "0.2.0", updated: true }));
+} else fail("INVALID_ARGUMENTS", "~effect/cli/CliError/ShowHelp: Help requested");
