@@ -61,7 +61,7 @@ export function TabHost({
   );
   const plugin = findPlugin(tab.type);
   // Diagram views also handle commands addressed to background tabs.
-  if (tab.type === "file" && !active && !visited) return null;
+  if (["file", "retro"].includes(tab.type) && !active && !visited) return null;
   if (!plugin)
     return (
       <p role="status" className="empty-state">
