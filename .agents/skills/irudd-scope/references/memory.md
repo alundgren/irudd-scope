@@ -35,6 +35,10 @@ Use the `okf` skill and `irudd-okf write` against the `personal` bundle. Scope
 commits and pushes changed files every five minutes; never commit or push in
 Scope's synced folder yourself.
 
+Scope shares irudd-okf's writer lock during Git updates. If an OKF write reports
+LOCKED while Scope is syncing, retry after that sync. Runtime locks, recovery
+copies, and temporary files stay on their originating machine.
+
 ## Resolve sync conflicts
 
 The Mac shows a banner when a machine pushed a `memory-conflict/HOST-TIME`
@@ -49,3 +53,8 @@ branch and opened a pull request. For each pull request:
 3. Push, then merge the pull request with `gh pr merge NUMBER --merge
 --delete-branch` after the person agrees. Scope never merges it.
 4. Remove the temporary clone. The banner clears on the Mac's next sync.
+
+If status reports an unfinished rebase in Scope's clone, preserve any newer
+edits outside the clone before running `git rebase --abort`, restore the saved
+edits, then use Sync now. Inspect an unknown `.irudd-okf/write.lock` before
+removing it; never remove a lock whose writer is still running.

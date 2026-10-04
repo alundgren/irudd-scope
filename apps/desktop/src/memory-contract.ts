@@ -20,13 +20,17 @@ export const emptyMemoryPreferences = (): MemoryPreferences => ({
 export const LOCAL_MEMORY_MACHINE = "local";
 const GENERATED = "okf-personal-";
 
+export function isPersonalMemoryDestination(destination: Pick<RetroDestination, "id">) {
+  return destination.id.startsWith(GENERATED);
+}
+
 export function withoutMemoryDestinations<T extends RetroConfiguration>(configuration: T): T {
   return {
     ...configuration,
     memory: {
       ...configuration.memory,
       destinations: configuration.memory.destinations.filter(
-        (destination) => !destination.id.startsWith(GENERATED),
+        (destination) => !isPersonalMemoryDestination(destination),
       ),
     },
   };

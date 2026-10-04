@@ -7,6 +7,8 @@ import { Switch } from "./components/ui/switch.tsx";
 import { SettingsSection } from "./settings-section.tsx";
 import { RetroHistory } from "./retro-history.tsx";
 import { retroError } from "./retro-error.ts";
+import { isPersonalMemoryDestination } from "../memory-contract.ts";
+import { useMemory } from "./memory-settings.tsx";
 
 type Source = RetroConfiguration["sources"][number];
 const destinationLabel = {
@@ -18,6 +20,8 @@ const destinationLabel = {
   okf: "irudd-okf",
 };
 export function RetroSettings({ query }: { query: string }) {
+  const { status: memoryStatus } = useMemory();
+  const okfEnabled = memoryStatus?.configuration.enabled ?? false;
   const [configuration, setConfiguration] = useState<RetroConfiguration>();
   const [dirty, setDirty] = useState(false);
   const [notice, setNotice] = useState("");
@@ -42,6 +46,49 @@ export function RetroSettings({ query }: { query: string }) {
   useEffect(() => {
     void load();
   }, []);
+  useEffect(() => {
+    let request = 0;
+    let active = true;
+    const unsubscribe = window.scope.onMemoryChange(() => {
+      const id = ++request;
+      void window.scope
+        .retroConfiguration()
+        .then((next) => {
+          if (!active || id !== request) return;
+          setConfiguration((current) =>
+            current
+              ? {
+                  ...current,
+                  memory: {
+                    ...current.memory,
+                    destinations: [
+                      ...current.memory.destinations.filter(
+                        (destination) =>
+                          !isPersonalMemoryDestination(destination) &&
+                          (dirty || destination.type !== "okf"),
+                      ),
+                      ...next.memory.destinations.filter(
+                        (destination) =>
+                          destination.type === "okf" &&
+                          (!dirty || isPersonalMemoryDestination(destination)) &&
+                          current.sources.some((source) => source.id === destination.sourceId),
+                      ),
+                    ],
+                  },
+                }
+              : next,
+          );
+        })
+        .catch((failure: unknown) => {
+          if (active && id === request)
+            setError(retroError(failure, "Could not refresh retrospective memory destinations."));
+        });
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [dirty]);
   useEffect(
     () =>
       window.scope.onRemotesChange((remotes) => {
@@ -231,11 +278,14 @@ export function RetroSettings({ query }: { query: string }) {
               <p className="secondary">
                 Ask your agent to verify an instructions file or Claude memory directory before
                 adding a permitted destination. Codex instructions are editable; its generated
-                native memory uses the runtime's own controls. irudd-okf appears only after its CLI
-                is detected on the destination source.
+                native memory uses the runtime's own controls. Turn on Memory sync to use a synced
+                irudd-okf personal bundle.
               </p>
               {configuration.memory.destinations
-                .filter((destination) => destination.type !== "okf" || destination.available)
+                .filter(
+                  (destination) =>
+                    destination.type !== "okf" || (okfEnabled && destination.available),
+                )
                 .map((destination) => (
                   <div className="retro-memory-destination" key={destination.id}>
                     <div>
@@ -250,28 +300,31 @@ export function RetroSettings({ query }: { query: string }) {
                         <p role="status">Unavailable. Ask the agent to check this destination.</p>
                       )}
                     </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      disabled={busy}
-                      onClick={() =>
-                        change({
-                          ...configuration,
-                          memory: {
-                            ...configuration.memory,
-                            destinations: configuration.memory.destinations.filter(
-                              (entry) => entry.id !== destination.id,
-                            ),
-                          },
-                        })
-                      }
-                    >
-                      Remove destination
-                    </Button>
+                    {!isPersonalMemoryDestination(destination) && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() =>
+                          change({
+                            ...configuration,
+                            memory: {
+                              ...configuration.memory,
+                              destinations: configuration.memory.destinations.filter(
+                                (entry) => entry.id !== destination.id,
+                              ),
+                            },
+                          })
+                        }
+                      >
+                        Remove destination
+                      </Button>
+                    )}
                   </div>
                 ))}
               {configuration.memory.destinations.filter(
-                (destination) => destination.type !== "okf" || destination.available,
+                (destination) =>
+                  destination.type !== "okf" || (okfEnabled && destination.available),
               ).length === 0 && (
                 <p className="secondary">
                   No permitted destinations. The agent can still propose general corrections.

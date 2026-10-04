@@ -197,7 +197,7 @@ export class DesktopStore {
   private storeRetroConfiguration(
     input: Extract<RetroCommand, { action: "configure" }>,
   ): Promise<RetroConfiguration> {
-    const command = withoutMemoryDestinations(decode(RetroConfiguration, input.configuration));
+    const requested = withoutMemoryDestinations(decode(RetroConfiguration, input.configuration));
     const sql = this.sql!;
     const payload = createHash("sha256").update(JSON.stringify(input)).digest("hex");
     const task = this.pending.then(() =>
@@ -222,6 +222,31 @@ export class DesktopStore {
             const prior = row
               ? decode(RetroConfiguration, JSON.parse(row.document))
               : emptyRetroConfiguration();
+            const [memoryRow] = yield* sql<{
+              document: string;
+            }>`SELECT document FROM preferences WHERE name = 'memory'`;
+            const memory = memoryRow
+              ? decode(MemoryPreferences, JSON.parse(memoryRow.document))
+              : emptyMemoryPreferences();
+            const command = memory.enabled
+              ? requested
+              : {
+                  ...requested,
+                  memory: {
+                    ...requested.memory,
+                    destinations: [
+                      ...requested.memory.destinations,
+                      ...withoutMemoryDestinations(prior).memory.destinations.filter(
+                        (destination) =>
+                          destination.type === "okf" &&
+                          requested.sources.some((source) => source.id === destination.sourceId) &&
+                          !requested.memory.destinations.some(
+                            (entry) => entry.id === destination.id,
+                          ),
+                      ),
+                    ],
+                  },
+                };
             if (
               prior.version !== input.expectedVersion ||
               command.version !== input.expectedVersion
@@ -330,7 +355,7 @@ export class DesktopStore {
   /** Applies one memory change; a null bundle root forgets that machine's registration. */
   saveMemory(change: {
     configuration?: MemoryConfiguration;
-    bundle?: { machine: string; root: string | null; verifiedAt: string };
+    bundle?: { machine: string; root: string | null; verifiedAt: string; repository: string };
   }): Promise<MemoryPreferences> {
     return this.enqueue(async () => {
       const [row] = await this.run(
@@ -340,7 +365,7 @@ export class DesktopStore {
         ? decode(MemoryPreferences, JSON.parse(row.document))
         : emptyMemoryPreferences();
       const bundles = { ...prior.bundles };
-      if (change.bundle) {
+      if (change.bundle && prior.repository === change.bundle.repository) {
         const { machine, root, verifiedAt } = change.bundle;
         if (root === null) delete bundles[machine];
         else if (bundles[machine]?.root !== root) bundles[machine] = { root, verifiedAt };

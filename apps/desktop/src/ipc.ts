@@ -157,7 +157,7 @@ export function registerDesktopIpc({
   });
   handle("scope:remove-remote", (input) => remotes.remove(decode(RemoteId, input)));
   handle("scope:retry-remote-update", (input) => remotes.retryUpdate(decode(RemoteId, input)));
-  handle("scope:memory", () => memory.snapshot());
+  handle("scope:memory", () => memory.read());
   handle("scope:set-memory-enabled", (input) => memory.setEnabled(decode(Schema.Boolean, input)));
   handle("scope:retry-memory", () => memory.retry());
   handle("scope:copy-memory-request", (input) =>

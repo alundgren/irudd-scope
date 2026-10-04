@@ -173,3 +173,40 @@ test("existing local source IDs, preferences and destinations survive automatic 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("saving retrospective preferences while memory sync is off preserves hidden OKF destinations", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "scope-retro-memory-"));
+  const store = new DesktopStore(directory);
+  await store.load();
+  try {
+    await store.saveMemory({ configuration: { enabled: true, repository: null } });
+    const initial = await store.retroConfiguration();
+    const destination = {
+      id: "my-existing-okf",
+      type: "okf" as const,
+      scope: "operator" as const,
+      sourceId: initial.sources[0].id,
+      path: "/synthetic/my-memory",
+      available: true,
+      verifiedAt: "2026-10-04T08:00:00.000Z",
+    };
+    await configure(store, { ...initial, memory: { enabled: true, destinations: [destination] } });
+    await store.saveMemory({ configuration: { enabled: false, repository: null } });
+    const hidden = await store.retroConfiguration();
+    expect(hidden.memory.destinations).toEqual([]);
+    const saved = await configure(store, {
+      ...hidden,
+      sources: hidden.sources.map((source) => ({ ...source, included: false })),
+      memory: { ...hidden.memory, enabled: false },
+    });
+    expect(saved.memory.destinations).toEqual([]);
+    await store.saveMemory({ configuration: { enabled: true, repository: null } });
+    const restored = await store.retroConfiguration();
+    expect(restored.memory.destinations).toEqual([destination]);
+    expect(restored.sources[0].included).toBe(false);
+    expect(restored.memory.enabled).toBe(false);
+  } finally {
+    await store.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

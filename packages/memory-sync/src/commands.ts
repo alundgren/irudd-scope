@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -82,6 +82,8 @@ export class MemoryCommands {
     args: string[],
     options: { cwd?: string; signal?: AbortSignal } = {},
   ): Promise<Result> {
+    if (options.signal?.aborted)
+      return { code: 1, stdout: "", stderr: "Memory operation stopped." };
     const executable = await this.resolve(command);
     if (!executable) return { code: 127, stdout: "", stderr: `${command} is not installed.` };
     if (command === "git" && executable === "/usr/bin/git" && process.platform === "darwin") {
@@ -90,24 +92,78 @@ export class MemoryCommands {
       if (tools.code !== 0)
         return { code: 127, stdout: "", stderr: "Install the Xcode command line tools for git." };
     }
+    if (options.signal?.aborted)
+      return { code: 1, stdout: "", stderr: "Memory operation stopped." };
     return new Promise((done) => {
-      execFile(
-        executable,
-        args,
-        {
-          cwd: options.cwd,
-          env: this.env,
-          signal: options.signal,
-          timeout: COMMAND_TIMEOUT_MS,
-          killSignal: "SIGKILL",
-          maxBuffer: MAX_OUTPUT_BYTES,
-          encoding: "utf8",
-        },
-        (error, stdout, stderr) => {
-          const code = error ? (typeof error.code === "number" ? error.code : 1) : 0;
-          done({ code, stdout, stderr: stderr || (error && !stderr ? error.message : "") });
-        },
-      );
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let forceTimer: ReturnType<typeof setTimeout> | undefined;
+      let stopped = false;
+      let problem: string | undefined;
+      let argument = 0;
+      while (args[argument] === "-c") argument += 2;
+      const mutation =
+        command === "git" &&
+        ["add", "commit", "merge", "rebase", "reset"].includes(args[argument] ?? "");
+      const child = spawn(executable, args, {
+        cwd: options.cwd,
+        env: this.env,
+        detached: process.platform !== "win32",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      const kill = (signal: NodeJS.Signals) => {
+        try {
+          if (process.platform !== "win32" && child.pid) process.kill(-child.pid, signal);
+          else child.kill(signal);
+        } catch {
+          /* The command may have exited before cancellation. */
+        }
+      };
+      const stop = () => {
+        stopped = true;
+        kill("SIGTERM");
+        if (command !== "git" && !forceTimer) forceTimer = setTimeout(() => kill("SIGKILL"), 5000);
+      };
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      let bytes = 0;
+      const collect = (output: Buffer[], chunk: Buffer) => {
+        const remaining = Math.max(0, MAX_OUTPUT_BYTES - bytes);
+        if (remaining) output.push(chunk.subarray(0, remaining));
+        bytes += chunk.length;
+        if (bytes > MAX_OUTPUT_BYTES && !problem) {
+          problem = "Memory command output exceeds 4 MiB.";
+          if (!mutation) stop();
+        }
+      };
+      child.stdout.on("data", (chunk: Buffer) => collect(stdout, chunk));
+      child.stderr.on("data", (chunk: Buffer) => collect(stderr, chunk));
+      child.on("error", (error) => {
+        problem = error.message;
+      });
+      child.on("close", (code) => {
+        if (stopped && command !== "git") kill("SIGKILL");
+        clearTimeout(timer);
+        clearTimeout(forceTimer);
+        options.signal?.removeEventListener("abort", stop);
+        done({
+          code: problem ? 1 : (code ?? 1),
+          stdout: Buffer.concat(stdout).toString("utf8"),
+          stderr:
+            Buffer.concat(stderr).toString("utf8") ||
+            problem ||
+            (stopped ? "Memory command stopped." : ""),
+        });
+      });
+      // Stop between git mutations; aborting one can leave partially updated working files.
+      if (!mutation)
+        timer = setTimeout(() => {
+          problem = "Memory command timed out.";
+          stop();
+        }, COMMAND_TIMEOUT_MS);
+      if (command !== "git") {
+        options.signal?.addEventListener("abort", stop, { once: true });
+        if (options.signal?.aborted) stop();
+      }
     });
   }
 }

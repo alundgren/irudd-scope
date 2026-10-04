@@ -527,11 +527,21 @@ async function main() {
     if (argument !== "status") throw new Error("Use memory guide, status, or connect OWNER/REPO.");
     const status = await client.memory().catch(async (error: unknown) => {
       // A hub answers for its own machine while the Mac is offline.
-      if (!(error instanceof ScopeError) || error.status !== 503) throw error;
-      const local = await client.hubMemory().catch(() => {
+      if (error instanceof ScopeError && error.status !== 503) throw error;
+      const fallback = await connect(
+        values,
+        AbortSignal.timeout(parseTimeout(values["timeout-ms"])),
+      );
+      const local = await fallback.hubMemory().catch(() => {
         throw error;
       });
-      return { macOffline: true, machine: local };
+      return {
+        macOffline:
+          !(error instanceof ScopeError) || error.message.includes("paired Mac is disconnected"),
+        desktopUnavailable: true,
+        message: error instanceof Error ? error.message : "Could not read desktop memory status.",
+        machine: local,
+      };
     });
     console.log(JSON.stringify(status, null, 2));
     return;

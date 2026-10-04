@@ -110,6 +110,12 @@ test("a remote agent connects the memory repository and every paired machine syn
     .toEqual(["synced", "synced"]);
   expect(f.memory.snapshot().machines[1]).toMatchObject({ id: remoteId, local: false });
 
+  await writeFile(join(f.clone("hub"), "manual-sync.md"), "Synced by the Mac's Sync now.\n");
+  await f.memory.retry();
+  expect(await f.git(f.directory, "--git-dir", f.bare, "show", "main:manual-sync.md")).toBe(
+    "Synced by the Mac's Sync now.\n",
+  );
+
   const retro = await f.store.retroConfiguration();
   expect(
     retro.memory.destinations.map(({ id, type, scope, path }) => ({ id, type, scope, path })),
@@ -130,6 +136,31 @@ test("a remote agent connects the memory repository and every paired machine syn
 
   await f.memory.setEnabled(false);
   expect((await f.store.retroConfiguration()).memory.destinations).toEqual([]);
+});
+
+test("CLI memory status reaches the local hub when a connected Mac stops responding", async () => {
+  const f = await fixture();
+  await f.remotes.pair(f.state.pairUrl());
+  await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
+  const token = await f.store.remoteToken(f.remotes.snapshot()[0].id);
+  await f.remotes.close();
+  const controller = new AbortController();
+  const relay = await fetch(`${f.hub.url}/v1/relay/events`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: controller.signal,
+  });
+  try {
+    expect(relay.status).toBe(200);
+    const status = await f.cli("memory", "status", "--timeout-ms", "1000");
+    expect(status.stderr).toBe("");
+    expect(JSON.parse(status.stdout)).toMatchObject({
+      desktopUnavailable: true,
+      machine: { phase: "off" },
+    });
+  } finally {
+    controller.abort();
+    await relay.body?.cancel().catch(() => {});
+  }
 });
 
 test("unpairing a hub stops its memory sync and forgets the configuration", async () => {

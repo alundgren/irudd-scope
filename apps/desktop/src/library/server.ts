@@ -53,7 +53,7 @@ export async function startArtifactServer(options: {
   };
   importLink?: (url: string) => Promise<TransferImportReceipt>;
   memory?: {
-    status: () => MemoryStatus;
+    status: () => MemoryStatus | Promise<MemoryStatus>;
     connect: (repository: string) => Promise<MemoryStatus>;
   };
   voice?: VoiceService;
@@ -144,7 +144,7 @@ export async function startArtifactServer(options: {
     if ((route === "GET /v1/memory" || route === "POST /v1/memory/connection") && !url.search) {
       if (!options.memory) throw new ScopeError(503, "Memory is unavailable in this Scope.");
       if (request.method === "GET") {
-        json(response, 200, decode(MemoryStatus, options.memory.status()));
+        json(response, 200, decode(MemoryStatus, await options.memory.status()));
         return;
       }
       const body = await readJson(request, 4096, "Memory request exceeds 4 KiB.");

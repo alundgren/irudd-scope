@@ -800,9 +800,13 @@ desktop view and `POST /v1/memory/connection` with `{ "repository": "OWNER/NAME"
 connects a repository after the operator turned memory on (409 otherwise).
 Paired hubs forward both routes. A hub also answers `GET /v1/hub/memory` with
 the local publishing credential, so `irudd-scope memory status` works while the
-Mac is offline.
+Mac is offline or its relay stops responding. The hub fallback has its own
+request deadline. Its response includes the local machine, `desktopUnavailable`,
+and the desktop error; a startup error does not label the Mac offline.
 
 The Mac sends `PUT /v1/relay/memory` with its configuration when a relay
-session starts and after every change, and reads `GET /v1/relay/memory` once a
-minute. The last configuration from the Mac wins. An older hub answers 404 and
+session starts, after every change, and once a minute. Writes to each hub are
+serialized and retry missed configuration updates. `GET /v1/relay/memory`
+reads local status, and `POST /v1/relay/memory/sync` runs a sync immediately.
+Configuration changes can interrupt that sync. The last configuration from the Mac wins. An older hub answers 404 and
 the Mac reports that the remote needs an update.

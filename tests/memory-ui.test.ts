@@ -38,6 +38,24 @@ test("Memory settings turn sync on, show each machine, and warn about conflicts 
   const machines = settings.getByRole("list", { name: "Memory sync by machine" });
   await machines.getByText("irudd-okf bundle personal is registered.").waitFor();
 
+  await settings.getByLabel("Search settings").fill("retrospectives");
+  const suggestions = settings.getByRole("switch", { name: "Memory suggestions", exact: true });
+  await suggestions.click();
+  await settings.getByText(f.clone("mac"), { exact: true }).waitFor();
+  expect(await settings.getByRole("button", { name: "Remove destination" }).count()).toBe(0);
+  await settings.getByLabel("Search settings").fill("memory sync");
+  await memorySwitch.click();
+  await settings.getByLabel("Search settings").fill("retrospectives");
+  await expect.poll(() => settings.getByText(f.clone("mac"), { exact: true }).count()).toBe(0);
+  expect(await suggestions.isChecked()).toBe(true);
+  await settings.getByLabel("Search settings").fill("memory sync");
+  await memorySwitch.click();
+  await machines.getByText("irudd-okf bundle personal is registered.").waitFor();
+  await settings.getByLabel("Search settings").fill("retrospectives");
+  await settings.getByText(f.clone("mac"), { exact: true }).waitFor();
+  expect(await suggestions.isChecked()).toBe(true);
+  await settings.getByLabel("Search settings").fill("memory sync");
+
   const laptop = new MemorySync({
     root: f.root("laptop"),
     machine: "laptop",
@@ -60,7 +78,7 @@ test("Memory settings turn sync on, show each machine, and warn about conflicts 
   expect(request).toContain(`https://github.com/${MEMORY_REPOSITORY}/pull/1`);
   await page.getByRole("alert").getByText("Agent request copied.", { exact: false }).waitFor();
 
-  const evidence = "/tmp/scope-memory-ui-evidence";
+  const evidence = process.env.SCOPE_TEST_EVIDENCE_DIR ?? join(f.directory, "ui-evidence");
   await mkdir(evidence, { recursive: true });
   for (const appearance of ["light", "dark"] as const) {
     await page.keyboard.press("ControlOrMeta+,");
@@ -81,3 +99,57 @@ test("Memory settings turn sync on, show each machine, and warn about conflicts 
     await page.screenshot({ path: join(evidence, `banner-${appearance}.png`) });
   }
 }, 120_000);
+
+test("Memory status changes preserve an unsaved removal of a manual OKF destination", async () => {
+  const f = await memoryFixture(cleanup);
+  const fixture = await desktopFixture({
+    env: { ...f.env("mac"), SCOPE_MEMORY_DIR: f.root("mac") },
+  });
+  const application = await fixture.launch();
+  cleanup.push(() => application.close());
+  const page = await application.firstWindow();
+  await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+  await page.evaluate(async () => {
+    await window.scope.setMemoryEnabled(true);
+    const configuration = await window.scope.retroConfiguration();
+    await window.scope.saveRetroConfiguration({
+      requestId: crypto.randomUUID(),
+      expectedVersion: configuration.version,
+      configuration: {
+        ...configuration,
+        memory: {
+          enabled: true,
+          destinations: [
+            {
+              id: "manual-okf",
+              type: "okf",
+              scope: "operator",
+              sourceId: configuration.sources[0].id,
+              path: "/synthetic/manual-memory",
+              available: true,
+              verifiedAt: "2026-10-04T08:00:00.000Z",
+            },
+          ],
+        },
+      },
+    });
+  });
+  await page.keyboard.press("ControlOrMeta+,");
+  const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+  await settings.getByLabel("Search settings").fill("retrospectives");
+  await settings.getByText("/synthetic/manual-memory", { exact: true }).waitFor();
+  await settings.getByRole("button", { name: "Remove destination", exact: true }).click();
+  await settings.getByLabel("Search settings").fill("memory sync");
+  const memorySwitch = settings.getByRole("switch", { name: "Memory sync", exact: true });
+  await memorySwitch.click();
+  await expect.poll(() => memorySwitch.isEnabled()).toBe(true);
+  await memorySwitch.click();
+  await expect.poll(() => memorySwitch.isEnabled()).toBe(true);
+  await settings.getByLabel("Search settings").fill("retrospectives");
+  expect(await settings.getByText("/synthetic/manual-memory", { exact: true }).count()).toBe(0);
+  await settings.getByRole("button", { name: "Save settings", exact: true }).click();
+  await settings.getByText("Retrospective settings saved.", { exact: true }).waitFor();
+  expect(
+    await page.evaluate(async () => (await window.scope.retroConfiguration()).memory.destinations),
+  ).toEqual([]);
+}, 60_000);

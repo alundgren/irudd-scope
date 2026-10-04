@@ -1,0 +1,10 @@
+#!/usr/bin/env node
+import { spawn } from "node:child_process";
+import { commandGate } from "../gate.mjs";
+
+const args = process.argv.slice(2);
+let index = 0;
+while (args[index] === "-c") index += 2;
+await commandGate("git", args.slice(index));
+const child = spawn(process.env.FAKE_REAL_GIT, args, { stdio: "inherit" });
+child.on("exit", (code) => process.exit(code ?? 1));

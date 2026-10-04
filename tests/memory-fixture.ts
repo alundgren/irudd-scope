@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -13,6 +13,7 @@ export async function memoryFixture(cleanup: (() => Promise<unknown> | void)[]) 
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const remotes = join(directory, "remotes");
   const state = join(directory, "gh-state");
+  const realGit = (await exec("which", ["git"])).stdout.trim();
   await mkdir(remotes);
   await mkdir(state);
   const bare = join(remotes, "personal-memory.git");
@@ -22,6 +23,7 @@ export async function memoryFixture(cleanup: (() => Promise<unknown> | void)[]) 
     GIT_AUTHOR_DATE: undefined,
     FAKE_GH_REMOTES: remotes,
     FAKE_GH_STATE: state,
+    FAKE_REAL_GIT: realGit,
   };
   const path = (bin: "bin" | "gh-only") =>
     [
@@ -74,5 +76,20 @@ export async function memoryFixture(cleanup: (() => Promise<unknown> | void)[]) 
       ) as { bundles: { name: string; root: string }[] },
     setOkfConfig: (machine: string, bundles: { name: string; root: string }[]) =>
       writeFile(join(directory, `${machine}-okf.json`), JSON.stringify({ bundles })),
+    gate: (name: string, command: string) => {
+      const marker = join(directory, `${name}-gate`);
+      const log = join(directory, `${name}-commands`);
+      return {
+        marker,
+        env: { FAKE_MEMORY_PAUSE: command, FAKE_MEMORY_GATE: marker, FAKE_MEMORY_LOG: log },
+        entered: () =>
+          access(marker).then(
+            () => true,
+            () => false,
+          ),
+        release: () => writeFile(`${marker}.continue`, ""),
+        commands: () => readFile(log, "utf8").catch(() => ""),
+      };
+    },
   };
 }

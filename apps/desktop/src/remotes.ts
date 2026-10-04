@@ -16,7 +16,11 @@ import { synchronizeRemote } from "./remote-updates.ts";
 
 type Connection = { controller: AbortController; task: Promise<void> };
 /** An authenticated request to a connected hub's relay API, valid until the session ends. */
-export type RemoteCall = (method: "GET" | "PUT", path: string, body?: unknown) => Promise<Response>;
+export type RemoteCall = (
+  method: "GET" | "PUT" | "POST",
+  path: string,
+  body?: unknown,
+) => Promise<Response>;
 type SessionListener = (remote: Remote, call: RemoteCall, signal: AbortSignal) => void;
 
 export class Remotes {
@@ -244,7 +248,10 @@ export class Remotes {
                   },
                   ...(body === undefined ? {} : { body: JSON.stringify(body) }),
                   redirect: "error",
-                  signal: AbortSignal.any([sessionSignal, AbortSignal.timeout(15_000)]),
+                  signal: AbortSignal.any([
+                    sessionSignal,
+                    AbortSignal.timeout(path === "/v1/relay/memory/sync" ? 300_000 : 15_000),
+                  ]),
                 });
               for (const listener of this.sessionListeners) listener(remote, call, sessionSignal);
             }
@@ -350,11 +357,13 @@ export class Remotes {
         report("body-headers", { status: input.status });
         if (!input.ok) throw new Error(`Body retrieval returned HTTP ${input.status}.`);
         const reader = input.body?.getReader();
+        let bodyCanceled = false;
         body = reader
           ? new ReadableStream<Uint8Array>({
               async pull(controller) {
                 try {
                   const next = await reader.read();
+                  if (bodyCanceled) return;
                   if (next.done) {
                     bodyComplete = true;
                     report("body-ended", { bodyMs: performance.now() - bodyStarted });
@@ -365,15 +374,18 @@ export class Remotes {
                     controller.enqueue(next.value);
                   }
                 } catch (error) {
+                  if (bodyCanceled) return;
                   report("body-error", { error: describe(error) }, true);
                   reader.releaseLock();
                   controller.error(error);
                 }
               },
               async cancel(reason) {
+                bodyCanceled = true;
                 report("body-canceled");
                 try {
-                  await reader.cancel(reason);
+                  // Fetch can reject both the transfer and its source reader during cancellation.
+                  await reader.cancel(reason).catch(() => {});
                 } finally {
                   reader.releaseLock();
                 }

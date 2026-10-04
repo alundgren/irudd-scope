@@ -396,3 +396,12 @@ the user's own git working copy, not Scope data. Scope never deletes, backs
 up, or exports it, and turning memory off leaves the folder, the GitHub
 repository, and the irudd-okf registration in place. GitHub is the backup;
 conflicting edits stay on `memory-conflict/*` branches until someone merges them.
+
+irudd-okf's `.irudd-okf/` runtime files and `.okf-*.tmp` files remain local and
+are excluded from Scope's Git staging. Scope acquires `.irudd-okf/write.lock`
+during Git changes and can reclaim its own lock after its recorded process
+exits. An unknown writer lock is left for inspection. An unfinished rebase from
+another operation stops sync: preserve newer edits outside the clone before
+running `git rebase --abort`, restore those edits, then use Sync now. Turning
+memory off preserves manually configured OKF retrospective destinations in
+SQLite while hiding them from retros.

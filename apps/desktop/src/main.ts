@@ -85,7 +85,7 @@ async function main() {
     },
     voice,
     memory: {
-      status: () => startedMemory().snapshot(),
+      status: () => startedMemory().read(),
       connect: (repository) => startedMemory().connect(repository),
     },
     retroConfiguration: {

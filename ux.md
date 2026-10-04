@@ -508,7 +508,12 @@ repository, Settings offers Copy agent request. The agent suggests a private
 
 With a repository connected, Settings lists this Mac and every paired remote
 with its last sync, bundle registration, and problems such as a missing gh
-login or an older remote build. Sync now runs an immediate sync. A conflict
+login or an older remote build. Sync now runs an immediate sync on the Mac and
+connected hubs and reports when a machine needs attention. The Memory switch
+detects an irudd-okf installation without restarting Scope. Retrospective
+destinations refresh when memory changes and retain unsaved edits. Generated
+personal bundle destinations have no removal button; the Memory switch controls
+them. A conflict
 shows an amber banner under the strip on every screen except focus mode, with
 Copy agent request listing the conflict pull requests. Scope never merges them.
 Turning memory off stops Scope's syncing and upgrades and hides OKF from retros;

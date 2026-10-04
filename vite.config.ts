@@ -47,13 +47,17 @@ export default defineConfig({
   },
   test: {
     maxWorkers: 2,
-    include: ["tests/**/*.test.ts"],
     testTimeout: 30_000,
     reporters: ["minimal"],
+    // Project inheritance combines include lists, so each project defines its own.
     projects: [
       {
         extends: true,
-        test: { name: "standard", exclude: [...diagramTests, ...remoteUpdateTests] },
+        test: {
+          name: "standard",
+          include: ["tests/**/*.test.ts"],
+          exclude: [...diagramTests, ...remoteUpdateTests],
+        },
       },
       { extends: true, test: { name: "diagram", include: diagramTests } },
       { extends: true, test: { name: "remote-updates", include: remoteUpdateTests } },

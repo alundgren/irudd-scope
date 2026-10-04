@@ -342,7 +342,8 @@ export async function startPairedHub(
       if (request.method === "PUT") {
         const body = await readBody(request, 4096);
         const configuration = decode(MemoryConfiguration, JSON.parse(body.toString()));
-        state.saveMemoryConfiguration(configuration);
+        if (JSON.stringify(state.memoryConfiguration()) !== JSON.stringify(configuration))
+          state.saveMemoryConfiguration(configuration);
         memory.configure(configuration);
         json(response, 200, memory.status());
         return;
@@ -351,6 +352,15 @@ export async function startPairedHub(
         json(response, 200, memory.status());
         return;
       }
+    }
+    if (
+      url.pathname === "/v1/relay/memory/sync" &&
+      request.method === "POST" &&
+      !url.search &&
+      memory
+    ) {
+      json(response, 200, await memory.sync());
+      return;
     }
     if (url.pathname === "/v1/relay/disconnect" && request.method === "DELETE") {
       delivery.cancel();

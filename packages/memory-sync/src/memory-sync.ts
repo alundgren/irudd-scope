@@ -1,4 +1,19 @@
-import { access, mkdir, open, readdir, stat, unlink } from "node:fs/promises";
+import {
+  access,
+  appendFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  rmdir,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { MemoryCommands, SyncError } from "./commands.ts";
@@ -35,6 +50,7 @@ export class MemorySync {
   private current: MemoryMachineStatus;
   private running?: { controller: AbortController; task: Promise<void> };
   private again = false;
+  private upgradeAgain = false;
   private loop?: Promise<void>;
   private syncTimer?: ReturnType<typeof setInterval>;
   private upgradeTimer?: ReturnType<typeof setInterval>;
@@ -78,12 +94,24 @@ export class MemorySync {
     const changed =
       value.enabled !== this.configuration.enabled ||
       value.repository !== this.configuration.repository;
+    const repositoryChanged = value.repository !== this.configuration.repository;
     this.configuration = value;
     if (!changed) return;
     this.running?.controller.abort();
+    this.again = this.upgradeAgain = false;
     clearInterval(this.syncTimer);
     clearInterval(this.upgradeTimer);
     this.syncTimer = this.upgradeTimer = undefined;
+    if (repositoryChanged)
+      this.update({
+        repository: value.repository,
+        root: undefined,
+        lastSyncAt: undefined,
+        bundle: "unavailable",
+        bundleMessage: undefined,
+        conflicts: [],
+        phase: value.enabled ? (value.repository ? "syncing" : "waiting") : "off",
+      });
     if (!value.enabled) {
       this.update({
         phase: "off",
@@ -93,6 +121,11 @@ export class MemorySync {
       });
       return;
     }
+    this.upgradeTimer = setInterval(
+      () => void this.upgradeOkf(),
+      this.options.upgradeIntervalMs ?? OKF_UPGRADE_INTERVAL_MS,
+    );
+    this.upgradeTimer.unref();
     if (!value.repository) {
       this.update({
         phase: "waiting",
@@ -100,47 +133,49 @@ export class MemorySync {
         repository: null,
         conflicts: [],
       });
-      void this.checkOkf();
+      void this.upgradeOkf();
       return;
     }
-    this.update({ repository: value.repository, conflicts: [] });
+    this.update({ repository: value.repository, phase: "syncing", conflicts: [] });
     this.syncTimer = setInterval(
       () => void this.sync(),
       this.options.intervalMs ?? MEMORY_SYNC_INTERVAL_MS,
     );
     this.syncTimer.unref();
-    this.upgradeTimer = setInterval(
-      () => void this.upgradeOkf(),
-      this.options.upgradeIntervalMs ?? OKF_UPGRADE_INTERVAL_MS,
-    );
-    this.upgradeTimer.unref();
-    void this.sync().then(() => this.upgradeOkf());
+    this.again = this.upgradeAgain = true;
+    void this.drain();
   }
 
   /** Runs one sync now, or once more after the sync already in progress. */
   async sync(): Promise<MemoryMachineStatus> {
-    if (this.loop) {
-      this.again = true;
-      await this.loop;
-      return this.current;
-    }
-    this.loop = (async () => {
-      do {
-        this.again = false;
-        const controller = new AbortController();
-        const task = this.tick(controller.signal);
-        this.running = { controller, task };
-        try {
-          await task;
-        } finally {
-          this.running = undefined;
-        }
-      } while (this.again && !this.closed);
-    })().finally(() => {
-      this.loop = undefined;
-    });
-    await this.loop;
+    if (this.closed) return this.current;
+    this.again = true;
+    await this.drain();
     return this.current;
+  }
+
+  private drain(): Promise<void> {
+    if (this.loop) return this.loop;
+    this.loop = Promise.resolve()
+      .then(async () => {
+        while ((this.again || this.upgradeAgain) && !this.closed) {
+          const sync = this.again;
+          if (sync) this.again = false;
+          else this.upgradeAgain = false;
+          const controller = new AbortController();
+          const task = sync ? this.tick(controller.signal) : this.runUpgrade(controller.signal);
+          this.running = { controller, task };
+          try {
+            await task;
+          } finally {
+            this.running = undefined;
+          }
+        }
+      })
+      .finally(() => {
+        this.loop = undefined;
+      });
+    return this.loop;
   }
 
   async close() {
@@ -159,26 +194,40 @@ export class MemorySync {
       await this.checkOkf(signal);
       const { url, branch } = await this.view(repository, signal);
       const directory = join(this.options.root, repository.split("/")[1]);
-      await this.prepareClone(url, directory, signal);
-      const release = await this.lock(join(directory, ".git", "scope-sync.lock"));
+      await mkdir(this.options.root, { recursive: true, mode: 0o700 });
+      const release = await this.lock(
+        join(this.options.root, `.${repository.split("/")[1]}.scope-sync.lock`),
+      );
       try {
-        await this.repair(directory, signal);
-        await this.sendChanges(repository, directory, branch, signal);
+        await this.prepareClone(url, directory, signal);
+        const releaseWriter = await this.writerLock(directory);
+        try {
+          await this.repair(directory);
+          try {
+            await this.sendChanges(repository, directory, branch, signal);
+          } finally {
+            // Finish the rebase cleanup before an OKF writer can edit these files.
+            await this.abortRebase(directory);
+          }
+        } finally {
+          await releaseWriter();
+        }
+        if (signal.aborted) return;
+        const conflicts = await this.conflicts(repository, directory, branch, signal);
+        await this.register(directory, signal);
+        if (signal.aborted) return;
+        this.update({
+          phase: "synced",
+          message: conflicts.length
+            ? `Synced. ${conflicts.length} conflict pull request${conflicts.length === 1 ? " needs" : "s need"} attention.`
+            : "Synced.",
+          root: directory,
+          lastSyncAt: this.now().toISOString(),
+          conflicts,
+        });
       } finally {
         await release();
       }
-      if (signal.aborted) return;
-      const conflicts = await this.conflicts(repository, directory, branch, signal);
-      await this.register(directory, signal);
-      this.update({
-        phase: "synced",
-        message: conflicts.length
-          ? `Synced. ${conflicts.length} conflict pull request${conflicts.length === 1 ? " needs" : "s need"} attention.`
-          : "Synced.",
-        root: directory,
-        lastSyncAt: this.now().toISOString(),
-        conflicts,
-      });
     } catch (error) {
       if (signal.aborted) return;
       this.update({
@@ -227,41 +276,111 @@ export class MemorySync {
         throw new SyncError(
           `${directory} is a clone of another repository. Move it away, then Retry.`,
         );
-      return;
+    } else {
+      if ((await readdir(directory).catch(() => [])).length)
+        throw new SyncError(`${directory} already has files and is not a clone. Move it away.`);
+      const result = await this.commands.git(
+        this.options.root,
+        ["clone", "--quiet", url, directory],
+        signal,
+        {
+          credentials: true,
+        },
+      );
+      if (result.code !== 0)
+        throw new SyncError(`Could not clone the memory repository. ${firstLine(result.stderr)}`);
     }
-    if ((await readdir(directory).catch(() => [])).length)
-      throw new SyncError(`${directory} already has files and is not a clone. Move it away.`);
-    const result = await this.commands.git(
-      this.options.root,
-      ["clone", "--quiet", url, directory],
-      signal,
-      {
-        credentials: true,
-      },
+    if (!(await exists(join(directory, "index.md"))))
+      throw new SyncError(
+        "The memory repository has no index.md at its root. Initialize an irudd-okf bundle before connecting it.",
+      );
+    const exclusions = join(directory, ".git", "info", "exclude");
+    const saved = await readFile(exclusions, "utf8").catch(() => "");
+    const patterns = ["/.irudd-okf/", ".okf-*.tmp"].filter(
+      (pattern) => !saved.split("\n").includes(pattern),
     );
-    if (result.code !== 0)
-      throw new SyncError(`Could not clone the memory repository. ${firstLine(result.stderr)}`);
+    if (patterns.length) await appendFile(exclusions, `\n${patterns.join("\n")}\n`);
+  }
+
+  private async writerLock(directory: string) {
+    const folder = join(directory, ".irudd-okf");
+    await mkdir(folder, { recursive: true });
+    if ((await lstat(folder)).isSymbolicLink())
+      throw new SyncError("The memory repository's .irudd-okf folder must not be a symbolic link.");
+    const path = join(folder, "write.lock");
+    let handle;
+    try {
+      handle = await open(path, "wx", 0o600);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const owner = await readFile(path, "utf8")
+        .then((raw) => {
+          try {
+            return JSON.parse(raw) as { scope?: unknown; pid?: unknown };
+          } catch {
+            return undefined;
+          }
+        })
+        .catch(() => undefined);
+      if (owner?.scope === true && typeof owner.pid === "number" && !processAlive(owner.pid)) {
+        await unlink(path);
+        handle = await open(path, "wx", 0o600);
+      } else {
+        throw new SyncError(
+          "irudd-okf is writing memory, or a previous write left .irudd-okf/write.lock behind. Scope will retry. Inspect that lock if the writer stopped.",
+        );
+      }
+    }
+    try {
+      await handle.writeFile(
+        JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), scope: true }),
+      );
+    } catch (error) {
+      await handle.close();
+      await unlink(path);
+      throw error;
+    }
+    return async () => {
+      await handle.close();
+      await unlink(path);
+    };
   }
 
   private async lock(path: string) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const handle = await open(path, "wx", 0o600);
-        await handle.close();
-        return () => unlink(path).catch(() => {});
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        const age = Date.now() - (await stat(path).catch(() => ({ mtimeMs: 0 }))).mtimeMs;
-        if (age < STALE_LOCK_MS)
-          throw new SyncError("Another Scope process is syncing this memory folder.");
-        await unlink(path).catch(() => {});
+    const temporary = await mkdtemp(`${path}-`);
+    const owner = `${process.pid}-${crypto.randomUUID()}`;
+    await writeFile(join(temporary, owner), "", { mode: 0o600 });
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          // Rename publishes a nonempty directory, so a competing owner cannot replace it.
+          await rename(temporary, path);
+          return async () => {
+            await unlink(join(path, owner)).catch(() => {});
+            await rmdir(path).catch(() => {});
+          };
+        } catch (error) {
+          if (!["EEXIST", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code ?? ""))
+            throw error;
+          const age = Date.now() - (await stat(path).catch(() => ({ mtimeMs: 0 }))).mtimeMs;
+          const owners = await readdir(path).catch(() => []);
+          if (
+            age < STALE_LOCK_MS ||
+            owners.some((entry) => processAlive(Number(entry.split("-")[0])))
+          )
+            throw new SyncError("Another Scope process is syncing this memory folder.");
+          for (const entry of owners) await unlink(join(path, entry)).catch(() => {});
+          await rmdir(path).catch(() => {});
+        }
       }
+      throw new SyncError("Another Scope process is syncing this memory folder.");
+    } finally {
+      await rm(temporary, { recursive: true, force: true });
     }
-    throw new SyncError("Another Scope process is syncing this memory folder.");
   }
 
   /** Clears leftovers from an interrupted sync so later syncs can run. */
-  private async repair(directory: string, signal: AbortSignal) {
+  private async repair(directory: string) {
     const index = join(directory, ".git", "index.lock");
     const lock = await stat(index).catch(() => undefined);
     if (lock) {
@@ -270,7 +389,9 @@ export class MemorySync {
       await unlink(index).catch(() => {});
     }
     if (await this.rebasing(directory))
-      await this.commands.git(directory, ["rebase", "--abort"], signal);
+      throw new SyncError(
+        `The memory folder has an unfinished rebase. Preserve any newer edits, then run git rebase --abort in ${directory} and Sync now.`,
+      );
   }
 
   private async rebasing(directory: string) {
@@ -278,6 +399,17 @@ export class MemorySync {
       (await exists(join(directory, ".git", "rebase-merge"))) ||
       (await exists(join(directory, ".git", "rebase-apply")))
     );
+  }
+
+  private async abortRebase(directory: string) {
+    if (!(await this.rebasing(directory))) return;
+    const aborted = await this.commands.git(
+      directory,
+      ["rebase", "--abort"],
+      new AbortController().signal,
+    );
+    if (aborted.code !== 0)
+      throw new SyncError(`Could not stop the memory rebase safely. ${firstLine(aborted.stderr)}`);
   }
 
   private async sendChanges(
@@ -318,7 +450,7 @@ export class MemorySync {
       if (merged.code !== 0) {
         if (!ahead || !(await this.rebasing(directory)))
           throw new SyncError(`Could not update the memory folder. ${firstLine(merged.stderr)}`);
-        await this.commands.git(directory, ["rebase", "--abort"], signal);
+        await this.abortRebase(directory);
         await this.divert(repository, directory, branch, signal);
         return;
       }
@@ -361,11 +493,13 @@ export class MemorySync {
       throw new SyncError("Memory files changed during conflict handling. Scope will retry.");
     const reset = await this.commands.git(
       directory,
-      ["reset", "--quiet", "--hard", `origin/${branch}`],
+      ["reset", "--quiet", "--keep", `origin/${branch}`],
       signal,
     );
     if (reset.code !== 0)
-      throw new SyncError(`Could not return to ${branch}. ${firstLine(reset.stderr)}`);
+      throw new SyncError(
+        `Memory files changed during conflict handling. Local edits are kept. Scope will retry. ${firstLine(reset.stderr)}`,
+      );
   }
 
   private openPullRequest(repository: string, head: string, base: string, signal: AbortSignal) {
@@ -395,55 +529,65 @@ export class MemorySync {
     branch: string,
     signal: AbortSignal,
   ): Promise<readonly MemoryConflict[]> {
-    const listed = await this.commands.run(
-      "gh",
-      [
-        "pr",
-        "list",
-        "--repo",
-        repository,
-        "--state",
-        "all",
-        "--limit",
-        "200",
-        "--json",
-        "url,title,headRefName,state",
-      ],
-      { signal },
-    );
-    if (listed.code !== 0) return this.current.conflicts;
-    const pulls = (
-      JSON.parse(listed.stdout) as {
-        url: string;
-        title: string;
-        headRefName: string;
-        state: string;
-      }[]
-    ).filter((pull) => pull.headRefName.startsWith(MEMORY_CONFLICT_BRANCH_PREFIX));
+    const pulls: MemoryConflict[] = [];
     const remote = await this.commands.git(
       directory,
       ["ls-remote", "--heads", "origin", `${MEMORY_CONFLICT_BRANCH_PREFIX}*`],
       signal,
       { credentials: true },
     );
-    let created = false;
-    if (remote.code === 0)
-      for (const line of remote.stdout.split("\n")) {
-        const head = line.split("\trefs/heads/")[1]?.trim();
-        if (head && !pulls.some((pull) => pull.headRefName === head)) {
-          const result = await this.openPullRequest(repository, head, branch, signal);
-          created ||= result.code === 0;
-        }
+    if (remote.code !== 0)
+      throw new SyncError(`Could not check memory conflict branches. ${firstLine(remote.stderr)}`);
+    for (const line of remote.stdout.split("\n")) {
+      const head = line.split("\trefs/heads/")[1]?.trim();
+      if (!head) continue;
+      // Query this branch across all states so an old closed PR never gets reopened.
+      const listed = await this.commands.run(
+        "gh",
+        [
+          "pr",
+          "list",
+          "--repo",
+          repository,
+          "--head",
+          head,
+          "--state",
+          "all",
+          "--limit",
+          "1",
+          "--json",
+          "url,title,headRefName,state",
+        ],
+        { signal },
+      );
+      if (listed.code !== 0)
+        throw new SyncError(
+          `Could not check memory conflict pull requests. ${firstLine(listed.stderr)}`,
+        );
+      const entries = JSON.parse(listed.stdout) as { url: string; title: string; state: string }[];
+      if (!Array.isArray(entries))
+        throw new SyncError("gh returned unreadable memory conflict pull requests.");
+      const pull = entries[0];
+      if (!pull) {
+        const created = await this.openPullRequest(repository, head, branch, signal);
+        if (created.code !== 0)
+          throw new SyncError(
+            `Memory changes are saved on ${head}, but its pull request could not be opened. Scope will retry. ${firstLine(created.stderr)}`,
+          );
+        pulls.push({
+          url: created.stdout.trim(),
+          title: `Memory conflict on ${head}`,
+          branch: head,
+        });
+      } else if (
+        pull.state === "OPEN" &&
+        typeof pull.url === "string" &&
+        typeof pull.title === "string"
+      ) {
+        pulls.push({ url: pull.url, title: pull.title.slice(0, 512), branch: head });
       }
-    if (created) return this.conflicts(repository, directory, branch, signal);
-    return pulls
-      .filter((pull) => pull.state === "OPEN")
-      .slice(0, 100)
-      .map((pull) => ({
-        url: pull.url,
-        title: pull.title.slice(0, 512),
-        branch: pull.headRefName,
-      }));
+    }
+    return pulls.slice(0, 100);
   }
 
   private async register(directory: string, signal: AbortSignal) {
@@ -495,7 +639,8 @@ export class MemorySync {
 
   async checkOkf(signal?: AbortSignal) {
     const result = await this.commands.run("irudd-okf", ["--version"], { signal });
-    const version = /v?(\d+\.\d+\.\d+[^\s]*)/.exec(result.stdout)?.[1];
+    if (signal?.aborted) return this.current.okf.installed;
+    const version = /v?(\d+\.\d+\.\d+[^\s]*)/.exec(result.stdout)?.[1]?.slice(0, 64);
     this.update({
       okf:
         result.code === 0
@@ -507,10 +652,17 @@ export class MemorySync {
 
   /** Upgrades an installed irudd-okf when its own check reports a newer release. */
   async upgradeOkf() {
-    if (this.closed || !this.configuration.enabled || !(await this.checkOkf())) return;
+    if (this.closed || !this.configuration.enabled) return;
+    this.upgradeAgain = true;
+    await this.drain();
+  }
+
+  private async runUpgrade(signal: AbortSignal) {
+    if (!this.configuration.enabled || !(await this.checkOkf(signal)) || signal.aborted) return;
     try {
-      await this.performUpgrade();
+      await this.performUpgrade(signal);
     } catch {
+      if (signal.aborted) return;
       this.update({
         okf: {
           ...this.current.okf,
@@ -520,10 +672,11 @@ export class MemorySync {
     }
   }
 
-  private async performUpgrade() {
+  private async performUpgrade(signal: AbortSignal) {
     const okf = (message: string, version = this.current.okf.version) =>
       this.update({ okf: { installed: true, ...(version ? { version } : {}), message } });
-    const check = await this.commands.run("irudd-okf", ["upgrade", "--check"]);
+    const check = await this.commands.run("irudd-okf", ["upgrade", "--check"], { signal });
+    if (signal.aborted) return;
     if (check.code !== 0) {
       okf(
         /INVALID_ARGUMENTS|ShowHelp|Unknown|unrecognized/i.test(check.stdout + check.stderr)
@@ -532,23 +685,26 @@ export class MemorySync {
       );
       return;
     }
-    const found = JSON.parse(check.stdout) as { latest?: string; updateAvailable?: boolean };
+    const found = JSON.parse(check.stdout) as { latest?: unknown; updateAvailable?: unknown };
+    if (typeof found.updateAvailable !== "boolean" || typeof found.latest !== "string")
+      throw new Error("Invalid irudd-okf upgrade check.");
+    const latest = found.latest.slice(0, 64);
     if (!found.updateAvailable) {
       okf("irudd-okf is up to date.");
       return;
     }
-    const upgraded = await this.commands.run("irudd-okf", ["upgrade"]);
+    const upgraded = await this.commands.run("irudd-okf", ["upgrade"], { signal });
+    if (signal.aborted) return;
     if (upgraded.code !== 0) {
       okf(
-        `irudd-okf ${found.latest ?? "update"} is available, but the upgrade failed. ${firstLine(upgraded.stdout || upgraded.stderr)}`,
+        `irudd-okf ${latest} is available, but the upgrade failed. ${firstLine(upgraded.stdout || upgraded.stderr)}`,
       );
       return;
     }
-    const after = JSON.parse(upgraded.stdout) as { current?: string };
-    okf(
-      `Upgraded irudd-okf to ${after.current ?? found.latest ?? "the latest version"}.`,
-      after.current,
-    );
+    const after = JSON.parse(upgraded.stdout) as { current?: unknown };
+    if (typeof after.current !== "string") throw new Error("Invalid irudd-okf upgrade result.");
+    const version = after.current.slice(0, 64);
+    okf(`Upgraded irudd-okf to ${version}.`, version);
   }
 
   private async count(directory: string, range: string, signal: AbortSignal) {
@@ -559,7 +715,18 @@ export class MemorySync {
   }
 
   private async commit(directory: string, signal: AbortSignal) {
-    const added = await this.commands.git(directory, ["add", "--all"], signal);
+    const added = await this.commands.git(
+      directory,
+      [
+        "add",
+        "--all",
+        "--",
+        ".",
+        ":(exclude,glob)**/.irudd-okf/**",
+        ":(exclude,glob)**/.okf-*.tmp",
+      ],
+      signal,
+    );
     if (added.code !== 0)
       throw new SyncError(`Could not stage memory changes. ${firstLine(added.stderr)}`);
     const status = await this.commands.git(directory, ["status", "--porcelain"], signal);
@@ -597,4 +764,14 @@ async function exists(path: string) {
     () => true,
     () => false,
   );
+}
+
+function processAlive(pid: number) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
 }

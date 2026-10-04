@@ -4,8 +4,10 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { commandGate } from "../gate.mjs";
 
 const args = process.argv.slice(2);
+await commandGate("gh", args);
 const option = (name) => args[args.indexOf(name) + 1];
 const prs = join(process.env.FAKE_GH_STATE, "prs.jsonl");
 const pulls = () =>
@@ -44,7 +46,8 @@ if (args[0] === "repo" && args[1] === "view") {
   );
   process.stdout.write(`${url}\n`);
 } else if (args[0] === "pr" && args[1] === "list") {
-  process.stdout.write(JSON.stringify(pulls()));
+  const filtered = pulls().filter((pull) => !args.includes("--head") || pull.headRefName === option("--head"));
+  process.stdout.write(JSON.stringify(args.includes("--limit") ? filtered.slice(-Number(option("--limit"))).reverse() : filtered));
 } else if (args[0] === "auth" && args[1] === "git-credential") {
   process.exit(0);
 } else {

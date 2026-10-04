@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MemoryMachine, MemoryStatus } from "@irudd-scope/protocol/memory";
 import { Button } from "./components/ui/button.tsx";
 import { Switch } from "./components/ui/switch.tsx";
@@ -8,12 +8,28 @@ export function useMemory() {
   const [status, setStatus] = useState<MemoryStatus>();
   const [error, setError] = useState("");
   useEffect(() => {
-    const unsubscribe = window.scope.onMemoryChange(setStatus);
+    let current = true;
+    let observed = false;
+    const unsubscribe = window.scope.onMemoryChange((next) => {
+      observed = true;
+      if (current) {
+        setStatus(next);
+        setError("");
+      }
+    });
     void window.scope
       .memory()
-      .then(setStatus)
-      .catch(() => setError("Could not read memory status. Close Settings and retry."));
-    return unsubscribe;
+      .then((next) => {
+        if (current && !observed) setStatus(next);
+      })
+      .catch(() => {
+        if (current && !observed)
+          setError("Could not read memory status. Close Settings and retry.");
+      });
+    return () => {
+      current = false;
+      unsubscribe();
+    };
   }, []);
   return { status, error, setStatus, setError };
 }
@@ -25,7 +41,7 @@ function machineSummary(machine: MemoryMachine) {
   if (status?.bundle === "registered") lines.push("irudd-okf bundle personal is registered.");
   else if (status?.bundleMessage) lines.push(status.bundleMessage);
   if (status?.okf.message) lines.push(status.okf.message);
-  return lines;
+  return [...new Set(lines)];
 }
 
 export function MemorySettings({ query }: { query: string }) {
@@ -39,7 +55,18 @@ export function MemorySettings({ query }: { query: string }) {
     void action()
       .then((next) => {
         if (next) setStatus(next);
-        setNotice(done);
+        if (next && next.configuration.enabled && next.configuration.repository && done) {
+          const incomplete = next.machines.some(
+            (machine) => machine.message || machine.status?.phase !== "synced",
+          );
+          setNotice(
+            incomplete
+              ? "Sync needs attention. Check each machine's status."
+              : next.conflicts.length
+                ? "Memory synced. Conflict pull requests need attention."
+                : done,
+          );
+        } else setNotice(done);
       })
       .catch((cause: unknown) =>
         setError(cause instanceof Error ? cause.message : "Could not update memory. Retry."),
@@ -121,6 +148,8 @@ export function MemorySettings({ query }: { query: string }) {
 export function MemoryNotice() {
   const { status } = useMemory();
   const [message, setMessage] = useState("");
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
   const conflicts = status?.conflicts.length ?? 0;
   if (!conflicts) return null;
   return (
@@ -137,7 +166,8 @@ export function MemoryNotice() {
             .copyMemoryRequest("conflicts")
             .then(() => {
               setMessage("Agent request copied. Paste it into your coding agent.");
-              setTimeout(() => setMessage(""), 6000);
+              clearTimeout(copiedTimer.current);
+              copiedTimer.current = setTimeout(() => setMessage(""), 6000);
             })
             .catch(() => setMessage("Could not copy the request. Try again."))
         }
