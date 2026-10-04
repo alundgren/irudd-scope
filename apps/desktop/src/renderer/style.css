@@ -1548,6 +1548,7 @@ h2 {
 .plan-comment-pin {
   position: absolute;
   transform: translate(-50%, -50%);
+  transition-property: color, background-color, border-color, box-shadow;
   pointer-events: auto;
   color: var(--scope-danger);
   border-color: var(--scope-danger);

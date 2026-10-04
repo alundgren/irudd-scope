@@ -2,9 +2,39 @@ import { expect, test } from "vite-plus/test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
+import type { Locator } from "@playwright/test";
 
 const html = `<!doctype html><html><head><title>Marking plan</title><style>body{margin:0;background:#f3f8f1;color:#182a21;font:18px system-ui}section{height:400px;padding:24px}button{font:inherit}</style></head><body><section>Introduction</section><section><button onclick="this.textContent='Clicked'">Interactive target</button></section><section>More content</section><section>End</section></body></html>`;
 const evidence = "/tmp/scope-plan-ui-evidence";
+
+async function expectPinTracksScroll(pin: Locator) {
+  const samples = await pin.evaluate(async (button) => {
+    const layer = button.closest(".plan-pin-layer")!;
+    const circle = layer.querySelector("circle")!;
+    const documentWindow = layer.parentElement!.querySelector("iframe")!.contentWindow!;
+    const start = documentWindow.scrollY;
+    const samples = [];
+    for (const offset of [0, 8, 16, 24, 32, 40, 32, 24, 16, 8, 0]) {
+      documentWindow.scrollTo(0, start + offset);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const buttonBounds = button.getBoundingClientRect();
+      const circleBounds = circle.getBoundingClientRect();
+      const x = circleBounds.x + circleBounds.width / 2;
+      const y = circleBounds.y + circleBounds.height / 2;
+      samples.push({
+        xError: Math.abs(buttonBounds.x + buttonBounds.width / 2 - x),
+        yError: Math.abs(buttonBounds.y + buttonBounds.height / 2 - y),
+        y,
+      });
+    }
+    return samples;
+  });
+  expect(Math.max(...samples.map((sample) => sample.yError))).toBeLessThan(1);
+  expect(Math.max(...samples.map((sample) => sample.xError))).toBeLessThan(1);
+  expect(samples[0].y - Math.min(...samples.map((sample) => sample.y))).toBeGreaterThan(30);
+  expect(samples.at(-1)!.y).toBeCloseTo(samples[0].y, 0);
+}
 
 test("comment pins stay beside the page content through scrolling and restart with a compact editor", async () => {
   const { directory, launch, connect } = await desktopFixture({
@@ -17,6 +47,7 @@ test("comment pins stay beside the page content through scrolling and restart wi
       BrowserWindow.getAllWindows()[0]!.setContentSize(1000, 760),
     );
     let page = await application.firstWindow();
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.evaluate(
       (html) => window.scope.createPlan({ name: "marking-plan", title: "Marking plan", html }),
       html,
@@ -69,6 +100,9 @@ test("comment pins stay beside the page content through scrolling and restart wi
     await page.getByRole("textbox", { name: "Comment", exact: true }).fill("Clarify this section.");
     await page.screenshot({ path: join(evidence, "pin-editor-light.png") });
     await page.getByRole("button", { name: "Back to plan", exact: true }).click();
+    await expectPinTracksScroll(
+      page.getByRole("button", { name: "Open draft comment", exact: true }),
+    );
     await page.getByRole("button", { name: "Open draft comment", exact: true }).click();
     await page.getByRole("button", { name: "Add comment", exact: true }).click();
     await page.getByRole("button", { name: "Send feedback (1)", exact: true }).waitFor();
@@ -80,6 +114,7 @@ test("comment pins stay beside the page content through scrolling and restart wi
       .waitFor();
     await page.screenshot({ path: join(evidence, "pin-comment-light.png") });
     await page.getByRole("button", { name: "Close comment", exact: true }).click();
+    await expectPinTracksScroll(pin);
     const before = (await pin.boundingBox())!;
     await frame
       .locator("body")
@@ -93,6 +128,7 @@ test("comment pins stay beside the page content through scrolling and restart wi
       BrowserWindow.getAllWindows()[0]!.setContentSize(1000, 760),
     );
     page = await application.firstWindow();
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     frame = page.frameLocator(".plan-document");
     await frame.getByRole("button", { name: "Interactive target" }).waitFor();
     const client = await connect();
@@ -194,6 +230,13 @@ test("comment pins stay beside the page content through scrolling and restart wi
     expect(narrowEditor.x + narrowEditor.width).toBeLessThanOrEqual(560);
     await page.keyboard.press("Enter");
     await page.getByRole("button", { name: "Send feedback (1)", exact: true }).waitFor();
+    await page.mouse.move(550, 600);
+    await expectPinTracksScroll(
+      page.getByRole("button", {
+        name: "Comment: A narrow-window comment.\nKeep its controls small.",
+        exact: true,
+      }),
+    );
     const final = await client.plan({ action: "read", name: "marking-plan" });
     if (final.type !== "snapshot") throw new Error("Expected snapshot.");
     expect(final.snapshot.comments).toHaveLength(2);
