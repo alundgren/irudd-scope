@@ -253,6 +253,13 @@ applies approved corrections through its normal tools and records the outcome.
 The CLI listener sends requests to that existing coding session. Copy agent
 request supports manual delivery.
 
+Optional irudd-okf memory proposals carry an exact `okfEdit` preview: host
+route and identity, settings version, working directory, concept path and
+previous file text and hash. The retro store checks that record and current
+settings when a proposal is published, accepted or edited, and keeps decided
+previews as history after settings change. The agent rechecks everything and
+writes with the OKF CLI on the destination host; Scope has no OKF dependency.
+
 Finish is an agent command following the operator's conversational instruction.
 It freezes the report and commits source/runtime initialization and successfully
 reviewed native session IDs in one `scope.db` transaction. Initialization is

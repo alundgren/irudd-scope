@@ -488,6 +488,10 @@ remember repository inclusion by canonical fetch origin. First-use history
 choices are asked by the agent. Memory suggestions default off. Destination
 previews show the exact content, source host and personal or project scope.
 Unavailable destinations are omitted; OKF is shown only after its CLI was
-detected on that destination host. Codex editable instructions are labeled as
+detected on that destination host. OKF previews show the host route and
+identity, bundle root, concept path, current file or its absence, and the
+complete proposed file. Editing changes only the text; another destination
+needs a new finding. A preview that memory-off or a changed destination no
+longer allows stays visible as history with Accept and Edit disabled. Codex editable instructions are labeled as
 instructions. Neither Scope's memory switch nor a retro changes native runtime
 memory enablement.

@@ -486,8 +486,7 @@ export class RetroStore {
                 command.destination &&
                 (finding.proposal.destination.type === "okf" ||
                   command.destination.type === "okf") &&
-                JSON.stringify(command.destination) !==
-                  JSON.stringify(finding.proposal.destination)
+                JSON.stringify(command.destination) !== JSON.stringify(finding.proposal.destination)
               )
                 return yield* fail(
                   "OKF decisions keep the prepared destination. Ask the agent to prepare a new finding for a different OKF destination.",
