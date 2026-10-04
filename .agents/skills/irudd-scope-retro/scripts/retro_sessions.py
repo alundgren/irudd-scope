@@ -357,6 +357,7 @@ def snapshot(args):
                             assistant_count += 1
                             response_count += 1
                     elif isinstance(kind, str) and kind.endswith("_call"):
+                        response_count += 1
                         key = payload.get("call_id") or payload.get("id") or "line-" + str(line_number)
                         standalone = kind in ("web_search_call", "image_generation_call")
                         tools.setdefault(key, {"id": key, "name": payload.get("name") or kind, "input": payload.get("arguments", payload.get("input", payload.get("action", payload))), "output": payload.get("result"), "startedAt": None if standalone else at, "finishedAt": at if standalone and payload.get("status") == "completed" else None, "line": line_number})
@@ -407,7 +408,7 @@ def snapshot(args):
                             else:
                                 usage_records[message_id] = None
                         else:
-                            usage_records.setdefault(message_id, None)
+                            usage_records[message_id] = None
                 content = message.get("content")
                 for block in content if isinstance(content, list) else []:
                     if not isinstance(block, dict):

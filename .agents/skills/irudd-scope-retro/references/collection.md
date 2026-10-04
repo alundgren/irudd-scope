@@ -73,9 +73,10 @@ coverage; do not silently switch to a different session or mark partial work who
 
 Codex token metrics use the latest cumulative native `total_token_usage`, never
 sum repeated cumulative samples. Fork-inherited, decreasing or unusable counter observations remain
-unknown with explicit coverage notes. If assistant messages follow the last usage counter, the counter is an
+unknown with explicit coverage notes. If assistant messages or model tool calls follow the last usage counter, the counter is an
 estimate of session consumption. Claude usage counts each native assistant message
-ID once, retaining the latest observed usage for repeated streaming records. It sums
+ID once, retaining the latest usage for repeated streaming records. A later
+unusable usage record makes that message unknown until a valid update arrives. It sums
 input, output, cache-creation and cache-read tokens; assistant messages without usage
 make a known subtotal estimated. Missing counters stay null. Metrics cover the
 selected native file only. Claude conversation and usage records must match

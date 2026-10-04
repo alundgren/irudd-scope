@@ -204,6 +204,15 @@ class NativeSessionTests(unittest.TestCase):
         self.codex(records=[self.usage(100), self.assistant()])
         self.assertEqual(self.run_helper("snapshot", extra=["--session-id", "session"])["metrics"][0]["certainty"], "estimated")
 
+    def test_counter_before_model_tool_call_is_estimated_until_updated(self):
+        call = {"type": "response_item", "payload": {"type": "function_call", "call_id": "call", "name": "exec_command", "arguments": "test"}}
+        self.codex(records=[self.usage(), call])
+        result = self.run_helper("snapshot", extra=["--session-id", "session"])
+        self.assertEqual(result["metrics"][0]["value"], 100)
+        self.assertEqual(result["metrics"][0]["certainty"], "estimated")
+        self.codex(records=[self.usage(), call, self.usage(150)])
+        self.assertEqual(self.run_helper("snapshot", extra=["--session-id", "session"])["metrics"][0]["certainty"], "exact")
+
     def test_selected_corrupt_history_fails_without_invalidating_unrelated_exact_usage(self):
         selected = self.codex(records=[self.assistant(), self.usage()])
         (self.root / "sessions" / "unrelated.jsonl").write_text("corrupt header\n")
@@ -255,6 +264,21 @@ class NativeSessionTests(unittest.TestCase):
         self.assertEqual(result["metrics"][0]["value"], 25)
         self.assertEqual(result["metrics"][0]["certainty"], "exact")
         self.assertEqual(len(result["conversations"]), 2)
+
+    def test_later_unusable_streaming_usage_is_unknown_until_valid_update(self):
+        def message(usage):
+            return {"type": "assistant", "message": {"id": "stream", "role": "assistant", "content": "More evidence", "usage": usage}}
+        for broken in (None, {"input_tokens": 10}):
+            rows = [message({"input_tokens": 10, "output_tokens": 5}), message(broken)]
+            self.claude(rows=rows)
+            result = self.run_helper("snapshot", "claude", ["--session-id", "claude-session"])
+            self.assertIsNone(result["metrics"][0]["value"])
+            self.assertEqual(result["metrics"][0]["certainty"], "unknown")
+            self.assertEqual(result["coverage"]["usageMessagesMissing"], 1)
+            self.claude(rows=rows + [message({"input_tokens": 10, "output_tokens": 8})])
+            result = self.run_helper("snapshot", "claude", ["--session-id", "claude-session"])
+            self.assertEqual(result["metrics"][0]["value"], 18)
+            self.assertEqual(result["metrics"][0]["certainty"], "exact")
 
     def test_claude_partial_usage_subtotal_and_no_usage_unknown(self):
         known = {"type": "assistant", "message": {"id": "known", "role": "assistant", "content": "Done", "usage": {"input_tokens": 10, "output_tokens": 5}}}
