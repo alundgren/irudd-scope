@@ -33,6 +33,7 @@ export const Tab = Schema.Struct({
   title: Name,
   state: TabState,
   overlayPositions: Schema.optionalKey(OverlayPositions),
+  hidden: Schema.optionalKey(Schema.Boolean),
 });
 export type Tab = typeof Tab.Type;
 export const Workspace = Schema.Struct({
@@ -62,7 +63,8 @@ export function decodeWorkspace(value: unknown): Workspace {
     groups.size !== workspace.groups.length ||
     new Set(tabs.map((tab) => tab.id)).size !== tabs.length ||
     tabs.some((tab) => !groups.has(tab.groupId)) ||
-    (workspace.selected !== null && !workspace.tabs.some((tab) => tab.id === workspace.selected))
+    (workspace.selected !== null &&
+      !workspace.tabs.some((tab) => tab.id === workspace.selected && !tab.hidden))
   )
     throw new Error("Invalid workspace selection or group membership.");
   return workspace;

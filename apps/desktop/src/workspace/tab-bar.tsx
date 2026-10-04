@@ -7,11 +7,13 @@ import {
   type RefObject,
 } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
-import { Bookmark, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { tabArtifactId } from "../plugins/registry.renderer.ts";
+import { isBuiltinTab } from "../plugins/registry.ts";
 import type { Tab } from "./contract.ts";
 import type { RetainedTab } from "./retention.ts";
+import { TabPermanence } from "./tab-permanence.tsx";
 import { TabOverflow } from "./tab-overflow.tsx";
 import { useTabDrag, type ReorderTab } from "./use-tab-drag.ts";
 
@@ -77,8 +79,9 @@ export function TabBar({
     return () => resize.disconnect();
   }, []);
   const count = Math.max(1, capacity);
-  let visibleTabs = tabs.slice(-count);
-  const selected = tabs.find((tab) => tab.id === selectedId);
+  const availableTabs = tabs.filter((tab) => !tab.hidden);
+  let visibleTabs = availableTabs.slice(-count);
+  const selected = availableTabs.find((tab) => tab.id === selectedId);
   if (selected && !visibleTabs.includes(selected))
     visibleTabs = [selected, ...visibleTabs.slice(1)];
   const visibleIds = new Set(visibleTabs.map((tab) => tab.id));
@@ -90,20 +93,21 @@ export function TabBar({
   }, [visibleKey, onVisible]);
   function navigateTabs(event: ReactKeyboardEvent) {
     if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
-    const index = tabs.findIndex((tab) => tab.id === selectedId);
+    if (!availableTabs.length) return;
+    const index = availableTabs.findIndex((tab) => tab.id === selectedId);
     const target =
       event.key === "ArrowRight"
-        ? (index + 1) % tabs.length
+        ? (index + 1) % availableTabs.length
         : event.key === "ArrowLeft"
-          ? (index + tabs.length - 1) % tabs.length
+          ? (index + availableTabs.length - 1) % availableTabs.length
           : event.key === "Home"
             ? 0
             : event.key === "End"
-              ? tabs.length - 1
+              ? availableTabs.length - 1
               : undefined;
     if (target === undefined) return;
     event.preventDefault();
-    onSelect(tabs[target].id, true);
+    onSelect(availableTabs[target].id, true);
   }
   return (
     <header className="workspace-bar">
@@ -129,7 +133,9 @@ export function TabBar({
             const artifactId = tabArtifactId(tab);
             const artifact = artifacts.get(artifactId ?? "");
             const title = artifact?.title ?? tab.title;
-            const permanent = retainedTabs.find((entry) => entry.tab.id === id)?.permanent ?? false;
+            const builtin = isBuiltinTab(tab);
+            const permanent =
+              builtin || (retainedTabs.find((entry) => entry.tab.id === id)?.permanent ?? false);
             const isSelected = id === selectedId;
             return (
               <div
@@ -150,12 +156,16 @@ export function TabBar({
                   tabIndex={id === selectedId ? 0 : -1}
                   title={title}
                   aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight Delete"
-                  aria-description="Drag to reorder. Hold over Tabs and Trashcan to open the drawer and drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
+                  aria-description={
+                    builtin
+                      ? "Drag or Alt and arrow keys to reorder. Delete closes this built-in tab."
+                      : "Drag to reorder. Hold over Tabs and Trashcan to open the drawer and drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
+                  }
                   onKeyDown={(event) =>
                     drag.keyboard(
                       event,
                       id,
-                      tabs.map((entry) => entry.id),
+                      availableTabs.map((entry) => entry.id),
                       "horizontal",
                     )
                   }
@@ -171,25 +181,19 @@ export function TabBar({
                     title="Artifact updated"
                   />
                 )}
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className={`tab-permanent${permanent ? " is-permanent" : ""}`}
-                  data-tab-drag-ignore
-                  aria-label={`${permanent ? "Make temporary" : "Keep permanently"}: ${title}`}
-                  aria-pressed={permanent}
-                  title={permanent ? "Permanent · Make temporary" : "Keep permanently"}
-                  onClick={() => void onPermanent(id, !permanent)}
-                >
-                  <Bookmark fill={permanent ? "currentColor" : "none"} />
-                </Button>
+                <TabPermanence
+                  tab={tab}
+                  title={title}
+                  permanent={permanent}
+                  onPermanent={onPermanent}
+                />
                 <Button
                   variant="ghost"
                   size="icon-xs"
                   className="tab-close"
                   data-tab-drag-ignore
                   aria-label={`Close ${title}`}
-                  title={permanent ? "Move to end of queue" : "Move to Trashcan"}
+                  title={permanent ? "Close tab · Reopen from drawer" : "Move to Trashcan"}
                   onClick={() => onClose(id)}
                 >
                   <X />

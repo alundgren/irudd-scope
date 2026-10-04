@@ -42,6 +42,7 @@ import { WorkspaceNavigationContext } from "./navigation-context.ts";
 import { flushWorkspace } from "./persistence.ts";
 import { PresentationPointer } from "./presentation-pointer.tsx";
 import { observeFrameKeyboard } from "./frame-documents.ts";
+import { isBuiltinTab } from "../plugins/registry.ts";
 import { pluginForArtifact, tabArtifactId } from "../plugins/registry.renderer.ts";
 
 type FullscreenMode = "edit" | "view" | "present";
@@ -134,11 +135,11 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   );
   const [receivingArrivals, setReceivingArrivals] = useState(false);
   useEffect(() => {
-    if (!workspace.tabs.length) {
+    if (!workspace.selected) {
       setFocus(false);
       setFullscreenMode("edit");
     }
-  }, [workspace.tabs.length]);
+  }, [workspace.selected]);
   const tabButtons = useRef(new Map<string, HTMLButtonElement>());
   const controlsButton = useRef<HTMLButtonElement>(null);
   const modeSelect = useRef<HTMLSelectElement>(null);
@@ -159,8 +160,10 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const activeArtifacts = snapshot.artifacts.filter(
     (artifact) => !trashedArtifacts.has(artifact.id),
   );
+  const activeBuiltin = active ? isBuiltinTab(active) : false;
   const activePermanent =
-    retention.tabs.find((entry) => entry.tab.id === active?.id)?.permanent ?? false;
+    activeBuiltin ||
+    (retention.tabs.find((entry) => entry.tab.id === active?.id)?.permanent ?? false);
   useEffect(() => {
     if (focus) retention.reportVisible(workspace.selected ? [workspace.selected] : []);
   }, [focus, workspace.selected, retention.reportVisible]);
@@ -305,26 +308,38 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   }
   async function close(id: string) {
     if (!retention.ready) return;
-    if (retention.tabs.find((entry) => entry.tab.id === id)?.permanent) {
+    const tab = workspace.tabs.find((entry) => entry.id === id);
+    if (
+      tab &&
+      (isBuiltinTab(tab) || retention.tabs.find((entry) => entry.tab.id === id)?.permanent)
+    ) {
       try {
         await flushWorkspace("save", id);
+        const selected = await deferTab(id);
+        if (workspace.selected === id) setFullscreenMode("edit");
+        requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
       } catch {
         setError("Could not save this tab. Try again.");
         return;
       }
-      const selected = deferTab(id);
-      if (workspace.selected === id) setFullscreenMode("edit");
-      requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
       return;
     }
     await trash(id);
   }
   async function trash(id: string) {
+    const tab = workspace.tabs.find((entry) => entry.id === id);
+    if (tab && isBuiltinTab(tab)) {
+      await close(id);
+      return;
+    }
     if (!(await closeTab(id))) return;
-    const index = workspace.tabs.findIndex((tab) => tab.id === id);
-    const tabs = workspace.tabs.filter((tab) => tab.id !== id);
+    const visible = workspace.tabs.filter((tab) => !tab.hidden);
+    const index = visible.findIndex((tab) => tab.id === id);
+    const tabs = visible.filter((tab) => tab.id !== id);
     const selected =
-      workspace.selected === id ? (tabs[Math.max(0, index - 1)]?.id ?? null) : workspace.selected;
+      workspace.selected === id
+        ? (tabs[Math.min(Math.max(0, index - 1), tabs.length - 1)]?.id ?? null)
+        : workspace.selected;
     if (workspace.selected === id) setFullscreenMode("edit");
     if (!tabs.length) setFocus(false);
     requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
@@ -642,20 +657,24 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                         },
                       ]
                     : []),
-                  {
-                    id: "permanent",
-                    title: activePermanent ? "Make temporary" : "Keep permanently",
-                    keywords: "retention bookmark permanent temporary",
-                    icon: Bookmark,
-                    pressed: activePermanent,
-                    onSelect: () => void retention.setPermanent(active.id, !activePermanent),
-                  },
+                  ...(!activeBuiltin
+                    ? [
+                        {
+                          id: "permanent",
+                          title: activePermanent ? "Make temporary" : "Keep permanently",
+                          keywords: "retention bookmark permanent temporary",
+                          icon: Bookmark,
+                          pressed: activePermanent,
+                          onSelect: () => void retention.setPermanent(active.id, !activePermanent),
+                        },
+                      ]
+                    : []),
                   {
                     id: "close",
-                    title: "Move to Trashcan",
-                    keywords: "close trash delete remove",
-                    icon: Trash2,
-                    shortcut: activePermanent ? undefined : "⌘W",
+                    title: activeBuiltin ? "Close tab" : "Move to Trashcan",
+                    keywords: activeBuiltin ? "close hide built-in" : "close trash delete remove",
+                    icon: activeBuiltin ? X : Trash2,
+                    shortcut: activeBuiltin || !activePermanent ? "⌘W" : undefined,
                     onSelect: () => {
                       setSearch(false);
                       void trash(active.id);
@@ -718,6 +737,12 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
               <dd>{activeArtifact.kind}</dd>
               <dt>ID</dt>
               <dd>{activeArtifact.id}</dd>
+              {activeArtifact.name && (
+                <>
+                  <dt>Name</dt>
+                  <dd>{activeArtifact.name}</dd>
+                </>
+              )}
               <dt>Revision</dt>
               <dd>{activeArtifact.revision}</dd>
               <dt>Updated</dt>

@@ -54,7 +54,14 @@ Every publication commits a queued tab before accepting content or metadata.
 Tab-owned records reference that tab in `scope.db`. Tabs store a permanence
 flag, last-visible timestamp, and nullable trash timestamp. The trash timestamp
 takes precedence over permanence. Restoring clears it, keeps the previous
-permanence, and resets visibility time. Late workspace saves cannot clear trash
+permanence, and resets visibility time. Tab documents also retain an optional
+`hidden` field. Closing a permanent tab sets it and moves the tab to the end of
+the saved order. Hidden tabs remain in the workspace and preserve drafts, but
+cannot be selected until reopened. Existing documents without `hidden` remain
+visible. Built-in plugin categories always retain permanence, cannot change
+type, and cannot move to Trashcan or expire. Reopening uses the saved tab UUID
+and state rather than creating another tab for the same built-in type.
+Late workspace saves cannot clear trash
 or recreate deleted rows. Draft saves can preserve a write already in progress
 when a tab moves to Trashcan, but cannot insert a deleted tab.
 

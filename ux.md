@@ -112,9 +112,20 @@ full seven days in Trashcan when the tab is actually moved there.
 Close controls and Command-W move temporary tabs to Trashcan. For permanent
 tabs, they move the tab to the end of the saved order, last in the drawer,
 and select a neighboring tab. Closing a background permanent tab keeps the
-current selection; a sole permanent tab stays selected. This lets permanent
-tools stay available after use. Delete, dropping onto Trashcan, and the explicit
-Move to Trashcan action still trash either kind of tab. These actions preserve
+current selection. Closed permanent tabs leave the strip and stay closed after
+restart, even when room is available. Their content stays mounted while Scope
+runs. Selecting one from the drawer reopens it with the same UUID and saved
+position. Closing the last visible tab leaves no selection. Delete, dropping
+onto Trashcan, and the explicit Move to Trashcan action still trash ordinary
+temporary and permanent tabs.
+
+Built-in tabs are always permanent. A noninteractive lock icon identifies them
+in the strip and drawer. They have no permanence toggle. Close, Delete, and
+dropping onto Trashcan hide them for reopening from the drawer; these actions
+never delete their data. Artifact details show a saved name beside the ID when
+the artifact has one.
+
+Closing or trashing ordinary artifact tabs preserves
 artifact content, names, drafts, conversations, and saved viewport. Agent updates cannot restore
 trashed tabs or refresh their retention clocks. Restore returns the same tab to
 the right end, selects it, preserves its permanent setting, and restarts the
@@ -396,8 +407,7 @@ revision and retains the previous versions.
 Each inbox is a permanent named HTML app for one GitHub repository. The initial
 app presents a flat list and named views, with no search or sort controls.
 Agents can replace its HTML and JavaScript while Scope preserves the current
-PR data, notes, snoozes, and review decisions. Closing moves a permanent inbox
-to the end of the tab queue. Moving it to Trashcan uses ordinary retention.
+PR data, notes, snoozes, and review decisions. Closing hides a permanent inbox and moves it to the end of the drawer. Moving it to Trashcan uses ordinary retention.
 Permanently deleting the tab deletes its repository review data.
 
 Configured inboxes refresh current open PRs automatically, including drafts.
