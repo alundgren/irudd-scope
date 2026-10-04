@@ -189,7 +189,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 11) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 12) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");

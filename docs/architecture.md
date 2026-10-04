@@ -259,7 +259,10 @@ Finish is an agent command following the operator's conversational instruction.
 It freezes the report and commits source/runtime initialization and successfully
 reviewed native session IDs in one `scope.db` transaction. Initialization is
 explicit even when discovery found no eligible sessions. Start now uses the
-saved discovery cutoff. Interrupted retros and unavailable sources leave
+saved discovery cutoff. From date uses the agreed historical initialization
+cutoff while preserving the actual discovery timestamp as the evidence bound.
+Both cutoffs remain fixed and select whole sessions by their native start time.
+Interrupted retros and unavailable sources leave
 reviewed-session markers and initialization unchanged. Publishing a report
 records its retro-agent exclusion immediately, so even interrupted retro
 conversations stay excluded from later discovery. A resumed audited session stays skipped; explicit manual

@@ -19,6 +19,13 @@ python3 scripts/retro_sessions.py inventory --runtime claude --root "$HOME/.clau
 assuming defaults. `--tracking` is a temporary input combining every Scope tracking
 page into one object with `audited`, `agents`, `mode` and `cutoff`. A non-null `next`
 is rejected. This is agent working input, not a new persistent settings store.
+For an agreed first-use historical cutoff, use a temporary tracking object with
+`mode: "from-date"` and `cutoff` set to the agreed UTC timestamp, preserving the
+combined `audited` and `agents` arrays. The helper accepts this staged input before
+Scope tracking is initialized. It rejects future or invalid cutoffs and excludes
+unknown starts and sessions started at or before the cutoff. Save that date as
+`initializationCutoff` in source coverage; keep `discoveredAt` from the helper output.
+After finish, use Scope's saved tracking unchanged.
 
 The output contains `sessions`, `sessionCount`, `oldestStartedAt`, `discoveredAt`,
 `inventoryComplete`, exclusions, coverage and `next`. Pass `next` unchanged as

@@ -80,7 +80,14 @@ export class RetroStore {
           yield* sql`CREATE TABLE IF NOT EXISTS retro_receipts(tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE, request_id TEXT NOT NULL, payload TEXT NOT NULL, reply TEXT NOT NULL CHECK(json_valid(reply)), PRIMARY KEY(tab_id,request_id)) STRICT`;
           yield* sql`CREATE TABLE IF NOT EXISTS retro_audits(source_id TEXT NOT NULL, runtime TEXT NOT NULL, session_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('reviewed','agent')), at TEXT NOT NULL, PRIMARY KEY(source_id,runtime,session_id,role)) STRICT`;
           yield* sql`CREATE TABLE IF NOT EXISTS retro_initialization(source_id TEXT NOT NULL, runtime TEXT NOT NULL, mode TEXT NOT NULL CHECK(mode IN ('all','from-now')), cutoff TEXT NOT NULL, PRIMARY KEY(source_id,runtime)) STRICT`;
-          yield* sql`PRAGMA user_version = 11`;
+          const [{ user_version }] = yield* sql<{ user_version: number }>`PRAGMA user_version`;
+          if (user_version < 12) {
+            yield* sql`ALTER TABLE retro_initialization RENAME TO retro_initialization_old`;
+            yield* sql`CREATE TABLE retro_initialization(source_id TEXT NOT NULL, runtime TEXT NOT NULL, mode TEXT NOT NULL CHECK(mode IN ('all','from-now','from-date')), cutoff TEXT NOT NULL, PRIMARY KEY(source_id,runtime)) STRICT`;
+            yield* sql`INSERT INTO retro_initialization SELECT source_id,runtime,mode,cutoff FROM retro_initialization_old`;
+            yield* sql`DROP TABLE retro_initialization_old`;
+          }
+          yield* sql`PRAGMA user_version = 12`;
           const rows = yield* sql<{
             tab_id: string;
             document: string;
@@ -136,7 +143,7 @@ export class RetroStore {
             Effect.fail(new ScopeError(status, message));
           if (command.action === "tracking") {
             const [init] = yield* sql<{
-              mode: "all" | "from-now";
+              mode: "all" | "from-now" | "from-date";
               cutoff: string;
             }>`SELECT mode,cutoff FROM retro_initialization WHERE source_id = ${command.sourceId} AND runtime = ${command.runtime}`;
             const rows = yield* sql<{
@@ -357,6 +364,20 @@ export class RetroStore {
                   return yield* fail("Coverage must reference an included configured source.", 400);
                 if (source.availability !== "available" && source.initialization !== "none")
                   return yield* fail("An unavailable runtime cannot initialize.", 400);
+                if (
+                  (source.initialization === "from-date") !==
+                  (source.initializationCutoff !== undefined)
+                )
+                  return yield* fail("Only From date requires an initialization cutoff.", 400);
+                if (
+                  source.initializationCutoff &&
+                  (isLaterThan(source.initializationCutoff, source.discoveredAt) ||
+                    isLaterThan(source.initializationCutoff, now))
+                )
+                  return yield* fail(
+                    "Initialization cutoff cannot follow discovery or the current time.",
+                    400,
+                  );
               }
               for (const f of command.report.findings)
                 if (f.proposal) {
@@ -425,7 +446,7 @@ export class RetroStore {
                   (audit ||
                     (document.report.agent &&
                       identity(document.report.agent) === identity(session)) ||
-                    (init?.mode === "from-now" &&
+                    ((init?.mode === "from-now" || init?.mode === "from-date") &&
                       (!session.startedAt || !isLaterThan(session.startedAt, init.cutoff))))
                 )
                   return yield* fail("This session is excluded from automatic review.", 400);
@@ -438,6 +459,16 @@ export class RetroStore {
                   return yield* fail("Session activity exceeds the discovery cutoff.", 400);
                 if (source.initialization === "from-now" && session.status === "reviewed")
                   return yield* fail("Start now does not audit earlier sessions.", 400);
+                if (
+                  source.initialization === "from-date" &&
+                  session.status !== "ignored" &&
+                  (!session.startedAt ||
+                    !isLaterThan(session.startedAt, source.initializationCutoff!))
+                )
+                  return yield* fail(
+                    "This session did not start after the initialization cutoff.",
+                    400,
+                  );
                 yield* sql`INSERT INTO retro_sessions(tab_id,identity,document) VALUES (${owner.tab_id}, ${identity(session)},${JSON.stringify(session)}) ON CONFLICT(tab_id,identity) DO UPDATE SET document = excluded.document`;
               }
               break;
@@ -616,7 +647,7 @@ export class RetroStore {
                     );
                   if (!initialized && source.initialization === "none")
                     return yield* fail(
-                      "Choose All or Start now for every available uninitialized runtime.",
+                      "Choose All, Start now or From date for every available uninitialized runtime.",
                     );
                 }
                 if (source.availability !== "available") {
@@ -627,7 +658,7 @@ export class RetroStore {
                   continue;
                 }
                 if (source.initialization !== "none")
-                  yield* sql`INSERT INTO retro_initialization(source_id,runtime,mode,cutoff) VALUES (${source.sourceId},${source.runtime},${source.initialization},${source.discoveredAt}) ON CONFLICT(source_id,runtime) DO NOTHING`;
+                  yield* sql`INSERT INTO retro_initialization(source_id,runtime,mode,cutoff) VALUES (${source.sourceId},${source.runtime},${source.initialization},${source.initializationCutoff ?? source.discoveredAt}) ON CONFLICT(source_id,runtime) DO NOTHING`;
               }
               const sessions = yield* sql<{
                 document: string;
@@ -650,7 +681,7 @@ export class RetroStore {
                   !configuration?.repositories.some(
                     (r) => r.repository === s.repository && r.included,
                   ) ||
-                  (init?.mode === "from-now" &&
+                  ((init?.mode === "from-now" || init?.mode === "from-date") &&
                     (!s.startedAt || !isLaterThan(s.startedAt, init.cutoff)))
                 )
                   return yield* fail(

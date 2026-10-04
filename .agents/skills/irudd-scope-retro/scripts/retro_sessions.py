@@ -217,14 +217,16 @@ def read_tracking(path):
         value = json.load(stream)
     if not isinstance(value, dict) or not all(isinstance(value.get(key, []), list) and all(isinstance(item, str) for item in value.get(key, [])) for key in ("audited", "agents")):
         raise ValueError("Tracking must be an object with audited and agents ID arrays")
-    if value.get("mode") not in (None, "all", "from-now"):
+    if value.get("mode") not in (None, "all", "from-now", "from-date"):
         raise ValueError("Unknown tracking mode")
     if value.get("cutoff") is not None and timestamp(value["cutoff"]) is None:
         raise ValueError("Invalid tracking cutoff")
     if value.get("next"):
         raise ValueError("Tracking is incomplete; combine every Scope tracking page first")
-    if value.get("mode") == "from-now" and timestamp(value.get("cutoff")) is None:
-        raise ValueError("from-now tracking requires a valid native discovery cutoff")
+    if value.get("mode") in ("from-now", "from-date") and timestamp(value.get("cutoff")) is None:
+        raise ValueError("Date-filtered tracking requires a valid cutoff")
+    if value.get("mode") == "from-date" and time_key(timestamp(value["cutoff"])) > time_key(now()):
+        raise ValueError("Historical cutoff cannot be in the future")
     return value
 
 
@@ -244,9 +246,9 @@ def inventory(args):
             reason = "excluded"
         elif not row["repository"]:
             reason = "unassociated"
-        elif tracking.get("mode") == "from-now" and row["startedAt"] is None:
+        elif tracking.get("mode") in ("from-now", "from-date") and row["startedAt"] is None:
             reason = "unknownStart"
-        elif tracking.get("mode") == "from-now" and time_key(row["startedAt"]) <= time_key(cutoff):
+        elif tracking.get("mode") in ("from-now", "from-date") and time_key(row["startedAt"]) <= time_key(cutoff):
             reason = "beforeCutoff"
         elif row["sessionId"] in ids:
             reason = "duplicate"
