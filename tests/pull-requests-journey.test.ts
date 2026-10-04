@@ -38,10 +38,18 @@ Binary files a/image.png and b/image.png differ
   await writeFile(
     join(ghDirectory, "gh"),
     `#!${process.execPath}
-import { readFileSync, appendFileSync } from 'node:fs';
+import { readFileSync, appendFileSync, writeFileSync, renameSync } from 'node:fs';
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(readsFile)}, JSON.stringify(args)+'\\n');
-const state = JSON.parse(readFileSync(${JSON.stringify(stateFile)}, 'utf8'));
+const statePath = ${JSON.stringify(stateFile)};
+const state = JSON.parse(readFileSync(statePath, 'utf8'));
+if (state.advanceOnDetail && args.some(a => a.includes('ScopePullRequestReviewBody'))) {
+  state.head = '${newerHead}';
+  state.advanceOnDetail = false;
+  const replacement = statePath + '.' + process.pid;
+  writeFileSync(replacement, JSON.stringify(state));
+  renameSync(replacement, statePath);
+}
 if (state.fail) { console.error('Synthetic offline GitHub'); process.exit(1); }
 const complete = { hasNextPage: false, endCursor: null };
 const row = { state:'OPEN',reviewThreads:{nodes:[],pageInfo:complete}, id:'PR_JOURNEY_1', repository:{id:'R_JOURNEY'}, number:1, title:'Review persistent state', author:{login:'colleague'}, labels:{nodes:[{name:'enhancement'}],pageInfo:complete}, headRefOid:state.head, headRefName:'feature', stack:null, stackEntry:null, reviewDecision:null, latestOpinionatedReviews:{totalCount:0,nodes:[],pageInfo:complete}, baseRefOid:'${base}', reviewRequests:{nodes:[{requestedReviewer:{__typename:'User',login:'viewer'}}],pageInfo:complete}, isDraft:false, additions:14, deletions:3, changedFiles:4, url:'https://github.com/synthetic/project/pull/1', mergeable:'MERGEABLE', createdAt:'2026-09-30T12:00:00Z',updatedAt:'2026-10-01T12:00:00Z', commits:{nodes:[{commit:{oid:state.head,statusCheckRollup:{state:'SUCCESS',commit:{oid:state.head}}}}]} };
@@ -93,9 +101,9 @@ else throw new Error('Unexpected GitHub read');
     );
     await fixture.cli("pull-requests", "configure", "journey-inbox", "synthetic/project");
     let frame = page.frameLocator(".pull-requests-document");
-    // GitHub moves before the inbox's next scheduled refresh.
+    // GitHub moves after the viewer captures the inbox's current comparison.
     await frame.getByRole("button", { name: "View changed files for #1", exact: true }).waitFor();
-    await writeFile(stateFile, JSON.stringify({ head: newerHead, fail: false }));
+    await writeFile(stateFile, JSON.stringify({ head, fail: false, advanceOnDetail: true }));
     await frame.getByRole("button", { name: "View changed files for #1", exact: true }).click();
     const staleViewer = page.frameLocator(".scope-content-document");
     await staleViewer
