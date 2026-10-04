@@ -358,7 +358,10 @@ operations declared in `bridge.ts` and exposed by `preload.ts`.
 prepared update, and certificate changes that take effect on restart.
 `signing.ts` resolves certificate names to fingerprints through macOS Keychain
 and opens Keychain Access for setup. `agent-tools.ts` installs and removes the local CLI and
-global publishing skill through named IPC operations. `installation-process.ts`
+global Scope skills through named IPC operations. `agent-skills.ts` owns
+bundled skill links, migration of registered skills CLI copies with backups,
+and startup repair. Skill links and the CLI follow the active app build.
+`installation-process.ts`
 owns cancellation of their child processes. `installation-files.ts` validates
 bundle metadata, replaces the installed app bundle, and manages links to
 complete app builds and the Applications location. These files contain

@@ -240,9 +240,15 @@ is recognizable. Ordinary updates retain that permission by reusing the helper.
 Changes to the helper or certificate and a locked Keychain can still prompt.
 
 Agent tools provides separate CLI and global skill installation actions with
-pending, installed, and failure states. The CLI follows the active app build.
-The skill action uses npx skills for Codex and Claude Code. Each installed
-tool has a removal action, and failed installation leaves a useful retry.
+pending, installed, and failure states. The CLI and bundled Scope skills
+follow the active app build. Skills install locally for Codex and Claude Code
+without a network request. Startup migrates registered older Scope copies
+with backups and repairs incomplete managed links. Separate installations
+remain untouched, with their path and recovery instructions in Settings.
+The installed skill action is Repair skill; the section explains automatic
+updates and refreshing or starting an agent session to reload guidance.
+Each installed tool has a removal action. Removed skills stay uninstalled
+across app updates, and failed installation leaves a useful retry.
 
 Remotes is a searchable Settings section. Installation happens on the remote
 through the standalone CLI. The Mac pairs by accepting a pasted URL, shows

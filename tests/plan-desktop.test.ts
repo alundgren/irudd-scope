@@ -375,9 +375,12 @@ test("plan publications switch to the latest page while historical captures and 
     );
     const workspace = await page.evaluate(() => window.scope.workspace());
     const planTab = workspace!.tabs.find((tab) => tab.state.data.artifactId === artifact.id)!;
-    expect(
-      (await page.evaluate((id) => window.scope.loadPlanDraft(id), planTab.id))?.revision,
-    ).toBe(1);
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate((id) => window.scope.loadPlanDraft(id), planTab.id))?.revision,
+      )
+      .toBe(1);
     await page.getByRole("button", { name: "Discard comment", exact: true }).click();
     await page
       .getByRole("dialog", { name: "Comment on captured page" })

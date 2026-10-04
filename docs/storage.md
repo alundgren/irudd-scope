@@ -159,7 +159,10 @@ backups can retain expired content. A lost delivery acknowledgement is
 reconciled against the desktop before retrying; conflicts retain the queued
 content and an error for inspection. Never restore an old hub backup against
 a different Mac pairing. Installation builds and skill files
-contain program code and live separately from this state.
+contain program code and live separately from this state. The Mac installer
+bundles skills with each app build. Migrated skills CLI copies, including
+local edits, remain in `skill-backups/` under the Mac installation directory;
+these backups are not artifact or preference storage.
 
 Remote build metadata records its commit and installation paths alongside the
 bundled code. The hub's SQLite update record retains the target commit, phase,
