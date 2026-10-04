@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { WorkspaceNavigationContext } from "../workspace/navigation-context.ts";
+import { useContext, useEffect, useRef, useState } from "react";
 import type { MemoryMachine, MemoryStatus } from "@irudd-scope/protocol/memory";
 import { Button } from "./components/ui/button.tsx";
 import { Switch } from "./components/ui/switch.tsx";
@@ -45,6 +46,7 @@ function machineSummary(machine: MemoryMachine) {
 }
 
 export function MemorySettings({ query }: { query: string }) {
+  const navigation = useContext(WorkspaceNavigationContext);
   const { status, error, setStatus, setError } = useMemory();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -81,6 +83,18 @@ export function MemorySettings({ query }: { query: string }) {
         Keep a personal irudd-okf memory repository on GitHub in sync on this Mac and every paired
         remote. Scope commits and pushes only when memory files change.
       </p>
+      {navigation && (
+        <Button
+          variant="secondary"
+          onClick={() =>
+            void navigation
+              .openMemoryTab()
+              .catch(() => setError("Could not open Personal memory. Retry."))
+          }
+        >
+          Open personal memory
+        </Button>
+      )}
       <Switch
         label="Memory sync"
         checked={enabled}

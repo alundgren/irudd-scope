@@ -321,6 +321,22 @@ Sync and daily irudd-okf upgrades share one queue on each machine. Upgrades run
 while memory is enabled, including before a repository is connected. Disabling
 memory stops the upgrade CLI and its installer processes.
 
+The desktop memory plugin opens the connected local bundle in one built-in
+Personal memory tab. Its wiki, search and bounded graph call the installed
+irudd-okf CLI through named IPC. `MemorySync.runOkf` shares the sync and upgrade
+queue, targets only the currently registered local clone, and rejects requests
+when configuration changes. The renderer never chooses a filesystem root or
+runs a process. The existing OKF hash check and writer lock protect Markdown
+saves; the plugin does not take that writer lock itself.
+
+Memory Markdown remains in the Git repository. Navigation and editing drafts
+stay in the tab document in `scope.db`. Each draft retains its repository,
+relative path, original hash and text, so switching repositories cannot apply
+an old edit to the new clone. Conflict and failed-save recovery keep the draft
+until the operator saves, copies or explicitly discards it. CLI write input uses
+a private temporary file removed after the command, with no persistent file
+cache. Scope does not start the irudd-okf browser server or expose its API.
+
 ## Names and ownership
 
 Use the same names in code, documentation, diagrams, issues, and reviews.

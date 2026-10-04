@@ -40,8 +40,6 @@ for (const appearance of ["light", "dark"] as const) {
       await details.getByText("close-0", { exact: true }).waitFor();
       await page.keyboard.press("Escape");
       const note = () => page.frameLocator(`iframe[title="${title}"]`).getByLabel("Review note");
-      await note().fill("Keep this unsaved browser state");
-
       await page.getByRole("tab", { name: title }).focus();
       await page.keyboard.press("ControlOrMeta+,");
       await page.getByLabel("Search settings").fill("appearance");
@@ -56,6 +54,7 @@ for (const appearance of ["light", "dark"] as const) {
       await page.setViewportSize(
         appearance === "light" ? { width: 1280, height: 820 } : { width: 640, height: 480 },
       );
+      await note().fill("Keep this unsaved browser state");
       expect(await note().inputValue()).toBe("Keep this unsaved browser state");
       const closeButton = page.getByRole("button", { name: `Close ${title}`, exact: true });
       expect(await closeButton.getAttribute("title")).toBe("Close tab · Reopen from drawer");
@@ -71,11 +70,13 @@ for (const appearance of ["light", "dark"] as const) {
             )?.hidden,
         ),
       ).toBe(true);
-      expect(
-        await page
-          .getByRole("tab", { name: "Bravo" })
-          .evaluate((element) => element === document.activeElement),
-      ).toBe(true);
+      await expect
+        .poll(() =>
+          page
+            .getByRole("tab", { name: "Bravo" })
+            .evaluate((element) => element === document.activeElement),
+        )
+        .toBe(true);
 
       await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
       const drawer = page.locator(".tab-overflow-popup");

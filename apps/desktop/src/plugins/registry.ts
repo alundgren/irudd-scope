@@ -1,3 +1,4 @@
+import { memoryTabContract } from "./memory/contract.ts";
 import { decode } from "@irudd-scope/protocol";
 import type { Tab } from "../workspace/contract.ts";
 import { fileContract } from "./file/contract.ts";
@@ -8,6 +9,7 @@ import { pullRequestsTabContract } from "./pull-requests/contract.ts";
 import { retroTabContract } from "./retro/contract.ts";
 
 const contracts = [
+  memoryTabContract,
   fileContract,
   diagramTabContract,
   planTabContract,
@@ -21,5 +23,6 @@ export function validateTabState(tab: Tab, preserveFuture = false): void {
 }
 
 export function isBuiltinTab(tab: Pick<Tab, "type">): boolean {
-  return tab.type === "memory";
+  const contract = contracts.find((entry) => entry.type === tab.type);
+  return !!contract && "category" in contract && contract.category === "builtin";
 }

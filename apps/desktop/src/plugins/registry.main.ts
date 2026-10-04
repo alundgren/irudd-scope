@@ -1,3 +1,4 @@
+import { registerMemoryIpc } from "./memory/main.ts";
 import { registerRetroIpc } from "./retro/main.ts";
 import { registerPlanIpc } from "./plan/main.ts";
 import { registerDiagramIpc } from "./diagram/main.ts";
@@ -5,6 +6,7 @@ import { registerPullRequestsIpc } from "./pull-requests/main.ts";
 import type { MainPluginContext } from "./main-api.ts";
 
 export function registerMainPlugins(context: MainPluginContext) {
+  registerMemoryIpc(context);
   registerPlanIpc(context);
   const retros = registerRetroIpc(context);
   const diagrams = registerDiagramIpc(context);

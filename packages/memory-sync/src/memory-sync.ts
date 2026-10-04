@@ -16,7 +16,7 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { MemoryCommands, SyncError } from "./commands.ts";
+import { MemoryCommands, SyncError, type Result } from "./commands.ts";
 import {
   MEMORY_BUNDLE_NAME,
   MEMORY_CONFLICT_BRANCH_PREFIX,
@@ -55,6 +55,8 @@ export class MemorySync {
   private syncTimer?: ReturnType<typeof setInterval>;
   private upgradeTimer?: ReturnType<typeof setInterval>;
   private closed = false;
+  private operations = Promise.resolve();
+  private readonly viewers = new Set<AbortController>();
   private readonly commands: MemoryCommands;
   private readonly now: () => Date;
 
@@ -98,6 +100,7 @@ export class MemorySync {
     this.configuration = value;
     if (!changed) return;
     this.running?.controller.abort();
+    for (const viewer of this.viewers) viewer.abort();
     this.again = this.upgradeAgain = false;
     clearInterval(this.syncTimer);
     clearInterval(this.upgradeTimer);
@@ -163,7 +166,9 @@ export class MemorySync {
           if (sync) this.again = false;
           else this.upgradeAgain = false;
           const controller = new AbortController();
-          const task = sync ? this.tick(controller.signal) : this.runUpgrade(controller.signal);
+          const task = this.exclusive(() =>
+            sync ? this.tick(controller.signal) : this.runUpgrade(controller.signal),
+          );
           this.running = { controller, task };
           try {
             await task;
@@ -183,7 +188,52 @@ export class MemorySync {
     clearInterval(this.syncTimer);
     clearInterval(this.upgradeTimer);
     this.running?.controller.abort();
+    for (const viewer of this.viewers) viewer.abort();
     await this.loop;
+    await this.operations;
+  }
+
+  private exclusive<A>(action: () => Promise<A>): Promise<A> {
+    const task = this.operations.then(action);
+    this.operations = task.then(
+      () => {},
+      () => {},
+    );
+    return task;
+  }
+
+  /** Uses the same queue as Git sync so reads and edits cannot overlap a rebase. */
+  runOkf(repository: string, args: string[]): Promise<Result> {
+    const controller = new AbortController();
+    this.viewers.add(controller);
+    return this.exclusive(async () => {
+      if (
+        this.closed ||
+        controller.signal.aborted ||
+        !this.configuration.enabled ||
+        repository !== this.configuration.repository ||
+        repository !== this.current.repository ||
+        !this.current.root ||
+        this.current.bundle !== "registered" ||
+        !this.current.okf.installed
+      )
+        throw new SyncError("Personal memory is unavailable. Check Memory in Settings and retry.");
+      const root = this.current.root;
+      const result = await this.commands.run(
+        "irudd-okf",
+        ["--bundle", `${MEMORY_BUNDLE_NAME}=${root}`, ...args],
+        { cwd: root, signal: controller.signal },
+      );
+      if (
+        controller.signal.aborted ||
+        this.configuration.repository !== repository ||
+        this.current.root !== root
+      )
+        throw new SyncError(
+          "Memory configuration changed. Your draft is kept; reopen the connected repository.",
+        );
+      return result;
+    }).finally(() => this.viewers.delete(controller));
   }
 
   private async tick(signal: AbortSignal) {

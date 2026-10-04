@@ -534,3 +534,31 @@ shows an amber banner under the strip on every screen except focus mode, with
 Copy agent request listing the conflict pull requests. Scope never merges them.
 Turning memory off stops Scope's syncing and upgrades and hides OKF from retros;
 nothing is uninstalled or deleted.
+
+## Personal memory wiki
+
+Personal memory opens from workspace search or Memory Settings in a built-in
+tab. One saved tab follows the connected repository on this Mac. Wiki starts at
+`index.md`, supports relative Markdown links, and shows linked notes and
+backlinks. Search covers the personal bundle with paging. Graph shows up to 80
+notes, can focus on a note's nearby connections, and opens a selected note in
+the wiki. Index and log documents remain available through wiki links; irudd-okf
+omits them from search and graph.
+
+Edit Markdown opens the raw file, including frontmatter. The draft remains in
+SQLite across tab switches, hiding, fullscreen, and restart. Saving compares the
+original content hash with the current file. Failed and conflicting saves keep
+the draft; Compare saved version shows the current file without changing the
+draft's original hash. Preview draft renders the edited Markdown without opening links.
+After reviewing and reconciling a conflict, Use saved version as base requires
+confirmation and keeps the draft; the next Save checks that reviewed hash again.
+Discard requires an explicit confirmation, and Copy draft
+preserves text outside Scope. A retained draft must be saved or discarded before
+opening a different note. Switching repositories preserves the old draft and
+disables its Save action until its repository is connected again.
+
+Memory must be enabled, connected, installed and registered locally before file
+operations are available. The tab stays open with a Memory settings action when
+setup or sync needs attention. An already registered clone can be read while
+GitHub is unavailable. Browser-server embedding is unnecessary; Scope uses the
+same irudd-okf file operations directly through the installed CLI.
