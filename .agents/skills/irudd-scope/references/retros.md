@@ -37,14 +37,21 @@ For each source/runtime that has never been initialized, ask:
 
 - No, start from now. Stage `from-now` at the metadata discovery cutoff.
 - Check first. Show matching session count and oldest native start date from
-  complete metadata discovery, then ask whether to review all or start from now.
+  complete metadata discovery, then ask whether to review all, start from now or choose a historical cutoff.
 - Yes, review all available history. Stage `all` and select matching sessions.
+- From date, review whole sessions started after an agreed UTC timestamp. Stage
+  `from-date` with `initializationCutoff`. Resolve dates such as "last 30 days" to
+  an explicit timestamp with the operator. The cutoff cannot follow discovery or
+  the current time. Use the helper's temporary tracking input to filter before
+  snapshotting selected sessions. Keep the original `discoveredAt` unchanged.
 
 Initialization is pending until a finished retrospective. A from-now choice
 uses the discovery cutoff, not the later finish timestamp. After initialization,
 select unaudited whole native sessions according to Scope tracking and repository
-inclusion choices. For `from-now`, require native `startedAt` strictly after the
-saved discovery cutoff. Unknown start dates leave eligibility unavailable with
+inclusion choices. For `from-now` and `from-date`, require native `startedAt`
+strictly after the saved cutoff. `from-date` saves `initializationCutoff`; the field
+is absent for other initialization choices. The saved cutoff remains fixed, rather
+than advancing with each retrospective. Unknown start dates leave eligibility unavailable with
 an explicit coverage note and no audited marker. An audited ID stays excluded even when resumed later. A new
 native session is eligible. Do not implement message offsets or changed-session
 requalification. A deliberate manual review can select an old ID separately.
@@ -84,7 +91,7 @@ unknown timestamps remain null. Native start time comes only from creation
 metadata. Later activity cannot establish a missing start time. Include the helper's unreadable, unsupported and incomplete-record coverage
 notes. Unrelated corrupt sessions do not establish selected-session usage.
 Report each selected source/runtime with availability, initialization choice,
-the original discovery cutoff, `inventoryComplete` and the exact `sessionCount`
+the original discovery cutoff, any `initializationCutoff`, `inventoryComplete` and the exact `sessionCount`
 stored for that coverage. Successful empty discovery uses `sessionCount: 0`.
 Finish rejects partial inventories and mismatched counts. Put verified correction
 destinations in `report.destinations`; memory destinations also require the

@@ -361,13 +361,17 @@ existing data. Desktop builds that support only schema 10 or earlier reject
 this database after upgrade; restore a complete pre-upgrade backup to use an
 older build.
 
+Schema 12 expands initialization modes to include `from-date`, preserving all
+existing initialization rows and cutoffs. Builds supporting only schema 11 reject
+the upgraded database; restore a complete pre-upgrade backup to downgrade.
+
 Retro review records belong to their tab in `scope.db`: normalized session
 inventory, findings, decisions, notes, requests, applied outcomes and authored
 JSON state. Native transcripts remain on their source hosts. Reports may
 contain short evidence excerpts and metrics with their methods and coverage.
 
 Separate source/runtime records persist audited native session IDs, first-use
-initialization, Start now cutoffs and recorded retro-agent identities. They
+initialization, Start now and historical cutoffs and recorded retro-agent identities. They
 have no foreign key to a report tab. Finishing writes the final review status
 and successful tracking updates in one local transaction. Unavailable sources
 and unfinished retros do not commit reviewed-session markers or initialization.

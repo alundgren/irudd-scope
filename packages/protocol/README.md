@@ -765,6 +765,16 @@ inventory pages, record review decisions and requests, and save authored JSON
 state. Reports distinguish exact, estimated and unavailable metrics. Scope
 stores no full native transcript archive.
 
+First-use source coverage accepts `all`, `from-now` or `from-date` initialization.
+Only `from-date` requires `initializationCutoff`, a valid UTC timestamp no later
+than `discoveredAt` or the current time. `discoveredAt` stays the actual metadata
+discovery bound for session creation and activity. Successful finish saves the
+chosen historical cutoff for `from-date` and the discovery cutoff for `from-now`.
+Both modes select whole native sessions started strictly after their fixed cutoff;
+unknown creation times cannot qualify. `all` has no start-date filter. Existing
+reports and tracking rows for `all` and `from-now` remain readable. Upgrade the
+desktop, CLI, paired hubs and bundled skills together before using `from-date`.
+
 Writes identify the immutable name and tab, a UUID request ID and the expected
 record version. Keep identical payloads and request IDs for uncertain retries.
 On a conflict, read and reconcile before a new write. Paginated reads use the

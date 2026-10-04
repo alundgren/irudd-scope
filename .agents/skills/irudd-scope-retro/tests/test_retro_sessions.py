@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "retro_sessions.py"
 START = "2026-10-01T08:00:00.000Z"
@@ -87,6 +88,40 @@ class NativeSessionTests(unittest.TestCase):
         self.assertEqual([row["sessionId"] for row in result["sessions"]], ["later"])
         self.assertEqual(result["ignored"]["unknownStart"], 1)
         self.assertEqual(result["ignored"]["beforeCutoff"], 1)
+
+    def test_from_date_staged_and_saved_tracking_filters_whole_sessions(self):
+        self.codex("old", start="2026-09-03T08:00:00Z")
+        self.codex("equal", start="2026-09-04T08:00:00Z")
+        self.codex("fractional", start="2026-09-04T08:00:00.000001Z")
+        self.codex("unknown", start=None)
+        self.codex("audited")
+        tracking = self.root / "tracking.json"
+        for audited in ([], ["audited"]):
+            tracking.write_text(json.dumps({"mode": "from-date", "cutoff": "2026-09-04T08:00:00Z", "audited": audited}))
+            result = self.run_helper(extra=["--tracking", str(tracking)])
+            expected = {"fractional", "audited"} - set(audited)
+            self.assertEqual({row["sessionId"] for row in result["sessions"]}, expected)
+            self.assertEqual(result["ignored"]["beforeCutoff"], 2)
+            self.assertEqual(result["ignored"]["unknownStart"], 1)
+            self.assertNotEqual(result["discoveredAt"], "2026-09-04T08:00:00Z")
+        for cutoff in (None, "invalid", "2026-02-30T08:00:00Z", "9999-12-31T00:00:00Z"):
+            tracking.write_text(json.dumps({"mode": "from-date", "cutoff": cutoff}))
+            self.assertFalse(self.run_helper(extra=["--tracking", str(tracking)], succeeds=False)["inventoryComplete"])
+
+    def test_historical_cutoff_offset_is_normalized_before_future_check(self):
+        self.codex("equal", start="2026-09-04T08:00:00Z")
+        self.codex("later", start="2026-09-04T08:00:00.000001Z")
+        tracking = self.root / "tracking.json"
+        tracking.write_text(json.dumps({"mode": "from-date", "cutoff": "2026-09-04T10:00:00+02:00"}))
+        result = self.run_helper(extra=["--tracking", str(tracking)])
+        self.assertEqual([row["sessionId"] for row in result["sessions"]], ["later"])
+        current = datetime.now(timezone.utc)
+        past = (current - timedelta(hours=1)).astimezone(timezone(timedelta(hours=2)))
+        tracking.write_text(json.dumps({"mode": "from-date", "cutoff": past.isoformat()}))
+        self.assertTrue(self.run_helper(extra=["--tracking", str(tracking)])["inventoryComplete"])
+        future = (current + timedelta(hours=1)).astimezone(timezone(timedelta(hours=-2)))
+        tracking.write_text(json.dumps({"mode": "from-date", "cutoff": future.isoformat()}))
+        self.assertFalse(self.run_helper(extra=["--tracking", str(tracking)], succeeds=False)["inventoryComplete"])
 
     def test_unknown_start_in_all_history_stays_null(self):
         self.codex(start=None)

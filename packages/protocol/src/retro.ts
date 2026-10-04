@@ -101,7 +101,8 @@ export const RetroSourceCoverage = Schema.Struct({
   sessionCount: Revision,
   detail: Short,
   discoveredAt: Time,
-  initialization: Schema.Literals(["none", "all", "from-now"]),
+  initialization: Schema.Literals(["none", "all", "from-now", "from-date"]),
+  initializationCutoff: Schema.optionalKey(Time),
   override: Schema.optionalKey(Text),
 });
 export const RetroSession = Schema.Struct({
@@ -293,7 +294,7 @@ export const RetroReply = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("tracking"),
     initialized: Schema.Boolean,
-    mode: Schema.NullOr(Schema.Literals(["all", "from-now"])),
+    mode: Schema.NullOr(Schema.Literals(["all", "from-now", "from-date"])),
     cutoff: Schema.NullOr(Time),
     audited: Schema.Array(Id).check(Schema.isMaxLength(200)),
     agents: Schema.Array(Id).check(Schema.isMaxLength(200)),

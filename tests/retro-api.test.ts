@@ -59,7 +59,10 @@ const configuration = (
   repositories: [{ repository, included: true }],
   memory: { enabled: false, destinations: [destination] },
 });
-const report = (initialization: "all" | "from-now" | "none" = "all", count = 0): RetroReport => ({
+const report = (
+  initialization: "all" | "from-now" | "from-date" | "none" = "all",
+  count = 0,
+): RetroReport => ({
   destinations: [],
   summary: "Reviewed synthetic sessions",
   agent: { sourceId: "local", runtime: "codex", sessionId: "retro-agent" },
@@ -280,6 +283,145 @@ test.each(["all", "from-now"] as const)(
     ).toMatchObject({ initialized: true, mode, cutoff, audited: [] });
   },
 );
+
+const historicalCutoff = "2026-09-04T08:00:00.000Z";
+const datedReport = (count = 0): RetroReport => ({
+  ...report("from-date", count),
+  sources: [{ ...report("from-date", count).sources[0], initializationCutoff: historicalCutoff }],
+});
+
+test("historical initialization preserves discovery and commits its fixed cutoff only at finish", async () => {
+  const f = await fixture();
+  await f.configure();
+  const owner = await f.create();
+  await f.write(owner, { action: "publish", report: datedReport(1) });
+  for (const startedAt of [null, historicalCutoff, "2026-09-03T08:00:00Z"])
+    await expect(
+      f.write(owner, { action: "inventory", sessions: [{ ...session("excluded"), startedAt }] }),
+    ).rejects.toMatchObject({ status: 400 });
+  for (const timestamps of [
+    { startedAt: "2026-10-04T08:00:00.0001Z" },
+    { lastActivityAt: "2026-10-04T08:00:00.0001Z" },
+  ])
+    await expect(
+      f.write(owner, { action: "inventory", sessions: [{ ...session("future"), ...timestamps }] }),
+    ).rejects.toMatchObject({ status: 400 });
+  await f.write(owner, {
+    action: "inventory",
+    sessions: [{ ...session("included"), startedAt: "2026-09-04T08:00:00.0001Z" }],
+  });
+  await f.restart();
+  expect((await f.read()).report.sources[0]).toMatchObject({
+    discoveredAt: cutoff,
+    initializationCutoff: historicalCutoff,
+  });
+  expect(
+    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
+  ).toMatchObject({ initialized: false, cutoff: null, audited: [] });
+  await expect(
+    f.write(owner, { action: "finish", operatorInstruction: " " }),
+  ).rejects.toMatchObject({ status: 400 });
+  expect(
+    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
+  ).toMatchObject({ initialized: false });
+  await f.write(owner, { action: "finish", operatorInstruction: "Finish the historical review." });
+  await f.restart();
+  expect(
+    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
+  ).toMatchObject({
+    initialized: true,
+    mode: "from-date",
+    cutoff: historicalCutoff,
+    audited: ["included"],
+  });
+  const next = await f.create("next-dated-retro");
+  await f.write(next, {
+    action: "publish",
+    report: {
+      ...report("none"),
+      agent: { sourceId: "local", runtime: "codex", sessionId: "next-agent" },
+    },
+  });
+  for (const row of [
+    session("included"),
+    { ...session("resumed-old"), startedAt: historicalCutoff },
+    { ...session("unknown"), startedAt: null },
+  ])
+    await expect(f.write(next, { action: "inventory", sessions: [row] })).rejects.toMatchObject({
+      status: 400,
+    });
+  await f.write(next, { action: "inventory", sessions: [session("new-session", "eligible")] });
+});
+
+test("historical coverage rejects absent, invalid, future and ambiguous cutoffs", async () => {
+  const f = await fixture();
+  await f.configure();
+  const owner = await f.create();
+  for (const source of [
+    report("from-date").sources[0],
+    { ...datedReport().sources[0], initializationCutoff: "2026-02-30T08:00:00Z" },
+    { ...datedReport().sources[0], initializationCutoff: "2026-10-04T08:00:00.0001Z" },
+    {
+      ...datedReport().sources[0],
+      discoveredAt: "9999-12-31T23:59:59Z",
+      initializationCutoff: "9999-12-30T00:00:00Z",
+    },
+    ...(["all", "from-now", "none"] as const).map((initialization) => ({
+      ...datedReport().sources[0],
+      initialization,
+    })),
+  ])
+    await expect(
+      f.write(owner, { action: "publish", report: { ...datedReport(), sources: [source] } }),
+    ).rejects.toBeDefined();
+  expect(
+    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
+  ).toMatchObject({ initialized: false });
+});
+
+test("finish rechecks changed historical cutoff and rolls back initialization", async () => {
+  const f = await fixture();
+  await f.configure();
+  const owner = await f.create();
+  await f.write(owner, { action: "publish", report: datedReport(1) });
+  await f.write(owner, { action: "inventory", sessions: [session("selected")] });
+  await f.write(owner, {
+    action: "publish",
+    report: {
+      ...datedReport(1),
+      sources: [{ ...datedReport(1).sources[0], initializationCutoff: "2026-10-03T08:00:00Z" }],
+    },
+  });
+  await expect(
+    f.write(owner, { action: "finish", operatorInstruction: "Finish" }),
+  ).rejects.toMatchObject({ status: 409 });
+  expect(
+    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
+  ).toMatchObject({ initialized: false, audited: [] });
+  expect((await f.read()).status).toBe("active");
+});
+
+test("empty historical initialization waits for finish and concurrent initialization keeps the winner", async () => {
+  const f = await fixture();
+  await f.configure();
+  const first = await f.create();
+  await f.write(first, { action: "publish", report: datedReport() });
+  const concurrent = await f.create("concurrent-dated-retro");
+  await f.write(concurrent, {
+    action: "publish",
+    report: {
+      ...report("from-now"),
+      agent: { sourceId: "local", runtime: "codex", sessionId: "other-agent" },
+    },
+  });
+  await f.write(first, { action: "finish", operatorInstruction: "Finish empty dated setup" });
+  await expect(
+    f.write(concurrent, { action: "finish", operatorInstruction: "Finish" }),
+  ).rejects.toMatchObject({ status: 409 });
+  expect(
+    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
+  ).toMatchObject({ initialized: true, mode: "from-date", cutoff: historicalCutoff, audited: [] });
+});
 
 test("incomplete pages and check-only coverage cannot initialize, unavailable override leaves only available runtime initialized", async () => {
   const f = await fixture();
@@ -700,6 +842,27 @@ test("version 10 migration preserves existing artifacts and adds durable retrosp
   await f.write(owner, { action: "finish", operatorInstruction: "Finish migrated profile" });
   await f.restart();
   expect((await f.read()).status).toBe("finished");
+});
+
+test("schema 11 migration preserves all and Start now tracking rows", async () => {
+  const f = await fixture();
+  await f.server.close();
+  const db = new DatabaseSync(join(f.directory, "scope.db"));
+  db.exec(
+    "DROP TABLE retro_initialization; CREATE TABLE retro_initialization(source_id TEXT NOT NULL, runtime TEXT NOT NULL, mode TEXT NOT NULL CHECK(mode IN ('all','from-now')), cutoff TEXT NOT NULL, PRIMARY KEY(source_id,runtime)) STRICT; PRAGMA user_version = 11",
+  );
+  const insert = db.prepare("INSERT INTO retro_initialization VALUES (?,?,?,?)");
+  insert.run("local", "codex", "from-now", cutoff);
+  insert.run("local", "claude", "all", historicalCutoff);
+  db.close();
+  await f.restart();
+  await f.restart();
+  expect(
+    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
+  ).toMatchObject({ initialized: true, mode: "from-now", cutoff });
+  expect(
+    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "claude" }),
+  ).toMatchObject({ initialized: true, mode: "all", cutoff: historicalCutoff });
 });
 
 test("repository origins unify GitHub SSH/HTTPS and retain fork, non-GitHub case and port distinctions", () => {

@@ -32,8 +32,11 @@ session IDs, child sessions and sessions without a reliable Git-origin identity.
 Ask about new repositories, then save their include/exclude choices in Scope.
 
 For uninitialized sources, ask whether to start from now, check count and oldest
-start first, or review all history. Stage that choice without advancing tracking.
-Unknown creation time cannot qualify for a saved from-now cutoff. Recommend
+start first, review all history, or review sessions started after an agreed date.
+Resolve relative dates to an explicit UTC cutoff with the operator. Stage that choice
+without advancing tracking. For `from-date`, set `initializationCutoff` separately
+from the original `discoveredAt` and filter metadata before reading snapshots.
+Unknown creation time cannot qualify for a staged or saved date cutoff. Recommend
 postponing when a selected source cannot be inspected; record an explicit operator
 override if they continue. Unavailable sources keep their existing tracking.
 
