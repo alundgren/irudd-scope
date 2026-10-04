@@ -182,7 +182,7 @@ token. The library and preferences remain intact.
 
 ## Supported data imports
 
-Scope reads artifact schema version 9, desktop schema version 7, and hub schema
+Scope reads artifact schema version 12, desktop schema version 7, and hub schema
 version 4. It rejects
 newer schema versions. Back up the complete data directories before an upgrade
 when you need the option to return to an older desktop.
@@ -211,11 +211,12 @@ version; image data is stored once, with hashes in the base. Removing the worktr
 removes these files. Another session can pull the same name to a new file while
 the Scope tab exists. There is no global agent cache to collect.
 
-For an artifact directory containing a database and a `blobs/` directory,
-Scope verifies hashes, sizes, and referenced content before importing bytes
+For an artifact database older than schema 2 with a `blobs/` directory, Scope
+verifies hashes, sizes, and referenced content before importing bytes
 into SQLite in one transaction. It removes verified content files after
 commit. Missing or corrupt content stops migration and retains the database
-and files. To move such a library, stop every process using it, copy the
+and files. Schema 2 and newer libraries read content from SQLite and ignore
+leftover blob files. To move such a library, stop every process using it, copy the
 complete directory, and set `SCOPE_DATA_DIR` to the copy. Do not merge it with
 a nonempty library or run two stores against it.
 

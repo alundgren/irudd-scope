@@ -46,7 +46,7 @@
       "id": "protocol-no-filesystem-or-electron",
       "kind": "forbiddenImport",
       "files": ["packages/protocol/src/**"],
-      "specifiers": ["node:fs", "node:fs/*", "fs", "fs/*", "electron"]
+      "specifiers": ["node:fs", "node:fs/*", "fs", "fs/*", "electron", "electron/*"]
     }
   ]
 }
