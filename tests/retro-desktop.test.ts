@@ -2,6 +2,7 @@ import { expect, test } from "vite-plus/test";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { ScopeError } from "@irudd-scope/protocol";
 import type { RetroReport, RetroSnapshot, RetroDestination } from "@irudd-scope/protocol/retro";
 import type { ScopeClient } from "@irudd-scope/protocol/client";
 import { desktopFixture } from "./desktop-fixture.ts";
@@ -686,15 +687,26 @@ test("a changed saved draft blocks HTML replacement until the human resolves it,
     await frame
       .getByRole("textbox", { name: "Comment", exact: true })
       .fill("My unsaved note stays here.");
-    let current = await read(client);
-    await client.retro({
-      action: "state-patch",
-      name,
-      tabId: current.tabId,
-      requestId: randomUUID(),
-      expectedVersion: current.appState.version,
-      value: { drafts: { "retrieval:comment": "A concurrently saved draft" } },
-    });
+    // Typing can save a draft between the snapshot read and this competing write.
+    await expect
+      .poll(async () => {
+        const snapshot = await read(client);
+        try {
+          await client.retro({
+            action: "state-patch",
+            name,
+            tabId: snapshot.tabId,
+            requestId: randomUUID(),
+            expectedVersion: snapshot.appState.version,
+            value: { drafts: { "retrieval:comment": "A concurrently saved draft" } },
+          });
+          return true;
+        } catch (error) {
+          if (error instanceof ScopeError && error.status === 409) return false;
+          throw error;
+        }
+      })
+      .toBe(true);
     await frame.getByRole("button", { name: "Keep my current draft", exact: true }).waitFor();
     await writeFile(
       file,
@@ -728,7 +740,7 @@ test("a changed saved draft blocks HTML replacement until the human resolves it,
         throw new Error("Synthetic connection unavailable.");
       });
     });
-    current = await read(client);
+    const current = await read(client);
     await client.retro({
       action: "comment",
       name,

@@ -25,6 +25,7 @@ import { readInstallation } from "./installation-files.ts";
 import { AppUpdates } from "./updates.ts";
 import { AgentTools } from "./agent-tools.ts";
 import { Remotes } from "./remotes.ts";
+import { MemoryService } from "./memory.ts";
 import { createApplicationMenu } from "./menu.ts";
 import { TabTransfers } from "./transfer/service.ts";
 import { TailcatCliTransport } from "./transfer/transport.ts";
@@ -71,6 +72,11 @@ async function main() {
   nativeTheme.themeSource = store.settings().appearance;
   let lifecycle: DesktopLifecycle;
   let transfers: TabTransfers | undefined;
+  let memory: MemoryService | undefined;
+  const startedMemory = () => {
+    if (!memory) throw new ScopeError(503, "Scope is still starting. Retry shortly.");
+    return memory;
+  };
   const artifacts = await startLocalArtifacts({
     importLink: (url) => {
       if (!transfers)
@@ -78,6 +84,10 @@ async function main() {
       return transfers.importLink(url);
     },
     voice,
+    memory: {
+      status: () => startedMemory().read(),
+      connect: (repository) => startedMemory().connect(repository),
+    },
     retroConfiguration: {
       read: () => store.retroConfiguration(),
       configure: (command) => store.saveRetroConfiguration(command),
@@ -137,11 +147,16 @@ async function main() {
     },
     installation?.commit,
   );
+  memory = new MemoryService(store, remotes, (status) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:memory-changed", status);
+  });
+  await memory.start();
   await remotes.start();
   powerMonitor.on("resume", () => {
     void store.maintenance.check();
     void artifacts.store.maintenance.check();
     void remotes.resume().catch(() => console.error("Could not reconnect remotes after waking."));
+    void memory?.retry().catch(() => console.error("Could not sync memory after waking."));
   });
   const updates = new AppUpdates(installation, join(app.getAppPath(), "install.sh"), (status) => {
     if (!window.isDestroyed()) window.webContents.send("scope:updates-changed", status);
@@ -163,6 +178,7 @@ async function main() {
     updates,
     agentTools,
     remotes,
+    memory,
     transfers,
     setDiagramMenu,
     onRestartToUpdate: async () => {
@@ -230,6 +246,7 @@ async function main() {
     library.close();
     await transfers?.close();
     await remotes.close();
+    await memory?.close();
     await voice.close();
     await Promise.all([artifacts.close(), store.close()]);
     closed = true;

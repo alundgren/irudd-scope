@@ -12,6 +12,7 @@ import type { DiagramRequest, DiagramResult } from "./plugins/diagram/contract.t
 import type { DiagramDraft } from "./plugins/diagram/draft.ts";
 import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
+import type { MemoryStatus } from "@irudd-scope/protocol/memory";
 import type {
   TransferDevices,
   TransferImport,
@@ -100,6 +101,11 @@ export type ScopeBridge = {
   setFullscreen: (enabled: boolean) => Promise<void>;
   onFullscreenChange: (listener: (enabled: boolean) => void) => () => void;
   remotes: () => Promise<RemoteStatus[]>;
+  memory: () => Promise<MemoryStatus>;
+  setMemoryEnabled: (enabled: boolean) => Promise<MemoryStatus>;
+  retryMemory: () => Promise<MemoryStatus>;
+  copyMemoryRequest: (kind: "create" | "conflicts") => Promise<void>;
+  onMemoryChange: (listener: (status: MemoryStatus) => void) => () => void;
   transferDevices: () => Promise<TransferDevices>;
   createPairing: (name: string) => Promise<TransferStatus>;
   copyPairingSecret: (id: string) => Promise<void>;

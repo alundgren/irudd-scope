@@ -1,12 +1,13 @@
 import { startHub } from "./server.ts";
 import { startPairedHub } from "./paired-server.ts";
 import { HubState } from "./state.ts";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { DEFAULT_CONNECTION_FILE } from "@irudd-scope/protocol";
 import { readInstallation } from "./installation.ts";
 import { HubUpdates } from "./updates.ts";
+import { MemorySync, defaultMemoryRoot } from "@irudd-scope/memory-sync";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -45,7 +46,12 @@ if (positionals[0] === "configure") {
   }
 } else {
   const hub = state
-    ? await startPairedHub(state, undefined, new HubUpdates(state, installation, directory))
+    ? await startPairedHub(
+        state,
+        undefined,
+        new HubUpdates(state, installation, directory),
+        new MemorySync({ root: defaultMemoryRoot(), machine: hostname() }),
+      )
     : await startHub({
         endpoint: process.env.SCOPE_ENDPOINT!,
         token: process.env.SCOPE_TOKEN ?? "",

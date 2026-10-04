@@ -1,6 +1,6 @@
 # Working in irudd-scope
 
-Scope lets coding agents publish artifacts for a human to inspect in a Mac desktop app. The desktop owns persistent artifacts. Direct publishing requires Scope to be running on an awake Mac. The optional paired hub forwards requests through a connection opened by the Mac and persists opted-in publications before delivery regardless of desktop connection state. It persists configuration, credential hashes, up to 50 pending tabs, and up to 1,000 recently observed artifact metadata records in SQLite. Pending tabs and saved metadata expire after 48 hours. Saved revisions allow offline updates without overwriting newer desktop content. Delivered artifacts belong to the desktop. Scope does not run coding sessions or orchestrate agents.
+Scope lets coding agents publish artifacts for a human to inspect in a Mac desktop app. The desktop owns persistent artifacts. Direct publishing requires Scope to be running on an awake Mac. The optional paired hub forwards requests through a connection opened by the Mac and persists opted-in publications before delivery regardless of desktop connection state. It persists configuration, credential hashes, up to 50 pending tabs, and up to 1,000 recently observed artifact metadata records in SQLite. Pending tabs and saved metadata expire after 48 hours. Saved revisions allow offline updates without overwriting newer desktop content. Delivered artifacts belong to the desktop. Optional memory sync keeps a personal irudd-okf repository on GitHub in sync on the Mac and each paired remote, using each machine's own `gh` login. Scope does not run coding sessions or orchestrate agents.
 
 ## Work in the relevant area
 
@@ -19,6 +19,7 @@ only what differs from its parents.
 | `apps/hub/`                   | Optional authenticated forwarding to the desktop.                    |
 | `packages/cli/`               | File detection, provenance, and publication commands.                |
 | `packages/sqlite/`            | SQLite shrinking and maintenance scheduling.                         |
+| `packages/memory-sync/`       | Personal memory repository clone, git sync, and irudd-okf upgrades.  |
 | `packages/protocol/`          | Shared validated artifact contracts and HTTP client.                 |
 | `tests/`                      | User journeys, integration tests, and synthetic fixtures.            |
 | `tools/`                      | Development commands and test process setup.                         |

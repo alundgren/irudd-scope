@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@electron/packager": "catalog:",
+    "@irudd-scope/memory-sync": "workspace:*",
     "@irudd-scope/protocol": "workspace:*",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",

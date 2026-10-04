@@ -34,6 +34,12 @@ import {
 } from "./diagram.ts";
 import { readRemoteJson } from "./remote.ts";
 import {
+  MemoryConnectRequest,
+  MemoryMachineStatus,
+  MemoryStatus,
+  MAX_MEMORY_STATUS_BYTES,
+} from "./memory.ts";
+import {
   decodeTransferImportRequest,
   TransferImportReceipt,
   MAX_TRANSFER_IMPORT_REQUEST_BYTES,
@@ -399,6 +405,31 @@ export class ScopeClient {
     return decode(DeleteReceipt, await response.json());
   }
 
+  async memory(): Promise<MemoryStatus> {
+    return decode(
+      MemoryStatus,
+      await readRemoteJson(await this.request("/v1/memory"), MAX_MEMORY_STATUS_BYTES),
+    );
+  }
+  async connectMemory(repository: string): Promise<MemoryStatus> {
+    return decode(
+      MemoryStatus,
+      await readRemoteJson(
+        await this.request("/v1/memory/connection", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(decode(MemoryConnectRequest, { repository })),
+        }),
+        MAX_MEMORY_STATUS_BYTES,
+      ),
+    );
+  }
+  async hubMemory(): Promise<MemoryMachineStatus> {
+    return decode(
+      MemoryMachineStatus,
+      await readRemoteJson(await this.request("/v1/hub/memory"), MAX_MEMORY_STATUS_BYTES),
+    );
+  }
   async hubQueue(): Promise<HubQueue> {
     return decode(HubQueue, await readRemoteJson(await this.request("/v1/hub/queue"), 128 * 1024));
   }

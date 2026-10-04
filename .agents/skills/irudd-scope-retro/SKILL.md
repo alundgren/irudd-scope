@@ -56,7 +56,8 @@ silence or absent metadata into zero or a claim of successful work.
 Consider both agent changes and clearer operator direction. General corrections
 are available with memory off. When memory is enabled, discover capabilities on
 the actual destination host. Use Claude's runtime-confirmed memory directory,
-editable Codex instructions, or an actually detected OKF CLI and verified store.
+editable Codex instructions, or the `okf-personal-*` destinations Scope lists
+while its memory sync is on (the synced irudd-okf `personal` bundle per machine).
 Do not enable native memory or write Codex's generated memory database. For every
 proposal, preview exact text, operator/project scope and destination. Ask when a
 pattern belongs to a project or the operator's personal guidance.

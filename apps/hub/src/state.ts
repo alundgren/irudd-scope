@@ -7,6 +7,7 @@ import { hostname } from "node:os";
 import { Schema } from "effect";
 import { decode, decodeLocalConnection, validateEndpoint } from "@irudd-scope/protocol";
 import { RemoteId, RemoteName, pairingUrl, HubUpdateStatus } from "@irudd-scope/protocol/remote";
+import { MemoryConfiguration, disabledMemory } from "@irudd-scope/protocol/memory";
 import { PublicationQueue } from "./publication-queue.ts";
 import { ArtifactMetadata } from "./artifact-metadata.ts";
 
@@ -86,6 +87,13 @@ export class HubState {
   saveUpdate(status: HubUpdateStatus) {
     this.set("update", JSON.stringify(decode(HubUpdateStatus, status)));
   }
+  memoryConfiguration(): MemoryConfiguration {
+    const value = this.get("memory");
+    return value ? decode(MemoryConfiguration, JSON.parse(value)) : disabledMemory();
+  }
+  saveMemoryConfiguration(value: MemoryConfiguration) {
+    this.set("memory", JSON.stringify(decode(MemoryConfiguration, value)));
+  }
   async configure(input: Omit<Configuration, "id" | "name">) {
     validateEndpoint(input.endpoint);
     const previous = this.get("configuration");
@@ -164,7 +172,7 @@ export class HubState {
     this.artifacts.clear();
     this.database
       .prepare(
-        "DELETE FROM settings WHERE name IN ('desktop', 'desktopName', 'pair', 'pairExpires')",
+        "DELETE FROM settings WHERE name IN ('desktop', 'desktopName', 'pair', 'pairExpires', 'memory')",
       )
       .run();
   }

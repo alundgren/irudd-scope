@@ -490,7 +490,31 @@ Per-machine inclusion and runtime choices remain editable. Settings remember
 repository inclusion by canonical fetch origin. First-use history
 choices are asked by the agent. Memory suggestions default off. Destination
 previews show the exact content, source host and personal or project scope.
-Unavailable destinations are omitted; OKF is shown only after its CLI was
-detected on that destination host. Codex editable instructions are labeled as
+Unavailable destinations are omitted. OKF destinations come from Memory
+settings: each machine with a synced `personal` bundle is offered while memory
+sync is on, and OKF is hidden while it is off. Codex editable instructions are labeled as
 instructions. Neither Scope's memory switch nor a retro changes native runtime
 memory enablement.
+
+## Personal memory
+
+Memory is a searchable Settings section with one switch. The switch stays
+disabled until irudd-okf is installed on the Mac, with the installer command
+beside it. Scope never installs irudd-okf; it upgrades an installed copy once a
+day and shows upgrade problems per machine. Creating the repository is a
+conversation with the coding agent, not a Settings form: with memory on and no
+repository, Settings offers Copy agent request. The agent suggests a private
+`personal-memory` repository and waits for approval.
+
+With a repository connected, Settings lists this Mac and every paired remote
+with its last sync, bundle registration, and problems such as a missing gh
+login or an older remote build. Sync now runs an immediate sync on the Mac and
+connected hubs and reports when a machine needs attention. The Memory switch
+detects an irudd-okf installation without restarting Scope. Retrospective
+destinations refresh when memory changes and retain unsaved edits. Generated
+personal bundle destinations have no removal button; the Memory switch controls
+them. A conflict
+shows an amber banner under the strip on every screen except focus mode, with
+Copy agent request listing the conflict pull requests. Scope never merges them.
+Turning memory off stops Scope's syncing and upgrades and hides OKF from retros;
+nothing is uninstalled or deleted.

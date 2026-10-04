@@ -9,6 +9,7 @@ import { InstallationSettings } from "./installation-settings.tsx";
 import { RemoteSettings } from "./remote-settings.tsx";
 import { TransferSettings } from "./transfer-settings.tsx";
 import { RetroSettings } from "./retro-settings.tsx";
+import { MemorySettings } from "./memory-settings.tsx";
 import { ProviderSettings } from "./provider-settings.tsx";
 import { matchingSettings, SettingsSection } from "./settings-section.tsx";
 
@@ -179,6 +180,7 @@ export function SettingsViewPanel({
         </SettingsSection>
         <RemoteSettings query={query} />
         <RetroSettings query={query} />
+        <MemorySettings query={query} />
         <TransferSettings query={query} />
         <InstallationSettings query={query} />
       </div>

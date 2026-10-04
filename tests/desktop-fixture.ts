@@ -12,7 +12,9 @@ import { testDisplay } from "../tools/test-display.ts";
 const require = createRequire(new URL("../apps/desktop/package.json", import.meta.url));
 const exec = promisify(execFile);
 
-export async function desktopFixture(options: { disableGpu?: boolean; showWindow?: boolean } = {}) {
+export async function desktopFixture(
+  options: { disableGpu?: boolean; showWindow?: boolean; env?: NodeJS.ProcessEnv } = {},
+) {
   const showWindow = options.showWindow ?? process.env.SCOPE_TEST_SHOW_WINDOWS === "1";
   const directory = await mkdtemp(join(tmpdir(), "scope-desktop-"));
   const settingsDirectory = join(directory, "desktop");
@@ -24,8 +26,10 @@ export async function desktopFixture(options: { disableGpu?: boolean; showWindow
     SCOPE_DATA_DIR: join(settingsDirectory, "artifacts"),
     SCOPE_PORT: "0",
     SCOPE_SESSION_CREDENTIALS: "1",
+    SCOPE_MEMORY_DIR: join(directory, "memory"),
     // Hidden Linux windows stall CSS animations and prevent dialogs from closing.
     SCOPE_TEST_HIDE_WINDOW: showWindow || process.platform === "linux" ? "0" : "1",
+    ...options.env,
   };
   // Electron-based development tools can pass their Node-only mode to children.
   delete env.ELECTRON_RUN_AS_NODE;

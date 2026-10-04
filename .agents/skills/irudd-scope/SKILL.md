@@ -1,6 +1,6 @@
 ---
 name: irudd-scope
-description: Create named HTML plans, retrospectives, and GitHub PR inbox apps in Scope. Also publish or update artifacts, edit Excalidraw diagrams, and generate narration with the desktop OpenRouter key. Honor an explicitly requested planning tool or output format.
+description: Create named HTML plans, retrospectives, and GitHub PR inbox apps in Scope, and set up the personal memory repository Scope syncs. Also publish or update artifacts, edit Excalidraw diagrams, and generate narration with the desktop OpenRouter key. Honor an explicitly requested planning tool or output format.
 ---
 
 # Use Scope CLI
@@ -86,6 +86,14 @@ then finish only after the person's conversational instruction. Finished
 reports remain available in history; audited whole native session IDs prevent
 repeat selection. Memory suggestions default off and verified optional
 destinations never change the runtime's native memory settings.
+
+### Personal memory repository
+
+When asked to set up, connect, or fix the person's Scope memory, read
+[personal memory](references/memory.md). Suggest `personal-memory` under their
+`gh` account, wait for approval, refuse existing names, and create repositories
+only with `gh repo create --private`. Then run `irudd-scope memory connect
+OWNER/NAME`; Scope syncs it on the Mac and every paired remote.
 
 ### HTML plans
 

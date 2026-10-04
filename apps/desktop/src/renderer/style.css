@@ -985,6 +985,7 @@ h2 {
   margin: var(--scope-space-3) 0;
 }
 .connection-notice,
+.memory-notice,
 .error-bar {
   display: flex;
   justify-content: space-between;
@@ -996,6 +997,27 @@ h2 {
 }
 .error-bar {
   color: var(--scope-danger);
+}
+.memory-notice {
+  background: var(--scope-warning-surface);
+  color: var(--scope-warning);
+  border-bottom: 1px solid currentColor;
+}
+.memory-machines {
+  display: grid;
+  gap: var(--scope-space-3);
+}
+.memory-machines li {
+  display: grid;
+  gap: var(--scope-space-1);
+}
+.memory-machines li[data-phase="error"] strong {
+  color: var(--scope-danger);
+}
+.memory-setup {
+  display: grid;
+  gap: var(--scope-space-2);
+  justify-items: start;
 }
 .html-preview {
   border: 0;

@@ -11,6 +11,13 @@ const settingsSections = [
       "retro sources machines locations remotes codex claude SSH sessions runtime roots directories include exclude memory instructions rules agent history",
   },
   {
+    id: "memory",
+    title: "Memory",
+    description: "Sync a personal irudd-okf memory repository",
+    terms:
+      "okf irudd-okf memory personal knowledge github repository sync conflicts bundle remotes",
+  },
+  {
     id: "appearance",
     title: "Appearance",
     description: "Color scheme",

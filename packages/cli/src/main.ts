@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { RetroGuide, retroCommand } from "./retro.ts";
+import { MemoryGuide } from "@irudd-scope/protocol/memory";
 import { watchRetro } from "./retro-watch.ts";
 import { PullRequestsGuide, pullRequestsCommand } from "./pull-requests.ts";
 import { VoiceGuide } from "@irudd-scope/protocol/voice";
@@ -57,6 +58,7 @@ irudd-scope diagram reply NAME TEXT
 irudd-scope diagram watch NAME [--claude-channel | --t3-thread ID | --codex-thread ID] [--watch-edits]
 irudd-scope pull-requests guide|read|configure|sync|detail|apply [NAME_OR_FILE] [OWNER/REPO_OR_NODE_ID]
 irudd-scope retro guide|settings|read NAME|apply REQUEST.json|history|watch NAME
+irudd-scope memory guide|status|connect OWNER/REPO
 irudd-scope plan guide
 irudd-scope plan read NAME [--since VERSION]
 irudd-scope plan feedback NAME [ROUND_ID] --output NEW_DIRECTORY
@@ -508,6 +510,40 @@ async function main() {
         ),
       );
     }
+    return;
+  }
+  if (command === "memory") {
+    if (argument === "guide") {
+      console.log(JSON.stringify(MemoryGuide, null, 2));
+      return;
+    }
+    const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"]));
+    const client = await connect(values, signal);
+    if (argument === "connect") {
+      if (!replacement) throw new Error("Provide the memory repository as OWNER/NAME.");
+      console.log(JSON.stringify(await client.connectMemory(replacement), null, 2));
+      return;
+    }
+    if (argument !== "status") throw new Error("Use memory guide, status, or connect OWNER/REPO.");
+    const status = await client.memory().catch(async (error: unknown) => {
+      // A hub answers for its own machine while the Mac is offline.
+      if (error instanceof ScopeError && error.status !== 503) throw error;
+      const fallback = await connect(
+        values,
+        AbortSignal.timeout(parseTimeout(values["timeout-ms"])),
+      );
+      const local = await fallback.hubMemory().catch(() => {
+        throw error;
+      });
+      return {
+        macOffline:
+          !(error instanceof ScopeError) || error.message.includes("paired Mac is disconnected"),
+        desktopUnavailable: true,
+        message: error instanceof Error ? error.message : "Could not read desktop memory status.",
+        machine: local,
+      };
+    });
+    console.log(JSON.stringify(status, null, 2));
     return;
   }
   if (command === "plan") {

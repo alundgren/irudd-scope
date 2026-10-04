@@ -4,14 +4,15 @@ Electron main owns Scope's persistent data. Defaults below apply on macOS.
 Use the [development environment variables](development.md#isolated-development)
 to select separate directories for development.
 
-| Data                | Location                                                       | Contents                                                                                                                                                                     |
-| ------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, diagram drafts, retro reports and independent session tracking.       |
-| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, remote and retro configuration, and retained speech receipts/audio.                                           |
-| Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                                                                                                    |
-| Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                                                                                |
-| CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                                                                                               |
-| Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, listener configuration, credential hashes, pairing expiry, remote update status, buffered publication bytes/metadata, and recently observed artifact metadata. |
+| Data                | Location                                                       | Contents                                                                                                                                                                                           |
+| ------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, diagram drafts, retro reports and independent session tracking.                             |
+| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, remote, retro and memory configuration, and retained speech receipts/audio.                                                         |
+| Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                                                                                                                          |
+| Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                                                                                                      |
+| CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                                                                                                                     |
+| Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, listener configuration, credential hashes, pairing expiry, remote update status, memory configuration, buffered publication bytes/metadata, and recently observed artifact metadata. |
+| Memory clone        | `~/.local/share/irudd-scope/memory/NAME` on every machine      | The user's git working copy of their personal irudd-okf repository. GitHub holds the shared copy.                                                                                                  |
 
 Tab transfer stores local identity and peer metadata in the `transfer-device`
 and `scope-peers` preference rows in `desktop.db`. Pairing keys live in the
@@ -381,3 +382,26 @@ and optional memory destinations are desktop preferences in `desktop.db`.
 They contain no SSH credentials. Back up both desktop databases to retain
 configuration and tracking. Restoring an older backup can repeat a review.
 Tracking is owned by one Scope Mac and is not replicated through paired hubs.
+
+## Personal memory repository
+
+The `memory` preference row in `desktop.db` holds the on/off switch, the
+`OWNER/NAME` repository, and each machine's last observed `personal` bundle
+folder. Retros use those folders while a machine is briefly offline. Each paired
+hub keeps the Mac's last configuration in its `memory` settings row so it keeps
+syncing while the Mac sleeps. Unpairing clears it.
+
+The clone under `~/.local/share/irudd-scope/memory/` (or `SCOPE_MEMORY_DIR`) is
+the user's own git working copy, not Scope data. Scope never deletes, backs
+up, or exports it, and turning memory off leaves the folder, the GitHub
+repository, and the irudd-okf registration in place. GitHub is the backup;
+conflicting edits stay on `memory-conflict/*` branches until someone merges them.
+
+irudd-okf's `.irudd-okf/` runtime files and `.okf-*.tmp` files remain local and
+are excluded from Scope's Git staging. Scope acquires `.irudd-okf/write.lock`
+during Git changes and can reclaim its own lock after its recorded process
+exits. An unknown writer lock is left for inspection. An unfinished rebase from
+another operation stops sync: preserve newer edits outside the clone before
+running `git rebase --abort`, restore those edits, then use Sync now. Turning
+memory off preserves manually configured OKF retrospective destinations in
+SQLite while hiding them from retros.

@@ -210,12 +210,14 @@ export class PullRequestsFrameHost {
   private publishWindows() {
     this.options.onWindows([...this.windows.values()]);
   }
-  private restoreFocus(id: string, previous?: Element | null) {
+  private restoreFocus(closedId: string, openerId: string, previous?: Element | null) {
     // Wait for the closed iframe to leave the DOM before restoring its opener.
     requestAnimationFrame(() => {
-      if (this.disposed) return;
-      const frame = this.frames.get(id) ?? this.frames.get("main");
+      if (this.disposed || !this.active || this.focused !== closedId) return;
+      const id = this.frames.has(openerId) ? openerId : "main";
+      const frame = this.frames.get(id);
       if (!frame) return;
+      this.focus(id);
       const element = previous?.isConnected
         ? previous
         : frame.element?.contentDocument?.activeElement;
@@ -259,7 +261,7 @@ export class PullRequestsFrameHost {
           this.release(frame);
           this.publishWindows();
           await this.reportInterest();
-          this.restoreFocus(content.environment.openerId ?? "main", frame.openerElement);
+          this.restoreFocus(id, content.environment.openerId ?? "main", frame.openerElement);
         } finally {
           frame.closing = undefined;
         }

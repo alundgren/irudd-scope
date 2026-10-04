@@ -271,6 +271,53 @@ entry, while independent audit and initialization records remain. Finished
 reports reject later domain, authored-state and ordinary HTML publication
 writes. The workflow has no session monitoring service or resumable job state.
 
+## Personal memory
+
+Memory sync keeps one personal irudd-okf repository on GitHub in sync on the
+Mac and every paired remote. GitHub is the shared copy; hubs never talk to each
+other.
+
+```mermaid
+flowchart LR
+    Agent[Coding agent] -->|gh repo create --private, irudd-okf init, memory connect| Desktop
+    Desktop[Mac: desktop main] -->|PUT /v1/relay/memory| Hub[Remote: hub]
+    Desktop -->|MemorySync every 5 min| GitHub[(GitHub repository)]
+    Hub -->|MemorySync every 5 min| GitHub
+    Desktop --> Okf1[irudd-okf bundle personal]
+    Hub --> Okf2[irudd-okf bundle personal]
+```
+
+`packages/protocol/src/memory.ts` owns the configuration, status and routes.
+`packages/memory-sync` owns the clone, sync loop and irudd-okf upgrades and runs
+in desktop main (`apps/desktop/src/memory.ts`) and in each hub. Desktop main saves
+the switch and repository in `desktop.db` and sends them to each hub when its
+relay session starts, after every change, and once a minute to retry failed
+updates. Configuration writes are serialized for each hub. The hub saves them in `hub.db`, so it
+keeps syncing while the Mac sleeps; the Mac catches up when it wakes.
+
+Each sync commits changed files, fetches, rebases, and pushes only when the
+clone is ahead. git authenticates through `gh auth git-credential`; no token
+passes through Scope. When a rebase stops on a conflict, the machine pushes its
+commits to `memory-conflict/HOST-TIME`, opens a pull request, and resets to the
+default branch. Scope never merges those pull requests; the Mac shows a banner
+until they close. The banner combines conflict reports from reachable machines.
+Sync now starts a sync on the Mac and connected hubs. Turning memory off can
+interrupt a pending remote sync without waiting for its response.
+
+A lock directory excludes other Scope processes. Git changes hold irudd-okf's
+writer lock; runtime locks, recovery copies, and temporary files stay local.
+Scope finishes an active Git mutation before cancellation and cleans up its
+own rebase before allowing another writer. An unknown unfinished rebase stops
+sync with recovery instructions. Returning from a conflict refuses to overwrite
+new edits, and a default-branch check keeps manual branch work from being pushed.
+
+The irudd-okf `personal` bundle points at the clone. Scope re-points it only
+when it already points inside Scope's memory folder. Retros offer each
+machine's registered bundle as an operator destination while memory is on.
+Sync and daily irudd-okf upgrades share one queue on each machine. Upgrades run
+while memory is enabled, including before a repository is connected. Disabling
+memory stops the upgrade CLI and its installer processes.
+
 ## Names and ownership
 
 Use the same names in code, documentation, diagrams, issues, and reviews.
@@ -423,7 +470,8 @@ remains in SQLite.
 in hub SQLite for 48 hours. Opted-in update reads can use their saved IDs,
 names, titles, and revisions while offline. Delivery checks the saved revision
 against the desktop before writing. Unpairing clears both metadata and queued content.
-The hub has no provider credentials. Other offline requests return 503;
+The hub has no provider credentials. For memory sync it runs the remote
+user's own `git`, `gh`, and `irudd-okf`; see Personal memory. Other offline requests return 503;
 a failure during a live stream closes the response.
 
 The Mac's `remotes.ts` opens an authenticated HTTPS event connection to each
