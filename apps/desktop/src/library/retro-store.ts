@@ -601,6 +601,10 @@ export class RetroStore {
                     );
                   const [initialized] =
                     yield* sql`SELECT 1 FROM retro_initialization WHERE source_id = ${source.sourceId} AND runtime = ${source.runtime}`;
+                  if (initialized && source.initialization !== "none")
+                    return yield* fail(
+                      "Source tracking changed. Read tracking and reselect the report before finishing.",
+                    );
                   if (!initialized && source.initialization === "none")
                     return yield* fail(
                       "Choose All or Start now for every available uninitialized runtime.",
@@ -625,7 +629,26 @@ export class RetroStore {
                 if (s.status !== "reviewed") continue;
                 if (source?.availability !== "available")
                   return yield* fail("Reviewed sessions require available saved coverage.");
+                const [audit] =
+                  yield* sql`SELECT 1 FROM retro_audits WHERE source_id = ${s.sourceId} AND runtime = ${s.runtime} AND session_id = ${s.sessionId}`;
+                const [init] = yield* sql<{
+                  mode: string;
+                  cutoff: string;
+                }>`SELECT mode,cutoff FROM retro_initialization WHERE source_id = ${s.sourceId} AND runtime = ${s.runtime}`;
                 if (
+                  audit ||
+                  identity(document.report.agent) === identity(s) ||
+                  !configuration?.repositories.some(
+                    (r) => r.repository === s.repository && r.included,
+                  ) ||
+                  (init?.mode === "from-now" &&
+                    (!s.startedAt || !isLaterThan(s.startedAt, init.cutoff)))
+                )
+                  return yield* fail(
+                    "Session inclusion or tracking changed. Read tracking and reselect before finishing.",
+                  );
+                if (
+                  (s.startedAt && isLaterThan(s.startedAt, source.discoveredAt)) ||
                   (s.lastActivityAt && isLaterThan(s.lastActivityAt, source.discoveredAt)) ||
                   source.initialization === "from-now"
                 )

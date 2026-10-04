@@ -994,3 +994,67 @@ test("native activity later than discovery is excluded at fractional second prec
     await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
   ).toMatchObject({ audited: ["eligible"] });
 });
+
+test("concurrent initialization rejects a pending retro without auditing its old selection", async () => {
+  const f = await fixture();
+  await f.configure();
+  const pending = await f.create("pending-all");
+  await f.write(pending, { action: "publish", report: report("all", 1) });
+  await f.write(pending, { action: "inventory", sessions: [session("old")] });
+  const newer = await f.create("new-start");
+  await f.write(newer, { action: "publish", report: report("from-now") });
+  await f.write(newer, { action: "finish", operatorInstruction: "Finish from now." });
+  await expect(
+    f.write(pending, { action: "finish", operatorInstruction: "Finish All." }),
+  ).rejects.toMatchObject({ status: 409 });
+  expect((await f.read(pending.name)).status).toBe("active");
+  expect(
+    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
+  ).toMatchObject({ initialized: true, mode: "from-now", cutoff, audited: [] });
+  const revised = report("none", 1);
+  await f.write(pending, { action: "publish", report: revised });
+  await f.write(pending, { action: "inventory", sessions: [session("old", "ignored")] });
+  await f.write(pending, { action: "finish", operatorInstruction: "Finish revised selection." });
+  expect(
+    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
+  ).toMatchObject({ mode: "from-now", audited: [] });
+});
+
+test.each(["reviewed", "agent", "repository"])(
+  "finish rechecks %s exclusions changed after inventory",
+  async (changed) => {
+    const f = await fixture();
+    await f.configure();
+    const initial = await f.create("initial");
+    await f.write(initial, { action: "publish", report: report() });
+    await f.write(initial, { action: "finish", operatorInstruction: "Initialize." });
+    const pending = await f.create("pending");
+    await f.write(pending, { action: "publish", report: report("none", 1) });
+    await f.write(pending, { action: "inventory", sessions: [session("historical")] });
+    if (changed === "repository") {
+      const settings = await f.client.retro({ action: "settings" });
+      if (settings.type !== "configuration") throw new Error("Expected configuration");
+      await f.configure({
+        ...settings.configuration,
+        repositories: [{ repository, included: false }],
+      });
+    } else {
+      const other = await f.create("other");
+      const value = report("none", changed === "reviewed" ? 1 : 0);
+      if (changed === "agent")
+        value.agent = { sourceId: "local", runtime: "codex", sessionId: "historical" };
+      await f.write(other, { action: "publish", report: value });
+      if (changed === "reviewed") {
+        await f.write(other, { action: "inventory", sessions: [session("historical")] });
+        await f.write(other, { action: "finish", operatorInstruction: "Finish other." });
+      }
+    }
+    await expect(
+      f.write(pending, { action: "finish", operatorInstruction: "Finish pending." }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect((await f.read(pending.name)).status).toBe("active");
+    expect(
+      await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
+    ).toMatchObject({ mode: "all", audited: changed === "reviewed" ? ["historical"] : [] });
+  },
+);
