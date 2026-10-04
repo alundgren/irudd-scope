@@ -48,6 +48,9 @@ import type {
 } from "@irudd-scope/protocol/pull-requests";
 
 export type ScopeBridge = {
+  onRetroFinishFlush: (
+    listener: (request: { tabId: string; requestId: string }) => Promise<void>,
+  ) => () => void;
   retroCommand: (command: RetroCommand) => Promise<RetroReply>;
   retroConfiguration: () => Promise<RetroConfiguration>;
   saveRetroConfiguration: (

@@ -39,6 +39,14 @@ const identity = (value: { sourceId: string; runtime: string; sessionId: string 
   JSON.stringify([value.sourceId, value.runtime, value.sessionId]);
 const sourceKey = (value: { sourceId: string; runtime: string }) =>
   JSON.stringify([value.sourceId, value.runtime]);
+function isLaterThan(value: string, cutoff: string): boolean {
+  const seconds = value.slice(0, 19);
+  const limit = cutoff.slice(0, 19);
+  if (seconds !== limit) return seconds > limit;
+  const fraction = (timestamp: string) =>
+    timestamp.slice(19, -1).replace(/^\./, "").padEnd(19, "0");
+  return fraction(value) > fraction(cutoff);
+}
 
 export function initializeRetroTab(sql: PlanDatabase["sql"], tabId: string, artifact: Artifact) {
   return Effect.gen(function* () {
@@ -48,6 +56,10 @@ export function initializeRetroTab(sql: PlanDatabase["sql"], tabId: string, arti
 }
 
 export class RetroStore {
+  private beforeFinish?: (command: Extract<RetroCommand, { action: "finish" }>) => Promise<void>;
+  setBeforeFinish(callback: typeof this.beforeFinish) {
+    this.beforeFinish = callback;
+  }
   private configuration?: {
     read: () => Promise<RetroConfiguration>;
     configure: (
@@ -81,6 +93,25 @@ export class RetroStore {
   }
   async command(input: RetroCommand): Promise<RetroReply> {
     const command = decode(RetroCommand, input);
+    if (command.action === "finish" && this.beforeFinish) {
+      const [owner] = await this.database.run(
+        this.database.sql<{
+          document: string;
+        }>`SELECT retro_reports.document FROM artifacts JOIN retro_reports ON retro_reports.tab_id = artifacts.tab_id WHERE artifacts.tab_id = ${command.tabId} AND json_extract(artifacts.document,'$.name') = ${command.name}`,
+      );
+      if (owner && (JSON.parse(owner.document) as Document).status === "active") {
+        try {
+          await this.beforeFinish(command);
+        } catch (error) {
+          throw new ScopeError(
+            409,
+            error instanceof Error
+              ? error.message
+              : "Could not flush retrospective edits before finishing.",
+          );
+        }
+      }
+    }
     if (command.action === "settings" || command.action === "configure") {
       if (!this.configuration)
         throw new ScopeError(503, "Retrospective configuration is unavailable.");
@@ -395,18 +426,14 @@ export class RetroStore {
                     (document.report.agent &&
                       identity(document.report.agent) === identity(session)) ||
                     (init?.mode === "from-now" &&
-                      (!session.startedAt ||
-                        Date.parse(session.startedAt) <= Date.parse(init.cutoff))))
+                      (!session.startedAt || !isLaterThan(session.startedAt, init.cutoff))))
                 )
                   return yield* fail("This session is excluded from automatic review.", 400);
-                if (
-                  session.startedAt &&
-                  Date.parse(session.startedAt) > Date.parse(source.discoveredAt)
-                )
+                if (session.startedAt && isLaterThan(session.startedAt, source.discoveredAt))
                   return yield* fail("Session started after the discovery cutoff.", 400);
                 if (
                   session.lastActivityAt &&
-                  Date.parse(session.lastActivityAt) > Date.parse(source.discoveredAt)
+                  isLaterThan(session.lastActivityAt, source.discoveredAt)
                 )
                   return yield* fail("Session activity exceeds the discovery cutoff.", 400);
                 if (source.initialization === "from-now" && session.status === "reviewed")
@@ -599,8 +626,7 @@ export class RetroStore {
                 if (source?.availability !== "available")
                   return yield* fail("Reviewed sessions require available saved coverage.");
                 if (
-                  (s.lastActivityAt &&
-                    Date.parse(s.lastActivityAt) > Date.parse(source.discoveredAt)) ||
+                  (s.lastActivityAt && isLaterThan(s.lastActivityAt, source.discoveredAt)) ||
                   source.initialization === "from-now"
                 )
                   return yield* fail("Reviewed session is outside saved coverage.");

@@ -9,10 +9,15 @@ const Text = Schema.String.check(Schema.isMaxLength(16384));
 const Short = Schema.String.check(Schema.isMaxLength(512));
 const Time = Schema.String.check(
   Schema.isMaxLength(40),
-  Schema.makeFilter((value) => Number.isFinite(Date.parse(value)), {
-    expected: "a valid UTC timestamp",
-    toJsonSchema: () => ({ type: "string", format: "date-time" }),
-  }),
+  Schema.makeFilter(
+    (value) =>
+      Number.isFinite(Date.parse(value)) &&
+      new Date(value).toISOString().slice(0, 19) === value.slice(0, 19),
+    {
+      expected: "a valid UTC timestamp",
+      toJsonSchema: () => ({ type: "string", format: "date-time" }),
+    },
+  ),
   Schema.isPattern(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/),
 );
 export const RetroRuntime = Schema.Literals(["codex", "claude"]);
@@ -21,6 +26,16 @@ export const RetroIdentity = Schema.Struct({ sourceId: Id, runtime: RetroRuntime
 export type RetroIdentity = typeof RetroIdentity.Type;
 export const RetroRepository = Schema.String.check(
   Schema.isMaxLength(512),
+  Schema.makeFilter(
+    (value) => {
+      const [host, ...parts] = value.split("/");
+      return (
+        parts.every((p) => p !== "" && p !== "." && p !== "..") &&
+        (host !== "github.com" || (parts.length === 2 && value === value.toLowerCase()))
+      );
+    },
+    { expected: "a canonical Git repository identity", toJsonSchema: () => ({ type: "string" }) },
+  ),
   Schema.isPattern(/^[a-z0-9.-]+(?::[0-9]+)?\/[A-Za-z0-9_.~/-]+$/),
 );
 export const RetroDestination = Schema.Struct({
@@ -278,6 +293,7 @@ export const RetroReply = Schema.Union([
 export type RetroReply = typeof RetroReply.Type;
 
 export function canonicalRetroRepository(origin: string): string | null {
+  if (origin.length > 4096 || /\s/.test(origin.trim())) return null;
   let host: string;
   let path: string;
   try {
@@ -289,12 +305,18 @@ export function canonicalRetroRepository(origin: string): string | null {
       const url = new URL(origin);
       if (!["https:", "http:", "ssh:", "git:"].includes(url.protocol) || url.search || url.hash)
         return null;
-      host = url.host;
-      path = url.pathname.replace(/^\//, "");
+      const raw = /^[a-z]+:\/\/([^/?#]+)(\/[^?#]*)?/i.exec(origin.trim());
+      if (!raw) return null;
+      host = raw[1].split("@").at(-1)!;
+      path = (raw[2] ?? "").replace(/^\/+/, "");
     }
     host = host.toLowerCase();
-    path = path.replace(/\/$/, "").replace(/\.git$/, "");
-    if (host === "github.com") path = path.toLowerCase();
+    if (["github.com:22", "github.com:443"].includes(host)) host = "github.com";
+    path = path.replace(/\/+$/, "").replace(/\.git$/, "");
+    if (host === "github.com") {
+      if (path.split("/").length !== 2) return null;
+      path = path.toLowerCase();
+    }
     const result = `${host}/${path}`;
     return !path.split("/").some((p) => !p || p === "." || p === "..") &&
       Schema.is(RetroRepository)(result)

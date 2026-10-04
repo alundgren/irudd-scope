@@ -13,7 +13,35 @@ import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
 import type { PullRequestsDetailUpdate } from "./plugins/pull-requests/interest.ts";
 import type { PullRequestsLinkResult } from "./plugins/pull-requests/contract.ts";
 
+const retroFinishListeners = new Set<Parameters<ScopeBridge["onRetroFinishFlush"]>[0]>();
+ipcRenderer.on(
+  "scope:retro-finish-flush",
+  (_event, request: { tabId: string; requestId: string }) => {
+    void Promise.all(
+      [...retroFinishListeners].map((listener) => Promise.resolve().then(() => listener(request))),
+    )
+      .then(
+        () => ipcRenderer.invoke("scope:retro-finish-flushed", { ...request, success: true }),
+        (error: unknown) =>
+          ipcRenderer.invoke("scope:retro-finish-flushed", {
+            ...request,
+            success: false,
+            error: (error instanceof Error
+              ? error.message
+              : "Could not save retrospective edits."
+            ).slice(0, 1024),
+          }),
+      )
+      .catch(() => {});
+  },
+);
 const bridge: ScopeBridge = {
+  onRetroFinishFlush: (listener) => {
+    retroFinishListeners.add(listener);
+    return () => {
+      retroFinishListeners.delete(listener);
+    };
+  },
   retroCommand: (input) => ipcRenderer.invoke("scope:retro-command", input),
   retroConfiguration: () => ipcRenderer.invoke("scope:retro-configuration"),
   saveRetroConfiguration: (input) => ipcRenderer.invoke("scope:save-retro-configuration", input),

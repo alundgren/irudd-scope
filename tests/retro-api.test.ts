@@ -704,15 +704,21 @@ test("version 10 migration preserves existing artifacts and adds durable retrosp
 
 test("repository origins unify GitHub SSH/HTTPS and retain fork, non-GitHub case and port distinctions", () => {
   expect(canonicalRetroRepository("git@github.com:Operator/Project.git")).toBe(repository);
+  expect(canonicalRetroRepository("ssh://git@github.com:22/Operator/Project.git")).toBe(repository);
+  expect(canonicalRetroRepository("https://github.com:443/Operator/Project.git")).toBe(repository);
   expect(canonicalRetroRepository("https://github.com/OPERATOR/PROJECT")).toBe(repository);
   expect(canonicalRetroRepository("https://github.com/fork/project")).not.toBe(repository);
   expect(canonicalRetroRepository("ssh://git@Git.Example:2222/Team/Project.git")).toBe(
     "git.example:2222/Team/Project",
   );
-  expect(canonicalRetroRepository("/local/project")).toBeNull();
-  expect(canonicalRetroRepository("https://git.example/Team/../Project")).toBe(
-    "git.example/Project",
+  expect(canonicalRetroRepository("https://Git.Example:443/Team/Project.git")).toBe(
+    "git.example:443/Team/Project",
   );
+  expect(canonicalRetroRepository("ssh://git@github.com:2222/Team/Project.git")).toBe(
+    "github.com:2222/Team/Project",
+  );
+  expect(canonicalRetroRepository("/local/project")).toBeNull();
+  expect(canonicalRetroRepository("https://git.example/Team/../Project")).toBeNull();
 });
 
 test("cumulative notes remain readable when the next write exceeds the document quota", async () => {
@@ -911,4 +917,80 @@ test("general code corrections use verified report destinations without enabling
       destination: { ...file, type: "claude-memory" },
     }),
   ).rejects.toMatchObject({ status: 400 });
+});
+
+test("finish flushes authored edits before its transaction and requires re-read after a version change", async () => {
+  const f = await fixture();
+  await f.configure();
+  const owner = await f.create();
+  await f.write(owner, { action: "publish", report: report() });
+  let flushed = false;
+  f.server.store.retros.setBeforeFinish(async () => {
+    if (flushed) return;
+    flushed = true;
+    await f.client.retro({
+      action: "state-patch",
+      name: owner.name,
+      tabId: owner.tabId,
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      value: { draft: "Unsubmitted operator comment" },
+    });
+  });
+  await expect(
+    f.write(owner, { action: "finish", operatorInstruction: "Finish" }),
+  ).rejects.toMatchObject({ status: 409 });
+  expect((await f.read()).status).toBe("active");
+  expect(
+    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
+  ).toMatchObject({ initialized: false, audited: [] });
+  await f.write(owner, { action: "finish", operatorInstruction: "Finish after saved drafts" });
+  expect((await f.read()).appState.value).toEqual({ draft: "Unsubmitted operator comment" });
+});
+
+test("failed authored flush leaves the report active and all initialization untouched", async () => {
+  const f = await fixture();
+  await f.configure();
+  const owner = await f.create();
+  await f.write(owner, { action: "publish", report: report() });
+  f.server.store.retros.setBeforeFinish(async () => {
+    throw new Error("Synthetic unsaved edit failure");
+  });
+  await expect(
+    f.write(owner, { action: "finish", operatorInstruction: "Finish" }),
+  ).rejects.toMatchObject({ status: 409, message: "Synthetic unsaved edit failure" });
+  expect((await f.read()).status).toBe("active");
+  expect(
+    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
+  ).toMatchObject({ initialized: false, audited: [] });
+  f.server.store.retros.setBeforeFinish(undefined);
+  await f.write(owner, { action: "finish", operatorInstruction: "Finish after resolving drafts" });
+});
+
+test("native activity later than discovery is excluded at fractional second precision", async () => {
+  const f = await fixture();
+  await f.configure();
+  const owner = await f.create();
+  const discoveredAt = "2026-10-04T08:00:00.123000Z";
+  await f.write(owner, {
+    action: "publish",
+    report: {
+      ...report("all", 1),
+      sources: report().sources.map((s) => ({ ...s, discoveredAt, sessionCount: 1 })),
+    },
+  });
+  await expect(
+    f.write(owner, {
+      action: "inventory",
+      sessions: [{ ...session("late"), lastActivityAt: "2026-10-04T08:00:00.123001Z" }],
+    }),
+  ).rejects.toMatchObject({ status: 400 });
+  await f.write(owner, {
+    action: "inventory",
+    sessions: [{ ...session("eligible"), lastActivityAt: "2026-10-04T08:00:00.123Z" }],
+  });
+  await f.write(owner, { action: "finish", operatorInstruction: "Finish saved discovery" });
+  expect(
+    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
+  ).toMatchObject({ audited: ["eligible"] });
 });
