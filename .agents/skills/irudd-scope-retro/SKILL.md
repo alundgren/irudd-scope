@@ -15,6 +15,8 @@ Read the installed CLI's `irudd-scope retro guide` and the public
 HTML SDK, feedback and explicit finish. Read [native collection](references/collection.md)
 when discovering sessions or inspecting historical evidence. This skill includes
 its own Python 3 standard-library helper; no other retrospective skill is required.
+If `retro guide` is unavailable, upgrade the Scope desktop, CLI, paired hubs and
+skills together before proceeding.
 
 ## Choose the evidence
 

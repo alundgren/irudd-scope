@@ -155,10 +155,11 @@ same operator instruction. Unsent text remains an unsent draft, never a submitte
 comment or request. Finish also rechecks current source/runtime and repository
 inclusion, initialization and audited IDs. If another retro or a settings change
 invalidated the selection, read current tracking/settings and revise coverage
-and session statuses before trying again. Only successful finish commits staged
-source/runtime initialization and whole IDs actually reviewed on available
-sources. Failed sessions, unavailable sources and unreviewed sessions retain
-their prior reviewed-session tracking and initialization. The retro-agent
+and session statuses before trying again. Successful finish commits staged initialization for
+available, completely inventoried source/runtime choices, even when a selected
+session failed analysis. It records whole IDs actually reviewed on available
+sources. Failed or unreviewed sessions stay unaudited for a later attempt;
+unavailable sources retain their prior tracking and initialization. The retro-agent
 exclusion was already recorded when the report was published.
 
 An interrupted retrospective has no resume or recovery protocol. Its

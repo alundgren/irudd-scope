@@ -29,13 +29,19 @@ def now():
 def timestamp(value):
     if not isinstance(value, str):
         return None
+    parts = re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.([0-9]{1,19}))?(?:Z|[+-]\d\d:\d\d)", value)
+    if not parts:
+        return None
     try:
-        date = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if date.tzinfo is None:
-            return None
-        return date.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        date = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+        fraction = parts.group(1) or "000"
+        return date.isoformat(timespec="seconds")[:19] + "." + fraction + "Z"
     except ValueError:
         return None
+
+
+def time_key(value):
+    return value[:19] + value[19:-1].removeprefix(".").ljust(19, "0")
 
 
 def canonical_repository(origin):
@@ -54,6 +60,7 @@ def canonical_repository(origin):
             if url.scheme not in ("https", "http", "ssh", "git") or url.query or url.fragment:
                 return None
             scheme = url.scheme
+            url.port  # Reject invalid or out-of-range URL ports, as the shared protocol does.
             host = url.netloc.rsplit("@", 1)[-1]
             path = url.path.lstrip("/")
         except ValueError:
@@ -93,12 +100,14 @@ def git_repository(cwd, cache):
 
 def file_list(root, runtime):
     directories = [root / "sessions", root / "archived_sessions"] if runtime == "codex" else [root / "projects"]
-    if not directories[0].is_dir():
+    if not any(directory.is_dir() for directory in directories):
         raise ValueError("Selected native session directory is missing: " + str(directories[0]))
     files, errors, entries = [], [], 0
     for directory in directories:
         if not directory.exists():
             continue
+        if not directory.is_dir():
+            raise ValueError("Native session location is not a directory: " + str(directory))
         for folder, subdirs, names in os.walk(directory, onerror=lambda error: errors.append(str(error)), followlinks=False):
             subdirs.sort()
             names.sort()
@@ -135,7 +144,7 @@ def header(path, runtime, source_id, cache):
         candidates = [meta for meta in metas if not filename_id or meta["id"] == filename_id.group(1)]
         if not candidates:
             raise ValueError("No matching native session metadata in bounded header")
-        meta = candidates[-1]
+        meta = candidates[0]
         session_id, cwd = meta["id"], meta.get("cwd")
         start = timestamp(meta.get("timestamp"))
         source = meta.get("source")
@@ -146,7 +155,10 @@ def header(path, runtime, source_id, cache):
                 parent = parent or spawn.get("parent_thread_id")
         child = bool(parent or (isinstance(source, dict) and "subagent" in source))
         git = meta.get("git") if isinstance(meta.get("git"), dict) else {}
-        repository = canonical_repository(git.get("repository_url") or git.get("origin_url"))
+        recorded_origin = git.get("repository_url")
+        if recorded_origin is None:
+            recorded_origin = git.get("origin_url")
+        repository = canonical_repository(recorded_origin)
         fork = meta.get("forked_from_id")
     else:
         candidates = [row for row in rows if isinstance(row.get("sessionId"), str) and row.get("type") in ("user", "assistant", "system")]
@@ -159,19 +171,26 @@ def header(path, runtime, source_id, cache):
         # A first root user message with no parent is native evidence of the beginning.
         first = next((row for row in candidates if row.get("type") == "user"), None)
         start = timestamp(first.get("timestamp")) if first and first.get("parentUuid", "missing") is None and not child else None
-        repository = canonical_repository(meta.get("gitOrigin") or meta.get("gitOriginUrl"))
+        recorded_origin = meta.get("gitOrigin")
+        if recorded_origin is None:
+            recorded_origin = meta.get("gitOriginUrl")
+        repository = canonical_repository(recorded_origin)
         fork = None
         if child:
-            session_id = meta.get("agentId") or path.stem
+            session_id = meta.get("agentId") or path.stem.removeprefix("agent-")
     if not session_id or len(session_id) > 256:
         raise ValueError("Invalid native session ID")
-    repository = repository or git_repository(cwd, cache)
+    if not isinstance(cwd, str) or len(cwd) > 4096:
+        cwd = None
+    if recorded_origin is None:
+        repository = git_repository(cwd, cache)
     return {
         "sourceId": source_id, "runtime": runtime, "sessionId": session_id,
         "repository": repository, "startedAt": start,
         "lastActivityAt": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
         "status": "eligible", "evidence": "Native metadata; activity from file modification time",
         "nativePath": str(path), "cwd": cwd, "child": child,
+        "nativeSessionId": meta["id"] if runtime == "codex" else meta["sessionId"],
         "parentSessionId": parent, "forkedFromId": fork,
         "signature": [stat.st_size, stat.st_mtime_ns],
     }
@@ -227,7 +246,7 @@ def inventory(args):
             reason = "unassociated"
         elif tracking.get("mode") == "from-now" and row["startedAt"] is None:
             reason = "unknownStart"
-        elif tracking.get("mode") == "from-now" and row["startedAt"] <= cutoff:
+        elif tracking.get("mode") == "from-now" and time_key(row["startedAt"]) <= time_key(cutoff):
             reason = "beforeCutoff"
         elif row["sessionId"] in ids:
             reason = "duplicate"
@@ -256,18 +275,25 @@ def inventory(args):
     return {
         "sourceId": args.source_id, "runtime": args.runtime, "discoveredAt": discovered_at,
         "inventoryComplete": not unreadable and ignored["duplicate"] == 0, "sessionCount": len(sessions),
-        "oldestStartedAt": min((row["startedAt"] for row in sessions if row["startedAt"]), default=None),
+        "oldestStartedAt": min((row["startedAt"] for row in sessions if row["startedAt"]), key=time_key, default=None),
         "sessions": rows, "next": next_page, "ignored": ignored,
-        "coverage": {"nativeFiles": len(records) + len(unreadable), "unreadableHeaders": unreadable,
+        "coverage": {"nativeFiles": len(records) + len(unreadable), "unreadableHeaders": unreadable[:20], "unreadableHeaderCount": len(unreadable),
                      "limits": {"headerBytes": HEADER_BYTES, "headerLines": HEADER_LINES, "files": MAX_FILES}},
     }
 
 
-def text_blocks(content):
+def text_blocks(content, problems, line_number, other_supported=()):
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        return "\n".join(block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") in ("text", "input_text", "output_text") and isinstance(block.get("text"), str))
+        text = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") in ("text", "input_text", "output_text") and isinstance(block.get("text"), str):
+                text.append(block["text"])
+            elif not isinstance(block, dict) or block.get("type") not in other_supported:
+                problems.append("Unsupported message content at line " + str(line_number))
+        return "\n".join(text)
+    problems.append("Unsupported message content at line " + str(line_number))
     return ""
 
 
@@ -294,6 +320,7 @@ def snapshot(args):
     if selected["signature"][0] > SNAPSHOT_BYTES:
         raise ValueError("Selected session exceeds snapshot byte limit; inspect the native session manually")
     conversations, tools, problems = [], {}, []
+    usage_problems = []
     usage_records, cumulative, seen_rows, seen_text = {}, [], set(), set()
     unknown_usage, assistant_count, response_count, last_usage_response = 0, 0, 0, 0
     active_native = args.runtime != "codex"
@@ -323,7 +350,9 @@ def snapshot(args):
                     kind = payload.get("type")
                     if kind == "message" and payload.get("role") in ("user", "assistant"):
                         role = payload["role"]
-                        conversations.append({"role": role, "text": text_blocks(payload.get("content")), "at": at, "line": line_number})
+                        text = text_blocks(payload.get("content"), problems, line_number)
+                        if text:
+                            conversations.append({"role": role, "text": text, "at": at, "line": line_number})
                         if role == "assistant":
                             assistant_count += 1
                             response_count += 1
@@ -343,6 +372,8 @@ def snapshot(args):
                     if totals:
                         cumulative.append(totals)
                         last_usage_response = response_count
+                    else:
+                        usage_problems.append("Unusable native token counter at line " + str(line_number))
             else:
                 if row.get("isSidechain") and not selected["child"]:
                     continue
@@ -354,10 +385,13 @@ def snapshot(args):
                 message = row.get("message")
                 if not isinstance(message, dict):
                     continue
+                if row.get("sessionId") != selected["nativeSessionId"] or (selected["child"] and row.get("agentId") not in (None, selected["sessionId"])):
+                    problems.append("Mismatched or missing native session identity at line " + str(line_number))
+                    continue
                 role = message.get("role", row.get("type"))
                 message_id = message.get("id") or uuid or "line-" + str(line_number)
                 if role in ("user", "assistant"):
-                    text = text_blocks(message.get("content"))
+                    text = text_blocks(message.get("content"), problems, line_number, ("tool_use", "tool_result", "thinking", "redacted_thinking"))
                     text_key = (message_id, role, text)
                     if text and text_key not in seen_text:
                         seen_text.add(text_key)
@@ -397,7 +431,9 @@ def snapshot(args):
     total, certainty, method = None, "unknown", "Native usage unavailable"
     if args.runtime == "codex" and cumulative:
         reset = any(any(current[key] < previous[key] for key in current) for previous, current in zip(cumulative, cumulative[1:]))
-        if selected["forkedFromId"] or reset:
+        if usage_problems:
+            method = "Unusable native counter observations prevent exact session usage"
+        elif selected["forkedFromId"] or reset:
             method = "Forked or reset cumulative counters cannot establish this session's consumption"
         else:
             total = cumulative[-1]["total_tokens"]
@@ -430,7 +466,7 @@ def snapshot(args):
         "metrics": [metric("native tokens", "tokens", total, certainty, method, coverage),
                     metric("tool calls", "calls", len(tool_rows), "estimated" if problems else "exact", "Native tool call IDs", coverage),
                     metric("observed tool wait", "seconds", sum(waits) if waits else None, "estimated" if waits else "unknown", "Sum of matched call/result timestamp intervals; includes scheduling and transport", str(len(waits)) + "/" + str(len(tool_rows)) + " calls")],
-        "coverage": {"problems": problems, "unreadableHeaders": unreadable,
+        "coverage": {"problems": problems, "usageProblems": usage_problems, "unreadableHeaders": unreadable[:20], "unreadableHeaderCount": len(unreadable),
                      "assistantRecords": assistant_count, "usageMessagesMissing": unknown_usage,
                      "linkedChildren": [{"sessionId": row["sessionId"], "nativePath": row["nativePath"]} for row in records if row["parentSessionId"] == args.session_id]},
     }

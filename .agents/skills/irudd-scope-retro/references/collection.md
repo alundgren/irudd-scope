@@ -14,8 +14,8 @@ python3 scripts/retro_sessions.py inventory --runtime claude --root "$HOME/.clau
   --source-id remote --current-session CONFIRMED_NATIVE_ID --page-size 200
 ```
 
-`--root` is the runtime home, containing Codex `sessions/` (and optional
-`archived_sessions/`) or Claude `projects/`. Use configured overrides rather than
+`--root` is the runtime home, containing Codex `sessions/`,
+`archived_sessions/`, or both, or Claude `projects/`. Use configured overrides rather than
 assuming defaults. `--tracking` is a temporary input combining every Scope tracking
 page into one object with `audited`, `agents`, `mode` and `cutoff`. A non-null `next`
 is rejected. This is agent working input, not a new persistent settings store.
@@ -27,16 +27,19 @@ Changed eligible metadata rejects the cursor; restart discovery. Unrelated activ
 sessions already excluded by ID do not invalidate pages. Missing roots or traversal
 errors exit nonzero with `inventoryComplete: false`; they never mean empty history.
 Header errors and duplicate eligible IDs also prevent complete discovery.
+Coverage includes the total unreadable-header count and at most 20 examples.
 
 Inventory examines at most 20,000 JSONL files, 100,000 directory entries and the
 first 64 lines / 256 KiB of each header. It emits metadata only, without conversation
 excerpts or tool results. Canonical origin comes from native metadata or bounded
 read-only `git config --get remote.origin.url` in the recorded cwd. GitHub SSH/HTTPS
 case and default ports normalize; other hosts keep path case and explicit ports.
-Fork origins remain distinct. Unresolvable origins are ignored. Codex creation
+Fork origins remain distinct. Unresolvable recorded origins are ignored; only
+an absent origin permits cwd lookup. Codex creation
 comes from session metadata. Claude creation is known only when the bounded header
 contains the first root user record with explicit `parentUuid: null`; otherwise
-`startedAt` stays null. File modification time supplies activity, never creation.
+`startedAt` stays null. Native fractional creation precision is preserved for cutoff comparisons. File
+modification time supplies activity, never creation.
 
 Native child markers exclude child files from the primary inventory. A Codex spawn
 parent or Claude `parentSessionId` can associate related evidence; no association
@@ -69,13 +72,15 @@ or unsupported logs, use the runtime's native inspection facilities and document
 coverage; do not silently switch to a different session or mark partial work whole.
 
 Codex token metrics use the latest cumulative native `total_token_usage`, never
-sum repeated cumulative samples. Fork-inherited or decreasing counters remain
-unknown. If assistant messages follow the last usage counter, the counter is an
+sum repeated cumulative samples. Fork-inherited, decreasing or unusable counter observations remain
+unknown with explicit coverage notes. If assistant messages follow the last usage counter, the counter is an
 estimate of session consumption. Claude usage counts each native assistant message
 ID once, retaining the latest observed usage for repeated streaming records. It sums
 input, output, cache-creation and cache-read tokens; assistant messages without usage
 make a known subtotal estimated. Missing counters stay null. Metrics cover the
-selected native file only; related children are listed separately when explicit
+selected native file only. Claude conversation and usage records must match
+the selected native identity; mixed or missing identities make the snapshot
+incomplete. Related children are listed separately when explicit
 parent metadata is available. Tool waits are call/result timestamp intervals and
 include scheduling/transport, so they are estimates rather than measured test time.
 Identify tests from actual command inputs and inspect their outputs before making

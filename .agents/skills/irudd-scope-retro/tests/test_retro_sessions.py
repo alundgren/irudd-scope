@@ -46,7 +46,7 @@ class NativeSessionTests(unittest.TestCase):
         initial = {"type": "user", "sessionId": session, "cwd": "/nonexistent-synthetic-checkout", "gitOrigin": ORIGIN,
                    "parentUuid": None, "timestamp": START, "uuid": "first", "message": {"role": "user", "content": "Please fix the test"}}
         initial.update(first or {})
-        return self.write(path or self.root / "projects" / "project" / (session + ".jsonl"), [initial] + list(rows))
+        return self.write(path or self.root / "projects" / "project" / (session + ".jsonl"), [initial] + [{"sessionId": initial["sessionId"], **row} for row in rows])
 
     def usage(self, total=100):
         return {"type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {
@@ -123,6 +123,14 @@ class NativeSessionTests(unittest.TestCase):
         result = self.run_helper()
         self.assertFalse(result["inventoryComplete"])
         self.assertEqual(len(result["coverage"]["unreadableHeaders"]), 1)
+
+    def test_unreadable_header_examples_are_bounded_without_hiding_failure(self):
+        for number in range(25):
+            (self.root / "sessions" / (str(number) + ".jsonl")).write_text("not json\n")
+        result = self.run_helper()
+        self.assertFalse(result["inventoryComplete"])
+        self.assertEqual(result["coverage"]["unreadableHeaderCount"], 25)
+        self.assertEqual(len(result["coverage"]["unreadableHeaders"]), 20)
 
     def test_tracking_page_not_silently_partial(self):
         tracking = self.root / "tracking.json"
@@ -280,6 +288,79 @@ class NativeSessionTests(unittest.TestCase):
             stream.truncate(33 * 1024 * 1024)
         result = self.run_helper("snapshot", extra=["--session-id", "session"], succeeds=False)
         self.assertIn("byte limit", result["error"])
+
+    def test_foreign_or_missing_claude_identity_is_not_credited(self):
+        foreign = {"sessionId": "other", "type": "assistant", "message": {"id": "foreign", "role": "assistant", "content": "Foreign evidence", "usage": {"input_tokens": 10, "output_tokens": 20}}}
+        self.claude(rows=[foreign])
+        result = self.run_helper("snapshot", "claude", ["--session-id", "claude-session"])
+        self.assertFalse(result["complete"])
+        self.assertNotIn("Foreign evidence", str(result["conversations"]))
+        self.assertIsNone(result["metrics"][0]["value"])
+        self.assertTrue(result["coverage"]["problems"])
+        foreign["sessionId"] = None
+        self.claude(rows=[foreign])
+        self.assertFalse(self.run_helper("snapshot", "claude", ["--session-id", "claude-session"])["complete"])
+
+    def test_child_snapshot_uses_its_native_identity_and_rejects_other_agents(self):
+        message = {"type": "assistant", "agentId": "child-agent", "message": {"id": "response", "role": "assistant", "content": "Child evidence", "usage": {"input_tokens": 10, "output_tokens": 20}}}
+        self.claude("parent-native-id", first={"isSidechain": True, "agentId": "child-agent"}, rows=[message], path=self.root / "projects" / "project" / "parent-native-id" / "subagents" / "agent-child-agent.jsonl")
+        result = self.run_helper("snapshot", "claude", ["--session-id", "child-agent"])
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["metrics"][0]["value"], 30)
+        self.claude("parent-native-id", first={"isSidechain": True}, rows=[message], path=self.root / "projects" / "project" / "parent-native-id" / "subagents" / "agent-child-agent.jsonl")
+        self.assertTrue(self.run_helper("snapshot", "claude", ["--session-id", "child-agent"])["complete"])
+        message["agentId"] = "other-agent"
+        self.claude("parent-native-id", first={"isSidechain": True}, rows=[message], path=self.root / "projects" / "project" / "parent-native-id" / "subagents" / "agent-child-agent.jsonl")
+        self.assertFalse(self.run_helper("snapshot", "claude", ["--session-id", "child-agent"])["complete"])
+
+    def test_malformed_counter_does_not_leave_old_usage_exact(self):
+        broken = {"type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 100, "total_tokens": 120}}}}
+        self.codex(records=[self.assistant(), self.usage(), broken])
+        result = self.run_helper("snapshot", extra=["--session-id", "session"])
+        self.assertIsNone(result["metrics"][0]["value"])
+        self.assertEqual(result["metrics"][0]["certainty"], "unknown")
+        self.assertTrue(result["coverage"]["usageProblems"])
+
+    def test_rejected_recorded_origin_cannot_be_replaced_by_new_cwd_origin(self):
+        checkout = self.root / "checkout"
+        checkout.mkdir()
+        subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "remote", "add", "origin", "https://github.com/new/current"], check=True)
+        self.codex(origin="https://github.com/old/original?unsupported=query", extra={"cwd": str(checkout)})
+        self.assertEqual(self.run_helper()["sessionCount"], 0)
+
+    def test_invalid_url_port_is_unassociated(self):
+        self.codex(origin="https://git.example:99999/Team/Project.git")
+        self.assertEqual(self.run_helper()["sessionCount"], 0)
+
+    def test_from_now_preserves_fractional_precision_and_timestamp_order(self):
+        self.codex("equal", start=START)
+        self.codex("nanosecond", start="2026-10-01T08:00:00.000000001Z")
+        self.codex("microsecond", start="2026-10-01T08:00:00.000001Z")
+        tracking = self.root / "tracking.json"
+        tracking.write_text(json.dumps({"mode": "from-now", "cutoff": START}))
+        result = self.run_helper(extra=["--tracking", str(tracking)])
+        self.assertEqual(result["sessionCount"], 2)
+        self.assertEqual(result["oldestStartedAt"], "2026-10-01T08:00:00.000000001Z")
+
+    def test_resume_metadata_does_not_change_native_creation(self):
+        later_meta = {"type": "session_meta", "payload": {"id": "session", "timestamp": "2026-10-02T00:00:00Z", "git": {"repository_url": ORIGIN}}}
+        self.codex(records=[later_meta])
+        self.assertEqual(self.run_helper()["sessions"][0]["startedAt"], START)
+
+    def test_archive_only_root_is_available_but_missing_both_is_not(self):
+        (self.root / "sessions").rmdir()
+        self.codex(archived=True)
+        self.assertTrue(self.run_helper()["inventoryComplete"])
+        self.assertEqual(self.run_helper()["sessionCount"], 1)
+
+    def test_unsupported_message_content_is_incomplete(self):
+        unknown = {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "future-content", "value": "Unknown native evidence"}]}}
+        self.codex(records=[unknown])
+        result = self.run_helper("snapshot", extra=["--session-id", "session"])
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["conversations"], [])
+        self.assertTrue(any("Unsupported" in note for note in result["coverage"]["problems"]))
 
     def fake_environment(self, names):
         directory = Path(tempfile.mkdtemp(dir=self.root))
