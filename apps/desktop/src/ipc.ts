@@ -126,6 +126,12 @@ export function registerDesktopIpc({
     artifacts: lifecycle.artifacts,
     workspace: () => lifecycle.workspace(),
   });
+  const stopRetroEvents = library.onRetroChanged((event) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:retro-changed", event);
+  });
+  const stopRetroReconnects = library.onRetroReconnected(() => {
+    if (!window.isDestroyed()) window.webContents.send("scope:retro-reconnected");
+  });
   const stopPlanEvents = library.onPlanChanged((event) => {
     if (!window.isDestroyed()) window.webContents.send("scope:plan-changed", event);
   });
@@ -280,6 +286,8 @@ export function registerDesktopIpc({
       connectedAgents.cancelTabs(ids);
     },
     dispose: () => {
+      stopRetroEvents();
+      stopRetroReconnects();
       stopPlanEvents();
       stopPlanReconnects();
       stopPullRequestsEvents();

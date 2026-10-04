@@ -1,4 +1,10 @@
 import {
+  RetroCommand,
+  RetroReply,
+  MAX_RETRO_REQUEST_BYTES,
+  MAX_RETRO_REPLY_BYTES,
+} from "./retro.ts";
+import {
   PullRequestsCommand,
   PullRequestsReply,
   MAX_PULL_REQUESTS_REQUEST_BYTES,
@@ -121,6 +127,23 @@ export class ScopeClient {
           signal: AbortSignal.timeout(TRANSFER_IMPORT_TIMEOUT_MS),
         }),
         MAX_TRANSFER_IMPORT_REPLY_BYTES,
+      ),
+    );
+  }
+
+  async retro(input: RetroCommand): Promise<RetroReply> {
+    const body = JSON.stringify(decode(RetroCommand, input));
+    if (new TextEncoder().encode(body).byteLength > MAX_RETRO_REQUEST_BYTES)
+      throw new Error("Retrospective command exceeds 2 MiB.");
+    return decode(
+      RetroReply,
+      await readRemoteJson(
+        await this.request("/v1/retros", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }),
+        MAX_RETRO_REPLY_BYTES,
       ),
     );
   }

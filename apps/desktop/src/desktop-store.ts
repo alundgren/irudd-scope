@@ -1,3 +1,10 @@
+import {
+  RetroConfiguration,
+  emptyRetroConfiguration,
+  type RetroCommand,
+} from "@irudd-scope/protocol/retro";
+import { ScopeError } from "@irudd-scope/protocol";
+import { createHash } from "node:crypto";
 import { DatabaseMaintenance } from "@irudd-scope/sqlite";
 import { chmod, mkdir, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -155,6 +162,106 @@ export class DesktopStore {
     await this.maintenance?.idle();
     if (!this.runtime) throw new Error("Desktop preferences are not open.");
     return this.runtime.runPromise(effect);
+  }
+
+  async retroConfiguration(): Promise<RetroConfiguration> {
+    const [row] = await this.run(
+      this.sql!<{
+        document: string;
+      }>`SELECT document FROM preferences WHERE name = 'retro-configuration'`,
+    );
+    return row ? decode(RetroConfiguration, JSON.parse(row.document)) : emptyRetroConfiguration();
+  }
+
+  saveRetroConfiguration(
+    input: Extract<RetroCommand, { action: "configure" }>,
+  ): Promise<RetroConfiguration> {
+    const command = decode(RetroConfiguration, input.configuration);
+    const sql = this.sql!;
+    const payload = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+    const task = this.pending.then(() =>
+      this.run(
+        sql.withTransaction(
+          Effect.gen(function* () {
+            yield* sql`CREATE TABLE IF NOT EXISTS retro_configuration_receipts(request_id TEXT PRIMARY KEY,payload TEXT NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))) STRICT`;
+            const [receipt] = yield* sql<{
+              payload: string;
+              document: string;
+            }>`SELECT payload,document FROM retro_configuration_receipts WHERE request_id = ${input.requestId}`;
+            if (receipt) {
+              if (receipt.payload !== payload)
+                return yield* Effect.fail(
+                  new ScopeError(409, "This request ID was already used with different content."),
+                );
+              return decode(RetroConfiguration, JSON.parse(receipt.document));
+            }
+            const [row] = yield* sql<{
+              document: string;
+            }>`SELECT document FROM preferences WHERE name = 'retro-configuration'`;
+            const prior = row
+              ? decode(RetroConfiguration, JSON.parse(row.document))
+              : emptyRetroConfiguration();
+            if (
+              prior.version !== input.expectedVersion ||
+              command.version !== input.expectedVersion
+            )
+              return yield* Effect.fail(
+                new ScopeError(
+                  409,
+                  "Retrospective configuration changed. Read the current version.",
+                ),
+              );
+            if (
+              new Set(command.sources.map((s) => s.id)).size !== command.sources.length ||
+              new Set(command.repositories.map((r) => r.repository)).size !==
+                command.repositories.length ||
+              new Set(command.memory.destinations.map((d) => d.id)).size !==
+                command.memory.destinations.length
+            )
+              return yield* Effect.fail(
+                new ScopeError(400, "Source, repository and destination IDs must be distinct."),
+              );
+            for (const source of command.sources)
+              if (
+                new Set(source.runtimes).size !== source.runtimes.length ||
+                source.runtimes.length === 0
+              )
+                return yield* Effect.fail(
+                  new ScopeError(400, "Configure distinct nonempty runtime selections."),
+                );
+            for (const destination of command.memory.destinations) {
+              if (destination.type === "claude-memory" && destination.scope !== "project")
+                return yield* Effect.fail(
+                  new ScopeError(
+                    400,
+                    "Claude memory destinations require their project repository.",
+                  ),
+                );
+              if (!command.sources.some((s) => s.id === destination.sourceId))
+                return yield* Effect.fail(
+                  new ScopeError(400, "Destination source is not configured."),
+                );
+              if ((destination.scope === "project") !== !!destination.repository)
+                return yield* Effect.fail(
+                  new ScopeError(
+                    400,
+                    "Project destinations require a repository; operator destinations omit it.",
+                  ),
+                );
+            }
+            const result = { ...command, version: prior.version + 1 };
+            yield* sql`INSERT INTO preferences(name,document) VALUES ('retro-configuration',${JSON.stringify(result)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`;
+            yield* sql`INSERT INTO retro_configuration_receipts(request_id,payload,document) VALUES (${input.requestId},${payload},${JSON.stringify(result)})`;
+            return result;
+          }),
+        ),
+      ),
+    );
+    this.pending = task.then(
+      () => {},
+      () => {},
+    );
+    return task;
   }
 
   private async readProviderCredentials() {

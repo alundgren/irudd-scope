@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { RetroGuide, retroCommand } from "./retro.ts";
+import { watchRetro } from "./retro-watch.ts";
 import { PullRequestsGuide, pullRequestsCommand } from "./pull-requests.ts";
 import { VoiceGuide } from "@irudd-scope/protocol/voice";
 import { voiceCommand, voiceHelp } from "./voice.ts";
@@ -41,7 +43,7 @@ import {
   TRANSFER_IMPORT_TIMEOUT_MS,
 } from "@irudd-scope/protocol/transfer";
 
-const help = `irudd-scope add FILE [--title TITLE] [--id ID] [--named | --name NAME] [--plan | --pull-requests]
+const help = `irudd-scope add FILE [--title TITLE] [--id ID] [--named | --name NAME] [--plan | --pull-requests | --retro]
 irudd-scope text TEXT [--title TITLE] [--id ID] [--kind text|markdown]
 irudd-scope update ID_OR_NAME FILE [--title TITLE]
 irudd-scope import-link LINK [--timeout-ms MS]
@@ -54,6 +56,7 @@ irudd-scope diagram propose WORKING.json --note TEXT [--resolved]
 irudd-scope diagram reply NAME TEXT
 irudd-scope diagram watch NAME [--claude-channel | --t3-thread ID | --codex-thread ID] [--watch-edits]
 irudd-scope pull-requests guide|read|configure|sync|detail|apply [NAME_OR_FILE] [OWNER/REPO_OR_NODE_ID]
+irudd-scope retro guide|settings|read NAME|apply REQUEST.json|history|watch NAME
 irudd-scope plan guide
 irudd-scope plan read NAME [--since VERSION]
 irudd-scope plan feedback NAME [ROUND_ID] --output NEW_DIRECTORY
@@ -175,6 +178,7 @@ function parseOptions() {
       snapshot: { type: "string" },
       named: { type: "boolean" },
       plan: { type: "boolean" },
+      retro: { type: "boolean" },
       "pull-requests": { type: "boolean" },
       revision: { type: "string" },
       since: { type: "string" },
@@ -351,7 +355,11 @@ async function preparePublication(
   if (values.plan && command !== "add") throw new Error("Use --plan when adding an HTML file.");
   if (values["pull-requests"] && command !== "add")
     throw new Error("Use --pull-requests when adding an HTML file.");
-  if (values.plan && values["pull-requests"]) throw new Error("Choose one tab kind.");
+  if (values.retro && command !== "add") throw new Error("Use --retro when adding an HTML file.");
+  if ([values.plan, values["pull-requests"], values.retro].filter(Boolean).length > 1)
+    throw new Error("Choose one tab kind.");
+  const isRetro = values.retro || current?.kind === "retro";
+  if (isRetro && mediaType !== "text/html") throw new Error("Retrospectives require an HTML file.");
   const isPullRequests = values["pull-requests"] || current?.kind === "pull-requests";
   const isPlan = values.plan || current?.kind === "plan";
   if (isPullRequests && mediaType !== "text/html")
@@ -361,13 +369,13 @@ async function preparePublication(
   if (isPlan && mediaType !== "text/html") throw new Error("Plans require an HTML file.");
   const name =
     current?.name ??
-    artifactName(isPlan && !values.name ? { ...values, named: true } : values, title);
+    artifactName((isPlan || isRetro) && !values.name ? { ...values, named: true } : values, title);
   return {
     id,
     input: {
       title,
       ...(name ? { name } : {}),
-      kind: isPullRequests ? "pull-requests" : isPlan ? "plan" : kind,
+      kind: isRetro ? "retro" : isPullRequests ? "pull-requests" : isPlan ? "plan" : kind,
       mediaType,
       fileName,
       source,
@@ -472,6 +480,34 @@ async function main() {
         2,
       ),
     );
+    return;
+  }
+  if (command === "retro") {
+    if (argument === "guide") {
+      console.log(JSON.stringify(RetroGuide, null, 2));
+      return;
+    }
+    if (argument === "watch") {
+      if (!replacement) throw new Error("Provide the retrospective name.");
+      const controller = new AbortController();
+      const stop = () => controller.abort();
+      process.once("SIGINT", stop);
+      process.once("SIGTERM", stop);
+      try {
+        await watchRetro(await connect(values, controller.signal), replacement, values, controller);
+      } finally {
+        controller.abort();
+      }
+    } else {
+      const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"]));
+      console.log(
+        JSON.stringify(
+          await retroCommand(await connect(values, signal), positionals, signal),
+          null,
+          2,
+        ),
+      );
+    }
     return;
   }
   if (command === "plan") {
