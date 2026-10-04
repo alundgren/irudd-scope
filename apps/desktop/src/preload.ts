@@ -1,3 +1,4 @@
+import type { RetroEvent } from "@irudd-scope/protocol";
 import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
 import type { DiagramCommandRequest } from "./plugins/diagram/commands.ts";
 import { contextBridge, ipcRenderer } from "electron";
@@ -13,6 +14,19 @@ import type { PullRequestsDetailUpdate } from "./plugins/pull-requests/interest.
 import type { PullRequestsLinkResult } from "./plugins/pull-requests/contract.ts";
 
 const bridge: ScopeBridge = {
+  retroCommand: (input) => ipcRenderer.invoke("scope:retro-command", input),
+  retroConfiguration: () => ipcRenderer.invoke("scope:retro-configuration"),
+  saveRetroConfiguration: (input) => ipcRenderer.invoke("scope:save-retro-configuration", input),
+  onRetroChanged: (listener) => {
+    const receive = (_event: unknown, event: RetroEvent) => listener(event);
+    ipcRenderer.on("scope:retro-changed", receive);
+    return () => ipcRenderer.removeListener("scope:retro-changed", receive);
+  },
+  onRetroReconnected: (listener) => {
+    const receive = () => listener();
+    ipcRenderer.on("scope:retro-reconnected", receive);
+    return () => ipcRenderer.removeListener("scope:retro-reconnected", receive);
+  },
   createPullRequests: (input) => ipcRenderer.invoke("scope:create-pull-requests", input),
   pullRequestsCommand: (input) => ipcRenderer.invoke("scope:pull-requests-command", input),
   pullRequestsInterest: (input) => ipcRenderer.invoke("scope:pull-requests-interest", input),

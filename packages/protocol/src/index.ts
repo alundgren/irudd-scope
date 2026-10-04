@@ -149,7 +149,14 @@ export const PullRequestsEvent = Schema.Struct({
   prStateChange: Schema.optionalKey(PullRequestStateChange),
 });
 export type PullRequestsEvent = typeof PullRequestsEvent.Type;
-export const RetroEvent = Schema.Struct({ type: Schema.Literal("retro"), name: ArtifactName, id: ArtifactId, tabId: PublicationTabId, version: Revision, event: Schema.Literals(["changed", "decision", "comment", "request", "finished"]) });
+export const RetroEvent = Schema.Struct({
+  type: Schema.Literal("retro"),
+  name: ArtifactName,
+  id: ArtifactId,
+  tabId: PublicationTabId,
+  version: Revision,
+  event: Schema.Literals(["changed", "decision", "comment", "request", "finished"]),
+});
 export type RetroEvent = typeof RetroEvent.Type;
 export const LiveEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("ready") }),

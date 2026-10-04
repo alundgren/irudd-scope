@@ -1,3 +1,4 @@
+import type { RetroEvent } from "@irudd-scope/protocol";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { ScopeClient } from "@irudd-scope/protocol/client";
 import type { ArtifactContent, ArtifactLibrarySnapshot } from "../bridge.ts";
@@ -6,6 +7,20 @@ import type { PlanEvent } from "@irudd-scope/protocol/plan";
 import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
 
 export class ArtifactLibrary {
+  private retroListeners = new Set<(event: RetroEvent) => void>();
+  private retroReconnectListeners = new Set<() => void>();
+  onRetroChanged(listener: (event: RetroEvent) => void) {
+    this.retroListeners.add(listener);
+    return () => {
+      this.retroListeners.delete(listener);
+    };
+  }
+  onRetroReconnected(listener: () => void) {
+    this.retroReconnectListeners.add(listener);
+    return () => {
+      this.retroReconnectListeners.delete(listener);
+    };
+  }
   private pullRequestsListeners = new Set<(event: PullRequestsEvent) => void>();
   private pullRequestsReconnectListeners = new Set<() => void>();
 
@@ -102,7 +117,9 @@ export class ArtifactLibrary {
         let changes: Map<string, Artifact | null> | undefined;
         await this.client.watch((event) => {
           if (active.signal.aborted) return;
+          if (event.type === "retro") for (const listener of this.retroListeners) listener(event);
           if (event.type === "ready") {
+            for (const listener of this.retroReconnectListeners) listener();
             const refresh = ++this.refresh;
             changes = new Map();
             for (const listener of this.planReconnectListeners) {
@@ -202,6 +219,8 @@ export class ArtifactLibrary {
     this.cache.clear();
     this.planListeners.clear();
     this.planReconnectListeners.clear();
+    this.retroListeners.clear();
+    this.retroReconnectListeners.clear();
     this.pullRequestsListeners.clear();
     this.pullRequestsReconnectListeners.clear();
   }

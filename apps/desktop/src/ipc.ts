@@ -1,3 +1,4 @@
+import { RetroCommand } from "@irudd-scope/protocol/retro";
 import { connectedDiagramAgents } from "./plugins/diagram/connected-agent.ts";
 import { diagramCommands } from "./plugins/diagram/command-main.ts";
 import { clipboard, dialog, ipcMain, nativeTheme, type BrowserWindow } from "electron";
@@ -125,6 +126,36 @@ export function registerDesktopIpc({
     client,
     artifacts: lifecycle.artifacts,
     workspace: () => lifecycle.workspace(),
+  });
+  handle("scope:retro-command", (value) => {
+    const command = decode(RetroCommand, value);
+    if (
+      ![
+        "read",
+        "history",
+        "decide",
+        "comment",
+        "request",
+        "state-read",
+        "state-set",
+        "state-patch",
+        "state-delete",
+      ].includes(command.action)
+    )
+      throw new Error("This retrospective action requires the operator's agent.");
+    return lifecycle.artifacts.retros.command(command);
+  });
+  handle("scope:retro-configuration", () => store.retroConfiguration());
+  handle("scope:save-retro-configuration", (value) => {
+    const command = decode(RetroCommand, { ...(value as object), action: "configure" });
+    if (command.action !== "configure") throw new Error("Invalid retrospective configuration.");
+    return store.saveRetroConfiguration(command);
+  });
+  const stopRetroEvents = library.onRetroChanged((event) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:retro-changed", event);
+  });
+  const stopRetroReconnects = library.onRetroReconnected(() => {
+    if (!window.isDestroyed()) window.webContents.send("scope:retro-reconnected");
   });
   const stopPlanEvents = library.onPlanChanged((event) => {
     if (!window.isDestroyed()) window.webContents.send("scope:plan-changed", event);
@@ -280,6 +311,8 @@ export function registerDesktopIpc({
       connectedAgents.cancelTabs(ids);
     },
     dispose: () => {
+      stopRetroEvents();
+      stopRetroReconnects();
       stopPlanEvents();
       stopPlanReconnects();
       stopPullRequestsEvents();

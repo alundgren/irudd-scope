@@ -78,6 +78,10 @@ async function main() {
       return transfers.importLink(url);
     },
     voice,
+    retroConfiguration: {
+      read: () => store.retroConfiguration(),
+      configure: (command) => store.saveRetroConfiguration(command),
+    },
     diagramAgent: (command, signal) => desktopIpc.diagramAgent(command, signal),
     diagram: (command, signal) => desktopIpc.diagram(command, signal),
     syncDiagram: (command, id, signal) => desktopIpc.syncDiagram(command, id, signal),

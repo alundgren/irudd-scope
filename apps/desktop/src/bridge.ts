@@ -1,3 +1,5 @@
+import type { RetroCommand, RetroReply, RetroConfiguration } from "@irudd-scope/protocol/retro";
+import type { RetroEvent } from "@irudd-scope/protocol";
 import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
 import type { TabAgentRequest } from "./plugins/diagram/connected-agent.ts";
 import type { DiagramCommandRequest, DiagramCommandResponse } from "./plugins/diagram/commands.ts";
@@ -46,6 +48,13 @@ import type {
 } from "@irudd-scope/protocol/pull-requests";
 
 export type ScopeBridge = {
+  retroCommand: (command: RetroCommand) => Promise<RetroReply>;
+  retroConfiguration: () => Promise<RetroConfiguration>;
+  saveRetroConfiguration: (
+    input: Omit<Extract<RetroCommand, { action: "configure" }>, "action">,
+  ) => Promise<RetroConfiguration>;
+  onRetroChanged: (listener: (event: RetroEvent) => void) => () => void;
+  onRetroReconnected: (listener: () => void) => () => void;
   createPullRequests: (input: {
     name: string;
     title: string;

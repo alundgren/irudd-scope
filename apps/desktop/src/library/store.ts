@@ -1,3 +1,4 @@
+import { RetroStore, initializeRetroTab } from "./retro-store.ts";
 import { PullRequestStore, initializePullRequestsTab } from "./pull-request-store.ts";
 import { DatabaseMaintenance } from "@irudd-scope/sqlite";
 import { createHash, randomUUID } from "node:crypto";
@@ -45,6 +46,7 @@ export type LiveTab = {
 export class ArtifactStore {
   maintenance!: DatabaseMaintenance;
   plans!: PlanStore;
+  retros!: RetroStore;
   pullRequests!: PullRequestStore;
   onChanged: (event: LiveEvent) => void = () => {};
   private readonly listeners = new Set<(event?: LiveEvent) => void>();
@@ -85,6 +87,12 @@ export class ArtifactStore {
         mutate: (effect, events) => store.mutate(effect, events),
       });
       await store.plans.initialize();
+      store.retros = new RetroStore({
+        sql,
+        run: (effect) => store.run(effect),
+        mutate: (effect, events) => store.mutate(effect, events),
+      });
+
       store.pullRequests = new PullRequestStore({
         sql,
         run: (effect) => store.run(effect),
@@ -97,6 +105,7 @@ export class ArtifactStore {
       await store.initializePublicationHistory();
       await store.initializePullRequestsAppState();
       await store.initializePullRequestAppState();
+      await store.retros.initialize();
       await store.pullRequests.recoverInterruptedSync();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
@@ -180,7 +189,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 10) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 11) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");
@@ -291,6 +300,7 @@ export class ArtifactStore {
           for (const row of rows) {
             const tabId = randomUUID();
             const artifact = decode(Artifact, JSON.parse(row.document));
+
             yield* sql`INSERT INTO live_tabs(id, artifact_id, opened, created_at) VALUES (${tabId}, ${row.id}, 0, ${Date.now()})`;
             yield* sql`INSERT INTO tab_blobs VALUES (${tabId}, ${artifact.blob}, 0)`;
             yield* sql`INSERT INTO artifacts_next VALUES (${row.id}, ${row.revision}, ${row.document}, ${tabId}, ${artifact.blob})`;
@@ -746,6 +756,21 @@ export class ArtifactStore {
             return yield* Effect.fail(
               new ScopeError(409, "Artifact changed. Read the current revision before updating."),
             );
+          if (previous?.kind === "retro") {
+            if (input.kind !== "retro")
+              return yield* Effect.fail(
+                new ScopeError(409, "A retrospective's kind cannot change."),
+              );
+            const [report] = yield* sql<{
+              document: string;
+            }>`SELECT document FROM retro_reports WHERE tab_id = ${input.tabId}`;
+            if (report && JSON.parse(report.document).status === "finished")
+              return yield* Effect.fail(
+                new ScopeError(409, "Finished retrospectives are read-only."),
+              );
+          }
+          if (input.kind === "retro" && !(previous?.name ?? input.name))
+            return yield* Effect.fail(new ScopeError(400, "Retrospectives require a tab name."));
           if (previous?.kind === "pull-requests" && input.kind !== "pull-requests")
             return yield* Effect.fail(
               new ScopeError(409, "A pull request tab's kind cannot change."),
@@ -784,9 +809,11 @@ export class ArtifactStore {
           yield* sql`INSERT INTO artifacts(id, revision, document, tab_id, blob_id) VALUES (${id}, ${revision}, ${JSON.stringify(artifact)}, ${tabId}, ${input.blob})
         ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, document = excluded.document, blob_id = excluded.blob_id`;
           yield* recordPlanRevision(sql, tabId, artifact);
+          yield* initializeRetroTab(sql, tabId, artifact);
           yield* initializePullRequestsTab(sql, tabId, artifact);
           if (
             (artifact.kind === "plan" && !previous) ||
+            (artifact.kind === "retro" && previous?.kind !== "retro") ||
             (artifact.kind === "pull-requests" && previous?.kind !== "pull-requests")
           )
             yield* sql`UPDATE live_tabs SET permanent = 1 WHERE id = ${tabId}`;
@@ -816,6 +843,15 @@ export class ArtifactStore {
           }>`SELECT artifacts.document, tab_id FROM artifacts JOIN live_tabs ON live_tabs.id = artifacts.tab_id WHERE artifacts.id = ${id} AND live_tabs.trashed_at IS NULL`;
           if (!row) return yield* Effect.fail(new ScopeError(404, "This tab is closed."));
           const previous = decode(Artifact, JSON.parse(row.document));
+          if (previous.kind === "retro") {
+            const [report] = yield* sql<{
+              document: string;
+            }>`SELECT document FROM retro_reports WHERE tab_id = ${row.tab_id}`;
+            if (report && JSON.parse(report.document).status === "finished")
+              return yield* Effect.fail(
+                new ScopeError(409, "Finished retrospectives are read-only."),
+              );
+          }
           if (previous.revision !== expectedRevision)
             return yield* Effect.fail(
               new ScopeError(409, "Artifact changed. Read the current revision before updating."),
