@@ -587,6 +587,15 @@ export class RetroStore {
                       "Save availability coverage for every selected source/runtime before finishing.",
                     );
               for (const source of document.report.sources) {
+                if (
+                  !configuration?.sources.some(
+                    (s) =>
+                      s.id === source.sourceId && s.included && s.runtimes.includes(source.runtime),
+                  )
+                )
+                  return yield* fail(
+                    "Source inclusion changed. Read settings and reselect coverage before finishing.",
+                  );
                 if (source.availability === "available") {
                   if (!source.inventoryComplete)
                     return yield* fail(

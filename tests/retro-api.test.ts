@@ -1058,3 +1058,41 @@ test.each(["reviewed", "agent", "repository"])(
     ).toMatchObject({ mode: "all", audited: changed === "reviewed" ? ["historical"] : [] });
   },
 );
+
+test.each(["excluded", "removed", "runtime"])(
+  "finish does not initialize or audit a source whose %s configuration changed",
+  async (changed) => {
+    const f = await fixture();
+    await f.configure(configuration(["codex", "claude"]));
+    const owner = await f.create();
+    const coverage = report("all", 1);
+    coverage.sources = [
+      ...coverage.sources,
+      { ...coverage.sources[0], runtime: "claude", sessionCount: 0 },
+    ];
+    await f.write(owner, { action: "publish", report: coverage });
+    await f.write(owner, { action: "inventory", sessions: [session("historical")] });
+    const settings = await f.client.retro({ action: "settings" });
+    if (settings.type !== "configuration") throw new Error("Expected configuration");
+    const value = settings.configuration;
+    await f.configure({
+      ...value,
+      sources:
+        changed === "removed"
+          ? []
+          : value.sources.map((source) => ({
+              ...source,
+              included: changed !== "excluded",
+              runtimes: changed === "runtime" ? ["claude"] : source.runtimes,
+            })),
+      memory: changed === "removed" ? { enabled: false, destinations: [] } : value.memory,
+    });
+    await expect(
+      f.write(owner, { action: "finish", operatorInstruction: "Finish." }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect((await f.read(owner.name)).status).toBe("active");
+    expect(
+      await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
+    ).toMatchObject({ initialized: false, audited: [] });
+  },
+);
