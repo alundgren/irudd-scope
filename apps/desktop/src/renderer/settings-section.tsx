@@ -6,9 +6,9 @@ const settingsSections = [
   {
     id: "retros",
     title: "Retrospectives",
-    description: "Session sources, repository choices, memory, and history",
+    description: "Session locations, repository choices, memory, and history",
     terms:
-      "retro codex claude SSH sessions runtime roots directories include exclude memory instructions rules agent history",
+      "retro sources machines locations remotes codex claude SSH sessions runtime roots directories include exclude memory instructions rules agent history",
   },
   {
     id: "appearance",

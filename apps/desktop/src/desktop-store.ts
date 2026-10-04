@@ -31,6 +31,7 @@ import { Remote, Remotes } from "./remote-contract.ts";
 import { RemoteToken } from "@irudd-scope/protocol/remote";
 import { TransferName, TransferSecret } from "@irudd-scope/protocol/transfer";
 import { ScopeDevice, ScopePeer, ScopePeers } from "./transfer/contract.ts";
+import { machineRetroConfiguration } from "./retro-configuration.ts";
 
 const SavedSettings = Schema.Struct({
   version: Schema.Literal(2),
@@ -165,12 +166,16 @@ export class DesktopStore {
   }
 
   async retroConfiguration(): Promise<RetroConfiguration> {
+    await this.pending;
     const [row] = await this.run(
       this.sql!<{
         document: string;
       }>`SELECT document FROM preferences WHERE name = 'retro-configuration'`,
     );
-    return row ? decode(RetroConfiguration, JSON.parse(row.document)) : emptyRetroConfiguration();
+    const saved = row
+      ? decode(RetroConfiguration, JSON.parse(row.document))
+      : emptyRetroConfiguration();
+    return machineRetroConfiguration(saved, await this.remotes());
   }
 
   saveRetroConfiguration(
@@ -221,6 +226,28 @@ export class DesktopStore {
               return yield* Effect.fail(
                 new ScopeError(400, "Source, repository and destination IDs must be distinct."),
               );
+            const [remoteRow] = yield* sql<{
+              document: string;
+            }>`SELECT document FROM preferences WHERE name = 'remotes'`;
+            const remotes = remoteRow ? decode(Remotes, JSON.parse(remoteRow.document)) : [];
+            const current = machineRetroConfiguration(prior, remotes);
+            if (
+              command.sources.length !== current.sources.length ||
+              command.sources.some((source) => {
+                const machine = current.sources.find((entry) => entry.id === source.id);
+                return (
+                  !machine ||
+                  (source.location &&
+                    JSON.stringify(source.location) !== JSON.stringify(machine.location))
+                );
+              })
+            )
+              return yield* Effect.fail(
+                new ScopeError(
+                  409,
+                  "Retrospective machines changed. Read the current settings. Machines come from this desktop and its paired remotes.",
+                ),
+              );
             for (const source of command.sources)
               if (
                 new Set(source.runtimes).size !== source.runtimes.length ||
@@ -249,7 +276,19 @@ export class DesktopStore {
                   ),
                 );
             }
-            const result = { ...command, version: prior.version + 1 };
+            const result = {
+              ...machineRetroConfiguration(
+                {
+                  ...command,
+                  sources: command.sources.map((source) => ({
+                    ...source,
+                    location: current.sources.find((machine) => machine.id === source.id)!.location,
+                  })),
+                },
+                remotes,
+              ),
+              version: prior.version + 1,
+            };
             yield* sql`INSERT INTO preferences(name,document) VALUES ('retro-configuration',${JSON.stringify(result)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`;
             yield* sql`INSERT INTO retro_configuration_receipts(request_id,payload,document) VALUES (${input.requestId},${payload},${JSON.stringify(result)})`;
             return result;

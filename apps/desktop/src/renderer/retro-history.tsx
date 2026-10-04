@@ -25,13 +25,13 @@ export function RetroHistory({
         action: "history",
         ...(after ? { after } : {}),
       });
-      if (reply.type !== "history") throw new Error("Could not read RETRO history.");
+      if (reply.type !== "history") throw new Error("Could not read retrospective history.");
       setHistory((previous) => ({
         ...reply,
         entries: after ? [...(previous?.entries ?? []), ...reply.entries] : reply.entries,
       }));
     } catch (failure) {
-      setError(retroError(failure, "Could not read RETRO history."));
+      setError(retroError(failure, "Could not read retrospective history."));
     } finally {
       setBusy(false);
     }
@@ -56,7 +56,7 @@ export function RetroHistory({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="retro-history-dialog">
         <DialogHeader>
-          <DialogTitle>RETRO history</DialogTitle>
+          <DialogTitle>Retrospective history</DialogTitle>
         </DialogHeader>
         <p className="secondary">Saved final reports. Opening a report does not start an agent.</p>
         {error && (

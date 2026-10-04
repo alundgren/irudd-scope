@@ -749,9 +749,17 @@ accepts validated `RetroCommand` values from `src/retro.ts`;
 provides the exact current schemas. Upgrade desktop, CLI and paired hubs
 together for this additive kind and route.
 
-The public configuration subset defines named local or SSH sources, runtime
-roots, repository inclusion and optional memory destinations. Desktop settings
-and credentials remain owned by desktop main. Retro commands inspect
+The public configuration lists the machine running Scope and its paired remotes,
+runtime roots, repository inclusion and optional memory destinations. Source
+`location` identifies the desktop hostname or the remote pairing ID and endpoint.
+A null `sshAlias` on a remote does not mean the agent's local machine. Agents
+resolve access using their existing tools; an HTTPS endpoint is not an SSH alias.
+The optional location field keeps stored configurations readable. Existing local
+source IDs and matching paired-remote IDs retain their preferences and tracking.
+Unpaired manual sources are omitted from current settings; their audit tracking
+remains stored. Configure commands can change preferences, but cannot add or
+remove machines. Stale machine lists return a conflict and require fresh settings.
+Desktop settings and credentials remain owned by desktop main. Retro commands inspect
 configuration, tracking and completed history, publish normalized reports and
 inventory pages, record review decisions and requests, and save authored JSON
 state. Reports distinguish exact, estimated and unavailable metrics. Scope

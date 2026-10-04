@@ -362,8 +362,8 @@ test("RETRO preserves drafts through data updates, HTML replacement, navigation,
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     const settings = page.getByRole("dialog", { name: "Settings", exact: true });
     await settings.getByLabel("Search settings").fill("retro history");
-    await settings.getByRole("button", { name: "Open RETRO history", exact: true }).click();
-    const history = page.getByRole("dialog", { name: "RETRO history", exact: true });
+    await settings.getByRole("button", { name: "Open retrospective history", exact: true }).click();
+    const history = page.getByRole("dialog", { name: "Retrospective history", exact: true });
     await history.getByRole("button", { name: "Open report" }).click();
     await history.waitFor({ state: "hidden" });
     await page.getByText("Saved final report · Read only", { exact: true }).waitFor();
@@ -771,8 +771,8 @@ test("RETRO watch assembles a multi-page inventory and history opens from search
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     const settings = page.getByRole("dialog", { name: "Settings", exact: true });
     await settings.getByLabel("Search settings").fill("retro history");
-    await settings.getByRole("button", { name: "Open RETRO history" }).click();
-    const history = page.getByRole("dialog", { name: "RETRO history", exact: true });
+    await settings.getByRole("button", { name: "Open retrospective history" }).click();
+    const history = page.getByRole("dialog", { name: "Retrospective history", exact: true });
     await history
       .getByText("No completed retros yet. Ask your coding agent for a Scope retro.")
       .waitFor();
@@ -811,7 +811,7 @@ test("RETRO watch assembles a multi-page inventory and history opens from search
     await page.getByText("Saved final report · Read only", { exact: true }).waitFor();
     await page.keyboard.press("ControlOrMeta+,");
     await settings.getByLabel("Search settings").fill("retro history");
-    await settings.getByRole("button", { name: "Open RETRO history" }).click();
+    await settings.getByRole("button", { name: "Open retrospective history" }).click();
     await history.getByRole("button", { name: "Open report" }).click();
     await settings.waitFor({ state: "hidden" });
     await page.getByText("Saved final report · Read only", { exact: true }).waitFor();

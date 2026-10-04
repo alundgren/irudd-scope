@@ -1704,10 +1704,8 @@ h2 {
 .retro-source summary {
   cursor: pointer;
 }
-.retro-source-location {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--scope-space-3);
+.retro-source > p {
+  overflow-wrap: anywhere;
 }
 .retro-runtime-choices,
 .retro-repository,
@@ -1721,10 +1719,6 @@ h2 {
 .retro-memory-destination > div {
   min-width: 0;
   overflow-wrap: anywhere;
-}
-.retro-remove {
-  color: var(--scope-danger);
-  justify-self: start;
 }
 .retro-history-dialog {
   display: flex;
@@ -1751,9 +1745,6 @@ h2 {
   margin: var(--scope-space-1) 0 0;
 }
 @media (max-width: 640px) {
-  .retro-source-location {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .retro-runtime-choices,
   .retro-status,
   .retro-history-row {

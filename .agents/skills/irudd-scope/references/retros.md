@@ -10,11 +10,16 @@ source where the helper runs.
 
 ## Select sources and repositories
 
-Read Scope retrospective settings. One Scope Mac owns source names, SSH aliases,
-runtime roots, inclusion choices, optional destinations and audited IDs. Ask
-which local or saved SSH sources to include when they are not configured. Use
-the external agent's own SSH access to inspect those hosts. Scope hub connection
-addresses are not SSH aliases. No service is installed on a source.
+Read Scope retrospective settings for the automatically listed machine running
+Scope and its paired remotes, runtime roots, inclusion choices, optional
+destinations and audited IDs. Do not ask the operator to add sources. Manage
+machine membership through Scope's Remotes settings. Use source `location` to
+identify the desktop hostname or paired remote ID and endpoint. The Scope
+desktop may be a different machine from the coding agent. A paired remote with
+null `sshAlias` is not local to the agent. Resolve access through the agent's
+existing local or SSH tools; HTTPS hub endpoints are not SSH aliases. Record a
+machine without confirmed access as unavailable. Scope does not collect native
+logs through the hub or install a source service.
 
 Read every tracking page for each source/runtime. Obtain the current native
 session ID from the runtime environment or confirmed native metadata. A T3
