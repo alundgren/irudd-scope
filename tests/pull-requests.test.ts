@@ -622,7 +622,7 @@ test("version 6 databases migrate additively and reopen current inbox state", as
   expect((await reopened.list()).items[0].kind).toBe("pull-requests");
   const check = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
   try {
-    expect(check.prepare("PRAGMA user_version").get()?.user_version).toBe(10);
+    expect(check.prepare("PRAGMA user_version").get()?.user_version).toBe(11);
   } finally {
     check.close();
   }

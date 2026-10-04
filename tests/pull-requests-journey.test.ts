@@ -194,6 +194,13 @@ else throw new Error('Unexpected GitHub read');
       .getByRole("button", { name: "View changed files for #1", exact: true })
       .press("Enter");
     await viewer.getByText("new value").waitFor();
+    await expect
+      .poll(() =>
+        viewerChrome
+          .getByRole("button", { name: "Close content window" })
+          .evaluate((button) => button === document.activeElement),
+      )
+      .toBe(true);
     await page.keyboard.press("Escape");
     await viewerChrome.waitFor({ state: "hidden" });
     await frame.getByRole("button", { name: "Review persistent state", exact: true }).click();

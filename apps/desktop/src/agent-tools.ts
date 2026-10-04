@@ -4,6 +4,7 @@ import type { Installation } from "./installation-files.ts";
 import { runInstallationCommand } from "./installation-process.ts";
 import type { AgentToolStatus } from "./installation-contract.ts";
 
+const SCOPE_SKILLS = ["irudd-scope", "irudd-scope-retro"];
 const SKILLS_PACKAGE = "skills@1.7.0";
 const PATH_ENTRY = '\n# Scope CLI\nexport PATH="$HOME/.local/bin:$PATH"\n';
 
@@ -45,12 +46,16 @@ export class AgentTools {
         () => false,
       )),
     );
-    this.value.skillInstalled = await access(
-      join(this.home, ".agents/skills/irudd-scope/SKILL.md"),
-    ).then(
-      () => true,
-      () => false,
-    );
+    this.value.skillInstalled = (
+      await Promise.all(
+        SCOPE_SKILLS.map((name) =>
+          access(join(this.home, ".agents/skills", name, "SKILL.md")).then(
+            () => true,
+            () => false,
+          ),
+        ),
+      )
+    ).every(Boolean);
     return { ...this.value };
   }
 
@@ -121,14 +126,14 @@ export class AgentTools {
 
   installSkill() {
     return this.skillCommand(
-      ["add", "alundgren/irudd-scope", "--skill", "irudd-scope"],
-      "Skill installed globally for Codex and Claude Code.",
+      ["add", "alundgren/irudd-scope", "--skill", ...SCOPE_SKILLS],
+      "Scope skills installed globally for Codex and Claude Code.",
     );
   }
   removeSkill() {
     return this.skillCommand(
-      ["remove", "irudd-scope"],
-      "Scope skill removed from Codex and Claude Code.",
+      ["remove", ...SCOPE_SKILLS],
+      "Scope skills removed from Codex and Claude Code.",
     );
   }
   private skillCommand(args: string[], success: string) {

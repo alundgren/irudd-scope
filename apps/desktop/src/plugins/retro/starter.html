@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Session retrospective</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+        color: light-dark(#1b1b1f, #f1f1f4);
+        background: light-dark(#ffffff, #121212);
+      }
+      body {
+        max-width: 960px;
+        margin: auto;
+        padding: 24px;
+      }
+      h1 {
+        font-size: 26px;
+        line-height: 1.3;
+      }
+      h2 {
+        font-size: 20px;
+      }
+      article {
+        padding: 24px 0;
+        border-top: 1px solid light-dark(#e6e6ed, #3d3d49);
+      }
+      .secondary {
+        color: light-dark(#535360, #c2c2cd);
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 16px 0;
+      }
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+        color: inherit;
+        background: light-dark(#f6f6f9, #232329);
+        border: 1px solid light-dark(#767680, #8e8d9c);
+        border-radius: 6px;
+        padding: 8px;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: default;
+        opacity: 0.55;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid light-dark(#6965db, #a8a5ff);
+        outline-offset: 2px;
+      }
+      label {
+        display: grid;
+        gap: 4px;
+        margin: 12px 0;
+      }
+      textarea {
+        min-height: 90px;
+        resize: vertical;
+      }
+      .note {
+        white-space: pre-wrap;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        text-align: left;
+        vertical-align: top;
+        padding: 8px 0;
+      }
+      td:first-child {
+        padding-right: 16px;
+      }
+      .metrics {
+        overflow: auto;
+      }
+      #notice {
+        position: sticky;
+        top: 0;
+        background: light-dark(#ffffff, #121212);
+        padding: 8px 0;
+      }
+      @media (max-width: 600px) {
+        body {
+          padding: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Session retrospective</h1>
+    <p id="summary">Waiting for the agent's report.</p>
+    <p class="secondary">
+      Discuss the findings, then agree with your coding agent on the final changes. Accepting a
+      proposal records your choice. The agent applies changes through its usual tools.
+    </p>
+    <p id="notice" role="status"></p>
+    <div id="draft-conflict" hidden>
+      <p>Saved drafts changed elsewhere. Your current input is kept.</p>
+      <button id="keep-draft" type="button">Keep my current draft</button>
+      <button id="reload-draft" type="button">Reload saved drafts</button>
+    </div>
+    <div id="sources"></div>
+    <div class="metrics">
+      <table id="metrics" hidden>
+        <caption>
+          Observed metrics
+        </caption>
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th>Result and method</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="findings"></div>
+    <section id="saved-drafts" hidden>
+      <h2>Unsent drafts</h2>
+      <p class="secondary">
+        Retained for reference. These were not submitted as comments or investigation requests.
+      </p>
+      <div></div>
+    </section>
+    <script>
+      const sdk = window.scope.retros;
+      let snapshot;
+      let stateVersion = 0;
+      let initialized = false;
+      let savedDrafts = "{}";
+      const drafts = {};
+      const rows = new Map();
+      const notice = document.getElementById("notice");
+      function element(tag, text, className) {
+        const node = document.createElement(tag);
+        if (text !== undefined) node.textContent = text;
+        if (className) node.className = className;
+        return node;
+      }
+      function status(text) {
+        notice.textContent = text;
+      }
+      async function act(work) {
+        try {
+          await work();
+          status("Saved. Changes are pending the final discussion with your agent.");
+        } catch (error) {
+          status(error.message + " Your input is kept. Read the updated report and retry.");
+        }
+      }
+      function addButton(parent, label, run) {
+        const button = element("button", label);
+        button.type = "button";
+        button.onclick = run;
+        parent.append(button);
+        return button;
+      }
+      function textField(parent, label, key, value) {
+        const wrapper = element("label", label);
+        const input = element("textarea");
+        input.dataset.draftKey = key;
+        input.value = drafts[key] ?? value;
+        input.oninput = () => {
+          drafts[key] = input.value;
+        };
+        wrapper.append(input);
+        parent.append(wrapper);
+        return input;
+      }
+      function findingRow(finding) {
+        const article = element("article");
+        const category = element(
+          "p",
+          finding.category +
+            " · " +
+            finding.sessions.length +
+            (finding.sessions.length === 1 ? " session" : " sessions"),
+          "secondary",
+        );
+        const title = element("h2", finding.title);
+        const text = element("p", finding.text);
+        let destination = finding.proposal?.destination;
+        let proposalText;
+        let proposalDestination;
+        article.append(category, title, text);
+        const evidence = element("details");
+        evidence.append(element("summary", "Evidence"));
+        for (const reference of finding.evidence) evidence.append(element("p", reference));
+        article.append(evidence);
+        const actions = element("div", undefined, "actions");
+        const editor = element("div");
+        const notes = element("div");
+        const decision = element("p", undefined, "secondary");
+        const controls = [];
+        const proposalLabel = element("p", undefined, "secondary");
+        proposalText = element("p", finding.proposal?.text ?? "");
+        proposalDestination = element("p", undefined, "secondary");
+        article.append(proposalLabel, proposalText);
+        article.append(proposalDestination);
+        controls.push(
+          addButton(actions, "Accept", () =>
+            act(() => sdk.decide(finding.id, "accept", snapshot.version)),
+          ),
+        );
+        controls.push(
+          addButton(actions, "Edit proposal", () => {
+            editor.replaceChildren();
+            const text = textField(
+              editor,
+              "Proposed text",
+              finding.id + ":proposal",
+              finding.proposal.text,
+            );
+            const destinationLabel = element("label", "Destination and scope");
+            const choice = element("select");
+            const permitted = snapshot.permittedDestinations.filter(
+              (entry) =>
+                finding.proposal.kind !== "memory" || !["file", "issue"].includes(entry.type),
+            );
+            for (const entry of permitted) {
+              const option = element(
+                "option",
+                (entry.scope === "operator" ? "Personal" : "Project") +
+                  " · " +
+                  entry.sourceId +
+                  " · " +
+                  entry.path,
+              );
+              option.value = entry.id;
+              choice.append(option);
+            }
+            choice.value = drafts[finding.id + ":destination"] ?? destination.id;
+            choice.dataset.draftKey = finding.id + ":destination";
+            choice.onchange = () => {
+              drafts[finding.id + ":destination"] = choice.value;
+            };
+            destinationLabel.append(choice);
+            editor.append(
+              destinationLabel,
+              element(
+                "p",
+                "Ask your agent to verify a new destination before selecting it here.",
+                "secondary",
+              ),
+            );
+            addButton(editor, "Save edited proposal", () =>
+              act(async () => {
+                const submittedText = text.value;
+                const submittedDestination = choice.value;
+                await sdk.decide(
+                  finding.id,
+                  {
+                    decision: "edit",
+                    text: submittedText,
+                    destination: permitted.find((entry) => entry.id === submittedDestination),
+                  },
+                  snapshot.version,
+                );
+                if (text.value === submittedText && choice.value === submittedDestination) {
+                  delete drafts[finding.id + ":proposal"];
+                  delete drafts[finding.id + ":destination"];
+                  editor.replaceChildren();
+                }
+              }),
+            );
+          }),
+        );
+        controls.push(
+          addButton(actions, "Reject", () =>
+            act(() => sdk.decide(finding.id, "reject", snapshot.version)),
+          ),
+        );
+        controls.push(
+          addButton(actions, "Comment", () => {
+            editor.replaceChildren();
+            const input = textField(editor, "Comment", finding.id + ":comment", "");
+            addButton(editor, "Save comment", () =>
+              act(async () => {
+                const submitted = input.value;
+                await sdk.comment(finding.id, submitted, snapshot.version);
+                if (input.value === submitted) {
+                  delete drafts[finding.id + ":comment"];
+                  editor.replaceChildren();
+                }
+              }),
+            );
+          }),
+        );
+        controls.push(
+          addButton(actions, "Ask agent to investigate", () => {
+            editor.replaceChildren();
+            const input = textField(editor, "Investigation request", finding.id + ":request", "");
+            addButton(editor, "Send request", () =>
+              act(async () => {
+                const submitted = input.value;
+                await sdk.request(finding.id, submitted, snapshot.version);
+                if (input.value === submitted) {
+                  delete drafts[finding.id + ":request"];
+                  editor.replaceChildren();
+                }
+              }),
+            );
+          }),
+        );
+        article.append(decision, actions, editor, notes);
+        return {
+          article,
+          decision,
+          controls,
+          notes,
+          update(next) {
+            finding = next;
+            category.textContent =
+              next.category +
+              " · " +
+              next.sessions.length +
+              (next.sessions.length === 1 ? " session" : " sessions");
+            title.textContent = next.title;
+            text.textContent = next.text;
+            evidence.replaceChildren(element("summary", "Evidence"));
+            for (const reference of next.evidence) evidence.append(element("p", reference));
+            destination = next.proposal?.destination;
+            proposalLabel.hidden = !next.proposal;
+            proposalLabel.textContent =
+              next.proposal?.kind === "memory" ? "Proposed memory" : "Proposed correction";
+            proposalText.hidden = !next.proposal;
+            proposalDestination.hidden = !next.proposal;
+            if (proposalText)
+              proposalText.textContent = next.proposal?.text ?? "Proposal withdrawn.";
+            if (proposalDestination)
+              proposalDestination.textContent = destination
+                ? (destination.scope === "operator" ? "Personal" : "Project") +
+                  " · " +
+                  destination.sourceId +
+                  " · " +
+                  destination.path
+                : "";
+          },
+        };
+      }
+      sdk.watch((value) => {
+        snapshot = value;
+        if (!initialized) {
+          Object.assign(drafts, value.appState.value.drafts ?? {});
+          savedDrafts = JSON.stringify(drafts);
+          initialized = true;
+          stateVersion = value.appState.version;
+        } else if (JSON.stringify(drafts) === savedDrafts) {
+          stateVersion = value.appState.version;
+          for (const key of Object.keys(drafts)) delete drafts[key];
+          Object.assign(drafts, value.appState.value.drafts ?? {});
+          savedDrafts = JSON.stringify(drafts);
+          document.querySelectorAll("[data-draft-key]").forEach((input) => {
+            input.value = drafts[input.dataset.draftKey] ?? "";
+          });
+        } else if (value.appState.version !== stateVersion) {
+          document.getElementById("draft-conflict").hidden = false;
+        }
+        document.getElementById("summary").textContent =
+          value.report.summary || "The agent has not supplied findings yet.";
+        const sources = document.getElementById("sources");
+        sources.replaceChildren();
+        for (const source of value.report.sources)
+          sources.append(
+            element(
+              "p",
+              source.sourceId +
+                " · " +
+                source.runtime +
+                " · " +
+                source.availability +
+                " · " +
+                source.detail +
+                " · " +
+                source.sessionCount +
+                " discovered sessions" +
+                (source.override ? " · Continue override: " + source.override : ""),
+              "secondary",
+            ),
+          );
+        const metrics = document.getElementById("metrics");
+        metrics.hidden = !value.report.metrics.length;
+        const body = metrics.querySelector("tbody");
+        body.replaceChildren();
+        for (const metric of value.report.metrics) {
+          const row = element("tr");
+          row.append(element("td", metric.name));
+          const cell = element(
+            "td",
+            metric.certainty === "unknown"
+              ? "Unavailable"
+              : metric.value + " " + metric.unit + " · " + metric.certainty,
+          );
+          cell.append(
+            element(
+              "p",
+              metric.method + " · " + metric.coverage + " · " + metric.evidence,
+              "secondary",
+            ),
+          );
+          row.append(cell);
+          body.append(row);
+        }
+        for (const finding of value.report.findings) {
+          let row = rows.get(finding.id);
+          if (!row) {
+            row = findingRow(finding);
+            rows.set(finding.id, row);
+            document.getElementById("findings").append(row.article);
+          }
+          row.update(finding);
+          const chosen = value.decisions.find((entry) => entry.findingId === finding.id);
+          row.decision.textContent = chosen
+            ? chosen.decision +
+              " · " +
+              chosen.text +
+              (chosen.destination
+                ? " · " +
+                  (chosen.destination.scope === "operator" ? "Personal" : "Project") +
+                  " · " +
+                  chosen.destination.sourceId +
+                  " · " +
+                  chosen.destination.path
+                : "")
+            : "Undecided. No change has been applied.";
+          row.controls.forEach((button) => {
+            button.disabled =
+              value.status === "finished" ||
+              (!finding.proposal &&
+                ["Accept", "Edit proposal", "Reject"].includes(button.textContent));
+          });
+          row.notes.replaceChildren();
+          for (const note of value.comments.filter((entry) => entry.findingId === finding.id))
+            row.notes.append(element("p", note.text, "note"));
+          for (const request of value.requests.filter((entry) => entry.findingId === finding.id))
+            row.notes.append(
+              element(
+                "p",
+                "Investigation " +
+                  request.status +
+                  ": " +
+                  request.text +
+                  (request.response ? "\n" + request.response : ""),
+                "note",
+              ),
+            );
+          for (const outcome of value.outcomes.filter((entry) => entry.findingId === finding.id))
+            row.notes.append(element("p", outcome.status + ": " + outcome.evidence, "note"));
+        }
+        for (const [id, row] of rows) {
+          if (!value.report.findings.some((finding) => finding.id === id)) {
+            row.controls.forEach((button) => {
+              button.disabled = true;
+            });
+            row.decision.textContent = "Finding removed from the report. Your draft is kept.";
+          }
+        }
+        if (value.status === "finished") {
+          const retained = document.getElementById("saved-drafts");
+          const list = retained.querySelector("div");
+          list.replaceChildren();
+          const labels = {
+            comment: "Unsent comment",
+            request: "Unsent investigation request",
+            proposal: "Unsubmitted proposal edit",
+            destination: "Unsubmitted destination",
+          };
+          for (const [key, text] of Object.entries(value.appState.value.drafts ?? {})) {
+            if (!text) continue;
+            const separator = key.lastIndexOf(":");
+            const finding = value.report.findings.find(
+              (entry) => entry.id === key.slice(0, separator),
+            );
+            const field = key.slice(separator + 1);
+            list.append(
+              element(
+                "p",
+                (finding?.title ?? "Removed finding") + " · " + (labels[field] ?? "Unsent draft"),
+                "secondary",
+              ),
+            );
+            const destination =
+              field === "destination"
+                ? value.permittedDestinations.find((entry) => entry.id === text)
+                : null;
+            list.append(element("p", destination ? destination.path : text, "note"));
+          }
+          retained.hidden = !list.childElementCount;
+          document.querySelectorAll("button,input,select,textarea").forEach((control) => {
+            control.disabled = true;
+          });
+          status("Saved final report. Read only.");
+        }
+      });
+      async function saveDraft(expectedVersion = stateVersion) {
+        while (snapshot?.status !== "finished" && JSON.stringify(drafts) !== savedDrafts) {
+          const submitted = JSON.stringify(drafts);
+          const saved = await sdk.state.patch({ drafts: JSON.parse(submitted) }, expectedVersion);
+          stateVersion = saved.version;
+          expectedVersion = saved.version;
+          savedDrafts = submitted;
+        }
+        document.getElementById("draft-conflict").hidden = true;
+      }
+      document.getElementById("keep-draft").onclick = () =>
+        act(() => saveDraft(snapshot.appState.version));
+      document.getElementById("reload-draft").onclick = () =>
+        act(async () => {
+          const saved = await sdk.state.read();
+          for (const key of Object.keys(drafts)) delete drafts[key];
+          Object.assign(drafts, saved.value.drafts ?? {});
+          savedDrafts = JSON.stringify(drafts);
+          stateVersion = saved.version;
+          document.querySelectorAll("[data-draft-key]").forEach((input) => {
+            input.value = drafts[input.dataset.draftKey] ?? "";
+          });
+          document.getElementById("draft-conflict").hidden = true;
+        });
+      sdk.beforeClose(() => saveDraft());
+    </script>
+  </body>
+</html>

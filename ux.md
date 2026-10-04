@@ -468,3 +468,26 @@ rows and choose Preload selected. It never loads every diff automatically.
 Partial failures retain successful loads and identify candidates to retry.
 Preloading does not mark a PR inspected or reviewed and does not subscribe it
 to continuous detail refreshes.
+
+## Agent retrospectives
+
+Retros start when the operator asks an existing coding agent. Scope shows the
+agent-authored HTML report with a scoped interactive SDK. Accept, edit and reject
+record review decisions; comments and investigation requests go to the existing
+agent through a listener or Copy agent request. They do not run commands or
+write destination files. Finishing is a conversational instruction to the agent,
+with no Finish button.
+
+Retro tabs start permanent. Completed reports remain available in a history
+list and reopen for inspection without starting or resuming a coding session.
+Finished reports cannot accept new edits. Explicit removal follows normal tab
+retention while audit tracking remains independent.
+
+Retrospective settings distinguish source SSH aliases from paired hubs and
+remember repository inclusion by canonical fetch origin. First-use history
+choices are asked by the agent. Memory suggestions default off. Destination
+previews show the exact content, source host and personal or project scope.
+Unavailable destinations are omitted; OKF is shown only after its CLI was
+detected on that destination host. Codex editable instructions are labeled as
+instructions. Neither Scope's memory switch nor a retro changes native runtime
+memory enablement.

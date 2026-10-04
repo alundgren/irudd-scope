@@ -739,3 +739,47 @@ The CLI documents the agent workflow and schema with `irudd-scope plan guide`.
 Feedback exports include `packet.json`, originating `plan.html` and both PNGs for
 each comment. Export retrieves only the selected round, not the entire history.
 They are explicit copies; plan storage stays in SQLite.
+
+## Named retrospectives
+
+Publish a permanent named `retro` artifact with `text/html` content using
+`irudd-scope add report.html --retro --name RETRO_NAME`. `POST /v1/retros`
+accepts validated `RetroCommand` values from `src/retro.ts`;
+`ScopeClient.retro` validates bounded replies. `irudd-scope retro guide`
+provides the exact current schemas. Upgrade desktop, CLI and paired hubs
+together for this additive kind and route.
+
+The public configuration subset defines named local or SSH sources, runtime
+roots, repository inclusion and optional memory destinations. Desktop settings
+and credentials remain owned by desktop main. Retro commands inspect
+configuration, tracking and completed history, publish normalized reports and
+inventory pages, record review decisions and requests, and save authored JSON
+state. Reports distinguish exact, estimated and unavailable metrics. Scope
+stores no full native transcript archive.
+
+Writes identify the immutable name and tab, a UUID request ID and the expected
+record version. Keep identical payloads and request IDs for uncertain retries.
+On a conflict, read and reconcile before a new write. Paginated reads use the
+returned cursor and version where required. HTML updates preserve saved review
+records. Agent report updates cannot silently transfer human acceptance to a
+different proposed edit.
+
+Only an authenticated agent command can finish a retro after the operator's
+instruction. Before the transaction, a mounted report flushes its pending writes
+and authored drafts. Failed flushes leave tracking unchanged. A successful flush
+can advance the version and require the agent to read and retry. The transaction freezes report state and HTML, commits explicit
+initialization even for empty successful inventories, and marks reviewed
+session IDs per source and runtime. Missing sources remain unchanged. An
+interrupted retro commits no reviewed-session markers or initialization. Report
+publication records the explicit retro-agent exclusion immediately, including
+for interrupted retros. Deleting a finished report removes its
+history entry and content while retaining independent tracking.
+
+`window.scope.retros` provides authored HTML with snapshots, decisions,
+comments, investigation requests, bounded app state, history and pending-edit
+flush callbacks. It exposes no finish or execution capability. Acceptance does
+not apply a file change. The existing agent applies agreed edits and commits
+before finish. The [retro authoring guide](../../.agents/skills/irudd-scope/references/retros.md)
+contains the operational workflow. Live retro commands require an awake,
+connected desktop, including through a paired hub. Initial HTML publication
+uses the ordinary publication queue.

@@ -5,6 +5,7 @@ import { decodeLocalConnection } from "@irudd-scope/protocol";
 import { startArtifactServer } from "./server.ts";
 
 export async function startLocalArtifacts(options: {
+  retroConfiguration?: Parameters<typeof startArtifactServer>[0]["retroConfiguration"];
   importLink?: Parameters<typeof startArtifactServer>[0]["importLink"];
   voice?: Parameters<typeof startArtifactServer>[0]["voice"];
   diagramAgent?: Parameters<typeof startArtifactServer>[0]["diagramAgent"];

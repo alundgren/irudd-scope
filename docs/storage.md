@@ -6,8 +6,8 @@ to select separate directories for development.
 
 | Data                | Location                                                       | Contents                                                                                                                                                                     |
 | ------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, and diagram drafts.                                                   |
-| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, remote configuration, and retained speech receipts/audio.                                                     |
+| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, diagram drafts, retro reports and independent session tracking.       |
+| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, remote and retro configuration, and retained speech receipts/audio.                                           |
 | Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                                                                                                    |
 | Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                                                                                |
 | CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                                                                                               |
@@ -349,3 +349,35 @@ Closing or trashing a tab retains them until permanent deletion of the owning
 tab removes them. Include `scope.db` in backups to preserve the stored records.
 Older builds that support only schema 7 reject these databases; restore a
 complete pre-upgrade backup to use those builds.
+
+## Retro reports and tracking
+
+Schema 11 adds retrospective report and tracking tables without removing
+existing data. Desktop builds that support only schema 10 or earlier reject
+this database after upgrade; restore a complete pre-upgrade backup to use an
+older build.
+
+Retro review records belong to their tab in `scope.db`: normalized session
+inventory, findings, decisions, notes, requests, applied outcomes and authored
+JSON state. Native transcripts remain on their source hosts. Reports may
+contain short evidence excerpts and metrics with their methods and coverage.
+
+Separate source/runtime records persist audited native session IDs, first-use
+initialization, Start now cutoffs and recorded retro-agent identities. They
+have no foreign key to a report tab. Finishing writes the final review status
+and successful tracking updates in one local transaction. Unavailable sources
+and unfinished retros do not commit reviewed-session markers or initialization.
+Publishing a report records its explicit retro-agent exclusion even if the
+retro never finishes. Whole audited sessions remain skipped after resumption.
+
+History opens the tab's retained final HTML and decisions. Closing a permanent
+retro preserves it. Trash follows normal retention; deleting its content
+removes its history entry without removing tracking or source preferences.
+There is no hidden second report copy. Finished report content and review
+state are immutable.
+
+Source names, SSH aliases, runtime roots, canonical origin inclusion choices,
+and optional memory destinations are desktop preferences in `desktop.db`.
+They contain no SSH credentials. Back up both desktop databases to retain
+configuration and tracking. Restoring an older backup can repeat a review.
+Tracking is owned by one Scope Mac and is not replicated through paired hubs.

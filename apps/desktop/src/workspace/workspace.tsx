@@ -37,6 +37,8 @@ import { TabBar } from "./tab-bar.tsx";
 import { FloatingOverlay } from "../renderer/components/ui/floating-overlay.tsx";
 import { TabHost } from "./tab-host.tsx";
 import { TabEventRouter } from "./events.ts";
+import { WorkspaceNavigationContext } from "./navigation-context.ts";
+import { flushWorkspace } from "./persistence.ts";
 import { PresentationPointer } from "./presentation-pointer.tsx";
 import { observeFrameKeyboard } from "./frame-documents.ts";
 import { pluginForArtifact, tabArtifactId } from "../plugins/registry.renderer.ts";
@@ -245,14 +247,26 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
 
   async function activate(tab: Tab, keyboard = false, artifactRevision?: number) {
     if (
+      tab.id !== workspace.selected &&
+      workspace.tabs.find((entry) => entry.id === workspace.selected)?.type === "retro"
+    ) {
+      try {
+        await flushWorkspace("save", workspace.selected ?? undefined);
+      } catch {
+        setError("Could not save report edits. Retry in the report before leaving.");
+        return false;
+      }
+    }
+    if (
       !(await openTab(tab, artifactRevision ?? artifacts.get(tabArtifactId(tab) ?? "")?.revision))
     )
-      return;
+      return false;
     const artifactId = tabArtifactId(tab);
     if (artifactId) markRead(artifactId);
     if (tab.id !== workspace.selected) setFullscreenMode("edit");
     setSearch(false);
     if (keyboard) requestAnimationFrame(() => tabButtons.current.get(tab.id)?.focus());
+    return true;
   }
   function select(id: string, keyboard = false) {
     const tab = workspace.tabs.find((entry) => entry.id === id);
@@ -291,6 +305,12 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   async function close(id: string) {
     if (!retention.ready) return;
     if (retention.tabs.find((entry) => entry.tab.id === id)?.permanent) {
+      try {
+        await flushWorkspace("save", id);
+      } catch {
+        setError("Could not save this tab. Try again.");
+        return;
+      }
       const selected = deferTab(id);
       if (workspace.selected === id) setFullscreenMode("edit");
       requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
@@ -714,7 +734,20 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   );
   return (
     <SettingsContext.Provider value={{ settings: preferences, openSettings }}>
-      {content}
+      <WorkspaceNavigationContext.Provider
+        value={{
+          openSavedTab: async (id) => {
+            const saved = retention.tabs.find((entry) => entry.tab.id === id);
+            if (!saved) throw new Error("This saved report is no longer available.");
+            const tab = saved.trashedAt === null ? saved.tab : await window.scope.restoreTab(id);
+            if (!(await activate(tab)))
+              throw new Error("Could not open this saved report. Retry after saving your edits.");
+            setSettings(false);
+          },
+        }}
+      >
+        {content}
+      </WorkspaceNavigationContext.Provider>
     </SettingsContext.Provider>
   );
 }

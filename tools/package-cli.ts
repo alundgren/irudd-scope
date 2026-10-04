@@ -41,6 +41,9 @@ try {
   await cp(join(source, "packages/cli/dist"), join(build, "cli"), { recursive: true });
   await cp(join(source, "apps/hub/dist"), join(build, "hub"), { recursive: true });
   await cp(join(source, ".agents/skills/irudd-scope"), join(build, "skill"), { recursive: true });
+  await cp(join(source, ".agents/skills/irudd-scope-retro"), join(build, "retro-skill"), {
+    recursive: true,
+  });
   await mkdir(join(build, "runtime"));
   await cp(process.execPath, join(build, "runtime/node"));
   await chmod(join(build, "runtime/node"), 0o755);

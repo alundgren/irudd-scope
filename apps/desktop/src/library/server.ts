@@ -1,3 +1,5 @@
+import { RetroCommand, RetroReply, MAX_RETRO_REQUEST_BYTES } from "@irudd-scope/protocol/retro";
+import type { RetroConfiguration } from "@irudd-scope/protocol/retro";
 import { handlePullRequestsHttp } from "./pull-requests-http.ts";
 import {
   VoiceRequest,
@@ -42,6 +44,12 @@ import {
 } from "@irudd-scope/protocol/transfer";
 
 export async function startArtifactServer(options: {
+  retroConfiguration?: {
+    read: () => Promise<RetroConfiguration>;
+    configure: (
+      command: Extract<RetroCommand, { action: "configure" }>,
+    ) => Promise<RetroConfiguration>;
+  };
   importLink?: (url: string) => Promise<TransferImportReceipt>;
   voice?: VoiceService;
   diagramAgent?: (command: DiagramAgentCommand, signal: AbortSignal) => Promise<DiagramAgentReply>;
@@ -62,6 +70,7 @@ export async function startArtifactServer(options: {
   if (options.token.length < 24 || /[\r\n]/.test(options.token))
     throw new Error("Use a publishing token with at least 24 characters and no newlines.");
   const store = await ArtifactStore.open(options.directory);
+  store.retros.setConfiguration(options.retroConfiguration);
   try {
     await options.initialize?.(store);
     await store.reclaim();
@@ -117,6 +126,16 @@ export async function startArtifactServer(options: {
       return;
     }
     authenticate(request, options.token);
+    if (route === "POST /v1/retros" && !url.search) {
+      const body = await readJson(
+        request,
+        MAX_RETRO_REQUEST_BYTES,
+        "Retrospective request exceeds 2 MiB.",
+      );
+      const input = validate(() => decode(RetroCommand, body));
+      json(response, 200, decode(RetroReply, await store.retros.command(input)));
+      return;
+    }
     if (await handlePlanHttp(request, response, url, store.plans)) return;
     if (await handlePullRequestsHttp(request, response, url, store.pullRequests)) return;
 

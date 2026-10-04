@@ -10,14 +10,34 @@ function skillRoot() {
   return root;
 }
 
+const bundles = [
+  { name: "irudd-scope", directory: "skill" },
+  { name: "irudd-scope-retro", directory: "retro-skill" },
+];
+
 async function links(root: string) {
   const home = process.env.SCOPE_SETUP_HOME ?? homedir();
-  const shared = join(home, ".agents/skills/irudd-scope");
-  const candidates = [
-    { path: shared, target: join(root, "skill"), optional: false },
-    { path: join(home, ".claude/skills/irudd-scope"), target: shared, optional: false },
-    { path: join(home, ".codex/skills/irudd-scope"), target: shared, optional: true },
-  ];
+  const candidates = bundles.flatMap(({ name, directory }) => {
+    const shared = join(home, ".agents/skills", name);
+    const bundle = join(root, directory);
+    return [
+      { path: shared, target: bundle, bundle, directory, optional: false },
+      {
+        path: join(home, ".claude/skills", name),
+        target: shared,
+        bundle,
+        directory,
+        optional: false,
+      },
+      {
+        path: join(home, ".codex/skills", name),
+        target: shared,
+        bundle,
+        directory,
+        optional: true,
+      },
+    ];
+  });
   const result = [];
   for (const candidate of candidates) {
     const entry = await lstat(candidate.path).catch((error: NodeJS.ErrnoException) => {
@@ -39,22 +59,22 @@ function followsTarget(path: string, existing: string | undefined, target: strin
   return existing !== undefined && resolve(dirname(path), existing) === resolve(target);
 }
 
-async function managedLink(root: string, path: string, target: string) {
+async function managedLink(root: string, path: string, target: string, directory: string) {
   const metadata = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
   const installationRoot = metadata.scopeInstallation?.root;
   if (typeof installationRoot !== "string" || !isAbsolute(installationRoot)) return false;
   if (resolve(root) !== join(installationRoot, "current")) return false;
   const destination = resolve(dirname(path), target);
-  if (destination === join(root, "skill")) return true;
+  if (destination === join(root, directory)) return true;
   const build = relative(join(installationRoot, "builds"), destination);
-  return /^[0-9a-f-]{36}\/skill$/.test(build);
+  return new RegExp(`^[0-9a-f-]{36}/${directory}$`).test(build);
 }
 
 export async function validateSkillLinks(root: string) {
   const entries = await links(root);
-  for (const { path, target, existing } of entries) {
+  for (const { path, target, existing, directory } of entries) {
     if (existing === undefined || followsTarget(path, existing, target)) continue;
-    if (!(await managedLink(root, path, existing))) throw conflict(path);
+    if (!(await managedLink(root, path, existing, directory))) throw conflict(path);
   }
   return entries;
 }
@@ -63,13 +83,13 @@ export async function checkSkill() {
   const root = skillRoot();
   const entries = await validateSkillLinks(root);
   if (entries.every((entry) => entry.existing === undefined)) return false;
-  const expected = await readFile(join(root, "skill/SKILL.md"));
-  for (const { path, target, existing, optional } of entries) {
+  for (const { path, target, existing, optional, bundle } of entries) {
     if (optional && existing === undefined) continue;
     if (!followsTarget(path, existing, target))
       throw new Error(
         `${path} does not follow the current Scope skill. Select Retry update to repair its link.`,
       );
+    const expected = await readFile(join(bundle, "SKILL.md"));
     const content = await readFile(join(path, "SKILL.md")).catch(() => undefined);
     if (!content?.equals(expected))
       throw new Error(
@@ -105,7 +125,7 @@ export async function syncSkill() {
 
 export async function installSkill(remove = false) {
   const root = skillRoot();
-  await readFile(join(root, "skill/SKILL.md"));
+  for (const { directory } of bundles) await readFile(join(root, directory, "SKILL.md"));
   if (remove) {
     for (const { path, existing } of await validateSkillLinks(root))
       if (existing !== undefined) await unlink(path);
@@ -113,5 +133,7 @@ export async function installSkill(remove = false) {
     await writeLinks(root);
     await checkSkill();
   }
-  console.log(remove ? "Scope skill removed." : "Scope skill installed for Codex and Claude Code.");
+  console.log(
+    remove ? "Scope skills removed." : "Scope skills installed for Codex and Claude Code.",
+  );
 }

@@ -36,6 +36,7 @@ export async function remoteUpdateFixture() {
     "LICENSE",
     "pnpm-workspace.yaml",
     ".agents/skills/irudd-scope",
+    ".agents/skills/irudd-scope-retro",
     "packages/cli/dist",
     "apps/hub/dist",
   ]) {

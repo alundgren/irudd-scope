@@ -301,6 +301,40 @@ commands only while the desktop is connected.
 Standard PR tests use a fake `gh` and isolated databases. They require no
 GitHub credentials and perform no live GitHub mutations.
 
+## Agent retrospectives
+
+Start a normal coding session and ask for a Scope retro. The packaged Scope
+skill provides the [collection and review workflow](../.agents/skills/irudd-scope/references/retros.md).
+The public [irudd-scope-retro skill](../.agents/skills/irudd-scope-retro/SKILL.md)
+provides metadata discovery and explicit historical-session snapshots. Both
+Scope skills install together for Codex and Claude Code. Resolve the bundled
+Python 3 helper relative to the loaded retro skill on each source host,
+including SSH hosts.
+Scope does not install a source service or use paired hub endpoints as SSH
+aliases.
+
+```sh
+irudd-scope retro guide
+irudd-scope retro settings
+irudd-scope add report.html --retro --name retro-checks
+irudd-scope retro read retro-checks
+irudd-scope retro apply command.json
+irudd-scope retro history
+```
+
+Configure source/runtime roots and canonical origin inclusion choices in Scope
+settings or through validated retro configuration commands. For first-use
+history the agent asks Start now, Check first, or All. Interactive commands need
+the desktop connected. Retro HTML runs freely with a scoped review SDK and
+contains no Finish button. The operator tells the agent to finish after agreed
+changes and their outcomes are recorded.
+
+Native source histories can be absent, cleaned up, encrypted or incomplete.
+Represent missing evidence honestly. Unavailable sources need an explicit
+coverage override to continue; their tracking remains unchanged. Standard
+checks use synthetic native records, repositories and source commands without
+credentials, live agents or personal sessions.
+
 ## Run locally
 
 `vp run desktop` builds and opens Electron. Main starts the local publishing

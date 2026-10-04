@@ -85,6 +85,7 @@ export function artifactRequest(method: string, path: string): boolean {
   if (method === "GET" && path === "/v1/maintenance/status") return true;
   if (method === "POST" && ["/v1/diagrams", "/v1/diagram-agents"].includes(path)) return true;
   if (method === "POST" && path === "/v1/diagrams/sync") return true;
+  if (method === "POST" && path === "/v1/retros") return true;
   if (method === "POST" && path === "/v1/plans") return true;
   if (method === "POST" && path === "/v1/pull-requests") return true;
   if (method === "POST" && path === "/v1/transfers/import") return true;
