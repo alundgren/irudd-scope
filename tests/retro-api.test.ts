@@ -1173,9 +1173,7 @@ test("OKF memory proposals bind an exact edit and keep decided previews after se
     await expect(publish(invalid)).rejects.toMatchObject({ status: 400 });
   for (const path of ["../outside.md", "/abs.md", "a/index.md", "log.md", "notes.txt"])
     await expect(publish(finding("path", { ...okfEdit, path }))).rejects.toThrow();
-  await expect(
-    publish(finding("half-new", { ...okfEdit, expectedHash: null })),
-  ).rejects.toThrow();
+  await expect(publish(finding("half-new", { ...okfEdit, expectedHash: null }))).rejects.toThrow();
 
   await publish(finding("accepted"), finding("rejected"), finding("pending"));
   await expect(
@@ -1347,7 +1345,10 @@ test("re-verified OKF destinations need a fresh preview and legacy OKF proposals
     decision: "accept",
     text: "",
   });
-  expect((await f.read()).decisions[0]).toMatchObject({ decision: "accept", destination: reverified });
+  expect((await f.read()).decisions[0]).toMatchObject({
+    decision: "accept",
+    destination: reverified,
+  });
 
   const legacyOwner = await f.create("legacy-retro");
   await f.server.close();
@@ -1363,7 +1364,13 @@ test("re-verified OKF destinations need a fresh preview and legacy OKF proposals
       findings: [{ ...finding, proposal: legacy }],
     };
     document.decisions = [
-      { findingId: finding.id, decision: "accept", text: legacy.text, destination: reverified, at: cutoff },
+      {
+        findingId: finding.id,
+        decision: "accept",
+        text: legacy.text,
+        destination: reverified,
+        at: cutoff,
+      },
     ];
     database
       .prepare("UPDATE retro_reports SET document = ? WHERE tab_id = ?")
@@ -1375,10 +1382,18 @@ test("re-verified OKF destinations need a fresh preview and legacy OKF proposals
   const legacy = await f.read("legacy-retro");
   expect(legacy.report.findings[0].proposal?.okfEdit).toBeUndefined();
   await expect(
-    f.write(legacyOwner, { action: "decide", findingId: "new-lesson", decision: "accept", text: "" }),
+    f.write(legacyOwner, {
+      action: "decide",
+      findingId: "new-lesson",
+      decision: "accept",
+      text: "",
+    }),
   ).rejects.toMatchObject({ status: 400 });
   await f.write(legacyOwner, {
     action: "publish",
-    report: { ...report(), findings: [{ ...finding, proposal: legacy.report.findings[0].proposal }] },
+    report: {
+      ...report(),
+      findings: [{ ...finding, proposal: legacy.report.findings[0].proposal }],
+    },
   });
 });
