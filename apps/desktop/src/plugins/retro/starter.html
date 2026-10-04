@@ -273,18 +273,22 @@
               );
               addButton(editor, "Save edited proposal", () =>
                 act(async () => {
+                  const submittedText = text.value;
+                  const submittedDestination = choice.value;
                   await sdk.decide(
                     finding.id,
                     {
                       decision: "edit",
-                      text: text.value,
-                      destination: permitted.find((entry) => entry.id === choice.value),
+                      text: submittedText,
+                      destination: permitted.find((entry) => entry.id === submittedDestination),
                     },
                     snapshot.version,
                   );
-                  delete drafts[finding.id + ":proposal"];
-                  delete drafts[finding.id + ":destination"];
-                  editor.replaceChildren();
+                  if (text.value === submittedText && choice.value === submittedDestination) {
+                    delete drafts[finding.id + ":proposal"];
+                    delete drafts[finding.id + ":destination"];
+                    editor.replaceChildren();
+                  }
                 }),
               );
             }),
@@ -301,9 +305,12 @@
             const input = textField(editor, "Comment", finding.id + ":comment", "");
             addButton(editor, "Save comment", () =>
               act(async () => {
-                await sdk.comment(finding.id, input.value, snapshot.version);
-                delete drafts[finding.id + ":comment"];
-                editor.replaceChildren();
+                const submitted = input.value;
+                await sdk.comment(finding.id, submitted, snapshot.version);
+                if (input.value === submitted) {
+                  delete drafts[finding.id + ":comment"];
+                  editor.replaceChildren();
+                }
               }),
             );
           }),
@@ -314,9 +321,12 @@
             const input = textField(editor, "Investigation request", finding.id + ":request", "");
             addButton(editor, "Send request", () =>
               act(async () => {
-                await sdk.request(finding.id, input.value, snapshot.version);
-                delete drafts[finding.id + ":request"];
-                editor.replaceChildren();
+                const submitted = input.value;
+                await sdk.request(finding.id, submitted, snapshot.version);
+                if (input.value === submitted) {
+                  delete drafts[finding.id + ":request"];
+                  editor.replaceChildren();
+                }
               }),
             );
           }),
@@ -507,11 +517,13 @@
         }
       });
       async function saveDraft(expectedVersion = stateVersion) {
-        if (snapshot?.status === "finished") return;
-        if (JSON.stringify(drafts) === savedDrafts) return;
-        const saved = await sdk.state.patch({ drafts }, expectedVersion);
-        stateVersion = saved.version;
-        savedDrafts = JSON.stringify(drafts);
+        while (snapshot?.status !== "finished" && JSON.stringify(drafts) !== savedDrafts) {
+          const submitted = JSON.stringify(drafts);
+          const saved = await sdk.state.patch({ drafts: JSON.parse(submitted) }, expectedVersion);
+          stateVersion = saved.version;
+          expectedVersion = saved.version;
+          savedDrafts = submitted;
+        }
         document.getElementById("draft-conflict").hidden = true;
       }
       document.getElementById("keep-draft").onclick = () =>

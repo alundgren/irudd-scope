@@ -295,6 +295,9 @@ test("RETRO preserves drafts through data updates, HTML replacement, navigation,
     await expect
       .poll(async () => (await read(client)).decisions[0]?.destination?.id)
       .toBe("personal-rule");
+    await frame
+      .getByRole("button", { name: "Save edited proposal" })
+      .waitFor({ state: "detached" });
     let updated = await read(client);
     await client.retro({
       action: "outcomes",
@@ -310,6 +313,8 @@ test("RETRO preserves drafts through data updates, HTML replacement, navigation,
         },
       ],
     });
+    await page.getByRole("button", { name: "Copy agent request", exact: true }).click();
+    await expect.poll(async () => (await read(client)).appState.value.drafts).toEqual({});
     updated = await read(client);
     await client.retro({
       action: "finish",
@@ -509,6 +514,84 @@ test("finish saves unsent drafts and failed report flushes leave audit markers u
     expect(current.appState.value.drafts).toEqual({ "retrieval:comment": "My unsent final note." });
     await mkdir(evidence, { recursive: true });
     await page.screenshot({ path: join(evidence, "finished-unsent-draft.png") });
+  } finally {
+    await application.close();
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("typing during a pending comment and draft save retains the newer input", async () => {
+  const fixture = await desktopFixture();
+  const application = await fixture.launch();
+  try {
+    const page = await application.firstWindow();
+    const file = join(fixture.directory, "report.html");
+    await writeFile(file, await readFile("apps/desktop/src/plugins/retro/starter.html", "utf8"));
+    await fixture.cli("add", file, "--retro", "--name", name);
+    const client = await fixture.connect();
+    await configure(client);
+    await publishReport(client);
+    const frame = page.frameLocator(".retro-document");
+    await frame.getByRole("heading", { name: "Repeated full-file reads" }).waitFor();
+    await application.evaluate(({ ipcMain }) => {
+      const handlers = (
+        ipcMain as unknown as {
+          _invokeHandlers: Map<string, (...args: unknown[]) => unknown>;
+        }
+      )._invokeHandlers;
+      const original = handlers.get("scope:retro-command");
+      if (!original) throw new Error("Expected RETRO IPC handler.");
+      const waiting = new Map<string, () => void>();
+      const delayed = new Set(["comment", "state-patch"]);
+      Object.assign(globalThis, { syntheticRetroWrites: waiting });
+      ipcMain.removeHandler("scope:retro-command");
+      ipcMain.handle("scope:retro-command", async (event, command) => {
+        if (delayed.delete(command.action))
+          await new Promise<void>((resolve) => waiting.set(command.action, resolve));
+        return original(event, command);
+      });
+    });
+    async function waiting(action: string) {
+      return application.evaluate((_electron, name) => {
+        const pending = (
+          globalThis as unknown as {
+            syntheticRetroWrites: Map<string, () => void>;
+          }
+        ).syntheticRetroWrites;
+        return pending.has(name);
+      }, action);
+    }
+    async function release(action: string) {
+      await application.evaluate((_electron, name) => {
+        const pending = (
+          globalThis as unknown as {
+            syntheticRetroWrites: Map<string, () => void>;
+          }
+        ).syntheticRetroWrites;
+        pending.get(name)?.();
+        pending.delete(name);
+      }, action);
+    }
+    await frame.getByRole("button", { name: "Comment", exact: true }).click();
+    const input = frame.getByRole("textbox", { name: "Comment", exact: true });
+    await input.fill("Submitted comment.");
+    await frame.getByRole("button", { name: "Save comment", exact: true }).click();
+    await expect.poll(() => waiting("comment")).toBe(true);
+    await input.fill("New draft while the comment is pending.");
+    await release("comment");
+    await expect
+      .poll(async () => (await read(client)).comments.map((entry) => entry.text))
+      .toEqual(["Submitted comment."]);
+    expect(await input.inputValue()).toBe("New draft while the comment is pending.");
+    await page.getByRole("button", { name: "Copy agent request", exact: true }).click();
+    await expect.poll(() => waiting("state-patch")).toBe(true);
+    await input.fill("Newest input while the draft save is pending.");
+    await release("state-patch");
+    await page.getByText("Agent request copied.", { exact: true }).waitFor();
+    expect((await read(client)).appState.value.drafts).toEqual({
+      "retrieval:comment": "Newest input while the draft save is pending.",
+    });
+    expect(await input.inputValue()).toBe("Newest input while the draft save is pending.");
   } finally {
     await application.close();
     await rm(fixture.directory, { recursive: true, force: true });
