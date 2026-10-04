@@ -3,8 +3,10 @@
 Start this workflow when the person you are working with says "let's do a
 Scope retro" in a normal coding session. Scope never starts coding agents.
 Read `retro guide` from the installed CLI for its validated command schema and
-load `session-retrospective/references/cross-session.md` for native collectors.
-That skill owns the one native accounting parser; do not duplicate it in Scope.
+load the public `irudd-scope-retro` skill installed alongside this skill for
+native collection. Its `scripts/retro_sessions.py` and collection reference
+are maintained and packaged in this repository. Python 3 is required on each
+source where the helper runs.
 
 ## Select sources and repositories
 
@@ -58,8 +60,8 @@ local log for a missing remote session.
 ## Analyze and publish the report
 
 Snapshot selected historical sessions by explicit native ID and root using the
-existing `session_snapshot.py`. Reuse its per-agent cumulative accounting and
-child ownership rules. An incomplete or unavailable snapshot becomes `failed`;
+public helper's `snapshot` command. Read its coverage notes and usage methods
+before presenting accounting as exact. An incomplete or unavailable snapshot becomes `failed`;
 only a complete snapshot actually analyzed becomes `reviewed`. Assess efficiency,
 correctness, tests, tool waits, workflow and repeated patterns across sessions.
 Distinguish measured facts, bounded evidence and estimates. Missing usage,
@@ -72,12 +74,10 @@ and session inventory in pages of at most 200. Read `retro guide` for exact
 commands and current bounds; the HTML SDK methods are documented below. Use the returned artifact/tab IDs and
 version. Set `report.agent` to the confirmed current native identity. Publishing
 the report records that agent exclusion immediately, so later discovery skips
-the retro conversation even if the retro is interrupted. The metadata adapter maps `nativeSessionId` to `sessionId`,
-`repositoryId` to `repository`, and `updatedAt` to `lastActivityAt`; native
+the retro conversation even if the retro is interrupted. The helper emits Scope-compatible identities and repository metadata; native
 unknown timestamps remain null. Native start time comes only from creation
-metadata. Later activity cannot establish a missing start time. Report
-`metadata_coverage.unreadable_headers` as the limit on related-agent coverage;
-corrupt unrelated headers do not invalidate exact selected-session accounting.
+metadata. Later activity cannot establish a missing start time. Include the helper's unreadable, unsupported and incomplete-record coverage
+notes. Unrelated corrupt sessions do not establish selected-session usage.
 Report each selected source/runtime with availability, initialization choice,
 the original discovery cutoff, `inventoryComplete` and the exact `sessionCount`
 stored for that coverage. Successful empty discovery uses `sessionCount: 0`.
@@ -117,7 +117,7 @@ verified. Refresh those capabilities before each retrospective and recheck befor
 applying accepted edits. A saved availability flag is the last observation, not
 proof the CLI or destination still exists. Discover capabilities on the actual
 destination host with the bundled
-`retro_destinations.py`; a remote source's CLI cannot prove capability on the Mac
+`retro_sessions.py destinations`; a remote source's CLI cannot prove capability on the Mac
 or another host. Claude memory uses the runtime-resolved directory, including
 settings/environment overrides and trust rules. If unresolved, leave it
 unavailable and obtain the directory from that runtime's `/memory` view. Scope

@@ -234,9 +234,10 @@ no PR state.
 A retro is a permanent named `retro` HTML artifact. The operator starts an
 ordinary coding session and asks its agent to review earlier sessions. Scope
 never launches that agent. The agent discovers native Claude and Codex history
-locally or with its existing SSH access, using the collector supplied by
-irudd-skills. Scope accepts normalized inventories and findings; it does not
-parse or archive native transcripts.
+locally or with its existing SSH access, using the public `irudd-scope-retro`
+skill and native collection helper maintained in this repository. The desktop
+accepts normalized inventories and findings; it does not parse or archive
+native transcripts.
 
 `packages/protocol/src/retro.ts` owns public configuration, report, command,
 tracking, history and event contracts. `library/retro-store.ts` owns review

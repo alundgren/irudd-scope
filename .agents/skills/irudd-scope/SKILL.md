@@ -75,8 +75,8 @@ change an existing app while keeping that data. Scope runs the desktop user's
 
 When asked to do a Scope retro, read [retro workflow and authoring](references/retros.md).
 Start in the existing coding session; Scope never launches an agent. Use
-`retro guide` for the installed command schemas and the session-retrospective
-skill's native collector for local or SSH histories. Publish a named HTML report
+`retro guide` for the installed command schemas and the public
+`irudd-scope-retro` skill bundled in this repository for local or SSH histories. Publish a named HTML report
 with `add report.html --retro --name RETRO_NAME`, then connect `retro watch`
 to this session before reporting that feedback is connected.
 

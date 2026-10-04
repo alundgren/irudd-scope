@@ -305,9 +305,11 @@ GitHub credentials and perform no live GitHub mutations.
 
 Start a normal coding session and ask for a Scope retro. The packaged Scope
 skill provides the [collection and review workflow](../.agents/skills/irudd-scope/references/retros.md).
-The matching irudd-skills installation must provide session-retrospective's
-metadata discovery and explicit historical session collector. Resolve those
-scripts relative to the loaded skill on each source host, including SSH hosts.
+The public [irudd-scope-retro skill](../.agents/skills/irudd-scope-retro/SKILL.md)
+provides metadata discovery and explicit historical-session snapshots. Both
+Scope skills install together for Codex and Claude Code. Resolve the bundled
+Python 3 helper relative to the loaded retro skill on each source host,
+including SSH hosts.
 Scope does not install a source service or use paired hub endpoints as SSH
 aliases.
 

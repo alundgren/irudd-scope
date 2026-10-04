@@ -220,7 +220,9 @@ test("skill installation targets only Scope for the supported agents and reports
   const tools = new AgentTools(f.installation, f.home, () => {});
   try {
     const log = join(f.directory, "arguments.json");
-    const skill = join(f.home, ".agents/skills/irudd-scope");
+    const skills = ["irudd-scope", "irudd-scope-retro"].map((name) =>
+      join(f.home, ".agents/skills", name),
+    );
     await writeFile(
       f.vp,
       `#!${process.execPath}
@@ -228,11 +230,16 @@ const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify(args));
 if (fs.existsSync(${JSON.stringify(join(f.directory, "fail"))})) { console.error('Registry unavailable'); process.exit(1); }
-if (args.includes('add')) { fs.mkdirSync(${JSON.stringify(skill)}, {recursive:true}); fs.writeFileSync(${JSON.stringify(join(skill, "SKILL.md"))}, 'Synthetic skill'); }
-else fs.rmSync(${JSON.stringify(skill)}, {recursive:true, force:true});
+for (const skill of ${JSON.stringify(skills)}) {
+ if (args.includes('add')) { fs.mkdirSync(skill, {recursive:true}); fs.writeFileSync(require('node:path').join(skill, 'SKILL.md'), 'Synthetic skill'); }
+ else fs.rmSync(skill, {recursive:true, force:true});
+}
 `,
       { mode: 0o755 },
     );
+    expect((await tools.installSkill()).skillInstalled).toBe(true);
+    await rm(skills[1]!, { recursive: true });
+    expect((await tools.snapshot()).skillInstalled).toBe(false);
     expect((await tools.installSkill()).skillInstalled).toBe(true);
     const args: string[] = JSON.parse(await readFile(log, "utf8"));
     expect(args.slice(0, 2)).toEqual(["exec", "npx"]);
@@ -246,12 +253,17 @@ else fs.rmSync(${JSON.stringify(skill)}, {recursive:true, force:true});
       const end = args.findIndex((arg, index) => index > start && arg.startsWith("--"));
       return args.slice(start + 1, end < 0 ? undefined : end);
     };
-    expect(values("--skill")).toEqual(["irudd-scope"]);
+    expect(values("--skill")).toEqual(["irudd-scope", "irudd-scope-retro"]);
     expect(values("--agent").sort()).toEqual(["claude-code", "codex"]);
     expect(values("--global")).toEqual([]);
     expect(args.slice(2, command)).toContain("--yes");
     expect(args.slice(command + 1)).toContain("--yes");
     expect((await tools.removeSkill()).skillInstalled).toBe(false);
+    const removal: string[] = JSON.parse(await readFile(log, "utf8"));
+    expect(removal.slice(removal.indexOf("remove") + 1, removal.indexOf("--global"))).toEqual([
+      "irudd-scope",
+      "irudd-scope-retro",
+    ]);
     await writeFile(join(f.directory, "fail"), "");
     const failed = await tools.installSkill();
     expect(failed.error).toContain("Registry unavailable");

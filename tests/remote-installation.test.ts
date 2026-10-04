@@ -151,6 +151,25 @@ fetch('http://127.0.0.1:${servicePort}/'+encodeURIComponent(JSON.stringify(proce
     expect(
       await readFile(join(userDirectory, ".claude/skills/irudd-scope/SKILL.md"), "utf8"),
     ).toContain("name: irudd-scope");
+    const retroSkill = join(userDirectory, ".agents/skills/irudd-scope-retro");
+    expect(await readlink(retroSkill)).toBe(join(root, "current/retro-skill"));
+    expect(
+      await readFile(join(userDirectory, ".claude/skills/irudd-scope-retro/SKILL.md"), "utf8"),
+    ).toContain("name: irudd-scope-retro");
+    expect(
+      (await exec("python3", [join(retroSkill, "scripts/retro_sessions.py"), "--help"])).stdout,
+    ).toContain("snapshot");
+    const separateSkill = join(userDirectory, ".agents/skills/custom-retro");
+    await mkdir(separateSkill, { recursive: true });
+    await writeFile(join(separateSkill, "SKILL.md"), "Separately maintained skill");
+    // Upgrade an installation which only had the original Scope skill.
+    await rm(retroSkill);
+    await rm(join(userDirectory, ".claude/skills/irudd-scope-retro"));
+    await cli("skill", "sync");
+    expect(JSON.parse((await cli("skill", "check")).stdout)).toEqual({ installed: true });
+    expect(await readFile(join(retroSkill, "SKILL.md"), "utf8")).toContain(
+      "name: irudd-scope-retro",
+    );
     await cli("hub", "unpair");
     await cli("hub", "remove");
     expect(JSON.parse(await readFile(serveFile, "utf8"))).toEqual(existingServe);
@@ -161,6 +180,10 @@ fetch('http://127.0.0.1:${servicePort}/'+encodeURIComponent(JSON.stringify(proce
     await expect(stat(join(userDirectory, ".agents/skills/irudd-scope"))).rejects.toMatchObject({
       code: "ENOENT",
     });
+    await expect(stat(retroSkill)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(join(separateSkill, "SKILL.md"), "utf8")).toBe(
+      "Separately maintained skill",
+    );
     expect((await cli("--help")).stdout).toContain("irudd-scope add");
   } catch (error) {
     console.error(hubDiagnostics);
