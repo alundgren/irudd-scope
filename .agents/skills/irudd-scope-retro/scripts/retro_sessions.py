@@ -327,13 +327,14 @@ def snapshot(args):
                         if role == "assistant":
                             assistant_count += 1
                             response_count += 1
-                    elif kind in ("function_call", "custom_tool_call"):
-                        key = payload.get("call_id") or "line-" + str(line_number)
-                        tools.setdefault(key, {"id": key, "name": payload.get("name"), "input": payload.get("arguments", payload.get("input")), "output": None, "startedAt": at, "finishedAt": None, "line": line_number})
-                    elif kind in ("function_call_output", "custom_tool_call_output"):
+                    elif isinstance(kind, str) and kind.endswith("_call"):
+                        key = payload.get("call_id") or payload.get("id") or "line-" + str(line_number)
+                        standalone = kind in ("web_search_call", "image_generation_call")
+                        tools.setdefault(key, {"id": key, "name": payload.get("name") or kind, "input": payload.get("arguments", payload.get("input", payload.get("action", payload))), "output": payload.get("result"), "startedAt": None if standalone else at, "finishedAt": at if standalone and payload.get("status") == "completed" else None, "line": line_number})
+                    elif isinstance(kind, str) and kind.endswith("_output"):
                         key = payload.get("call_id")
                         if key in tools:
-                            tools[key]["output"] = payload.get("output")
+                            tools[key]["output"] = payload.get("output", payload.get("tools", payload))
                             tools[key]["finishedAt"] = at
                 elif row.get("type") == "event_msg" and payload.get("type") == "token_count":
                     info = payload.get("info")

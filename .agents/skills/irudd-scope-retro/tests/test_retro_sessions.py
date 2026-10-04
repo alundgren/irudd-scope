@@ -217,6 +217,18 @@ class NativeSessionTests(unittest.TestCase):
         self.assertEqual(result["tools"][0]["elapsedSeconds"], 3)
         self.assertEqual(result["metrics"][2]["certainty"], "estimated")
 
+    def test_codex_builtin_tools_retained_without_invented_duration(self):
+        web = {"timestamp": END, "type": "response_item", "payload": {"type": "web_search_call", "id": "web", "status": "completed", "action": {"type": "search", "query": "official docs"}}}
+        search = {"timestamp": START, "type": "response_item", "payload": {"type": "tool_search_call", "call_id": "search", "arguments": {"query": "docs"}}}
+        output = {"timestamp": END, "type": "response_item", "payload": {"type": "tool_search_output", "call_id": "search", "tools": [{"name": "docs"}]}}
+        self.codex(records=[web, search, output])
+        result = self.run_helper("snapshot", extra=["--session-id", "session"])
+        tools = {tool["id"]: tool for tool in result["tools"]}
+        self.assertEqual(result["metrics"][1]["value"], 2)
+        self.assertEqual(tools["web"]["input"]["query"], "official docs")
+        self.assertIsNone(tools["web"]["elapsedSeconds"])
+        self.assertEqual(tools["search"]["output"], [{"name": "docs"}])
+
     def test_claude_root_start_and_child_exclusion(self):
         self.claude()
         self.claude("missing-start", first={"parentUuid": "earlier-not-in-this-file"})
