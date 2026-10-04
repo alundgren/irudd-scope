@@ -1,6 +1,6 @@
 ---
 name: irudd-scope
-description: Create named HTML plans and GitHub PR inbox apps in Scope. Also publish or update artifacts, edit Excalidraw diagrams, and generate narration with the desktop OpenRouter key. Honor an explicitly requested planning tool or output format.
+description: Create named HTML plans, retrospectives, and GitHub PR inbox apps in Scope. Also publish or update artifacts, edit Excalidraw diagrams, and generate narration with the desktop OpenRouter key. Honor an explicitly requested planning tool or output format.
 ---
 
 # Use Scope CLI
@@ -70,6 +70,22 @@ local, and agent data separately from HTML. Use `update NAME inbox.html` to
 change an existing app while keeping that data. Scope runs the desktop user's
 `gh` for reads; inbox operations never mutate GitHub. Use
 `pull-requests guide` for the installed CLI's exact validated command schema.
+
+### Agent retrospectives
+
+When asked to do a Scope retro, read [retro workflow and authoring](references/retros.md).
+Start in the existing coding session; Scope never launches an agent. Use
+`retro guide` for the installed command schemas and the session-retrospective
+skill's native collector for local or SSH histories. Publish a named HTML report
+with `add report.html --retro --name RETRO_NAME`, then connect `retro watch`
+to this session before reporting that feedback is connected.
+
+The HTML SDK records decisions, notes and investigation requests. Acceptance
+does not write files. Apply approved corrections and agreed commits last,
+then finish only after the person's conversational instruction. Finished
+reports remain available in history; audited whole native session IDs prevent
+repeat selection. Memory suggestions default off and verified optional
+destinations never change the runtime's native memory settings.
 
 ### HTML plans
 

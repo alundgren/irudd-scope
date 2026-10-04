@@ -85,7 +85,7 @@ copy. Removing that copy retains its receipt until expiry and prevents
 recreation. Explicit desktop Import or an authorized agent command precedes HTML execution under the existing trusted
 content behavior. Both apps must be online and awake. Invitations and snapshots
 exist only in memory, with no offline queue or continuing synchronization.
-Plans and PR inboxes are excluded because their additional records are not in
+Plans, PR inboxes, and retros are excluded because their additional records are not in
 the portable manifest.
 
 ## HTML plans
@@ -228,6 +228,45 @@ Agents publish inbox HTML with named JavaScript views. GitHub access is
 read-only. Review submission and merges remain on GitHub. Authenticated HTTP
 commands work without the tab being mounted. Paired hubs forward them and keep
 no PR state.
+
+## Agent retrospectives
+
+A retro is a permanent named `retro` HTML artifact. The operator starts an
+ordinary coding session and asks its agent to review earlier sessions. Scope
+never launches that agent. The agent discovers native Claude and Codex history
+locally or with its existing SSH access, using the collector supplied by
+irudd-skills. Scope accepts normalized inventories and findings; it does not
+parse or archive native transcripts.
+
+`packages/protocol/src/retro.ts` owns public configuration, report, command,
+tracking, history and event contracts. `library/retro-store.ts` owns review
+records and bounded authored state in `scope.db`. Source, repository and
+optional memory preferences are in `desktop.db`. Hubs forward live retro
+commands and retain no retro tracking or native history.
+
+`plugins/retro` injects `window.scope.retros` before authored scripts. The HTML
+can record decisions, comments and investigation requests, update its own JSON
+state, and open completed reports. It has no finish, file, SSH, Git or model
+execution method. Accepting a proposal records a decision; the existing agent
+applies approved corrections through its normal tools and records the outcome.
+The CLI listener sends requests to that existing coding session. Copy agent
+request supports manual delivery.
+
+Finish is an agent command following the operator's conversational instruction.
+It freezes the report and commits source/runtime initialization and successfully
+reviewed native session IDs in one `scope.db` transaction. Initialization is
+explicit even when discovery found no eligible sessions. Start now uses the
+saved discovery cutoff. Interrupted retros and unavailable sources leave
+reviewed-session markers and initialization unchanged. Publishing a report
+records its retro-agent exclusion immediately, so even interrupted retro
+conversations stay excluded from later discovery. A resumed audited session stays skipped; explicit manual
+review remains possible.
+
+Completed history points to the retained tab's final report. Normal closing
+keeps permanent reports. Explicit deletion removes the report and history
+entry, while independent audit and initialization records remain. Finished
+reports reject later domain, authored-state and ordinary HTML publication
+writes. The workflow has no session monitoring service or resumable job state.
 
 ## Names and ownership
 
