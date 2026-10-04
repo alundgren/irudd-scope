@@ -120,7 +120,7 @@ export function importedClosedArtifacts(value: unknown): string[] {
 }
 
 export function tabArtifactId(tab: Tab): string | undefined {
-  if (!["file", "diagram", "plan", "pull-requests"].includes(tab.type)) return undefined;
+  if (!["file", "diagram", "plan", "pull-requests", "retro"].includes(tab.type)) return undefined;
   const id = tab.state.data.artifactId;
   return typeof id === "string" ? decode(ArtifactId, id) : undefined;
 }

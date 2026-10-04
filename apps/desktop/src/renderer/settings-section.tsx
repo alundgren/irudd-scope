@@ -4,6 +4,13 @@ import { Button } from "./components/ui/button.tsx";
 
 const settingsSections = [
   {
+    id: "retros",
+    title: "Retrospectives",
+    description: "Session sources, repository choices, memory, and history",
+    terms:
+      "retro codex claude SSH sessions runtime roots directories include exclude memory instructions rules agent history",
+  },
+  {
     id: "appearance",
     title: "Appearance",
     description: "Color scheme",

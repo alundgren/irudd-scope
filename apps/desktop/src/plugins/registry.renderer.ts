@@ -5,8 +5,9 @@ import { diagramPlugin } from "./diagram/renderer.tsx";
 import { planPlugin } from "./plan/renderer.tsx";
 
 import { pullRequestsPlugin } from "./pull-requests/renderer.tsx";
+import { retroPlugin } from "./retro/renderer.tsx";
 
-export const tabPlugins = [diagramPlugin, planPlugin, pullRequestsPlugin, filePlugin];
+export const tabPlugins = [diagramPlugin, planPlugin, pullRequestsPlugin, retroPlugin, filePlugin];
 export const findPlugin = (type: string) => tabPlugins.find((plugin) => plugin.type === type);
 export function pluginForArtifact(artifact: Artifact) {
   return tabPlugins.find((plugin) => plugin.publication?.accepts(artifact))!;
