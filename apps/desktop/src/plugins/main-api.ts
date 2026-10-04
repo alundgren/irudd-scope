@@ -1,3 +1,4 @@
+import type { MemoryService } from "../memory.ts";
 import type { DesktopStore } from "../desktop-store.ts";
 import type { ScopeClient } from "@irudd-scope/protocol/client";
 
@@ -13,4 +14,5 @@ export type MainPluginContext = {
   artifacts: ArtifactStore;
   workspace: () => Promise<Workspace>;
   client: ScopeClient;
+  memory: MemoryService;
 };

@@ -146,6 +146,10 @@ export class MemoryService {
     return this.save({ enabled: true, repository: decode(MemoryRepository, repository) });
   }
 
+  runOkf(repository: string, args: string[]) {
+    return this.sync.runOkf(repository, args);
+  }
+
   async retry() {
     await Promise.all([
       this.sync.sync(),

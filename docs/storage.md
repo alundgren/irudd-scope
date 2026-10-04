@@ -419,3 +419,15 @@ another operation stops sync: preserve newer edits outside the clone before
 running `git rebase --abort`, restore those edits, then use Sync now. Turning
 memory off preserves manually configured OKF retrospective destinations in
 SQLite while hiding them from retros.
+
+## Personal memory edits
+
+Personal memory notes remain ordinary Markdown files in Scope's synced Git
+clone. The Personal memory tab stores its navigation and unsaved draft in its
+SQLite tab document. Draft identity includes the repository, relative note path
+and original content hash. Closing the built-in tab retains that draft; changing
+the connected repository keeps it available for copying or later recovery.
+Saving a note uses irudd-okf's version check and writer lock, and normal Scope
+memory sync commits and pushes the resulting file change. A conflict leaves the
+saved file and draft intact. CLI input files are private, temporary, and removed
+after each command.

@@ -1,3 +1,4 @@
+import { memoryPlugin } from "./memory/renderer.tsx";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { Tab } from "../workspace/contract.ts";
 import { filePlugin } from "./file/renderer.tsx";
@@ -7,7 +8,14 @@ import { planPlugin } from "./plan/renderer.tsx";
 import { pullRequestsPlugin } from "./pull-requests/renderer.tsx";
 import { retroPlugin } from "./retro/renderer.tsx";
 
-export const tabPlugins = [diagramPlugin, planPlugin, pullRequestsPlugin, retroPlugin, filePlugin];
+export const tabPlugins = [
+  memoryPlugin,
+  diagramPlugin,
+  planPlugin,
+  pullRequestsPlugin,
+  retroPlugin,
+  filePlugin,
+];
 export const findPlugin = (type: string) => tabPlugins.find((plugin) => plugin.type === type);
 export function pluginForArtifact(artifact: Artifact) {
   return tabPlugins.find((plugin) => plugin.publication?.accepts(artifact))!;

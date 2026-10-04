@@ -1,5 +1,7 @@
+import { memoryTabState } from "../plugins/memory/contract.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  BookOpen,
   Download,
   Maximize2,
   Minimize2,
@@ -275,6 +277,23 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   function select(id: string, keyboard = false) {
     const tab = workspace.tabs.find((entry) => entry.id === id);
     if (tab) void activate(tab, keyboard);
+  }
+  async function openMemoryTab() {
+    const saved =
+      workspace.tabs.find((tab) => tab.type === "memory") ??
+      retention.tabs.find((entry) => entry.tab.type === "memory")?.tab;
+    if (
+      await activate(
+        saved ?? {
+          id: crypto.randomUUID(),
+          groupId: workspace.groups[0].id,
+          type: "memory",
+          title: "Personal memory",
+          state: memoryTabState(),
+        },
+      )
+    )
+      setSettings(false);
   }
   function open(id: string) {
     const artifact = artifacts.get(id);
@@ -577,6 +596,13 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         finalFocus={settings || details || transferOpen ? false : returnFocus}
         actions={[
           {
+            id: "personal-memory",
+            title: "Personal memory",
+            keywords: "wiki notes knowledge graph search edit",
+            icon: BookOpen,
+            onSelect: () => void openMemoryTab(),
+          },
+          {
             id: "import-tab",
             title: "Import tab",
             keywords: "receive transfer link scope",
@@ -763,6 +789,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     <SettingsContext.Provider value={{ settings: preferences, openSettings }}>
       <WorkspaceNavigationContext.Provider
         value={{
+          openMemoryTab,
           openSavedTab: async (id) => {
             const saved = retention.tabs.find((entry) => entry.tab.id === id);
             if (!saved) throw new Error("This saved report is no longer available.");
