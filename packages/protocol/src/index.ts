@@ -149,6 +149,8 @@ export const PullRequestsEvent = Schema.Struct({
   prStateChange: Schema.optionalKey(PullRequestStateChange),
 });
 export type PullRequestsEvent = typeof PullRequestsEvent.Type;
+export const RetroEvent = Schema.Struct({ type: Schema.Literal("retro"), name: ArtifactName, id: ArtifactId, tabId: PublicationTabId, version: Revision, event: Schema.Literals(["changed", "decision", "comment", "request", "finished"]) });
+export type RetroEvent = typeof RetroEvent.Type;
 export const LiveEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("ready") }),
   Schema.Struct({ type: Schema.Literal("artifact"), artifact: Artifact }),
@@ -156,6 +158,7 @@ export const LiveEvent = Schema.Union([
   DiagramEvent,
   PlanEvent,
   PullRequestsEvent,
+  RetroEvent,
 ]);
 export type LiveEvent = typeof LiveEvent.Type;
 
@@ -181,6 +184,7 @@ export function validateArtifactContent(artifact: Pick<Artifact, "kind" | "media
     markdown: ["text/markdown"],
     html: ["text/html"],
     plan: ["text/html"],
+    retro: ["text/html"],
     "pull-requests": ["text/html"],
     image: ["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"],
     file: null,
