@@ -50,11 +50,16 @@ for (const appearance of ["light", "dark"] as const) {
         .click();
       await page
         .getByRole("dialog", { name: "Settings", exact: true })
-        .waitFor({ state: "hidden" });
+        .waitFor({ state: "detached" });
       await page.setViewportSize(
         appearance === "light" ? { width: 1280, height: 820 } : { width: 640, height: 480 },
       );
       await note().fill("Keep this unsaved browser state");
+      if (appearance === "dark") {
+        await expect
+          .poll(() => page.getByRole("tab", { name: "Bravo", exact: true }).count())
+          .toBe(0);
+      }
       expect(await note().inputValue()).toBe("Keep this unsaved browser state");
       const closeButton = page.getByRole("button", { name: `Close ${title}`, exact: true });
       expect(await closeButton.getAttribute("title")).toBe("Close tab · Reopen from drawer");

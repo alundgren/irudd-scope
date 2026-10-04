@@ -144,6 +144,34 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   }, [workspace.selected]);
   const tabButtons = useRef(new Map<string, HTMLButtonElement>());
   const controlsButton = useRef<HTMLButtonElement>(null);
+  const [pendingTabFocus, setPendingTabFocus] = useState<string | null>();
+  useLayoutEffect(() => {
+    if (pendingTabFocus === undefined) return;
+    if (
+      pendingTabFocus === workspace.selected &&
+      !focus &&
+      !search &&
+      !settings &&
+      !details &&
+      !overflow &&
+      !transferOpen
+    ) {
+      const target = pendingTabFocus
+        ? tabButtons.current.get(pendingTabFocus)
+        : controlsButton.current;
+      target?.focus();
+    }
+    setPendingTabFocus(undefined);
+  }, [
+    pendingTabFocus,
+    workspace.selected,
+    focus,
+    search,
+    settings,
+    details,
+    overflow,
+    transferOpen,
+  ]);
   const modeSelect = useRef<HTMLSelectElement>(null);
   const artifacts = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const active = workspace.tabs.find((tab) => tab.id === workspace.selected);
@@ -271,7 +299,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     if (artifactId) markRead(artifactId);
     if (tab.id !== workspace.selected) setFullscreenMode("edit");
     setSearch(false);
-    if (keyboard) requestAnimationFrame(() => tabButtons.current.get(tab.id)?.focus());
+    if (keyboard) setPendingTabFocus(tab.id);
     return true;
   }
   function select(id: string, keyboard = false) {
@@ -336,7 +364,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         await flushWorkspace("save", id);
         const selected = await deferTab(id);
         if (workspace.selected === id) setFullscreenMode("edit");
-        requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
+        setPendingTabFocus(selected);
       } catch {
         setError("Could not save this tab. Try again.");
         return;
@@ -361,7 +389,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         : workspace.selected;
     if (workspace.selected === id) setFullscreenMode("edit");
     if (!tabs.length) setFocus(false);
-    requestAnimationFrame(() => tabButtons.current.get(selected ?? "")?.focus());
+    setPendingTabFocus(selected);
   }
   async function restore(id: string) {
     try {
