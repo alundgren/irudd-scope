@@ -764,6 +764,23 @@ returned cursor and version where required. HTML updates preserve saved review
 records. Agent report updates cannot silently transfer human acceptance to a
 different proposed edit.
 
+An `okf` memory proposal carries `okfEdit`, the exact reviewed edit to one
+irudd-okf concept file. `destination.path` is the absolute bundle root;
+`okfEdit.path` is a relative Markdown concept path other than `index.md` or
+`log.md`. `before` is the exact previous raw text and `expectedHash` its
+SHA-256, both null for a new concept. `configurationVersion`, `executionCwd`
+and `sourceConnection` (SSH alias, effective endpoint and host identity, or
+null alias and endpoint for local execution) record where the agent prepared
+the edit. `proposal.text` is the complete after-text; each text is limited to
+16 KiB of UTF-8. New and changed undecided OKF proposals must match the current
+settings version and an enabled destination. Accept or edit rechecks that
+eligibility, keeps the prepared destination and may change only the final
+text. Decided proposals, including rejected ones, stay readable and
+republishable after memory is turned off or a destination is verified again,
+but they cannot be accepted again without a fresh preview. Scope stores this
+review data and never runs OKF, SSH or file commands. Older desktops and CLIs
+reject the unknown field instead of dropping it, so upgrade them together.
+
 Only an authenticated agent command can finish a retro after the operator's
 instruction. Before the transaction, a mounted report flushes its pending writes
 and authored drafts. Failed flushes leave tracking unchanged. A successful flush
