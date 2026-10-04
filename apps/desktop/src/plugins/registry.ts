@@ -19,3 +19,7 @@ export function validateTabState(tab: Tab, preserveFuture = false): void {
   if (contract && !(preserveFuture && tab.state.version > contract.version))
     decode(contract.state, tab.state);
 }
+
+export function isBuiltinTab(tab: Pick<Tab, "type">): boolean {
+  return tab.type === "memory";
+}

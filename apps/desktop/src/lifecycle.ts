@@ -70,9 +70,9 @@ export class DesktopLifecycle {
       version: 3,
       groups,
       tabs,
-      selected: tabs.some((tab) => tab.id === layout.selected)
+      selected: tabs.some((tab) => tab.id === layout.selected && !tab.hidden)
         ? layout.selected
-        : (tabs[0]?.id ?? null),
+        : (tabs.find((tab) => !tab.hidden)?.id ?? null),
     });
   }
 

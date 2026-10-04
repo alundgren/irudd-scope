@@ -218,3 +218,58 @@ test("schema 4 upgrades preserve names, tab IDs, order, and drafts with a fresh 
   expect((await store.retainedTabs())[0].lastVisibleAt).toBeGreaterThanOrEqual(before);
   expect(await store.diagramDraft(id)).toEqual(draft);
 });
+
+test("built-in tabs stay permanent, reopen once with saved state, and reject retention and type changes", async () => {
+  const f = await fixture();
+  const workspace = await f.lifecycle.workspace();
+  const first = (await f.lifecycle.openTab({
+    id: crypto.randomUUID(),
+    groupId: workspace.groups[0].id,
+    type: "memory",
+    title: "Personal memory",
+    state: { version: 1, data: {} },
+  }))!;
+  await f.lifecycle.saveWorkspace({
+    ...workspace,
+    tabs: [{ ...first, hidden: true, state: { version: 1, data: { path: "workflow/index.md" } } }],
+    selected: null,
+  });
+  expect((await f.lifecycle.workspace()).selected).toBeNull();
+  expect((await f.lifecycle.workspace()).tabs[0].hidden).toBe(true);
+  await expect(f.lifecycle.setTabPermanent(first.id, false)).rejects.toThrow("always permanent");
+  await expect(f.lifecycle.closeTab(first.id)).rejects.toThrow("cannot move to Trashcan");
+  const rewritten = { ...first, type: "unavailable-plugin" };
+  await expect(f.lifecycle.openTab(rewritten)).rejects.toThrow(
+    "type of a built-in tab cannot change",
+  );
+  await expect(
+    f.lifecycle.saveWorkspace({ ...workspace, tabs: [rewritten], selected: null }),
+  ).rejects.toThrow("type of a built-in tab cannot change");
+  const reopened = await Promise.all(
+    Array.from({ length: 3 }, () => f.lifecycle.openTab({ ...first, id: crypto.randomUUID() })),
+  );
+  expect(reopened.every((tab) => tab?.id === first.id)).toBe(true);
+  expect(reopened[0]).toMatchObject({
+    hidden: false,
+    state: { version: 1, data: { path: "workflow/index.md" } },
+  });
+  await f.lifecycle.checkRetention([], Date.now() + 30 * DAY);
+  expect((await f.lifecycle.workspace()).tabs).toHaveLength(1);
+  expect((await f.server.store.retainedTabs())[0]).toMatchObject({
+    permanent: true,
+    trashedAt: null,
+  });
+  const db = new DatabaseSync(f.server.store.filename);
+  const now = Date.now();
+  try {
+    db.prepare("UPDATE live_tabs SET permanent = 0, last_visible_at = 0 WHERE id = ?").run(
+      first.id,
+    );
+    expect(await f.server.store.expireTemporaryTabs(now + DAY)).toEqual([]);
+    db.prepare("UPDATE live_tabs SET trashed_at = ? WHERE id = ?").run(now, first.id);
+    await f.lifecycle.emptyTrash([{ id: first.id, trashedAt: now }]);
+    expect((await f.server.store.retainedTabs())[0].tab.id).toBe(first.id);
+  } finally {
+    db.close();
+  }
+});

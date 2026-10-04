@@ -544,8 +544,12 @@ bytes have a reference for each owning tab. The revision check and metadata
 write share a SQLite transaction. A small revision counter prevents an old
 update from matching an artifact recreated under the same ID.
 
-Closing a permanent tab reorders it to the end of the saved workspace and
-selects another tab when available. Closing a temporary tab or explicitly
+Closing a permanent tab marks its saved document hidden, reorders it to the
+end of the workspace, and selects another visible tab when available. Hidden
+tabs remain mounted and appear in the drawer; reopening clears their hidden
+state with the same UUID and order. Built-in plugin categories are authoritative
+in the shared desktop plugin registry. They always stay permanent, reject type
+changes and Trashcan operations, and reopen their existing tab per type. Closing a temporary tab or explicitly
 moving either kind to Trashcan sets its trash timestamp while retaining its content references,
 metadata, name, and draft. The desktop lifecycle coordinates retention changes
 and notifies the renderer, which removes trashed tabs from its workspace.

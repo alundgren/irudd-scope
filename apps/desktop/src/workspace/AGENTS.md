@@ -16,8 +16,11 @@ validates the saved sender and group. Events are not persisted or replayed.
 
 `persistence.ts` flushes pending writes before the window closes. Closing a
 temporary tab flushes saves and moves it to Trashcan. Closing a permanent tab
-moves it to the end of the saved workspace order and selects another tab when
-available. Explicit trash actions flush saves for either kind. Failed saves or trash
+hides it from the strip, moves it to the end of the saved workspace order, and
+selects another visible tab when available. Hidden tabs stay mounted and reopen
+from the drawer with their saved UUID and position. Built-in plugin categories
+are always permanent and close by hiding; they cannot enter Trashcan. Explicit
+trash actions flush saves for ordinary temporary and permanent tabs. Failed saves or trash
 writes keep the tab visible for retry. `retention.ts` owns desktop retention
 contracts; `use-tab-retention.ts` reports visibility and requests cleanup after
 saves. Permanent deletion removes tab content atomically. Late saves only update existing tabs. Preserve open
