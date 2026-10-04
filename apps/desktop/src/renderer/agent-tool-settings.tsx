@@ -54,7 +54,8 @@ export function AgentToolSettings({
         <div>
           <h3>Scope skill</h3>
           <p className="secondary">
-            Install publishing instructions globally for Codex and Claude Code with npx skills.
+            Instructions for Codex and Claude Code update with the app. Refresh or start a new agent
+            session after an update.
           </p>
         </div>
         <div className="installation-actions">
@@ -64,7 +65,7 @@ export function AgentToolSettings({
             disabled={disabled}
             onClick={() => run(() => window.scope.installSkill())}
           >
-            {busy === "skill" ? "Working…" : skillInstalled ? "Update skill" : "Install skill"}
+            {busy === "skill" ? "Working…" : skillInstalled ? "Repair skill" : "Install skill"}
           </Button>
           {skillInstalled && (
             <Button
@@ -77,7 +78,7 @@ export function AgentToolSettings({
             </Button>
           )}
         </div>
-        {skillInstalled && <p className="secondary">Installed globally</p>}
+        {skillInstalled && <p className="secondary">Installed globally. Updates with Scope.</p>}
       </div>
       {message && <p role="status">{message}</p>}
       {error && (

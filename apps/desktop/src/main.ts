@@ -164,6 +164,7 @@ async function main() {
   const agentTools = new AgentTools(installation, homedir(), (status) => {
     if (!window.isDestroyed()) window.webContents.send("scope:agent-tools-changed", status);
   });
+  await agentTools.syncSkills();
   const library = new ArtifactLibrary(client, (snapshot) => {
     if (!window.isDestroyed()) window.webContents.send("scope:artifact-library-changed", snapshot);
   });

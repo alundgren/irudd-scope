@@ -1,11 +1,9 @@
 import { access, appendFile, mkdir, readFile, readlink, symlink, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Installation } from "./installation-files.ts";
-import { runInstallationCommand } from "./installation-process.ts";
 import type { AgentToolStatus } from "./installation-contract.ts";
+import { AgentSkills } from "./agent-skills.ts";
 
-const SCOPE_SKILLS = ["irudd-scope", "irudd-scope-retro"];
-const SKILLS_PACKAGE = "skills@1.7.0";
 const PATH_ENTRY = '\n# Scope CLI\nexport PATH="$HOME/.local/bin:$PATH"\n';
 
 export class AgentTools {
@@ -46,16 +44,12 @@ export class AgentTools {
         () => false,
       )),
     );
-    this.value.skillInstalled = (
-      await Promise.all(
-        SCOPE_SKILLS.map((name) =>
-          access(join(this.home, ".agents/skills", name, "SKILL.md")).then(
-            () => true,
-            () => false,
-          ),
-        ),
-      )
-    ).every(Boolean);
+    this.value.skillInstalled = Boolean(
+      this.installation &&
+      (await this.skills()
+        .installed()
+        .catch(() => false)),
+    );
     return { ...this.value };
   }
 
@@ -125,44 +119,17 @@ export class AgentTools {
   }
 
   installSkill() {
-    return this.skillCommand(
-      ["add", "alundgren/irudd-scope", "--skill", ...SCOPE_SKILLS],
-      "Scope skills installed globally for Codex and Claude Code.",
-    );
+    return this.run("skill", () => this.skills().install());
   }
   removeSkill() {
-    return this.skillCommand(
-      ["remove", ...SCOPE_SKILLS],
-      "Scope skills removed from Codex and Claude Code.",
-    );
+    return this.run("skill", () => this.skills().remove());
   }
-  private skillCommand(args: string[], success: string) {
-    return this.run("skill", async (signal) => {
-      // npm rejects the clone's pnpm devEngines, so its project directory is the install root.
-      await runInstallationCommand(
-        this.installation!.vp,
-        [
-          "exec",
-          "npx",
-          "--prefix",
-          this.installation!.root,
-          "--yes",
-          SKILLS_PACKAGE,
-          ...args,
-          "--global",
-          "--agent",
-          "codex",
-          "claude-code",
-          "--yes",
-        ],
-        {
-          cwd: join(this.installation!.root, "source"),
-          signal: AbortSignal.any([signal, AbortSignal.timeout(5 * 60_000)]),
-          env: { DISABLE_TELEMETRY: "1", DO_NOT_TRACK: "1" },
-        },
-      );
-      return success;
-    });
+  syncSkills() {
+    if (!this.installation) return this.snapshot();
+    return this.run("skill", () => this.skills().sync());
+  }
+  private skills() {
+    return new AgentSkills(this.installation!.root, this.home);
   }
 
   async cancel() {

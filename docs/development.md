@@ -470,11 +470,20 @@ new terminal to pick up PATH changes. Other shells need `~/.local/bin` added
 to PATH manually. The launcher uses Electron's bundled Node runtime; no
 separate Node installation is needed to publish.
 
-The skill button uses Vite+ to run the [skills CLI](https://skills.sh/docs/cli)
-with `npx`, installing only `irudd-scope` from this repository globally for
-Codex and Claude Code. Update skill repeats that scoped installation. Skills
-do not update automatically with the app. Installation needs network access;
-errors remain visible with a retry through the same button.
+The Mac app bundles `irudd-scope` and `irudd-scope-retro` from the same commit
+as its CLI. Install skill creates global links for Codex and Claude Code;
+those links follow the active app build, including updates and rollback.
+Installation and Repair skill need no network access. Refresh or start a new
+agent session after an update to reload discovered skill guidance.
+
+Startup repairs incomplete managed links and migrates older copies registered
+by the skills CLI as coming from this repository. It preserves those copies,
+including local edits, under `skill-backups/` in the installation directory
+and removes only their entries from the skills CLI registry. Separate copies
+or links to another installation remain untouched; Settings reports the
+conflicting path. Removing the skills keeps them uninstalled across updates.
+The CLI also follows the active app build through its installed link; it needs
+no separate update command.
 
 Use Remove CLI and Remove skill in Settings to undo those installations.
 The shared PATH entry stays in the shell profile. To remove the app, quit it

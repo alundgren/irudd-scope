@@ -56,6 +56,8 @@ try {
     await cp(join(desktop, "dist", entry), join(source, "dist", entry), { recursive: true });
   await cp(join(desktop, "resources"), join(source, "resources"), { recursive: true });
   await cp(join(root, "packages/cli/dist"), join(source, "cli"), { recursive: true });
+  for (const name of ["irudd-scope", "irudd-scope-retro"])
+    await cp(join(root, ".agents/skills", name), join(source, "skills", name), { recursive: true });
   await cp(join(root, "install.sh"), join(source, "install.sh"));
   await cp(join(root, "LICENSE"), join(source, "LICENSE"));
   await mkdir(join(source, "bin"));

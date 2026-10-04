@@ -1,6 +1,7 @@
 import { expect, test } from "vite-plus/test";
 import { execFile } from "node:child_process";
 import {
+  chmod,
   cp,
   lstat,
   mkdir,
@@ -76,6 +77,12 @@ async function fixture(signingIdentity?: string) {
     const executable = join(build, "Scope.app/Contents/MacOS/Scope");
     await mkdir(join(app, "bin"), { recursive: true });
     await mkdir(join(app, "cli"));
+    for (const name of ["irudd-scope", "irudd-scope-retro"]) {
+      const skill = join(app, "skills", name);
+      await mkdir(join(skill, "references"), { recursive: true });
+      await writeFile(join(skill, "SKILL.md"), `${name} ${sha}`);
+      await writeFile(join(skill, "references/guide.md"), `Guide ${sha}`);
+    }
     await mkdir(join(build, "Scope.app/Contents/MacOS"));
     await writeFile(join(app, "package.json"), JSON.stringify({ scopeInstallation: metadata }));
     await writeFile(executable, `#!/bin/sh\nexec ${quote(process.execPath)} "$@"\n`, {
@@ -215,65 +222,175 @@ test("the installed CLI follows app updates, preserves arguments, and refuses to
   }
 });
 
-test("skill installation targets only Scope for the supported agents and reports failures without claiming success", async () => {
+test("Mac skills follow activation and rollback, repair partial links, and stay removed across updates", async () => {
   const f = await fixture();
   const tools = new AgentTools(f.installation, f.home, () => {});
+  const shared = join(f.home, ".agents/skills/irudd-scope");
+  const claude = join(f.home, ".claude/skills/irudd-scope");
+  const codex = join(f.home, ".codex/skills/irudd-scope");
   try {
-    const log = join(f.directory, "arguments.json");
-    const skills = ["irudd-scope", "irudd-scope-retro"].map((name) =>
-      join(f.home, ".agents/skills", name),
-    );
-    await writeFile(
-      f.vp,
-      `#!${process.execPath}
-const fs = require('node:fs');
-const args = process.argv.slice(2);
-fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify(args));
-if (fs.existsSync(${JSON.stringify(join(f.directory, "fail"))})) { console.error('Registry unavailable'); process.exit(1); }
-for (const skill of ${JSON.stringify(skills)}) {
- if (args.includes('add')) { fs.mkdirSync(skill, {recursive:true}); fs.writeFileSync(require('node:path').join(skill, 'SKILL.md'), 'Synthetic skill'); }
- else fs.rmSync(skill, {recursive:true, force:true});
-}
-`,
-      { mode: 0o755 },
-    );
+    await tools.syncSkills();
+    await expect(lstat(shared)).rejects.toMatchObject({ code: "ENOENT" });
     expect((await tools.installSkill()).skillInstalled).toBe(true);
-    await rm(skills[1]!, { recursive: true });
+    expect(await readlink(shared)).toBe(
+      join(f.root, "current/Scope.app/Contents/Resources/app/skills/irudd-scope"),
+    );
+    await expect(lstat(codex)).rejects.toMatchObject({ code: "ENOENT" });
+    const next = await f.commit();
+    const second = await f.bundle(next);
+    await activateBuild(f.root, second);
+    expect(await readFile(join(claude, "SKILL.md"), "utf8")).toBe(`irudd-scope ${next}`);
+    expect(await readFile(join(shared, "references/guide.md"), "utf8")).toBe(`Guide ${next}`);
+    expect(await readFile(join(f.home, ".agents/skills/irudd-scope-retro/SKILL.md"), "utf8")).toBe(
+      `irudd-scope-retro ${next}`,
+    );
+    await activateBuild(f.root, f.first);
+    expect(await readFile(join(claude, "SKILL.md"), "utf8")).toBe(`irudd-scope ${f.initial}`);
+    await rm(claude);
     expect((await tools.snapshot()).skillInstalled).toBe(false);
-    expect((await tools.installSkill()).skillInstalled).toBe(true);
-    const args: string[] = JSON.parse(await readFile(log, "utf8"));
-    expect(args.slice(0, 2)).toEqual(["exec", "npx"]);
-    expect(args[args.indexOf("--prefix") + 1]).toBe(f.root);
-    const command = args.findIndex((arg) => /^skills@\d+\.\d+\.\d+$/.test(arg));
-    expect(command).toBeGreaterThan(1);
-    expect(args.slice(command + 1, command + 3)).toEqual(["add", "alundgren/irudd-scope"]);
-    const values = (flag: string) => {
-      const start = args.indexOf(flag);
-      expect(start).toBeGreaterThan(command);
-      const end = args.findIndex((arg, index) => index > start && arg.startsWith("--"));
-      return args.slice(start + 1, end < 0 ? undefined : end);
-    };
-    expect(values("--skill")).toEqual(["irudd-scope", "irudd-scope-retro"]);
-    expect(values("--agent").sort()).toEqual(["claude-code", "codex"]);
-    expect(values("--global")).toEqual([]);
-    expect(args.slice(2, command)).toContain("--yes");
-    expect(args.slice(command + 1)).toContain("--yes");
+    expect((await tools.syncSkills()).skillInstalled).toBe(true);
     expect((await tools.removeSkill()).skillInstalled).toBe(false);
-    const removal: string[] = JSON.parse(await readFile(log, "utf8"));
-    expect(removal.slice(removal.indexOf("remove") + 1, removal.indexOf("--global"))).toEqual([
-      "irudd-scope",
-      "irudd-scope-retro",
-    ]);
-    await writeFile(join(f.directory, "fail"), "");
-    const failed = await tools.installSkill();
-    expect(failed.error).toContain("Registry unavailable");
-    expect(failed.message).toBe("");
-    expect(failed.skillInstalled).toBe(false);
+    await activateBuild(f.root, second);
+    await tools.syncSkills();
+    await expect(lstat(shared)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(claude)).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await tools.cancel();
     await rm(f.directory, { recursive: true, force: true });
   }
 });
+
+test("startup migrates skills CLI copies, retains their files, and preserves unrelated registry entries", async () => {
+  const f = await fixture();
+  const tools = new AgentTools(f.installation, f.home, () => {});
+  const names = ["irudd-scope", "irudd-scope-retro"];
+  try {
+    const skills: Record<string, unknown> = {
+      unrelated: { source: "someone/other", sourceType: "github", custom: "Keep" },
+    };
+    for (const name of names) {
+      const shared = join(f.home, ".agents/skills", name);
+      await mkdir(shared, { recursive: true });
+      await writeFile(join(shared, "SKILL.md"), `Old ${name}`);
+      await writeFile(join(shared, "custom.md"), "Preserve personal edits");
+      for (const agent of [".claude", ".codex"]) {
+        const path = join(f.home, agent, "skills", name);
+        await mkdir(join(f.home, agent, "skills"), { recursive: true });
+        await symlink(`../../.agents/skills/${name}`, path);
+      }
+      skills[name] = {
+        source: "alundgren/irudd-scope",
+        sourceType: "github",
+        skillPath: `.agents/skills/${name}/SKILL.md`,
+      };
+    }
+    const lock = join(f.home, ".agents/.skill-lock.json");
+    await writeFile(lock, JSON.stringify({ version: 3, skills, custom: "Keep this too" }));
+    expect((await tools.snapshot()).skillInstalled).toBe(false);
+    const result = await tools.syncSkills();
+    expect(result.error).toBeUndefined();
+    expect(result.skillInstalled).toBe(true);
+    expect(result.message).toContain("Previous copies saved");
+    const registry = JSON.parse(await readFile(lock, "utf8"));
+    expect(registry).toEqual({
+      version: 3,
+      skills: { unrelated: skills.unrelated },
+      custom: "Keep this too",
+    });
+    const backups = await readdir(join(f.root, "skill-backups"));
+    expect(backups).toHaveLength(2);
+    for (const name of names) {
+      const backup = backups.find((path) => path.slice(0, -37) === name)!;
+      expect(await readFile(join(f.root, "skill-backups", backup, "SKILL.md"), "utf8")).toBe(
+        `Old ${name}`,
+      );
+      expect(await readFile(join(f.root, "skill-backups", backup, "custom.md"), "utf8")).toBe(
+        "Preserve personal edits",
+      );
+      expect(await readFile(join(f.home, ".codex/skills", name, "SKILL.md"), "utf8")).toBe(
+        `${name} ${f.initial}`,
+      );
+    }
+    await tools.syncSkills();
+    expect(await readdir(join(f.root, "skill-backups"))).toEqual(backups);
+    await tools.removeSkill();
+    await tools.syncSkills();
+    expect((await tools.snapshot()).skillInstalled).toBe(false);
+  } finally {
+    await tools.cancel();
+    await rm(f.directory, { recursive: true, force: true });
+  }
+});
+
+test.each(["directory", "symlink"])(
+  "Mac skill installation leaves a separate %s and other skills unchanged",
+  async (kind) => {
+    const f = await fixture();
+    const tools = new AgentTools(f.installation, f.home, () => {});
+    const shared = join(f.home, ".agents/skills/irudd-scope");
+    try {
+      const other = join(f.directory, "other-skill");
+      await mkdir(other);
+      await writeFile(join(other, "SKILL.md"), "Keep this skill");
+      await mkdir(join(f.home, ".agents/skills"), { recursive: true });
+      if (kind === "directory") await cp(other, shared, { recursive: true });
+      else await symlink(other, shared);
+      const unrelated = join(f.home, ".agents/skills/unrelated");
+      await cp(other, unrelated, { recursive: true });
+      for (const action of [
+        () => tools.syncSkills(),
+        () => tools.installSkill(),
+        () => tools.removeSkill(),
+      ]) {
+        const result = await action();
+        expect(result.error).toContain("separate skill installation");
+        expect(result.skillInstalled).toBe(false);
+        expect(await readFile(join(shared, "SKILL.md"), "utf8")).toBe("Keep this skill");
+        expect(await readFile(join(unrelated, "SKILL.md"), "utf8")).toBe("Keep this skill");
+        await expect(lstat(join(f.home, ".claude/skills/irudd-scope"))).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+      }
+    } finally {
+      await tools.cancel();
+      await rm(f.directory, { recursive: true, force: true });
+    }
+  },
+);
+
+test.skipIf(process.getuid?.() === 0)(
+  "a failed Mac skill installation restores migrated files and leaves the registry unchanged",
+  async () => {
+    const f = await fixture();
+    const tools = new AgentTools(f.installation, f.home, () => {});
+    const shared = join(f.home, ".agents/skills/irudd-scope");
+    try {
+      await mkdir(shared, { recursive: true });
+      await writeFile(join(shared, "SKILL.md"), "Old skill");
+      const lock = join(f.home, ".agents/.skill-lock.json");
+      const original = JSON.stringify({
+        skills: {
+          "irudd-scope": {
+            source: "alundgren/irudd-scope",
+            sourceType: "github",
+            skillPath: ".agents/skills/irudd-scope/SKILL.md",
+          },
+        },
+      });
+      await writeFile(lock, original);
+      await mkdir(join(f.home, ".claude/skills"), { recursive: true });
+      await chmod(join(f.home, ".claude/skills"), 0o500);
+      expect((await tools.syncSkills()).error).toBeDefined();
+      expect((await lstat(shared)).isDirectory()).toBe(true);
+      expect(await readFile(join(shared, "SKILL.md"), "utf8")).toBe("Old skill");
+      expect(await readFile(lock, "utf8")).toBe(original);
+    } finally {
+      await chmod(join(f.home, ".claude/skills"), 0o700).catch(() => {});
+      await tools.cancel();
+      await rm(f.directory, { recursive: true, force: true });
+    }
+  },
+);
 
 test("startup checks skip unchanged main, preserve the running app on build failure, and activate a prepared retry", async () => {
   const f = await fixture();
