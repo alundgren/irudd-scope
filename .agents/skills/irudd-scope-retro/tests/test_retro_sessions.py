@@ -419,11 +419,27 @@ class NativeSessionTests(unittest.TestCase):
         result = self.run_helper("destinations", environment=environment)
         self.assertTrue(result["capabilities"]["okfExecutable"].endswith("irudd-okf"))
         self.assertEqual(result["destinations"], [])
-        result = self.run_helper("destinations", extra=["--okf-store", "verified-store"], environment=environment)
-        self.assertEqual(result["destinations"][0]["path"], "verified-store")
-        result = self.run_helper("destinations", extra=["--okf-store", "verified-store"], environment=self.fake_environment([]))
+        store = self.root / "verified-store"
+        store.mkdir()
+        result = self.run_helper("destinations", extra=["--okf-store", str(store)], environment=environment)
+        self.assertEqual(result["destinations"][0], {**result["destinations"][0], "type": "okf", "scope": "operator", "path": str(store.resolve()), "available": True})
+        result = self.run_helper("destinations", extra=["--okf-store", str(store)], environment=self.fake_environment([]))
         self.assertIsNone(result["capabilities"]["okfExecutable"])
         self.assertEqual(result["destinations"], [])
+
+    def test_okf_store_is_absolute_and_project_bundles_stay_inside_the_checkout(self):
+        environment = self.fake_environment(["irudd-okf"])
+        project = self.root / "checkout"
+        bundle = project / ".okf"
+        bundle.mkdir(parents=True)
+        outside = self.root / "personal-okf"
+        outside.mkdir()
+        repository = ["--project", str(project), "--repository", "github.com/operator/project"]
+        result = self.run_helper("destinations", extra=[*repository, "--okf-store", str(bundle), "--okf-scope", "project"], environment=environment)
+        destination = next(row for row in result["destinations"] if row["type"] == "okf")
+        self.assertEqual((destination["id"], destination["scope"], destination["repository"]), ("okf-project", "project", "github.com/operator/project"))
+        for extra in (["--okf-store", "relative-store"], [*repository, "--okf-store", str(outside), "--okf-scope", "project"], ["--okf-store", str(bundle), "--okf-scope", "project"]):
+            self.assertIn("OKF", self.run_helper("destinations", extra=extra, environment=environment, succeeds=False)["error"])
 
 
 if __name__ == "__main__":

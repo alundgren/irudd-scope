@@ -1,5 +1,5 @@
 import { expect, test } from "vite-plus/test";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RetroReport, RetroSnapshot, RetroDestination } from "@irudd-scope/protocol/retro";
@@ -815,6 +815,117 @@ test("RETRO watch assembles a multi-page inventory and history opens from search
     await history.getByRole("button", { name: "Open report" }).click();
     await settings.waitFor({ state: "hidden" });
     await page.getByText("Saved final report · Read only", { exact: true }).waitFor();
+  } finally {
+    await application.close();
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("OKF previews show the exact edit, keep the destination fixed and become history when memory is off", async () => {
+  const fixture = await desktopFixture();
+  const application = await fixture.launch();
+  try {
+    const page = await application.firstWindow();
+    const file = join(fixture.directory, "report.html");
+    await writeFile(file, await readFile("apps/desktop/src/plugins/retro/starter.html", "utf8"));
+    await fixture.cli("add", file, "--retro", "--name", name);
+    const client = await fixture.connect();
+    await configure(client);
+    const okf: RetroDestination = {
+      id: "okf-personal",
+      type: "okf",
+      scope: "operator",
+      sourceId: "local",
+      path: "/synthetic/okf-memory",
+      available: true,
+      verifiedAt: at,
+    };
+    const settings = await client.retro({ action: "settings" });
+    if (settings.type !== "configuration") throw new Error("Expected configuration.");
+    await client.retro({
+      action: "configure",
+      requestId: randomUUID(),
+      expectedVersion: settings.configuration.version,
+      configuration: { ...settings.configuration, memory: { enabled: true, destinations: [okf] } },
+    });
+    const before = "---\ntype: Rule\ntitle: Report drafts\n---\n\nKeep drafts.\n";
+    const after = before.replace("Keep drafts.", "Flush drafts before closing a report.");
+    const initial = report();
+    await publishReport(client, 1, {
+      ...initial,
+      findings: [
+        {
+          ...initial.findings[0],
+          id: "okf-lesson",
+          title: "Report drafts were lost",
+          proposal: {
+            kind: "memory",
+            destination: okf,
+            text: after,
+            okfEdit: {
+              path: "gotchas/report-drafts.md",
+              expectedHash: createHash("sha256").update(before).digest("hex"),
+              before,
+              configurationVersion: settings.configuration.version + 1,
+              executionCwd: "/synthetic/project",
+              sourceConnection: {
+                sshAlias: "devbox",
+                endpoint: { hostname: "devbox.internal", port: 22, principal: "dev" },
+                hostIdentity: "SHA256:synthetic-host-key",
+              },
+            },
+          },
+        },
+      ],
+    });
+    const frame = page.frameLocator(".retro-document");
+    await frame.getByText("OKF concept · gotchas/report-drafts.md", { exact: true }).waitFor();
+    await frame
+      .getByText("SSH devbox → dev@devbox.internal:22 · host SHA256:synthetic-host-key", {
+        exact: true,
+      })
+      .waitFor();
+    await frame.getByText("Bundle root · /synthetic/okf-memory", { exact: true }).waitFor();
+    expect(await frame.locator("pre").first().textContent()).toBe(before);
+    expect(await frame.locator("pre").nth(1).textContent()).toBe(after);
+    await frame.getByRole("button", { name: "Edit proposal", exact: true }).click();
+    expect(await frame.getByRole("combobox").count()).toBe(0);
+    const edited = after.replace("closing a report", "closing or finishing a report");
+    await frame.getByRole("textbox", { name: "Proposed text", exact: true }).fill(edited);
+    await frame.getByRole("button", { name: "Save edited proposal", exact: true }).click();
+    await expect
+      .poll(async () => (await read(client)).decisions[0])
+      .toMatchObject({ decision: "edit", text: edited, destination: okf });
+    const current = await client.retro({ action: "settings" });
+    if (current.type !== "configuration") throw new Error("Expected configuration.");
+    await client.retro({
+      action: "configure",
+      requestId: randomUUID(),
+      expectedVersion: current.configuration.version,
+      configuration: { ...current.configuration, memory: { enabled: false, destinations: [okf] } },
+    });
+    const decided = await read(client);
+    await client.retro({
+      action: "comment",
+      name,
+      tabId: decided.tabId,
+      requestId: randomUUID(),
+      expectedVersion: decided.version,
+      findingId: "okf-lesson",
+      text: "Memory is off for now.",
+    });
+    await frame
+      .getByText(
+        "This preview is kept as history and cannot authorize a write. Ask your agent to prepare a fresh preview.",
+        { exact: true },
+      )
+      .waitFor();
+    expect(await frame.getByRole("button", { name: "Accept", exact: true }).isDisabled()).toBe(
+      true,
+    );
+    expect(await frame.getByRole("button", { name: "Reject", exact: true }).isEnabled()).toBe(true);
+    await mkdir(evidence, { recursive: true });
+    await page.screenshot({ path: join(evidence, "okf-preview-history.png") });
   } finally {
     await application.close();
     await rm(fixture.directory, { recursive: true, force: true });

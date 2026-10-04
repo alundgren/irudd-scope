@@ -4,7 +4,7 @@ import { Remotes } from "../apps/desktop/src/remotes.ts";
 import { decodeLocalConnection } from "@irudd-scope/protocol";
 import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
 import { afterEach, expect, test } from "vite-plus/test";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
@@ -1108,3 +1108,292 @@ test.each(["excluded", "removed", "runtime"])(
     ).toMatchObject({ initialized: false, audited: [] });
   },
 );
+
+test("OKF memory proposals bind an exact edit and keep decided previews after settings change", async () => {
+  const f = await fixture();
+  const okf: RetroDestination = {
+    id: "okf-personal",
+    type: "okf",
+    scope: "operator",
+    sourceId: "local",
+    path: "/synthetic/okf-memory",
+    available: true,
+    verifiedAt: cutoff,
+  };
+  await expect(
+    f.configure({
+      ...configuration(),
+      memory: { enabled: true, destinations: [{ ...okf, path: "okf-memory" }] },
+    }),
+  ).rejects.toMatchObject({ status: 400 });
+  await f.configure({ ...configuration(), memory: { enabled: true, destinations: [okf] } });
+  const owner = await f.create();
+  const before = "---\ntype: Rule\ntitle: Drafts\n---\n\nKeep drafts.\n";
+  const okfEdit = {
+    path: "gotchas/report-drafts.md",
+    expectedHash: createHash("sha256").update(before).digest("hex"),
+    before,
+    configurationVersion: 1,
+    executionCwd: "/synthetic",
+    sourceConnection: { sshAlias: null, endpoint: null, hostIdentity: "machine:synthetic" },
+  };
+  const finding = (id: string, edit: Record<string, unknown> | null = okfEdit) => ({
+    id,
+    category: "recurring" as const,
+    title: "Preserve pending report edits",
+    text: "Drafts were lost twice",
+    evidence: ["Synthetic evidence"],
+    sessions: [],
+    proposal: {
+      destination: okf,
+      kind: "memory" as const,
+      text: before.replace("Keep drafts.", "Keep and flush drafts."),
+      ...(edit ? { okfEdit: edit } : {}),
+    },
+  });
+  const publish = (...findings: unknown[]) =>
+    f.write(owner, { action: "publish", report: { ...report(), findings } });
+  for (const invalid of [
+    finding("missing", null),
+    finding("hash", { ...okfEdit, expectedHash: "0".repeat(64) }),
+    finding("version", { ...okfEdit, configurationVersion: 0 }),
+    {
+      ...finding("bytes", { ...okfEdit, before: null, expectedHash: null }),
+      proposal: {
+        ...finding("bytes").proposal,
+        okfEdit: { ...okfEdit, before: null, expectedHash: null },
+        text: "é".repeat(9000),
+      },
+    },
+    {
+      ...finding("wrong-type"),
+      proposal: { ...finding("wrong-type").proposal, destination, kind: "correction" },
+    },
+  ])
+    await expect(publish(invalid)).rejects.toMatchObject({ status: 400 });
+  for (const path of ["../outside.md", "/abs.md", "a/index.md", "log.md", "notes.txt"])
+    await expect(publish(finding("path", { ...okfEdit, path }))).rejects.toThrow();
+  await expect(publish(finding("half-new", { ...okfEdit, expectedHash: null }))).rejects.toThrow();
+
+  await publish(finding("accepted"), finding("rejected"), finding("pending"));
+  await expect(
+    f.write(owner, {
+      action: "decide",
+      findingId: "accepted",
+      decision: "edit",
+      text: "Different text",
+      destination: { ...okf, id: "other" },
+    }),
+  ).rejects.toMatchObject({ status: 400 });
+  await f.write(owner, {
+    action: "decide",
+    findingId: "accepted",
+    decision: "edit",
+    text: before.replace("Keep drafts.", "Flush drafts before close."),
+  });
+  await f.write(owner, { action: "decide", findingId: "rejected", decision: "reject", text: "" });
+  const claude: RetroDestination = {
+    id: "claude-memory",
+    type: "claude-memory",
+    scope: "project",
+    repository,
+    sourceId: "local",
+    path: "/synthetic/claude-memory",
+    available: true,
+    verifiedAt: cutoff,
+  };
+  const current = await f.client.retro({ action: "settings" });
+  if (current.type !== "configuration") throw new Error("Expected config");
+  await f.configure({
+    ...current.configuration,
+    memory: { enabled: true, destinations: [okf, claude] },
+  });
+  await expect(
+    f.write(owner, { action: "decide", findingId: "pending", decision: "accept", text: "" }),
+  ).rejects.toMatchObject({ status: 400 });
+  const unbound = {
+    ...finding("unbound", null),
+    proposal: { destination: claude, kind: "memory" as const, text: "Lesson" },
+  };
+  const okfEditV2 = { ...okfEdit, configurationVersion: 2 };
+  await publish(finding("accepted"), finding("rejected"), finding("pending", okfEditV2), unbound);
+  await expect(
+    f.write(owner, {
+      action: "decide",
+      findingId: "unbound",
+      decision: "edit",
+      text: "Lesson",
+      destination: okf,
+    }),
+  ).rejects.toMatchObject({ status: 400 });
+  expect((await f.read()).decisions[0]).toMatchObject({
+    decision: "edit",
+    destination: okf,
+    text: before.replace("Keep drafts.", "Flush drafts before close."),
+  });
+
+  const settings = await f.client.retro({ action: "settings" });
+  if (settings.type !== "configuration") throw new Error("Expected config");
+  await f.configure({
+    ...settings.configuration,
+    memory: { enabled: false, destinations: [{ ...okf, verifiedAt: "2026-10-04T09:00:00.000Z" }] },
+  });
+  const off = await f.read();
+  expect(off.report.findings.map((item) => item.proposal?.okfEdit?.path)).toEqual([
+    "gotchas/report-drafts.md",
+    "gotchas/report-drafts.md",
+    undefined,
+    undefined,
+  ]);
+  expect(off.report.findings[2].proposal).toBeUndefined();
+  await expect(
+    f.write(owner, { action: "decide", findingId: "pending", decision: "accept", text: "" }),
+  ).rejects.toMatchObject({ status: 400 });
+  await expect(
+    f.write(owner, { action: "decide", findingId: "rejected", decision: "accept", text: "" }),
+  ).rejects.toMatchObject({ status: 400 });
+  await publish(finding("accepted"), finding("rejected"));
+  await f.write(owner, {
+    action: "outcomes",
+    outcomes: [
+      {
+        findingId: "accepted",
+        status: "declined",
+        evidence: "Memory was turned off before the write; no OKF file changed.",
+      },
+    ],
+  });
+  await f.write(owner, { action: "finish", operatorInstruction: "Finish without memory" });
+  const finished = await f.read();
+  expect(finished.report.findings.map((item) => item.proposal?.okfEdit?.expectedHash)).toEqual([
+    okfEdit.expectedHash,
+    okfEdit.expectedHash,
+  ]);
+  expect(finished.outcomes).toMatchObject([{ findingId: "accepted", status: "declined" }]);
+});
+
+test("re-verified OKF destinations need a fresh preview and legacy OKF proposals stay readable", async () => {
+  const f = await fixture();
+  const okf: RetroDestination = {
+    id: "okf-project",
+    type: "okf",
+    scope: "project",
+    repository,
+    sourceId: "local",
+    path: "/synthetic/project/.okf",
+    available: true,
+    verifiedAt: cutoff,
+  };
+  await f.configure({ ...configuration(), memory: { enabled: true, destinations: [okf] } });
+  const owner = await f.create();
+  const proposal = {
+    destination: okf,
+    kind: "memory" as const,
+    text: "---\ntype: Rule\n---\n\nNew lesson.\n",
+    okfEdit: {
+      path: "rules/new-lesson.md",
+      expectedHash: null,
+      before: null,
+      configurationVersion: 1,
+      executionCwd: "/synthetic/project",
+      sourceConnection: {
+        sshAlias: "devbox",
+        endpoint: { hostname: "devbox.internal", port: 22, principal: "dev" },
+        hostIdentity: "SHA256:synthetic-host-key",
+      },
+    },
+  };
+  const finding = {
+    id: "new-lesson",
+    category: "workflow" as const,
+    title: "New lesson",
+    text: "A new concept",
+    evidence: [],
+    sessions: [],
+    proposal,
+  };
+  await f.write(owner, { action: "publish", report: { ...report(), findings: [finding] } });
+  const settings = await f.client.retro({ action: "settings" });
+  if (settings.type !== "configuration") throw new Error("Expected config");
+  const reverified = { ...okf, verifiedAt: "2026-10-04T09:00:00.000Z" };
+  await f.configure({
+    ...settings.configuration,
+    memory: { enabled: true, destinations: [reverified] },
+  });
+  await expect(
+    f.write(owner, { action: "decide", findingId: "new-lesson", decision: "accept", text: "" }),
+  ).rejects.toMatchObject({ status: 400 });
+  await f.write(owner, {
+    action: "publish",
+    report: {
+      ...report(),
+      findings: [
+        {
+          ...finding,
+          proposal: {
+            ...proposal,
+            destination: reverified,
+            okfEdit: { ...proposal.okfEdit, configurationVersion: 2 },
+          },
+        },
+      ],
+    },
+  });
+  await f.write(owner, {
+    action: "decide",
+    findingId: "new-lesson",
+    decision: "accept",
+    text: "",
+  });
+  expect((await f.read()).decisions[0]).toMatchObject({
+    decision: "accept",
+    destination: reverified,
+  });
+
+  const legacyOwner = await f.create("legacy-retro");
+  await f.server.close();
+  const database = new DatabaseSync(join(f.directory, "scope.db"));
+  try {
+    const row = database
+      .prepare("SELECT document FROM retro_reports WHERE tab_id = ?")
+      .get(legacyOwner.tabId) as { document: string };
+    const document = JSON.parse(row.document);
+    const legacy = { destination: reverified, text: proposal.text, kind: proposal.kind };
+    document.report = {
+      ...report(),
+      findings: [{ ...finding, proposal: legacy }],
+    };
+    document.decisions = [
+      {
+        findingId: finding.id,
+        decision: "accept",
+        text: legacy.text,
+        destination: reverified,
+        at: cutoff,
+      },
+    ];
+    database
+      .prepare("UPDATE retro_reports SET document = ? WHERE tab_id = ?")
+      .run(JSON.stringify(document), legacyOwner.tabId);
+  } finally {
+    database.close();
+  }
+  await f.restart();
+  const legacy = await f.read("legacy-retro");
+  expect(legacy.report.findings[0].proposal?.okfEdit).toBeUndefined();
+  await expect(
+    f.write(legacyOwner, {
+      action: "decide",
+      findingId: "new-lesson",
+      decision: "accept",
+      text: "",
+    }),
+  ).rejects.toMatchObject({ status: 400 });
+  await f.write(legacyOwner, {
+    action: "publish",
+    report: {
+      ...report(),
+      findings: [{ ...finding, proposal: legacy.report.findings[0].proposal }],
+    },
+  });
+});

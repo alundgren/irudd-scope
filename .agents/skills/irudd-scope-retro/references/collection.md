@@ -106,9 +106,12 @@ from its own process environment and never toggles native memory. An unresolved
 path stays unavailable; use normal editable instructions instead if appropriate.
 
 `capabilities.okfExecutable` is null unless `irudd-okf` is detected on this host.
-Executable detection alone is not a verified store or write API. Inspect that
-CLI's installed help, verify the chosen store, then pass `--okf-store STORE` to
-produce its destination. Do not infer commands from this helper. Codex generated
+Executable detection alone is not a verified bundle or write API. Probe the
+chosen bundle with that CLI, then pass `--okf-store ROOT` with its absolute
+root to produce a personal destination. Add `--okf-scope project` with
+`--project` and `--repository` for a bundle inside that checkout; a root
+outside it is rejected. The Scope skill's OKF memory reference lists the
+probes. Do not infer commands from this helper. Codex generated
 memory is not an editable destination; this helper exposes supported instruction
 files instead. Recheck capability and concrete destination before applying edits.
 

@@ -75,6 +75,19 @@
       .note {
         white-space: pre-wrap;
       }
+      .okf p {
+        overflow-wrap: anywhere;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font:
+          14px/1.5 ui-monospace,
+          monospace;
+        padding: 12px;
+        border-radius: 6px;
+        background: light-dark(#f6f6f9, #232329);
+      }
       [hidden] {
         display: none !important;
       }
@@ -188,6 +201,74 @@
         parent.append(wrapper);
         return input;
       }
+      function where(destination) {
+        return (
+          (destination.scope === "operator" ? "Personal" : "Project") +
+          " · " +
+          destination.sourceId +
+          " · " +
+          destination.path
+        );
+      }
+      function okfCurrent(proposal) {
+        const permitted = snapshot.permittedDestinations.find(
+          (entry) => entry.id === proposal.destination.id,
+        );
+        return (
+          snapshot.memoryEnabled &&
+          !!permitted &&
+          JSON.stringify(permitted) === JSON.stringify(proposal.destination)
+        );
+      }
+      function okfPreview(container, proposal) {
+        const edit = proposal.okfEdit;
+        container.replaceChildren();
+        container.hidden = !edit;
+        if (!edit) return;
+        const route = edit.sourceConnection.endpoint
+          ? "SSH " +
+            edit.sourceConnection.sshAlias +
+            " → " +
+            edit.sourceConnection.endpoint.principal +
+            "@" +
+            edit.sourceConnection.endpoint.hostname +
+            ":" +
+            edit.sourceConnection.endpoint.port
+          : "Local";
+        container.append(
+          element("p", "OKF concept · " + edit.path),
+          element("p", route + " · host " + edit.sourceConnection.hostIdentity, "secondary"),
+          element("p", "Bundle root · " + proposal.destination.path, "secondary"),
+          element(
+            "p",
+            "Working directory · " +
+              edit.executionCwd +
+              " · settings version " +
+              edit.configurationVersion,
+            "secondary",
+          ),
+          element(
+            "p",
+            edit.before === null ? "Current file" : "Current file · " + edit.expectedHash,
+          ),
+          element(
+            "pre",
+            edit.before === null
+              ? "No file at this path. A new concept will be created."
+              : edit.before,
+          ),
+          element("p", "Proposed file"),
+          element("pre", proposal.text),
+        );
+        if (!okfCurrent(proposal))
+          container.append(
+            element(
+              "p",
+              "This preview is kept as history and cannot authorize a write. Ask your agent to prepare a fresh preview.",
+              "secondary",
+            ),
+          );
+      }
       function findingRow(finding) {
         const article = element("article");
         const category = element(
@@ -211,13 +292,14 @@
         const actions = element("div", undefined, "actions");
         const editor = element("div");
         const notes = element("div");
-        const decision = element("p", undefined, "secondary");
+        const decision = element("div", undefined, "secondary");
         const controls = [];
         const proposalLabel = element("p", undefined, "secondary");
         proposalText = element("p", finding.proposal?.text ?? "");
         proposalDestination = element("p", undefined, "secondary");
+        const okf = element("div", undefined, "okf");
         article.append(proposalLabel, proposalText);
-        article.append(proposalDestination);
+        article.append(proposalDestination, okf);
         controls.push(
           addButton(actions, "Accept", () =>
             act(() => sdk.decide(finding.id, "accept", snapshot.version)),
@@ -232,6 +314,34 @@
               finding.id + ":proposal",
               finding.proposal.text,
             );
+            if (finding.proposal.okfEdit) {
+              editor.append(
+                element(
+                  "p",
+                  "Destination stays " +
+                    where(destination) +
+                    " · " +
+                    finding.proposal.okfEdit.path +
+                    ". Ask your agent to prepare a new finding for a different destination.",
+                  "secondary",
+                ),
+              );
+              addButton(editor, "Save edited proposal", () =>
+                act(async () => {
+                  const submittedText = text.value;
+                  await sdk.decide(
+                    finding.id,
+                    { decision: "edit", text: submittedText },
+                    snapshot.version,
+                  );
+                  if (text.value === submittedText) {
+                    delete drafts[finding.id + ":proposal"];
+                    editor.replaceChildren();
+                  }
+                }),
+              );
+              return;
+            }
             const destinationLabel = element("label", "Destination and scope");
             const choice = element("select");
             const permitted = snapshot.permittedDestinations.filter(
@@ -239,14 +349,7 @@
                 finding.proposal.kind !== "memory" || !["file", "issue"].includes(entry.type),
             );
             for (const entry of permitted) {
-              const option = element(
-                "option",
-                (entry.scope === "operator" ? "Personal" : "Project") +
-                  " · " +
-                  entry.sourceId +
-                  " · " +
-                  entry.path,
-              );
+              const option = element("option", where(entry));
               option.value = entry.id;
               choice.append(option);
             }
@@ -344,18 +447,13 @@
             proposalLabel.hidden = !next.proposal;
             proposalLabel.textContent =
               next.proposal?.kind === "memory" ? "Proposed memory" : "Proposed correction";
-            proposalText.hidden = !next.proposal;
+            proposalText.hidden = !next.proposal || !!next.proposal.okfEdit;
+            okfPreview(okf, next.proposal ?? {});
             proposalDestination.hidden = !next.proposal;
             if (proposalText)
               proposalText.textContent = next.proposal?.text ?? "Proposal withdrawn.";
             if (proposalDestination)
-              proposalDestination.textContent = destination
-                ? (destination.scope === "operator" ? "Personal" : "Project") +
-                  " · " +
-                  destination.sourceId +
-                  " · " +
-                  destination.path
-                : "";
+              proposalDestination.textContent = destination ? where(destination) : "";
           },
         };
       }
@@ -431,24 +529,34 @@
           }
           row.update(finding);
           const chosen = value.decisions.find((entry) => entry.findingId === finding.id);
-          row.decision.textContent = chosen
-            ? chosen.decision +
-              " · " +
-              chosen.text +
-              (chosen.destination
-                ? " · " +
-                  (chosen.destination.scope === "operator" ? "Personal" : "Project") +
+          if (chosen && finding.proposal?.okfEdit)
+            row.decision.replaceChildren(
+              element(
+                "p",
+                chosen.decision +
                   " · " +
-                  chosen.destination.sourceId +
+                  where(chosen.destination) +
                   " · " +
-                  chosen.destination.path
-                : "")
-            : "Undecided. No change has been applied.";
+                  finding.proposal.okfEdit.path +
+                  (chosen.decision === "reject" ? "" : " · pending until your agent finishes"),
+              ),
+              ...(chosen.decision === "edit" ? [element("pre", chosen.text)] : []),
+            );
+          else
+            row.decision.textContent = chosen
+              ? chosen.decision +
+                " · " +
+                chosen.text +
+                (chosen.destination ? " · " + where(chosen.destination) : "")
+              : "Undecided. No change has been applied.";
           row.controls.forEach((button) => {
             button.disabled =
               value.status === "finished" ||
               (!finding.proposal &&
-                ["Accept", "Edit proposal", "Reject"].includes(button.textContent));
+                ["Accept", "Edit proposal", "Reject"].includes(button.textContent)) ||
+              (finding.proposal?.destination.type === "okf" &&
+                !(finding.proposal.okfEdit && okfCurrent(finding.proposal)) &&
+                ["Accept", "Edit proposal"].includes(button.textContent));
           });
           row.notes.replaceChildren();
           for (const note of value.comments.filter((entry) => entry.findingId === finding.id))

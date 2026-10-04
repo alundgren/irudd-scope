@@ -112,10 +112,57 @@ export const RetroMetric = Schema.Struct({
   method: Short,
   coverage: Short,
 });
+export const MAX_RETRO_OKF_TEXT_BYTES = 16 * 1024;
+const Required = Short.check(Schema.isMinLength(1));
+const OkfConceptPath = Required.check(
+  Schema.makeFilter(
+    (value) => {
+      const parts = value.split("/");
+      return (
+        value.endsWith(".md") &&
+        !value.includes("\\") &&
+        parts.every((p) => p !== "" && p !== "." && p !== "..") &&
+        !["index.md", "log.md"].includes(parts.at(-1)!)
+      );
+    },
+    {
+      expected: "a relative Markdown concept path without index.md or log.md",
+      toJsonSchema: () => ({ type: "string" }),
+    },
+  ),
+);
+export const RetroOkfEdit = Schema.Struct({
+  path: OkfConceptPath,
+  expectedHash: Schema.NullOr(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))),
+  before: Schema.NullOr(Text),
+  configurationVersion: Revision,
+  executionCwd: Required.check(Schema.isPattern(/^\//)),
+  sourceConnection: Schema.Struct({
+    sshAlias: Schema.NullOr(Required),
+    endpoint: Schema.NullOr(
+      Schema.Struct({
+        hostname: Required,
+        port: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 })),
+        principal: Required,
+      }),
+    ),
+    hostIdentity: Required,
+  }).check(
+    Schema.makeFilter((c) => (c.sshAlias === null) === (c.endpoint === null), {
+      expected: "an SSH alias with its endpoint, or neither for local execution",
+    }),
+  ),
+}).check(
+  Schema.makeFilter((edit) => (edit.expectedHash === null) === (edit.before === null), {
+    expected: "expectedHash and before both present, or both null for a new concept",
+  }),
+);
+export type RetroOkfEdit = typeof RetroOkfEdit.Type;
 export const RetroProposal = Schema.Struct({
   destination: RetroDestination,
   text: Text,
   kind: Schema.Literals(["correction", "memory"]),
+  okfEdit: Schema.optionalKey(RetroOkfEdit),
 });
 export const RetroFinding = Schema.Struct({
   id: Id,

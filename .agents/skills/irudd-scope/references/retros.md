@@ -125,8 +125,11 @@ never enables or disables native auto memory.
 
 Codex generated memory offers no supported CRUD contract here. Use supported
 personal or repository instruction files instead. Show irudd-okf only when its
-executable exists on the destination host; inspect installed help and use its
-supported commands. There is no generic file-writing service in Scope.
+executable exists on the destination host and the chosen bundle passed the
+checks in [OKF memory](retro-okf.md). OKF proposals carry an exact `okfEdit`
+preview bound to one host, bundle root, concept path and previous file hash;
+follow that reference for preparation, writing and recovery. There is no
+generic file-writing service in Scope.
 
 For every proposal, show the exact final text, destination host, path or supported
 store, and whether it is personal or belongs to the session's repository.

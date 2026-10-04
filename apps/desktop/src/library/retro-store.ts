@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { Artifact, decode, ScopeError, type LiveEvent } from "@irudd-scope/protocol";
 import {
+  MAX_RETRO_OKF_TEXT_BYTES,
   RetroCommand,
   RetroReply,
   RetroReport,
@@ -233,7 +234,8 @@ export class RetroStore {
                       ? {
                           ...document.report,
                           findings: document.report.findings.map((f) =>
-                            f.proposal?.kind === "memory"
+                            f.proposal?.kind === "memory" &&
+                            !document.decisions.some((d) => d.findingId === f.id)
                               ? Object.fromEntries(
                                   Object.entries(f).filter(([key]) => key !== "proposal"),
                                 )
@@ -312,6 +314,31 @@ export class RetroStore {
                   d.id === destination.id &&
                   JSON.stringify(d) === JSON.stringify(destination),
               ));
+          const okfProblem = (
+            proposal: NonNullable<RetroReport["findings"][number]["proposal"]>,
+            finalText: string,
+          ) => {
+            const edit = proposal.okfEdit;
+            if (proposal.destination.type !== "okf")
+              return edit ? "Only OKF destinations accept an exact OKF edit." : null;
+            if (!edit)
+              return "Prepare this OKF proposal again with its exact edit preview before review.";
+            if (!proposal.destination.path.startsWith("/"))
+              return "OKF destinations need an absolute bundle root. Verify the destination again.";
+            if (
+              Buffer.byteLength(finalText) > MAX_RETRO_OKF_TEXT_BYTES ||
+              (edit.before !== null && Buffer.byteLength(edit.before) > MAX_RETRO_OKF_TEXT_BYTES)
+            )
+              return "OKF previews are limited to 16 KiB of UTF-8 text. Review larger concepts manually.";
+            if (
+              edit.before !== null &&
+              createHash("sha256").update(edit.before).digest("hex") !== edit.expectedHash
+            )
+              return "The OKF expected hash does not match the previous text.";
+            if (edit.configurationVersion !== configuration?.version)
+              return "Retrospective settings changed. Prepare this OKF edit again.";
+            return null;
+          };
           switch (command.action) {
             case "publish": {
               const ids = command.report.findings.map((f) => f.id);
@@ -359,7 +386,11 @@ export class RetroStore {
                   return yield* fail("An unavailable runtime cannot initialize.", 400);
               }
               for (const f of command.report.findings)
-                if (f.proposal) {
+                // Decided proposals are retained history; the immutability check below
+                // keeps them identical, and decide rechecks current eligibility.
+                if (f.proposal && !document.decisions.some((d) => d.findingId === f.id)) {
+                  const okf = okfProblem(f.proposal, f.proposal.text);
+                  if (okf) return yield* fail(okf, 400);
                   if (
                     ["claude-memory", "okf"].includes(f.proposal.destination.type) &&
                     f.proposal.kind !== "memory"
@@ -451,6 +482,23 @@ export class RetroStore {
                 return yield* fail("Native memory destinations require a memory proposal.", 400);
               if (!finding?.proposal)
                 return yield* fail("This finding has no correction proposal.", 400);
+              if (
+                command.destination &&
+                (finding.proposal.destination.type === "okf" ||
+                  command.destination.type === "okf") &&
+                JSON.stringify(command.destination) !== JSON.stringify(finding.proposal.destination)
+              )
+                return yield* fail(
+                  "OKF decisions keep the prepared destination. Ask the agent to prepare a new finding for a different OKF destination.",
+                  400,
+                );
+              if (command.decision !== "reject") {
+                const okf = okfProblem(
+                  finding.proposal,
+                  command.decision === "accept" ? finding.proposal.text : command.text,
+                );
+                if (okf) return yield* fail(okf, 400);
+              }
               if (
                 command.decision !== "reject" &&
                 !allowedDestination(

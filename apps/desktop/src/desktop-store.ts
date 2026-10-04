@@ -237,6 +237,13 @@ export class DesktopStore {
                     "Claude memory destinations require their project repository.",
                   ),
                 );
+              if (destination.type === "okf" && !destination.path.startsWith("/"))
+                return yield* Effect.fail(
+                  new ScopeError(
+                    400,
+                    "OKF destinations store an absolute bundle root. Verify the destination again.",
+                  ),
+                );
               if (!command.sources.some((s) => s.id === destination.sourceId))
                 return yield* Effect.fail(
                   new ScopeError(400, "Destination source is not configured."),

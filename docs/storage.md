@@ -361,6 +361,10 @@ Retro review records belong to their tab in `scope.db`: normalized session
 inventory, findings, decisions, notes, requests, applied outcomes and authored
 JSON state. Native transcripts remain on their source hosts. Reports may
 contain short evidence excerpts and metrics with their methods and coverage.
+An OKF memory proposal can also store its reviewed `okfEdit` preview,
+including up to 16 KiB of previous concept text. The field is optional inside
+the existing report JSON, so earlier reports load unchanged and need no
+migration. Desktop builds without the field reject reports that contain it.
 
 Separate source/runtime records persist audited native session IDs, first-use
 initialization, Start now cutoffs and recorded retro-agent identities. They

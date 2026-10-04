@@ -516,12 +516,21 @@ def destinations(args):
                 raise ValueError("Claude memory requires an absolute runtime-confirmed path and project repository")
             add("claude-auto-memory", "claude-memory", "project", memory, memory.is_dir() and os.access(memory, os.R_OK | os.W_OK))
     okf = shutil.which("irudd-okf")
-    if okf:
-        if args.okf_store:
-            add("okf", "okf", "operator", args.okf_store, True)
+    if okf and args.okf_store:
+        if not os.path.isabs(args.okf_store):
+            raise ValueError("--okf-store must be the absolute OKF bundle root")
+        store = Path(args.okf_store).resolve()
+        if args.okf_scope == "project":
+            if not project:
+                raise ValueError("Project OKF destinations require --project and --repository")
+            if store != project and project not in store.parents:
+                raise ValueError("A project OKF bundle must be inside the --project checkout")
+            add("okf-project", "okf", "project", store, store.is_dir() and os.access(store, os.R_OK))
+        else:
+            add("okf", "okf", "operator", store, store.is_dir() and os.access(store, os.R_OK))
     return {"sourceId": args.source_id, "verifiedAt": at, "destinations": results,
             "capabilities": {"okfExecutable": okf},
-            "notes": ["No native memory setting changed", "Claude auto memory appears only with an explicitly runtime-confirmed directory", "OKF executable detection does not establish a store; inspect its help before proposing a destination"]}
+            "notes": ["No native memory setting changed", "Claude auto memory appears only with an explicitly runtime-confirmed directory", "OKF executable detection does not establish a bundle; probe context, search and read on it before proposing a destination"]}
 
 
 def main():
@@ -544,7 +553,8 @@ def main():
     command.add_argument("--codex-root")
     command.add_argument("--project")
     command.add_argument("--repository")
-    command.add_argument("--okf-store", help="Store location confirmed with the detected OKF CLI; never an inferred path")
+    command.add_argument("--okf-store", help="Absolute bundle root confirmed with the detected OKF CLI; never an inferred path")
+    command.add_argument("--okf-scope", choices=("operator", "project"), default="operator", help="Personal bundle, or a bundle inside the --project checkout")
     command.add_argument("--claude-memory-path", help="Directory confirmed by the destination Claude runtime's /memory view")
     args = parser.parse_args()
     if args.command == "inventory" and not 1 <= args.page_size <= 200:
