@@ -358,7 +358,8 @@ test("RETRO preserves drafts through data updates, HTML replacement, navigation,
       })
       .click();
     await page.getByRole("tab", { name: "Other report", exact: true }).waitFor();
-    await page.keyboard.press("ControlOrMeta+,");
+    await page.getByRole("button", { name: "Search and controls" }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
     const settings = page.getByRole("dialog", { name: "Settings", exact: true });
     await settings.getByLabel("Search settings").fill("retro history");
     await settings.getByRole("button", { name: "Open RETRO history", exact: true }).click();
@@ -766,7 +767,8 @@ test("RETRO watch assembles a multi-page inventory and history opens from search
   const application = await fixture.launch();
   try {
     const page = await application.firstWindow();
-    await page.keyboard.press("ControlOrMeta+,");
+    await page.getByRole("button", { name: "Search and controls" }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
     const settings = page.getByRole("dialog", { name: "Settings", exact: true });
     await settings.getByLabel("Search settings").fill("retro history");
     await settings.getByRole("button", { name: "Open RETRO history" }).click();

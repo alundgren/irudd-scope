@@ -296,6 +296,7 @@ export function canonicalRetroRepository(origin: string): string | null {
   if (origin.length > 4096 || /\s/.test(origin.trim())) return null;
   let host: string;
   let path: string;
+  let protocol = "ssh:";
   try {
     const scp = /^(?:[^@/]+@)?([A-Za-z0-9.-]+):([^/].*)$/.exec(origin.trim());
     if (scp && !origin.includes("://")) {
@@ -303,6 +304,7 @@ export function canonicalRetroRepository(origin: string): string | null {
       path = scp[2];
     } else {
       const url = new URL(origin);
+      protocol = url.protocol;
       if (!["https:", "http:", "ssh:", "git:"].includes(url.protocol) || url.search || url.hash)
         return null;
       const raw = /^[a-z]+:\/\/([^/?#]+)(\/[^?#]*)?/i.exec(origin.trim());
@@ -311,7 +313,11 @@ export function canonicalRetroRepository(origin: string): string | null {
       path = (raw[2] ?? "").replace(/^\/+/, "");
     }
     host = host.toLowerCase();
-    if (["github.com:22", "github.com:443"].includes(host)) host = "github.com";
+    if (
+      (protocol === "ssh:" && host === "github.com:22") ||
+      (protocol === "https:" && host === "github.com:443")
+    )
+      host = "github.com";
     path = path.replace(/\/+$/, "").replace(/\.git$/, "");
     if (host === "github.com") {
       if (path.split("/").length !== 2) return null;

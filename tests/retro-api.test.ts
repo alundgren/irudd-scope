@@ -706,6 +706,12 @@ test("repository origins unify GitHub SSH/HTTPS and retain fork, non-GitHub case
   expect(canonicalRetroRepository("git@github.com:Operator/Project.git")).toBe(repository);
   expect(canonicalRetroRepository("ssh://git@github.com:22/Operator/Project.git")).toBe(repository);
   expect(canonicalRetroRepository("https://github.com:443/Operator/Project.git")).toBe(repository);
+  expect(canonicalRetroRepository("https://github.com:22/Operator/Project.git")).toBe(
+    "github.com:22/Operator/Project",
+  );
+  expect(canonicalRetroRepository("ssh://git@github.com:443/Operator/Project.git")).toBe(
+    "github.com:443/Operator/Project",
+  );
   expect(canonicalRetroRepository("https://github.com/OPERATOR/PROJECT")).toBe(repository);
   expect(canonicalRetroRepository("https://github.com/fork/project")).not.toBe(repository);
   expect(canonicalRetroRepository("ssh://git@Git.Example:2222/Team/Project.git")).toBe(
