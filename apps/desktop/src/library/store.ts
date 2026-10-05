@@ -30,10 +30,22 @@ import { DiagramDraft } from "../plugins/diagram/draft.ts";
 import { importTransferredTab, transferReceipt } from "./transfer-import.ts";
 import { TransferId, type TransferManifest } from "@irudd-scope/protocol/transfer";
 
-function assertBuiltinType(saved: Tab, next: Tab): void {
-  if ((isBuiltinTab(saved) || isBuiltinTab(next)) && saved.type !== next.type)
+// An artifact tab may become built-in when its artifact kind does, such as HTML
+// republished as a pull request inbox. Built-in tabs never change type again.
+function assertBuiltinType(saved: Tab, next: Tab, artifactKind?: string): void {
+  if (saved.type === next.type) return;
+  if (isBuiltinTab(saved) || (isBuiltinTab(next) && next.type !== artifactKind))
     throw new Error("The type of a built-in tab cannot change.");
 }
+
+const artifactKind = (sql: SqliteClient.SqliteClient, id: string | undefined) =>
+  Effect.gen(function* () {
+    if (!id) return undefined;
+    const [row] = yield* sql<{
+      kind: string;
+    }>`SELECT json_extract(document, '$.kind') AS kind FROM artifacts WHERE id = ${id}`;
+    return row?.kind;
+  });
 
 const databaseRuntime = (filename: string) => ManagedRuntime.make(SqliteClient.layer({ filename }));
 
@@ -112,6 +124,7 @@ export class ArtifactStore {
       await store.initializePullRequestsAppState();
       await store.initializePullRequestAppState();
       await store.retros.initialize();
+      await store.initializeBuiltinPullRequests();
       await store.pullRequests.recoverInterruptedSync();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
@@ -195,7 +208,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 12) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 13) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");
@@ -335,6 +348,38 @@ export class ArtifactStore {
         Effect.gen(function* () {
           yield* sql`CREATE UNIQUE INDEX IF NOT EXISTS artifacts_name ON artifacts(json_extract(document, '$.name')) WHERE json_extract(document, '$.name') IS NOT NULL`;
           yield* sql`PRAGMA user_version = 4`;
+        }),
+      ),
+    );
+  }
+
+  // Pull request inboxes used to be ordinary tabs that could enter Trashcan.
+  // Built-in tabs cannot, so trashed inboxes return as closed tabs in the drawer.
+  private async initializeBuiltinPullRequests(): Promise<void> {
+    const sql = this.sql;
+    const [{ user_version }] = await this.run(sql<{ user_version: number }>`PRAGMA user_version`);
+    if (user_version >= 13) return;
+    await this.run(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const rows = yield* sql<{
+            id: string;
+            artifact_id: string;
+            document: string | null;
+            trashed_at: number | null;
+          }>`SELECT live_tabs.id, live_tabs.artifact_id, live_tabs.document, live_tabs.trashed_at FROM live_tabs JOIN artifacts ON artifacts.id = live_tabs.artifact_id WHERE json_extract(artifacts.document, '$.kind') = 'pull-requests' ORDER BY live_tabs.position`;
+          for (const row of rows) {
+            const document = row.document && {
+              ...decode(Tab, JSON.parse(row.document)),
+              type: "pull-requests",
+              state: { version: 1, data: { artifactId: row.artifact_id } },
+              ...(row.trashed_at === null ? {} : { hidden: true }),
+            };
+            yield* sql`UPDATE live_tabs SET permanent = 1, trashed_at = NULL, document = ${document ? JSON.stringify(document) : null} WHERE id = ${row.id}`;
+            if (row.trashed_at !== null)
+              yield* sql`UPDATE live_tabs SET position = (SELECT max(position) + 1 FROM live_tabs) WHERE id = ${row.id}`;
+          }
+          yield* sql`PRAGMA user_version = 13`;
         }),
       ),
     );
@@ -591,9 +636,14 @@ export class ArtifactStore {
           const [requested] = yield* sql<{
             document: string | null;
           }>`SELECT document FROM live_tabs WHERE id = ${id}`;
+          const kind = yield* artifactKind(sql, artifactId);
+          if (kind && isBuiltinTab({ type: kind }) && tab.type !== kind)
+            return yield* Effect.fail(
+              new Error("Built-in artifacts open only in their own tab type."),
+            );
           if (requested?.document)
-            assertBuiltinType(decode(Tab, JSON.parse(requested.document)), tab);
-          if (isBuiltinTab(tab)) {
+            assertBuiltinType(decode(Tab, JSON.parse(requested.document)), tab, kind);
+          if (isBuiltinTab(tab) && !artifactId) {
             const candidates = yield* sql<{
               document: string;
             }>`SELECT document FROM live_tabs WHERE opened = 1 AND document IS NOT NULL AND artifact_id IS NULL`;
@@ -626,7 +676,8 @@ export class ArtifactStore {
           const [saved] = yield* sql<{
             document: string | null;
           }>`SELECT document FROM live_tabs WHERE id = ${id}`;
-          if (saved?.document) assertBuiltinType(decode(Tab, JSON.parse(saved.document)), tab);
+          if (saved?.document)
+            assertBuiltinType(decode(Tab, JSON.parse(saved.document)), tab, kind);
           const opened = { ...tab, id };
           const rows =
             yield* sql`UPDATE live_tabs SET opened = 1, document = ${JSON.stringify(opened)},
@@ -649,7 +700,12 @@ export class ArtifactStore {
             const [saved] = yield* sql<{
               document: string | null;
             }>`SELECT document FROM live_tabs WHERE id = ${tab.id}`;
-            if (saved?.document) assertBuiltinType(decode(Tab, JSON.parse(saved.document)), tab);
+            if (saved?.document)
+              assertBuiltinType(
+                decode(Tab, JSON.parse(saved.document)),
+                tab,
+                yield* artifactKind(sql, tabArtifactId(tab)),
+              );
             yield* sql`UPDATE live_tabs SET document = ${JSON.stringify(tab)}, position = ${position} WHERE id = ${tab.id} AND opened = 1 AND trashed_at IS NULL AND artifact_id IS ${tabArtifactId(tab) ?? null}`;
           }
         }),

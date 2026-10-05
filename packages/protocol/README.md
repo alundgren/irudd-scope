@@ -394,7 +394,8 @@ Agents own their exported files, scripts, HTML, synchronization, and playback.
 ## Named pull request inboxes
 
 Publish a named `pull-requests` artifact with `text/html` content. Its name and
-kind are immutable, and a new inbox starts permanent. HTML updates retain the
+kind are immutable. Its desktop tab is always permanent and cannot move to
+Trashcan; deleting the artifact removes the inbox. HTML updates retain the
 repository binding and current review data. `POST /v1/pull-requests` accepts
 the commands defined in `src/pull-requests.ts`; `ScopeClient.pullRequests`
 validates requests and replies. Normal publishing credentials and connected

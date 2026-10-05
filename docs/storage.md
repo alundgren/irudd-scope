@@ -310,8 +310,9 @@ pre-upgrade backup to downgrade.
 
 GitHub facts, local notes and snoozes, inspection and review baselines, and
 current agent assessments persist independently of the authored HTML revision.
-Closing the tab preserves this data in Trashcan. Permanent deletion removes it
-through foreign-key cascades. A successful complete sync removes PRs no longer
+Inbox tabs are built-in: closing hides the tab and keeps this data, and the tab
+cannot move to Trashcan. Deleting the inbox artifact removes the data through
+foreign-key cascades. A successful complete sync removes PRs no longer
 open and their associated local records and receipts. Failed or partial syncs
 keep the cached list. Scope retains no closed PR archive or earlier PR snapshots.
 When a complete sync observes a different commit for the same PR, it clears a
@@ -334,19 +335,25 @@ Artifact schema 9 adds the inbox-owned JSON `appState` value and its version
 to `pull_requests_state`. Existing inboxes start with an empty object at
 version 0 and retain their repository, PRs, local values, and receipts. State
 mutations use tab-owned receipts and persist separately from the HTML revision.
-Complete syncs and PR removal preserve it. Trash retains it; permanent tab
-deletion cascades through its owning row and receipts. Older builds reject
+Complete syncs and PR removal preserve it. Deleting the inbox cascades through
+its owning row and receipts. Older builds reject
 schema 9. Restore a complete pre-upgrade backup to downgrade.
 
 Artifact schema 10 adds `pull_requests_pr_state`, keyed by inbox tab UUID and
 PR node ID. Existing root state and PR records are preserved. Each PR starts
 with an empty object at version 0 and gains a row on its first write. Per-PR
 state has no storage byte quota; the root inbox object retains its 32 KiB limit.
-It survives commit changes, HTML updates, restart, and Trashcan retention.
+It survives commit changes, HTML updates, restart, and closing the tab.
 A complete sync removing a PR deletes its state through the current PR's
-foreign key, and permanent tab deletion removes all its PR state. Mutation
+foreign key, and deleting the inbox removes all its PR state. Mutation
 receipts follow the same PR lifetime. Older builds reject schema 10; restore
 a complete pre-upgrade backup to downgrade.
+
+Artifact schema 13 makes every inbox tab a permanent `pull-requests` tab. Saved
+tab documents with another type switch to `pull-requests`. An inbox that was in
+Trashcan leaves it as a closed tab at the end of the drawer, keeping its
+repository, PRs, notes, and state. Older builds reject schema 13; restore a
+complete pre-upgrade backup to downgrade.
 
 ## Retained external publication records
 

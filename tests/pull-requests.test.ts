@@ -417,7 +417,7 @@ test("complete inventories preserve independent local writes and current agent v
   ).resolves.toMatchObject({ type: "snapshot" });
 });
 
-test("HTML replacement and Trashcan preserve records, permanent deletion cascades and rejects a pinned old sync", async () => {
+test("HTML replacement and Trashcan refusal preserve records, deletion cascades and rejects a pinned old sync", async () => {
   const f = await fixture();
   await f.configure();
   const initial = await f.read();
@@ -454,30 +454,21 @@ test("HTML replacement and Trashcan preserve records, permanent deletion cascade
       Buffer.from("wrong"),
     ),
   ).rejects.toMatchObject({ status: 409 });
-  await f.server.store.openTab({
+  const inboxTab = {
     id: initial.tabId,
     groupId: randomUUID(),
-    type: "file",
     title: "Inbox",
-    state: {
-      version: 1,
-      data: { artifactId: "inbox" },
-    },
-  });
-  await f.server.store.trashTab(initial.tabId, 123);
+    state: { version: 1, data: { artifactId: "inbox" } },
+  };
+  await expect(f.server.store.openTab({ ...inboxTab, type: "file" })).rejects.toThrow(
+    "own tab type",
+  );
+  await f.server.store.openTab({ ...inboxTab, type: "pull-requests" });
+  await expect(f.server.store.trashTab(initial.tabId, 123)).rejects.toThrow(
+    "cannot move to Trashcan",
+  );
   expect((await f.read()).prs).toHaveLength(1);
-  await expect(
-    f.client.pullRequests({
-      action: "note",
-      name,
-      tabId: initial.tabId,
-      nodeId: "PR_1",
-      requestId: randomUUID(),
-      expectedVersion: 0,
-      text: "Blocked",
-    }),
-  ).rejects.toMatchObject({ status: 409 });
-  await f.server.store.emptyTrash([{ id: initial.tabId, trashedAt: 123 }]);
+  await f.server.store.removeArtifact("inbox");
   await expect(
     f.server.store.pullRequests.commitInventory(initial.tabId, {
       repository,
@@ -622,10 +613,52 @@ test("version 6 databases migrate additively and reopen current inbox state", as
   expect((await reopened.list()).items[0].kind).toBe("pull-requests");
   const check = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
   try {
-    expect(check.prepare("PRAGMA user_version").get()?.user_version).toBe(12);
+    expect(check.prepare("PRAGMA user_version").get()?.user_version).toBe(13);
   } finally {
     check.close();
   }
+});
+
+test("schema 12 upgrades make trashed and temporary inboxes closed built-in tabs", async () => {
+  const f = await fixture();
+  await f.configure();
+  const current = await f.read();
+  await f.server.store.pullRequests.commitInventory(current.tabId, {
+    repository,
+    viewer: "viewer",
+    prs: [facts()],
+    completedAt: now,
+  });
+  await f.server.close();
+  const legacy = {
+    id: current.tabId,
+    groupId: randomUUID(),
+    type: "file",
+    title: "Inbox",
+    state: { version: 1, data: { artifactId: current.artifact.id } },
+  };
+  const db = new DatabaseSync(join(f.directory, "scope.db"));
+  try {
+    db.prepare(
+      "UPDATE live_tabs SET opened = 1, document = ?, permanent = 0, trashed_at = 123 WHERE id = ?",
+    ).run(JSON.stringify(legacy), current.tabId);
+    db.exec("PRAGMA user_version = 12");
+  } finally {
+    db.close();
+  }
+  const reopened = await ArtifactStore.open(f.directory);
+  cleanup.push(() => reopened.close());
+  expect(await reopened.retainedTabs()).toEqual([
+    {
+      tab: { ...legacy, type: "pull-requests", hidden: true },
+      permanent: true,
+      lastVisibleAt: expect.any(Number),
+      trashedAt: null,
+    },
+  ]);
+  expect((await reopened.tabs())[0].permanent).toBe(1);
+  expect((await reopened.pullRequests.snapshot(name)).prs.map((pr) => pr.nodeId)).toEqual(["PR_1"]);
+  await expect(reopened.trashTab(current.tabId)).rejects.toThrow("cannot move to Trashcan");
 });
 
 test("saved write commands reject a recreated named inbox before invoking sync or detail", async () => {
@@ -691,7 +724,7 @@ test("saved write commands reject a recreated named inbox before invoking sync o
 });
 
 test.each(["inventory", "status"] as const)(
-  "cancelled queued %s writes preserve data after Trashcan restoration",
+  "cancelled queued %s writes preserve data",
   async (kind) => {
     const f = await fixture();
     await f.configure();
@@ -710,13 +743,6 @@ test.each(["inventory", "status"] as const)(
       requestId: randomUUID(),
       expectedVersion: 0,
       text: "Retain after cancellation",
-    });
-    await f.server.store.openTab({
-      id: before.tabId,
-      groupId: randomUUID(),
-      type: "file",
-      title: "Inbox",
-      state: { version: 1, data: { artifactId: "inbox" } },
     });
     const saved = await f.read();
     let release!: () => void;
@@ -740,9 +766,7 @@ test.each(["inventory", "status"] as const)(
           );
     const rejected = expect(pending).rejects.toThrow();
     try {
-      await f.server.store.trashTab(before.tabId, 123);
       cancel.abort();
-      await f.server.store.restoreTab(before.tabId);
     } finally {
       release();
     }
@@ -1337,7 +1361,7 @@ test("state validation and accumulated size limits leave the saved value and ver
   expect(({} as Record<string, unknown>).polluted).toBeUndefined();
 });
 
-test("inbox state survives HTML updates, sync, restart and trash while replacement tabs start empty", async () => {
+test("inbox state survives HTML updates, sync, restart and Trashcan refusal while replacement tabs start empty", async () => {
   const f = await fixture();
   await f.configure();
   const initial = await f.read();
@@ -1382,12 +1406,9 @@ test("inbox state survives HTML updates, sync, restart and trash while replaceme
     title: "Inbox",
     state: { version: 1, data: { artifactId: initial.artifact.id } },
   });
-  await reopened.trashTab(initial.tabId, 123);
+  await expect(reopened.trashTab(initial.tabId, 123)).rejects.toThrow("cannot move to Trashcan");
   expect((await reopened.pullRequests.snapshot(name)).appState).toEqual(saved.appState);
-  await expect(
-    reopened.pullRequests.command({ ...command, requestId: randomUUID(), expectedVersion: 1 }),
-  ).rejects.toMatchObject({ status: 409 });
-  await reopened.emptyTrash([{ id: initial.tabId, trashedAt: 123 }]);
+  await reopened.removeArtifact(initial.artifact.id);
   const check = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
   try {
     expect(
@@ -1586,7 +1607,7 @@ test("per-PR JSON storage exceeds the root quota, stays isolated and sends bound
   expect(await read("PR_2")).toEqual({ version: 0, value: {} });
 });
 
-test("schema 9 upgrades preserve root and PR records; PR state survives restart and trash", async () => {
+test("schema 9 upgrades preserve root and PR records; PR state survives restart until deletion", async () => {
   const f = await fixture();
   await f.configure();
   const initial = await f.read();
@@ -1639,12 +1660,9 @@ test("schema 9 upgrades preserve root and PR records; PR state survives restart 
     title: "Inbox",
     state: { version: 1, data: { artifactId: initial.artifact.id } },
   });
-  await reopened.trashTab(initial.tabId, 123);
+  await expect(reopened.trashTab(initial.tabId, 123)).rejects.toThrow("cannot move to Trashcan");
   expect(await reopened.pullRequests.command(read)).toEqual(saved);
-  await expect(
-    reopened.pullRequests.command({ ...write, requestId: randomUUID(), expectedVersion: 1 }),
-  ).rejects.toMatchObject({ status: 409 });
-  await reopened.emptyTrash([{ id: initial.tabId, trashedAt: 123 }]);
+  await reopened.removeArtifact(initial.artifact.id);
   await expect(reopened.pullRequests.command(read)).rejects.toMatchObject({ status: 404 });
   const check = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
   try {

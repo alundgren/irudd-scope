@@ -70,7 +70,7 @@ test("desktop storage migrates legacy content into SQLite, preserves revisions, 
     const db = new DatabaseSync(join(directory, "scope.db"), { readOnly: true });
     try {
       expect(db.prepare("SELECT count(*) AS count FROM blobs").get()?.count).toBe(1);
-      expect(db.prepare("PRAGMA user_version").get()?.user_version).toBe(12);
+      expect(db.prepare("PRAGMA user_version").get()?.user_version).toBe(13);
     } finally {
       db.close();
     }

@@ -329,7 +329,7 @@ test("schema 5 migration preserves ordinary artifact content, named metadata and
     });
     const migrated = new DatabaseSync(filename, { readOnly: true });
     try {
-      expect(migrated.prepare("PRAGMA user_version").get()?.user_version).toBe(12);
+      expect(migrated.prepare("PRAGMA user_version").get()?.user_version).toBe(13);
     } finally {
       migrated.close();
     }

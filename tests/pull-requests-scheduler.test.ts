@@ -90,7 +90,7 @@ async function fixture(
     });
     await server.store.openTab({
       id: snapshot.tabId,
-      type: "file",
+      type: "pull-requests",
       title: name,
       groupId: randomUUID(),
       state: { version: 1, data: { artifactId: snapshot.artifact.id } },
@@ -181,7 +181,7 @@ test("complete inventory preserves newer targeted facts with unchanged updatedAt
   expect((await f.store.snapshotByTab(tabId)).prs).toHaveLength(0);
 });
 
-test("startup loads unmounted configured tabs and trash stops the final repository", async () => {
+test("startup loads unmounted configured tabs and deletion stops the final repository", async () => {
   const remote = reader(),
     tasks = new Map<number, () => void>();
   let timer = 0;
@@ -205,7 +205,7 @@ test("startup loads unmounted configured tabs and trash stops the final reposito
   await expect
     .poll(async () => (await f.store.snapshotByTab(tabId)).sync.lastSuccessAt)
     .toBe(stamp);
-  await f.server.store.trashTab(tabId);
+  await f.server.store.removeArtifact((await f.store.snapshotByTab(tabId)).artifact.id);
   await f.service.reconcile();
   expect(tasks.size).toBe(0);
 });
@@ -810,7 +810,7 @@ test("explicit enrichment closure removes a later base row and preserves only ne
   expect((await f.store.snapshotByTab(tabId)).prs.map((pr) => pr.nodeId)).toEqual(["PR_3"]);
 });
 
-test("store restore notification restarts an unmounted repository", async () => {
+test("store deletion notification stops an unmounted repository", async () => {
   const remote = reader();
   let task: (() => void) | undefined;
   const f = await fixture(remote.github, {
@@ -830,10 +830,9 @@ test("store restore notification restarts an unmounted repository", async () => 
     unsubscribe();
   });
   await f.service.start();
-  await f.server.store.trashTab(tabId);
-  await expect.poll(() => task, { timeout: 10_000 }).toBeUndefined();
-  await f.server.store.restoreTab(tabId);
   await expect.poll(() => typeof task, { timeout: 10_000 }).toBe("function");
+  await f.server.store.removeArtifact((await f.store.snapshotByTab(tabId)).artifact.id);
+  await expect.poll(() => task, { timeout: 10_000 }).toBeUndefined();
 });
 
 test("opening, advancing and closing a pane leave a fresh active inventory on its cadence", async () => {

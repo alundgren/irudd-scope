@@ -86,8 +86,8 @@ export class RetroStore {
             yield* sql`CREATE TABLE retro_initialization(source_id TEXT NOT NULL, runtime TEXT NOT NULL, mode TEXT NOT NULL CHECK(mode IN ('all','from-now','from-date')), cutoff TEXT NOT NULL, PRIMARY KEY(source_id,runtime)) STRICT`;
             yield* sql`INSERT INTO retro_initialization SELECT source_id,runtime,mode,cutoff FROM retro_initialization_old`;
             yield* sql`DROP TABLE retro_initialization_old`;
+            yield* sql`PRAGMA user_version = 12`;
           }
-          yield* sql`PRAGMA user_version = 12`;
           const rows = yield* sql<{
             tab_id: string;
             document: string;

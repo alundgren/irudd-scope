@@ -18,6 +18,7 @@ export const PullRequestsTabState = Schema.Struct({
 });
 export const pullRequestsTabContract = {
   type: "pull-requests",
+  category: "builtin" as const,
   version: 1,
   state: PullRequestsTabState,
 };

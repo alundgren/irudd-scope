@@ -614,6 +614,7 @@ async function createStarterInbox(
     (await page.evaluate(() => window.scope.retainedTabs())).find((t) => t.tab.id === tab.id)
       ?.permanent,
   ).toBe(true);
+  await page.getByRole("img", { name: "Built-in tab: Synthetic PR inbox", exact: true }).waitFor();
   const library = await page.evaluate(() => window.scope.artifactLibrary());
   return {
     artifact: library.artifacts.find((a) => a.id === tab.state.data.artifactId)!,
