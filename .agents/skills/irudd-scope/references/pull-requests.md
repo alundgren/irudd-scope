@@ -349,7 +349,7 @@ keys, and `delete(keys,expectedVersion)` removes named keys. Each write returns
 saved `{version,value}`. A patch replaces nested objects and arrays as whole
 values; `null` is stored rather than deleted. Every accepted new write advances
 the version, even for an empty edit. State starts at version 0 with `{}` and
-survives sync, PR removal, HTML updates, restart, and Trashcan retention.
+survives sync, PR removal, HTML updates, restart, and closing the tab.
 
 `state.watch(callback)` returns unsubscribe and supplies frozen
 `{operation,version,value}` updates. `operation` is `snapshot` for initial or
@@ -382,7 +382,7 @@ Agents use `pr-state-read` with `name`, `tabId`, and `nodeId`, or
 `requestId` and `expectedVersion` from that PR's state. Writes supply `value`
 or `keys`. Replies are `{type:"pr-state",tabId,nodeId,state:{version,value}}`.
 Each PR's state is isolated within its inbox. It survives HTML updates, commit
-changes, restart, and Trashcan retention; removing the PR during a complete
+changes, restart, and closing the tab; removing the PR during a complete
 sync deletes its state and receipts. Reappearing PRs start empty at version 0.
 
 Live events use small `prStateChange:{nodeId,operation,version}` invalidations.
@@ -484,8 +484,9 @@ or conflict recovery.
 A complete sync removes PRs no longer open and their Scope-owned data. Failed
 or partial reads preserve cached facts and local values. Successful refreshes
 preserve local and agent data for retained PRs. There is no closed PR archive.
-Closing the permanent inbox retains it in Trashcan; restore it before more
-commands. Permanent deletion removes its data.
+The inbox tab is built-in and cannot move to Trashcan. Closing hides it and
+keeps its data; commands keep working. `irudd-scope delete ID` removes the
+inbox and its data.
 
 Command files are limited to 256 KiB and complete replies to 32 MiB. There is
 no inventory PR count cap; an oversized snapshot fails rather than truncating

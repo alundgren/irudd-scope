@@ -818,7 +818,7 @@ async function inboxFixture(gh: GitHubProcess, configuredRepository = repository
   const snapshot = await publish();
   await server.store.openTab({
     id: snapshot.tabId,
-    type: "file",
+    type: "pull-requests",
     title: snapshot.artifact.title,
     groupId: randomUUID(),
     state: { version: 1, data: { artifactId: snapshot.artifact.id } },
@@ -1084,7 +1084,6 @@ describe("tab-owned GitHub synchronization", () => {
       const callsAfterSeed = (await gh.calls()).length;
       const refreshing = f.service.sync(f.snapshot.tabId).catch(() => null);
       await waitForCalls(gh, callsAfterSeed + 1);
-      await f.server.store.trashTab(f.snapshot.tabId);
       f.service.cancelTabs([f.snapshot.tabId]);
       expect(await refreshing).toBeNull();
       const cancelled = await f.server.store.pullRequests.snapshotByTab(f.snapshot.tabId);
@@ -1094,7 +1093,6 @@ describe("tab-owned GitHub synchronization", () => {
         error: null,
       });
       expect(cancelled.prs[0].local.note).toBe("Retained note");
-      await f.server.store.restoreTab(f.snapshot.tabId);
       await f.close();
       closed = true;
       const reopened = await ArtifactStore.open(f.directory);
@@ -1110,7 +1108,7 @@ describe("tab-owned GitHub synchronization", () => {
     }
   });
 
-  test("startup recovers an interrupted sync for active and trashed owners without losing cache", async () => {
+  test("startup recovers an interrupted sync without losing cache", async () => {
     const gh = await fakeGh(
       `if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
     );
@@ -1123,7 +1121,6 @@ describe("tab-owned GitHub synchronization", () => {
         state: "syncing",
         updatedAt: "2026-10-01T12:00:00Z",
       });
-      await f.server.store.trashTab(f.snapshot.tabId);
       await f.close();
       closed = true;
       let reopened = await ArtifactStore.open(f.directory);
@@ -1135,7 +1132,6 @@ describe("tab-owned GitHub synchronization", () => {
           error: "GitHub refresh was interrupted. Try Sync again.",
         });
         expect(recovered.prs).toEqual(seeded.prs);
-        await reopened.restoreTab(f.snapshot.tabId);
         await reopened.pullRequests.setSyncStatus(f.snapshot.tabId, {
           ...seeded.sync,
           state: "syncing",

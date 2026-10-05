@@ -156,8 +156,9 @@ flowchart LR
 
 ## Pull request inboxes
 
-A pull request inbox is a permanent named `pull-requests` HTML artifact bound
-to one GitHub repository. `packages/protocol/src/pull-requests.ts` owns its
+A pull request inbox is a named `pull-requests` HTML artifact bound to one
+GitHub repository. Its tab is built-in, so it is always permanent and cannot
+move to Trashcan. Deleting the artifact removes the inbox. `packages/protocol/src/pull-requests.ts` owns its
 validated commands and snapshots. `library/pull-request-store.ts` owns the
 repository binding, current open PR facts, local notes and snoozes, review
 baselines, current agent assessments, and inbox-owned JSON app state in `scope.db`. These records belong
@@ -564,8 +565,11 @@ Closing a permanent tab marks its saved document hidden, reorders it to the
 end of the workspace, and selects another visible tab when available. Hidden
 tabs remain mounted and appear in the drawer; reopening clears their hidden
 state with the same UUID and order. Built-in plugin categories are authoritative
-in the shared desktop plugin registry. They always stay permanent, reject type
-changes and Trashcan operations, and reopen their existing tab per type. Closing a temporary tab or explicitly
+in the shared desktop plugin registry. They always stay permanent and reject
+Trashcan operations. An artifact tab becomes built-in only when its artifact
+kind matches the built-in type, and artifacts of a built-in kind open only in
+that type. Built-in tabs never change type. Built-in tabs without an artifact
+reopen their existing tab per type. Closing a temporary tab or explicitly
 moving either kind to Trashcan sets its trash timestamp while retaining its content references,
 metadata, name, and draft. The desktop lifecycle coordinates retention changes
 and notifies the renderer, which removes trashed tabs from its workspace.

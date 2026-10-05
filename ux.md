@@ -407,8 +407,10 @@ revision and retains the previous versions.
 Each inbox is a permanent named HTML app for one GitHub repository. The initial
 app presents a flat list and named views, with no search or sort controls.
 Agents can replace its HTML and JavaScript while Scope preserves the current
-PR data, notes, snoozes, and review decisions. Closing hides a permanent inbox and moves it to the end of the drawer. Moving it to Trashcan uses ordinary retention.
-Permanently deleting the tab deletes its repository review data.
+PR data, notes, snoozes, and review decisions. Inboxes are built-in tabs with
+the lock indicator. Close, Delete, and dropping onto Trashcan hide the inbox
+and move it to the end of the drawer. Deleting the inbox artifact with
+`irudd-scope delete ID` deletes its repository review data.
 
 Configured inboxes refresh current open PRs automatically, including drafts.
 Visible inboxes target 30 seconds, inspected PRs 15 seconds, and background
