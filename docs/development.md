@@ -16,6 +16,29 @@ release candidates; other dependencies use stable releases. Alpha, beta,
 nightly, and canary versions require a specific project decision. Update
 manifests, catalog, and lockfile together through Vite+.
 
+## Optional architecture checks
+
+[Archguard](https://github.com/alundgren/irudd-ts) checks the documented source
+dependencies in [archguard.json](../archguard.json). Build its CLI using the
+upstream instructions and put `archguard` on PATH, then run:
+
+```sh
+vp run check:architecture
+```
+
+The checks prevent desktop, hub, and CLI imports from reaching other apps'
+implementation files, keep shared packages independent of their consumers,
+and keep filesystem and Electron imports out of the protocol. Dependency rules
+also follow indirect imports and include type-only imports. The selected source
+includes every app and shared package so unresolved internal imports remain
+analysis failures.
+
+This command is optional and separate from `ready`. The existing plugin import
+restrictions, type checks, and tests remain in standard validation. Archguard
+checks static dependencies; it does not establish runtime behavior or validate
+computed import paths. Duplicate and mutation reports remain review tools with
+explicit source selections and execution budgets.
+
 ## Installed Tailcat transport
 
 Tab transfer requires Tailcat installed separately by the user on each Mac.

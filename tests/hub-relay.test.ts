@@ -116,6 +116,7 @@ async function fixture() {
     await next("ready");
     return {
       waitingRequests: () => events.filter((event) => event.type === "request").length,
+      waitingCancellations: () => events.filter((event) => event.type === "cancel").length,
       next: async () => (await next("request")) as RelayRequest,
       cancel: () => next("cancel"),
       close,
@@ -286,6 +287,21 @@ test.each([false, true])(
     expect(f.state.queue.content("buffered-timeout").toString()).toBe("Retained synthetic bytes");
   },
 );
+
+test("discarding queued content cancels its active delivery and keeps the relay connected", async () => {
+  const f = await fixture();
+  await f.client.publishOrQueue("discard-active", metadata, Buffer.from("Pending content"));
+  const relay = await f.openRelay();
+  const request = await relay.next();
+  expect(request).toMatchObject({ method: "GET", path: "/v1/artifacts/discard-active" });
+  const discarded = await f.request("/v1/hub/queue/discard-active", { method: "DELETE" });
+  expect(discarded.status).toBe(200);
+  expect(await discarded.json()).toEqual({ id: "discard-active", deleted: true });
+  await expect.poll(relay.waitingCancellations, { timeout: 5000 }).toBe(1);
+  expect(await relay.cancel()).toMatchObject({ id: request.id });
+  expect((await f.queue()).items).toEqual([]);
+  expect(await f.status()).toMatchObject({ connected: true });
+});
 
 test("an unanswered buffered-delivery GET does not retire the relay", async () => {
   const f = await fixture();

@@ -8,7 +8,7 @@ import { startArtifactServer } from "../apps/desktop/src/library/server.ts";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 
 const token = "synthetic-storage-migration-token";
-async function legacyFixture() {
+async function legacyFixture(schemaVersion: 1 | 2 = 1) {
   const directory = await mkdtemp(join(tmpdir(), "scope-legacy-"));
   const bytes = Buffer.from("Legacy artifact content");
   const blob = createHash("sha256").update(bytes).digest("hex");
@@ -30,13 +30,17 @@ async function legacyFixture() {
   };
   const db = new DatabaseSync(join(directory, "scope.db"));
   db.exec(
-    "CREATE TABLE artifacts(id TEXT PRIMARY KEY, revision INTEGER NOT NULL, document TEXT NOT NULL) STRICT; PRAGMA user_version = 1;",
+    `CREATE TABLE artifacts(id TEXT PRIMARY KEY, revision INTEGER NOT NULL, document TEXT NOT NULL) STRICT; PRAGMA user_version = ${schemaVersion};`,
   );
   db.prepare("INSERT INTO artifacts VALUES(?, ?, ?)").run(
     artifact.id,
     artifact.revision,
     JSON.stringify(artifact),
   );
+  if (schemaVersion === 2) {
+    db.exec("CREATE TABLE blobs(id TEXT PRIMARY KEY, content BLOB NOT NULL) STRICT;");
+    db.prepare("INSERT INTO blobs VALUES(?, ?)").run(blob, bytes);
+  }
   db.close();
   return { directory, bytes, file, artifact };
 }
@@ -74,6 +78,24 @@ test("desktop storage migrates legacy content into SQLite, preserves revisions, 
     } finally {
       db.close();
     }
+  } finally {
+    await server?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a migrated SQLite library ignores obsolete blob files left after the content transaction committed", async () => {
+  const { directory, bytes, file, artifact } = await legacyFixture(2);
+  let server: Awaited<ReturnType<typeof startArtifactServer>> | undefined;
+  try {
+    await writeFile(file, "Obsolete filesystem content");
+    const opening = startArtifactServer({ directory, token, port: 0 });
+    await expect(opening).resolves.toBeDefined();
+    server = await opening;
+    const client = new ScopeClient(server.url, token);
+    expect(await client.get(artifact.id)).toEqual(artifact);
+    expect(Buffer.from(await client.content(artifact.id))).toEqual(bytes);
+    expect(await readFile(file, "utf8")).toBe("Obsolete filesystem content");
   } finally {
     await server?.close();
     await rm(directory, { recursive: true, force: true });
