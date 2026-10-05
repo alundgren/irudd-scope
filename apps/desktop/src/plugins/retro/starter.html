@@ -18,16 +18,16 @@
         margin: auto;
         padding: 24px;
       }
-      h1 {
-        font-size: 26px;
-        line-height: 1.3;
-      }
       h2 {
         font-size: 20px;
       }
       article {
         padding: 24px 0;
         border-top: 1px solid light-dark(#e6e6ed, #3d3d49);
+      }
+      article:first-child {
+        padding-top: 0;
+        border-top: 0;
       }
       .secondary {
         color: light-dark(#535360, #c2c2cd);
@@ -78,22 +78,6 @@
       [hidden] {
         display: none !important;
       }
-      table {
-        width: 100%;
-        border-collapse: collapse;
-      }
-      th,
-      td {
-        text-align: left;
-        vertical-align: top;
-        padding: 8px 0;
-      }
-      td:first-child {
-        padding-right: 16px;
-      }
-      .metrics {
-        overflow: auto;
-      }
       #notice {
         position: sticky;
         top: 0;
@@ -108,33 +92,13 @@
     </style>
   </head>
   <body>
-    <h1>Session retrospective</h1>
-    <p id="summary">Waiting for the agent's report.</p>
-    <p class="secondary">
-      Discuss the findings, then agree with your coding agent on the final changes. Accepting a
-      proposal records your choice. The agent applies changes through its usual tools.
-    </p>
-    <p id="notice" role="status"></p>
+    <p id="notice" role="status" hidden></p>
     <div id="draft-conflict" hidden>
       <p>Saved drafts changed elsewhere. Your current input is kept.</p>
       <button id="keep-draft" type="button">Keep my current draft</button>
       <button id="reload-draft" type="button">Reload saved drafts</button>
     </div>
-    <div id="sources"></div>
-    <div class="metrics">
-      <table id="metrics" hidden>
-        <caption>
-          Observed metrics
-        </caption>
-        <thead>
-          <tr>
-            <th>Metric</th>
-            <th>Result and method</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
+    <p id="empty-report">Waiting for the agent's findings.</p>
     <div id="findings"></div>
     <section id="saved-drafts" hidden>
       <h2>Unsent drafts</h2>
@@ -160,6 +124,7 @@
       }
       function status(text) {
         notice.textContent = text;
+        notice.hidden = !text;
       }
       async function act(work) {
         try {
@@ -377,51 +342,9 @@
         } else if (value.appState.version !== stateVersion) {
           document.getElementById("draft-conflict").hidden = false;
         }
-        document.getElementById("summary").textContent =
-          value.report.summary || "The agent has not supplied findings yet.";
-        const sources = document.getElementById("sources");
-        sources.replaceChildren();
-        for (const source of value.report.sources)
-          sources.append(
-            element(
-              "p",
-              source.sourceId +
-                " · " +
-                source.runtime +
-                " · " +
-                source.availability +
-                " · " +
-                source.detail +
-                " · " +
-                source.sessionCount +
-                " discovered sessions" +
-                (source.override ? " · Continue override: " + source.override : ""),
-              "secondary",
-            ),
-          );
-        const metrics = document.getElementById("metrics");
-        metrics.hidden = !value.report.metrics.length;
-        const body = metrics.querySelector("tbody");
-        body.replaceChildren();
-        for (const metric of value.report.metrics) {
-          const row = element("tr");
-          row.append(element("td", metric.name));
-          const cell = element(
-            "td",
-            metric.certainty === "unknown"
-              ? "Unavailable"
-              : metric.value + " " + metric.unit + " · " + metric.certainty,
-          );
-          cell.append(
-            element(
-              "p",
-              metric.method + " · " + metric.coverage + " · " + metric.evidence,
-              "secondary",
-            ),
-          );
-          row.append(cell);
-          body.append(row);
-        }
+        const emptyReport = document.getElementById("empty-report");
+        emptyReport.hidden = !!value.report.findings.length;
+        emptyReport.textContent = "The agent has not supplied findings yet.";
         for (const finding of value.report.findings) {
           let row = rows.get(finding.id);
           if (!row) {

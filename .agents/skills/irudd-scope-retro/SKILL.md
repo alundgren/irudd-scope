@@ -74,6 +74,12 @@ Do not enable native memory or write Codex's generated memory database. For ever
 proposal, preview exact text, operator/project scope and destination. Ask when a
 pattern belongs to a project or the operator's personal guidance.
 
+Start the interactive report directly with the findings. Omit an introductory
+summary, setup and sync status, source inventory, standalone metrics table, and
+session lists or appendices, including at the end. Keep each finding focused on what happened, its effect and the proposed correction.
+Put supporting counts, measurement methods and relevant coverage limits in that
+finding's collapsed Evidence section. Keep audit metadata in the structured report.
+
 Publish a freely authored interactive retro tab and connect feedback using the
 Scope guide. Treat acceptance as a recorded decision: apply only settled approved
 text and destinations, respecting edits and requests for investigation. Make

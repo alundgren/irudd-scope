@@ -85,6 +85,13 @@ measured facts, bounded evidence and estimates. Missing usage, duration or costs
 remain unknown, never zero. Native transcripts stay on their source hosts. Scope
 receives metadata, findings and compact evidence, not logs.
 
+Start the HTML directly with the findings. Do not add an introductory summary,
+setup or sync status, source inventory, standalone metrics table, or session list
+or appendix anywhere in the report. Each finding should briefly explain what happened, why it mattered and the proposed correction.
+Put supporting counts, measurement methods and relevant coverage limits in the
+finding's collapsed Evidence section. Preserve audit metadata in the structured
+report for agent reads; it does not need a separate visible section.
+
 Create a freely authored named HTML retrospective with the installed CLI's
 retro publication flags, then use `retro apply FILE.json` to publish its report
 and session inventory in pages of at most 200. Read `retro guide` for exact

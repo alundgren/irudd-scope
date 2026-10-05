@@ -484,6 +484,12 @@ agent through a listener or Copy agent request. They do not run commands or
 write destination files. Finishing is a conversational instruction to the agent,
 with no Finish button.
 
+Reports start directly with findings. Introductory summaries, setup and sync
+status, source inventories, standalone metrics tables, and session lists or
+appendices anywhere in the report are omitted. Each finding explains what happened, its effect and the proposed correction; supporting
+counts, methods and relevant coverage limits belong in its collapsed Evidence
+section. Audit metadata stays in the structured report for agents to read.
+
 Retro tabs start permanent. Completed reports remain available in a history
 list and reopen for inspection without starting or resuming a coding session.
 Finished reports cannot accept new edits. Explicit removal follows normal tab
