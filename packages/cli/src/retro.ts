@@ -7,6 +7,8 @@ import { RetroCommand, MAX_RETRO_REQUEST_BYTES } from "@irudd-scope/protocol/ret
 export const RetroGuide = {
   create:
     "Publish trusted HTML using add report.html --retro --name retro-NAME. Updates preserve review decisions and authored state. Retrospectives start permanent.",
+  presentation:
+    "Start the HTML directly with findings. Omit introductory summaries, setup and sync status, source inventories, standalone metrics tables, and session lists or appendices anywhere in the report. Keep each finding focused on what happened, its effect and the proposed correction. Put supporting counts, measurement methods and relevant coverage limits in that finding's collapsed Evidence section. Keep audit metadata in the structured report for agent reads.",
   workflow:
     "The operator starts their existing agent and asks for a Scope retro. Scope never executes SSH, filesystem, Git or model operations. Agents inspect native logs externally, then submit normalized metadata and findings. Use retro settings and tracking to read the machine running Scope, its paired remotes, repositories and prior audited native session IDs. Sources appear automatically; never ask the operator to add them. Source location identifies the desktop hostname or paired remote ID and endpoint. Resolve each machine through existing agent access; a remote with null sshAlias is not local to the agent, and an HTTPS endpoint is not an SSH alias. Mark inaccessible machines unavailable. Ignore current and recorded retro-agent IDs. Runtime roots and any saved SSH aliases are access hints, not commands for Scope to execute.",
   firstUse:

@@ -182,6 +182,19 @@ test("RETRO preserves drafts through data updates, HTML replacement, navigation,
     await publishReport(client);
     let frame = page.frameLocator(".retro-document");
     await frame.getByRole("heading", { name: "Repeated full-file reads" }).waitFor();
+    const visibleText = await frame.locator("body").innerText();
+    expect(visibleText.trimStart().startsWith("efficiency · 1 session")).toBe(true);
+    expect(visibleText).not.toContain(report().summary);
+    expect(visibleText).not.toContain("Synthetic fixture");
+    expect(await frame.getByRole("table").count()).toBe(0);
+    const evidenceText = frame.getByText("Synthetic session tool records 2 through 4", {
+      exact: true,
+    });
+    expect(await evidenceText.isVisible()).toBe(false);
+    await frame.locator("summary").filter({ hasText: "Evidence" }).click();
+    await evidenceText.waitFor();
+    await frame.locator("summary").filter({ hasText: "Evidence" }).click();
+
     expect(
       (await page.evaluate(() => window.scope.retainedTabs())).find(
         (entry) => entry.tab.type === "retro",
@@ -225,10 +238,15 @@ test("RETRO preserves drafts through data updates, HTML replacement, navigation,
     );
     await writeFile(
       file,
-      html.replace("<h1>Session retrospective</h1>", "<h1>Updated session retrospective</h1>"),
+      html.replace(
+        "<title>Session retrospective</title>",
+        "<title>Updated session retrospective</title>",
+      ),
     );
     await fixture.cli("update", name, file);
-    await frame.getByRole("heading", { name: "Updated session retrospective" }).waitFor();
+    await expect
+      .poll(() => frame.locator("title").textContent())
+      .toBe("Updated session retrospective");
     await frame.getByRole("button", { name: "Comment", exact: true }).click();
     expect(await frame.getByRole("textbox", { name: "Comment", exact: true }).inputValue()).toBe(
       "Keep this draft while the agent investigates.",
@@ -392,6 +410,18 @@ test("an investigation can add a proposal to the same finding without replacing 
     });
     const frame = page.frameLocator(".retro-document");
     await frame.getByRole("heading", { name: "Repeated full-file reads" }).waitFor();
+    await expect
+      .poll(() =>
+        frame.locator("body").evaluate(
+          () =>
+            new Promise<number>((resolve) => {
+              const sdk = (window as unknown as { scope: { retros: SDK } }).scope.retros;
+              const stop = sdk.watch((value) => resolve(value.sessions.length));
+              stop();
+            }),
+        ),
+      )
+      .toBe(1);
     expect(await frame.getByRole("button", { name: "Accept", exact: true }).isDisabled()).toBe(
       true,
     );
@@ -521,7 +551,7 @@ test("finish saves unsent drafts and failed report flushes leave audit markers u
     );
     await page
       .frameLocator('iframe[title="Earlier report"]')
-      .getByRole("heading", { name: "Session retrospective", exact: true })
+      .getByText("The agent has not supplied findings yet.", { exact: true })
       .waitFor();
     await fixture.cli("add", file, "--retro", "--name", name, "--title", "Target report");
     const client = await fixture.connect();
@@ -710,16 +740,14 @@ test("a changed saved draft blocks HTML replacement until the human resolves it,
     await frame.getByRole("button", { name: "Keep my current draft", exact: true }).waitFor();
     await writeFile(
       file,
-      html.replace("<h1>Session retrospective</h1>", "<h1>Replacement report</h1>"),
+      html.replace("<title>Session retrospective</title>", "<title>Replacement report</title>"),
     );
     await fixture.cli("update", name, file);
     await page
       .getByRole("alert")
       .filter({ hasText: /version|changed|conflict/i })
       .waitFor();
-    expect(
-      await frame.getByRole("heading", { name: "Session retrospective", exact: true }).count(),
-    ).toBe(1);
+    expect(await frame.locator("title").textContent()).toBe("Session retrospective");
     expect(await frame.getByRole("textbox", { name: "Comment", exact: true }).inputValue()).toBe(
       "My unsaved note stays here.",
     );
@@ -729,7 +757,7 @@ test("a changed saved draft blocks HTML replacement until the human resolves it,
       .poll(async () => (await read(client)).appState.value.drafts)
       .toEqual({ "retrieval:comment": "My unsaved note stays here." });
     await page.getByRole("button", { name: "Retry", exact: true }).click();
-    await frame.getByRole("heading", { name: "Replacement report", exact: true }).waitFor();
+    await expect.poll(() => frame.locator("title").textContent()).toBe("Replacement report");
     await frame.getByRole("button", { name: "Comment", exact: true }).click();
     expect(await frame.getByRole("textbox", { name: "Comment", exact: true }).inputValue()).toBe(
       "My unsaved note stays here.",
