@@ -1,3 +1,4 @@
+import type { MemoryCommand, MemoryReply } from "./plugins/memory/contract.ts";
 import type { RetroCommand, RetroReply, RetroConfiguration } from "@irudd-scope/protocol/retro";
 import type { RetroEvent } from "@irudd-scope/protocol";
 import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
@@ -101,6 +102,9 @@ export type ScopeBridge = {
   setFullscreen: (enabled: boolean) => Promise<void>;
   onFullscreenChange: (listener: (enabled: boolean) => void) => () => void;
   remotes: () => Promise<RemoteStatus[]>;
+  memoryCommand: (command: MemoryCommand) => Promise<MemoryReply>;
+  copyMemoryDraft: (raw: string) => Promise<void>;
+  openMemoryLink: (url: string) => Promise<void>;
   memory: () => Promise<MemoryStatus>;
   setMemoryEnabled: (enabled: boolean) => Promise<MemoryStatus>;
   retryMemory: () => Promise<MemoryStatus>;

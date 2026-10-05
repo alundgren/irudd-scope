@@ -33,6 +33,7 @@ export function useWorkspace(onError: (message: string) => void) {
   const [loaded, setLoaded] = useState(false);
   const opening = useRef(Promise.resolve());
   const pendingOpens = useRef(new Set<{ closed: Set<string> }>());
+  const hiding = useRef(new Map<string, Promise<void>>());
   const save = useAutosave(
     () => (loaded ? current.current : undefined),
     (value) => window.scope.saveWorkspace(value),
@@ -49,15 +50,21 @@ export function useWorkspace(onError: (message: string) => void) {
         for (const pending of pendingOpens.current) for (const id of ids) pending.closed.add(id);
         const previous = current.current;
         const tabs = previous.tabs.filter((tab) => !ids.includes(tab.id));
+        const selectable = tabs.filter((tab) => !tab.hidden);
         replace({
           ...previous,
           tabs,
-          selected: tabs.some((tab) => tab.id === previous.selected)
+          selected: selectable.some((tab) => tab.id === previous.selected)
             ? previous.selected
-            : (tabs[
+            : (selectable[
                 Math.min(
-                  tabs.length - 1,
-                  Math.max(0, previous.tabs.findIndex((tab) => tab.id === previous.selected) - 1),
+                  selectable.length - 1,
+                  Math.max(
+                    0,
+                    previous.tabs
+                      .filter((tab) => !tab.hidden)
+                      .findIndex((tab) => tab.id === previous.selected) - 1,
+                  ),
                 )
               ]?.id ?? null),
         });
@@ -110,11 +117,12 @@ export function useWorkspace(onError: (message: string) => void) {
   function openTab(tab: Tab, artifactRevision?: number): Promise<boolean> {
     const previous = current.current;
     if (previous.tabs.some((entry) => entry.id === tab.id)) {
-      replace({ ...previous, selected: tab.id });
+      revealTab(tab.id);
       return Promise.resolve(true);
     }
-    return queueOpen([{ tab, artifactRevision }], true).then(({ opened }) =>
-      opened.some((tab) => current.current.tabs.some((entry) => entry.id === tab.id)),
+    return queueOpen([{ tab: { ...tab, hidden: false }, artifactRevision }], true).then(
+      ({ opened }) =>
+        opened.some((tab) => current.current.tabs.some((entry) => entry.id === tab.id)),
     );
   }
 
@@ -142,7 +150,7 @@ export function useWorkspace(onError: (message: string) => void) {
         }
         const existing = previous.tabs.find((entry) => entry.id === tab.id);
         if (existing) {
-          if (select) replace({ ...previous, selected: existing.id });
+          if (select) revealTab(existing.id);
           handled.push(tab);
           openedTabs.push(existing);
           continue;
@@ -150,15 +158,26 @@ export function useWorkspace(onError: (message: string) => void) {
         try {
           const opened = await window.scope.openTab(tab, artifactRevision);
           const latest = current.current;
+          if (opened && closed.has(opened.id)) {
+            await hiding.current.get(opened.id)?.catch(() => {});
+            // An ignored open may have cleared a built-in tab's saved hidden state.
+            if (current.current.tabs.some((entry) => entry.id === opened.id))
+              await window.scope.saveWorkspace(current.current);
+          }
           if (opened && !closed.has(opened.id)) {
             const tabs = latest.tabs.some((entry) => entry.id === opened.id)
-              ? latest.tabs
+              ? latest.tabs.map((entry) =>
+                  select && entry.id === opened.id ? { ...entry, hidden: false } : entry,
+                )
               : [...latest.tabs, opened];
             replace(
               decodeWorkspace({
                 ...latest,
                 tabs,
-                selected: select ? opened.id : (latest.selected ?? opened.id),
+                selected:
+                  select || (latest.selected === null && !opened.hidden)
+                    ? opened.id
+                    : latest.selected,
               }),
             );
             openedTabs.push(opened);
@@ -200,15 +219,52 @@ export function useWorkspace(onError: (message: string) => void) {
       replace({ ...previous, tabs: [...previous.tabs.filter((entry) => entry.id !== id), tab] });
   }
 
-  function deferTab(id: string): string | null {
+  function revealTab(id: string): void {
+    hiding.current.delete(id);
     const previous = current.current;
-    const index = previous.tabs.findIndex((entry) => entry.id === id);
-    if (index < 0) return previous.selected;
-    const tabs = previous.tabs.filter((entry) => entry.id !== id);
-    const selected =
-      previous.selected === id ? (tabs[Math.max(0, index - 1)]?.id ?? id) : previous.selected;
-    replace({ ...previous, tabs: [...tabs, previous.tabs[index]], selected });
-    return selected;
+    replace({
+      ...previous,
+      tabs: previous.tabs.map((tab) => (tab.id === id ? { ...tab, hidden: false } : tab)),
+      selected: id,
+    });
+  }
+
+  async function deferTab(id: string): Promise<string | null> {
+    function deferred(previous: Workspace): Workspace {
+      const tab = previous.tabs.find((entry) => entry.id === id);
+      if (!tab) return previous;
+      const visible = previous.tabs.filter((entry) => !entry.hidden);
+      const index = visible.findIndex((entry) => entry.id === id);
+      const remaining = visible.filter((entry) => entry.id !== id);
+      const selected =
+        previous.selected === id
+          ? (remaining[Math.min(Math.max(0, index - 1), remaining.length - 1)]?.id ?? null)
+          : previous.selected;
+      return {
+        ...previous,
+        tabs: [...previous.tabs.filter((entry) => entry.id !== id), { ...tab, hidden: true }],
+        selected,
+      };
+    }
+    const pending = hiding.current.get(id);
+    if (pending) {
+      await pending;
+      return current.current.selected;
+    }
+    const next = deferred(current.current);
+    if (next === current.current) return next.selected;
+    for (const pending of pendingOpens.current) pending.closed.add(id);
+    const hide: Promise<void> = window.scope.saveWorkspace(next).then(() => {
+      // A reopen while this save was pending wins over the close.
+      if (hiding.current.get(id) === hide) replace(deferred(current.current));
+    });
+    hiding.current.set(id, hide);
+    try {
+      await hide;
+      return current.current.selected;
+    } finally {
+      if (hiding.current.get(id) === hide) hiding.current.delete(id);
+    }
   }
 
   function moveTab(id: string, targetId: string, edge: TabDropEdge): void {

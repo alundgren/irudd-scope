@@ -126,6 +126,7 @@ export function registerDesktopIpc({
     handle,
     store,
     client,
+    memory,
     artifacts: lifecycle.artifacts,
     workspace: () => lifecycle.workspace(),
   });

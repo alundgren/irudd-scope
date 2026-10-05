@@ -112,9 +112,20 @@ full seven days in Trashcan when the tab is actually moved there.
 Close controls and Command-W move temporary tabs to Trashcan. For permanent
 tabs, they move the tab to the end of the saved order, last in the drawer,
 and select a neighboring tab. Closing a background permanent tab keeps the
-current selection; a sole permanent tab stays selected. This lets permanent
-tools stay available after use. Delete, dropping onto Trashcan, and the explicit
-Move to Trashcan action still trash either kind of tab. These actions preserve
+current selection. Closed permanent tabs leave the strip and stay closed after
+restart, even when room is available. Their content stays mounted while Scope
+runs. Selecting one from the drawer reopens it with the same UUID and saved
+position. Closing the last visible tab leaves no selection. Delete, dropping
+onto Trashcan, and the explicit Move to Trashcan action still trash ordinary
+temporary and permanent tabs.
+
+Built-in tabs are always permanent. A noninteractive lock icon identifies them
+in the strip and drawer. They have no permanence toggle. Close, Delete, and
+dropping onto Trashcan hide them for reopening from the drawer; these actions
+never delete their data. Artifact details show a saved name beside the ID when
+the artifact has one.
+
+Closing or trashing ordinary artifact tabs preserves
 artifact content, names, drafts, conversations, and saved viewport. Agent updates cannot restore
 trashed tabs or refresh their retention clocks. Restore returns the same tab to
 the right end, selects it, preserves its permanent setting, and restarts the
@@ -396,8 +407,7 @@ revision and retains the previous versions.
 Each inbox is a permanent named HTML app for one GitHub repository. The initial
 app presents a flat list and named views, with no search or sort controls.
 Agents can replace its HTML and JavaScript while Scope preserves the current
-PR data, notes, snoozes, and review decisions. Closing moves a permanent inbox
-to the end of the tab queue. Moving it to Trashcan uses ordinary retention.
+PR data, notes, snoozes, and review decisions. Closing hides a permanent inbox and moves it to the end of the drawer. Moving it to Trashcan uses ordinary retention.
 Permanently deleting the tab deletes its repository review data.
 
 Configured inboxes refresh current open PRs automatically, including drafts.
@@ -530,3 +540,31 @@ shows an amber banner under the strip on every screen except focus mode, with
 Copy agent request listing the conflict pull requests. Scope never merges them.
 Turning memory off stops Scope's syncing and upgrades and hides OKF from retros;
 nothing is uninstalled or deleted.
+
+## Personal memory wiki
+
+Personal memory opens from workspace search or Memory Settings in a built-in
+tab. One saved tab follows the connected repository on this Mac. Wiki starts at
+`index.md`, supports relative Markdown links, and shows linked notes and
+backlinks. Search covers the personal bundle with paging. Graph shows up to 80
+notes, can focus on a note's nearby connections, and opens a selected note in
+the wiki. Index and log documents remain available through wiki links; irudd-okf
+omits them from search and graph.
+
+Edit Markdown opens the raw file, including frontmatter. The draft remains in
+SQLite across tab switches, hiding, fullscreen, and restart. Saving compares the
+original content hash with the current file. Failed and conflicting saves keep
+the draft; Compare saved version shows the current file without changing the
+draft's original hash. Preview draft renders the edited Markdown without opening links.
+After reviewing and reconciling a conflict, Use saved version as base requires
+confirmation and keeps the draft; the next Save checks that reviewed hash again.
+Discard requires an explicit confirmation, and Copy draft
+preserves text outside Scope. A retained draft must be saved or discarded before
+opening a different note. Switching repositories preserves the old draft and
+disables its Save action until its repository is connected again.
+
+Memory must be enabled, connected, installed and registered locally before file
+operations are available. The tab stays open with a Memory settings action when
+setup or sync needs attention. An already registered clone can be read while
+GitHub is unavailable. Browser-server embedding is unnecessary; Scope uses the
+same irudd-okf file operations directly through the installed CLI.

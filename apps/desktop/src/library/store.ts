@@ -17,6 +17,7 @@ import {
   decode,
   validateArtifactContent,
 } from "@irudd-scope/protocol";
+import { isBuiltinTab } from "../plugins/registry.ts";
 import { Tab, Uuid, tabArtifactId } from "../workspace/contract.ts";
 import {
   TEMPORARY_RETENTION_MS,
@@ -28,6 +29,11 @@ import { PlanStore, recordPlanRevision } from "./plan-store.ts";
 import { DiagramDraft } from "../plugins/diagram/draft.ts";
 import { importTransferredTab, transferReceipt } from "./transfer-import.ts";
 import { TransferId, type TransferManifest } from "@irudd-scope/protocol/transfer";
+
+function assertBuiltinType(saved: Tab, next: Tab): void {
+  if ((isBuiltinTab(saved) || isBuiltinTab(next)) && saved.type !== next.type)
+    throw new Error("The type of a built-in tab cannot change.");
+}
 
 const databaseRuntime = (filename: string) => ManagedRuntime.make(SqliteClient.layer({ filename }));
 
@@ -352,18 +358,18 @@ export class ArtifactStore {
   }
 
   async retainedTabs(): Promise<RetainedTab[]> {
-    return (await this.tabs()).flatMap((row) =>
-      row.opened && row.document
-        ? [
-            {
-              tab: decode(Tab, JSON.parse(row.document)),
-              permanent: Boolean(row.permanent),
-              lastVisibleAt: row.last_visible_at,
-              trashedAt: row.trashed_at,
-            },
-          ]
-        : [],
-    );
+    return (await this.tabs()).flatMap((row) => {
+      if (!row.opened || !row.document) return [];
+      const tab = decode(Tab, JSON.parse(row.document));
+      return [
+        {
+          tab,
+          permanent: isBuiltinTab(tab) || Boolean(row.permanent),
+          lastVisibleAt: row.last_visible_at,
+          trashedAt: row.trashed_at,
+        },
+      ];
+    });
   }
 
   async markTabsVisible(ids: readonly string[], now = Date.now()): Promise<void> {
@@ -375,18 +381,39 @@ export class ArtifactStore {
   }
 
   async setTabPermanent(id: string, permanent: boolean, now = Date.now()): Promise<void> {
-    const rows = await this.run(
-      this
-        .sql`UPDATE live_tabs SET permanent = ${Number(permanent)}, last_visible_at = ${now} WHERE id = ${id} AND trashed_at IS NULL RETURNING id`,
+    const sql = this.sql;
+    await this.run(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const [row] = yield* sql<{
+            document: string | null;
+          }>`SELECT document FROM live_tabs WHERE id = ${id} AND trashed_at IS NULL`;
+          if (!row) return yield* Effect.fail(new Error("This tab is no longer active."));
+          if (!permanent && row.document && isBuiltinTab(decode(Tab, JSON.parse(row.document))))
+            return yield* Effect.fail(new Error("Built-in tabs are always permanent."));
+          yield* sql`UPDATE live_tabs SET permanent = ${Number(permanent)}, last_visible_at = ${now} WHERE id = ${id} AND trashed_at IS NULL`;
+        }),
+      ),
     );
-    if (!rows.length) throw new Error("This tab is no longer active.");
   }
 
   async trashTab(id: string, now = Date.now()): Promise<string[]> {
+    const sql = this.sql;
     const rows = await this.run(
-      this.sql<{
-        id: string;
-      }>`UPDATE live_tabs SET trashed_at = ${now} WHERE id = ${id} AND opened = 1 AND trashed_at IS NULL RETURNING id`,
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const [row] = yield* sql<{
+            document: string | null;
+          }>`SELECT document FROM live_tabs WHERE id = ${id} AND opened = 1 AND trashed_at IS NULL`;
+          if (row?.document && isBuiltinTab(decode(Tab, JSON.parse(row.document))))
+            return yield* Effect.fail(
+              new Error("Built-in tabs can be closed, but cannot move to Trashcan."),
+            );
+          return yield* sql<{
+            id: string;
+          }>`UPDATE live_tabs SET trashed_at = ${now} WHERE id = ${id} AND opened = 1 AND trashed_at IS NULL RETURNING id`;
+        }),
+      ),
     );
     if (rows.length) for (const listener of this.listeners) listener();
     return rows.map((row) => row.id);
@@ -404,12 +431,25 @@ export class ArtifactStore {
   }
 
   async expireTemporaryTabs(now = Date.now()): Promise<string[]> {
-    const rows = await this.run(
-      this.sql<{
-        id: string;
-      }>`UPDATE live_tabs SET trashed_at = ${now} WHERE opened = 1 AND permanent = 0 AND trashed_at IS NULL AND last_visible_at <= ${now - TEMPORARY_RETENTION_MS} RETURNING id`,
+    const sql = this.sql;
+    return this.run(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const candidates = yield* sql<{
+            id: string;
+            document: string | null;
+          }>`SELECT id, document FROM live_tabs WHERE opened = 1 AND permanent = 0 AND trashed_at IS NULL AND last_visible_at <= ${now - TEMPORARY_RETENTION_MS}`;
+          const ids = candidates
+            .filter((row) => !row.document || !isBuiltinTab(decode(Tab, JSON.parse(row.document))))
+            .map((row) => row.id);
+          if (!ids.length) return [];
+          const rows = yield* sql<{
+            id: string;
+          }>`UPDATE live_tabs SET trashed_at = ${now} WHERE ${sql.in("id", ids)} RETURNING id`;
+          return rows.map((row) => row.id);
+        }),
+      ),
     );
-    return rows.map((row) => row.id);
   }
 
   async expiredTrash(now = Date.now()): Promise<readonly TrashEntry[]> {
@@ -426,6 +466,10 @@ export class ArtifactStore {
         Effect.gen(function* () {
           const removed: { id: string; artifact_id: string | null }[] = [];
           for (const entry of entries) {
+            const [saved] = yield* sql<{
+              document: string | null;
+            }>`SELECT document FROM live_tabs WHERE id = ${entry.id}`;
+            if (saved?.document && isBuiltinTab(decode(Tab, JSON.parse(saved.document)))) continue;
             const rows = yield* sql<{
               id: string;
               artifact_id: string | null;
@@ -544,6 +588,24 @@ export class ArtifactStore {
       sql.withTransaction(
         Effect.gen(function* () {
           let id = tab.id;
+          const [requested] = yield* sql<{
+            document: string | null;
+          }>`SELECT document FROM live_tabs WHERE id = ${id}`;
+          if (requested?.document)
+            assertBuiltinType(decode(Tab, JSON.parse(requested.document)), tab);
+          if (isBuiltinTab(tab)) {
+            const candidates = yield* sql<{
+              document: string;
+            }>`SELECT document FROM live_tabs WHERE opened = 1 AND document IS NOT NULL AND artifact_id IS NULL`;
+            const existing = candidates
+              .map((row) => decode(Tab, JSON.parse(row.document)))
+              .find((entry) => entry.type === tab.type);
+            if (existing) {
+              const reopened = { ...existing, hidden: false };
+              yield* sql`UPDATE live_tabs SET document = ${JSON.stringify(reopened)}, permanent = 1, trashed_at = NULL WHERE id = ${existing.id}`;
+              return reopened;
+            }
+          }
           if (artifactId) {
             const [row] = yield* sql<{
               tab_id: string;
@@ -561,9 +623,14 @@ export class ArtifactStore {
           } else {
             yield* sql`INSERT INTO live_tabs(id, artifact_id, opened, created_at) VALUES (${id}, NULL, 0, ${Date.now()}) ON CONFLICT(id) DO NOTHING`;
           }
+          const [saved] = yield* sql<{
+            document: string | null;
+          }>`SELECT document FROM live_tabs WHERE id = ${id}`;
+          if (saved?.document) assertBuiltinType(decode(Tab, JSON.parse(saved.document)), tab);
           const opened = { ...tab, id };
           const rows =
             yield* sql`UPDATE live_tabs SET opened = 1, document = ${JSON.stringify(opened)},
+          permanent = CASE WHEN ${Number(isBuiltinTab(opened))} THEN 1 ELSE permanent END,
           last_visible_at = CASE WHEN opened = 0 THEN ${Date.now()} ELSE last_visible_at END,
           position = CASE WHEN opened = 0 THEN (SELECT coalesce(max(position), -1) + 1 FROM live_tabs WHERE opened = 1) ELSE position END
           WHERE id = ${id} AND trashed_at IS NULL AND artifact_id IS ${artifactId ?? null} RETURNING id`;
@@ -579,6 +646,10 @@ export class ArtifactStore {
       sql.withTransaction(
         Effect.gen(function* () {
           for (const [position, tab] of tabs.entries()) {
+            const [saved] = yield* sql<{
+              document: string | null;
+            }>`SELECT document FROM live_tabs WHERE id = ${tab.id}`;
+            if (saved?.document) assertBuiltinType(decode(Tab, JSON.parse(saved.document)), tab);
             yield* sql`UPDATE live_tabs SET document = ${JSON.stringify(tab)}, position = ${position} WHERE id = ${tab.id} AND opened = 1 AND trashed_at IS NULL AND artifact_id IS ${tabArtifactId(tab) ?? null}`;
           }
         }),

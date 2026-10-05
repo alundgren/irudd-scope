@@ -1,11 +1,15 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
+import { join, relative, resolve } from "node:path";
 // Synthetic irudd-okf matching v0.1.0 JSON output. Registrations live in FAKE_OKF_CONFIG.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, readdirSync, renameSync, unlinkSync, mkdirSync } from "node:fs";
 import { commandGate } from "../gate.mjs";
 import { spawn } from "node:child_process";
 import { setTimeout } from "node:timers/promises";
 
-const args = process.argv.slice(2);
+let args = process.argv.slice(2);
+let explicitRoot;
+if (args[0] === "--bundle") { explicitRoot = args[1].slice(args[1].indexOf("=") + 1); args = args.slice(2); }
 await commandGate("okf", args);
 const file = process.env.FAKE_OKF_CONFIG;
 const read = () => (existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { bundles: [] });
@@ -14,7 +18,50 @@ const fail = (code, message, details = {}) => {
   process.exit(2);
 };
 
-if (args[0] === "--version") process.stdout.write(`irudd-okf v${process.env.FAKE_OKF_VERSION ?? "0.1.0"}\n`);
+if (explicitRoot && ["read", "search", "graph", "write"].includes(args[0])) {
+  const hash = raw => createHash("sha256").update(raw).digest("hex");
+  const concept = path => {
+    const raw = readFileSync(join(explicitRoot, path), "utf8");
+    const body = raw.replace(/^---\n[\s\S]*?\n---\n/, "");
+    const title = /^title: (.+)$/m.exec(raw)?.[1] ?? /^# (.+)$/m.exec(body)?.[1] ?? path;
+    const links = [...body.matchAll(/\[([^\]]+)\]\(([^)]+)\)/g)].map(match => {
+      const external = /^[a-z]+:/i.test(match[2]);
+      const target = external ? match[2] : relative(explicitRoot, resolve(explicitRoot, path, "..", match[2]));
+      return { target, label: match[1], external, broken: !external && !existsSync(join(explicitRoot, target)) };
+    });
+    return { bundle: "personal", path, title, type: "Rule", description: "", tags: [], hash: hash(raw), malformed: false, raw, body, links, backlinks: [] };
+  };
+  const paths = (root = explicitRoot) => readdirSync(root, { withFileTypes: true }).flatMap(entry => entry.name.startsWith(".") ? [] : entry.isDirectory() ? paths(join(root, entry.name)) : entry.name.endsWith(".md") && !["index.md", "log.md"].includes(entry.name) ? [relative(explicitRoot, join(root, entry.name))] : []);
+  if (process.env.FAKE_OKF_BAD_VIEWER_OUTPUT) { process.stdout.write('{"unexpected":true}'); process.exit(0); }
+  if (args[0] === "read") {
+    if (!existsSync(join(explicitRoot, args[2]))) fail("NOT_FOUND", "This note does not exist.");
+    process.stdout.write(JSON.stringify(concept(args[2])));
+  } else if (args[0] === "write") {
+    const path = args[2];
+    const current = concept(path);
+    const expected = args[args.indexOf("--expected") + 1];
+    if (current.hash !== expected) fail("CONFLICT", "The saved file changed. Your draft is kept. Compare the saved version before continuing.");
+    const lock = join(explicitRoot, ".irudd-okf", "write.lock");
+    mkdirSync(join(explicitRoot, ".irudd-okf"), { recursive: true });
+    if (existsSync(lock)) fail("BUSY", "Memory is being written. Retry.");
+    writeFileSync(lock, "synthetic-writer", { flag: "wx" });
+    try {
+      const raw = readFileSync(args[args.indexOf("--file") + 1], "utf8");
+      const temporary = join(explicitRoot, ".irudd-okf", "synthetic-edit");
+      writeFileSync(temporary, raw);
+      renameSync(temporary, join(explicitRoot, path));
+      process.stdout.write(JSON.stringify({ version: 1, bundle: "personal", path, hash: process.env.FAKE_OKF_WRONG_SAVE_HASH ? "0".repeat(64) : hash(raw), changedPaths: [path] }));
+    } finally { unlinkSync(lock); }
+  } else {
+    const concepts = paths().map(concept);
+    if (args[0] === "search") {
+      const query = args[1];
+      const offset = Number(args[args.indexOf("--offset") + 1]);
+      const results = concepts.filter(note => (note.raw + note.path).toLowerCase().includes(query.trim().toLowerCase()));
+      process.stdout.write(JSON.stringify({ version: 1, query, results: results.slice(offset, offset + 30).map(note => ({ ...note, excerpt: note.body.slice(0, 180) })), total: results.length, limit: 30, offset: process.env.FAKE_OKF_WRONG_SEARCH_OFFSET ? offset + 1 : offset, truncated: offset + 30 < results.length }));
+    } else process.stdout.write(JSON.stringify({ version: 1, nodes: concepts.slice(0, 80), edges: concepts.flatMap(note => note.links.map(link => ({ from: `personal:${note.path}`, to: `personal:${link.target}`, ...link }))), truncated: concepts.length > 80, limit: 80 }));
+  }
+} else if (args[0] === "--version") process.stdout.write(`irudd-okf v${process.env.FAKE_OKF_VERSION ?? "0.1.0"}\n`);
 else if (args[0] === "bundle" && args[1] === "list") {
   const bundles = read().bundles.map((bundle) => ({ ...bundle, kind: "personal", writable: true }));
   process.stdout.write(JSON.stringify({ version: 1, bundles }));

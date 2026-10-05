@@ -259,6 +259,18 @@ without concurrent builds or tests. Reports contain raw samples and measurement
 definitions. Process memory sums RSS and can count shared pages more than once.
 The benchmark is separate from `ready` and needs no provider key.
 
+## Personal memory viewer
+
+The Personal memory tab calls an installed irudd-okf through the existing
+memory sync process runner. No browser server needs to be started. Workspace
+search and Memory Settings provide the opening action. The tab needs an enabled,
+connected and locally registered memory clone for wiki, search, graph and edits.
+
+`tests/memory-viewer.test.ts` exercises the native tab in real Electron with
+synthetic memory files and CLI responses. `tests/memory-viewer-queue.test.ts`
+checks cancellation and ordering with Git sync, without credentials or a live
+GitHub repository. The synthetic CLI models file hashes and save conflicts.
+
 ## GitHub pull request inboxes
 
 Ask the agent in an existing coding session to author and publish a named HTML

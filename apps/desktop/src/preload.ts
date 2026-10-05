@@ -141,6 +141,9 @@ const bridge: ScopeBridge = {
     return () => ipcRenderer.removeListener("scope:fullscreen-changed", receive);
   },
   remotes: () => ipcRenderer.invoke("scope:remotes"),
+  memoryCommand: (command) => ipcRenderer.invoke("scope:memory-command", command),
+  copyMemoryDraft: (raw) => ipcRenderer.invoke("scope:copy-memory-draft", raw),
+  openMemoryLink: (url) => ipcRenderer.invoke("scope:open-memory-link", url),
   memory: () => ipcRenderer.invoke("scope:memory"),
   setMemoryEnabled: (enabled) => ipcRenderer.invoke("scope:set-memory-enabled", enabled),
   retryMemory: () => ipcRenderer.invoke("scope:retry-memory"),

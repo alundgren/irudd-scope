@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { Popover } from "@base-ui/react/popover";
-import { ArrowLeft, Bookmark, ChevronDown, RotateCcw, Search, Trash2, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, RotateCcw, Search, Trash2, X } from "lucide-react";
 import type { Artifact } from "@irudd-scope/protocol";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { Input } from "../renderer/components/ui/input.tsx";
 import { tabArtifactId } from "../plugins/registry.renderer.ts";
+import { isBuiltinTab } from "../plugins/registry.ts";
 import type { Tab } from "./contract.ts";
 import { TRASH_RETENTION_MS, type RetainedTab } from "./retention.ts";
+import { TabPermanence } from "./tab-permanence.tsx";
 import { EmptyTrash } from "./empty-trash.tsx";
 import type { TabDrag } from "./use-tab-drag.ts";
 
@@ -66,7 +68,7 @@ export function TabOverflow({
     const title = artifact?.title ?? tab.title;
     const kind = artifact?.kind ?? tab.type;
     const name = artifact?.name;
-    const permanent = entry?.permanent ?? false;
+    const permanent = isBuiltinTab(tab) || (entry?.permanent ?? false);
     if (section === "active" && filter !== "all" && permanent !== (filter === "permanent"))
       return [];
     if (needle && !`${title} ${kind} ${name ?? ""}`.toLowerCase().includes(needle)) return [];
@@ -252,7 +254,11 @@ export function TabOverflow({
                         data-tab-result
                         aria-label={`${title} ${name ? `${name} · ` : ""}${kind}`}
                         aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Delete"
-                        aria-description="Drag to reorder or drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
+                        aria-description={
+                          isBuiltinTab(tab)
+                            ? "Drag or Alt and arrow keys to reorder. Delete closes this built-in tab."
+                            : "Drag to reorder or drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
+                        }
                         title={title}
                         onKeyDown={(event) =>
                           drag.keyboard(
@@ -270,18 +276,12 @@ export function TabOverflow({
                       >
                         {title}
                       </button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        className={`tab-permanent${permanent ? " is-permanent" : ""}`}
-                        data-tab-drag-ignore
-                        aria-pressed={permanent}
-                        aria-label={`${permanent ? "Make temporary" : "Keep permanently"}: ${title}`}
-                        title={permanent ? "Permanent · Make temporary" : "Keep permanently"}
-                        onClick={() => void onPermanent(tab.id, !permanent)}
-                      >
-                        <Bookmark fill={permanent ? "currentColor" : "none"} />
-                      </Button>
+                      <TabPermanence
+                        tab={tab}
+                        title={title}
+                        permanent={permanent}
+                        onPermanent={onPermanent}
+                      />
                     </div>
                     <small>
                       {name ? `${name} · ` : ""}
