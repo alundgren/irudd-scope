@@ -184,8 +184,9 @@ function MemoryView({ tab, context, active }: TabProps) {
     try {
       await flushWorkspace("save", tab.id);
       const reply = await request({ action: "save", ...draft });
-      if (captured !== currentIdentity.current || reply.action !== "save") return;
+      if (reply.action !== "save") return;
       clearDraft();
+      if (captured !== currentIdentity.current) return;
       await readNote(draft.path);
       try {
         await flushWorkspace("save", tab.id);
@@ -234,8 +235,8 @@ function MemoryView({ tab, context, active }: TabProps) {
       if (current()) setError(message(cause));
     }
   }
-  async function find(offset = 0) {
-    if (!query.trim() || !repository || !available) return;
+  async function find(offset = 0, text = query) {
+    if (!text.trim() || !repository || !available) return;
     const token = ++searchSequence.current;
     const captured = identity;
     setError("");
@@ -244,7 +245,7 @@ function MemoryView({ tab, context, active }: TabProps) {
       const reply = await request({
         action: "search",
         repository,
-        query: query.trim(),
+        query: text.trim(),
         offset,
       });
       if (
@@ -449,14 +450,14 @@ function MemoryView({ tab, context, active }: TabProps) {
             <Button
               variant="ghost"
               disabled={!search.offset}
-              onClick={() => void find(Math.max(0, search.offset - 30))}
+              onClick={() => void find(Math.max(0, search.offset - 30), search.query)}
             >
               Previous
             </Button>
             <Button
               variant="ghost"
               disabled={search.offset + 30 >= search.total}
-              onClick={() => void find(search.offset + 30)}
+              onClick={() => void find(search.offset + 30, search.query)}
             >
               Next
             </Button>

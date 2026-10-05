@@ -220,6 +220,7 @@ export function useWorkspace(onError: (message: string) => void) {
   }
 
   function revealTab(id: string): void {
+    hiding.current.delete(id);
     const previous = current.current;
     replace({
       ...previous,
@@ -253,15 +254,16 @@ export function useWorkspace(onError: (message: string) => void) {
     const next = deferred(current.current);
     if (next === current.current) return next.selected;
     for (const pending of pendingOpens.current) pending.closed.add(id);
-    const hide = window.scope.saveWorkspace(next).then(() => {
-      replace(deferred(current.current));
+    const hide: Promise<void> = window.scope.saveWorkspace(next).then(() => {
+      // A reopen while this save was pending wins over the close.
+      if (hiding.current.get(id) === hide) replace(deferred(current.current));
     });
     hiding.current.set(id, hide);
     try {
       await hide;
       return current.current.selected;
     } finally {
-      hiding.current.delete(id);
+      if (hiding.current.get(id) === hide) hiding.current.delete(id);
     }
   }
 

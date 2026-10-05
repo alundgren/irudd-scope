@@ -55,9 +55,9 @@ if (explicitRoot && ["read", "search", "graph", "write"].includes(args[0])) {
   } else {
     const concepts = paths().map(concept);
     if (args[0] === "search") {
-      const query = args[1].trim();
+      const query = args[1];
       const offset = Number(args[args.indexOf("--offset") + 1]);
-      const results = concepts.filter(note => (note.raw + note.path).toLowerCase().includes(query.toLowerCase()));
+      const results = concepts.filter(note => (note.raw + note.path).toLowerCase().includes(query.trim().toLowerCase()));
       process.stdout.write(JSON.stringify({ version: 1, query, results: results.slice(offset, offset + 30).map(note => ({ ...note, excerpt: note.body.slice(0, 180) })), total: results.length, limit: 30, offset: process.env.FAKE_OKF_WRONG_SEARCH_OFFSET ? offset + 1 : offset, truncated: offset + 30 < results.length }));
     } else process.stdout.write(JSON.stringify({ version: 1, nodes: concepts.slice(0, 80), edges: concepts.flatMap(note => note.links.map(link => ({ from: `personal:${note.path}`, to: `personal:${link.target}`, ...link }))), truncated: concepts.length > 80, limit: 80 }));
   }

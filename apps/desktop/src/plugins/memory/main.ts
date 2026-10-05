@@ -36,6 +36,8 @@ export function registerMemoryIpc({ handle, workspace, memory }: MainPluginConte
         case "search":
           args = [
             "search",
+            // irudd-okf has no `--` separator, so the space keeps a query like
+            // "--help" from being read as a flag. irudd-okf echoes it unchanged.
             ` ${command.query}`,
             "--scope",
             "personal",
@@ -108,7 +110,7 @@ export function registerMemoryIpc({ handle, workspace, memory }: MainPluginConte
         case "search": {
           const search = Schema.decodeUnknownSync(MemorySearch)(value);
           if (
-            search.query !== command.query.trim() ||
+            search.query !== ` ${command.query}` ||
             search.offset !== command.offset ||
             search.limit !== 30 ||
             search.results.length !== Math.min(30, Math.max(0, search.total - search.offset))

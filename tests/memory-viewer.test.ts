@@ -9,8 +9,10 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
 });
 
-async function fixture(extra: NodeJS.ProcessEnv = {}) {
+async function fixture(extra: NodeJS.ProcessEnv = {}, notes: Record<string, string> = {}) {
   const memory = await memoryFixture(cleanup);
+  for (const [path, raw] of Object.entries(notes))
+    await writeFile(join(memory.directory, "seed", path), raw);
   await writeFile(
     join(memory.directory, "seed", "index.md"),
     "# Personal memory\n\n[Recovery](recovery.md)\n[Root note](/validation.md)\n[Missing](missing.md)\n[Web](https://example.com/docs)\n[Home](./)\n\n[Unsafe](javascript:alert(1))\n[Outside](../outside.md)\n",
@@ -396,6 +398,21 @@ test("native wiki links stay within memory or open the default browser, and miss
     .locator(".memory-wiki")
     .getByRole("heading", { name: "Personal memory", exact: true })
     .waitFor();
+});
+
+test("search paging keeps the submitted query after the input changes", async () => {
+  const notes: Record<string, string> = {};
+  for (let index = 1; index <= 31; index++)
+    notes[`paged-${String(index).padStart(2, "0")}.md`] =
+      `---\ntype: Rule\ntitle: Paged ${index}\n---\n\n# Paged ${index}\n\nPagingterm.\n`;
+  const f = await fixture({}, notes);
+  await f.open();
+  await f.page.getByLabel("Search personal memory").fill("pagingterm");
+  await f.page.getByRole("button", { name: "Search memory", exact: true }).click();
+  await f.page.locator(".memory-results").getByText("1 to 30 of 31").waitFor();
+  await f.page.getByLabel("Search personal memory").fill("synthetic");
+  await f.page.getByRole("button", { name: "Next", exact: true }).click();
+  await f.page.locator(".memory-results").getByText("31 to 31 of 31").waitFor();
 });
 
 test("inconsistent search and save replies preserve the editor draft", async () => {
