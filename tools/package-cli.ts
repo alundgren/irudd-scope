@@ -15,6 +15,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { pruneInstallationBuilds } from "../apps/hub/src/installation-builds.ts";
 
 const source = resolve(import.meta.dirname, "..");
 const root = process.env.SCOPE_CLI_INSTALL_ROOT ?? join(homedir(), ".local/share/irudd-scope-cli");
@@ -117,6 +118,7 @@ try {
       if (!contents.includes(entry)) await writeFile(profile, contents + entry);
     }
   }
+  await pruneInstallationBuilds(root);
   console.log(
     `Installed ${command}\nOpen a new login shell, then run irudd-scope setup on the remote.`,
   );

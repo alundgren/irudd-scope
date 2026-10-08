@@ -32,6 +32,7 @@ export async function remoteUpdateFixture() {
   await mkdir(bin);
   for (const path of [
     "tools/package-cli.ts",
+    "apps/hub/src/installation-builds.ts",
     "install-cli.sh",
     "LICENSE",
     "pnpm-workspace.yaml",

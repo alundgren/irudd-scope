@@ -6,6 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { decode, decodeLocalConnection } from "@irudd-scope/protocol";
 import { BuildCommit, HubStatus, readRemoteJson } from "@irudd-scope/protocol/remote";
 import { HubState } from "./state.ts";
+import { pruneInstallationBuilds } from "./installation-builds.ts";
 import {
   InstalledSkillError,
   readInstallation,
@@ -113,6 +114,7 @@ try {
   if (commit !== installation.commit) await prepareAndRestart(installation, previous);
   progress("building", "Checking and repairing the installed Scope skill…");
   const installed = await runSkillCommand(installation, "sync");
+  await pruneInstallationBuilds(installation.root);
   progress(
     "idle",
     installed
