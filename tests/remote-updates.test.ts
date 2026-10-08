@@ -1,5 +1,14 @@
 import { expect, test } from "vite-plus/test";
-import { mkdir, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  readlink,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { remoteUpdateFixture } from "./remote-update-fixture.ts";
 import { createServer } from "node:http";
@@ -114,6 +123,11 @@ test.skipIf(process.platform !== "linux")(
       await expect.poll(() => f.status()?.update?.currentCommit, { timeout: 30_000 }).toBe(later);
       await expect.poll(() => f.state.updateStatus()?.phase).toBe("idle");
       expect(f.launches()).toBe(attempts + 1);
+      const active = await readlink(join(f.root, "current"));
+      const previous = await readlink(join(f.root, "previous"));
+      expect((await readdir(join(f.root, "builds"))).sort()).toEqual(
+        [active, previous].map((build) => build.slice(build.lastIndexOf("/") + 1)).sort(),
+      );
       expect(f.state.status().pairedMac).toBe(pairedMac);
       await f.openMac(next);
       await expect.poll(() => f.status()?.update?.phase, { timeout: 15_000 }).toBe("error");

@@ -599,6 +599,12 @@ the installation, and links `~/.local/bin/irudd-scope`. It does not install
 the desktop. Linux and macOS can install the CLI; managed hub setup currently
 requires Linux, `flock` from util-linux, a working systemd user service manager,
 and user lingering.
+Successful installations and remote updates remove unused directories directly
+under the CLI installation's `builds` directory. They retain builds selected by
+`current`, `previous`, or `prepared`, and builds used by running CLI or hub
+processes. Preparing a build or failing an installation does not prune older
+builds. If installation links or the full process list cannot be read safely,
+cleanup is skipped. Source checkouts, links, and user data stay in place.
 Tailscale must already be installed and connected, with permission to configure
 Serve. Setup reports missing prerequisites before changing the service.
 
