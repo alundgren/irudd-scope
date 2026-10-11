@@ -16,14 +16,16 @@ import {
 } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep, win32 } from "node:path";
 import { promisify } from "node:util";
 import { Schema } from "effect";
 import { decode } from "@irudd-scope/protocol";
+import { activateWindowsBuild, runningWindowsBuilds } from "./windows-installation.ts";
 
 const SigningIdentity = Schema.String.check(Schema.isPattern(/^[0-9A-F]{40}$/));
 const buildName = /^[0-9a-f]{40}(?:-[0-9A-F]{40})?$/;
 const Installation = Schema.Struct({
+  platform: Schema.optionalKey(Schema.Literal("win32")),
   root: Schema.String,
   vp: Schema.String,
   commit: Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)),
@@ -68,6 +70,13 @@ export function installationBuildDirectory(installation: Installation) {
   return join(installation.root, "builds", `${installation.commit}${suffix}`);
 }
 
+export function installationAppDirectory(build: string, platform?: "win32") {
+  return join(
+    build,
+    platform === "win32" ? "Scope/resources/app" : "Scope.app/Contents/Resources/app",
+  );
+}
+
 export async function pointToBuild(
   root: string,
   name: "current" | "previous" | "prepared",
@@ -77,38 +86,76 @@ export async function pointToBuild(
   await pointToInstallationPath(root, name, build);
 }
 
-function validateBuild(root: string, build: string) {
-  if (dirname(build) !== join(root, "builds") || !buildName.test(basename(build)))
+function installationPathKey(path: string, platform = process.platform) {
+  return platform === "win32" ? win32.toNamespacedPath(win32.resolve(path)).toLowerCase() : path;
+}
+
+export function sameInstallationPath(left: string, right: string, platform = process.platform) {
+  return installationPathKey(left, platform) === installationPathKey(right, platform);
+}
+
+export function validateBuild(root: string, build: string, platform = process.platform) {
+  const paths = platform === "win32" ? win32 : { dirname, join, basename };
+  if (
+    !sameInstallationPath(paths.dirname(build), paths.join(root, "builds"), platform) ||
+    !buildName.test(paths.basename(build))
+  )
     throw new Error("The prepared app is outside Scope's build directory.");
 }
 
-async function readInstallationLink(root: string, name: string) {
+export async function readInstallationLink(root: string, name: string) {
   const target = join(root, name);
   const existing = await lstat(target).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT") throw error;
   });
   if (existing && !existing.isSymbolicLink())
     throw new Error(`${target} is not a Scope installation link. Move it aside and retry.`);
-  return existing ? readlink(target) : undefined;
+  if (!existing) return undefined;
+  const linked = await readlink(target);
+  if (linked.startsWith("\\\\?\\UNC\\")) return `\\\\${linked.slice(8)}`;
+  return linked.startsWith("\\\\?\\") ? linked.slice(4) : linked;
 }
 
-async function pointToInstallationPath(root: string, name: string, path: string | undefined) {
-  await readInstallationLink(root, name);
+export async function pointToInstallationPath(
+  root: string,
+  name: string,
+  path: string | undefined,
+  platform = process.platform,
+) {
+  const existing = await readInstallationLink(root, name);
   const target = join(root, name);
   if (path === undefined) {
     await rm(target, { force: true });
     return;
   }
   const temporary = join(root, `.${name}-${randomUUID()}`);
+  const backup = `${temporary}.previous`;
+  let moved = false;
   try {
-    await symlink(path, temporary);
-    await rename(temporary, target);
+    await symlink(path, temporary, platform === "win32" ? "junction" : undefined);
+    // Windows cannot rename a junction over an existing junction.
+    if (platform === "win32" && existing !== undefined) {
+      await rename(target, backup);
+      moved = true;
+    }
+    try {
+      await rename(temporary, target);
+    } catch (error) {
+      if (moved) await rename(backup, target);
+      throw error;
+    }
+    await rm(backup, { force: true }).catch(() => {
+      console.error("Could not remove an old Scope installation reference.");
+    });
   } finally {
-    await rm(temporary, { force: true });
+    await rm(temporary, { force: true }).catch(() => {
+      console.error("Could not remove a temporary Scope installation reference.");
+    });
   }
 }
 
 export async function activateBuild(root: string, build: string, application?: string) {
+  if (process.platform === "win32") return activateWindowsBuild(root, build);
   validateBuild(root, build);
   const bundle = join(build, "Scope.app");
   await access(join(bundle, "Contents/MacOS/Scope"), constants.X_OK);
@@ -227,15 +274,26 @@ export async function pruneBuilds(installation: Installation) {
       )
     )
       return;
-  const keep = new Set([installationBuildDirectory(installation)]);
+  const running =
+    installation.platform === "win32" && process.platform === "win32"
+      ? await runningWindowsBuilds(installation.root).catch(() => undefined)
+      : [];
+  if (!running) return;
+  const keep = new Set(
+    [installationBuildDirectory(installation), ...running].map((path) => installationPathKey(path)),
+  );
   for (const name of ["current", "previous", "prepared"]) {
-    const target = await readlink(join(installation.root, name)).catch(() => undefined);
-    if (target) keep.add(resolve(installation.root, target));
+    const target = await readInstallationLink(installation.root, name).catch(() => undefined);
+    if (target) keep.add(installationPathKey(resolve(installation.root, target)));
   }
   const builds = join(installation.root, "builds");
   for (const entry of await readdir(builds, { withFileTypes: true })) {
     const directory = join(builds, entry.name);
-    if (entry.isDirectory() && buildName.test(entry.name) && !keep.has(directory))
+    if (
+      entry.isDirectory() &&
+      buildName.test(entry.name) &&
+      !keep.has(installationPathKey(directory))
+    )
       await rm(directory, { recursive: true });
   }
 }
