@@ -27,7 +27,7 @@ ID reuse with identical text/settings is safe for 24 hours. Different payloads c
 Results are WAV, 24 kHz mono signed 16-bit PCM. Output files must be new .wav files.
 Billing may be pending after audio. status --refresh-billing starts a lookup; read status again later.
 Cost is null until actual OpenRouter billing is available. Cancellation does not imply a refund.
-Scope must run on an awake Mac with Voice generation enabled and a shared OpenRouter key.
+Scope must run on an awake computer with Voice generation enabled and a shared OpenRouter key.
 `;
 
 type VoiceOptions = {

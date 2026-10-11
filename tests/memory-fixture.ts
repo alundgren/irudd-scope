@@ -3,6 +3,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 
 const exec = promisify(execFile);
 export const MEMORY_REPOSITORY = "octo/personal-memory";
@@ -13,9 +14,18 @@ export async function memoryFixture(cleanup: (() => Promise<unknown> | void)[]) 
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const remotes = join(directory, "remotes");
   const state = join(directory, "gh-state");
-  const realGit = (await exec("which", ["git"])).stdout.trim();
+  const realGit = (await exec(process.platform === "win32" ? "where.exe" : "which", ["git"])).stdout
+    .trim()
+    .split(/\r?\n/)[0];
   await mkdir(remotes);
   await mkdir(state);
+  const ghOnly = join(directory, "gh-only");
+  await mkdir(ghOnly);
+  await writeFile(
+    join(ghOnly, "gh"),
+    `#!/usr/bin/env node\nawait import(${JSON.stringify(pathToFileURL(resolve("tests/fixtures/memory/bin/gh")).href)});\n`,
+    { mode: 0o700 },
+  );
   const bare = join(remotes, "personal-memory.git");
   const base = {
     HOME: directory,
@@ -27,7 +37,7 @@ export async function memoryFixture(cleanup: (() => Promise<unknown> | void)[]) 
   };
   const path = (bin: "bin" | "gh-only") =>
     [
-      resolve("tests/fixtures/memory", bin),
+      bin === "gh-only" ? ghOnly : resolve("tests/fixtures/memory/bin"),
       dirname(process.execPath),
       ...(process.env.PATH ?? "").split(delimiter).filter((entry) => !entry.includes(".local")),
     ].join(delimiter);

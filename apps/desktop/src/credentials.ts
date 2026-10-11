@@ -14,10 +14,74 @@ const LegacySecrets = Schema.Struct({
 });
 export type Secrets = typeof Secrets.Type;
 export type CredentialStore = {
-  kind: "keychain" | "session";
+  kind: "keychain" | "windows" | "session";
   read: () => Promise<Secrets>;
   write: (secrets: Secrets) => Promise<void>;
 };
+
+export type CredentialDocument = {
+  read: () => Promise<unknown>;
+  write: (document: unknown) => Promise<void>;
+};
+export type CredentialFactory = (document: CredentialDocument) => CredentialStore;
+
+type WindowsProtection = {
+  isAsyncEncryptionAvailable: () => Promise<boolean>;
+  encryptStringAsync: (value: string) => Promise<Buffer>;
+  decryptStringAsync: (value: Buffer) => Promise<{ result: string }>;
+};
+
+const EncryptedCredentials = Schema.Struct({
+  version: Schema.Literal(1),
+  ciphertext: Schema.String.check(
+    Schema.isMinLength(4),
+    Schema.isPattern(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+  ),
+});
+
+export function windowsCredentials(protection: WindowsProtection): CredentialFactory {
+  return (document) => {
+    const available = async () => {
+      if (!(await protection.isAsyncEncryptionAvailable()))
+        throw new Error("Windows credential protection is unavailable. Retry key access.");
+    };
+    return {
+      kind: "windows",
+      read: async () => {
+        const saved = await document.read();
+        if (saved === undefined) return {};
+        try {
+          const encrypted = decode(EncryptedCredentials, saved);
+          await available();
+          const { result } = await protection.decryptStringAsync(
+            Buffer.from(encrypted.ciphertext, "base64"),
+          );
+          return decode(Secrets, JSON.parse(result));
+        } catch (cause) {
+          throw new Error("Could not read Scope credentials protected by Windows.", { cause });
+        }
+      },
+      write: async (secrets) => {
+        const next = decode(Secrets, secrets);
+        if (
+          !next.apiKey &&
+          !Object.keys(next.remoteTokens ?? {}).length &&
+          !Object.keys(next.transferKeys ?? {}).length
+        ) {
+          await document.write(undefined);
+          return;
+        }
+        try {
+          await available();
+          const ciphertext = await protection.encryptStringAsync(JSON.stringify(next));
+          await document.write({ version: 1, ciphertext: ciphertext.toString("base64") });
+        } catch (cause) {
+          throw new Error("Could not save Scope credentials with Windows protection.", { cause });
+        }
+      },
+    };
+  };
+}
 
 export function memoryCredentials(): CredentialStore {
   let secrets: Secrets = {};

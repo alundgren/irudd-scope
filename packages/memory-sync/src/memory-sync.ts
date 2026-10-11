@@ -32,7 +32,11 @@ const STALE_LOCK_MS = 15 * 60_000;
 const STALE_INDEX_LOCK_MS = 10 * 60_000;
 
 export function defaultMemoryRoot(env: NodeJS.ProcessEnv = process.env) {
-  return resolve(env.SCOPE_MEMORY_DIR ?? join(homedir(), ".local/share/irudd-scope/memory"));
+  const directory =
+    process.platform === "win32"
+      ? join(env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "irudd-scope", "memory")
+      : join(homedir(), ".local/share/irudd-scope/memory");
+  return resolve(env.SCOPE_MEMORY_DIR ?? directory);
 }
 
 export type MemorySyncOptions = {
@@ -655,7 +659,7 @@ export class MemorySync {
             .bundles ?? [])
         : [];
     const existing = bundles.find((bundle) => bundle.name === MEMORY_BUNDLE_NAME);
-    if (existing?.root && resolve(existing.root) === resolve(directory)) {
+    if (existing?.root && relative(resolve(existing.root), resolve(directory)) === "") {
       this.update({ bundle: "registered", bundleMessage: undefined });
       return;
     }
@@ -709,6 +713,16 @@ export class MemorySync {
 
   private async runUpgrade(signal: AbortSignal) {
     if (!this.configuration.enabled || !(await this.checkOkf(signal)) || signal.aborted) return;
+    if (process.platform === "win32") {
+      this.update({
+        okf: {
+          ...this.current.okf,
+          message:
+            "Automatic irudd-okf upgrades are unavailable on Windows. Update your native installation separately.",
+        },
+      });
+      return;
+    }
     try {
       await this.performUpgrade(signal);
     } catch {

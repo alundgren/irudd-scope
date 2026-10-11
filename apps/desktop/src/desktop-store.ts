@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { Effect, ManagedRuntime, Schema } from "effect";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { decode } from "@irudd-scope/protocol";
-import { memoryCredentials, type CredentialStore } from "./credentials.ts";
+import { memoryCredentials, type CredentialStore, type CredentialFactory } from "./credentials.ts";
 
 import {
   Appearance,
@@ -70,14 +70,41 @@ export class DesktopStore {
   private credentialError?: string;
   private legacyApiKey?: string;
   private pending = Promise.resolve();
+  private readonly credentials: CredentialStore;
   readonly filename: string;
 
   constructor(
     private readonly directory: string,
-    private readonly credentials: CredentialStore = memoryCredentials(),
+    credentials: CredentialStore | CredentialFactory = memoryCredentials(),
     private readonly decodeLegacySecret?: (bytes: Buffer) => Promise<string>,
   ) {
     this.filename = join(directory, "desktop.db");
+    this.credentials =
+      typeof credentials === "function"
+        ? credentials({
+            read: async () => {
+              const [row] = await this.run(
+                this.sql!<{
+                  document: string;
+                }>`SELECT document FROM preferences WHERE name = 'windows-credentials'`,
+              );
+              return row ? JSON.parse(row.document) : undefined;
+            },
+            write: async (document) => {
+              // Credential operations already run within the store's write queue.
+              if (document === undefined) {
+                await this.run(
+                  this.sql!`DELETE FROM preferences WHERE name = 'windows-credentials'`,
+                );
+              } else {
+                await this.run(
+                  this
+                    .sql!`INSERT INTO preferences(name, document) VALUES ('windows-credentials', ${JSON.stringify(document)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+                );
+              }
+            },
+          })
+        : credentials;
   }
 
   async load(): Promise<void> {
@@ -525,7 +552,7 @@ export class DesktopStore {
     });
   }
 
-  get credentialStorage(): "keychain" | "session" {
+  get credentialStorage(): CredentialStore["kind"] {
     return this.credentials.kind;
   }
 

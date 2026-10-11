@@ -18,7 +18,7 @@ const REMOTE_POLL_MS = 60_000;
 
 type RemoteMemory = { call?: RemoteCall; status?: MemoryMachineStatus; message?: string };
 
-/** Owns the Mac's memory sync and distributes the configuration to paired hubs. */
+/** Owns desktop memory sync and distributes the configuration to paired hubs. */
 export class MemoryService {
   private readonly sync: MemorySync;
   private readonly remoteMemory = new Map<string, RemoteMemory>();
@@ -73,7 +73,7 @@ export class MemoryService {
   snapshot(): MemoryStatus {
     const local: MemoryMachine = {
       id: LOCAL_MEMORY_MACHINE,
-      name: hostname().slice(0, 160) || "This Mac",
+      name: hostname().slice(0, 160) || "This computer",
       local: true,
       status: this.sync.status(),
     };
@@ -135,14 +135,14 @@ export class MemoryService {
   async setEnabled(enabled: boolean) {
     if (enabled) {
       if (!(await this.sync.checkOkf()))
-        throw new Error("Install irudd-okf on this Mac before turning on memory.");
+        throw new Error("Install irudd-okf on this computer before turning on memory.");
     }
     return this.save({ ...this.configuration(), enabled });
   }
 
   async connect(repository: string) {
     if (!this.configuration().enabled)
-      throw new ScopeError(409, "Turn on Memory in Scope Settings on the Mac first.");
+      throw new ScopeError(409, "Turn on Memory in Scope Settings on the desktop first.");
     return this.save({ enabled: true, repository: decode(MemoryRepository, repository) });
   }
 

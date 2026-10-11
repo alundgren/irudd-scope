@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vite-plus/test";
-import { mkdir, symlink } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { delimiter, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
 import { MemoryService } from "../apps/desktop/src/memory.ts";
 import type { Remotes, RemoteCall } from "../apps/desktop/src/remotes.ts";
@@ -105,7 +106,11 @@ async function fixture(options: { installLater?: boolean } = {}) {
       conflict = true;
     },
     install: () =>
-      symlink(resolve("tests/fixtures/memory/bin/irudd-okf"), join(installBin, "irudd-okf")),
+      writeFile(
+        join(installBin, "irudd-okf"),
+        `#!/usr/bin/env node\nawait import(${JSON.stringify(pathToFileURL(resolve("tests/fixtures/memory/bin/irudd-okf")).href)});\n`,
+        { mode: 0o700 },
+      ),
   };
 }
 

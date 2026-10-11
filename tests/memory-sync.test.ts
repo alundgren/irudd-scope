@@ -342,54 +342,60 @@ test("old closed conflict pull requests stay closed after many newer pull reques
   expect(await f.pulls()).toHaveLength(history.length);
 });
 
-test("upgrades run while waiting for a repository and stop when memory is turned off", async () => {
-  const f = await setup();
-  const gate = f.gate("upgrade", "okf:upgrade --check");
-  const sync = new MemorySync({
-    root: f.root("waiting"),
-    machine: "waiting",
-    env: f.env("waiting", { extra: { ...gate.env, FAKE_OKF_UPGRADE: "available" } }),
-  });
-  cleanup.push(async () => {
-    await gate.release();
-    await sync.close();
-  });
-  sync.configure({ enabled: true, repository: null });
-  try {
-    await expect.poll(gate.entered, { timeout: 10_000 }).toBe(true);
-    sync.configure({ enabled: false, repository: null });
-    await sync.close();
-    expect((await gate.commands()).split("\n")).not.toContain("okf:upgrade");
-    expect(sync.status().phase).toBe("off");
-  } finally {
-    await gate.release();
-  }
-});
+test.runIf(process.platform !== "win32")(
+  "upgrades run while waiting for a repository and stop when memory is turned off",
+  async () => {
+    const f = await setup();
+    const gate = f.gate("upgrade", "okf:upgrade --check");
+    const sync = new MemorySync({
+      root: f.root("waiting"),
+      machine: "waiting",
+      env: f.env("waiting", { extra: { ...gate.env, FAKE_OKF_UPGRADE: "available" } }),
+    });
+    cleanup.push(async () => {
+      await gate.release();
+      await sync.close();
+    });
+    sync.configure({ enabled: true, repository: null });
+    try {
+      await expect.poll(gate.entered, { timeout: 10_000 }).toBe(true);
+      sync.configure({ enabled: false, repository: null });
+      await sync.close();
+      expect((await gate.commands()).split("\n")).not.toContain("okf:upgrade");
+      expect(sync.status().phase).toBe("off");
+    } finally {
+      await gate.release();
+    }
+  },
+);
 
-test("unreadable upgrade responses and long versions produce valid machine status", async () => {
-  const f = await setup();
-  const bad = await f.machine("bad", {
-    extra: {
-      FAKE_OKF_UPGRADE: "available",
-      FAKE_OKF_CHECK_RESPONSE: '{"latest":42,"updateAvailable":true}',
-    },
-  });
-  await bad.upgradeOkf();
-  expect(bad.status().okf.message).toContain("unreadable upgrade response");
-  const long = await f.machine("long", {
-    extra: {
-      FAKE_OKF_UPGRADE: "available",
-      FAKE_OKF_VERSION: `0.1.0-${"x".repeat(100)}`,
-      FAKE_OKF_UPGRADE_RESPONSE: JSON.stringify({
-        current: `0.2.0-${"x".repeat(100)}`,
-        updated: true,
-      }),
-    },
-  });
-  await long.upgradeOkf();
-  expect(long.status().okf.version).toHaveLength(64);
-  expect(() => decode(MemoryMachineStatus, long.status())).not.toThrow();
-});
+test.runIf(process.platform !== "win32")(
+  "unreadable upgrade responses and long versions produce valid machine status",
+  async () => {
+    const f = await setup();
+    const bad = await f.machine("bad", {
+      extra: {
+        FAKE_OKF_UPGRADE: "available",
+        FAKE_OKF_CHECK_RESPONSE: '{"latest":42,"updateAvailable":true}',
+      },
+    });
+    await bad.upgradeOkf();
+    expect(bad.status().okf.message).toContain("unreadable upgrade response");
+    const long = await f.machine("long", {
+      extra: {
+        FAKE_OKF_UPGRADE: "available",
+        FAKE_OKF_VERSION: `0.1.0-${"x".repeat(100)}`,
+        FAKE_OKF_UPGRADE_RESPONSE: JSON.stringify({
+          current: `0.2.0-${"x".repeat(100)}`,
+          updated: true,
+        }),
+      },
+    });
+    await long.upgradeOkf();
+    expect(long.status().okf.version).toHaveLength(64);
+    expect(() => decode(MemoryMachineStatus, long.status())).not.toThrow();
+  },
+);
 
 test("a writer lock left by a stopped Scope process is recovered without copying it", async () => {
   const f = await setup();
@@ -413,68 +419,100 @@ test("a writer lock left by a stopped Scope process is recovered without copying
   expect(await f.git(f.clone("laptop"), "ls-files")).toBe("index.md\nlesson.md\n");
 });
 
-test("turning memory off stops an installer child that ignores its CLI's termination", async () => {
-  const f = await setup();
-  const gate = f.gate("installer", "installer:upgrade");
-  const installer = join(f.directory, "installer-child");
-  const sync = new MemorySync({
-    root: f.root("waiting"),
-    machine: "waiting",
-    env: f.env("waiting", {
-      extra: { ...gate.env, FAKE_OKF_UPGRADE: "available", FAKE_OKF_INSTALLER: installer },
-    }),
-  });
-  cleanup.push(async () => {
-    await gate.release();
-    await sync.close();
-  });
-  sync.configure({ enabled: true, repository: null });
-  try {
-    await expect.poll(gate.entered, { timeout: 10_000 }).toBe(true);
-    sync.configure({ enabled: false, repository: null });
-    await sync.close();
-    await writeFile(`${installer}.continue`, "");
-    await delay(100);
-    expect(
-      await access(`${installer}.completed`).then(
-        () => true,
-        () => false,
-      ),
-    ).toBe(false);
-    expect(sync.status().phase).toBe("off");
-  } finally {
-    await gate.release();
-  }
-});
+test.runIf(process.platform !== "win32")(
+  "turning memory off stops an installer child that ignores its CLI's termination",
+  async () => {
+    const f = await setup();
+    const gate = f.gate("installer", "installer:upgrade");
+    const installer = join(f.directory, "installer-child");
+    const sync = new MemorySync({
+      root: f.root("waiting"),
+      machine: "waiting",
+      env: f.env("waiting", {
+        extra: { ...gate.env, FAKE_OKF_UPGRADE: "available", FAKE_OKF_INSTALLER: installer },
+      }),
+    });
+    cleanup.push(async () => {
+      await gate.release();
+      await sync.close();
+    });
+    sync.configure({ enabled: true, repository: null });
+    try {
+      await expect.poll(gate.entered, { timeout: 10_000 }).toBe(true);
+      sync.configure({ enabled: false, repository: null });
+      await sync.close();
+      await writeFile(`${installer}.continue`, "");
+      await delay(100);
+      expect(
+        await access(`${installer}.completed`).then(
+          () => true,
+          () => false,
+        ),
+      ).toBe(false);
+      expect(sync.status().phase).toBe("off");
+    } finally {
+      await gate.release();
+    }
+  },
+);
 
-test("an upgrade and a requested sync run in order without overlapping OKF commands", async () => {
-  const f = await setup();
-  const gate = f.gate("queued", "okf:upgrade --check");
-  const sync = new MemorySync({
-    root: f.root("queued"),
-    machine: "queued",
-    env: f.env("queued", { extra: { ...gate.env, FAKE_OKF_UPGRADE: "available" } }),
-  });
-  cleanup.push(async () => {
+test.runIf(process.platform !== "win32")(
+  "an upgrade and a requested sync run in order without overlapping OKF commands",
+  async () => {
+    const f = await setup();
+    const gate = f.gate("queued", "okf:upgrade --check");
+    const sync = new MemorySync({
+      root: f.root("queued"),
+      machine: "queued",
+      env: f.env("queued", { extra: { ...gate.env, FAKE_OKF_UPGRADE: "available" } }),
+    });
+    cleanup.push(async () => {
+      await gate.release();
+      await sync.close();
+    });
+    sync.configure({ enabled: true, repository: MEMORY_REPOSITORY });
+    await expect.poll(gate.entered, { timeout: 10_000 }).toBe(true);
+    const task = sync.sync();
     await gate.release();
-    await sync.close();
-  });
-  sync.configure({ enabled: true, repository: MEMORY_REPOSITORY });
-  await expect.poll(gate.entered, { timeout: 10_000 }).toBe(true);
-  const task = sync.sync();
-  await gate.release();
-  await task;
-  const log = (await gate.commands()).split("\n");
-  const checked = log.findIndex((line) => line === "okf:upgrade --check");
-  const upgraded = log.findIndex((line) => line === "okf:upgrade");
-  const nextSync = log.findIndex(
-    (line, index) => index > checked && line.startsWith("gh:repo view"),
-  );
-  expect(checked).toBeGreaterThan(0);
-  expect(upgraded).toBeGreaterThan(checked);
-  expect(nextSync).toBeGreaterThan(upgraded);
-  expect(sync.status().phase).toBe("synced");
-});
+    await task;
+    const log = (await gate.commands()).split("\n");
+    const checked = log.findIndex((line) => line === "okf:upgrade --check");
+    const upgraded = log.findIndex((line) => line === "okf:upgrade");
+    const nextSync = log.findIndex(
+      (line, index) => index > checked && line.startsWith("gh:repo view"),
+    );
+    expect(checked).toBeGreaterThan(0);
+    expect(upgraded).toBeGreaterThan(checked);
+    expect(nextSync).toBeGreaterThan(upgraded);
+    expect(sync.status().phase).toBe("synced");
+  },
+);
+
+test.runIf(process.platform === "win32")(
+  "Windows sync uses an installed irudd-okf without running its unsupported upgrader",
+  async () => {
+    const f = await setup();
+    const log = join(f.directory, "windows-okf-commands");
+    const computer = await f.machine("windows", {
+      extra: { FAKE_MEMORY_LOG: log, FAKE_OKF_UPGRADE: "available" },
+    });
+    await computer.upgradeOkf();
+    expect(computer.status()).toMatchObject({
+      phase: "synced",
+      okf: {
+        installed: true,
+        version: "0.1.0",
+        message: expect.stringContaining("unavailable on Windows"),
+      },
+    });
+    expect(await readFile(log, "utf8")).not.toContain("okf:upgrade");
+    await writeFile(join(f.clone("windows"), "windows.md"), "Native Windows memory.\n");
+    await computer.sync();
+    expect(await f.git(f.clone("windows"), "log", "-1", "--format=%s")).toBe(
+      "memory: update from windows\n",
+    );
+  },
+);
 
 test("sync stops with guidance when another branch is checked out in the memory folder", async () => {
   const f = await setup();
@@ -487,6 +525,22 @@ test("sync stops with guidance when another branch is checked out in the memory 
   expect(laptop.status().message).toContain("Scope syncs only main");
   expect(await f.head()).toBe(head);
 });
+
+test.runIf(process.platform === "win32")(
+  "Windows keeps an existing personal bundle whose path differs only in casing",
+  async () => {
+    const f = await setup();
+    const log = join(f.directory, "case-commands");
+    const computer = await f.machine("windows", { extra: { FAKE_MEMORY_LOG: log } });
+    const root = f.clone("windows").toUpperCase();
+    await f.setOkfConfig("windows", [{ name: "personal", root }]);
+    await writeFile(log, "");
+    await computer.sync();
+    expect(computer.status()).toMatchObject({ phase: "synced", bundle: "registered" });
+    expect((await f.okfConfig("windows")).bundles).toEqual([{ name: "personal", root }]);
+    expect(await readFile(log, "utf8")).not.toMatch(/okf:bundle (add|remove)/);
+  },
+);
 
 test("git sync continues without irudd-okf and a foreign personal bundle stays untouched", async () => {
   const f = await setup();
@@ -538,19 +592,22 @@ test("turning sync off stops further commits", async () => {
   expect(await f.git(f.clone("laptop"), "status", "--porcelain")).toBe("?? ignored.md\n");
 });
 
-test("daily irudd-okf upgrades run the installed CLI and report old or failing versions", async () => {
-  const f = await setup();
-  const old = await f.machine("old");
-  await old.upgradeOkf();
-  expect(old.status().okf.message).toContain("too old for automatic upgrades");
-  const current = await f.machine("current", { extra: { FAKE_OKF_UPGRADE: "available" } });
-  await current.upgradeOkf();
-  expect(current.status().okf).toMatchObject({
-    installed: true,
-    version: "0.2.0",
-    message: "Upgraded irudd-okf to 0.2.0.",
-  });
-  const failing = await f.machine("failing", { extra: { FAKE_OKF_UPGRADE: "fail" } });
-  await failing.upgradeOkf();
-  expect(failing.status().okf.message).toContain("0.2.0 is available, but the upgrade failed");
-});
+test.runIf(process.platform !== "win32")(
+  "daily irudd-okf upgrades run the installed CLI and report old or failing versions",
+  async () => {
+    const f = await setup();
+    const old = await f.machine("old");
+    await old.upgradeOkf();
+    expect(old.status().okf.message).toContain("too old for automatic upgrades");
+    const current = await f.machine("current", { extra: { FAKE_OKF_UPGRADE: "available" } });
+    await current.upgradeOkf();
+    expect(current.status().okf).toMatchObject({
+      installed: true,
+      version: "0.2.0",
+      message: "Upgraded irudd-okf to 0.2.0.",
+    });
+    const failing = await f.machine("failing", { extra: { FAKE_OKF_UPGRADE: "fail" } });
+    await failing.upgradeOkf();
+    expect(failing.status().okf.message).toContain("0.2.0 is available, but the upgrade failed");
+  },
+);
