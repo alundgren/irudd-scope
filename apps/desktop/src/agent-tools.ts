@@ -1,6 +1,19 @@
-import { access, appendFile, mkdir, readFile, readlink, symlink, unlink } from "node:fs/promises";
+import {
+  access,
+  appendFile,
+  copyFile,
+  mkdir,
+  readFile,
+  readlink,
+  rm,
+  symlink,
+  unlink,
+} from "node:fs/promises";
+import { constants } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Installation } from "./installation-files.ts";
+import { installationAppDirectory, type Installation } from "./installation-files.ts";
+import { isWindowsLauncher } from "./windows-installation.ts";
+import { runInstallationCommand, windowsPowerShell } from "./installation-process.ts";
 import type { AgentToolStatus } from "./installation-contract.ts";
 import { AgentSkills } from "./agent-skills.ts";
 
@@ -23,7 +36,10 @@ export class AgentTools {
     this.value = {
       available: Boolean(installation),
       cliInstalled: false,
-      cliPath: join(home, ".local/bin/irudd-scope"),
+      cliPath:
+        installation?.platform === "win32"
+          ? join(installation.root, "bin/irudd-scope.exe")
+          : join(home, ".local/bin/irudd-scope"),
       skillInstalled: false,
       busy: null,
       message: "",
@@ -32,17 +48,45 @@ export class AgentTools {
 
   private cliTarget() {
     return join(
-      this.installation!.root,
-      "current/Scope.app/Contents/Resources/app/bin/irudd-scope",
+      installationAppDirectory(
+        join(this.installation!.root, "current"),
+        this.installation!.platform,
+      ),
+      "bin",
+      this.installation!.platform === "win32" ? "irudd-scope.exe" : "irudd-scope",
+    );
+  }
+
+  private windowsPath(action: "add" | "remove", signal: AbortSignal) {
+    return runInstallationCommand(
+      windowsPowerShell(),
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        join(
+          installationAppDirectory(join(this.installation!.root, "current"), "win32"),
+          "windows-cli-path.ps1",
+        ),
+        "-Directory",
+        dirname(this.value.cliPath),
+        "-Action",
+        action,
+      ],
+      { cwd: this.installation!.root, signal },
     );
   }
   async snapshot(): Promise<AgentToolStatus> {
     this.value.cliInstalled = Boolean(
       this.installation &&
-      (await readlink(this.value.cliPath).then(
-        (value) => value === this.cliTarget(),
-        () => false,
-      )),
+      (this.installation.platform === "win32"
+        ? await isWindowsLauncher(this.value.cliPath, "CLI")
+        : await readlink(this.value.cliPath).then(
+            (value) => value === this.cliTarget(),
+            () => false,
+          )),
     );
     this.value.skillInstalled = Boolean(
       this.installation &&
@@ -55,7 +99,7 @@ export class AgentTools {
 
   private run(tool: "cli" | "skill", action: (signal: AbortSignal) => Promise<string>) {
     if (!this.installation)
-      return Promise.reject(new Error("Install the Mac app to manage agent tools."));
+      return Promise.reject(new Error("Install Scope to manage agent tools."));
     if (this.pending) return this.pending;
     this.controller = new AbortController();
     this.value = { ...this.value, busy: tool, message: "", error: undefined };
@@ -82,10 +126,30 @@ export class AgentTools {
   }
 
   installCli() {
-    return this.run("cli", async () => {
+    return this.run("cli", async (signal) => {
       const target = this.cliTarget();
       await access(target);
       await mkdir(dirname(this.value.cliPath), { recursive: true });
+      if (this.installation!.platform === "win32") {
+        let created = false;
+        try {
+          try {
+            await copyFile(target, this.value.cliPath, constants.COPYFILE_EXCL);
+            created = true;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+            if (!(await isWindowsLauncher(this.value.cliPath, "CLI")))
+              throw new Error(
+                `${this.value.cliPath} already exists. Move it aside before installing Scope's CLI.`,
+              );
+          }
+          await this.windowsPath("add", signal);
+        } catch (error) {
+          if (created) await rm(this.value.cliPath);
+          throw error;
+        }
+        return "CLI installed. Open a new terminal to use irudd-scope.";
+      }
       try {
         await symlink(target, this.value.cliPath);
       } catch (error) {
@@ -110,7 +174,14 @@ export class AgentTools {
   }
 
   removeCli() {
-    return this.run("cli", async () => {
+    return this.run("cli", async (signal) => {
+      if (this.installation!.platform === "win32") {
+        if (!(await isWindowsLauncher(this.value.cliPath, "CLI")))
+          throw new Error("This CLI was not installed by Scope.");
+        await this.windowsPath("remove", signal);
+        await rm(this.value.cliPath);
+        return "CLI removed.";
+      }
       if ((await readlink(this.value.cliPath).catch(() => "")) !== this.cliTarget())
         throw new Error("This CLI was not installed by Scope.");
       await unlink(this.value.cliPath);
@@ -129,7 +200,7 @@ export class AgentTools {
     return this.run("skill", () => this.skills().sync());
   }
   private skills() {
-    return new AgentSkills(this.installation!.root, this.home);
+    return new AgentSkills(this.installation!.root, this.home, this.installation!.platform);
   }
 
   async cancel() {

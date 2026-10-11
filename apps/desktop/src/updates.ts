@@ -1,13 +1,15 @@
-import { readlink } from "node:fs/promises";
 import { join } from "node:path";
 import {
   activateBuild,
   installationBuildDirectory,
+  installationAppDirectory,
+  readInstallationLink,
+  sameInstallationPath,
   pruneBuilds,
   readInstallation,
   type Installation,
 } from "./installation-files.ts";
-import { runInstallationCommand } from "./installation-process.ts";
+import { runInstallationCommand, windowsPowerShell } from "./installation-process.ts";
 import type { UpdateStatus } from "./installation-contract.ts";
 import { findSigningCertificate } from "./signing.ts";
 
@@ -32,7 +34,7 @@ export class AppUpdates {
         }
       : {
           phase: "unmanaged",
-          message: "Automatic updates are available in the installed Mac app.",
+          message: "Automatic updates are available in the installed app.",
         };
   }
 
@@ -57,7 +59,7 @@ export class AppUpdates {
   }
 
   setSigningCertificate(reference: string | null): Promise<void> {
-    if (!this.installation)
+    if (!this.installation || this.installation.platform === "win32")
       throw new Error("Certificate signing is available in the installed Mac app.");
     if (this.pending) throw new Error("Wait for the current build to finish, or cancel it first.");
     const installation = this.installation;
@@ -136,24 +138,44 @@ export class AppUpdates {
       message:
         this.value.operation === "signing"
           ? "Building Scope with the selected signing identity…"
-          : "Building the update on this Mac…",
+          : "Building the update on this computer…",
       nextCommit: commit,
     });
-    await runInstallationCommand("/bin/bash", [this.installer, "--prepare", commit], {
-      cwd: join(installation.root, "source"),
-      env: {
-        SCOPE_INSTALL_ROOT: installation.root,
-        SCOPE_VP: installation.vp,
-        SCOPE_SIGNING_IDENTITY: installation.signingIdentity ?? "-",
+    const windows = installation.platform === "win32";
+    await runInstallationCommand(
+      windows ? windowsPowerShell() : "/bin/bash",
+      windows
+        ? [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            this.installer,
+            "-Prepare",
+            commit,
+          ]
+        : [this.installer, "--prepare", commit],
+      {
+        cwd: join(installation.root, "source"),
+        env: {
+          SCOPE_INSTALL_ROOT: installation.root,
+          SCOPE_VP: installation.vp,
+          SCOPE_SIGNING_IDENTITY: installation.signingIdentity ?? "-",
+        },
+        signal: AbortSignal.any([signal, AbortSignal.timeout(20 * 60_000)]),
+        onOutput: (output) => this.change({ output }),
       },
-      signal: AbortSignal.any([signal, AbortSignal.timeout(20 * 60_000)]),
-      onOutput: (output) => this.change({ output }),
-    });
-    const build = await readlink(join(installation.root, "prepared"));
-    if (build !== installationBuildDirectory(installation))
+    );
+    const build = await readInstallationLink(installation.root, "prepared");
+    if (!build || !sameInstallationPath(build, installationBuildDirectory(installation)))
       throw new Error("The prepared update has an unexpected location.");
-    const metadata = await readInstallation(join(build, "Scope.app/Contents/Resources/app"));
-    if (metadata.commit !== commit || metadata.root !== installation.root)
+    const metadata = await readInstallation(installationAppDirectory(build, installation.platform));
+    if (
+      metadata.commit !== commit ||
+      !sameInstallationPath(metadata.root, installation.root) ||
+      metadata.platform !== installation.platform
+    )
       throw new Error("The prepared update has a different commit or installation directory.");
     if (metadata.signingIdentity !== installation.signingIdentity)
       throw new Error("The prepared update has a different signing identity.");
@@ -172,7 +194,10 @@ export class AppUpdates {
     if (!this.installation || !this.prepared || this.value.phase !== "ready")
       throw new Error("No update is ready.");
     const application = await activateBuild(this.installation.root, this.prepared);
-    return join(application, "Contents/MacOS/Scope");
+    return join(
+      application,
+      this.installation.platform === "win32" ? "Scope.exe" : "Contents/MacOS/Scope",
+    );
   }
 
   async cancel() {
