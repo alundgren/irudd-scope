@@ -1,6 +1,6 @@
 # Storage and recovery
 
-Electron main owns Scope's persistent data. Defaults below apply on macOS.
+Electron main owns Scope's persistent data. The first table gives macOS defaults.
 Use the [development environment variables](development.md#isolated-development)
 to select separate directories for development.
 
@@ -12,11 +12,30 @@ to select separate directories for development.
 | Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                                                                                                      |
 | CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                                                                                                                     |
 | Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, listener configuration, credential hashes, pairing expiry, remote update status, memory configuration, buffered publication bytes/metadata, and recently observed artifact metadata. |
-| Memory clone        | `~/.local/share/irudd-scope/memory/NAME` on every machine      | The user's git working copy of their personal irudd-okf repository. GitHub holds the shared copy.                                                                                                  |
+| Memory clone        | `~/.local/share/irudd-scope/memory/NAME` on macOS and Linux    | The user's git working copy of their personal irudd-okf repository. GitHub holds the shared copy.                                                                                                  |
+
+Windows 11 x64 uses an independent profile with these defaults:
+
+| Data                                      | Windows location                           |
+| ----------------------------------------- | ------------------------------------------ |
+| Artifact library                          | `%APPDATA%\irudd-scope\artifacts\scope.db` |
+| Desktop preferences                       | `%APPDATA%\irudd-scope\desktop.db`         |
+| Provider, remote, and pairing credentials | DPAPI-encrypted record in `desktop.db`     |
+| CLI discovery                             | `%LOCALAPPDATA%\irudd-scope\desktop.json`  |
+| Memory clone                              | `%LOCALAPPDATA%\irudd-scope\memory\NAME`   |
+
+The `windows-credentials` preference row stores a version 1 document containing
+only encrypted base64 ciphertext. Electron's `safeStorage` protects it with
+Windows DPAPI for the current Windows account. Credential decryption and use
+stay in desktop main. Encryption or decryption failure reports an error; it
+never falls back to plaintext. This optional preference row does not change
+the desktop database schema version. Mac and Windows profiles are independent;
+Scope does not migrate or share them between platforms.
 
 Tab transfer stores local identity and peer metadata in the `transfer-device`
 and `scope-peers` preference rows in `desktop.db`. Pairing keys live in the
-profile's Keychain entry alongside provider and remote credentials. Linux and
+profile's Keychain entry on macOS or encrypted Windows credential record,
+alongside provider and remote credentials. Linux and
 explicit session-credential profiles retain keys only in memory, so pairing
 lasts until that app closes. Forget removes the selected pairing key and
 preserves provider and hub credentials.
@@ -28,8 +47,9 @@ Maintenance reclaims receipts after expiry. Existing artifact and desktop rows
 are preserved; these additions do not change their formats. Source snapshots
 and request records stay in memory for at most fifteen minutes.
 
-Scope creates database directories with mode `0700` and database files with
-mode `0600`. Treat the whole profile and discovery file as private. Explicit
+On Unix, Scope creates database directories with mode `0700` and database files
+with mode `0600`. Windows uses the current user's profile directories and
+their Windows access permissions. Treat the whole profile and discovery file as private. Explicit
 imports and downloads use files; ordinary storage uses SQLite.
 
 Certificate-signed Mac installations access the existing Keychain entry through
@@ -103,7 +123,7 @@ Automatic shrinking applies independently to `scope.db`, `desktop.db`, and a
 paired hub's `hub.db`. A database is eligible when its main file plus WAL is
 strictly above 100,000,000 bytes and at least 24 hours have passed since its last
 successful shrink. A database without a recorded success is due when large
-enough. Startup, Mac resume, and one-minute checks re-evaluate eligibility.
+enough. Startup, system resume, and one-minute checks re-evaluate eligibility.
 Skipped checks and failures do not advance the successful timestamp. A manual
 success does. Filesystem allocation is measured separately in receipts.
 
@@ -117,7 +137,7 @@ irudd-scope hub shrink --timeout-ms 120000
 or `deleted: false` when already absent. It removes every tab referencing the
 artifact. `shrink` reaches both desktop databases through the normal discovered
 endpoint, including a paired hub. `hub shrink` reaches only the local hub and
-works with the Mac disconnected. A stateless forwarding hub has no database.
+works with the desktop disconnected. A stateless forwarding hub has no database.
 
 Manual shrink bypasses size and interval gates. SQLite VACUUM runs in a separate
 process, with bounded lock waits, a deadline, and checkpoint result checks.
@@ -141,9 +161,10 @@ success leaves the database eligible for retry.
 
 ## Backup and restore
 
-Remote records share `desktop.db` with other preferences. Their tokens never
-enter SQLite. Removing a remote revokes the credential on the hub before
-removing the Mac's saved record and Keychain token. If the hub is unavailable,
+Remote records share `desktop.db` with other preferences. Their tokens stay in
+Keychain on macOS or in the DPAPI-encrypted Windows credential record. Removing
+a remote revokes the credential on the hub before removing the desktop's saved
+record and token. If the hub is unavailable,
 the record stays disconnected so removal can be retried. Linux desktop
 development keeps connection tokens in memory; after restart, re-pair using
 `irudd-scope hub unpair` and `irudd-scope pair` on the remote.
@@ -152,7 +173,7 @@ The hub uses the same private discovery format as local desktop publishing,
 with its own publishing token. Do not share one discovery file between a hub
 and a desktop on the same host. Set `SCOPE_CONNECTION_FILE` to separate paths.
 Hub state includes undelivered publication bytes and metadata. CLI publications
-persist there even when the Mac is connected; delivery failures retain them
+persist there even when the desktop is connected; delivery failures retain them
 until delivery, discard, or expiry. Back up its
 database and discovery file together if you need to retain pairings and
 pending publications. The paired hub retains at most 50 entries including
@@ -165,10 +186,10 @@ logical, not secure erasure; SQLite maintenance reclaims freed pages and
 backups can retain expired content. A lost delivery acknowledgement is
 reconciled against the desktop before retrying; conflicts retain the queued
 content and an error for inspection. Never restore an old hub backup against
-a different Mac pairing. Installation builds and skill files
-contain program code and live separately from this state. The Mac installer
-bundles skills with each app build. Migrated skills CLI copies, including
-local edits, remain in `skill-backups/` under the Mac installation directory;
+a different desktop pairing. Installation builds and skill files
+contain program code and live separately from this state. The desktop installers
+bundle skills with each app build. Migrated skills CLI copies, including
+local edits, remain in `skill-backups/` under the desktop installation directory;
 these backups are not artifact or preference storage.
 
 Remote build metadata records its commit and installation paths alongside the
@@ -180,7 +201,10 @@ startup recovery. This restores program files, not the hub database.
 Quit Scope before copying `scope.db` and `desktop.db`, or use SQLite's online
 backup API for each database. Copying only a database file while Scope runs
 can omit committed data in its WAL file. Restore both databases with Scope
-closed. Provider keys stay in Keychain and are not part of these backups.
+closed. Mac provider keys stay in Keychain and are not part of these backups.
+Windows backups include the encrypted credential record in `desktop.db`.
+Restoring it requires the original Windows account's DPAPI access. A database
+copy alone does not transfer credentials to another account or computer.
 
 The discovery file is needed by local publishers. Keep a private copy if you
 need to preserve the publishing token. Deleting it with Scope closed causes
@@ -259,7 +283,8 @@ The desktop-main `voice/` module owns `voice_requests` in `desktop.db`. Each row
 contains a caller request ID, a versioned SHA-256 of normalized narration and speech settings,
 expiration time, validated JSON receipt, and optional WAV bytes. Narration itself
 is not retained. The receipt retains OpenRouter's generation ID when returned.
-Credentials remain in Keychain on macOS and process memory on Linux.
+Credentials use the desktop credential store: Keychain on macOS, DPAPI-encrypted
+SQLite on Windows, and process memory on Linux or explicit session overrides.
 
 New payload hashes have a `v2:` prefix and include the effective Aoede voice
 and conversational instructions when callers omit settings. Existing unprefixed
@@ -402,17 +427,18 @@ Source names, SSH aliases, runtime roots, canonical origin inclusion choices,
 and optional memory destinations are desktop preferences in `desktop.db`.
 They contain no SSH credentials. Back up both desktop databases to retain
 configuration and tracking. Restoring an older backup can repeat a review.
-Tracking is owned by one Scope Mac and is not replicated through paired hubs.
+Tracking is owned by one Scope desktop and is not replicated through paired hubs.
 
 ## Personal memory repository
 
 The `memory` preference row in `desktop.db` holds the on/off switch, the
 `OWNER/NAME` repository, and each machine's last observed `personal` bundle
 folder. Retros use those folders while a machine is briefly offline. Each paired
-hub keeps the Mac's last configuration in its `memory` settings row so it keeps
-syncing while the Mac sleeps. Unpairing clears it.
+hub keeps the desktop's last configuration in its `memory` settings row so it keeps
+syncing while the desktop sleeps. Unpairing clears it.
 
-The clone under `~/.local/share/irudd-scope/memory/` (or `SCOPE_MEMORY_DIR`) is
+The clone under `%LOCALAPPDATA%\irudd-scope\memory` on Windows,
+`~/.local/share/irudd-scope/memory/` on macOS and Linux, or `SCOPE_MEMORY_DIR` is
 the user's own git working copy, not Scope data. Scope never deletes, backs
 up, or exports it, and turning memory off leaves the folder, the GitHub
 repository, and the irudd-okf registration in place. GitHub is the backup;

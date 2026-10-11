@@ -88,7 +88,7 @@ export function useWorkspace(onError: (message: string) => void) {
       }
     })()
       .catch(() => {
-        if (active) onError("Could not load saved tabs. Your artifacts remain on this Mac.");
+        if (active) onError("Could not load saved tabs. Your artifacts remain on this device.");
       })
       .finally(() => {
         if (active) setReady(true);

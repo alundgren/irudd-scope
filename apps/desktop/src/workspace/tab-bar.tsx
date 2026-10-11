@@ -9,6 +9,7 @@ import {
 import type { Artifact } from "@irudd-scope/protocol";
 import { Search, X } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
+import { primaryShortcut } from "../renderer/shortcuts.ts";
 import { tabArtifactId } from "../plugins/registry.renderer.ts";
 import { isBuiltinTab } from "../plugins/registry.ts";
 import type { Tab } from "./contract.ts";
@@ -209,7 +210,7 @@ export function TabBar({
         className="search-trigger"
         ref={controlsButton}
         aria-label="Search and controls"
-        title="Search and controls · ⌘K"
+        title={`Search and controls · ${primaryShortcut("K")}`}
         aria-haspopup="dialog"
         aria-expanded={searchOpen}
         onClick={onSearch}

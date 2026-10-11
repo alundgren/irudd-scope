@@ -80,8 +80,8 @@ export function MemorySettings({ query }: { query: string }) {
   return (
     <SettingsSection id="memory" query={query}>
       <p className="secondary">
-        Keep a personal irudd-okf memory repository on GitHub in sync on this Mac and every paired
-        remote. Scope commits and pushes only when memory files change.
+        Keep a personal irudd-okf memory repository on GitHub in sync on this device and every
+        paired remote. Scope commits and pushes only when memory files change.
       </p>
       {navigation && (
         <Button
@@ -101,9 +101,15 @@ export function MemorySettings({ query }: { query: string }) {
         disabled={busy || !status || (!enabled && !status.okfInstalled)}
         onCheckedChange={(next) => run(() => window.scope.setMemoryEnabled(next))}
       />
-      {status && !status.okfInstalled && !enabled && (
+      {window.scope.platform === "win32" && (
         <p className="secondary">
-          Install irudd-okf on this Mac first:{" "}
+          Windows requires a compatible native irudd-okf executable on PATH. The irudd-okf project
+          does not provide a Windows installer. Scope cannot upgrade it automatically on Windows.
+        </p>
+      )}
+      {window.scope.platform !== "win32" && status && !status.okfInstalled && !enabled && (
+        <p className="secondary">
+          Install irudd-okf on this device first:{" "}
           <code>
             curl -fsSL https://raw.githubusercontent.com/alundgren/irudd-okf/main/install.sh | bash
           </code>
@@ -135,7 +141,7 @@ export function MemorySettings({ query }: { query: string }) {
           <ul className="memory-machines" aria-label="Memory sync by machine">
             {status.machines.map((machine) => (
               <li key={machine.id} data-phase={machine.status?.phase ?? "unknown"}>
-                <strong>{machine.local ? `${machine.name} (this Mac)` : machine.name}</strong>
+                <strong>{machine.local ? `${machine.name} (this device)` : machine.name}</strong>
                 {machineSummary(machine).map((line) => (
                   <span key={line} className="secondary">
                     {line}

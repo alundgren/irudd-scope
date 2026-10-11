@@ -110,7 +110,7 @@ export function SettingsViewPanel({
               <NativeSelectOption value="dark">Dark</NativeSelectOption>
             </NativeSelect>
           </label>
-          <p className="secondary">System follows your Mac's appearance.</p>
+          <p className="secondary">System follows your device's appearance.</p>
         </SettingsSection>
         <SettingsSection id="model" query={query}>
           <Switch

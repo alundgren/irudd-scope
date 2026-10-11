@@ -2,11 +2,11 @@
 
 # irudd-scope
 
-A private workspace where coding agents leave things for a human to inspect. An Electron app stores and displays artifacts on the Mac. Local publishing works while Scope is open, without a VM. An optional paired hub persists remote CLI publications before delivery and attempts delivery while the Mac is connected. Codex and Claude can publish through the same CLI.
+A private workspace where coding agents leave things for a human to inspect. An Electron app stores and displays artifacts on macOS and Windows 11 x64. Local publishing works while Scope is open, without a VM. An optional paired hub persists remote CLI publications before delivery and attempts delivery while the desktop is connected. Codex and Claude can publish through the same CLI.
 
 The repository is public. Artifact data and credentials stay private. Remote publishing belongs on a private tailnet. Paired Scope instances can exchange selected tabs over a separate encrypted connection.
 
-SQLite stores artifact contents, metadata, ordinary settings, and workspace preferences. Mac provider and remote connection credentials live directly in Keychain. The private discovery file holds the CLI publishing token. The Mac owns delivered artifacts. Direct publishing requires Scope to be running; paired hubs buffer up to 50 pending publications for 48 hours.
+SQLite stores artifact contents, metadata, ordinary settings, and workspace preferences. Mac credentials live directly in Keychain. Windows credentials use DPAPI encryption for the current Windows account and are saved encrypted in SQLite. The private discovery file holds the CLI publishing token. The desktop owns delivered artifacts. Direct publishing requires Scope to be running; paired hubs buffer up to 50 pending publications for 48 hours.
 
 ## Install on macOS
 
@@ -23,6 +23,25 @@ finish that installation, and run the Scope installer again.
 
 To reduce repeated Keychain prompts after updates, see [optional local signing](docs/development.md#optional-local-signing).
 
+## Install on Windows 11 x64
+
+Install Git for Windows, then run this in native PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/alundgren/irudd-scope/main/install.ps1 | iex
+```
+
+The installer keeps its clone and app builds in `%LOCALAPPDATA%\irudd-scope`,
+installs the pinned Vite+ if needed, builds Scope locally, and adds a Start Menu
+shortcut. It uses Windows PowerShell and the .NET Framework compiler included
+with Windows. No administrator access, Developer Mode, Visual Studio, separate
+Node installation, or WSL is needed. Windows ARM is not supported.
+
+Scope keeps an independent Windows profile. Closing its last window saves
+pending changes and quits; it does not run a background service.
+
+## Updates and agent tools
+
 On startup, Scope checks the latest SHA on `main`. A new commit builds in the
 background. Choose **Restart to update** when ready. Failed builds leave the
 current app usable. Settings includes update status, build output, Cancel,
@@ -30,21 +49,22 @@ and Retry. There are no prebuilt downloads or GitHub release builds.
 
 In **Settings → Agent tools**, install the `irudd-scope` CLI and the Scope
 skill globally for Codex and Claude Code. The CLI uses the app's runtime and
-updates with it. The skill button runs `npx skills add` using Vite+'s managed
-Node/npm. Open a new terminal after installing the CLI.
+updates with it. Both Scope skills install from the app's bundled files and
+follow its active build. Open a new terminal after installing the CLI.
 
 See [installation and recovery](docs/development.md#installed-app) for paths,
 build requirements, and removal.
 
-## Send a tab to another Mac
+## Send a tab to another Scope
 
-In **Settings → Other Scopes**, create a pairing invitation. Send its link to
-the other Mac and exchange the separately copied pairing secret through another
-channel. On that Mac, choose **Enter pairing link** and enter both values.
-Mac pairing credentials stay in Keychain. Either Mac can forget the pairing.
+Install Tailcat separately on each device. In **Settings → Other Scopes**,
+create a pairing invitation. Send its link to the other device and exchange
+the separately copied pairing secret through another channel. On that device,
+choose **Enter pairing link** and enter both values. Pairing credentials use
+the desktop's protected credential store. Either device can forget the pairing.
 
 Choose **Send to another Scope…** under **Current tab** in search, select the
-paired Mac, then copy the link or scan its QR code. On the target, open the link
+paired Scope, then copy the link or scan its QR code. On the target, open the link
 or choose **Import from link…** in search. Review the authenticated tab details
 before importing. Each invitation expires after fifteen minutes.
 
@@ -67,17 +87,17 @@ paths and private endpoint, then confirm. Setup installs the hub as a systemd
 user service, installs the Scope skill for Codex and Claude Code, and configures
 Tailscale Serve on an unused HTTPS port. Existing Serve routes stay intact.
 
-Paste the printed pairing URL into **Scope → Settings → Remotes** on the Mac.
+Paste the printed pairing URL into **Scope → Settings → Remotes** on the desktop.
 The link expires after ten minutes and can be used once. Scope keeps the
-connection credential in Keychain and opens all connections to the remote.
-The remote does not need permission to initiate connections to the Mac.
+connection credential in its protected store and opens all connections to the remote.
+The remote does not need permission to initiate connections to the desktop.
 
-Run `irudd-scope pair` for a fresh link. Each hub pairs with one Mac. A Mac
+Run `irudd-scope pair` for a fresh link. Each hub pairs with one desktop. A desktop
 can connect to several hubs independently. Disconnect and removal are in
 Settings; service commands and prerequisites are in
 [remote access](docs/development.md#remote-access).
 
-After the installed Mac app updates and restarts, it updates connected remotes
+After the installed desktop app updates and restarts, it updates connected remotes
 to the same commit. Each remote builds its hub, CLI, and skill together before
 restarting the hub. Offline remotes catch up when they reconnect. Settings →
 Remotes shows progress and failed updates with Retry. Older installations need
@@ -93,7 +113,14 @@ vp install --frozen-lockfile
 vp run ready
 ```
 
-The project pins Node and pnpm through Vite+. Linux supports development and testing. macOS is the desktop deployment target.
+The project pins Node and pnpm through Vite+. Linux supports development and testing.
+macOS and Windows 11 x64 are desktop deployment targets. Native Windows builds
+use PowerShell; the remote hub remains a Linux systemd service.
+
+Memory on Windows requires a compatible native irudd-okf executable. Its upstream
+project has no Windows installer, so Scope cannot install or automatically
+upgrade it there. Other native prerequisites include `gh` for PR inboxes and
+memory authentication, Git for memory sync, and Python 3 for agent retrospectives.
 
 Scope displays text, Markdown, raster images, interactive HTML, downloadable files,
 and editable Excalidraw diagrams. Diagram generation uses an OpenRouter key

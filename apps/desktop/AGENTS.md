@@ -12,8 +12,8 @@ before changing these responsibilities.
 - `src/workspace/` owns navigation, tab lifecycle, event routing, and saved workspace updates.
 - `src/plugins/` owns built-in tab implementations and their explicit registrations.
   Each plugin keeps its UI, contracts, and main handlers together.
-- `src/credentials.ts` owns Keychain and process-memory credential access.
-- `src/remotes.ts` owns pairing, Mac-initiated relay connections, and cancellation.
+- `src/credentials.ts` owns Keychain, Windows DPAPI, and process-memory credential access. `src/desktop-store.ts` owns SQL reads and writes of the encrypted Windows credential record.
+- `src/remotes.ts` owns pairing, desktop-initiated relay connections, and cancellation.
 - `src/bridge.ts`, `src/preload.ts`, and `src/ipc.ts` expose named desktop operations
   and validate callers. Plugin main entries register their own operations.
 - `src/renderer-content.ts` serves the renderer's application files.
@@ -30,4 +30,5 @@ code. HTML artifacts are trusted agent output and run as interactive browser doc
 Storage changes need existing-data validation. Tests for this app live in
 `../../tests/`; use the relevant store tests and real Electron flows. Run
 Node development commands through Vite+, but keep main compatible with
-Electron's bundled runtime. Native Keychain checks require macOS.
+Electron's bundled runtime. Native Keychain checks require macOS; DPAPI and
+Windows installation checks require Windows 11 x64.

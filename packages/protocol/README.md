@@ -39,7 +39,7 @@ and dashes, at most 128 characters). Existing writers that omit it preserve it.
 `GET /v1/names/:name` resolves the current artifact. Only named tabs support
 external-agent conversations and native versioned diagram synchronization.
 
-The desktop owns the API and persistent library. `LocalConnection` defines the version 1 discovery file with `endpoint` and `token`, validated as loopback HTTP. Its default path is `~/.config/irudd-scope/desktop.json`, overridable through `SCOPE_CONNECTION_FILE`. Desktop main writes it with mode `0600`; the CLI reads it when no endpoint or token override is supplied. Explicit endpoints require explicit credentials and never receive the discovered local token implicitly.
+The desktop owns the API and persistent library. `LocalConnection` defines the version 1 discovery file with `endpoint` and `token`, validated as loopback HTTP. Its default path is `%LOCALAPPDATA%\irudd-scope\desktop.json` on Windows and `~/.config/irudd-scope/desktop.json` on macOS and Linux, overridable through `SCOPE_CONNECTION_FILE`. Desktop main writes it with mode `0600` on Unix; Windows uses the current user's profile directory with inherited Windows access permissions. The CLI reads it when no endpoint or token override is supplied. Explicit endpoints require explicit credentials and never receive the discovered local token implicitly.
 
 The paired hub forwards live requests and persists opted-in publications before attempting delivery, regardless of desktop connection state. Direct connections and stateless forwarding hubs require an available desktop. A failed response does not prove a write was rolled back; read the artifact and inspect the hub queue before retrying an uncertain publication.
 

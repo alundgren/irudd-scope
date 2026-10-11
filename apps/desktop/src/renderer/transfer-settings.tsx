@@ -173,7 +173,9 @@ function TransferDevices() {
   }
   return (
     <div className="transfer-form">
-      <p className="secondary">Tab transfers require Tailcat installed separately on each Mac.</p>
+      <p className="secondary">
+        Tab transfers require Tailcat installed separately on each device.
+      </p>
       {!devices && !error && <p role="status">Loading other Scopes…</p>}
       {devices && !task && (
         <>
