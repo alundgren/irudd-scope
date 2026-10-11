@@ -164,6 +164,9 @@ test("retention drawer keeps Trashcan secondary, restores tabs, and requires two
     expect(await page.getByRole("alert").allTextContents()).toEqual([]);
     await page.keyboard.press("Escape");
     await page.getByRole("tab", { name: "Review 11", exact: true }).click();
+    // Hidden windows cannot refresh visibility while the test ages their tabs.
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.hide());
+    await page.evaluate(() => window.scope.reportVisibleTabs([]));
     const aging = new DatabaseSync(join(f.settingsDirectory, "artifacts/scope.db"));
     try {
       aging.exec("PRAGMA busy_timeout = 5000");
@@ -174,6 +177,7 @@ test("retention drawer keeps Trashcan secondary, restores tabs, and requires two
       aging.close();
     }
     await page.evaluate(() => window.scope.checkTabRetention([]));
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.show());
     await expect
       .poll(() => page.getByRole("tab", { selected: true }).textContent())
       .toBe(firstTitle);
