@@ -95,7 +95,7 @@ test("a remote agent connects the memory repository and every paired machine syn
   const remoteId = f.remotes.snapshot()[0].id;
 
   const refused = await f.cli("memory", "connect", MEMORY_REPOSITORY);
-  expect(refused.stderr).toContain("Turn on Memory in Scope Settings on the Mac first.");
+  expect(refused.stderr).toContain("Turn on Memory in Scope Settings on the desktop first.");
 
   expect(f.memory.snapshot().okfInstalled).toBe(true);
   await f.memory.setEnabled(true);

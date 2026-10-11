@@ -175,7 +175,7 @@ export class Remotes {
     const remote = this.statuses.get(id);
     const connection = this.connections.get(id);
     if (!this.currentCommit || !remote?.enabled || remote.connection !== "connected" || !connection)
-      throw new Error("Connect the remote from the installed Mac app before retrying.");
+      throw new Error("Connect the remote from the installed desktop app before retrying.");
     const token = await this.store.remoteToken(id);
     if (!token) throw new Error("Pair this remote again. Its credential is unavailable.");
     this.updateRemote(remote, token, connection.controller.signal, true);

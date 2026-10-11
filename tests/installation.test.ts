@@ -1,4 +1,4 @@
-import { expect, test } from "vite-plus/test";
+import { expect, test as platformTest } from "vite-plus/test";
 import { execFile } from "node:child_process";
 import {
   chmod,
@@ -29,6 +29,7 @@ import {
 import { runInstallationCommand } from "../apps/desktop/src/installation-process.ts";
 import { selectSigningCertificate } from "../apps/desktop/src/signing.ts";
 
+const test = platformTest.skipIf(process.platform === "win32");
 const exec = promisify(execFile);
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
@@ -358,7 +359,7 @@ test.each(["directory", "symlink"])(
   },
 );
 
-test.skipIf(process.getuid?.() === 0)(
+platformTest.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
   "a failed Mac skill installation restores migrated files and leaves the registry unchanged",
   async () => {
     const f = await fixture();

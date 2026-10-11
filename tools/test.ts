@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import spawn from "cross-spawn";
 import { once } from "node:events";
 import { createRequire } from "node:module";
 import { testDisplay } from "./test-display.ts";

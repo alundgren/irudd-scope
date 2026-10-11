@@ -5,6 +5,22 @@ It uses the standard library and reads native files without changing them. Copy
 this public helper to a remote temporary location when needed, using the agent's
 SSH access; remove that copy afterward. Scope does not execute SSH commands.
 
+On Windows, use an installed native Python 3 interpreter, such as `py -3`, and
+the actual Windows runtime directories. From the installed skill directory,
+PowerShell inventory commands are:
+
+```powershell
+py -3 scripts/retro_sessions.py inventory --runtime codex --root "$env:USERPROFILE\.codex" --source-id desktop --current-session CONFIRMED_NATIVE_ID --tracking tracking.json
+py -3 scripts/retro_sessions.py inventory --runtime claude --root "$env:USERPROFILE\.claude" --source-id desktop --current-session CONFIRMED_NATIVE_ID --page-size 200
+```
+
+Use the source ID returned by Scope settings and any configured runtime home
+override. The same `py -3 scripts/retro_sessions.py` entry point accepts
+`snapshot` and `destinations`. Pass Windows paths as separate quoted arguments;
+do not use Bash line continuations in PowerShell. The helper needs native `git`
+on PATH for repository lookup. A missing interpreter or inaccessible history is
+an unavailable source, not an empty history.
+
 ## Inventory
 
 ```sh

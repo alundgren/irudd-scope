@@ -25,4 +25,4 @@ export const transportError = () =>
     "Tailcat could not start or disconnected. Tab transfers require a compatible Tailcat CLI.",
   );
 export const missingTailcatError = () =>
-  new Error("Tab transfers require the Tailcat CLI installed separately on this Mac.");
+  new Error("Tab transfers require the Tailcat CLI installed separately on this computer.");

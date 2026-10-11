@@ -175,13 +175,20 @@ test("Settings supports keyboard adjustments and stays reachable in a smaller wi
         );
       })
       .toBe(true);
-    await dialog.getByRole("button", { name: "Signing certificate", exact: true }).click();
-    await dialog.getByText("How to create a certificate", { exact: true }).click();
+    if (process.platform === "darwin") {
+      await dialog.getByRole("button", { name: "Signing certificate", exact: true }).click();
+      await dialog.getByText("How to create a certificate", { exact: true }).click();
+    } else {
+      await dialog.getByRole("button", { name: "Agent tools", exact: true }).click();
+    }
     const close = dialog.getByRole("button", { name: "Close", exact: true });
     const searchPosition = await bounds(search);
     const closePosition = await bounds(close);
     await dialog
-      .getByRole("button", { name: "Connect certificate", exact: true })
+      .getByRole("button", {
+        name: process.platform === "darwin" ? "Connect certificate" : "Install skill",
+        exact: true,
+      })
       .scrollIntoViewIfNeeded();
     expect(await bounds(search)).toEqual(searchPosition);
     expect(await bounds(close)).toEqual(closePosition);

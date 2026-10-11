@@ -39,7 +39,7 @@ const settingsSections = [
     id: "credentials",
     title: "OpenRouter",
     description: "Save, replace, or remove the shared API key",
-    terms: "provider credentials key keychain gemini diagram voice speech tts",
+    terms: "provider credentials key keychain windows dpapi gemini diagram voice speech tts",
   },
   {
     id: "remotes",
@@ -75,10 +75,12 @@ const settingsSections = [
 
 export function matchingSettings(query: string) {
   const words = query.trim().toLowerCase().split(/\s+/);
-  return settingsSections.filter((section) =>
-    words.every((word) =>
-      `${section.title} ${section.description} ${section.terms}`.toLowerCase().includes(word),
-    ),
+  return settingsSections.filter(
+    (section) =>
+      (section.id !== "signing" || window.scope.platform === "darwin") &&
+      words.every((word) =>
+        `${section.title} ${section.description} ${section.terms}`.toLowerCase().includes(word),
+      ),
   );
 }
 

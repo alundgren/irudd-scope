@@ -11,7 +11,7 @@ test("Electron receives and reopens interactive HTML and keeps development keys 
   try {
     await expect(cli("list")).rejects.toMatchObject({
       code: 1,
-      stderr: expect.stringContaining("Open Scope on this Mac"),
+      stderr: expect.stringContaining("Open Scope on this computer"),
     });
     application = await launch();
     const page = await application.firstWindow();

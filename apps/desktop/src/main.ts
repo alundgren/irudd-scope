@@ -11,17 +11,18 @@ import {
 import { homedir } from "node:os";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_CONNECTION_FILE, ScopeError } from "@irudd-scope/protocol";
+import { defaultConnectionFile, ScopeError } from "@irudd-scope/protocol";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { DesktopLifecycle } from "./lifecycle.ts";
 import { DesktopStore } from "./desktop-store.ts";
-import { macCredentials, memoryCredentials } from "./credentials.ts";
+import { macCredentials, memoryCredentials, windowsCredentials } from "./credentials.ts";
 import { CREDENTIAL_HELPER_NAME } from "./credential-helper.ts";
 import { startLocalArtifacts } from "./library/local.ts";
 import { ArtifactLibrary } from "./library/library.ts";
 import { registerDesktopIpc } from "./ipc.ts";
 import { serveRendererContent } from "./renderer-content.ts";
 import { readInstallation } from "./installation-files.ts";
+import { WINDOWS_APP_ID } from "./windows-installation.ts";
 import { AppUpdates } from "./updates.ts";
 import { AgentTools } from "./agent-tools.ts";
 import { Remotes } from "./remotes.ts";
@@ -35,6 +36,7 @@ import { registerExternalLinks } from "./external-links.ts";
 const transferLinks = registerTransferLinks();
 
 app.setName("irudd-scope");
+if (process.platform === "win32") app.setAppUserModelId(WINDOWS_APP_ID);
 if (process.env.SCOPE_DESKTOP_DATA_DIR)
   app.setPath("userData", resolve(process.env.SCOPE_DESKTOP_DATA_DIR));
 protocol.registerSchemesAsPrivileged([
@@ -48,7 +50,7 @@ async function main() {
   app.dock?.setIcon(icon);
 
   const installation =
-    app.isPackaged && process.platform === "darwin"
+    app.isPackaged && (process.platform === "darwin" || process.platform === "win32")
       ? await readInstallation(app.getAppPath()).catch(() => undefined)
       : undefined;
 
@@ -61,7 +63,9 @@ async function main() {
             ? join(process.resourcesPath, "../Helpers", CREDENTIAL_HELPER_NAME)
             : undefined,
         )
-      : memoryCredentials(),
+      : process.platform === "win32" && process.env.SCOPE_SESSION_CREDENTIALS !== "1"
+        ? windowsCredentials(safeStorage)
+        : memoryCredentials(),
     process.platform === "darwin"
       ? async (bytes) => (await safeStorage.decryptStringAsync(bytes)).result
       : undefined,
@@ -106,7 +110,9 @@ async function main() {
         (value) => value !== null,
       ),
     directory: process.env.SCOPE_DATA_DIR ?? join(app.getPath("userData"), "artifacts"),
-    connectionFile: process.env.SCOPE_CONNECTION_FILE ?? join(homedir(), DEFAULT_CONNECTION_FILE),
+    connectionFile:
+      process.env.SCOPE_CONNECTION_FILE ??
+      defaultConnectionFile(process.platform, homedir(), process.env.LOCALAPPDATA),
     port: process.env.SCOPE_PORT ? Number(process.env.SCOPE_PORT) : undefined,
   }).catch(async (error: unknown) => {
     await voice.close();
@@ -134,6 +140,13 @@ async function main() {
       backgroundThrottling: !hideTestWindow,
     },
   });
+  if (installation?.platform === "win32")
+    window.setAppDetails({
+      appId: WINDOWS_APP_ID,
+      appIconPath: join(installation.root, "Scope.exe"),
+      relaunchCommand: `"${join(installation.root, "Scope.exe")}"`,
+      relaunchDisplayName: "Scope",
+    });
   transferLinks.attach(window);
   transfers = new TabTransfers(store, lifecycle!, new TailcatCliTransport());
   if (process.platform === "darwin") window.setWindowButtonVisibility(false);
@@ -158,9 +171,13 @@ async function main() {
     void remotes.resume().catch(() => console.error("Could not reconnect remotes after waking."));
     void memory?.retry().catch(() => console.error("Could not sync memory after waking."));
   });
-  const updates = new AppUpdates(installation, join(app.getAppPath(), "install.sh"), (status) => {
-    if (!window.isDestroyed()) window.webContents.send("scope:updates-changed", status);
-  });
+  const updates = new AppUpdates(
+    installation,
+    join(app.getAppPath(), process.platform === "win32" ? "install.ps1" : "install.sh"),
+    (status) => {
+      if (!window.isDestroyed()) window.webContents.send("scope:updates-changed", status);
+    },
+  );
   const agentTools = new AgentTools(installation, homedir(), (status) => {
     if (!window.isDestroyed()) window.webContents.send("scope:agent-tools-changed", status);
   });

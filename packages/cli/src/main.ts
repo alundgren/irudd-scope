@@ -23,7 +23,7 @@ import {
   ArtifactId,
   ArtifactName,
   ArtifactKind,
-  DEFAULT_CONNECTION_FILE,
+  defaultConnectionFile,
   DEFAULT_PORT,
   MAX_CONTENT_BYTES,
   Source,
@@ -80,14 +80,14 @@ irudd-scope skill install|remove|check|sync
 
 Options: --endpoint URL, --token-file PATH, --agent NAME, --session-id ID, --timeout-ms MS
 The command timeout defaults to 10000 ms. Use --timeout-ms 120000 for shrinking or slow uploads.
-Open Scope on this Mac to publish locally without connection setup.
+Open Scope on this computer to publish locally without connection setup.
 Environment: SCOPE_CONNECTION_FILE, or SCOPE_ENDPOINT with SCOPE_TOKEN_FILE or SCOPE_TOKEN
 Output is JSON. Updates read the current revision and reject concurrent changes.
 Offline updates use the paired hub's saved revision and block on delivery if the tab changed.
 Paired hubs store publications before delivery, up to 50 tabs for 48 hours.
 Queued publications return an expiry receipt. Use hub queue to inspect them or hub discard ID to cancel.
 Import-link imports a tab sharing link into the receiver's paired Scope without a desktop confirmation.
-Create sharing links and pair in the Mac app. Both Macs must be online with Tailcat installed separately.
+Create sharing links and pair in the desktop app. Both computers must be online with Tailcat installed separately.
 Import-link defaults to a 300000 ms timeout and is never queued. Retry the same link after an uncertain result.
 `;
 
@@ -105,6 +105,7 @@ async function git(args: string[], deadline: number): Promise<string | undefined
       timeout,
       killSignal: "SIGKILL",
       maxBuffer: 4096,
+      windowsHide: true,
     });
     return stdout.trim() || undefined;
   } catch {
@@ -275,14 +276,15 @@ async function connect(values: Options, signal: AbortSignal) {
 
 async function localConnection(signal: AbortSignal) {
   const connectionFile =
-    process.env.SCOPE_CONNECTION_FILE ?? join(homedir(), DEFAULT_CONNECTION_FILE);
+    process.env.SCOPE_CONNECTION_FILE ??
+    defaultConnectionFile(process.platform, homedir(), process.env.LOCALAPPDATA);
   try {
     return decodeLocalConnection(
       JSON.parse(await readFile(connectionFile, { encoding: "utf8", signal })),
     );
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT")
-      throw new Error("Open Scope on this Mac before publishing. Requests are not queued.");
+      throw new Error("Open Scope on this computer before publishing. Requests are not queued.");
     throw new Error("Cannot read the local Scope connection file. Check its path and permissions.");
   }
 }

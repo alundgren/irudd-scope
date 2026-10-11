@@ -5,7 +5,13 @@ description: Create named HTML plans, retrospectives, and GitHub PR inbox apps i
 
 # Use Scope CLI
 
-Use the installed `irudd-scope` command when available. For repeated calls from this checkout, use `./packages/cli/dist/main.mjs`. If it is missing, run `vp run build` from `packages/cli` once. Use `vp run scope ...` for a one-off source invocation during development. When you need syntax help, pass `--help` to the same entry point you chose.
+Use the installed `irudd-scope` command when available. For repeated calls from this checkout, use `vp exec node packages/cli/dist/main.mjs`. If it is missing, run `vp run build` from `packages/cli` once. Use `vp run scope ...` for a one-off source invocation during development. When you need syntax help, pass `--help` to the same entry point you chose.
+
+The CLI supports native Windows PowerShell and Command Prompt. In PowerShell,
+put multiline examples on one line or use PowerShell continuations, not Bash
+backslashes. Write payload files as UTF-8 and pass their paths as separate
+arguments. Use `$env:SCOPE_CONNECTION_FILE` for an override; do not print the
+discovery file or its token.
 
 ## Publish and update
 
@@ -14,13 +20,13 @@ Use `add FILE --id ID` or `text TEXT --id ID` to create an artifact under an ID 
 For example, with the built entry point:
 
 ```sh
-./packages/cli/dist/main.mjs add report.md --title "Weekly report" --id weekly-report
-./packages/cli/dist/main.mjs update weekly-report report-v2.md
+vp exec node packages/cli/dist/main.mjs add report.md --title "Weekly report" --id weekly-report
+vp exec node packages/cli/dist/main.mjs update weekly-report report-v2.md
 ```
 
 Use `text TEXT` for plain text, or `text TEXT --kind markdown` for Markdown. Text defaults to plain text. `--kind` is only for the `text` command.
 
-Direct publication commands print a JSON artifact record with its ID and revision. Paired hubs return a queue receipt with `id`, `queued: true`, and `expiresAt`, including while the Mac is connected. Treat the returned JSON as the receipt; run `list` or `get ID` only when you need to locate or inspect a record. `get` returns metadata, not artifact bytes.
+Direct publication commands print a JSON artifact record with its ID and revision. Paired hubs return a queue receipt with `id`, `queued: true`, and `expiresAt`, including while the desktop is connected. Treat the returned JSON as the receipt; run `list` or `get ID` only when you need to locate or inspect a record. `get` returns metadata, not artifact bytes.
 
 ## Receive a tab sharing link
 
@@ -35,8 +41,8 @@ The command authorizes import without a desktop receive click. Main uses the
 receiver's saved pairing key, authenticates and inspects the source, validates
 the content, and commits an independent local copy. It returns JSON containing
 `artifact` and `alreadyImported`. Use that receipt to report the imported title
-and ID. Sharing-link creation and Scope-to-Scope pairing stay in the Mac app.
-Both Macs must be awake and online with Tailcat installed separately. The agent
+and ID. Sharing-link creation and Scope-to-Scope pairing stay in the desktop app.
+Both computers must be awake and online with Tailcat installed separately. The agent
 may use a connected paired hub; import requests are never queued. The command
 defaults to a 300,000 ms timeout. If a result is uncertain, retry the same link;
 an existing copy is returned without duplication. Opening a link alone does not
@@ -93,7 +99,9 @@ When asked to set up, connect, or fix the person's Scope memory, read
 [personal memory](references/memory.md). Suggest `personal-memory` under their
 `gh` account, wait for approval, refuse existing names, and create repositories
 only with `gh repo create --private`. Then run `irudd-scope memory connect
-OWNER/NAME`; Scope syncs it on the Mac and every paired remote.
+OWNER/NAME`; Scope syncs it on the desktop and every paired remote. Windows
+requires a compatible native irudd-okf executable; its upstream project has no
+Windows installer or supported automatic upgrade.
 
 ### HTML plans
 
@@ -269,13 +277,13 @@ the normal publishing credential, never provenance fields such as `sessionId`.
 
 ## Connection and confirmation
 
-With no explicit endpoint or token override, the CLI reads `SCOPE_CONNECTION_FILE` or `~/.config/irudd-scope/desktop.json`. Scope must be open on an awake Mac for direct publication. A paired hub always stores CLI publications before attempting delivery, regardless of Mac connection state. An explicit endpoint from `--endpoint` or `SCOPE_ENDPOINT` requires explicit credentials from `--token-file`, `SCOPE_TOKEN_FILE`, or `SCOPE_TOKEN`; the CLI never borrows the token from local discovery. Keep token values private.
+With no explicit endpoint or token override, the CLI reads `SCOPE_CONNECTION_FILE`, defaulting to `%LOCALAPPDATA%\irudd-scope\desktop.json` on Windows or `~/.config/irudd-scope/desktop.json` on macOS and Linux. Scope must be open on an awake computer for direct publication. A paired hub always stores CLI publications before attempting delivery, regardless of desktop connection state. An explicit endpoint from `--endpoint` or `SCOPE_ENDPOINT` requires explicit credentials from `--token-file`, `SCOPE_TOKEN_FILE`, or `SCOPE_TOKEN`; the CLI never borrows the token from local discovery. Keep token values private.
 
-A publication command returning an Artifact confirms that Scope persisted a tab and its artifact record. A receipt with `queued: true` and `expiresAt` confirms only that the paired hub stored the publication for background delivery while the Mac is connected. Report that pending state accurately. The queue holds at most 50 tabs, expires 48 hours after reservation, and survives hub restarts. Transient delivery failures back off from 3 seconds to 5 minutes. Scope sends a one-time wake signal when the Mac resumes, resetting the cooldown for enabled remotes. Manually disconnected remotes stay off. Use `hub queue` to inspect pending entries and `hub discard ID` to cancel one when asked. It does not confirm that the desktop opened a tab or rendered the content. New publications appear in tabs, selecting the first arrival in an empty workspace and preserving the current selection otherwise. Tabs beyond the visible strip remain available in its searchable overflow dropdown. When the task requires a visual check, inspect the artifact in Scope. Closing a tab moves it to Trashcan and retains its content and draft for seven days. Temporary tabs also enter Trashcan after a day outside the visible strip; the user can keep them permanently with the bookmark control. Quitting or restarting Scope preserves tabs left open.
+A publication command returning an Artifact confirms that Scope persisted a tab and its artifact record. A receipt with `queued: true` and `expiresAt` confirms only that the paired hub stored the publication for background delivery while the desktop is connected. Report that pending state accurately. The queue holds at most 50 tabs, expires 48 hours after reservation, and survives hub restarts. Transient delivery failures back off from 3 seconds to 5 minutes. Scope sends a one-time wake signal when the desktop resumes, resetting the cooldown for enabled remotes. Manually disconnected remotes stay off. Use `hub queue` to inspect pending entries and `hub discard ID` to cancel one when asked. It does not confirm that the desktop opened a tab or rendered the content. New publications appear in tabs, selecting the first arrival in an empty workspace and preserving the current selection otherwise. Tabs beyond the visible strip remain available in its searchable overflow dropdown. When the task requires a visual check, inspect the artifact in Scope. Closing a tab moves it to Trashcan and retains its content and draft for seven days. Temporary tabs also enter Trashcan after a day outside the visible strip; the user can keep them permanently with the bookmark control. Quitting or restarting Scope preserves tabs left open.
 
 Publication commands share a 10-second deadline. Use `--timeout-ms 60000` when a large remote upload needs more time. A timeout can leave a completed write without a receipt; keep the artifact ID for recovery.
 
-Paired hubs buffer every `add`, `text`, and `update` publication automatically, including while the Mac is connected. An offline update needs metadata previously read or published through that hub while connected. The hub retains up to 1,000 recent artifact records for 48 hours after observation, including IDs, names, titles, and revisions. If no saved revision exists, read the tab through the hub once while connected. Updates preserve its saved name and title unless a title is supplied. A changed desktop revision blocks delivery and remains visible in `hub queue`; never discard and replace it automatically. Direct publishing, speech, and interactive diagram operations require Scope to be connected. A full queue rejects new publications, and delivery conflicts remain visible in `hub queue` until discarded or expired. After a failed response that may have followed a write, inspect `hub queue` and run `get ID` when the Mac is connected before retrying; inspect the content in Scope when the record's revision alone cannot resolve whether it changed. On a 409 conflict, check the current record and decide whether replacing it again still matches the requested change. Do not repeat an update automatically.
+Paired hubs buffer every `add`, `text`, and `update` publication automatically, including while the desktop is connected. An offline update needs metadata previously read or published through that hub while connected. The hub retains up to 1,000 recent artifact records for 48 hours after observation, including IDs, names, titles, and revisions. If no saved revision exists, read the tab through the hub once while connected. Updates preserve its saved name and title unless a title is supplied. A changed desktop revision blocks delivery and remains visible in `hub queue`; never discard and replace it automatically. Direct publishing, speech, and interactive diagram operations require Scope to be connected. A full queue rejects new publications, and delivery conflicts remain visible in `hub queue` until discarded or expired. After a failed response that may have followed a write, inspect `hub queue` and run `get ID` when the desktop is connected before retrying; inspect the content in Scope when the record's revision alone cannot resolve whether it changed. On a 409 conflict, check the current record and decide whether replacing it again still matches the requested change. Do not repeat an update automatically.
 
 ## Delete and reclaim space
 
@@ -288,7 +296,7 @@ updates fail until the user restores the tab in Scope.
 
 Use `shrink --timeout-ms 120000` for both desktop databases through the normal
 artifact connection. Use `hub shrink --timeout-ms 120000` for the local hub's
-own database; it works with the Mac disconnected. Read per-database statuses
+own database; it works with the desktop disconnected. Read per-database statuses
 in the JSON receipt. Deferred or failed work exits nonzero. Unused uploads can
 remain protected for fifteen minutes, and receipts report those bytes.
 
@@ -333,7 +341,7 @@ never regenerate. `voice cancel ID` stops local work without promising a refund.
 A five-minute desktop deadline ends unfinished generation. Completed results
 survive restart; unfinished requests become interrupted without retry.
 
-Scope must run on an awake Mac. Narration is limited to 16 KiB UTF-8 and style
+Scope must run on an awake computer. Narration is limited to 16 KiB UTF-8 and style
 instructions to 2048 characters. There are two active generation slots and no
 retained request count limit. Requests, receipts, and results expire after 24 hours from
 submission. Audio transfers are bounded to 16 MiB. Export to a new `.wav` path;

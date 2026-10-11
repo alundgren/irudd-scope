@@ -18,8 +18,8 @@ manifests, catalog, and lockfile together through Vite+.
 
 ## Installed Tailcat transport
 
-Tab transfer requires Tailcat installed separately by the user on each Mac.
-Scope discovers the CLI through PATH, then `/opt/homebrew/bin/tailcat` and
+Tab transfer requires Tailcat installed separately by the user on each desktop.
+Windows uses native `tailcat.exe` on PATH. Scope discovers the CLI through PATH, then `/opt/homebrew/bin/tailcat` and
 `/usr/local/bin/tailcat` for GUI-launched Mac apps. Scope provides no installer
 or installation action. The adapter uses the Tailcat v0.7.0 CLI interface;
 installed versions must support the same JSON listener and port-forwarding commands.
@@ -35,11 +35,11 @@ an already installed Tailcat CLI and sends synthetic content through its hosted
 relay. It runs separately from `ready`, never installs dependencies, and uses
 no personal artifacts or provider credentials.
 
-Sharing-link creation and Scope-to-Scope pairing stay in the Mac app. A receiver
+Sharing-link creation and Scope-to-Scope pairing stay in the desktop app. A receiver
 can authorize an agent to run `irudd-scope import-link 'scope-transfer://v2/#...'`
 through its normal Scope connection. Main imports without a desktop receive
 click, retaining the same pairing, expiry, validation and retry guarantees.
-Both Macs must be awake and online; a connected paired hub can forward the
+Both computers must be awake and online; a connected paired hub can forward the
 request, but imports are never queued. The command defaults to a bounded
 300,000 ms timeout. Retry the same link if its result is uncertain.
 
@@ -182,7 +182,7 @@ vp run test tests/artifacts.test.ts
 The test runner supplies the display environment for Electron. A test that
 does not use Electron can also run directly with `vp test run tests/artifact-storage.test.ts`.
 Passing Linux tests does not establish Mac signing, native Keychain access,
-or live OpenRouter behavior. Validate those separately on their real platform
+Windows installation, DPAPI access, or live OpenRouter behavior. Validate those separately on their real platform
 when changing the relevant integration. `vp run check:credentials` verifies the
 native credential helper on macOS with temporary signing certificates, an
 isolated Keychain, and synthetic credentials. It checks unchanged helper access
@@ -266,6 +266,13 @@ memory sync process runner. No browser server needs to be started. Workspace
 search and Memory Settings provide the opening action. The tab needs an enabled,
 connected and locally registered memory clone for wiki, search, graph and edits.
 
+Windows requires a compatible native `irudd-okf.exe` on PATH. Its upstream
+project does not provide a Windows installer. Scope shows that prerequisite
+instead of its Bash installer, skips automatic irudd-okf upgrades on Windows,
+and preserves sync and file operations when a compatible executable is present.
+Native `git.exe` and `gh.exe` must also be on PATH, with `gh` authenticated as
+the current desktop user. macOS and Linux retain the daily tool upgrade.
+
 `tests/memory-viewer.test.ts` exercises the native tab in real Electron with
 synthetic memory files and CLI responses. `tests/memory-viewer-queue.test.ts`
 checks cancellation and ordering with Git sync, without credentials or a live
@@ -287,8 +294,8 @@ irudd-scope pull-requests guide
 ```
 
 The awake desktop runs its installed `gh` using the current user's GitHub login.
-Install and sign in to GitHub CLI on that Mac before syncing. Scope checks the
-process PATH and the usual Homebrew install locations. V1 supports repositories
+Install and sign in to GitHub CLI on that computer before syncing. Scope checks the
+process PATH, including native `gh.exe` on Windows, and the usual Mac Homebrew install locations. V1 supports repositories
 on `github.com`. No new GitHub credentials are stored by Scope.
 
 The first successful sync resolves GitHub repository aliases and stores the
@@ -350,7 +357,7 @@ credentials, live agents or personal sessions.
 ## Run locally
 
 `vp run desktop` builds and opens Electron. Main starts the local publishing
-API and opens SQLite. No hub process or connection form is needed. The Mac
+API and opens SQLite. No hub process or connection form is needed. The computer
 must stay awake with Scope open to accept publication.
 
 With Scope open, publish synthetic content from another terminal:
@@ -396,11 +403,12 @@ Search also finds appearance and diagram generation settings. Appearance follows
 System unless Light or Dark is selected. Diagram generation uses OpenRouter and Gemini 3.8
 Flash. Enable it in Settings → Diagram generation and add the shared key in
 Settings → OpenRouter. Generation is off by default, including for existing
-profiles. On macOS keys live in Keychain; Linux development keeps them in memory.
+profiles. On macOS keys live in Keychain. Windows stores them with DPAPI
+encryption for the current account in `desktop.db`; Linux development keeps them in memory.
 Scope reads the key for generation, billing lookup, key changes, or when the
 OpenRouter section opens. Startup and other settings changes do not read it.
 Diagram and voice generation have independent switches that retain the key. Enabled remotes still access
-their Keychain credentials when connecting at startup.
+their saved credentials when connecting at startup.
 
 Use Create diagram in the empty workspace or search panel. A
 generated diagram becomes an editable artifact. Ask agent edits its current
@@ -414,7 +422,64 @@ omits raw HTML and renders link labels and image descriptions as text.
 
 ## Installed app
 
-The root [installer](../install.sh) runs on macOS with Apple's command line
+Scope builds from source on macOS and native Windows 11 x64. The installers
+provision the pinned Vite+, Node, and package manager. Neither platform needs
+a separate Node installation. Windows ARM and WSL desktop installations are
+not supported. Closing the last window saves pending changes and quits on
+both platforms; there is no background desktop service.
+
+### Windows installation
+
+Install Git for Windows and run the root [PowerShell installer](../install.ps1):
+
+```powershell
+irm https://raw.githubusercontent.com/alundgren/irudd-scope/main/install.ps1 | iex
+```
+
+A downloaded script can be run as `.\install.ps1`. Run it as the normal user
+in native PowerShell. The installer uses the Windows PowerShell .NET Framework
+compiler to build its launchers. It needs no administrator access, Developer
+Mode, or Visual Studio. Vite+ is bootstrapped from `https://vite.plus/ps1` at the
+version pinned in Scope's workspace catalog.
+
+| Location                                           | Purpose                                               |
+| -------------------------------------------------- | ----------------------------------------------------- |
+| `%LOCALAPPDATA%\irudd-scope\source`                | Managed Git clone and build dependencies.             |
+| `%LOCALAPPDATA%\irudd-scope\builds\<commit>\Scope` | Complete immutable app build.                         |
+| `%LOCALAPPDATA%\irudd-scope\current`               | Junction selecting the active build.                  |
+| `%LOCALAPPDATA%\irudd-scope\previous`              | Junction retaining the previous build.                |
+| `%LOCALAPPDATA%\irudd-scope\prepared`              | Junction selecting a prepared update.                 |
+| `%LOCALAPPDATA%\irudd-scope\Scope.exe`             | Stable desktop launcher.                              |
+| `%LOCALAPPDATA%\irudd-scope\bin\irudd-scope.exe`   | Optional native CLI launcher installed from Settings. |
+
+`SCOPE_INSTALL_ROOT` can select another absolute local installation directory.
+The installer creates the per-user Start Menu shortcut and `scope-transfer`
+protocol registration against the stable launcher. App updates prepare a
+separate build, then **Restart to update** flushes pending saves and selects
+that build. Activation keeps the running executable in its original directory
+and restores the previous selection if it fails. Desktop launching, the CLI,
+and bundled skills follow the same active build. A failed build leaves the
+current app usable. Settings shows progress, cancellation, and retry.
+
+Settings → Agent tools installs the native CLI launcher and adds its `bin`
+directory to the user PATH. Open a new terminal before using it. Remove CLI
+removes that PATH entry. Skill installation uses directory junctions under
+`%USERPROFILE%\.agents\skills` and `%USERPROFILE%\.claude\skills`, and repairs
+managed links under `.codex\skills` when present. It needs no symlink privilege
+or network request. Existing unrelated files remain untouched. Refresh or
+start an agent session after updating skills.
+
+Use Settings to remove the CLI and skills before removing the app. Quit Scope,
+delete its Start Menu shortcut and installation directory, and remove the
+`HKCU\Software\Classes\scope-transfer` registration if it still points to that
+installation. The independent desktop profile in `%APPDATA%\irudd-scope`
+remains. The discovery file and memory clone live under the default installation
+root, so preserve them before deleting that directory if needed. See
+[storage](storage.md) for credentials, data locations, and backup limits.
+
+### macOS installation
+
+The root [shell installer](../install.sh) runs on macOS with Apple's command line
 tools. It clones `main`, installs frozen dependencies through Vite+, builds
 the workspace, and packages the desktop on that Mac. Vite+ supplies the
 pinned Node and package manager. Packaging includes the CLI and native Keychain
@@ -589,7 +654,7 @@ The desktop and its CLI must use the same discovery file.
 | `SCOPE_DATA_DIR`              | Artifact directory containing `scope.db`; defaults to `artifacts` under the profile.              |
 | `SCOPE_CONNECTION_FILE`       | Private CLI discovery file.                                                                       |
 | `SCOPE_PORT`                  | Loopback publishing port, default `43120`. Use `0` for an OS-assigned port recorded in discovery. |
-| `SCOPE_SESSION_CREDENTIALS=1` | Keep provider keys in memory on a development Mac. Standard Electron tests set this.              |
+| `SCOPE_SESSION_CREDENTIALS=1` | Keep credentials in memory on macOS or Windows. Standard Electron tests set this.                 |
 
 ## Remote access
 
@@ -638,12 +703,12 @@ instructions. A pre-existing Codex-specific skill path is checked as well.
 Paste the pairing URL into Settings → Remotes in Scope. The secret is in the
 URL fragment. Links expire after ten minutes; generating another invalidates
 the previous link. A successful pairing exchanges it for a connection token
-stored in Mac Keychain. The hub stores credential hashes in SQLite. Each hub
-pairs with one Mac. Use `irudd-scope hub unpair` before pairing another Mac.
+stored in the desktop's protected credential store. The hub stores credential hashes in SQLite. Each hub
+pairs with one desktop. Use `irudd-scope hub unpair` before pairing another desktop.
 
-The Mac opens all relay connections through the remote's Tailscale Serve
-endpoint. The hub only binds to loopback. A tailnet rule permitting Mac-to-remote
-HTTPS is sufficient; remote-to-Mac initiation is unnecessary. CLI publication
+The desktop opens all relay connections through the remote's Tailscale Serve
+endpoint. The hub only binds to loopback. A tailnet rule permitting desktop-to-remote
+HTTPS is sufficient; remote-to-desktop initiation is unnecessary. CLI publication
 uses its private local discovery file without endpoint flags. The hub streams
 active requests. CLI `add`, `text`, and eligible `update` publications always
 persist in hub SQLite before delivery, up to 50 tabs for 48 hours from
@@ -653,9 +718,9 @@ Transient failures wait 3 seconds before retrying, doubling to a 5-minute cap.
 New publications and ordinary reconnects respect that cooldown. On the system
 resume event, Scope reconnects enabled remotes with a one-time wake signal that
 resumes delivery immediately. Manually disconnected remotes stay off. This adds
-no periodic Mac ping task.
+no periodic desktop ping task.
 A queued JSON receipt reports `id`, `queued: true`, and `expiresAt`; it does
-not mean the Mac has received or rendered the artifact. Inspect with
+not mean the desktop has received or rendered the artifact. Inspect with
 `irudd-scope hub queue` and cancel with `irudd-scope hub discard ID`.
 Conflicts remain visible in the queue until discarded or expired. `update ID_OR_NAME FILE`
 uses the current desktop revision while connected. Offline it uses metadata
@@ -676,9 +741,9 @@ removes only its service and Serve route, preserving the CLI, skill, and
 settings. It requires the hub to be running. Logs are available through
 `journalctl --user -u irudd-scope-hub.service`.
 
-The installed Mac app requests remote updates after it is running the new
+The installed desktop app requests remote updates after it is running the new
 version. Enabled remotes update on connection, including after being offline.
-The requested commit is the running Mac's commit, never a prepared update or
+The requested commit is the running desktop's commit, never a prepared update or
 whatever happens to be latest on `main`. The remote verifies that commit is on
 the repository's `main` history and refuses a downgrade or a different history.
 Development launches do not request updates.
@@ -699,7 +764,7 @@ Removing all skill links explicitly keeps the skill uninstalled across updates.
 Refresh or start a new agent session after updating the skill so its discovery
 description and loaded guidance reflect the new files.
 Pairing, discovery, and Serve configuration
-stay in place. An accepted update can finish after the Mac disconnects.
+stay in place. An accepted update can finish after the desktop disconnects.
 
 Settings → Remotes shows progress and Retry update on failure. Failed attempts
 are retained in `hub.db` and do not repeat automatically for the same commit.
@@ -727,7 +792,7 @@ in the shell profile remains. Hub data locations and recovery are in
 Closing a tab moves it to Trashcan. Quitting preserves active and trashed tabs.
 The CLI offers `delete ID`, `shrink`, and `hub shrink`. Use `--timeout-ms 120000`
 for maintenance and `--status` on either shrink command to inspect its latest
-receipt. Desktop shrinking through a hub still targets the Mac's two databases;
+receipt. Desktop shrinking through a hub still targets the desktop's two databases;
 hub shrinking targets only the local hub. [Storage](storage.md) documents the
 24-hour interval, 100 MB threshold, staging expiry, and schema upgrades.
 
@@ -740,9 +805,9 @@ an installed profile.
 ### Direct HTTPS access
 
 Direct desktop access and the original forwarding mode remain available when
-your tailnet permits callers to initiate connections to the Mac.
+your tailnet permits callers to initiate connections to the desktop.
 
-Expose the Mac's loopback API through Tailscale Serve on an unused private
+Expose the desktop's loopback API through Tailscale Serve on an unused private
 HTTPS port, preserving existing routes:
 
 ```sh
@@ -756,7 +821,7 @@ privately and keep them outside Git. An explicit endpoint disables automatic
 local discovery and requires explicit credentials.
 
 The optional hub uses a private environment file with `SCOPE_ENDPOINT`
-pointing to the Mac's HTTPS endpoint and `SCOPE_TOKEN` containing the same
+pointing to the desktop's HTTPS endpoint and `SCOPE_TOKEN` containing the same
 publishing token. `SCOPE_PORT` selects its loopback port, default `43120`.
 After building:
 
@@ -767,7 +832,7 @@ vp exec node --env-file=/path/to/private/hub.env apps/hub/dist/main.mjs
 Use Tailscale Serve for private access to that listener when needed. The hub
 has no database, content directory, queue, or replay. It returns 503 when it
 cannot reach the desktop before sending response headers; interrupted streams
-close. Both paths require an awake Mac running Scope. Do not expose either
+close. Both paths require an awake desktop running Scope. Do not expose either
 listener through a public listener or funnel. Provider keys belong only to
 desktop main.
 

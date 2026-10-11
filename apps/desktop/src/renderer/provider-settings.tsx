@@ -112,7 +112,9 @@ export function ProviderSettings({
         <p className="secondary">
           {settings.keyStorage === "keychain"
             ? "Scope accesses your key for generation, billing lookup, key changes, or when this section opens. Keys are stored in macOS Keychain."
-            : "This development session keeps keys in memory. They are not saved to disk."}
+            : settings.keyStorage === "windows"
+              ? "Scope accesses your key for generation, billing lookup, key changes, or when this section opens. Keys are encrypted on this device with Windows DPAPI for your Windows account."
+              : "This development session keeps keys in memory. They are not saved to disk."}
         </p>
       )}
       {credentialError && !checking && (

@@ -49,6 +49,7 @@ export class TailcatCliTransport implements TransferTransport {
       execArgv: [],
       env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
       serialization: "advanced",
+      windowsHide: true,
       stdio: ["ignore", "ignore", "ignore", "ipc"],
     });
     let closing: Promise<void> | undefined;

@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "../renderer/components/ui/dialog.tsx";
 import { SettingsViewPanel } from "../renderer/settings-view.tsx";
+import { hasPrimaryModifier, primaryShortcut } from "../renderer/shortcuts.ts";
 import { SettingsDialog } from "../renderer/settings-dialog.tsx";
 import { UpdateNotice } from "../renderer/installation-settings.tsx";
 import { MemoryNotice } from "../renderer/memory-settings.tsx";
@@ -432,7 +433,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   useLayoutEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
       if (event.defaultPrevented || transferOpen) return;
-      const command = event.metaKey || event.ctrlKey;
+      const command = hasPrimaryModifier(event);
       if (command && event.key.toLowerCase() === "k") {
         event.preventDefault();
         openSearch();
@@ -645,7 +646,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             title: "Settings",
             keywords: "preferences",
             icon: Settings,
-            shortcut: "⌘,",
+            shortcut: primaryShortcut(","),
             onSelect: () => openSettings(),
           },
           ...(active
@@ -655,7 +656,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                   title: focus ? "Exit fullscreen" : "Fullscreen",
                   keywords: "full screen focus expand",
                   icon: focus ? Minimize2 : Maximize2,
-                  shortcut: "⌘⇧F",
+                  shortcut: primaryShortcut("Shift+F"),
                   pressed: focus,
                   onSelect: () => {
                     toggleFocus();
@@ -728,7 +729,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                     title: activeBuiltin ? "Close tab" : "Move to Trashcan",
                     keywords: activeBuiltin ? "close hide built-in" : "close trash delete remove",
                     icon: activeBuiltin ? X : Trash2,
-                    shortcut: activeBuiltin || !activePermanent ? "⌘W" : undefined,
+                    shortcut: activeBuiltin || !activePermanent ? primaryShortcut("W") : undefined,
                     onSelect: () => {
                       setSearch(false);
                       void trash(active.id);

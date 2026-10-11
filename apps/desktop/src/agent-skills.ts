@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { Schema } from "effect";
+import { installationAppDirectory, sameInstallationPath } from "./installation-files.ts";
 
 const ObjectData = Schema.Record(Schema.String, Schema.Unknown);
 const ScopeSource = Schema.Struct({
@@ -33,12 +34,17 @@ export class AgentSkills {
   constructor(
     private readonly root: string,
     private readonly home: string,
+    private readonly platform?: "win32",
   ) {}
 
   private paths() {
     return names.flatMap((name) => {
       const shared = join(this.home, ".agents/skills", name);
-      const bundle = join(this.root, "current/Scope.app/Contents/Resources/app/skills", name);
+      const bundle = join(
+        installationAppDirectory(join(this.root, "current"), this.platform),
+        "skills",
+        name,
+      );
       return [
         { name, path: shared, target: bundle, optional: false, shared: true },
         {
@@ -83,7 +89,8 @@ export class AgentSkills {
         const stat = await lstat(entry.path).catch(missing);
         const existing = stat?.isSymbolicLink() ? await readlink(entry.path) : undefined;
         const follows =
-          existing !== undefined && resolve(dirname(entry.path), existing) === entry.target;
+          existing !== undefined &&
+          sameInstallationPath(resolve(dirname(entry.path), existing), entry.target);
         const legacy = Boolean(
           stat?.isDirectory() && entry.shared && this.isLegacy(registry, entry.name),
         );
@@ -100,7 +107,10 @@ export class AgentSkills {
   async installed() {
     if (
       !(await access(
-        join(this.root, "current/Scope.app/Contents/Resources/app/skills/irudd-scope/SKILL.md"),
+        join(
+          installationAppDirectory(join(this.root, "current"), this.platform),
+          "skills/irudd-scope/SKILL.md",
+        ),
       ).then(
         () => true,
         () => false,
@@ -113,7 +123,10 @@ export class AgentSkills {
           const existing = await readlink(entry.path).catch(() => undefined);
           if (entry.optional && existing === undefined && !(await lstat(entry.path).catch(missing)))
             return true;
-          if (existing === undefined || resolve(dirname(entry.path), existing) !== entry.target)
+          if (
+            existing === undefined ||
+            !sameInstallationPath(resolve(dirname(entry.path), existing), entry.target)
+          )
             return false;
           return access(join(entry.path, "SKILL.md")).then(
             () => true,
@@ -128,7 +141,7 @@ export class AgentSkills {
     await mkdir(dirname(path), { recursive: true });
     const temporary = `${path}.${randomUUID()}.tmp`;
     try {
-      await symlink(target, temporary);
+      await symlink(target, temporary, process.platform === "win32" ? "junction" : undefined);
       await rename(temporary, path);
     } finally {
       await rm(temporary, { force: true });
@@ -163,7 +176,12 @@ export class AgentSkills {
   async install() {
     for (const name of names)
       await access(
-        join(this.root, "current/Scope.app/Contents/Resources/app/skills", name, "SKILL.md"),
+        join(
+          installationAppDirectory(join(this.root, "current"), this.platform),
+          "skills",
+          name,
+          "SKILL.md",
+        ),
       );
     const entries = await this.entries();
     const changed: ChangedLink[] = [];

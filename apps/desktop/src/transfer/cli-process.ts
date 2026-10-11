@@ -75,10 +75,14 @@ if (!process.connected) process.exit(1);
 
 async function findBinary(explicit?: string) {
   if (explicit) return explicit;
-  const directories = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
+  const path = Object.entries(process.env).find(([key]) => key.toUpperCase() === "PATH")?.[1] ?? "";
+  const directories = path.split(delimiter).filter(Boolean);
   if (process.platform === "darwin") directories.push("/opt/homebrew/bin", "/usr/local/bin");
   for (const directory of directories) {
-    const file = join(directory, "tailcat");
+    const file = join(
+      directory.replace(/^"(.*)"$/, "$1"),
+      process.platform === "win32" ? "tailcat.exe" : "tailcat",
+    );
     try {
       await access(file, constants.X_OK);
       if ((await stat(file)).isFile()) return file;
@@ -94,7 +98,7 @@ function startTool(binary: string, args: string[]) {
   const env = { ...process.env };
   delete env.TAILCAT_ADDR_FILE;
   delete env.TAILCAT_STATUS_LOOP;
-  const child = spawn(binary, args, { stdio: "pipe", env });
+  const child = spawn(binary, args, { stdio: "pipe", env, windowsHide: true });
   tool = child;
   child.stdin.on("error", () => {});
   child.once("error", (error: NodeJS.ErrnoException) =>
