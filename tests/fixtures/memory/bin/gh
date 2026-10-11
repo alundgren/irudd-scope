@@ -4,6 +4,7 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { commandGate } from "../gate.mjs";
 
 const args = process.argv.slice(2);
@@ -24,8 +25,8 @@ if (args[0] === "repo" && args[1] === "view") {
   const directory = join(process.env.FAKE_GH_REMOTES, `${name}.git`);
   let branch = null;
   try {
-    execFileSync("git", ["--git-dir", directory, "rev-parse", "--verify", "--quiet", "HEAD"]);
-    branch = execFileSync("git", ["--git-dir", directory, "symbolic-ref", "--short", "HEAD"])
+    execFileSync(process.env.FAKE_REAL_GIT, ["--git-dir", directory, "rev-parse", "--verify", "--quiet", "HEAD"]);
+    branch = execFileSync(process.env.FAKE_REAL_GIT, ["--git-dir", directory, "symbolic-ref", "--short", "HEAD"])
       .toString()
       .trim();
   } catch {
@@ -33,7 +34,7 @@ if (args[0] === "repo" && args[1] === "view") {
   }
   process.stdout.write(
     JSON.stringify({
-      url: `file://${directory}`,
+      url: pathToFileURL(directory).href,
       defaultBranchRef: branch ? { name: branch } : null,
     }),
   );

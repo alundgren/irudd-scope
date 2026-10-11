@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import spawn from "cross-spawn";
 import {
   formatDiagnostic,
   reviewLint,
@@ -8,7 +8,7 @@ import {
 import { lintExceptions } from "./lint-exceptions.ts";
 
 export function runLint(directory: string, exceptions: readonly LintException[]) {
-  const result = spawnSync("vp", ["lint", "--format=json"], {
+  const result = spawn.sync("vp", ["lint", "--format=json"], {
     cwd: directory,
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,

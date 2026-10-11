@@ -1,8 +1,9 @@
-import { spawn } from "node:child_process";
+import { execFile } from "node:child_process";
+import spawn from "cross-spawn";
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { delimiter, isAbsolute, join } from "node:path";
+import { delimiter, extname, isAbsolute, join } from "node:path";
 
 const COMMAND_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
@@ -10,12 +11,21 @@ const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 export type Result = { code: number; stdout: string; stderr: string };
 export class SyncError extends Error {}
 
-/** Runs git, gh and irudd-okf without a shell or interactive prompts. */
+/** Runs git, gh and irudd-okf with argument escaping for Windows command wrappers. */
 export class MemoryCommands {
   private readonly env: NodeJS.ProcessEnv;
 
   constructor(env?: NodeJS.ProcessEnv) {
     const base = { ...(env ?? process.env) };
+    if (process.platform === "win32") {
+      // Node passes only one spelling of each Windows environment variable.
+      for (const name of ["PATH", "PATHEXT"]) {
+        const keys = Object.keys(base).filter((key) => key.toUpperCase() === name);
+        const value = base[name] ?? base[keys[0] ?? name];
+        for (const key of keys) delete base[key];
+        if (value !== undefined) base[name] = value;
+      }
+    }
     // GUI launches on macOS omit the package-manager and per-user directories.
     if (!env)
       base.PATH = [
@@ -51,7 +61,7 @@ export class MemoryCommands {
         "-c",
         "credential.helper=",
         "-c",
-        `credential.helper=!'${gh.replaceAll("'", "'\\''")}' auth git-credential`,
+        `credential.helper=!'${(process.platform === "win32" ? gh.replaceAll("\\", "/") : gh).replaceAll("'", "'\\''")}' auth git-credential`,
       );
     }
     if (options.identity) {
@@ -63,16 +73,27 @@ export class MemoryCommands {
   }
 
   async resolve(command: string) {
+    const extensions =
+      process.platform === "win32" && !extname(command)
+        ? [
+            ...(this.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
+              .split(";")
+              .filter((extension) => /^\.(com|exe|bat|cmd)$/i.test(extension)),
+            "",
+          ]
+        : [""];
     for (const directory of (this.env.PATH ?? "").split(delimiter)) {
-      if (!directory || !isAbsolute(directory)) continue;
-      const candidate = join(directory, command);
-      if (
-        await access(candidate, constants.X_OK).then(
-          () => true,
-          () => false,
-        )
-      )
-        return candidate;
+      const path = directory.replace(/^"(.*)"$/, "$1");
+      if (!path || !isAbsolute(path)) continue;
+      for (const extension of extensions) {
+        const candidate = join(path, command + extension);
+        try {
+          await access(candidate, constants.X_OK);
+          if ((await stat(candidate)).isFile()) return candidate;
+        } catch {
+          // Continue through PATH when an entry is missing or cannot be executed.
+        }
+      }
     }
     return undefined;
   }
@@ -98,6 +119,7 @@ export class MemoryCommands {
       let timer: ReturnType<typeof setTimeout> | undefined;
       let forceTimer: ReturnType<typeof setTimeout> | undefined;
       let stopped = false;
+      let stopping: Promise<void> | undefined;
       let problem: string | undefined;
       let argument = 0;
       while (args[argument] === "-c") argument += 2;
@@ -108,10 +130,26 @@ export class MemoryCommands {
         cwd: options.cwd,
         env: this.env,
         detached: process.platform !== "win32",
+        windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
       });
       const kill = (signal: NodeJS.Signals) => {
         try {
+          if (process.platform === "win32" && child.pid) {
+            // Killing cmd.exe alone would leave the command it launched running.
+            stopping ??= new Promise<void>((resolve) => {
+              execFile(
+                join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"),
+                ["/pid", String(child.pid), "/t", "/f"],
+                { windowsHide: true, timeout: 5000 },
+                (error) => {
+                  if (error) child.kill("SIGKILL");
+                  resolve();
+                },
+              );
+            });
+            return;
+          }
           if (process.platform !== "win32" && child.pid) process.kill(-child.pid, signal);
           else child.kill(signal);
         } catch {
@@ -121,7 +159,8 @@ export class MemoryCommands {
       const stop = () => {
         stopped = true;
         kill("SIGTERM");
-        if (command !== "git" && !forceTimer) forceTimer = setTimeout(() => kill("SIGKILL"), 5000);
+        if (process.platform !== "win32" && command !== "git" && !forceTimer)
+          forceTimer = setTimeout(() => kill("SIGKILL"), 5000);
       };
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];
@@ -135,16 +174,17 @@ export class MemoryCommands {
           if (!mutation) stop();
         }
       };
-      child.stdout.on("data", (chunk: Buffer) => collect(stdout, chunk));
-      child.stderr.on("data", (chunk: Buffer) => collect(stderr, chunk));
+      child.stdout!.on("data", (chunk: Buffer) => collect(stdout, chunk));
+      child.stderr!.on("data", (chunk: Buffer) => collect(stderr, chunk));
       child.on("error", (error) => {
         problem = error.message;
       });
-      child.on("close", (code) => {
-        if (stopped && command !== "git") kill("SIGKILL");
+      child.on("close", async (code) => {
+        if (process.platform !== "win32" && stopped && command !== "git") kill("SIGKILL");
         clearTimeout(timer);
         clearTimeout(forceTimer);
         options.signal?.removeEventListener("abort", stop);
+        await stopping;
         done({
           code: problem ? 1 : (code ?? 1),
           stdout: Buffer.concat(stdout).toString("utf8"),

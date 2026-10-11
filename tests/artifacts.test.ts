@@ -297,6 +297,39 @@ test("the CLI never sends local discovery credentials to an explicitly selected 
   expect(await client.list()).toEqual([]);
 });
 
+test("the real CLI finds the desktop connection in the current user's platform directory", async () => {
+  const { directory, server, client } = await fixture();
+  const profile = join(directory, "User Å space");
+  const localData = join(profile, "AppData", "Local");
+  const folder =
+    process.platform === "win32"
+      ? join(localData, "irudd-scope")
+      : join(profile, ".config", "irudd-scope");
+  await mkdir(folder, { recursive: true });
+  await writeFile(
+    join(folder, "desktop.json"),
+    JSON.stringify({ version: 1, endpoint: server.url, token }),
+  );
+  const env = {
+    ...process.env,
+    HOME: profile,
+    USERPROFILE: profile,
+    LOCALAPPDATA: localData,
+    SCOPE_CONNECTION_FILE: undefined,
+    SCOPE_ENDPOINT: undefined,
+    SCOPE_TOKEN: undefined,
+    SCOPE_TOKEN_FILE: undefined,
+  };
+  const { stdout } = await runCli(
+    ["text", "From the current profile", "--id", "native-discovery"],
+    env,
+  );
+  expect(JSON.parse(stdout)).toMatchObject({ id: "native-discovery", revision: 1 });
+  expect(new TextDecoder().decode(await client.content("native-discovery"))).toBe(
+    "From the current profile",
+  );
+});
+
 test("a failed local listener leaves the existing discovery file and library usable", async () => {
   const { directory, server, cli, client } = await fixture();
   await cli("text", "Original library", "--id", "original");

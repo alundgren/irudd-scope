@@ -164,6 +164,7 @@ export class GitHubProcess {
         env,
         shell: false,
         detached: process.platform !== "win32",
+        windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
       });
       const chunks: Buffer[] = [];

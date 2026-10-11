@@ -6,6 +6,12 @@ export const MAX_METADATA_BYTES = 16 * 1024;
 export const DEFAULT_PORT = 43120;
 export const DEFAULT_CONNECTION_FILE = ".config/irudd-scope/desktop.json";
 
+export function defaultConnectionFile(platform: string, home: string, localAppData?: string) {
+  return platform === "win32"
+    ? `${localAppData || `${home}\\AppData\\Local`}\\irudd-scope\\desktop.json`
+    : `${home}/${DEFAULT_CONNECTION_FILE}`;
+}
+
 export const LocalConnection = Schema.Struct({
   version: Schema.Literal(1),
   endpoint: Schema.String.check(Schema.isMaxLength(2048)),

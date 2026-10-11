@@ -76,14 +76,14 @@ export type MemoryConnectRequest = typeof MemoryConnectRequest.Type;
 
 export const MemoryGuide = {
   enable:
-    "The operator turns on Memory in Scope Settings on the Mac. irudd-okf must already be installed there. Scope never installs irudd-okf; it upgrades an installed copy daily.",
+    "The operator turns on Memory in Scope Settings on their computer. irudd-okf must already be installed there. Scope never installs irudd-okf; it upgrades an installed copy daily on Mac and Linux. Windows requires a compatible native installation managed separately; automatic irudd-okf upgrades are unavailable there.",
   create:
     "Suggest personal-memory under the gh account (gh api user --jq .login) and wait for explicit operator acceptance of the exact OWNER/NAME. Stop if gh repo view OWNER/NAME succeeds; never reuse or overwrite an existing repository. Create it only with gh repo create OWNER/NAME --private; never create a public or internal repository. Clone it to a temporary folder, run irudd-okf init in the clone, commit, push the default branch, then run irudd-scope memory connect OWNER/NAME.",
   connect:
     "For an existing repository, confirm the operator owns it and that index.md exists at its root (gh api repos/OWNER/NAME/contents/index.md), then run irudd-scope memory connect OWNER/NAME. Visibility is the operator's choice.",
-  sync: "Every machine with Scope clones the repository into ~/.local/share/irudd-scope/memory/NAME, registers it as the irudd-okf bundle named personal, and syncs every five minutes. It commits and pushes only when files changed.",
+  sync: "Scope clones the repository into ~/.local/share/irudd-scope/memory/NAME on Mac and Linux, or %LOCALAPPDATA%\\irudd-scope\\memory\\NAME on Windows, registers it as the irudd-okf bundle named personal, and syncs every five minutes. It commits and pushes only when files changed.",
   conflicts:
     "A conflicting machine pushes its changes to a memory-conflict/HOST-TIME branch, opens a pull request and returns to the default branch. Resolve each pull request in a separate temporary clone, never in Scope's synced folder: merge the default branch into the conflict branch, resolve, push and merge the pull request. Scope never merges conflict pull requests.",
   status:
-    "irudd-scope memory status reads the desktop view through the Mac, or this machine's hub status when the Mac is offline.",
+    "irudd-scope memory status reads the desktop view, or this machine's hub status when the desktop is offline.",
 };

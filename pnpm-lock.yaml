@@ -185,6 +185,9 @@ catalogs:
     '@tailwindcss/vite':
       specifier: 4.3.3
       version: 4.3.3
+    '@types/cross-spawn':
+      specifier: ^6.0.6
+      version: 6.0.6
     '@types/node':
       specifier: 26.6.3
       version: 26.6.3
@@ -206,6 +209,9 @@ catalogs:
     cn:
       specifier: 0.4.0
       version: 0.4.0
+    cross-spawn:
+      specifier: 7.0.6
+      version: 7.0.6
     effect:
       specifier: 4.0.0-rc.117
       version: 4.0.0-rc.117
@@ -262,9 +268,15 @@ importers:
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.63.0
+      '@types/cross-spawn':
+        specifier: 'catalog:'
+        version: 6.0.6
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.3
+      cross-spawn:
+        specifier: 'catalog:'
+        version: 7.0.6
       node:
         specifier: runtime:26.10.0
         version: runtime:26.10.0
@@ -380,6 +392,9 @@ importers:
       '@irudd-scope/protocol':
         specifier: workspace:*
         version: link:../protocol
+      cross-spawn:
+        specifier: 'catalog:'
+        version: 7.0.6
 
   packages/protocol:
     dependencies:
@@ -1505,6 +1520,9 @@ packages:
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
+
+  '@types/cross-spawn@6.0.6':
+    resolution: {integrity: sha512-fXRhhUkG4H3TQk5dBhQ7m/JDdSNHKwR2BBia62lhwEIq9xGiQKLxd6LymNhn47SjXhsUEPmxi+PKw2OkW4LLjA==}
 
   '@types/d3-array@3.2.2':
     resolution: {integrity: sha512-hOLWVbm7uRza0BYXpIIW5pxfrKe0W+D5lrFiAEYR+pb6w3N2SwSMaJbXdUfSEv+dT4MfHBLtn5js0LAWaO6otw==}
@@ -5722,6 +5740,10 @@ snapshots:
     dependencies:
       '@types/deep-eql': 4.0.2
       assertion-error: 2.0.1
+
+  '@types/cross-spawn@6.0.6':
+    dependencies:
+      '@types/node': 26.6.3
 
   '@types/d3-array@3.2.2': {}
 

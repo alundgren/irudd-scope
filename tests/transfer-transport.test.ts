@@ -120,7 +120,7 @@ test("CLI discovery finds a user executable on PATH without provisioning anythin
 
 test("missing user-installed CLI produces an actionable error for both transfer directions", async () => {
   const transport = new TailcatCliTransport("/scope-synthetic-missing/tailcat", supervisor);
-  const message = "Tab transfers require the Tailcat CLI installed separately on this Mac.";
+  const message = "Tab transfers require the Tailcat CLI installed separately on this computer.";
   await expect(transport.listen(async () => "response")).rejects.toThrow(message);
   await expect(transport.request(address, 12345, "request")).rejects.toThrow(message);
 });

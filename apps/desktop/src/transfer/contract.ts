@@ -14,7 +14,7 @@ export const ScopeDevice = Schema.Struct({ deviceId: TransferId, name: TransferN
 export type ScopeDevice = typeof ScopeDevice.Type;
 export type TransferDevices = ScopeDevice & {
   peers: ScopePeer[];
-  credentialStorage: "keychain" | "session";
+  credentialStorage: "keychain" | "windows" | "session";
 };
 export type TransferStatus = {
   id: string;

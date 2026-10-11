@@ -11,11 +11,11 @@ import {
 import { homedir } from "node:os";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_CONNECTION_FILE, ScopeError } from "@irudd-scope/protocol";
+import { defaultConnectionFile, ScopeError } from "@irudd-scope/protocol";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { DesktopLifecycle } from "./lifecycle.ts";
 import { DesktopStore } from "./desktop-store.ts";
-import { macCredentials, memoryCredentials } from "./credentials.ts";
+import { macCredentials, memoryCredentials, windowsCredentials } from "./credentials.ts";
 import { CREDENTIAL_HELPER_NAME } from "./credential-helper.ts";
 import { startLocalArtifacts } from "./library/local.ts";
 import { ArtifactLibrary } from "./library/library.ts";
@@ -63,7 +63,9 @@ async function main() {
             ? join(process.resourcesPath, "../Helpers", CREDENTIAL_HELPER_NAME)
             : undefined,
         )
-      : memoryCredentials(),
+      : process.platform === "win32" && process.env.SCOPE_SESSION_CREDENTIALS !== "1"
+        ? windowsCredentials(safeStorage)
+        : memoryCredentials(),
     process.platform === "darwin"
       ? async (bytes) => (await safeStorage.decryptStringAsync(bytes)).result
       : undefined,
@@ -108,7 +110,9 @@ async function main() {
         (value) => value !== null,
       ),
     directory: process.env.SCOPE_DATA_DIR ?? join(app.getPath("userData"), "artifacts"),
-    connectionFile: process.env.SCOPE_CONNECTION_FILE ?? join(homedir(), DEFAULT_CONNECTION_FILE),
+    connectionFile:
+      process.env.SCOPE_CONNECTION_FILE ??
+      defaultConnectionFile(process.platform, homedir(), process.env.LOCALAPPDATA),
     port: process.env.SCOPE_PORT ? Number(process.env.SCOPE_PORT) : undefined,
   }).catch(async (error: unknown) => {
     await voice.close();

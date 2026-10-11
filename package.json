@@ -22,7 +22,9 @@
     "@irudd-scope/memory-sync": "workspace:*",
     "@irudd-scope/protocol": "workspace:*",
     "@playwright/test": "catalog:",
+    "@types/cross-spawn": "catalog:",
     "@types/node": "catalog:",
+    "cross-spawn": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
   },
