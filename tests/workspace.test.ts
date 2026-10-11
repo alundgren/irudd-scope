@@ -112,6 +112,25 @@ test("empty and populated workspaces offer no manual artifact creation", async (
     });
     for (const appearance of ["light", "dark"] as const) {
       await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+      await page.getByRole("dialog").waitFor({ state: "hidden" });
+      const primary = process.platform === "darwin" ? "⌘" : "Ctrl+";
+      expect(
+        await page.getByRole("button", { name: "Search and controls" }).getAttribute("title"),
+      ).toContain(`${primary}K`);
+      await page.evaluate((mac) => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "k", ctrlKey: mac, metaKey: !mac }),
+        );
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "k",
+            ctrlKey: !mac,
+            metaKey: mac,
+            altKey: true,
+          }),
+        );
+      }, process.platform === "darwin");
+      expect(await page.getByRole("dialog").count()).toBe(0);
       await page.keyboard.press("ControlOrMeta+,");
       await page.getByLabel("Search settings").fill("appearance");
       await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
@@ -133,6 +152,9 @@ test("empty and populated workspaces offer no manual artifact creation", async (
       await page.keyboard.press("ControlOrMeta+k");
       const controls = page.getByRole("dialog", { name: "Search and controls", exact: true });
       await controls.waitFor();
+      expect(
+        await controls.getByRole("button", { name: "Settings", exact: true }).getAttribute("title"),
+      ).toContain(`${primary},`);
       expect(await creationButtons.count()).toBe(0);
       expect(
         await controls.getByRole("button", { name: "Import tab", exact: true }).isVisible(),
@@ -160,6 +182,11 @@ test("empty and populated workspaces offer no manual artifact creation", async (
       expect(
         await controls.getByRole("button", { name: "Fullscreen", exact: true }).isVisible(),
       ).toBe(true);
+      expect(
+        await controls
+          .getByRole("button", { name: "Fullscreen", exact: true })
+          .getAttribute("title"),
+      ).toContain(process.platform === "darwin" ? "⌘⇧F" : "Ctrl+Shift+F");
       expect(
         await controls.getByRole("button", { name: "Download", exact: true }).isVisible(),
       ).toBe(true);

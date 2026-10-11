@@ -1,9 +1,14 @@
 # Personal memory repository
 
-Scope keeps one personal irudd-okf repository on GitHub in sync on the Mac and
+Scope keeps one personal irudd-okf repository on GitHub in sync on the desktop and
 every paired remote. Run `irudd-scope memory guide` for the installed rules and
 `irudd-scope memory status` to see each machine. The person turns Memory on in
-Scope Settings on the Mac first; `memory connect` is refused until then.
+Scope Settings first; `memory connect` is refused until then.
+
+Windows requires a compatible native irudd-okf executable on PATH. Upstream has
+no Windows installer, so do not offer its Bash installer or an automatic upgrade
+there. When a compatible executable is available, Scope can sync, read, and edit
+the bundle. Otherwise report that missing prerequisite and leave Memory off.
 
 ## Create a new repository
 
@@ -18,7 +23,8 @@ Scope Settings on the Mac first; `memory connect` is refused until then.
 5. Clone it into a new temporary folder, run `irudd-okf init .` there, commit
    with a short message, and push the default branch.
 6. Run `irudd-scope memory connect LOGIN/NAME`. Every machine clones it to
-   `~/.local/share/irudd-scope/memory/NAME` and registers it as the irudd-okf
+   `%LOCALAPPDATA%\irudd-scope\memory\NAME` on Windows or
+   `~/.local/share/irudd-scope/memory/NAME` on macOS and Linux, and registers it as the irudd-okf
    bundle `personal` within a few minutes. Remove the temporary clone.
 
 ## Connect an existing repository
@@ -41,18 +47,18 @@ copies, and temporary files stay on their originating machine.
 
 ## Resolve sync conflicts
 
-The Mac shows a banner when a machine pushed a `memory-conflict/HOST-TIME`
+The desktop shows a banner when a machine pushed a `memory-conflict/HOST-TIME`
 branch and opened a pull request. For each pull request:
 
 1. Clone the repository into a new temporary folder. Never resolve conflicts in
-   `~/.local/share/irudd-scope/memory/NAME`; Scope stops syncing a machine whose
+   Scope's synced memory directory; Scope stops syncing a machine whose
    folder is not on the default branch.
 2. `gh pr checkout NUMBER`, merge the default branch, and resolve each file so
    both machines' lessons survive. Show the person the result when the right
    choice is unclear.
 3. Push, then merge the pull request with `gh pr merge NUMBER --merge
 --delete-branch` after the person agrees. Scope never merges it.
-4. Remove the temporary clone. The banner clears on the Mac's next sync.
+4. Remove the temporary clone. The banner clears on the desktop's next sync.
 
 If status reports an unfinished rebase in Scope's clone, preserve any newer
 edits outside the clone before running `git rebase --abort`, restore the saved

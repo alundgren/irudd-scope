@@ -267,9 +267,7 @@ test("Other Scopes creates a public invitation, copies the secret through main, 
     await page.getByText("No other Scopes paired.").waitFor();
     await page.getByRole("button", { name: "Create pairing invitation", exact: true }).click();
     await page.getByLabel("This Scope's name").fill("Studio Mac");
-    await page
-      .getByText("Tab transfers require Tailcat installed separately on each Mac.")
-      .waitFor();
+    await page.getByText(/Tab transfers require Tailcat installed separately/).waitFor();
     await app.evaluate(({ ipcMain }) => {
       ipcMain.removeHandler("scope:create-pairing");
       ipcMain.handle("scope:create-pairing", () => {

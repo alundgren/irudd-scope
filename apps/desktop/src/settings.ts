@@ -28,6 +28,6 @@ export type SettingsView = {
   provider: typeof DIAGRAM_PROVIDER;
   model: typeof DIAGRAM_MODEL;
   hasApiKey: boolean | null;
-  keyStorage: "keychain" | "session";
+  keyStorage: "keychain" | "windows" | "session";
   credentialError?: string;
 };

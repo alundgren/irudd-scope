@@ -16,7 +16,9 @@ export function AgentToolSettings({
   const { available, busy, cliInstalled, cliPath, skillInstalled, message, error } = tools ?? {};
   return (
     <SettingsSection id="tools" query={query}>
-      {!available && <p className="secondary">Use the installed Mac app to install agent tools.</p>}
+      {!available && (
+        <p className="secondary">Use the installed Scope app to install agent tools.</p>
+      )}
       <div className="installation-tool">
         <div>
           <h3>Scope CLI</h3>

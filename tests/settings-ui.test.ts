@@ -89,12 +89,24 @@ test("Settings starts with folded sections, opens search matches, and preserves 
 
     const close = settings.getByRole("button", { name: "Close", exact: true });
     expect(await settings.getByRole("button", { name: "Done", exact: true }).count()).toBe(0);
-    await settings.getByRole("button", { name: "Signing certificate", exact: true }).click();
-    await settings.getByText("How to create a certificate", { exact: true }).click();
+    const signing = settings.getByRole("button", { name: "Signing certificate", exact: true });
+    if (process.platform === "darwin") {
+      await signing.click();
+      await settings.getByText("How to create a certificate", { exact: true }).click();
+    } else {
+      expect(await signing.count()).toBe(0);
+      await search.fill("signing certificate");
+      await settings.getByText('No settings match "signing certificate".').waitFor();
+      await settings.getByRole("button", { name: "Clear search", exact: true }).click();
+      await settings.getByRole("button", { name: "Agent tools", exact: true }).click();
+    }
     const searchPosition = await search.boundingBox();
     const closePosition = await close.boundingBox();
     await settings
-      .getByRole("button", { name: "Connect certificate", exact: true })
+      .getByRole("button", {
+        name: process.platform === "darwin" ? "Connect certificate" : "Install skill",
+        exact: true,
+      })
       .scrollIntoViewIfNeeded();
     expect(await search.boundingBox()).toEqual(searchPosition);
     expect(await close.boundingBox()).toEqual(closePosition);
@@ -135,6 +147,7 @@ test("shared key checks require an open OpenRouter section and failed access can
         access.checks++;
         return {
           ...settings,
+          keyStorage: "windows",
           diagramGenerationEnabled: true,
           hasApiKey: access.fail ? null : access.hasApiKey,
           ...(access.fail
@@ -171,6 +184,7 @@ test("shared key checks require an open OpenRouter section and failed access can
     expect(await checks()).toBe(0);
     await search.fill("credentials");
     await settings.getByText("Key status unavailable", { exact: true }).waitFor();
+    await settings.getByText(/encrypted on this device with Windows DPAPI/).waitFor();
     expect(await checks()).toBe(1);
     expect(await settings.getByText("No key saved", { exact: true }).isVisible()).toBe(false);
     await application.evaluate(() => {
@@ -184,6 +198,7 @@ test("shared key checks require an open OpenRouter section and failed access can
     await key.fill("synthetic-diagram-key");
     await settings.getByRole("button", { name: "Save key", exact: true }).click();
     await settings.getByText("Key saved", { exact: true }).waitFor();
+    await settings.getByText(/This development session keeps keys in memory/).waitFor();
     await application.evaluate(() => {
       (
         globalThis as unknown as { scopeTestDiagramAccess: { hasApiKey: boolean } }

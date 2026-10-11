@@ -154,8 +154,8 @@ export function InstallationSettings({ query }: { query: string }) {
         {phase !== "unmanaged" && (
           <>
             <p className="secondary">
-              Scope checks main on startup and builds new commits on this Mac. Your work stays open
-              until you restart.
+              Scope checks main on startup and builds new commits on this device. Your work stays
+              open until you restart.
             </p>
             {updates?.currentCommit && (
               <p className="secondary">
@@ -167,13 +167,15 @@ export function InstallationSettings({ query }: { query: string }) {
         )}
       </SettingsSection>
       <AgentToolSettings query={query} tools={tools} disabled={disabled} run={run} />
-      <SettingsSection id="signing" query={query}>
-        <SigningSettings
-          status={updates}
-          disabled={updating || restarting || toolsBusy}
-          progress={updates?.operation === "signing" || updating ? progress : null}
-        />
-      </SettingsSection>
+      {window.scope.platform === "darwin" && (
+        <SettingsSection id="signing" query={query}>
+          <SigningSettings
+            status={updates}
+            disabled={updating || restarting || toolsBusy}
+            progress={updates?.operation === "signing" || updating ? progress : null}
+          />
+        </SettingsSection>
+      )}
       {error && <p role="alert">{error}</p>}
     </>
   );

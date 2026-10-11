@@ -1,9 +1,9 @@
 # Architecture
 
-Scope stores artifacts from coding agents and displays them in a Mac desktop
+Scope stores artifacts from coding agents and displays them in a macOS or Windows 11 x64 desktop
 workspace. The desktop owns the library. Direct publication requires an awake
-Mac running Scope. Paired hubs temporarily store CLI publications before
-attempting delivery while the Mac is connected.
+computer running Scope. Paired hubs temporarily store CLI publications before
+attempting delivery while the desktop is connected.
 
 ```mermaid
 flowchart LR
@@ -16,6 +16,8 @@ flowchart LR
     Desktop --> Artifacts[scope.db: tabs, artifacts, drafts, and bytes]
     Desktop --> Preferences[desktop.db: settings, workspace layout, and speech requests]
     Desktop --> Keychain[macOS Keychain]
+    Desktop --> DPAPI[Windows DPAPI]
+    DPAPI -->|encrypted credentials| Preferences
     Desktop <-->|validated IPC| UI[Workspace host and built-in tab plugins]
     Desktop -->|diagram and speech requests| Provider[OpenRouter]
 ```
@@ -45,8 +47,8 @@ fresh nonces, and invitation-bound authenticated data. Responses identify the
 source and originating request. Repeated requests do not repeat mutations;
 live invitations bound accepted request counts.
 
-Tab transfer requires a user-installed Tailcat CLI on each Mac. Scope searches
-PATH and the standard Mac Homebrew locations, and reports a missing CLI when a
+Tab transfer requires a user-installed Tailcat CLI on each desktop. Scope searches
+PATH, including native executables on Windows, and the standard Mac Homebrew locations, and reports a missing CLI when a
 transfer starts. Scope does not install, download, or bundle Tailcat.
 
 Desktop main runs a TypeScript transport supervisor using its existing runtime.
@@ -64,11 +66,11 @@ Tailcat is experimental; its hosted relays can observe connection metadata and
 provide rate-limited service without uptime guarantees.
 
 Send flushes edits and freezes an ordinary artifact or current diagram document.
-Sharing links and Scope-to-Scope pairings are created only in the Mac app.
+Sharing links and Scope-to-Scope pairings are created only in the desktop app.
 The receiver can give an agent a tab sharing link and authorize
 `irudd-scope import-link LINK`. The authenticated publication API exposes only
 `POST /v1/transfers/import` for this operation. Desktop main performs Inspect
-then Import without a renderer confirmation; pairing keys stay in Keychain.
+then Import without a renderer confirmation; pairing keys stay in the desktop credential store.
 The CLI uses normal receiver discovery or a connected paired hub. Imports are
 never queued, and the import request has a bounded five-minute deadline.
 Conversations, proposals, credentials, and agent sessions remain local. Inspect
@@ -278,13 +280,13 @@ writes. The workflow has no session monitoring service or resumable job state.
 ## Personal memory
 
 Memory sync keeps one personal irudd-okf repository on GitHub in sync on the
-Mac and every paired remote. GitHub is the shared copy; hubs never talk to each
+desktop and every paired remote. GitHub is the shared copy; hubs never talk to each
 other.
 
 ```mermaid
 flowchart LR
     Agent[Coding agent] -->|gh repo create --private, irudd-okf init, memory connect| Desktop
-    Desktop[Mac: desktop main] -->|PUT /v1/relay/memory| Hub[Remote: hub]
+    Desktop[Desktop main] -->|PUT /v1/relay/memory| Hub[Remote: hub]
     Desktop -->|MemorySync every 5 min| GitHub[(GitHub repository)]
     Hub -->|MemorySync every 5 min| GitHub
     Desktop --> Okf1[irudd-okf bundle personal]
@@ -297,15 +299,15 @@ in desktop main (`apps/desktop/src/memory.ts`) and in each hub. Desktop main sav
 the switch and repository in `desktop.db` and sends them to each hub when its
 relay session starts, after every change, and once a minute to retry failed
 updates. Configuration writes are serialized for each hub. The hub saves them in `hub.db`, so it
-keeps syncing while the Mac sleeps; the Mac catches up when it wakes.
+keeps syncing while the desktop sleeps; it catches up when it wakes.
 
 Each sync commits changed files, fetches, rebases, and pushes only when the
 clone is ahead. git authenticates through `gh auth git-credential`; no token
 passes through Scope. When a rebase stops on a conflict, the machine pushes its
 commits to `memory-conflict/HOST-TIME`, opens a pull request, and resets to the
-default branch. Scope never merges those pull requests; the Mac shows a banner
+default branch. Scope never merges those pull requests; the desktop shows a banner
 until they close. The banner combines conflict reports from reachable machines.
-Sync now starts a sync on the Mac and connected hubs. Turning memory off can
+Sync now starts a sync on the desktop and connected hubs. Turning memory off can
 interrupt a pending remote sync without waiting for its response.
 
 A lock directory excludes other Scope processes. Git changes hold irudd-okf's
@@ -319,7 +321,10 @@ The irudd-okf `personal` bundle points at the clone. Scope re-points it only
 when it already points inside Scope's memory folder. Retros offer each
 machine's registered bundle as an operator destination while memory is on.
 Sync and daily irudd-okf upgrades share one queue on each machine. Upgrades run
-while memory is enabled, including before a repository is connected. Disabling
+on macOS and Linux while memory is enabled, including before a repository is connected.
+Windows requires a compatible native irudd-okf executable. Its upstream project
+does not provide a Windows installer, so automatic upgrades report that limit
+without disabling sync, reading, or editing through an installed compatible tool. Disabling
 memory stops the upgrade CLI and its installer processes.
 
 The desktop memory plugin opens the connected local bundle in one built-in
@@ -392,6 +397,15 @@ the bundle's installation metadata and reused for updates. Build directories
 distinguish commits and signing identities; signing private keys stay in
 Keychain. No app imports build-tool code at runtime.
 
+The root `install.ps1` builds and packages native Windows 11 x64. Windows keeps
+each app build immutable and selects it through `current`, `previous`, and
+`prepared` junctions. A stable per-user launcher selects the active build for
+the Start Menu and transfer protocol. The native CLI launcher and bundled skill
+junctions select that same build. Activation changes these references without
+replacing an executing binary and restores them on failure. Windows credentials
+and desktop data remain in the independent Electron profile. Windows has no
+desktop service or remote hub installation.
+
 `credentials.ts` owns desktop credential access. Certificate-signed installations
 use `credential-helper.ts` to launch the native `Scope Credentials` executable
 in `Contents/Helpers`, implemented in `apps/desktop/native/credentials.m`.
@@ -401,6 +415,14 @@ and exits after one operation. It accesses the existing profile-specific
 Keychain entry. Secrets return only to desktop main and never enter process
 arguments or logs. Ad-hoc installations and Mac checkout launches use the
 native Keychain module directly; isolated sessions use memory.
+
+On Windows, `credentials.ts` validates a versioned encrypted document and uses
+Electron `safeStorage` with DPAPI. `desktop-store.ts` reads and writes its
+`windows-credentials` preference row in `desktop.db`. Main supplies the native
+protection functions. No plaintext fallback is available. The encrypted record
+shares the existing credential operation queue; renderer status reports only
+presence, storage mode, or an error. Linux and explicit session overrides keep
+credentials in process memory.
 
 `tools/package-credential-helper.ts` builds and signs the helper separately.
 Packaging reuses the active build's verified helper when its source, build
@@ -483,7 +505,7 @@ owns hub configuration, pairing expiry, and credential hashes in `hub.db`.
 publications through the same tab-first protocol. `publication-queue.ts`
 stores their metadata and bytes in `hub.db`, capped at 50 tabs with a fixed
 48-hour expiry. `publication-delivery.ts` delivers complete entries through
-the existing Mac-initiated relay while connected and retains conflicts for inspection.
+the existing desktop-initiated relay while connected and retains conflicts for inspection.
 Transient delivery failures use a bounded exponential cooldown. Desktop
 `remotes.ts` reconnects enabled remotes on the Electron resume event, sending
 a one-time authenticated wake header that resets the hub cooldown. Ordinary
@@ -497,11 +519,11 @@ The hub has no provider credentials. For memory sync it runs the remote
 user's own `git`, `gh`, and `irudd-okf`; see Personal memory. Other offline requests return 503;
 a failure during a live stream closes the response.
 
-The Mac's `remotes.ts` opens an authenticated HTTPS event connection to each
-enabled hub. When a local CLI request arrives at a hub, the Mac opens the
-request-body and response transfers. Every connection starts at the Mac, so
+The desktop's `remotes.ts` opens an authenticated HTTPS event connection to each
+enabled hub. When a local CLI request arrives at a hub, the desktop opens the
+request-body and response transfers. Every connection starts at the desktop, so
 remote hosts need no inbound route to it. Shared relay and pairing contracts
-live in `packages/protocol/src/remote.ts`. The Mac only forwards validated
+live in `packages/protocol/src/remote.ts`. The desktop only forwards validated
 artifact API requests to its own publishing listener.
 
 `packages/cli/src/setup.ts` installs the user service, bundled skill, and a
@@ -513,7 +535,7 @@ desktop or operate another machine over SSH.
 validation, and repair. The hub invokes the installed CLI's `skill check` and
 `skill sync` commands rather than importing CLI internals.
 
-The installed Mac's `remote-updates.ts` requests the running app's exact commit
+The installed desktop's `remote-updates.ts` requests the running app's exact commit
 through an authenticated hub update endpoint after connection. It never uses a
 prepared desktop build. The hub's `updates.ts` owns update requests and status
 in `hub.db`. Its `update-runner.ts` runs in a separate systemd user service,
@@ -524,8 +546,8 @@ installed remote commit are eligible. Remote update status is independent of
 artifact forwarding and buffered delivery.
 
 The update endpoint is additive. Older hubs keep forwarding and report a
-missing endpoint, which the Mac explains as requiring a manual installation
-update. Mac versions must continue to work with the previous remote protocol
+missing endpoint, which the desktop explains as requiring a manual installation
+update. Desktop versions must continue to work with the previous remote protocol
 while remotes build or remain offline. Persisted update status adds a settings
 entry without changing existing hub configuration or credential fields.
 
@@ -543,7 +565,7 @@ Explicit endpoints require explicit credentials. Remote callers use their
 local hub discovery file, or a private HTTPS endpoint with explicit credentials.
 Both listeners bind to loopback. Paired hubs have separate local publishing
 and desktop connection credentials. One-time pairing exchanges a short-lived
-secret for a connection credential stored in Mac Keychain; hub SQLite retains
+secret for a connection credential in the desktop's protected store; hub SQLite retains
 only its hash. Desktop SQLite stores remote names, endpoints, and enabled state.
 
 The original direct-forwarding hub mode remains available with `SCOPE_ENDPOINT`
@@ -636,9 +658,10 @@ Artifact downloads use a save dialog in main.
 
 OpenRouter is the diagram provider, using the model in `plugins/diagram/provider-settings.ts`. The
 settings form submits a new key to main and clears the input after saving.
-Main stores the key through its credential store in a profile-specific macOS Keychain entry and returns
+Main stores the key through its credential store in a profile-specific macOS
+Keychain entry or a Windows DPAPI-encrypted record in `desktop.db`, and returns
 only presence or an access error. Linux and isolated development sessions
-keep keys in memory. Provider keys never enter SQLite, the hub, or artifact
+keep keys in memory. Plaintext provider keys never enter SQLite, the hub, or artifact
 content.
 
 Diagram generation requires an explicit opt-in stored with desktop settings.

@@ -141,7 +141,7 @@ verified. Refresh those capabilities before each retrospective and recheck befor
 applying accepted edits. A saved availability flag is the last observation, not
 proof the CLI or destination still exists. Discover capabilities on the actual
 destination host with the bundled
-`retro_sessions.py destinations`; a remote source's CLI cannot prove capability on the Mac
+`retro_sessions.py destinations`; a remote source's CLI cannot prove capability on the desktop
 or another host. Claude memory uses the runtime-resolved directory, including
 settings/environment overrides and trust rules. If unresolved, leave it
 unavailable and obtain the directory from that runtime's `/memory` view. Scope
