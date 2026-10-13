@@ -279,69 +279,47 @@ writes. The workflow has no session monitoring service or resumable job state.
 
 ## Personal memory
 
-Memory sync keeps one personal irudd-okf repository on GitHub in sync on the
-desktop and every paired remote. GitHub is the shared copy; hubs never talk to each
-other.
+Librarian is the desktop view of a local irudd-okf bundle. The file engine owns
+bundle formats, immutable revisions, accepted recall, eligibility, classification,
+source checks, deletion and restoration. Scope calls the installed CLI with
+structured JSON. It never starts an OKF browser server.
 
-```mermaid
-flowchart LR
-    Agent[Coding agent] -->|gh repo create --private, irudd-okf init, memory connect| Desktop
-    Desktop[Desktop main] -->|PUT /v1/relay/memory| Hub[Remote: hub]
-    Desktop -->|MemorySync every 5 min| GitHub[(GitHub repository)]
-    Hub -->|MemorySync every 5 min| GitHub
-    Desktop --> Okf1[irudd-okf bundle personal]
-    Hub --> Okf2[irudd-okf bundle personal]
-```
+`packages/protocol/src/librarian.ts` defines agent commands and the shared
+presentation. `apps/desktop/src/librarian.ts` owns dreaming runs, session
+capabilities, queues, human decision recording and selection. `desktop.db` stores
+the run document and idempotency receipts. The renderer's named IPC is the only
+Scope path for human acceptance or rejection. The authenticated agent endpoint
+can present, propose and select with an active run capability. Its read returns
+the same projected page and selected raw content that the UI displays.
+Capabilities remain in process memory and expire on restart. Resume requires an
+explicit user request and a fresh session attachment. Scope never calls a model,
+launches an agent, or finishes a run on a schedule.
 
-`packages/protocol/src/memory.ts` owns the configuration, status and routes.
-`packages/memory-sync` owns the clone, sync loop and irudd-okf upgrades and runs
-in desktop main (`apps/desktop/src/memory.ts`) and in each hub. Desktop main saves
-the switch and repository in `desktop.db` and sends them to each hub when its
-relay session starts, after every change, and once a minute to retry failed
-updates. Configuration writes are serialized for each hub. The hub saves them in `hub.db`, so it
-keeps syncing while the desktop sleeps; it catches up when it wakes.
+The memory plugin keeps browse, search, reading, one human decision, and optional
+completed-change inspection in separate views. Full queues stay in SQLite;
+projected responses include only the selected full proposal and at most ten
+completed summaries. Old tab states migrate with their original document and
+read-only draft retained. Reminder due and dismissal dates share the persistent
+Librarian document. Renderer checks announce a due reminder while the app is
+running and never invoke the file engine or an agent.
 
-Each sync commits changed files, fetches, rebases, and pushes only when the
-clone is ahead. git authenticates through `gh auth git-credential`; no token
-passes through Scope. When a rebase stops on a conflict, the machine pushes its
-commits to `memory-conflict/HOST-TIME`, opens a pull request, and resets to the
-default branch. Scope never merges those pull requests; the desktop shows a banner
-until they close. The banner combines conflict reports from reachable machines.
-Sync now starts a sync on the desktop and connected hubs. Turning memory off can
-interrupt a pending remote sync without waiting for its response.
+`apps/desktop/src/memory.ts` resolves the selected local folder or optional
+synced clone. `packages/memory-sync` serializes CLI file operations with any
+configured Git sync. Local folders require neither Git nor a remote. Only
+repository sync configuration goes to paired hubs; desktop-local paths do not.
+Repository sync and daily upgrades retain their own opt-in timers. There is no
+periodic installation or curation check for a local library.
 
-A lock directory excludes other Scope processes. Git changes hold irudd-okf's
-writer lock; runtime locks, recovery copies, and temporary files stay local.
-Scope finishes an active Git mutation before cancellation and cleans up its
-own rebase before allowing another writer. An unknown unfinished rebase stops
-sync with recovery instructions. Returning from a conflict refuses to overwrite
-new edits, and a default-branch check keeps manual branch work from being pushed.
+Opted-in sync commits changed Markdown and portable OKF manifests and review
+history, fetches, rebases and pushes only when the clone is ahead. Runtime locks
+and journals remain local. Git authenticates with the machine's own gh login.
+Conflicts become pull requests on `memory-conflict/HOST-TIME`; Scope never merges
+them. Git changes and CLI operations share a queue and the OKF writer lock.
+Turning Git sync off preserves local reading and the existing bundle.
 
-The irudd-okf `personal` bundle points at the clone. Scope re-points it only
-when it already points inside Scope's memory folder. Retros offer each
-machine's registered bundle as an operator destination while memory is on.
-Sync and daily irudd-okf upgrades share one queue on each machine. Upgrades run
-on macOS and Linux while memory is enabled, including before a repository is connected.
-Windows requires a compatible native irudd-okf executable. Its upstream project
-does not provide a Windows installer, so automatic upgrades report that limit
-without disabling sync, reading, or editing through an installed compatible tool. Disabling
-memory stops the upgrade CLI and its installer processes.
-
-The desktop memory plugin opens the connected local bundle in one built-in
-Personal memory tab. Its wiki, search and bounded graph call the installed
-irudd-okf CLI through named IPC. `MemorySync.runOkf` shares the sync and upgrade
-queue, targets only the currently registered local clone, and rejects requests
-when configuration changes. The renderer never chooses a filesystem root or
-runs a process. The existing OKF hash check and writer lock protect Markdown
-saves; the plugin does not take that writer lock itself.
-
-Memory Markdown remains in the Git repository. Navigation and editing drafts
-stay in the tab document in `scope.db`. Each draft retains its repository,
-relative path, original hash and text, so switching repositories cannot apply
-an old edit to the new clone. Conflict and failed-save recovery keep the draft
-until the operator saves, copies or explicitly discards it. CLI write input uses
-a private temporary file removed after the command, with no persistent file
-cache. Scope does not start the irudd-okf browser server or expose its API.
+CLI request files are private temporary files removed after each operation.
+Scope verifies bundle identity and format before mutations; version mismatch
+reports migration instructions without changing an existing bundle.
 
 ## Names and ownership
 

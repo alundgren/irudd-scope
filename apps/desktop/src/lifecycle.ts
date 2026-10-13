@@ -5,6 +5,7 @@ import { Tab, decodeWorkspace, emptyWorkspace, type Workspace } from "./workspac
 import type { ArtifactStore } from "./library/store.ts";
 import type { DesktopStore } from "./desktop-store.ts";
 import { validateTabState } from "./plugins/registry.ts";
+import { LegacyMemoryTabState } from "./plugins/memory/contract.ts";
 
 export class DesktopLifecycle {
   private pending = Promise.resolve();
@@ -41,6 +42,34 @@ export class DesktopLifecycle {
     }
     await this.checkpoint("after-tab-import");
     await this.desktop.finishTabImport();
+    const savedTabs = (await this.artifacts.tabs()).flatMap((row) =>
+      row.document ? [decode(Tab, JSON.parse(row.document))] : [],
+    );
+    if (
+      savedTabs.some(
+        (tab) => tab.type === "memory" && (tab.state.version === 1 || tab.title !== "Librarian"),
+      )
+    )
+      await this.artifacts.saveTabs(
+        savedTabs.map((tab) =>
+          tab.type !== "memory"
+            ? tab
+            : {
+                ...tab,
+                title: "Librarian",
+                state:
+                  tab.state.version === 1
+                    ? {
+                        version: 2,
+                        data: {
+                          recovery: decode(LegacyMemoryTabState, tab.state).data,
+                          original: tab.state,
+                        },
+                      }
+                    : tab.state,
+              },
+        ),
+      );
     await this.reconcile();
   }
 

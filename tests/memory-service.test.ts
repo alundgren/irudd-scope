@@ -116,6 +116,9 @@ async function fixture(options: { installLater?: boolean } = {}) {
 
 test("remote configuration updates are serialized and the final off choice wins", async () => {
   const f = await fixture();
+  await f.service.setEnabled(true);
+  await f.service.connect(MEMORY_REPOSITORY);
+  await f.service.setEnabled(false);
   let entered = false;
   const gate = Promise.withResolvers<void>();
   f.beforePut(async (configuration) => {
@@ -141,6 +144,7 @@ test("remote configuration updates are serialized and the final off choice wins"
 test("a failed remote off update is retried without waiting for reconnection", async () => {
   const f = await fixture();
   await f.service.setEnabled(true);
+  await f.service.connect(MEMORY_REPOSITORY);
   let failures = 0;
   f.beforePut(async (configuration) => {
     if (!configuration.enabled && failures++ === 0) throw new Error("Temporary connection failure");

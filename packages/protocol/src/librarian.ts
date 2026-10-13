@@ -1,0 +1,265 @@
+import { Schema } from "effect";
+
+const Text = Schema.String.check(Schema.isMaxLength(1_000_000));
+const Name = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256));
+const Hash = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
+const Revision = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+export const LibrarianPath = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(1024),
+  Schema.makeFilter(
+    (p) =>
+      !p.startsWith("/") &&
+      !p.startsWith("-") &&
+      !/[\\\x00-\x1f]/.test(p) &&
+      p.split("/").every((v) => !!v && v !== "." && v !== ".."),
+    { expected: "a relative bundle path" },
+  ),
+);
+export const MemoryActor = Schema.Struct({ type: Schema.Literals(["agent", "human"]), id: Name });
+export const MemoryApplicability = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("global") }),
+  Schema.Struct({ type: Schema.Literals(["machine", "repository"]), id: Name }),
+]);
+export const MemorySource = Schema.Struct({
+  path: LibrarianPath,
+  hash: Hash,
+  bundle: Schema.optionalKey(Name),
+  id: Schema.optionalKey(Name),
+  displayTitle: Schema.optionalKey(Text),
+  applicability: Schema.optionalKey(MemoryApplicability),
+});
+const Snapshot = Schema.Struct({ raw: Text, hash: Hash });
+const MemoryReview = Schema.Struct({
+  actor: MemoryActor,
+  reason: Text,
+  at: Name,
+  decision: Schema.Literals(["accept", "reject"]),
+  revisionHash: Hash,
+  sources: Schema.Array(MemorySource),
+});
+export const MemoryChange = Schema.Struct({
+  version: Schema.Literal(1),
+  id: Name,
+  bundle: Name,
+  path: LibrarianPath,
+  action: Schema.Literals(["create", "update", "delete"]),
+  before: Schema.NullOr(Snapshot),
+  after: Schema.NullOr(Snapshot),
+  revisionHash: Hash,
+  status: Schema.Literals(["pending", "accepted", "rejected", "superseded"]),
+  actor: MemoryActor,
+  reason: Text,
+  createdAt: Name,
+  sources: Schema.Array(MemorySource),
+  humanRequired: Schema.optionalKey(Schema.Boolean),
+  requestId: Schema.optionalKey(Name),
+  replacementChangeId: Schema.optionalKey(Name),
+  agentReview: Schema.optionalKey(MemoryReview),
+  humanReview: Schema.optionalKey(MemoryReview),
+  display: Schema.optionalKey(
+    Schema.Struct({
+      title: Text,
+      beforeBody: Schema.NullOr(Text),
+      afterBody: Schema.NullOr(Text),
+      beforeMemory: Schema.optionalKey(Schema.Unknown),
+      afterMemory: Schema.optionalKey(Schema.Unknown),
+    }),
+  ),
+  reviews: Schema.optionalKey(Schema.Array(MemoryReview)),
+  review: Schema.optionalKey(MemoryReview),
+});
+export type MemoryChange = typeof MemoryChange.Type;
+export const LibrarianProposal = Schema.Struct({
+  change: MemoryChange,
+  disposition: Schema.Literals(["human", "automatic"]),
+  permission: Schema.optionalKey(Name),
+  evidence: Text,
+});
+export type LibrarianProposal = typeof LibrarianProposal.Type;
+export const LibrarianRun = Schema.Struct({
+  id: Name,
+  sessionId: Name,
+  userRequest: Text,
+  startedAt: Name,
+  bundle: Schema.Struct({ id: Name, root: Text, formatVersion: Schema.Literal(2) }),
+  status: Schema.Literals(["active", "interrupted", "completed"]),
+  automaticPermissions: Schema.Array(Name).check(Schema.isMaxLength(30)),
+  proposals: Schema.Array(LibrarianProposal).check(Schema.isMaxLength(1000)),
+  completedAt: Schema.optionalKey(Name),
+  finishRequest: Schema.optionalKey(Text),
+  activity: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        action: Schema.Literals(["start", "resume", "interrupt", "finish"]),
+        sessionId: Name,
+        userRequest: Text,
+        at: Name,
+      }),
+    ),
+  ),
+});
+export type LibrarianRun = typeof LibrarianRun.Type;
+export const LibrarianView = Schema.Struct({
+  version: Schema.Literal(1),
+  uiRevision: Revision,
+  view: Schema.Literals(["browse", "memory", "decision", "overview", "recovery"]),
+  query: Text,
+  directory: Schema.String,
+  offset: Revision,
+  displayed: Schema.Unknown,
+  bundle: Schema.optionalKey(LibrarianRun.fields.bundle),
+  comparisonOpen: Schema.optionalKey(Schema.Boolean),
+  evidenceOpen: Schema.optionalKey(Schema.Boolean),
+  selectedPath: Schema.optionalKey(LibrarianPath),
+  selectedChangeId: Schema.optionalKey(Name),
+  run: Schema.optionalKey(LibrarianRun),
+  history: Schema.Array(LibrarianRun),
+  historyRunId: Schema.optionalKey(Name),
+  pendingCount: Schema.optionalKey(Revision),
+  completedCount: Schema.optionalKey(Revision),
+  overview: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        id: Name,
+        path: LibrarianPath,
+        title: Schema.optionalKey(Text),
+        status: Schema.String,
+        actor: Schema.String,
+      }),
+    ).check(Schema.isMaxLength(10)),
+  ),
+  reminder: Schema.Struct({
+    enabled: Schema.Boolean,
+    dueAt: Name,
+    dismissedAt: Schema.optionalKey(Name),
+  }),
+});
+export type LibrarianView = typeof LibrarianView.Type;
+const Operation = { requestId: Name, expectedUiRevision: Revision };
+const Connection = { runId: Name, capability: Name, sessionId: Name };
+export const LibrarianCommand = Schema.Union([
+  Schema.Struct({ action: Schema.Literal("read") }),
+  Schema.Struct({ action: Schema.Literal("local"), root: Text, initialize: Schema.Boolean }),
+  Schema.Struct({
+    action: Schema.Literal("start"),
+    ...Operation,
+    sessionId: Name,
+    userRequest: Text,
+    automaticPermissions: Schema.Array(Name).check(Schema.isMaxLength(30)),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("resume"),
+    ...Operation,
+    runId: Name,
+    sessionId: Name,
+    userRequest: Text,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("present"),
+    ...Operation,
+    ...Connection,
+    changeId: Name,
+    disposition: Schema.Literals(["human", "automatic"]),
+    permission: Schema.optionalKey(Name),
+    evidence: Text,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("propose"),
+    ...Operation,
+    ...Connection,
+    path: LibrarianPath,
+    raw: Schema.NullOr(Text),
+    expectedHash: Schema.NullOr(Hash),
+    reason: Text,
+    sources: Schema.Array(MemorySource),
+    disposition: Schema.Literals(["human", "automatic"]),
+    permission: Schema.optionalKey(Name),
+    evidence: Text,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("select"),
+    ...Operation,
+    ...Connection,
+    view: Schema.Literals(["browse", "memory", "decision", "overview"]),
+    path: Schema.optionalKey(LibrarianPath),
+    changeId: Schema.optionalKey(Name),
+    query: Schema.optionalKey(Text),
+    directory: Schema.optionalKey(Schema.String),
+    offset: Schema.optionalKey(Revision),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("undo"),
+    ...Operation,
+    ...Connection,
+    changeId: Name,
+    expectedRevisionHash: Hash,
+    reason: Text,
+    evidence: Text,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("finish"),
+    ...Operation,
+    ...Connection,
+    userRequest: Text,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("interrupt"),
+    ...Operation,
+    ...Connection,
+    userRequest: Text,
+  }),
+]);
+export type LibrarianCommand = typeof LibrarianCommand.Type;
+export const LibrarianReply = Schema.Struct({
+  state: LibrarianView,
+  capability: Schema.optionalKey(Name),
+});
+export type LibrarianReply = typeof LibrarianReply.Type;
+export const LibrarianHumanCommand = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal("navigate"),
+    ...Operation,
+    view: Schema.Literals(["browse", "memory", "decision", "overview", "recovery"]),
+    historyRunId: Schema.optionalKey(Name),
+    path: Schema.optionalKey(LibrarianPath),
+    changeId: Schema.optionalKey(Name),
+    query: Schema.optionalKey(Text),
+    directory: Schema.optionalKey(Schema.String),
+    offset: Schema.optionalKey(Revision),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("decide"),
+    ...Operation,
+    runId: Name,
+    changeId: Name,
+    expectedRevisionHash: Hash,
+    sources: Schema.Array(MemorySource),
+    decision: Schema.Literals(["accept", "reject"]),
+    reason: Text,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("reminder"),
+    ...Operation,
+    enabled: Schema.optionalKey(Schema.Boolean),
+    dismiss: Schema.Boolean,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("inspect"),
+    ...Operation,
+    comparison: Schema.optionalKey(Schema.Boolean),
+    evidence: Schema.optionalKey(Schema.Boolean),
+  }),
+]);
+export type LibrarianHumanCommand = typeof LibrarianHumanCommand.Type;
+export const LibrarianGuide = {
+  workflow:
+    "Dreaming begins only after the user asks their existing coding agent. Read librarian read, then librarian apply REQUEST.json with action start, a stable requestId, the displayed uiRevision, the existing sessionId, the exact user request, and only explicitly permitted automatic categories. Scope never starts a model or agent. Continue the conversation in that existing session. Finish requires a separate explicit conversational instruction.",
+  connection:
+    "Start and explicit resume return a connection capability. All proposal and presentation changes need the active runId, sessionId and capability. Restart interrupts the queue and invalidates all capabilities. Resume only when the user requests it. Retry uncertain operations with the same requestId and exact payload. Reconcile conflicts from librarian read.",
+  decisions:
+    "Propose sends file semantics to irudd-okf. Present references an existing immutable change. Human proposals appear one at a time with exact before and after, reasons and evidence. Only the Scope renderer can record a human decision. Automatic disposition requires a permission granted at start; reasons, actor, revisions and evidence remain inspectable. Ask the user to review the displayed proposal; never claim an agent decision was human. Amend with a new proposal or undo a completed change. Read returns the same projected content and uiRevision displayed by the UI.",
+  setup:
+    "librarian apply with action local and an absolute root connects a local bundle without Git. initialize true calls irudd-okf init only for a new empty location. Existing older bundles require user-directed migration through irudd-okf migration guide; connecting never migrates them. Git sync remains optional via memory connect OWNER/REPO.",
+  schema: Schema.toJsonSchemaDocument(LibrarianCommand, { onExcessProperty: "error" }).schema,
+};

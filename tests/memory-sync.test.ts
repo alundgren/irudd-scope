@@ -343,7 +343,7 @@ test("old closed conflict pull requests stay closed after many newer pull reques
 });
 
 test.runIf(process.platform !== "win32")(
-  "upgrades run while waiting for a repository and stop when memory is turned off",
+  "configured repository upgrades stop when memory is turned off",
   async () => {
     const f = await setup();
     const gate = f.gate("upgrade", "okf:upgrade --check");
@@ -356,10 +356,10 @@ test.runIf(process.platform !== "win32")(
       await gate.release();
       await sync.close();
     });
-    sync.configure({ enabled: true, repository: null });
+    sync.configure({ enabled: true, repository: MEMORY_REPOSITORY });
     try {
       await expect.poll(gate.entered, { timeout: 10_000 }).toBe(true);
-      sync.configure({ enabled: false, repository: null });
+      sync.configure({ enabled: false, repository: MEMORY_REPOSITORY });
       await sync.close();
       expect((await gate.commands()).split("\n")).not.toContain("okf:upgrade");
       expect(sync.status().phase).toBe("off");
@@ -436,10 +436,10 @@ test.runIf(process.platform !== "win32")(
       await gate.release();
       await sync.close();
     });
-    sync.configure({ enabled: true, repository: null });
+    sync.configure({ enabled: true, repository: MEMORY_REPOSITORY });
     try {
       await expect.poll(gate.entered, { timeout: 10_000 }).toBe(true);
-      sync.configure({ enabled: false, repository: null });
+      sync.configure({ enabled: false, repository: MEMORY_REPOSITORY });
       await sync.close();
       await writeFile(`${installer}.continue`, "");
       await delay(100);
@@ -611,3 +611,27 @@ test.runIf(process.platform !== "win32")(
     expect(failing.status().okf.message).toContain("0.2.0 is available, but the upgrade failed");
   },
 );
+
+test("a local bundle reads without Git and schedules no upgrades", async () => {
+  const f = await setup();
+  const root = join(f.directory, "local-only");
+  await mkdir(root);
+  await writeFile(join(root, "index.md"), "# Local memory\n");
+  const gate = f.gate("local-only", "okf:upgrade --check");
+  const sync = new MemorySync({
+    root: f.root("unused"),
+    machine: "local",
+    env: f.env("local", { extra: gate.env }),
+    intervalMs: 10,
+    upgradeIntervalMs: 10,
+  });
+  cleanup.push(() => sync.close());
+  await sync.checkOkf();
+  sync.configure({ enabled: true, repository: null, localRoot: root });
+  const read = await sync.runOkf(root, ["read", "personal", "index.md"]);
+  expect(read.code).toBe(0);
+  await delay(50);
+  const commands = (await gate.commands()).split("\n");
+  expect(commands.some((command) => /^(git|gh):|^okf:upgrade/.test(command))).toBe(false);
+  expect(sync.status().root).toBe(root);
+});

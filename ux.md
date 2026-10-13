@@ -531,54 +531,48 @@ memory enablement.
 
 ## Personal memory
 
-Memory is a searchable Settings section with one switch. The switch stays
-disabled until irudd-okf is installed locally. macOS and Linux show its installer
-command. Windows explains that a compatible native executable must be on PATH
-and that upstream has no Windows installer. Scope never installs irudd-okf;
-it upgrades an installed copy once a day on macOS and Linux and shows upgrade
-problems per machine. Windows reports automatic upgrades as unavailable and
-retains sync, reading, and editing when a compatible tool is installed. Creating the repository is a
-conversation with the coding agent, not a Settings form: with memory on and no
-repository, Settings offers Copy agent request. The agent suggests a private
-`personal-memory` repository and waits for approval.
+Memory settings select a local irudd-okf bundle. A folder needs no Git repository
+or remote. Scope checks the installed CLI and bundle format before using it.
+An older bundle reports Migration needed with an agent request to inspect the
+required choices. Selecting a folder never migrates existing memory.
+The agent can initialize a new empty folder through `librarian apply`.
 
-With a repository connected, Settings lists this device and every paired remote
-with its last sync, bundle registration, and problems such as a missing gh
-login or an older remote build. Sync now runs an immediate sync on the desktop and
-connected hubs and reports when a machine needs attention. The Memory switch
-detects an irudd-okf installation without restarting Scope. Retrospective
-destinations refresh when memory changes and retain unsaved edits. Generated
-personal bundle destinations have no removal button; the Memory switch controls
-them. A conflict
-shows an amber banner under the strip on every screen except focus mode, with
-Copy agent request listing the conflict pull requests. Scope never merges them.
-Turning memory off stops Scope's syncing and upgrades and hides OKF from retros;
-nothing is uninstalled or deleted.
+Memory enables local reading. Git sync has a separate opt-in switch when a
+repository is connected. Existing repository preferences remain compatible.
+Sync status stays in Settings; conflicts offer an agent request. Scope performs
+no background memory curation or agent calls. Weekly dreaming reminders start
+on, can be disabled in Settings, and retain their due and dismissal dates.
+Missed reminders produce one notice while Scope is running. Dismissing schedules
+the next week. A reminder never begins dreaming.
 
-## Personal memory wiki
+## Librarian
 
-Personal memory opens from workspace search or Memory Settings in a built-in
-tab. One saved tab follows the connected repository on this device. Wiki starts at
-`index.md`, supports relative Markdown links, and shows linked notes and
-backlinks. Search covers the personal bundle with paging. Graph shows up to 80
-notes, can focus on a note's nearby connections, and opens a selected note in
-the wiki. Index and log documents remain available through wiki links; irudd-okf
-omits them from search and graph.
+Librarian replaces the personal memory wiki and graph in the permanent built-in
+tab. Browsing opens a small page of folders and memories. Search replaces that
+page with results; choosing a result opens one memory. Reading keeps the text
+central and offers Back to results. Editing and discussion belong to the
+existing coding session.
 
-Edit Markdown opens the raw file, including frontmatter. The draft remains in
-SQLite across tab switches, hiding, fullscreen, and restart. Saving compares the
-original content hash with the current file. Failed and conflicting saves keep
-the draft; Compare saved version shows the current file without changing the
-draft's original hash. Preview draft renders the edited Markdown without opening links.
-After reviewing and reconciling a conflict, Use saved version as base requires
-confirmation and keeps the draft; the next Save checks that reviewed hash again.
-Discard requires an explicit confirmation, and Copy draft
-preserves text outside Scope. A retained draft must be saved or discarded before
-opening a different note. Switching repositories preserves the old draft and
-disables its Save action until its repository is connected again.
+Dreaming starts when the person asks their existing agent. Scope supplies no
+chat, model call, agent launch, or automatic finish. The agent attaches its
+session to a run, records which routine categories the person permitted, and
+presents proposals. Each human decision fills the reading area with its reason,
+exact before and after text, and collapsed evidence. Search, library lists and
+unrelated controls are absent. Accept proposal and Reject proposal record the
+exact displayed revision and source revisions. A changed proposal or evidence
+fails visibly and retains the decision. The next undecided proposal then appears.
+Allowed automatic decisions retain their agent actor, before and after, reason,
+and evidence for later inspection. irudd-okf decides when human review is required.
 
-Memory must be enabled, connected, installed and registered locally before file
-operations are available. The tab stays open with a Memory settings action when
-setup or sync needs attention. An already registered clone can be read while
-GitHub is unavailable. Browser-server embedding is unnecessary; Scope uses the
-same irudd-okf file operations directly through the installed CLI.
+The person asks their agent to amend a proposal or completed change. Revisions
+retain the earlier content and review history. Interrupted runs remain in SQLite.
+Restart invalidates the agent connection; only an explicitly requested resume
+attaches a fresh session capability. Finishing requires an explicit instruction
+in the conversation and no unresolved proposals. A completed overview shows a
+small page of change summaries; opening one inspects its full content and actor.
+Earlier runs remain available on request.
+
+Old wiki drafts remain read-only and copyable in Recovered draft. Migration keeps
+the original tab state beside the recovery text. Hiding Librarian retains its
+state and reopening uses the same saved tab. Agent reads return the same current
+view, selected content, evidence, decision state and UI revision as the renderer.

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { RetroGuide, retroCommand } from "./retro.ts";
+import { LibrarianGuide } from "@irudd-scope/protocol/librarian";
+import { librarianCommand } from "./librarian.ts";
 import { MemoryGuide } from "@irudd-scope/protocol/memory";
 import { watchRetro } from "./retro-watch.ts";
 import { PullRequestsGuide, pullRequestsCommand } from "./pull-requests.ts";
@@ -59,6 +61,7 @@ irudd-scope diagram watch NAME [--claude-channel | --t3-thread ID | --codex-thre
 irudd-scope pull-requests guide|read|configure|sync|detail|apply [NAME_OR_FILE] [OWNER/REPO_OR_NODE_ID]
 irudd-scope retro guide|settings|read NAME|apply REQUEST.json|history|watch NAME
 irudd-scope memory guide|status|connect OWNER/REPO
+irudd-scope librarian guide|read|apply REQUEST.json
 irudd-scope plan guide
 irudd-scope plan read NAME [--since VERSION]
 irudd-scope plan feedback NAME [ROUND_ID] --output NEW_DIRECTORY
@@ -512,6 +515,21 @@ async function main() {
         ),
       );
     }
+    return;
+  }
+  if (command === "librarian") {
+    if (argument === "guide") {
+      console.log(JSON.stringify(LibrarianGuide, null, 2));
+      return;
+    }
+    const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"]));
+    console.log(
+      JSON.stringify(
+        await librarianCommand(await connect(values, signal), argument ?? "", replacement, signal),
+        null,
+        2,
+      ),
+    );
     return;
   }
   if (command === "memory") {

@@ -821,3 +821,24 @@ serialized and retry missed configuration updates. `GET /v1/relay/memory`
 reads local status, and `POST /v1/relay/memory/sync` runs a sync immediately.
 Configuration changes can interrupt that sync. The last configuration from the Mac wins. An older hub answers 404 and
 the Mac reports that the remote needs an update.
+
+## Librarian
+
+`src/librarian.ts` defines the schema printed by `irudd-scope librarian guide`.
+`librarian read` returns the desktop presentation. `librarian apply REQUEST.json`
+sends a validated command to authenticated `POST /v1/librarian`.
+
+Local setup selects an absolute bundle location and can initialize only an empty
+folder. Start and explicit resume bind an existing agent session to a run and
+return a temporary capability. Proposal, presentation, selection, undo and finish
+commands require that connection plus a stable request ID and expected UI
+revision. The endpoint has no human decision action. Scope's validated renderer
+IPC records human decisions against the displayed revision and exact source
+list. File acceptance, recall and restoration remain irudd-okf operations.
+
+Reads are bounded to the current results page, selected memory or proposal,
+and ten completed summaries. Queues remain durable in SQLite. Restart interrupts
+runs and invalidates capabilities. Retried request IDs require identical payloads;
+a receipt never grants a restored connection. Finish requires a separate explicit
+user instruction and no pending proposals. All conversation stays in the existing
+coding session. Weekly reminders merely announce that dreaming is due.

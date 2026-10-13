@@ -16,7 +16,8 @@
     "./pull-requests": "./src/pull-requests.ts",
     "./transfer": "./src/transfer.ts",
     "./retro": "./src/retro.ts",
-    "./memory": "./src/memory.ts"
+    "./memory": "./src/memory.ts",
+    "./librarian": "./src/librarian.ts"
   },
   "dependencies": {
     "effect": "catalog:"
