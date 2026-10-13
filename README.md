@@ -117,9 +117,8 @@ The project pins Node and pnpm through Vite+. Linux supports development and tes
 macOS and Windows 11 x64 are desktop deployment targets. Native Windows builds
 use PowerShell; the remote hub remains a Linux systemd service.
 
-Memory on Windows requires a compatible native irudd-okf executable. Its upstream
-project has no Windows installer, so Scope cannot install or automatically
-upgrade it there. Other native prerequisites include `gh` for PR inboxes and
+Memory on Windows uses the native irudd-okf executable installed with its
+PowerShell installer. Scope keeps automatic upgrades off there. Other native prerequisites include `gh` for PR inboxes and
 memory authentication, Git for memory sync, and Python 3 for agent retrospectives.
 
 Scope displays text, Markdown, raster images, interactive HTML, downloadable files,
@@ -143,3 +142,23 @@ See [development and launch commands](docs/development.md),
 and controls. Contributor instructions start in [AGENTS.md](AGENTS.md).
 
 MIT licensed.
+
+## Memory library
+
+Librarian browses and searches a local irudd-okf bundle and presents one dreaming
+decision at a time. Git and remote sync are optional. Select an existing folder
+in Memory settings or ask your coding agent to initialize a new local bundle.
+Existing older bundles need an explicit migration; Scope never migrates them
+when connecting. Weekly dreaming reminders start on and can be disabled.
+
+```sh
+irudd-scope librarian guide
+irudd-scope librarian read
+irudd-scope librarian apply request.json
+```
+
+Dreaming starts and finishes through your existing agent conversation. Scope
+records exact human decisions and permitted automatic changes, with before and
+after text, actor, reason and evidence. Interrupted queues persist and require
+an explicit resume. Completed changes remain available for inspection. The
+Librarian tab retains old wiki drafts as copyable recovery text.

@@ -141,10 +141,19 @@ const bridge: ScopeBridge = {
     return () => ipcRenderer.removeListener("scope:fullscreen-changed", receive);
   },
   remotes: () => ipcRenderer.invoke("scope:remotes"),
-  memoryCommand: (command) => ipcRenderer.invoke("scope:memory-command", command),
   copyMemoryDraft: (raw) => ipcRenderer.invoke("scope:copy-memory-draft", raw),
   openMemoryLink: (url) => ipcRenderer.invoke("scope:open-memory-link", url),
+  librarianRead: () => ipcRenderer.invoke("scope:librarian-read"),
+  librarianHuman: (command) => ipcRenderer.invoke("scope:librarian-human", command),
+  onLibrarianChange: (listener) => {
+    const receive = (_event: Electron.IpcRendererEvent, state: Parameters<typeof listener>[0]) =>
+      listener(state);
+    ipcRenderer.on("scope:librarian-changed", receive);
+    return () => ipcRenderer.removeListener("scope:librarian-changed", receive);
+  },
   memory: () => ipcRenderer.invoke("scope:memory"),
+  setMemorySyncEnabled: (enabled) => ipcRenderer.invoke("scope:set-memory-sync-enabled", enabled),
+  chooseMemoryFolder: () => ipcRenderer.invoke("scope:choose-memory-folder"),
   setMemoryEnabled: (enabled) => ipcRenderer.invoke("scope:set-memory-enabled", enabled),
   retryMemory: () => ipcRenderer.invoke("scope:retry-memory"),
   copyMemoryRequest: (kind) => ipcRenderer.invoke("scope:copy-memory-request", kind),

@@ -1,6 +1,7 @@
 import { RetroCommand, RetroReply, MAX_RETRO_REQUEST_BYTES } from "@irudd-scope/protocol/retro";
 import type { RetroConfiguration } from "@irudd-scope/protocol/retro";
 import { MemoryConnectRequest, MemoryStatus } from "@irudd-scope/protocol/memory";
+import { LibrarianCommand, LibrarianReply } from "@irudd-scope/protocol/librarian";
 import { handlePullRequestsHttp } from "./pull-requests-http.ts";
 import {
   VoiceRequest,
@@ -45,6 +46,7 @@ import {
 } from "@irudd-scope/protocol/transfer";
 
 export async function startArtifactServer(options: {
+  librarian?: (command: LibrarianCommand) => Promise<LibrarianReply>;
   retroConfiguration?: {
     read: () => Promise<RetroConfiguration>;
     configure: (
@@ -150,6 +152,14 @@ export async function startArtifactServer(options: {
       const body = await readJson(request, 4096, "Memory request exceeds 4 KiB.");
       const input = validate(() => decode(MemoryConnectRequest, body));
       json(response, 200, decode(MemoryStatus, await options.memory.connect(input.repository)));
+      return;
+    }
+    if (route === "POST /v1/librarian" && !url.search) {
+      if (!options.librarian)
+        throw new ScopeError(503, "Librarian is unavailable. Open Scope and retry.");
+      const body = await readJson(request, 2 * 1024 * 1024, "Librarian command exceeds 2 MiB.");
+      const input = validate(() => decode(LibrarianCommand, body));
+      json(response, 200, decode(LibrarianReply, await options.librarian(input)));
       return;
     }
     if (await handlePlanHttp(request, response, url, store.plans)) return;

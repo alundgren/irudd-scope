@@ -45,7 +45,7 @@ export function withMemoryDestinations(
     (destination) => memory.enabled || destination.type !== "okf",
   );
   const generated: RetroDestination[] = [];
-  if (memory.enabled && memory.repository)
+  if (memory.enabled && (memory.repository || memory.localRoot))
     for (const source of configuration.sources) {
       const machine =
         source.location?.type === "desktop"

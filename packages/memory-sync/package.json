@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/memory-sync.ts"
+    ".": "./src/memory-sync.ts",
+    "./commands": "./src/commands.ts"
   },
   "dependencies": {
     "@irudd-scope/protocol": "workspace:*",

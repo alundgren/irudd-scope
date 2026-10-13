@@ -27,6 +27,7 @@ import { AppUpdates } from "./updates.ts";
 import { AgentTools } from "./agent-tools.ts";
 import { Remotes } from "./remotes.ts";
 import { MemoryService } from "./memory.ts";
+import { LibrarianService } from "./librarian.ts";
 import { createApplicationMenu } from "./menu.ts";
 import { TabTransfers } from "./transfer/service.ts";
 import { TailcatCliTransport } from "./transfer/transport.ts";
@@ -77,11 +78,16 @@ async function main() {
   let lifecycle: DesktopLifecycle;
   let transfers: TabTransfers | undefined;
   let memory: MemoryService | undefined;
+  let librarian: LibrarianService | undefined;
   const startedMemory = () => {
     if (!memory) throw new ScopeError(503, "Scope is still starting. Retry shortly.");
     return memory;
   };
   const artifacts = await startLocalArtifacts({
+    librarian: (command) => {
+      if (!librarian) throw new ScopeError(503, "Scope is still starting. Retry shortly.");
+      return librarian.command(command);
+    },
     importLink: (url) => {
       if (!transfers)
         throw new ScopeError(503, "Scope is still starting. Retry the same link shortly.");
@@ -164,6 +170,10 @@ async function main() {
     if (!window.isDestroyed()) window.webContents.send("scope:memory-changed", status);
   });
   await memory.start();
+  librarian = new LibrarianService(store, memory, (state) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:librarian-changed", state);
+  });
+  await librarian.start();
   await remotes.start();
   powerMonitor.on("resume", () => {
     void store.maintenance.check();
@@ -197,6 +207,7 @@ async function main() {
     agentTools,
     remotes,
     memory,
+    librarian,
     transfers,
     setDiagramMenu,
     onRestartToUpdate: async () => {
@@ -264,6 +275,7 @@ async function main() {
     library.close();
     await transfers?.close();
     await remotes.close();
+    await librarian?.close();
     await memory?.close();
     await voice.close();
     await Promise.all([artifacts.close(), store.close()]);
