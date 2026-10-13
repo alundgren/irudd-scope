@@ -25,7 +25,6 @@ export class MemoryService {
   private readonly remoteQueues = new Map<string, Promise<void>>();
   private readonly stopping = new AbortController();
   private preferences?: MemoryPreferences;
-  private installTimer?: ReturnType<typeof setInterval>;
   private readonly remotePollMs: number;
   private stopSessions?: () => void;
 
@@ -59,15 +58,38 @@ export class MemoryService {
       (remote, call, signal) => void this.watchRemote(remote.id, call, signal),
     );
     await this.sync.checkOkf();
-    this.sync.configure(this.configuration());
-    this.installTimer = setInterval(() => void this.read(), 30_000);
-    this.installTimer.unref();
+    this.sync.configure(this.syncConfiguration());
     this.changed();
   }
 
   private configuration(): MemoryConfiguration {
-    const { enabled = false, repository = null } = this.preferences ?? {};
-    return { enabled, repository };
+    const { enabled = false, repository = null, syncEnabled } = this.preferences ?? {};
+    const localRoot = repository ? undefined : this.preferences?.localRoot;
+    return {
+      enabled,
+      repository,
+      ...(localRoot ? { localRoot } : {}),
+      ...(syncEnabled !== undefined ? { syncEnabled } : {}),
+    };
+  }
+
+  private syncConfiguration(): MemoryConfiguration {
+    const configuration = this.configuration();
+    const localRoot = configuration.repository
+      ? this.preferences?.bundles.local?.root
+      : configuration.localRoot;
+    return { ...configuration, ...(localRoot ? { localRoot } : {}) };
+  }
+
+  private remoteConfiguration(): MemoryConfiguration {
+    const configuration = this.configuration();
+    return {
+      enabled: configuration.enabled && !!configuration.repository,
+      repository: configuration.repository,
+      ...(configuration.syncEnabled !== undefined
+        ? { syncEnabled: configuration.syncEnabled }
+        : {}),
+    };
   }
 
   snapshot(): MemoryStatus {
@@ -124,7 +146,7 @@ export class MemoryService {
   /** Text the operator pastes into their coding agent. */
   agentRequest(kind: "create" | "conflicts") {
     if (kind === "create")
-      return "Set up my Scope memory repository. Use the irudd-scope skill's memory reference: suggest personal-memory under my GitHub account, wait for my approval, create it as a private repository, initialize the irudd-okf bundle, push it, and connect it with irudd-scope memory connect.";
+      return "Set up a local memory folder for my Scope Librarian. Read irudd-scope librarian guide, agree on the location, then initialize a new empty bundle and connect it with librarian apply. Git is optional; do not migrate an existing bundle without my instruction.";
     const conflicts = this.snapshot().conflicts;
     return [
       "Resolve my Scope memory sync conflicts. Use the irudd-scope skill's memory reference and resolve each pull request in a separate temporary clone:",
@@ -146,6 +168,30 @@ export class MemoryService {
     return this.save({ enabled: true, repository: decode(MemoryRepository, repository) });
   }
 
+  async connectLocal(root: string) {
+    if (!(await this.sync.checkOkf()))
+      throw new ScopeError(409, "Install irudd-okf before connecting a memory bundle.");
+    await this.save({ enabled: true, repository: null, localRoot: root });
+    this.preferences = await this.store.saveMemory({
+      bundle: {
+        machine: LOCAL_MEMORY_MACHINE,
+        root,
+        verifiedAt: new Date().toISOString(),
+        repository: "",
+      },
+    });
+    return this.snapshot();
+  }
+
+  async setSyncEnabled(syncEnabled: boolean) {
+    if (!this.configuration().repository)
+      throw new ScopeError(
+        409,
+        "Connect a repository with your coding agent before enabling Git sync.",
+      );
+    return this.save({ ...this.configuration(), syncEnabled });
+  }
+
   runOkf(repository: string, args: string[]) {
     return this.sync.runOkf(repository, args);
   }
@@ -162,7 +208,7 @@ export class MemoryService {
 
   private async save(configuration: MemoryConfiguration) {
     this.preferences = await this.store.saveMemory({ configuration });
-    this.sync.configure(configuration);
+    this.sync.configure(this.syncConfiguration());
     await Promise.all(
       [...this.remoteMemory.entries()].map(([id, memory]) =>
         memory.call ? this.pushRemote(id, memory.call) : Promise.resolve(),
@@ -212,7 +258,7 @@ export class MemoryService {
     let applied = false;
     await this.queueRemote(id, call, async () => {
       applied = await this.exchange(id, call, () =>
-        call("PUT", "/v1/relay/memory", this.configuration()),
+        call("PUT", "/v1/relay/memory", this.remoteConfiguration()),
       );
     });
     return applied;
@@ -274,14 +320,14 @@ export class MemoryService {
     return (
       !!next.status &&
       next.status.repository === this.configuration().repository &&
-      (next.status.phase !== "off") === this.configuration().enabled
+      (next.status.phase !== "off") ===
+        (this.remoteConfiguration().enabled && this.remoteConfiguration().syncEnabled !== false)
     );
   }
 
   async close() {
     this.stopSessions?.();
     this.stopping.abort();
-    clearInterval(this.installTimer);
     await this.sync.close();
   }
 }

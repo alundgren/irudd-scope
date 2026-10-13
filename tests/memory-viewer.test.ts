@@ -1,588 +1,485 @@
 import { afterEach, expect, test } from "vite-plus/test";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { decodeLocalConnection } from "@irudd-scope/protocol";
+import { ScopeClient } from "@irudd-scope/protocol/client";
+import { HubState } from "../apps/hub/src/state.ts";
+import { startPairedHub } from "../apps/hub/src/paired-server.ts";
 import { desktopFixture } from "./desktop-fixture.ts";
-import { memoryFixture, MEMORY_REPOSITORY } from "./memory-fixture.ts";
+import { memoryFixture } from "./memory-fixture.ts";
+import type {
+  LibrarianCommand,
+  LibrarianReply,
+  LibrarianView,
+} from "@irudd-scope/protocol/librarian";
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
 });
-
-async function fixture(extra: NodeJS.ProcessEnv = {}, notes: Record<string, string> = {}) {
+const raw = (title: string, body: string) => `---
+type: Memory
+title: ${title}
+memory: ${JSON.stringify({ id: title.toLowerCase().replaceAll(" ", "-"), kind: "procedural", stage: "bronze", applicability: { type: "global" } })}
+---
+${body}
+`;
+const hash = (raw: string) => createHash("sha256").update(raw).digest("hex");
+async function fixture() {
   const memory = await memoryFixture(cleanup);
-  for (const [path, raw] of Object.entries(notes))
-    await writeFile(join(memory.directory, "seed", path), raw);
+  const root = join(memory.directory, "local-bundle");
+  await mkdir(root);
   await writeFile(
-    join(memory.directory, "seed", "index.md"),
-    "# Personal memory\n\n[Recovery](recovery.md)\n[Root note](/validation.md)\n[Missing](missing.md)\n[Web](https://example.com/docs)\n[Home](./)\n\n[Unsafe](javascript:alert(1))\n[Outside](../outside.md)\n",
+    join(root, "memory-bundle.json"),
+    JSON.stringify({ id: randomUUID(), formatVersion: 2, name: "personal" }),
   );
-  await writeFile(
-    join(memory.directory, "seed", "recovery.md"),
-    "---\ntype: Rule\ntitle: Recovery\n---\n\n# Recovery\n\nRetry interrupted edits. [Validation](validation.md)\n",
-  );
-  await writeFile(
-    join(memory.directory, "seed", "validation.md"),
-    "---\ntype: Rule\ntitle: Validation\n---\n\n# Validation\n\nUse synthetic fixtures.\n",
-  );
-  await memory.git(join(memory.directory, "seed"), "add", ".");
-  await memory.git(join(memory.directory, "seed"), "commit", "-m", "Add synthetic notes");
-  await memory.git(join(memory.directory, "seed"), "push", "origin", "main");
-  const desktop = await desktopFixture({
-    env: { ...memory.env("mac", { extra }), SCOPE_MEMORY_DIR: memory.root("mac") },
-  });
+  await writeFile(join(root, "index.md"), "# Memory\n");
+  await writeFile(join(root, "recovery.md"), raw("Recovery", "Retry interrupted work."));
+  await writeFile(join(root, "validation.md"), raw("Validation", "Use synthetic fixtures."));
+  const desktop = await desktopFixture({ env: memory.env("local") });
+  cleanup.push(() => rm(desktop.directory, { recursive: true, force: true }));
   let application = await desktop.launch();
   cleanup.push(() => application.close());
   let page = await application.firstWindow();
   page.setDefaultTimeout(8000);
-  await page.evaluate(() => window.scope.setMemoryEnabled(true));
-  await (await desktop.connect()).connectMemory(MEMORY_REPOSITORY);
-  await expect
-    .poll(
-      () => page.evaluate(async () => (await window.scope.memory()).machines[0]?.status?.bundle),
-      { timeout: 15000 },
-    )
-    .toBe("registered");
+  let client = await desktop.connect();
+  await client.librarian({ action: "local", root, initialize: false });
   const open = async () => {
     await page.keyboard.press("ControlOrMeta+k");
-    await page.getByRole("button", { name: "Personal memory", exact: true }).click();
+    await page.getByRole("button", { name: "Librarian", exact: true }).click();
   };
   return {
     memory,
+    root,
     desktop,
-    get application() {
-      return application;
+    get client() {
+      return client;
     },
     open,
     get page() {
       return page;
+    },
+    get application() {
+      return application;
     },
     restart: async () => {
       await application.close();
       application = await desktop.launch();
       page = await application.firstWindow();
       page.setDefaultTimeout(8000);
+      client = await desktop.connect();
     },
   };
 }
+async function dreaming(f: Awaited<ReturnType<typeof fixture>>, permissions: string[] = []) {
+  const read = await f.client.librarian({ action: "read" });
+  const start: LibrarianCommand = {
+    action: "start",
+    requestId: randomUUID(),
+    expectedUiRevision: read.state.uiRevision,
+    sessionId: "existing-session",
+    userRequest: "Begin dreaming. Ask me about substantive changes.",
+    automaticPermissions: permissions,
+  };
+  let reply = await f.client.librarian(start);
+  const capability = reply.capability!;
+  const runId = reply.state.run!.id;
+  async function propose(
+    path: string,
+    raw: string,
+    disposition: "human" | "automatic" = "human",
+    permission?: string,
+    sources: { path: string; hash: string }[] = [],
+  ) {
+    const before = await readFile(join(f.root, path), "utf8").catch(() => null);
+    reply = await f.client.librarian({
+      action: "propose",
+      requestId: randomUUID(),
+      expectedUiRevision: reply.state.uiRevision,
+      sessionId: "existing-session",
+      capability,
+      runId,
+      path,
+      raw,
+      expectedHash: before === null ? null : hash(before),
+      reason: `Improve ${path}`,
+      sources,
+      disposition,
+      ...(permission ? { permission } : {}),
+      evidence: `Evidence for ${path}`,
+    });
+    return reply;
+  }
+  return {
+    start,
+    capability,
+    runId,
+    propose,
+    get reply() {
+      return reply;
+    },
+    refresh: async () => (reply = await f.client.librarian({ action: "read" })),
+  };
+}
 
-test("Personal memory browses, searches, edits with conflict recovery, and opens graph nodes", async () => {
+test("Librarian browses a local folder without Git, searches a small result set and reads one memory", async () => {
   const f = await fixture();
   await f.open();
-  const page = f.page;
-  await page.locator(".memory-wiki").getByRole("heading", { name: "Personal memory" }).waitFor();
-  expect(await page.locator('.memory-wiki a[href^="javascript:"]').count()).toBe(0);
-  expect(await page.locator('.memory-wiki a[href="../outside.md"]').count()).toBe(0);
-  await page.locator(".memory-wiki").getByRole("link", { name: "Recovery", exact: true }).click();
-  await page.getByRole("button", { name: "Edit Markdown", exact: true }).click();
-  const draft = "---\ntype: Rule\ntitle: Recovery\n---\n\n# Recovery\n\nSaved by the wiki.\n";
-  await page.getByLabel("Memory Markdown").fill(draft);
-  await page.getByRole("button", { name: "Preview draft", exact: true }).click();
-  await page
-    .getByLabel("Draft preview")
-    .getByRole("heading", { name: "Recovery", exact: true })
-    .waitFor();
-  await page.getByRole("button", { name: "Save note", exact: true }).click();
-  await page.getByRole("status").filter({ hasText: "Saved to personal memory" }).waitFor();
-  expect(await readFile(join(f.memory.clone("mac"), "recovery.md"), "utf8")).toBe(draft);
-  await page.getByRole("button", { name: "Edit Markdown", exact: true }).click();
-  await page.getByLabel("Memory Markdown").fill(`${draft}\nUnsaved second edit.\n`);
-  const external = `${draft}\nChanged by an agent.\n`;
-  await writeFile(join(f.memory.clone("mac"), "recovery.md"), external);
-  await page.getByRole("button", { name: "Save note", exact: true }).click();
-  await page.getByRole("alert").filter({ hasText: "saved file changed" }).waitFor();
-  expect(await page.getByLabel("Memory Markdown").inputValue()).toContain("Unsaved second edit");
-  expect(await readFile(join(f.memory.clone("mac"), "recovery.md"), "utf8")).toBe(external);
-  await page.getByRole("button", { name: "Compare saved version" }).click();
-  await page
-    .locator(".memory-comparison")
-    .getByText("Changed by an agent.", { exact: false })
-    .waitFor();
-  await page.getByRole("button", { name: "Use saved version as base", exact: true }).click();
-  expect(await page.getByLabel("Memory Markdown").inputValue()).toContain("Unsaved second edit");
-  await page.getByRole("button", { name: "Keep draft and confirm base", exact: true }).click();
-  await writeFile(
-    join(f.memory.clone("mac"), "recovery.md"),
-    `${external}\nAnother concurrent edit.\n`,
-  );
-  await page.getByRole("button", { name: "Save note", exact: true }).click();
-  await page.getByRole("alert").filter({ hasText: "saved file changed" }).waitFor();
-  await page.getByRole("button", { name: "Compare saved version" }).click();
-  await page
-    .locator(".memory-comparison")
-    .getByText("Another concurrent edit.", { exact: false })
-    .waitFor();
-  await page.getByRole("button", { name: "Use saved version as base", exact: true }).click();
-  await page.getByRole("button", { name: "Keep draft and confirm base", exact: true }).click();
-  await page.getByRole("button", { name: "Save note", exact: true }).click();
-  await page.getByRole("status").filter({ hasText: "Saved to personal memory" }).waitFor();
-  expect(await readFile(join(f.memory.clone("mac"), "recovery.md"), "utf8")).toContain(
-    "Unsaved second edit",
-  );
-  await page.getByLabel("Search personal memory").fill("synthetic");
-  await page.getByRole("button", { name: "Search memory", exact: true }).click();
-  await page
-    .locator(".memory-results")
-    .getByRole("button", { name: "Validation", exact: true })
-    .click();
-  await page
-    .locator(".memory-wiki")
-    .getByRole("heading", { name: "Validation", exact: true })
-    .waitFor();
-  await page.getByRole("button", { name: "Graph", exact: true }).click();
-  await page.getByRole("button", { name: "Open note Recovery", exact: true }).click();
-  await page
-    .locator(".memory-wiki")
-    .getByRole("heading", { name: "Recovery", exact: true })
-    .waitFor();
+  await f.page.getByRole("button", { name: "recovery", exact: true }).waitFor();
+  expect(await f.page.getByRole("button", { name: "Graph", exact: true }).count()).toBe(0);
+  await f.page.getByRole("textbox", { name: "Search memory", exact: true }).fill("synthetic");
+  await f.page.getByRole("button", { name: "Search memory", exact: true }).click();
+  await f.page.getByRole("button", { name: "Validation", exact: true }).click();
+  await f.page.locator(".memory-wiki").getByRole("heading", { name: "Validation" }).waitFor();
+  const projected = await f.client.librarian({ action: "read" });
+  expect(projected.state.selectedPath).toBe("validation.md");
+  expect((projected.state.displayed as { raw: string }).raw).toContain("Use synthetic fixtures");
+  expect(await f.page.getByRole("button", { name: "Edit Markdown", exact: true }).count()).toBe(0);
+  expect(await readFile(join(f.root, ".git"), "utf8").catch(() => null)).toBeNull();
   for (const appearance of ["light", "dark"] as const) {
-    await page.keyboard.press("ControlOrMeta+,");
-    const settings = page.getByRole("dialog", { name: "Settings", exact: true });
-    await settings.getByLabel("Search settings").fill("color scheme");
-    await settings.getByLabel("Appearance", { exact: true }).selectOption(appearance);
-    await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe(appearance);
-    await page.keyboard.press("Escape");
-    await settings.waitFor({ state: "detached" });
-    await page.setViewportSize(
+    await f.page.evaluate((appearance) => window.scope.saveSettings({ appearance }), appearance);
+    await f.page.setViewportSize(
       appearance === "light" ? { width: 1280, height: 820 } : { width: 620, height: 560 },
     );
-    expect(await page.getByRole("button", { name: "Edit Markdown", exact: true }).isEnabled()).toBe(
-      true,
-    );
-    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
+    expect(await f.page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
       false,
     );
     if (process.env.SCOPE_TEST_SCREENSHOTS) {
       await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
-      await page.screenshot({
-        path: join(process.env.SCOPE_TEST_SCREENSHOTS, `memory-wiki-${appearance}.png`),
+      await f.page.screenshot({
+        path: join(process.env.SCOPE_TEST_SCREENSHOTS, `librarian-memory-${appearance}.png`),
       });
     }
-    await page.getByRole("button", { name: "Edit Markdown", exact: true }).click();
-    await page.getByRole("button", { name: "Preview draft", exact: true }).click();
-    await page
-      .getByLabel("Draft preview")
-      .getByRole("heading", { name: "Recovery", exact: true })
-      .waitFor();
-    if (process.env.SCOPE_TEST_SCREENSHOTS)
-      await page.screenshot({
-        path: join(process.env.SCOPE_TEST_SCREENSHOTS, `memory-editor-${appearance}.png`),
-      });
-    await page.getByRole("button", { name: "Compare saved version", exact: true }).click();
-    await page.locator(".memory-comparison").waitFor();
-    if (process.env.SCOPE_TEST_SCREENSHOTS)
-      await page.locator(".memory-comparison").screenshot({
-        path: join(process.env.SCOPE_TEST_SCREENSHOTS, `memory-comparison-${appearance}.png`),
-      });
-    await page.getByRole("button", { name: "Discard draft", exact: true }).click();
-    await page.getByRole("button", { name: "Discard changes", exact: true }).click();
-    await page.getByRole("button", { name: "Graph", exact: true }).click();
-    const node = page.getByRole("button", { name: "Open note Recovery", exact: true });
-    await node.waitFor();
-    if (process.env.SCOPE_TEST_SCREENSHOTS)
-      await page.screenshot({
-        path: join(process.env.SCOPE_TEST_SCREENSHOTS, `memory-graph-${appearance}.png`),
-      });
-    await node.focus();
-    await page.keyboard.press("Enter");
-    await page
-      .locator(".memory-wiki")
-      .getByRole("heading", { name: "Recovery", exact: true })
-      .waitFor();
   }
 });
 
-test("memory drafts survive tab close and restart, and disabling memory cannot apply a draft", async () => {
+test("dreaming shows one exact human decision, records automatic work, rejects stale evidence and resumes explicitly", async () => {
   const f = await fixture();
   await f.open();
-  await f.page.getByRole("button", { name: "Edit Markdown", exact: true }).click();
-  await f.page.getByLabel("Memory Markdown").fill("# Retained draft\n\nDo not lose this edit.\n");
-  await f.page.getByRole("button", { name: "Close Personal memory", exact: true }).click();
-  await expect
-    .poll(() => f.page.getByRole("tab", { name: "Personal memory", exact: true }).count())
-    .toBe(0);
+  await f.page.getByRole("button", { name: "recovery", exact: true }).waitFor();
+  const run = await dreaming(f, ["format"]);
+  await run.propose("recovery.md", raw("Recovery", "Keep interrupted work."));
+  await run.propose(
+    "validation.md",
+    raw("Validation", "Check synthetic fixtures."),
+    "human",
+    undefined,
+    [{ path: "recovery.md", hash: hash(raw("Recovery", "Keep interrupted work.")) }],
+  );
+  const automated = await run.propose(
+    "routine.md",
+    raw("Routine", "Normalize formatting."),
+    "automatic",
+    "format",
+  );
+  expect(automated.state.pendingCount).toBe(2);
+  expect(automated.state.completedCount).toBe(1);
+  expect(automated.state.run!.proposals).toHaveLength(1);
+  await f.page.getByRole("button", { name: "Accept proposal", exact: true }).waitFor();
+  expect(await f.page.locator(".librarian-proposal").count()).toBe(1);
+  expect(await f.page.getByRole("textbox", { name: "Search memory", exact: true }).count()).toBe(0);
+  expect(await f.page.getByRole("heading", { name: "Validation", exact: true }).count()).toBe(0);
+  if (process.env.SCOPE_TEST_SCREENSHOTS)
+    await f.page.screenshot({
+      path: join(process.env.SCOPE_TEST_SCREENSHOTS, "librarian-decision.png"),
+    });
+  await f.page.getByRole("button", { name: "Accept proposal", exact: true }).click();
+  await f.page.getByRole("heading", { name: "Validation", exact: true }).waitFor();
+  await writeFile(join(f.root, "recovery.md"), "# Changed source\n");
+  await f.page.getByRole("button", { name: "Accept proposal", exact: true }).click();
+  await f.page.getByRole("alert").filter({ hasText: "source revision changed" }).waitFor();
+  expect((await f.client.librarian({ action: "read" })).state.pendingCount).toBe(1);
+  const oldRevision = (await run.refresh()).state.uiRevision;
   await f.restart();
-  expect(await f.page.getByRole("tab", { name: "Personal memory", exact: true }).count()).toBe(0);
-  await f.open();
-  await expect
-    .poll(() => f.page.getByLabel("Memory Markdown").inputValue())
-    .toContain("Do not lose this edit");
-  await f.page.evaluate(() => window.scope.setMemoryEnabled(false));
-  await expect
-    .poll(() => f.page.getByRole("button", { name: "Save note", exact: true }).isDisabled())
-    .toBe(true);
-  expect(await f.page.getByLabel("Memory Markdown").inputValue()).toContain(
-    "Do not lose this edit",
-  );
-  await f.page.getByRole("button", { name: "Copy draft", exact: true }).click();
-  await f.memory.git(
-    f.memory.directory,
-    "clone",
-    "--bare",
-    f.memory.bare,
-    join(f.memory.directory, "remotes", "other-memory.git"),
-  );
-  await f.page.evaluate(() => window.scope.setMemoryEnabled(true));
-  await (await f.desktop.connect()).connectMemory("octo/other-memory");
-  await expect
-    .poll(() =>
-      f.page.evaluate(async () => (await window.scope.memory()).machines[0]?.status?.repository),
-    )
-    .toBe("octo/other-memory");
-  await f.page.getByText("This draft belongs to octo/personal-memory.", { exact: false }).waitFor();
-  expect(await f.page.getByRole("button", { name: "Save note", exact: true }).isDisabled()).toBe(
-    true,
-  );
-  expect(await f.page.getByLabel("Memory Markdown").inputValue()).toContain(
-    "Do not lose this edit",
-  );
-  expect(await readFile(join(f.memory.clone("mac"), "index.md"), "utf8")).not.toContain(
-    "Retained draft",
-  );
-});
-
-test("unreadable OKF output leaves a visible retry and settings action", async () => {
-  const f = await fixture({ FAKE_OKF_BAD_VIEWER_OUTPUT: "1" });
-  await f.open();
-  await f.page.getByRole("alert").waitFor();
-  expect(await f.page.getByRole("button", { name: "Refresh memory" }).isEnabled()).toBe(true);
-  expect(await f.page.getByRole("button", { name: "Memory settings" }).isVisible()).toBe(true);
-});
-
-test("a delayed comparison cannot replace a different note's draft", async () => {
-  const f = await fixture();
-  await f.open();
-  await f.page.getByRole("button", { name: "Edit Markdown", exact: true }).click();
-  await f.application.evaluate(({ ipcMain }) => {
-    type Handler = Parameters<typeof ipcMain.handle>[1];
-    const original = (
-      ipcMain as typeof ipcMain & { _invokeHandlers: Map<string, Handler> }
-    )._invokeHandlers.get("scope:memory-command")!;
-    const state = globalThis as typeof globalThis & {
-      comparisonHeld?: boolean;
-      releaseComparison?: () => void;
-    };
-    ipcMain.removeHandler("scope:memory-command");
-    ipcMain.handle("scope:memory-command", async (event, command) => {
-      const result = await original(event, command);
-      if (command.action === "read" && command.path === "index.md") {
-        ipcMain.removeHandler("scope:memory-command");
-        ipcMain.handle("scope:memory-command", original);
-        state.comparisonHeld = true;
-        await new Promise<void>((resolve) => {
-          state.releaseComparison = resolve;
-        });
-      }
-      return result;
-    });
-  });
-  await f.page.getByRole("button", { name: "Compare saved version", exact: true }).click();
-  await expect
-    .poll(() =>
-      f.application.evaluate(
-        () => (globalThis as typeof globalThis & { comparisonHeld?: boolean }).comparisonHeld,
-      ),
-    )
-    .toBe(true);
-  await f.page.getByRole("button", { name: "Discard draft", exact: true }).click();
-  await f.page.getByRole("button", { name: "Discard changes", exact: true }).click();
-  await f.page.locator(".memory-wiki").getByRole("link", { name: "Recovery", exact: true }).click();
-  await f.page.getByRole("button", { name: "Edit Markdown", exact: true }).click();
-  await f.page.getByLabel("Memory Markdown").fill("# Retain the second note draft\n");
-  await f.application.evaluate(() =>
-    (globalThis as typeof globalThis & { releaseComparison?: () => void }).releaseComparison?.(),
-  );
-  await f.page.evaluate(async () => {
-    const tab = (await window.scope.workspace())!.tabs.find((entry) => entry.type === "memory")!;
-    await window.scope.memoryCommand({
-      action: "read",
-      tabId: tab.id,
-      repository: "octo/personal-memory",
-      path: "recovery.md",
-    });
-    await new Promise<void>((resolve) =>
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-    );
-  });
-  expect(await f.page.locator(".memory-comparison").count()).toBe(0);
-  expect(await f.page.getByLabel("Memory Markdown").inputValue()).toContain(
-    "Retain the second note draft",
-  );
-  await f.page.getByRole("button", { name: "Compare saved version", exact: true }).click();
-  await f.page
-    .locator(".memory-comparison")
-    .getByText("Retry interrupted edits.", { exact: false })
-    .waitFor();
-  expect(
-    await f.page
-      .locator(".memory-comparison")
-      .getByText("# Personal memory", { exact: false })
-      .count(),
-  ).toBe(0);
-});
-
-test("a draft-state save failure prevents writing the personal memory file", async () => {
-  const f = await fixture();
-  await f.open();
-  await f.page.getByRole("button", { name: "Edit Markdown", exact: true }).click();
-  const before = await readFile(join(f.memory.clone("mac"), "index.md"), "utf8");
-  await f.application.evaluate(({ ipcMain }) => {
-    type Handler = Parameters<typeof ipcMain.handle>[1];
-    const original = (
-      ipcMain as typeof ipcMain & { _invokeHandlers: Map<string, Handler> }
-    )._invokeHandlers.get("scope:save-workspace")!;
-    ipcMain.removeHandler("scope:save-workspace");
-    ipcMain.handle("scope:save-workspace", () => {
-      throw new Error("Synthetic draft-state save failure");
-    });
-    const state = globalThis as typeof globalThis & { restoreDraftSave?: () => void };
-    state.restoreDraftSave = () => {
-      ipcMain.removeHandler("scope:save-workspace");
-      ipcMain.handle("scope:save-workspace", original);
-    };
-  });
-  cleanup.push(() =>
-    f.application.evaluate(() =>
-      (globalThis as typeof globalThis & { restoreDraftSave?: () => void }).restoreDraftSave?.(),
-    ),
-  );
-  await f.page.getByLabel("Memory Markdown").fill("# Keep this failed-save draft\n");
-  await f.page.getByRole("button", { name: "Save note", exact: true }).click();
-  await f.page.getByRole("alert").filter({ hasText: "Could not save the workspace." }).waitFor();
-  expect(await readFile(join(f.memory.clone("mac"), "index.md"), "utf8")).toBe(before);
-  expect(await f.page.getByLabel("Memory Markdown").inputValue()).toContain(
-    "Keep this failed-save draft",
-  );
-  await f.application.evaluate(() =>
-    (globalThis as typeof globalThis & { restoreDraftSave?: () => void }).restoreDraftSave?.(),
-  );
-  await f.page.getByRole("button", { name: "Save note", exact: true }).click();
-  await f.page.getByRole("status").filter({ hasText: "Saved to personal memory" }).waitFor();
-});
-
-test("native wiki links stay within memory or open the default browser, and missing notes keep index recovery", async () => {
-  const f = await fixture();
-  await f.application.evaluate(({ shell }) => {
-    const state = globalThis as typeof globalThis & { memoryExternalLinks?: string[] };
-    state.memoryExternalLinks = [];
-    shell.openExternal = async (url) => {
-      state.memoryExternalLinks!.push(url);
-    };
-  });
-  await f.open();
-  await f.page
-    .locator(".memory-wiki")
-    .getByRole("link", { name: "Root note", exact: true })
-    .click();
-  await f.page
-    .locator(".memory-wiki")
-    .getByRole("heading", { name: "Validation", exact: true })
-    .waitFor();
-  await f.page.getByRole("button", { name: "Wiki index", exact: true }).click();
-  await f.page.locator(".memory-wiki").getByRole("link", { name: "Web", exact: true }).click();
-  await expect
-    .poll(() =>
-      f.application.evaluate(
-        () =>
-          (globalThis as typeof globalThis & { memoryExternalLinks?: string[] })
-            .memoryExternalLinks,
-      ),
-    )
-    .toEqual(["https://example.com/docs"]);
-  expect(f.application.windows().length).toBe(1);
-  await f.page.locator(".memory-wiki").getByRole("link", { name: "Missing", exact: true }).click();
-  await f.page.getByRole("alert").filter({ hasText: "This note does not exist" }).waitFor();
-  await f.page.getByRole("button", { name: "Wiki index", exact: true }).click();
-  await f.page.locator(".memory-wiki").getByRole("link", { name: "Home", exact: true }).click();
-  await f.page
-    .locator(".memory-wiki")
-    .getByRole("heading", { name: "Personal memory", exact: true })
-    .waitFor();
-});
-
-test("search paging keeps the submitted query after the input changes", async () => {
-  const notes: Record<string, string> = {};
-  for (let index = 1; index <= 31; index++)
-    notes[`paged-${String(index).padStart(2, "0")}.md`] =
-      `---\ntype: Rule\ntitle: Paged ${index}\n---\n\n# Paged ${index}\n\nPagingterm.\n`;
-  const f = await fixture({}, notes);
-  await f.open();
-  await f.page.getByLabel("Search personal memory").fill("pagingterm");
-  await f.page.getByRole("button", { name: "Search memory", exact: true }).click();
-  await f.page.locator(".memory-results").getByText("1 to 30 of 31").waitFor();
-  await f.page.getByLabel("Search personal memory").fill("synthetic");
-  await f.page.getByRole("button", { name: "Next", exact: true }).click();
-  await f.page.locator(".memory-results").getByText("31 to 31 of 31").waitFor();
-});
-
-test("inconsistent search and save replies preserve the editor draft", async () => {
-  const f = await fixture({ FAKE_OKF_WRONG_SEARCH_OFFSET: "1", FAKE_OKF_WRONG_SAVE_HASH: "1" });
-  await f.open();
-  await f.page.getByLabel("Search personal memory").fill("synthetic");
-  await f.page.getByRole("button", { name: "Search memory", exact: true }).click();
-  await f.page.getByRole("alert").filter({ hasText: "unreadable memory data" }).waitFor();
-  expect(await f.page.locator(".memory-results").count()).toBe(0);
-  await f.page.getByRole("button", { name: "Edit Markdown", exact: true }).click();
-  await f.page.getByLabel("Memory Markdown").fill("# Preserve the submitted draft\n");
-  await f.page.getByRole("button", { name: "Save note", exact: true }).click();
-  await f.page.getByRole("alert").filter({ hasText: "unreadable memory data" }).waitFor();
-  expect(await f.page.getByLabel("Memory Markdown").inputValue()).toContain(
-    "Preserve the submitted draft",
-  );
-});
-
-test("a failed saved-draft clear keeps the saved note's draft and permits a safe retry", async () => {
-  const f = await fixture();
-  await f.open();
-  await f.page.locator(".memory-wiki").getByRole("link", { name: "Recovery", exact: true }).click();
-  await f.page.getByRole("button", { name: "Edit Markdown", exact: true }).click();
-  const raw = "# Saved but retained draft\n";
-  await f.page.getByLabel("Memory Markdown").fill(raw);
-  await f.application.evaluate(({ ipcMain }) => {
-    type Handler = Parameters<typeof ipcMain.handle>[1];
-    const handlers = (ipcMain as typeof ipcMain & { _invokeHandlers: Map<string, Handler> })
-      ._invokeHandlers;
-    const command = handlers.get("scope:memory-command")!;
-    const save = handlers.get("scope:save-workspace")!;
-    const state = globalThis as typeof globalThis & {
-      savedReadHeld?: boolean;
-      releaseSavedRead?: () => void;
-      restoreSavedClear?: () => void;
-    };
-    let wrote = false;
-    ipcMain.removeHandler("scope:memory-command");
-    ipcMain.handle("scope:memory-command", async (event, input) => {
-      const result = await command(event, input);
-      if (input.action === "save") wrote = true;
-      else if (input.action === "read" && wrote) {
-        state.savedReadHeld = true;
-        await new Promise<void>((resolve) => {
-          state.releaseSavedRead = resolve;
-        });
-        ipcMain.removeHandler("scope:memory-command");
-        ipcMain.handle("scope:memory-command", command);
-      }
-      return result;
-    });
-    ipcMain.removeHandler("scope:save-workspace");
-    ipcMain.handle("scope:save-workspace", (event, workspace) => {
-      if (
-        wrote &&
-        workspace.tabs.some(
-          (tab: { type: string; state: { data: { draft?: unknown } } }) =>
-            tab.type === "memory" && !tab.state.data.draft,
-        )
-      )
-        throw new Error("Synthetic saved-draft clear failure");
-      return save(event, workspace);
-    });
-    state.restoreSavedClear = () => {
-      ipcMain.removeHandler("scope:save-workspace");
-      ipcMain.handle("scope:save-workspace", save);
-    };
-  });
-  cleanup.push(() =>
-    f.application.evaluate(() => {
-      const state = globalThis as typeof globalThis & {
-        releaseSavedRead?: () => void;
-        restoreSavedClear?: () => void;
-      };
-      state.releaseSavedRead?.();
-      state.restoreSavedClear?.();
+  await f.page.getByRole("heading", { name: "Validation", exact: true }).waitFor();
+  const interrupted = await f.client.librarian({ action: "read" });
+  expect(interrupted.state.run!.status).toBe("interrupted");
+  await expect(
+    f.client.librarian({
+      action: "select",
+      requestId: randomUUID(),
+      expectedUiRevision: interrupted.state.uiRevision,
+      runId: run.runId,
+      capability: run.capability,
+      sessionId: "existing-session",
+      view: "browse",
     }),
-  );
-  await f.page.getByRole("button", { name: "Save note", exact: true }).click();
-  await expect
-    .poll(() =>
-      f.application.evaluate(
-        () => (globalThis as typeof globalThis & { savedReadHeld?: boolean }).savedReadHeld,
-      ),
-    )
-    .toBe(true);
-  await f.page.getByRole("button", { name: "Wiki index", exact: true }).click();
-  await f.page.getByRole("alert").filter({ hasText: "Wait for this note" }).waitFor();
-  await f.application.evaluate(() =>
-    (globalThis as typeof globalThis & { releaseSavedRead?: () => void }).releaseSavedRead?.(),
-  );
-  await f.page
-    .getByRole("alert")
-    .filter({ hasText: "file was saved, but Scope could not save the editor state" })
-    .waitFor();
-  expect(await f.page.getByLabel("Memory Markdown").inputValue()).toBe(raw);
-  expect(await readFile(join(f.memory.clone("mac"), "recovery.md"), "utf8")).toBe(raw);
-  const { createHash } = await import("node:crypto");
-  await expect
-    .poll(() =>
-      f.page.evaluate(async () => {
-        const tab = (await window.scope.workspace())!.tabs.find(
-          (entry) => entry.type === "memory",
-        )!;
-        return tab.state.data;
-      }),
-    )
-    .toMatchObject({
-      path: "recovery.md",
-      draft: {
-        path: "recovery.md",
-        raw,
-        expectedHash: createHash("sha256").update(raw).digest("hex"),
-      },
+  ).rejects.toThrow(/resume/);
+  expect(interrupted.state.uiRevision).toBeGreaterThan(oldRevision);
+  const resumed = await f.client.librarian({
+    action: "resume",
+    requestId: randomUUID(),
+    expectedUiRevision: interrupted.state.uiRevision,
+    runId: run.runId,
+    sessionId: "resumed-session",
+    userRequest: "Resume my interrupted dreaming run.",
+  });
+  expect(resumed.capability).toBeTruthy();
+  expect(resumed.capability).not.toBe(run.capability);
+  await writeFile(join(f.root, "recovery.md"), raw("Recovery", "Keep interrupted work."));
+  await f.page.getByRole("button", { name: "Reject proposal", exact: true }).click();
+  await f.page.getByRole("button", { name: "Inspect completed changes", exact: true }).waitFor();
+  const resolved = await f.client.librarian({ action: "read" });
+  const finished = await f.client.librarian({
+    action: "finish",
+    requestId: randomUUID(),
+    expectedUiRevision: resolved.state.uiRevision,
+    runId: run.runId,
+    capability: resumed.capability!,
+    sessionId: "resumed-session",
+    userRequest: "Finish dreaming.",
+  });
+  expect(finished.state.run!.status).toBe("completed");
+  await f.page.getByText("3 completed changes.", { exact: true }).waitFor();
+  expect(await f.page.locator(".librarian-proposal").count()).toBe(0);
+  if (process.env.SCOPE_TEST_SCREENSHOTS)
+    await f.page.screenshot({
+      path: join(process.env.SCOPE_TEST_SCREENSHOTS, "librarian-overview.png"),
     });
-  await f.application.evaluate(() =>
-    (globalThis as typeof globalThis & { restoreSavedClear?: () => void }).restoreSavedClear?.(),
-  );
-  await f.page.getByRole("button", { name: "Save note", exact: true }).click();
-  await f.page.getByRole("status").filter({ hasText: "Saved to personal memory" }).waitFor();
+  await f.page.getByRole("button", { name: "Routine", exact: true }).click();
+  await f.page.getByRole("heading", { name: "Routine", exact: true }).waitFor();
+  expect((await f.client.librarian({ action: "read" })).state.displayed).toMatchObject({
+    change: { review: { actor: { type: "agent" } } },
+  });
 });
 
-test("memory graph keeps zoom and scroll across tab switches and hiding", async () => {
+test("old memory tabs retain a copyable draft, and reminder preferences persist without agent work", async () => {
+  const f = await fixture();
+  const tabId = randomUUID();
+  await f.page.evaluate(
+    async ({ tabId }) => {
+      const workspace = await window.scope.workspace();
+      await window.scope.openTab({
+        id: tabId,
+        groupId: workspace!.groups[0].id,
+        type: "memory",
+        title: "Personal memory",
+        state: {
+          version: 1,
+          data: {
+            mode: "graph",
+            draft: {
+              repository: "octo/personal-memory",
+              path: "recovery.md",
+              expectedHash: "a".repeat(64),
+              raw: "# Retained recovery text\n",
+            },
+          },
+        },
+      });
+    },
+    { tabId },
+  );
+  await f.restart();
+  await f.open();
+  await f.page.getByRole("button", { name: "Recovered draft", exact: true }).click();
+  await f.page.getByRole("button", { name: "Copy recovered draft", exact: true }).click();
+  expect(await f.application.evaluate(({ clipboard }) => clipboard.readText())).toContain(
+    "Retained recovery text",
+  );
+  const saved = await f.page.evaluate(async () =>
+    (await window.scope.workspace())!.tabs.find((tab) => tab.type === "memory"),
+  );
+  expect(saved!.state.version).toBe(2);
+  expect(saved!.state.data).toMatchObject({ original: { version: 1 } });
+  const state = await f.client.librarian({ action: "read" });
+  expect(state.state.reminder.enabled).toBe(true);
+  await f.page.evaluate(
+    async (revision) =>
+      window.scope.librarianHuman({
+        action: "reminder",
+        requestId: crypto.randomUUID(),
+        expectedUiRevision: revision,
+        enabled: false,
+        dismiss: false,
+      }),
+    state.state.uiRevision,
+  );
+  await f.restart();
+  expect((await f.client.librarian({ action: "read" })).state.reminder.enabled).toBe(false);
+  expect((await f.client.librarian({ action: "read" })).state.run).toBeUndefined();
+});
+
+test("older local bundles report migration needed without rewriting their files", async () => {
+  const f = await fixture();
+  await rm(join(f.root, "memory-bundle.json"));
+  const before = await readFile(join(f.root, "recovery.md"), "utf8");
+  await expect(
+    f.client.librarian({ action: "local", root: f.root, initialize: false }),
+  ).rejects.toThrow(/Migration needed/);
+  expect(await readFile(join(f.root, "recovery.md"), "utf8")).toBe(before);
+});
+
+test("agent presentation keeps human navigation and decisions bind the updated displayed evidence", async () => {
   const f = await fixture();
   await f.open();
-  await f.page.setViewportSize({ width: 620, height: 560 });
-  await f.page.getByRole("button", { name: "Graph", exact: true }).click();
-  await f.page.getByRole("button", { name: "Open note Recovery", exact: true }).waitFor();
-  await f.page.getByRole("button", { name: "Zoom in graph", exact: true }).click();
-  await f.page.locator(".memory-graph-scroll").evaluate((element) => {
-    element.scrollLeft = 100;
-    element.scrollTop = 100;
+  await f.page.getByRole("button", { name: "recovery", exact: true }).waitFor();
+  const run = await dreaming(f, ["format"]);
+  const first = await run.propose("recovery.md", raw("Recovery", "Keep interrupted work."));
+  const changeId = first.state.selectedChangeId!;
+  await f.page.getByRole("button", { name: "Inspect evidence", exact: true }).click();
+  await f.page
+    .getByLabel("Proposal evidence")
+    .getByText("Evidence for recovery.md", { exact: true })
+    .waitFor();
+  const seen = await run.refresh();
+  const presented = await f.client.librarian({
+    action: "present",
+    requestId: randomUUID(),
+    expectedUiRevision: seen.state.uiRevision,
+    sessionId: "existing-session",
+    runId: run.runId,
+    capability: run.capability,
+    changeId,
+    disposition: "human",
+    evidence: "A more precise observation.",
   });
-  const position = await f.page
-    .locator(".memory-graph-scroll")
-    .evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop }));
-  await (
-    await f.desktop.connect()
-  ).publish(
-    "other-note",
-    {
-      title: "Other note",
-      kind: "text",
-      mediaType: "text/plain",
-      fileName: "note.txt",
-      expectedRevision: 0,
-    },
-    Buffer.from("Another tab"),
+  await f.page
+    .getByLabel("Proposal evidence")
+    .getByText("A more precise observation.", { exact: true })
+    .waitFor();
+  expect(presented.state.displayed).toMatchObject({ evidence: "A more precise observation." });
+  expect(presented.state.run!.proposals[0].evidence).toBe("A more precise observation.");
+  const displayed = presented.state.run!.proposals[0];
+  await expect(
+    f.page.evaluate(
+      async ({ old, change, runId }) =>
+        window.scope.librarianHuman({
+          action: "decide",
+          requestId: crypto.randomUUID(),
+          expectedUiRevision: old,
+          runId,
+          changeId: change.id,
+          expectedRevisionHash: change.revisionHash,
+          sources: change.sources,
+          decision: "accept",
+          reason: "Accept old display",
+        }),
+      { old: seen.state.uiRevision, change: displayed.change, runId: run.runId },
+    ),
+  ).rejects.toThrow(/displayed content changed/);
+  const after = await f.client.librarian({ action: "read" });
+  await f.client.librarian({
+    action: "select",
+    requestId: randomUUID(),
+    expectedUiRevision: after.state.uiRevision,
+    sessionId: "existing-session",
+    runId: run.runId,
+    capability: run.capability,
+    view: "browse",
+  });
+  await f.page.getByRole("button", { name: "recovery", exact: true }).waitFor();
+  await run.refresh();
+  const queued = await run.propose("validation.md", raw("Validation", "Check synthetic fixtures."));
+  expect(queued.state.view).toBe("browse");
+  expect(await f.page.getByRole("button", { name: "Accept proposal", exact: true }).count()).toBe(
+    0,
   );
-  await f.page.getByRole("tab", { name: "Other note", exact: true }).click();
-  await f.page.getByRole("tab", { name: "Personal memory", exact: true }).click();
-  await expect
-    .poll(() => f.page.locator(".memory-graph-scroll > svg").getAttribute("style"))
-    .toContain("150%");
-  expect(
-    await f.page
-      .locator(".memory-graph-scroll")
-      .evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop })),
-  ).toEqual(position);
-  await f.page.getByRole("button", { name: "Close Personal memory", exact: true }).click();
-  await expect
-    .poll(() => f.page.getByRole("tab", { name: "Personal memory", exact: true }).count())
-    .toBe(0);
+  const paused = await f.client.librarian({
+    action: "interrupt",
+    requestId: randomUUID(),
+    expectedUiRevision: queued.state.uiRevision,
+    sessionId: "existing-session",
+    runId: run.runId,
+    capability: run.capability,
+    userRequest: "Pause dreaming and retain the queue.",
+  });
+  expect(paused.state.run!.status).toBe("interrupted");
+  expect(paused.state.pendingCount).toBe(2);
+  await expect(
+    f.client.librarian({
+      action: "select",
+      requestId: randomUUID(),
+      expectedUiRevision: paused.state.uiRevision,
+      sessionId: "existing-session",
+      runId: run.runId,
+      capability: run.capability,
+      view: "decision",
+    }),
+  ).rejects.toThrow(/resume/);
+});
+
+test("a paired remote agent reads the renderer projection and submits proposals without human authority", async () => {
+  const f = await fixture();
   await f.open();
+  await f.page.getByRole("button", { name: "recovery", exact: true }).waitFor();
+  const state = await HubState.open(join(f.memory.directory, "librarian-hub"));
+  cleanup.push(() => state.close());
+  const connectionFile = join(f.memory.directory, "library-remote.json");
+  await state.configure({ endpoint: "http://127.0.0.1:1", port: 1, connectionFile });
+  const hub = await startPairedHub(state, 0);
+  cleanup.push(hub.close);
+  await state.configure({ endpoint: hub.url, port: Number(new URL(hub.url).port), connectionFile });
+  await f.page.evaluate((url) => window.scope.pairRemote(url), state.pairUrl());
   await expect
-    .poll(() => f.page.locator(".memory-graph-scroll > svg").getAttribute("style"))
-    .toContain("150%");
-  expect(
-    await f.page
-      .locator(".memory-graph-scroll")
-      .evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop })),
-  ).toEqual(position);
+    .poll(() => f.page.evaluate(async () => (await window.scope.remotes())[0]?.connection))
+    .toBe("connected");
+  const local = decodeLocalConnection(JSON.parse(await readFile(connectionFile, "utf8")));
+  const remote = new ScopeClient(local.endpoint, local.token);
+  const read = await remote.librarian({ action: "read" });
+  expect(read.state).toEqual(await f.page.evaluate(() => window.scope.librarianRead()));
+  const started = await remote.librarian({
+    action: "start",
+    requestId: randomUUID(),
+    expectedUiRevision: read.state.uiRevision,
+    sessionId: "existing-remote-agent",
+    userRequest: "Begin dreaming with my remote coding agent.",
+    automaticPermissions: [],
+  });
+  const connection = {
+    runId: started.state.run!.id,
+    capability: started.capability!,
+    sessionId: "existing-remote-agent",
+  };
+  const proposed = await remote.librarian({
+    action: "propose",
+    requestId: randomUUID(),
+    expectedUiRevision: started.state.uiRevision,
+    ...connection,
+    path: "remote.md",
+    raw: raw("Remote lesson", "Preserve the same projected text."),
+    expectedHash: null,
+    reason: "Record this checked outcome.",
+    sources: [],
+    disposition: "human",
+    evidence: "The paired relay returned the displayed proposal.",
+  });
+  await f.page.getByRole("heading", { name: "Remote lesson", exact: true }).waitFor();
+  const displayed = await remote.librarian({ action: "read" });
+  expect(displayed.state).toEqual(await f.page.evaluate(() => window.scope.librarianRead()));
+  const invalid = await fetch(`${local.endpoint}/v1/librarian`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${local.token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      action: "decide",
+      changeId: proposed.state.selectedChangeId,
+      decision: "accept",
+      actor: { type: "human", id: "forged" },
+    }),
+  });
+  expect(invalid.status).toBe(400);
+  await invalid.body?.cancel();
+  expect((await remote.librarian({ action: "read" })).state.pendingCount).toBe(1);
+  await f.page.getByRole("button", { name: "Accept proposal", exact: true }).click();
+  await expect
+    .poll(async () => (await remote.librarian({ action: "read" })).state.completedCount)
+    .toBe(1);
+  const accepted = await remote.librarian({ action: "read" });
+  const inspected = await remote.librarian({
+    action: "select",
+    requestId: randomUUID(),
+    expectedUiRevision: accepted.state.uiRevision,
+    ...connection,
+    view: "overview",
+    changeId: proposed.state.selectedChangeId,
+  });
+  expect(inspected.state.displayed).toMatchObject({
+    change: {
+      actor: { type: "agent", id: "existing-remote-agent" },
+      review: { actor: { type: "human", id: "scope-user" } },
+    },
+  });
+  expect(inspected.state).toEqual(await f.page.evaluate(() => window.scope.librarianRead()));
+  expect(state.memoryConfiguration().localRoot).toBeUndefined();
 });

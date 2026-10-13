@@ -93,15 +93,14 @@ reports remain available in history; audited whole native session IDs prevent
 repeat selection. Memory suggestions default off and verified optional
 destinations never change the runtime's native memory settings.
 
-### Personal memory repository
+### Memory library
 
-When asked to set up, connect, or fix the person's Scope memory, read
-[personal memory](references/memory.md). Suggest `personal-memory` under their
-`gh` account, wait for approval, refuse existing names, and create repositories
-only with `gh repo create --private`. Then run `irudd-scope memory connect
-OWNER/NAME`; Scope syncs it on the desktop and every paired remote. Windows
-requires a compatible native irudd-okf executable; its upstream project has no
-Windows installer or supported automatic upgrade.
+When asked to set up, dream over, connect, or fix the person's Scope memory,
+read [memory library](references/memory.md). Start with
+`irudd-scope librarian guide` for the validated command schema. Local bundles
+require no Git or remote. Keep conversation in the person's existing agent
+session. Scope presents one human decision at a time and never launches an
+agent or finishes automatically.
 
 ### HTML plans
 

@@ -6,6 +6,7 @@ import { existsSync, readFileSync, writeFileSync, readdirSync, renameSync, unlin
 import { commandGate } from "../gate.mjs";
 import { spawn } from "node:child_process";
 import { setTimeout } from "node:timers/promises";
+import { librarianFixture } from "../library.mjs";
 
 let args = process.argv.slice(2);
 let explicitRoot;
@@ -17,6 +18,7 @@ const fail = (code, message, details = {}) => {
   process.stdout.write(JSON.stringify({ version: 1, error: { code, message, details } }));
   process.exit(2);
 };
+if (librarianFixture(args, explicitRoot)) process.exit(0);
 
 if (explicitRoot && ["read", "search", "graph", "write"].includes(args[0])) {
   const hash = raw => createHash("sha256").update(raw).digest("hex");

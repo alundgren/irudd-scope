@@ -86,7 +86,7 @@ test.for(["before", "after"] as const)(
         .catch(() => {}),
     );
     await page.getByRole("button", { name: "Search and controls", exact: true }).click();
-    const action = page.getByRole("button", { name: "Personal memory", exact: true });
+    const action = page.getByRole("button", { name: "Librarian", exact: true });
     await action.click();
     await expect
       .poll(() =>
@@ -103,7 +103,7 @@ test.for(["before", "after"] as const)(
         globalThis as typeof globalThis & { memoryOpenGate?: OpenGate }
       ).memoryOpenGate?.releaseFirst(),
     );
-    await page.getByRole("tab", { name: "Personal memory", exact: true, selected: true }).waitFor();
+    await page.getByRole("tab", { name: "Librarian", exact: true, selected: true }).waitFor();
     await expect
       .poll(() =>
         application.evaluate(
@@ -116,7 +116,7 @@ test.for(["before", "after"] as const)(
     const id = (await page.evaluate(() => window.scope.workspace()))!.tabs.find(
       (tab) => tab.type === "memory",
     )!.id;
-    await page.getByRole("button", { name: "Close Personal memory", exact: true }).click();
+    await page.getByRole("button", { name: "Close Librarian", exact: true }).click();
     await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
     expect(
       (await page.evaluate(() => window.scope.workspace()))!.tabs.find((tab) => tab.id === id)!
@@ -147,7 +147,7 @@ test.for(["before", "after"] as const)(
         };
       });
     await expect.poll(retained).toEqual({ selected: null, tabs: [{ id, hidden: true }] });
-    expect(await page.getByRole("tab", { name: "Personal memory", exact: true }).count()).toBe(0);
+    expect(await page.getByRole("tab", { name: "Librarian", exact: true }).count()).toBe(0);
     await application.evaluate(() =>
       (globalThis as typeof globalThis & { memoryOpenGate?: OpenGate }).memoryOpenGate?.restore(),
     );
@@ -159,9 +159,9 @@ test.for(["before", "after"] as const)(
     await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
     await page
       .locator(".tab-overflow-popup [data-tab-result]")
-      .filter({ hasText: "Personal memory" })
+      .filter({ hasText: "Librarian" })
       .click();
-    await page.getByRole("tab", { name: "Personal memory", exact: true, selected: true }).waitFor();
+    await page.getByRole("tab", { name: "Librarian", exact: true, selected: true }).waitFor();
     await expect.poll(async () => (await retained()).tabs).toEqual([{ id, hidden: false }]);
   },
 );

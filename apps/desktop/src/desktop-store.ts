@@ -33,6 +33,7 @@ import { TransferName, TransferSecret } from "@irudd-scope/protocol/transfer";
 import { ScopeDevice, ScopePeer, ScopePeers } from "./transfer/contract.ts";
 import { machineRetroConfiguration } from "./retro-configuration.ts";
 import type { MemoryConfiguration } from "@irudd-scope/protocol/memory";
+import { LibrarianView, type LibrarianReply } from "@irudd-scope/protocol/librarian";
 import {
   MemoryPreferences,
   emptyMemoryPreferences,
@@ -379,6 +380,79 @@ export class DesktopStore {
     return row ? decode(MemoryPreferences, JSON.parse(row.document)) : emptyMemoryPreferences();
   }
 
+  async librarian(): Promise<LibrarianView> {
+    await this.pending;
+    const [row] = await this.run(
+      this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'librarian'`,
+    );
+    return row
+      ? decode(LibrarianView, JSON.parse(row.document))
+      : {
+          version: 1,
+          uiRevision: 0,
+          view: "browse",
+          query: "",
+          directory: "",
+          offset: 0,
+          displayed: null,
+          history: [],
+          reminder: {
+            enabled: true,
+            dueAt: new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString(),
+          },
+        };
+  }
+
+  preserveMemoryPreferences(): Promise<void> {
+    return this.enqueue(async () => {
+      await this.run(
+        this
+          .sql!`INSERT OR IGNORE INTO preferences(name,document) SELECT 'librarian-memory-recovery',document FROM preferences WHERE name = 'memory'`,
+      );
+    });
+  }
+
+  async librarianReceipt(requestId: string, payload: string): Promise<LibrarianReply | undefined> {
+    await this.pending;
+    await this.run(
+      this
+        .sql!`CREATE TABLE IF NOT EXISTS librarian_receipts(request_id TEXT PRIMARY KEY,payload TEXT NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))) STRICT`,
+    );
+    const [row] = await this.run(
+      this.sql!<{
+        payload: string;
+        document: string;
+      }>`SELECT payload,document FROM librarian_receipts WHERE request_id = ${requestId}`,
+    );
+    if (!row) return;
+    if (row.payload !== payload)
+      throw new ScopeError(
+        409,
+        "This request ID was already used for another Librarian operation.",
+      );
+    return JSON.parse(row.document) as LibrarianReply;
+  }
+
+  saveLibrarian(
+    next: LibrarianView,
+    request?: { id: string; payload: string; reply: LibrarianReply },
+  ): Promise<void> {
+    return this.enqueue(async () => {
+      const sql = this.sql!;
+      await this.run(
+        sql.withTransaction(
+          Effect.gen(function* () {
+            yield* sql`INSERT INTO preferences(name,document) VALUES ('librarian',${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`;
+            if (request) {
+              yield* sql`CREATE TABLE IF NOT EXISTS librarian_receipts(request_id TEXT PRIMARY KEY,payload TEXT NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))) STRICT`;
+              yield* sql`INSERT INTO librarian_receipts(request_id,payload,document) VALUES (${request.id},${request.payload},${JSON.stringify(request.reply)})`;
+            }
+          }),
+        ),
+      );
+    });
+  }
+
   /** Applies one memory change; a null bundle root forgets that machine's registration. */
   saveMemory(change: {
     configuration?: MemoryConfiguration;
@@ -392,14 +466,15 @@ export class DesktopStore {
         ? decode(MemoryPreferences, JSON.parse(row.document))
         : emptyMemoryPreferences();
       const bundles = { ...prior.bundles };
-      if (change.bundle && prior.repository === change.bundle.repository) {
+      if (change.bundle && (prior.repository ?? "") === change.bundle.repository) {
         const { machine, root, verifiedAt } = change.bundle;
         if (root === null) delete bundles[machine];
         else if (bundles[machine]?.root !== root) bundles[machine] = { root, verifiedAt };
       }
+      const configuration = { ...prior, ...change.configuration };
+      if (configuration.repository) delete configuration.localRoot;
       const next = decode(MemoryPreferences, {
-        ...prior,
-        ...change.configuration,
+        ...configuration,
         bundles:
           change.configuration?.repository !== undefined &&
           change.configuration.repository !== prior.repository

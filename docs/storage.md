@@ -429,38 +429,39 @@ They contain no SSH credentials. Back up both desktop databases to retain
 configuration and tracking. Restoring an older backup can repeat a review.
 Tracking is owned by one Scope desktop and is not replicated through paired hubs.
 
-## Personal memory repository
+## Memory library
 
-The `memory` preference row in `desktop.db` holds the on/off switch, the
-`OWNER/NAME` repository, and each machine's last observed `personal` bundle
-folder. Retros use those folders while a machine is briefly offline. Each paired
-hub keeps the desktop's last configuration in its `memory` settings row so it keeps
-syncing while the desktop sleeps. Unpairing clears it.
+The `memory` preference row in `desktop.db` retains the enablement switch,
+optional local bundle root, optional `OWNER/NAME` repository and Git sync switch,
+and each machine's last observed personal bundle location. Existing rows retain
+their fields and default to their previous repository sync behavior. A
+`librarian-memory-recovery` preference preserves the original memory settings
+before Librarian initializes. Local bundle locations need no Git or remote.
+Scope never deletes or migrates their files when connecting or disabling memory.
 
-The clone under `%LOCALAPPDATA%\irudd-scope\memory` on Windows,
-`~/.local/share/irudd-scope/memory/` on macOS and Linux, or `SCOPE_MEMORY_DIR` is
-the user's own git working copy, not Scope data. Scope never deletes, backs
-up, or exports it, and turning memory off leaves the folder, the GitHub
-repository, and the irudd-okf registration in place. GitHub is the backup;
-conflicting edits stay on `memory-conflict/*` branches until someone merges them.
+The `librarian` preference stores the selected view and full dreaming run queue,
+completed history, evidence and weekly reminder dates. `librarian_receipts`
+stores a request ID, payload hash and bounded response in one transaction with
+the state. Session capabilities remain in process memory; neither receipts nor
+payload hashes restore authority after restart. An active persisted run becomes
+interrupted at startup and requires an explicit user-requested resume.
 
-irudd-okf's `.irudd-okf/` runtime files and `.okf-*.tmp` files remain local and
-are excluded from Scope's Git staging. Scope acquires `.irudd-okf/write.lock`
-during Git changes and can reclaim its own lock after its recorded process
-exits. An unknown writer lock is left for inspection. An unfinished rebase from
-another operation stops sync: preserve newer edits outside the clone before
-running `git rebase --abort`, restore those edits, then use Sync now. Turning
-memory off preserves manually configured OKF retrospective destinations in
-SQLite while hiding them from retros.
+Librarian retains the memory built-in tab identity. Version 1 tab state migrates
+to version 2 with the original document and recovered draft kept together in
+`scope.db`. The draft remains inspectable and copyable even with memory disabled
+or its old repository disconnected. Other tabs, groups, preferences and saved
+selection retain their existing contracts.
 
-## Personal memory edits
+irudd-okf owns portable Markdown, bundle identity and immutable proposal/review
+history in the selected folder. Scope stores workflow and human decisions,
+then delegates revision and source validation to the CLI. Rejection and undo
+use the file engine's contracts. Failed decisions retain displayed content;
+there is no renderer localStorage or persistent filesystem cache.
 
-Personal memory notes remain ordinary Markdown files in Scope's synced Git
-clone. The Personal memory tab stores its navigation and unsaved draft in its
-SQLite tab document. Draft identity includes the repository, relative note path
-and original content hash. Closing the built-in tab retains that draft; changing
-the connected repository keeps it available for copying or later recovery.
-Saving a note uses irudd-okf's version check and writer lock, and normal Scope
-memory sync commits and pushes the resulting file change. A conflict leaves the
-saved file and draft intact. CLI input files are private, temporary, and removed
-after each command.
+Optional clones live under `%LOCALAPPDATA%\irudd-scope\memory` on Windows,
+`~/.local/share/irudd-scope/memory/` on macOS and Linux, or `SCOPE_MEMORY_DIR`.
+Portable OKF manifests and review history sync with Markdown. Runtime files
+under `.irudd-okf/` and `.okf-*.tmp` stay local. Scope holds the OKF writer lock
+during Git changes. Unknown locks or unfinished rebases remain for explicit
+recovery. Turning memory or Git sync off leaves bundle files and repository
+history intact. CLI request files are private, temporary and removed afterward.

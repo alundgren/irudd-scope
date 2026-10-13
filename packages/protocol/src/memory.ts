@@ -25,6 +25,8 @@ export type MemoryRepository = typeof MemoryRepository.Type;
 export const MemoryConfiguration = Schema.Struct({
   enabled: Schema.Boolean,
   repository: Schema.NullOr(MemoryRepository),
+  localRoot: Schema.optionalKey(Path),
+  syncEnabled: Schema.optionalKey(Schema.Boolean),
 });
 export type MemoryConfiguration = typeof MemoryConfiguration.Type;
 export const disabledMemory = (): MemoryConfiguration => ({ enabled: false, repository: null });
@@ -76,12 +78,12 @@ export type MemoryConnectRequest = typeof MemoryConnectRequest.Type;
 
 export const MemoryGuide = {
   enable:
-    "The operator turns on Memory in Scope Settings on their computer. irudd-okf must already be installed there. Scope never installs irudd-okf; it upgrades an installed copy daily on Mac and Linux. Windows requires a compatible native installation managed separately; automatic irudd-okf upgrades are unavailable there.",
+    "Choose a local bundle using irudd-scope librarian apply. Git and GitHub are optional. The operator can enable repository sync in Settings. irudd-okf must be installed locally. Scope never starts memory curation or agents in the background.",
   create:
     "Suggest personal-memory under the gh account (gh api user --jq .login) and wait for explicit operator acceptance of the exact OWNER/NAME. Stop if gh repo view OWNER/NAME succeeds; never reuse or overwrite an existing repository. Create it only with gh repo create OWNER/NAME --private; never create a public or internal repository. Clone it to a temporary folder, run irudd-okf init in the clone, commit, push the default branch, then run irudd-scope memory connect OWNER/NAME.",
   connect:
     "For an existing repository, confirm the operator owns it and that index.md exists at its root (gh api repos/OWNER/NAME/contents/index.md), then run irudd-scope memory connect OWNER/NAME. Visibility is the operator's choice.",
-  sync: "Scope clones the repository into ~/.local/share/irudd-scope/memory/NAME on Mac and Linux, or %LOCALAPPDATA%\\irudd-scope\\memory\\NAME on Windows, registers it as the irudd-okf bundle named personal, and syncs every five minutes. It commits and pushes only when files changed.",
+  sync: "With Git sync explicitly enabled, Scope clones the repository into ~/.local/share/irudd-scope/memory/NAME on Mac and Linux, or %LOCALAPPDATA%\\irudd-scope\\memory\\NAME on Windows, registers it as the irudd-okf bundle named personal, and syncs every five minutes. It commits and pushes only when files changed.",
   conflicts:
     "A conflicting machine pushes its changes to a memory-conflict/HOST-TIME branch, opens a pull request and returns to the default branch. Resolve each pull request in a separate temporary clone, never in Scope's synced folder: merge the default branch into the conflict branch, resolve, push and merge the pull request. Scope never merges conflict pull requests.",
   status:

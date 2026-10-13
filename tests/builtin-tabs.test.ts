@@ -14,19 +14,17 @@ test("built-in tabs have a fixed indicator and close through Delete, controls, a
         id: crypto.randomUUID(),
         groupId: workspace.groups[0].id,
         type: "memory",
-        title: "Personal memory",
-        state: { version: 1, data: {} },
+        title: "Librarian",
+        state: { version: 2, data: {} },
       }))!;
       await window.scope.saveWorkspace({ ...workspace, tabs: [tab], selected: tab.id });
       return tab.id;
     });
     await page.reload();
-    await page.getByRole("tab", { name: "Personal memory", selected: true }).waitFor();
-    await page.getByRole("img", { name: "Built-in tab: Personal memory", exact: true }).waitFor();
+    await page.getByRole("tab", { name: "Librarian", selected: true }).waitFor();
+    await page.getByRole("img", { name: "Built-in tab: Librarian", exact: true }).waitFor();
     expect(
-      await page
-        .getByRole("button", { name: "Make temporary: Personal memory", exact: true })
-        .count(),
+      await page.getByRole("button", { name: "Make temporary: Librarian", exact: true }).count(),
     ).toBe(0);
     await page.getByRole("button", { name: "Search and controls", exact: true }).click();
     expect(await page.getByRole("button", { name: "Make temporary", exact: true }).count()).toBe(0);
@@ -43,12 +41,10 @@ test("built-in tabs have a fixed indicator and close through Delete, controls, a
     expect(await page.getByRole("tab").count()).toBe(0);
     await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
     const drawer = page.locator(".tab-overflow-popup");
-    await drawer.getByRole("img", { name: "Built-in tab: Personal memory", exact: true }).waitFor();
-    await drawer.locator("[data-tab-result]").filter({ hasText: "Personal memory" }).click();
-    expect(await page.getByRole("tab", { name: "Personal memory" }).getAttribute("id")).toBe(
-      `tab-${id}`,
-    );
-    await page.getByRole("tab", { name: "Personal memory" }).focus();
+    await drawer.getByRole("img", { name: "Built-in tab: Librarian", exact: true }).waitFor();
+    await drawer.locator("[data-tab-result]").filter({ hasText: "Librarian" }).click();
+    expect(await page.getByRole("tab", { name: "Librarian" }).getAttribute("id")).toBe(`tab-${id}`);
+    await page.getByRole("tab", { name: "Librarian" }).focus();
     await page.keyboard.press("Delete");
     await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
     await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();

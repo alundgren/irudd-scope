@@ -317,7 +317,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           id: crypto.randomUUID(),
           groupId: workspace.groups[0].id,
           type: "memory",
-          title: "Personal memory",
+          title: "Librarian",
           state: memoryTabState(),
         },
       )
@@ -626,7 +626,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
         actions={[
           {
             id: "personal-memory",
-            title: "Personal memory",
+            title: "Librarian",
             keywords: "wiki notes knowledge graph search edit",
             icon: BookOpen,
             onSelect: () => void openMemoryTab(),

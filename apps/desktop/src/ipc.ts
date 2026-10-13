@@ -17,6 +17,7 @@ import type { AgentTools } from "./agent-tools.ts";
 import type { AppUpdates } from "./updates.ts";
 import type { Remotes } from "./remotes.ts";
 import type { MemoryService } from "./memory.ts";
+import type { LibrarianService } from "./librarian.ts";
 import { RemoteId } from "@irudd-scope/protocol/remote";
 import { openKeychainAccess } from "./signing.ts";
 import { DiagramCommand, DiagramReply } from "@irudd-scope/protocol/diagram";
@@ -36,6 +37,7 @@ export function registerDesktopIpc({
   agentTools,
   remotes,
   memory,
+  librarian,
   transfers,
   onRestartToUpdate,
   setDiagramMenu,
@@ -50,6 +52,7 @@ export function registerDesktopIpc({
   agentTools: AgentTools;
   remotes: Remotes;
   memory: MemoryService;
+  librarian: LibrarianService;
   transfers: TabTransfers;
   onRestartToUpdate: () => Promise<void>;
   setDiagramMenu: (state: DiagramMenuState) => void;
@@ -159,7 +162,18 @@ export function registerDesktopIpc({
   handle("scope:remove-remote", (input) => remotes.remove(decode(RemoteId, input)));
   handle("scope:retry-remote-update", (input) => remotes.retryUpdate(decode(RemoteId, input)));
   handle("scope:memory", () => memory.read());
+  handle("scope:librarian-read", () => librarian.projected());
+  handle("scope:librarian-human", (input) => librarian.human(input));
+  handle("scope:choose-memory-folder", async () => {
+    const selected = await dialog.showOpenDialog(window, { properties: ["openDirectory"] });
+    if (!selected.canceled && selected.filePaths[0])
+      await librarian.command({ action: "local", root: selected.filePaths[0], initialize: false });
+    return memory.read();
+  });
   handle("scope:set-memory-enabled", (input) => memory.setEnabled(decode(Schema.Boolean, input)));
+  handle("scope:set-memory-sync-enabled", (input) =>
+    memory.setSyncEnabled(decode(Schema.Boolean, input)),
+  );
   handle("scope:retry-memory", () => memory.retry());
   handle("scope:copy-memory-request", (input) =>
     clipboard.writeText(

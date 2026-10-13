@@ -4,6 +4,7 @@ import type { MemoryMachine, MemoryStatus } from "@irudd-scope/protocol/memory";
 import { Button } from "./components/ui/button.tsx";
 import { Switch } from "./components/ui/switch.tsx";
 import { SettingsSection } from "./settings-section.tsx";
+import { useLibrarian } from "./librarian-state.ts";
 
 export function useMemory() {
   const [status, setStatus] = useState<MemoryStatus>();
@@ -39,15 +40,15 @@ function machineSummary(machine: MemoryMachine) {
   const status = machine.status;
   const lines = [machine.message ?? status?.message ?? "Waiting for status."];
   if (status?.lastSyncAt) lines.push(`Last sync ${new Date(status.lastSyncAt).toLocaleString()}.`);
-  if (status?.bundle === "registered") lines.push("irudd-okf bundle personal is registered.");
-  else if (status?.bundleMessage) lines.push(status.bundleMessage);
-  if (status?.okf.message) lines.push(status.okf.message);
+  if (status?.bundle !== "registered" && status?.bundleMessage) lines.push(status.bundleMessage);
+  if (!status?.okf.installed && status?.okf.message) lines.push(status.okf.message);
   return [...new Set(lines)];
 }
 
 export function MemorySettings({ query }: { query: string }) {
   const navigation = useContext(WorkspaceNavigationContext);
   const { status, error, setStatus, setError } = useMemory();
+  const librarian = useLibrarian();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   function run(action: () => Promise<MemoryStatus | void>, done = "") {
@@ -79,32 +80,65 @@ export function MemorySettings({ query }: { query: string }) {
   const repository = status?.configuration.repository;
   return (
     <SettingsSection id="memory" query={query}>
-      <p className="secondary">
-        Keep a personal irudd-okf memory repository on GitHub in sync on this device and every
-        paired remote. Scope commits and pushes only when memory files change.
-      </p>
+      <p className="secondary">Choose your memory folder. Git sync is optional.</p>
       {navigation && (
         <Button
           variant="secondary"
           onClick={() =>
             void navigation
               .openMemoryTab()
-              .catch(() => setError("Could not open Personal memory. Retry."))
+              .catch(() => setError("Could not open Librarian. Retry."))
           }
         >
-          Open personal memory
+          Open Librarian
         </Button>
       )}
+      <Button
+        variant="secondary"
+        disabled={busy}
+        onClick={() => run(() => window.scope.chooseMemoryFolder())}
+      >
+        Choose local folder
+      </Button>
+      {status?.configuration.localRoot && !repository && (
+        <p>
+          <code>{status.configuration.localRoot}</code>
+        </p>
+      )}
       <Switch
-        label="Memory sync"
+        label="Weekly dreaming reminder"
+        checked={librarian.state?.reminder.enabled ?? true}
+        disabled={!librarian.state}
+        onCheckedChange={(enabled) => {
+          if (!librarian.state) return;
+          void window.scope
+            .librarianHuman({
+              action: "reminder",
+              requestId: crypto.randomUUID(),
+              expectedUiRevision: librarian.state.uiRevision,
+              enabled,
+              dismiss: false,
+            })
+            .then(librarian.setState)
+            .catch(() => setError("Could not save the reminder setting. Retry."));
+        }}
+      />
+      <Switch
+        label="Memory"
         checked={enabled}
         disabled={busy || !status || (!enabled && !status.okfInstalled)}
         onCheckedChange={(next) => run(() => window.scope.setMemoryEnabled(next))}
       />
+      <Switch
+        label="Git sync"
+        checked={enabled && !!repository && status?.configuration.syncEnabled !== false}
+        disabled={busy || !repository}
+        onCheckedChange={(next) => run(() => window.scope.setMemorySyncEnabled(next))}
+      />
       {window.scope.platform === "win32" && (
         <p className="secondary">
-          Windows requires a compatible native irudd-okf executable on PATH. The irudd-okf project
-          does not provide a Windows installer. Scope cannot upgrade it automatically on Windows.
+          Windows uses the native irudd-okf executable on PATH. Install or update it with the
+          irudd-okf PowerShell installer. Scope keeps automatic upgrades off on Windows.
         </p>
       )}
       {window.scope.platform !== "win32" && status && !status.okfInstalled && !enabled && (
@@ -115,12 +149,9 @@ export function MemorySettings({ query }: { query: string }) {
           </code>
         </p>
       )}
-      {enabled && !repository && (
+      {enabled && !repository && !status?.configuration.localRoot && !repository && (
         <div className="memory-setup">
-          <p>
-            No memory repository yet. Ask your coding agent to create one. It suggests a private
-            personal-memory repository and waits for your approval.
-          </p>
+          <p>Ask your coding agent to initialize a local memory folder and connect it to Scope.</p>
           <Button
             type="button"
             variant="secondary"
@@ -167,11 +198,49 @@ export function MemorySettings({ query }: { query: string }) {
 
 export function MemoryNotice() {
   const { status } = useMemory();
+  const librarian = useLibrarian();
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
   const [message, setMessage] = useState("");
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(copiedTimer.current), []);
   const conflicts = status?.conflicts.length ?? 0;
-  if (!conflicts) return null;
+  if (!conflicts) {
+    const state = librarian.state;
+    if (
+      !state ||
+      !state.reminder.enabled ||
+      now < Date.parse(state.reminder.dueAt) ||
+      state.view === "decision"
+    )
+      return null;
+    return (
+      <div className="memory-notice" role="status">
+        <span>Time to dream? Ask your coding agent when you are ready.</span>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            void window.scope
+              .librarianHuman({
+                action: "reminder",
+                requestId: crypto.randomUUID(),
+                expectedUiRevision: state.uiRevision,
+                dismiss: true,
+              })
+              .then(librarian.setState)
+              .catch(() => setMessage("Could not dismiss the reminder. Retry."));
+          }}
+        >
+          Dismiss reminder
+        </Button>
+        {message && <span>{message}</span>}
+      </div>
+    );
+  }
   return (
     <div className="memory-notice" role="alert">
       <span>

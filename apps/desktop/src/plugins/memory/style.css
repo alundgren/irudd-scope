@@ -149,3 +149,34 @@
     top: calc(-1 * var(--scope-space-2));
   }
 }
+.librarian-view {
+  max-width: 1000px;
+  margin-inline: auto;
+}
+.librarian-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--scope-space-4);
+}
+.librarian-comparison pre,
+.librarian-recovered {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--scope-font-mono);
+  max-height: 45vh;
+  overflow: auto;
+}
+.librarian-proposal h2 {
+  overflow-wrap: anywhere;
+}
+.librarian-proposal details {
+  margin-block: var(--scope-space-4);
+}
+.librarian-proposal details code {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .librarian-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

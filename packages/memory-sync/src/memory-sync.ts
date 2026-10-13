@@ -99,7 +99,9 @@ export class MemorySync {
     if (this.closed) return;
     const changed =
       value.enabled !== this.configuration.enabled ||
-      value.repository !== this.configuration.repository;
+      value.repository !== this.configuration.repository ||
+      value.syncEnabled !== this.configuration.syncEnabled ||
+      value.localRoot !== this.configuration.localRoot;
     const repositoryChanged = value.repository !== this.configuration.repository;
     this.configuration = value;
     if (!changed) return;
@@ -119,11 +121,12 @@ export class MemorySync {
         conflicts: [],
         phase: value.enabled ? (value.repository ? "syncing" : "waiting") : "off",
       });
-    if (!value.enabled) {
+    if (!value.enabled || value.syncEnabled === false) {
       this.update({
         phase: "off",
         message: "Memory sync is off.",
         repository: value.repository,
+        ...(value.localRoot ? { root: value.localRoot, bundle: "registered" as const } : {}),
         conflicts: [],
       });
       return;
@@ -136,11 +139,15 @@ export class MemorySync {
     if (!value.repository) {
       this.update({
         phase: "waiting",
-        message: "No memory repository is connected yet.",
+        message: value.localRoot
+          ? "Local memory is ready. Git sync is off."
+          : "Choose a local memory bundle.",
         repository: null,
+        root: value.localRoot,
+        bundle: value.localRoot ? "registered" : "unavailable",
         conflicts: [],
       });
-      void this.upgradeOkf();
+      clearInterval(this.upgradeTimer);
       return;
     }
     this.update({ repository: value.repository, phase: "syncing", conflicts: [] });
@@ -215,8 +222,7 @@ export class MemorySync {
         this.closed ||
         controller.signal.aborted ||
         !this.configuration.enabled ||
-        repository !== this.configuration.repository ||
-        repository !== this.current.repository ||
+        repository !== (this.configuration.repository ?? this.configuration.localRoot) ||
         !this.current.root ||
         this.current.bundle !== "registered" ||
         !this.current.okf.installed
@@ -230,7 +236,7 @@ export class MemorySync {
       );
       if (
         controller.signal.aborted ||
-        this.configuration.repository !== repository ||
+        (this.configuration.repository ?? this.configuration.localRoot) !== repository ||
         this.current.root !== root
       )
         throw new SyncError(
@@ -242,7 +248,7 @@ export class MemorySync {
 
   private async tick(signal: AbortSignal) {
     const { enabled, repository } = this.configuration;
-    if (!enabled || !repository) return;
+    if (!enabled || !repository || this.configuration.syncEnabled === false) return;
     this.update({ phase: "syncing", message: "Syncing memory…" });
     try {
       await this.checkOkf(signal);

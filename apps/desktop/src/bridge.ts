@@ -1,4 +1,3 @@
-import type { MemoryCommand, MemoryReply } from "./plugins/memory/contract.ts";
 import type { RetroCommand, RetroReply, RetroConfiguration } from "@irudd-scope/protocol/retro";
 import type { RetroEvent } from "@irudd-scope/protocol";
 import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
@@ -14,6 +13,7 @@ import type { DiagramDraft } from "./plugins/diagram/draft.ts";
 import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 import type { MemoryStatus } from "@irudd-scope/protocol/memory";
+import type { LibrarianView, LibrarianHumanCommand } from "@irudd-scope/protocol/librarian";
 import type {
   TransferDevices,
   TransferImport,
@@ -102,10 +102,14 @@ export type ScopeBridge = {
   setFullscreen: (enabled: boolean) => Promise<void>;
   onFullscreenChange: (listener: (enabled: boolean) => void) => () => void;
   remotes: () => Promise<RemoteStatus[]>;
-  memoryCommand: (command: MemoryCommand) => Promise<MemoryReply>;
   copyMemoryDraft: (raw: string) => Promise<void>;
   openMemoryLink: (url: string) => Promise<void>;
+  librarianRead: () => Promise<LibrarianView>;
+  librarianHuman: (command: LibrarianHumanCommand) => Promise<LibrarianView>;
+  onLibrarianChange: (listener: (state: LibrarianView) => void) => () => void;
   memory: () => Promise<MemoryStatus>;
+  setMemorySyncEnabled: (enabled: boolean) => Promise<MemoryStatus>;
+  chooseMemoryFolder: () => Promise<MemoryStatus>;
   setMemoryEnabled: (enabled: boolean) => Promise<MemoryStatus>;
   retryMemory: () => Promise<MemoryStatus>;
   copyMemoryRequest: (kind: "create" | "conflicts") => Promise<void>;

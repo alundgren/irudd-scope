@@ -23,20 +23,20 @@ test("Memory settings turn sync on, show each machine, and warn about conflicts 
   await page.keyboard.press("ControlOrMeta+,");
   const settings = page.getByRole("dialog", { name: "Settings", exact: true });
   await settings.getByLabel("Search settings").fill("memory sync");
-  const memorySwitch = settings.getByRole("switch", { name: "Memory sync", exact: true });
+  const memorySwitch = settings.getByRole("switch", { name: "Memory", exact: true });
   await expect.poll(() => memorySwitch.isEnabled()).toBe(true);
   await memorySwitch.click();
-  await settings.getByText("No memory repository yet.", { exact: false }).waitFor();
+  await settings.getByText("initialize a local memory folder", { exact: false }).waitFor();
   await settings.getByRole("button", { name: "Copy agent request", exact: true }).click();
   expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toContain(
-    "create it as a private repository",
+    "local memory folder",
   );
 
   const client = await fixture.connect();
   await client.connectMemory(MEMORY_REPOSITORY);
   await settings.getByText(MEMORY_REPOSITORY, { exact: true }).waitFor();
   const machines = settings.getByRole("list", { name: "Memory sync by machine" });
-  await machines.getByText("irudd-okf bundle personal is registered.").waitFor();
+  await machines.getByText(/^Last sync /).waitFor();
 
   await settings.getByLabel("Search settings").fill("retrospectives");
   const suggestions = settings.getByRole("switch", { name: "Memory suggestions", exact: true });
@@ -50,7 +50,7 @@ test("Memory settings turn sync on, show each machine, and warn about conflicts 
   expect(await suggestions.isChecked()).toBe(true);
   await settings.getByLabel("Search settings").fill("memory sync");
   await memorySwitch.click();
-  await machines.getByText("irudd-okf bundle personal is registered.").waitFor();
+  await machines.getByText(/^Last sync /).waitFor();
   await settings.getByLabel("Search settings").fill("retrospectives");
   await settings.getByText(f.clone("mac"), { exact: true }).waitFor();
   expect(await suggestions.isChecked()).toBe(true);
@@ -140,7 +140,7 @@ test("Memory status changes preserve an unsaved removal of a manual OKF destinat
   await settings.getByText("/synthetic/manual-memory", { exact: true }).waitFor();
   await settings.getByRole("button", { name: "Remove destination", exact: true }).click();
   await settings.getByLabel("Search settings").fill("memory sync");
-  const memorySwitch = settings.getByRole("switch", { name: "Memory sync", exact: true });
+  const memorySwitch = settings.getByRole("switch", { name: "Memory", exact: true });
   await memorySwitch.click();
   await expect.poll(() => memorySwitch.isEnabled()).toBe(true);
   await memorySwitch.click();
