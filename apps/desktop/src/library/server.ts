@@ -10,12 +10,6 @@ import {
   MAX_VOICE_REQUEST_BYTES,
 } from "@irudd-scope/protocol/voice";
 import type { VoiceService } from "../voice/service.ts";
-import { DiagramAgentCommand, DiagramAgentReply } from "@irudd-scope/protocol/diagram-agent";
-import {
-  DiagramCommand,
-  DiagramReply,
-  MAX_DIAGRAM_REQUEST_BYTES,
-} from "@irudd-scope/protocol/diagram";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import {
@@ -37,7 +31,6 @@ import {
 } from "@irudd-scope/protocol/maintenance";
 import { handlePlanHttp } from "./plan-http.ts";
 import { ArtifactStore } from "./store.ts";
-import { DiagramSyncCommand, DiagramSyncReply } from "@irudd-scope/protocol/diagram-sync";
 import { ArtifactName } from "@irudd-scope/protocol";
 import {
   decodeTransferImportRequest,
@@ -59,13 +52,6 @@ export async function startArtifactServer(options: {
     connect: (repository: string) => Promise<MemoryStatus>;
   };
   voice?: VoiceService;
-  diagramAgent?: (command: DiagramAgentCommand, signal: AbortSignal) => Promise<DiagramAgentReply>;
-  diagram?: (command: DiagramCommand, signal: AbortSignal) => Promise<DiagramReply>;
-  syncDiagram?: (
-    command: DiagramSyncCommand,
-    id: string,
-    signal: AbortSignal,
-  ) => Promise<DiagramSyncReply>;
   directory: string;
   token: string;
   port?: number;
@@ -230,34 +216,6 @@ export async function startArtifactServer(options: {
       } else throw new ScopeError(405, "Method not supported.");
       return;
     }
-    if (route === "POST /v1/diagram-agents" && !url.search) {
-      await handleDiagramAgent(request, response);
-      return;
-    }
-    if (route === "POST /v1/diagrams/sync" && !url.search) {
-      if (!options.syncDiagram) throw new ScopeError(503, "The diagram editor is unavailable.");
-      const body = await readJson(request, MAX_CONTENT_BYTES, "Diagram request exceeds 32 MiB.");
-      const command = validate(() => decode(DiagramSyncCommand, body));
-      const artifact = await store.named(command.name);
-      if (artifact.kind !== "excalidraw")
-        throw new ScopeError(400, "This named tab is not a diagram.");
-      const controller = new AbortController();
-      const cancel = () => controller.abort();
-      response.once("close", cancel);
-      try {
-        json(
-          response,
-          200,
-          decode(
-            DiagramSyncReply,
-            await options.syncDiagram(command, artifact.id, controller.signal),
-          ),
-        );
-      } finally {
-        response.off("close", cancel);
-      }
-      return;
-    }
     const named = /^\/v1\/names\/([^/]+)$/.exec(url.pathname);
     if (request.method === "GET" && named && !url.search) {
       const name = validate(() => decode(ArtifactName, decodeURIComponent(named[1])));
@@ -265,10 +223,6 @@ export async function startArtifactServer(options: {
       return;
     }
 
-    if (route === "POST /v1/diagrams" && !url.search) {
-      await handleDiagram(request, response);
-      return;
-    }
     if (route === "GET /v1/events") {
       openEventStream(response);
       return;
@@ -300,46 +254,6 @@ export async function startArtifactServer(options: {
     if (!match) throw new ScopeError(404, "Endpoint not found.");
     const id = validate(() => decode(ArtifactId, decodeURIComponent(match[1])));
     await handleArtifact(request, response, url, id, match[2]);
-  }
-
-  async function handleDiagramAgent(request: IncomingMessage, response: ServerResponse) {
-    if (!options.diagramAgent) throw new ScopeError(503, "The diagram editor is unavailable.");
-    const body = await readJson(
-      request,
-      MAX_DIAGRAM_REQUEST_BYTES,
-      "Diagram request exceeds 512 KiB.",
-    );
-    const command = validate(() => decode(DiagramAgentCommand, body));
-    const controller = new AbortController();
-    const cancel = () => controller.abort();
-    response.once("close", cancel);
-    try {
-      json(
-        response,
-        200,
-        decode(DiagramAgentReply, await options.diagramAgent(command, controller.signal)),
-      );
-    } finally {
-      response.off("close", cancel);
-    }
-  }
-
-  async function handleDiagram(request: IncomingMessage, response: ServerResponse) {
-    if (!options.diagram) throw new ScopeError(503, "The diagram editor is unavailable.");
-    const body = await readJson(
-      request,
-      MAX_DIAGRAM_REQUEST_BYTES,
-      "Diagram request exceeds 512 KiB.",
-    );
-    const command = validate(() => decode(DiagramCommand, body));
-    const controller = new AbortController();
-    const cancel = () => controller.abort();
-    response.once("close", cancel);
-    try {
-      json(response, 200, decode(DiagramReply, await options.diagram(command, controller.signal)));
-    } finally {
-      response.off("close", cancel);
-    }
   }
 
   function openEventStream(response: ServerResponse) {

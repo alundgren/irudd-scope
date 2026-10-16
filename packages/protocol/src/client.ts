@@ -18,8 +18,6 @@ import {
   MAX_VOICE_AUDIO_BYTES,
   MAX_VOICE_REQUEST_BYTES,
 } from "./voice.ts";
-import { DiagramAgentCommand, DiagramAgentReply } from "./diagram-agent.ts";
-import { DiagramSyncCommand, DiagramSyncReply } from "./diagram-sync.ts";
 import {
   PlanCommand,
   PlanReply,
@@ -27,12 +25,6 @@ import {
   MAX_PLAN_REPLY_BYTES,
   MAX_PLAN_IMAGE_BYTES,
 } from "./plan.ts";
-import {
-  DiagramCommand,
-  DiagramReply,
-  MAX_DIAGRAM_REPLY_BYTES,
-  MAX_DIAGRAM_REQUEST_BYTES,
-} from "./diagram.ts";
 import { readRemoteJson } from "./remote.ts";
 import {
   MemoryConnectRequest,
@@ -68,6 +60,7 @@ import {
   PublicationRequest,
   PublicationResult,
   LiveEvent,
+  decodeLiveEvent,
   MAX_CONTENT_BYTES,
   ScopeError,
   UPDATE_BASE_HEADER,
@@ -318,57 +311,6 @@ export class ScopeClient {
     return bytes;
   }
 
-  async diagramAgent(input: DiagramAgentCommand): Promise<DiagramAgentReply> {
-    const body = JSON.stringify(decode(DiagramAgentCommand, input));
-    if (new TextEncoder().encode(body).byteLength > MAX_DIAGRAM_REQUEST_BYTES)
-      throw new Error("Agent request exceeds 512 KiB.");
-    return decode(
-      DiagramAgentReply,
-      await readRemoteJson(
-        await this.request("/v1/diagram-agents", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body,
-        }),
-        MAX_DIAGRAM_REPLY_BYTES,
-      ),
-    );
-  }
-
-  async diagram(input: DiagramCommand): Promise<DiagramReply> {
-    const body = JSON.stringify(decode(DiagramCommand, input));
-    if (new TextEncoder().encode(body).byteLength > MAX_DIAGRAM_REQUEST_BYTES)
-      throw new Error("Diagram request exceeds 512 KiB.");
-    return decode(
-      DiagramReply,
-      await readRemoteJson(
-        await this.request("/v1/diagrams", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body,
-        }),
-        MAX_DIAGRAM_REPLY_BYTES,
-      ),
-    );
-  }
-
-  async syncDiagram(input: DiagramSyncCommand): Promise<DiagramSyncReply> {
-    const body = JSON.stringify(decode(DiagramSyncCommand, input));
-    if (new TextEncoder().encode(body).byteLength > MAX_CONTENT_BYTES)
-      throw new Error("Diagram request exceeds 32 MiB.");
-    return decode(
-      DiagramSyncReply,
-      await readRemoteJson(
-        await this.request("/v1/diagrams/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body,
-        }),
-        MAX_CONTENT_BYTES + 64 * 1024,
-      ),
-    );
-  }
-
   async named(name: string): Promise<Artifact> {
     return decode(
       Artifact,
@@ -572,7 +514,8 @@ export class ScopeClient {
           const frame = pending.slice(0, boundary);
           pending = pending.slice(boundary + 2);
           const line = frame.split("\n").find((item) => item.startsWith("data: "));
-          if (line) onEvent(decode(LiveEvent, JSON.parse(line.slice(6))));
+          const event = line && decodeLiveEvent(JSON.parse(line.slice(6)));
+          if (event) onEvent(event);
         }
         if (pending.length > 64 * 1024) throw new Error("Scope event exceeds the size limit.");
       }

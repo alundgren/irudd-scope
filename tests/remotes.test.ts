@@ -1,5 +1,7 @@
 import { afterEach, expect, test, vi } from "vite-plus/test";
 import { execFile } from "node:child_process";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -24,13 +26,7 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
 });
 
-async function fixture(
-  options: {
-    shrinkDelayMs?: number;
-    diagram?: Parameters<typeof startArtifactServer>[0]["diagram"];
-    syncDiagram?: Parameters<typeof startArtifactServer>[0]["syncDiagram"];
-  } = {},
-) {
+async function fixture(options: { shrinkDelayMs?: number } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "scope-remotes-"));
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const state = await HubState.open(join(directory, "hub"));
@@ -49,8 +45,6 @@ async function fixture(
   let lifecycle: DesktopLifecycle;
   const desktop = await startArtifactServer({
     directory: join(directory, "artifacts"),
-    diagram: options.diagram,
-    syncDiagram: options.syncDiagram,
     token,
     port: 0,
     initialize: async (artifacts) => {
@@ -145,7 +139,7 @@ test("a Mac pairs once and receives live and buffered CLI publications over conn
 test("pairing credentials stay out of SQLite and removal revokes access without removing the provider key", async () => {
   const f = await fixture();
   await f.store.saveSettings({
-    diagramGenerationEnabled: true,
+    voiceGenerationEnabled: true,
     apiKey: "synthetic-provider-secret",
   });
   await f.remotes.pair(f.state.pairUrl());
@@ -312,114 +306,40 @@ test("a remote CLI maintenance request can exceed thirty seconds while relay hea
   expect(f.remotes.snapshot()[0].connection).toBe("connected");
 }, 60_000);
 
-test("paired forwarding carries bounded diagram commands and rejects browser callers", async () => {
-  let received = 0;
-  const f = await fixture({
-    diagram: async (command) => {
-      if (command.action !== "apply") throw new Error("Expected apply.");
-      received = command.operations.length;
-      return {
-        type: "snapshot",
-        diagram: {
-          id: command.id,
-          revision: 1,
-          snapshot: "b".repeat(64),
-          dirty: true,
-          scene: { nodes: [], texts: [], connections: [], groups: [] },
-          selectedIds: [],
-          readOnly: [],
-          omitted: 0,
-        },
-      };
-    },
-  });
+test("paired hubs no longer forward diagram commands and watchers skip legacy diagram events", async () => {
+  const f = await fixture();
   await f.remotes.pair(f.state.pairUrl());
   await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
-  const command = {
-    action: "apply" as const,
-    id: "diagram",
-    snapshot: "a".repeat(64),
-    operations: Array.from({ length: 80 }, (_, index) => ({
-      type: "createText" as const,
-      id: `text${index}`,
-      text: "x".repeat(400),
-      x: index * 100,
-      y: 0,
-    })),
-  };
-  expect((await f.client.diagram(command)).type).toBe("snapshot");
-  expect(received).toBe(80);
   const headers = { Authorization: `Bearer ${f.local.token}`, "Content-Type": "application/json" };
-  expect(
-    (
-      await fetch(`${f.hub.url}/v1/diagrams`, {
-        method: "POST",
-        headers: { ...headers, Origin: "https://example.com" },
-        body: JSON.stringify(command),
-      })
-    ).status,
-  ).toBe(403);
-  expect(
-    (
-      await fetch(`${f.hub.url}/v1/diagrams`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ ...command, operations: [{ type: "shell", command: "ignored" }] }),
-      })
-    ).status,
-  ).toBe(400);
-  await f.remotes.setEnabled(f.remotes.snapshot()[0].id, false);
-  await expect(f.client.diagram(command)).rejects.toMatchObject({ status: 503 });
+  for (const path of ["/v1/diagrams", "/v1/diagrams/sync", "/v1/diagram-agents"])
+    expect(
+      (await fetch(`${f.hub.url}${path}`, { method: "POST", headers, body: "{}" })).status,
+    ).toBeGreaterThanOrEqual(400);
 });
 
-test("paired hubs forward named native edits larger than metadata and compact human events", async () => {
-  const version = "a".repeat(64);
-  let received = 0;
-  const f = await fixture({
-    syncDiagram: async (command) => {
-      received = Buffer.byteLength(JSON.stringify(command));
-      return { type: "status", name: command.name, version, revision: 1 };
-    },
+test("a watcher skips diagram events from an older desktop and keeps listening", async () => {
+  const server = createServer((request, response) => {
+    if (request.url !== "/v1/events") return response.writeHead(404).end();
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    response.write(
+      'data: {"type":"diagram","id":"old","name":"old","event":"changed","version":"v"}\n\n',
+    );
+    response.write('data: {"type":"ready"}\n\n');
   });
-  await f.remotes.pair(f.state.pairUrl());
-  await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
-  const file = join(f.directory, "named.excalidraw");
-  await writeFile(
-    file,
-    JSON.stringify({ type: "excalidraw", version: 2, elements: [], appState: {}, files: {} }),
-  );
-  const receipt = JSON.parse(
-    (await f.cli("add", file, "--named", "--title", "Remote native")).stdout,
-  );
-  await expect.poll(async () => (await f.client.get(receipt.id)).revision).toBe(1);
-  const artifact = await f.client.get(receipt.id);
-  if (!artifact.name) throw new Error("Expected a named diagram.");
-  expect((await f.client.named(artifact.name)).id).toBe(artifact.id);
-  await f.client.syncDiagram({
-    action: "write",
-    name: artifact.name,
-    expectedVersion: version,
-    delta: { elements: [], deleted: [], files: { image: { dataURL: "x".repeat(600_000) } } },
-  });
-  expect(received).toBeGreaterThan(512 * 1024);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  server.unref();
+  const { port } = server.address() as AddressInfo;
   const events: string[] = [];
   const controller = new AbortController();
-  const watching = f.client
-    .watch((event) => events.push(event.type), controller.signal)
+  const watching = new ScopeClient(`http://127.0.0.1:${port}`, "synthetic-token")
+    .watch((event) => {
+      events.push(event.type);
+      controller.abort();
+    }, controller.signal)
     .catch(() => {});
-  cleanup.push(async () => {
-    controller.abort();
-    await watching;
-  });
-  await expect.poll(() => events).toContain("ready");
-  f.desktop.store.onChanged({
-    type: "diagram",
-    name: artifact.name,
-    id: artifact.id,
-    event: "changed",
-    version,
-  });
-  await expect.poll(() => events).toContain("diagram");
+  await watching;
+  expect(events).toEqual(["ready"]);
 });
 
 test("paired hubs forward plan feedback images and response JSON larger than the artifact byte limit", async () => {

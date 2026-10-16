@@ -12,7 +12,6 @@ import { ArtifactStore, UPLOAD_GRACE_MS } from "../apps/desktop/src/library/stor
 import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
 import { DesktopLifecycle } from "../apps/desktop/src/lifecycle.ts";
 import { startArtifactServer } from "../apps/desktop/src/library/server.ts";
-import type { DiagramDraft } from "../apps/desktop/src/plugins/diagram/draft.ts";
 
 const token = "synthetic-lifecycle-publishing-token";
 const metadata = {
@@ -22,16 +21,27 @@ const metadata = {
   fileName: "review.txt",
   expectedRevision: 0,
 };
-const draft: DiagramDraft = {
-  version: 1,
-  content: '{"type":"excalidraw","elements":[],"files":{}}',
-  revision: 1,
-  dirty: true,
-  messages: [],
-  intent: "Unsent work",
-  chatOpen: true,
-  viewport: { zoom: 1, scrollX: 0, scrollY: 0 },
-};
+const draft = { version: 1, content: "Unsent work" };
+function writeDraft(directory: string, tabId: string) {
+  const db = new DatabaseSync(join(directory, "artifacts/scope.db"));
+  try {
+    db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000");
+    db.prepare(
+      "INSERT INTO tab_drafts SELECT id, ? FROM live_tabs WHERE id = ? ON CONFLICT(tab_id) DO UPDATE SET document = excluded.document",
+    ).run(JSON.stringify(draft), tabId);
+  } finally {
+    db.close();
+  }
+}
+function draftCount(directory: string, tabId: string) {
+  let count = 0;
+  inspect(directory, (db) => {
+    count = Number(
+      db.prepare("SELECT count(*) AS n FROM tab_drafts WHERE tab_id = ?").get(tabId)?.n,
+    );
+  });
+  return count;
+}
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
@@ -131,13 +141,14 @@ test("publication persists a tab first, rejects missing owners, and deletes shar
     await f.request("/v1/artifacts/first", "PUT", JSON.stringify({ ...metadata, tabId, blob }))
   ).json();
   await f.client.publish("second", metadata, Buffer.from("Shared content"));
-  await f.server.store.saveDiagramDraft(tabId, draft);
+  writeDraft(f.directory, tabId);
   inspect(f.directory, (db) => {
     expect(db.prepare("SELECT count(*) AS n FROM blobs").get()?.n).toBe(1);
   });
   expect(await f.client.delete("first")).toEqual({ id: "first", deleted: true });
-  expect(await f.server.store.diagramDraft(tabId)).toBeNull();
-  await f.server.store.saveDiagramDraft(tabId, draft);
+  expect(draftCount(f.directory, tabId)).toBe(0);
+  writeDraft(f.directory, tabId);
+  expect(draftCount(f.directory, tabId)).toBe(0);
   expect(await f.client.delete("first")).toEqual({ id: "first", deleted: false });
   expect(Buffer.from(await f.client.content("second")).toString()).toBe("Shared content");
   const recreated = await f.client.publish("first", metadata, Buffer.from("New content"));
@@ -388,7 +399,7 @@ test.for([
     });
     if (!tab) throw new Error("Expected the saved tab to open.");
     await lifecycle.saveWorkspace({ ...workspace, tabs: [tab], selected: tabId });
-    await artifacts.saveDiagramDraft(tabId, draft);
+    writeDraft(directory, tabId);
     await artifacts.close();
     await desktop.close();
     await killAt(directory, point);
@@ -402,8 +413,7 @@ test.for([
       const committed = point === "after-close-commit" || point === "after-cleanup";
       expect((await lifecycle.workspace()).tabs.length).toBe(committed ? 0 : 1);
       expect((await artifacts.list()).items.length).toBe(committed ? 0 : 1);
-      await artifacts.saveDiagramDraft(tabId, draft);
-      expect(await artifacts.diagramDraft(tabId)).toEqual(committed ? null : draft);
+      expect(draftCount(directory, tabId)).toBe(committed ? 0 : 1);
       expect(restored.settings().appearance).toBe("dark");
       inspect(directory, (db) => {
         expect(db.prepare("SELECT count(*) AS n FROM blobs").get()?.n).toBe(committed ? 0 : 1);
@@ -415,7 +425,7 @@ test.for([
   },
 );
 
-test("a real process death during legacy import does not duplicate tabs or restore deleted drafts on retry", async () => {
+test("a real process death during legacy import does not duplicate tabs or import legacy diagram drafts", async () => {
   const directory = await mkdtemp(join(tmpdir(), "scope-import-crash-"));
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   await mkdir(join(directory, "artifacts"));
@@ -486,12 +496,10 @@ test("a real process death during legacy import does not duplicate tabs or resto
   const workspace = await lifecycle.workspace();
   expect(workspace.tabs.map((tab) => tab.state.data.artifactId)).toEqual(["open"]);
   expect(workspace.selected).toBe(workspace.tabs[0].id);
-  expect(await artifacts.diagramDraft(workspace.tabs[0].id)).toEqual(draft);
   expect((await artifacts.list()).items.map((item) => item.id)).toEqual(["open", "overflow"]);
   expect(await desktop.legacyWorkspace()).toBeNull();
-  expect(await desktop.legacyDrafts()).toEqual([]);
   inspect(directory, (db) => {
-    expect(db.prepare("SELECT count(*) AS n FROM tab_drafts").get()?.n).toBe(2);
+    expect(db.prepare("SELECT count(*) AS n FROM tab_drafts").get()?.n).toBe(0);
   });
 });
 

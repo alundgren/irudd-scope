@@ -112,28 +112,6 @@ export function SettingsViewPanel({
           </label>
           <p className="secondary">System follows your device's appearance.</p>
         </SettingsSection>
-        <SettingsSection id="model" query={query}>
-          <Switch
-            label="Diagram generation"
-            checked={settings?.diagramGenerationEnabled ?? false}
-            disabled={busy || !settings}
-            describedBy="diagram-generation-description"
-            onCheckedChange={(enabled) => void save({ diagramGenerationEnabled: enabled })}
-          />
-          <p className="secondary" id="diagram-generation-description">
-            Edit diagrams with the Scope diagram agent.
-          </p>
-          <dl className="provider-details">
-            <div>
-              <dt>Provider</dt>
-              <dd>OpenRouter</dd>
-            </div>
-            <div>
-              <dt>Model</dt>
-              <dd>Gemini 3.8 Flash</dd>
-            </div>
-          </dl>
-        </SettingsSection>
         <SettingsSection id="voice" query={query}>
           <Switch
             label="Voice generation"

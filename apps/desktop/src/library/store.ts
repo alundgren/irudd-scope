@@ -26,7 +26,7 @@ import {
   type TrashEntry,
 } from "../workspace/retention.ts";
 import { PlanStore, recordPlanRevision } from "./plan-store.ts";
-import { DiagramDraft } from "../plugins/diagram/draft.ts";
+import { SketchpadDraft } from "../plugins/sketchpad/contract.ts";
 import { importTransferredTab, transferReceipt } from "./transfer-import.ts";
 import { TransferId, type TransferManifest } from "@irudd-scope/protocol/transfer";
 
@@ -538,11 +538,7 @@ export class ArtifactStore {
     return this.run(this.sql<LiveTab>`SELECT * FROM live_tabs ORDER BY position, rowid`);
   }
 
-  async importTabs(
-    tabs: readonly Tab[],
-    closed: readonly string[],
-    drafts: readonly { artifact_id: string; document: string }[],
-  ): Promise<void> {
+  async importTabs(tabs: readonly Tab[], closed: readonly string[]): Promise<void> {
     const sql = this.sql;
     await this.run(
       sql.withTransaction(
@@ -569,15 +565,6 @@ export class ArtifactStore {
               yield* sql`UPDATE artifacts SET tab_id = ${tab.id} WHERE id = ${artifactId!}`;
               yield* sql`DELETE FROM live_tabs WHERE id = ${artifact.tab_id} AND opened = 0`;
             }
-          }
-          for (const draft of drafts) {
-            const owners = yield* sql<{
-              id: string;
-            }>`SELECT id FROM live_tabs WHERE artifact_id = ${draft.artifact_id}`;
-            if (!owners.length) continue;
-            decode(DiagramDraft, JSON.parse(draft.document));
-            for (const owner of owners)
-              yield* sql`INSERT INTO tab_drafts VALUES (${owner.id}, ${draft.document}) ON CONFLICT(tab_id) DO NOTHING`;
           }
           if (closed.length)
             yield* sql`UPDATE lifecycle SET value = (SELECT value + 1 FROM lifecycle WHERE name = 'max_revision') WHERE name = 'revision_floor'`;
@@ -755,20 +742,52 @@ export class ArtifactStore {
     );
   }
 
-  async diagramDraft(id: string): Promise<DiagramDraft | null> {
+  async sketchpadDraft(id: string): Promise<SketchpadDraft | null> {
     decode(Uuid, id);
     const [row] = await this.run(
-      this.sql<{ document: string }>`SELECT document FROM tab_drafts WHERE tab_id = ${id}`,
+      this.sql<{
+        document: string;
+      }>`SELECT d.document FROM tab_drafts d JOIN live_tabs t ON t.id = d.tab_id
+        WHERE d.tab_id = ${id} AND json_extract(t.document, '$.type') = 'sketchpad'`,
     );
-    return row ? decode(DiagramDraft, JSON.parse(row.document)) : null;
+    return row ? decode(SketchpadDraft, JSON.parse(row.document)) : null;
   }
 
-  async saveDiagramDraft(id: string, value: unknown): Promise<void> {
+  async saveSketchpadDraft(id: string, value: unknown): Promise<void> {
     decode(Uuid, id);
-    const draft = decode(DiagramDraft, value);
-    await this.run(this.sql`INSERT INTO tab_drafts(tab_id, document)
-      SELECT id, ${JSON.stringify(draft)} FROM live_tabs WHERE id = ${id}
-      ON CONFLICT(tab_id) DO UPDATE SET document = excluded.document`);
+    const draft = decode(SketchpadDraft, value);
+    const rows = await this.run(this.sql`INSERT INTO tab_drafts(tab_id, document)
+      SELECT id, ${JSON.stringify(draft)} FROM live_tabs
+      WHERE id = ${id} AND json_extract(document, '$.type') = 'sketchpad'
+      ON CONFLICT(tab_id) DO UPDATE SET document = excluded.document RETURNING tab_id`);
+    if (!rows.length) throw new Error("The Sketchpad tab is unavailable.");
+  }
+
+  async deleteSketchpadDraft(id: string): Promise<void> {
+    decode(Uuid, id);
+    await this.run(this.sql`DELETE FROM tab_drafts WHERE tab_id = ${id}
+      AND tab_id IN (SELECT id FROM live_tabs WHERE json_extract(document, '$.type') = 'sketchpad')`);
+  }
+
+  // Scope no longer has diagram tabs. Remove saved ones with their artifacts and drafts.
+  async removeDiagramTabs(): Promise<string[]> {
+    const sql = this.sql;
+    return this.mutate(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const rows = yield* sql<{ id: string; artifact_id: string | null }>`SELECT id, artifact_id
+            FROM live_tabs WHERE json_extract(document, '$.type') = 'diagram'`;
+          if (!rows.length) return [];
+          for (const row of rows)
+            yield* row.artifact_id
+              ? sql`DELETE FROM live_tabs WHERE artifact_id = ${row.artifact_id}`
+              : sql`DELETE FROM live_tabs WHERE id = ${row.id}`;
+          yield* sql`UPDATE lifecycle SET value = (SELECT value + 1 FROM lifecycle WHERE name = 'max_revision') WHERE name = 'revision_floor'`;
+          return rows.flatMap((row) => (row.artifact_id ? [row.artifact_id] : []));
+        }),
+      ),
+      (ids) => ids.map((id) => ({ type: "deleted" as const, id })),
+    );
   }
 
   async reclaim(now = Date.now()): Promise<number> {

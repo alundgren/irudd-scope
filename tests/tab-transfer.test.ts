@@ -166,39 +166,25 @@ test("invitations expire at exactly fifteen minutes and cancellation preserves b
   }
 });
 
-test("the current diagram document transfers without conversation, proposals or agent state", async () => {
+test("an Excalidraw file transfers as its published bytes and opens as a file tab", async () => {
   const f = await fixture();
   try {
     const { peerId } = await f.pair();
-    const published = await f.publish(
-      "excalidraw",
-      JSON.stringify({ type: "excalidraw", version: 2, elements: [], appState: {}, files: {} }),
-    );
-    const current = JSON.stringify({
+    const content = JSON.stringify({
       type: "excalidraw",
       version: 2,
-      elements: [{ id: "edited-on-private" }],
+      elements: [{ id: "published" }],
       appState: {},
       files: {},
     });
-    await f.source.artifacts.saveDiagramDraft(published.tab.id, {
-      version: 1,
-      content: current,
-      revision: published.artifact.revision,
-      dirty: true,
-      messages: [{ role: "user", text: "Private conversation" }],
-      intent: "Private prompt",
-      chatOpen: true,
-      conversationTarget: "external",
-    });
+    const published = await f.publish("excalidraw", content);
     const invitation = await f.source.service.send({ tabId: published.tab.id, peerId });
     await f.target.service.inspect(invitation.url);
     const imported = await f.target.service.import(invitation.url);
-    expect((await f.target.artifacts.content(imported.artifact.blob)).toString()).toBe(current);
+    expect((await f.target.artifacts.content(imported.artifact.blob)).toString()).toBe(content);
+    expect(imported.artifact.kind).toBe("excalidraw");
     const [tab] = (await f.target.lifecycle.workspace()).tabs;
-    expect(tab.type).toBe("diagram");
-    expect(await f.target.artifacts.diagramDraft(tab.id)).toBeNull();
-    expect((await f.source.artifacts.diagramDraft(published.tab.id))?.messages).toHaveLength(1);
+    expect(tab.type).toBe("file");
   } finally {
     await f.close();
   }

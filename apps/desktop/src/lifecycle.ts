@@ -31,17 +31,14 @@ export class DesktopLifecycle {
 
   async recover(): Promise<void> {
     const workspace = await this.desktop.legacyWorkspace();
-    await this.artifacts.importTabs(
-      workspace?.tabs ?? [],
-      await this.desktop.closedArtifacts(),
-      await this.desktop.legacyDrafts(),
-    );
+    await this.artifacts.importTabs(workspace?.tabs ?? [], await this.desktop.closedArtifacts());
     if (!(await this.desktop.layout())) {
       const layout = workspace ?? emptyWorkspace();
       await this.desktop.saveLayout({ groups: layout.groups, selected: layout.selected });
     }
     await this.checkpoint("after-tab-import");
     await this.desktop.finishTabImport();
+    await this.artifacts.removeDiagramTabs();
     const savedTabs = (await this.artifacts.tabs()).flatMap((row) =>
       row.document ? [decode(Tab, JSON.parse(row.document))] : [],
     );

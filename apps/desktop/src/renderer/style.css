@@ -348,16 +348,6 @@ svg.lucide {
   background: var(--scope-panel);
   border-radius: var(--scope-radius-control);
 }
-.diagram-viewing > .diagram-notice,
-.diagram-viewing .diagram-proposal > .diagram-notice,
-.diagram-viewing .excalidraw .layer-ui__wrapper,
-.diagram-viewing .excalidraw .App-bottom-bar,
-.diagram-viewing .excalidraw .FixedSideContainer {
-  display: none;
-}
-.presentation-mode .diagram-view * {
-  cursor: none !important;
-}
 .presentation-pointer {
   position: fixed;
   inset: 0;
@@ -1092,73 +1082,7 @@ h2 {
 .artifact-details dd {
   margin-bottom: var(--scope-space-3);
 }
-.diagram-view {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-.diagram-body {
-  position: relative;
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  overflow: clip;
-}
-.diagram-canvas {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-}
-.diagram-proposal {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  display: flex;
-  flex-direction: column;
-  background: var(--scope-panel);
-}
-.diagram-original {
-  height: 100%;
-}
-.diagram-proposal .diagram-canvas {
-  min-height: 0;
-}
-.chat-target {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--scope-space-2);
-  padding: var(--scope-space-2) var(--scope-space-3);
-}
-.chat-target select {
-  color: var(--scope-text);
-  background: var(--scope-panel);
-  border: 1px solid var(--scope-line);
-  border-radius: var(--scope-radius-sm);
-}
-.diagram-canvas .excalidraw,
-.diagram-canvas .excalidraw.theme--dark {
-  --color-on-surface: var(--scope-text);
-  --color-on-primary-container: var(--scope-text);
-  --popup-text-color: var(--scope-text);
-  --input-label-color: var(--scope-text);
-  --keybinding-color: var(--scope-muted);
-
-  .HintViewer {
-    color: var(--scope-muted);
-  }
-
-  .dropdown-menu .dropdown-menu-item__shortcut {
-    color: var(--scope-muted);
-    opacity: 1;
-  }
-}
-.diagram-canvas .excalidraw .help-icon,
-.diagram-canvas .excalidraw .default-sidebar-trigger {
-  display: none;
-}
-.diagram-notice {
+.content-notice {
   padding: var(--scope-space-2) var(--scope-space-3);
   display: flex;
   flex-wrap: wrap;
@@ -1166,92 +1090,12 @@ h2 {
   align-items: center;
   background: var(--scope-strip);
 }
-.diagram-notice > span {
+.content-notice > span {
   flex: 1;
 }
-.diagram-chat {
-  width: min(360px, 46vw);
-  flex: 0 0 min(360px, 46vw);
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid var(--scope-line);
-  background: var(--scope-panel);
-  animation: chat-enter var(--scope-motion) ease;
-}
-.chat-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--scope-space-4);
-  border-bottom: 1px solid var(--scope-line);
-  gap: var(--scope-space-2);
-}
-.chat-heading h2 {
-  font-size: var(--scope-text-ui);
-}
-.chat-heading p {
-  margin-top: var(--scope-space-1);
-}
-.chat-history {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: var(--scope-space-4);
-  scrollbar-width: thin;
-}
-.chat-message {
-  margin-bottom: var(--scope-space-6);
-  overflow-wrap: anywhere;
-}
-.chat-message p {
-  margin-top: var(--scope-space-1);
-  white-space: pre-wrap;
-}
-.chat-message strong {
-  font-size: var(--scope-text-detail);
-  font-weight: var(--scope-weight-strong);
-}
-.chat-message.from-user {
-  background: var(--scope-strip);
-  padding: var(--scope-space-3);
-  border-radius: var(--scope-radius-tab);
-}
-.chat-form {
-  padding: var(--scope-space-4);
-  border-top: 1px solid var(--scope-line);
-}
-.chat-form textarea {
-  min-height: 96px;
-  max-height: 220px;
-  resize: vertical;
-}
-.chat-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--scope-space-2);
-  margin-top: var(--scope-space-2);
-}
-.focus-mode .diagram-notice {
+.focus-mode .content-notice {
   position: relative;
   z-index: 1;
-}
-@keyframes chat-enter {
-  from {
-    transform: translateX(100%);
-  }
-  to {
-    transform: translateX(0);
-  }
-}
-@media (max-width: 699px) {
-  .diagram-chat {
-    position: absolute;
-    inset: 0 0 0 auto;
-    z-index: 5;
-    width: min(360px, 100%);
-    box-shadow: var(--scope-shadow);
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   *,

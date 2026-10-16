@@ -14,7 +14,7 @@ house UX principles still apply. These relative paths start at this directory.
 ## Keep the artifact central
 
 Reserve the compact strip for workspace navigation. Keep artifact titles in
-tabs. Let diagrams, images, and HTML use the window; constrain reading width
+tabs. Let the Sketchpad, images, and HTML use the window; constrain reading width
 for prose. Put secondary actions in the search panel or artifact controls.
 Keep workspace controls, current-tab actions, and artifact results visually
 distinct. Omit unavailable panel actions.
@@ -57,17 +57,11 @@ replacement or removal, never the secret itself.
 
 ## Preserve editing work
 
-Diagram conversation opens on request beside the canvas or over it in a narrow
-window. Keep conversation, draft, and view position across closing the panel,
-focus, navigation, and restart with the tab still open. Persist through named desktop SQLite operations.
-Canvas edits save automatically to the artifact after the working draft is stored.
-Conversation and viewport updates save only the draft. Enter sends,
-Shift+Enter adds a line, and pending requests offer Cancel.
-
-Retain local edits when an artifact revision arrives or the canvas changes
-during generation. Offer Use incoming version or Keep both.
-Cancellation, provider failures, and failed draft writes must leave a useful
-next action. Do not add renderer persistence or generic execution APIs.
+Keep Sketchpad drawings and view position across hiding the tab, focus,
+navigation, and restart. Persist through named desktop SQLite operations.
+Destructive canvas actions offer a short undo before stored content is removed.
+Failed draft writes must leave a useful next action. Do not add renderer
+persistence or generic execution APIs.
 
 ## Verify the affected flow
 

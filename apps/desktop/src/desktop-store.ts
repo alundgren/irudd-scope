@@ -26,7 +26,6 @@ import {
   importedClosedArtifacts,
   type Workspace,
 } from "./workspace/contract.ts";
-import { DIAGRAM_MODEL, DIAGRAM_PROVIDER } from "./plugins/diagram/provider-settings.ts";
 import { Remote, Remotes } from "./remote-contract.ts";
 import { RemoteToken } from "@irudd-scope/protocol/remote";
 import { TransferName, TransferSecret } from "@irudd-scope/protocol/transfer";
@@ -41,13 +40,15 @@ import {
   withoutMemoryDestinations,
 } from "./memory-contract.ts";
 
+// Older Scope builds require these provider fields in the saved settings document.
+const SAVED_PROVIDER = "openrouter";
+const SAVED_MODEL = "google/gemini-3.8-flash";
 const SavedSettings = Schema.Struct({
   version: Schema.Literal(2),
   appearance: Schema.optionalKey(Appearance),
-  diagramGenerationEnabled: Schema.optionalKey(Schema.Boolean),
   voiceGenerationEnabled: Schema.optionalKey(Schema.Boolean),
-  provider: Schema.Literal(DIAGRAM_PROVIDER),
-  model: Schema.Literal(DIAGRAM_MODEL),
+  provider: Schema.Literal(SAVED_PROVIDER),
+  model: Schema.Literal(SAVED_MODEL),
 });
 const LegacySettings = Schema.Struct({
   ...SavedSettings.fields,
@@ -62,8 +63,8 @@ export class DesktopStore {
   maintenance!: DatabaseMaintenance;
   private saved: typeof SavedSettings.Type = {
     version: 2,
-    provider: DIAGRAM_PROVIDER,
-    model: DIAGRAM_MODEL,
+    provider: SAVED_PROVIDER,
+    model: SAVED_MODEL,
   };
   private runtime?: ReturnType<typeof databaseRuntime>;
   private sql?: SqliteClient.SqliteClient;
@@ -143,7 +144,6 @@ export class DesktopStore {
           provider: saved.provider,
           model: saved.model,
           appearance: saved.appearance ?? "system",
-          diagramGenerationEnabled: saved.diagramGenerationEnabled ?? false,
           voiceGenerationEnabled: saved.voiceGenerationEnabled ?? false,
         };
       }
@@ -153,10 +153,6 @@ export class DesktopStore {
           Effect.gen(function* () {
             yield* sql`INSERT INTO preferences(name, document) VALUES ('settings', ${document})
               ON CONFLICT(name) DO UPDATE SET document = excluded.document`;
-            yield* sql`CREATE TABLE IF NOT EXISTS diagram_drafts (
-              artifact_id TEXT PRIMARY KEY,
-              document TEXT NOT NULL CHECK (json_valid(document))
-            ) STRICT`;
             const [workspace] = yield* sql<{
               document: string;
             }>`SELECT document FROM preferences WHERE name = 'workspace'`;
@@ -523,10 +519,7 @@ export class DesktopStore {
   settings(): SettingsView {
     return {
       appearance: this.saved.appearance ?? "system",
-      diagramGenerationEnabled: this.saved.diagramGenerationEnabled ?? false,
       voiceGenerationEnabled: this.saved.voiceGenerationEnabled ?? false,
-      provider: this.saved.provider,
-      model: this.saved.model,
       hasApiKey: this.hasApiKey,
       keyStorage: this.credentials.kind,
       ...(this.credentialError ? { credentialError: this.credentialError } : {}),
@@ -553,8 +546,6 @@ export class DesktopStore {
       const input = decodeSettingsUpdate(value);
       const next = { ...this.saved };
       if (input.appearance !== undefined) next.appearance = input.appearance;
-      if (input.diagramGenerationEnabled !== undefined)
-        next.diagramGenerationEnabled = input.diagramGenerationEnabled;
       if (input.voiceGenerationEnabled !== undefined)
         next.voiceGenerationEnabled = input.voiceGenerationEnabled;
       if (input.removeApiKey && input.apiKey)
@@ -774,12 +765,6 @@ export class DesktopStore {
     return row ? importedClosedArtifacts(JSON.parse(row.document)) : [];
   }
 
-  async legacyDrafts(): Promise<readonly { artifact_id: string; document: string }[]> {
-    return this.run(
-      this.sql!<{ artifact_id: string; document: string }>`SELECT * FROM diagram_drafts`,
-    );
-  }
-
   async layout(): Promise<Pick<Workspace, "groups" | "selected"> | null> {
     await this.pending;
     const [row] = await this.run(
@@ -811,7 +796,6 @@ export class DesktopStore {
         sql.withTransaction(
           Effect.gen(function* () {
             yield* sql`DELETE FROM preferences WHERE name = 'workspace'`;
-            yield* sql`DELETE FROM diagram_drafts`;
           }),
         ),
       );

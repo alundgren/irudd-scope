@@ -52,7 +52,7 @@ const examples = [
   },
   {
     id: "drawing",
-    title: "Editable diagram",
+    title: "Excalidraw file",
     kind: "excalidraw",
     mediaType: "application/vnd.excalidraw+json",
     fileName: "drawing.excalidraw",
@@ -92,7 +92,7 @@ const examples = [
   },
 ];
 
-async function checkContent(page: Page, example: (typeof examples)[number], focused = false) {
+async function checkContent(page: Page, example: (typeof examples)[number]) {
   const pane = page.getByRole("tabpanel", { name: example.title, exact: true });
   await pane.waitFor();
   switch (example.kind) {
@@ -123,13 +123,9 @@ async function checkContent(page: Page, example: (typeof examples)[number], focu
       await pane.getByText("Use Download to save this file.").waitFor();
       break;
     case "excalidraw":
-      await pane.locator(".excalidraw canvas").first().waitFor();
-      if (!focused) await pane.getByTestId("main-menu-trigger").waitFor();
-      expect(await pane.getByRole("button", { name: "Save", exact: true }).count()).toBe(0);
-      expect(await pane.getByRole("button", { name: "Ask agent", exact: true }).count()).toBe(0);
-      expect(await pane.getByRole("complementary", { name: "Diagram agent" }).isVisible()).toBe(
-        false,
-      );
+      await pane.getByRole("heading", { name: "drawing.excalidraw" }).waitFor();
+      await pane.getByText("Use Download to save this file.").waitFor();
+      expect(await pane.locator(".excalidraw").count()).toBe(0);
       break;
   }
 }
@@ -197,87 +193,9 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
           .elementHandle();
         await page.getByRole("button", { name: "Search and controls" }).click();
         await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
-        await checkContent(page, example, true);
+        await checkContent(page, example);
         await expect.poll(fullscreen).toBe(true);
-        if (example.kind === "excalidraw") {
-          const mode = page.getByRole("combobox", { name: "Fullscreen diagram mode" });
-          const bounds = await mode.boundingBox();
-          const width = await page.evaluate(() => innerWidth);
-          expect(bounds!.width).toBeLessThanOrEqual(150);
-          expect(bounds!.height).toBeLessThanOrEqual(32);
-          expect(width - bounds!.x - bounds!.width).toBeLessThanOrEqual(12);
-          expect(bounds!.y).toBeLessThanOrEqual(12);
-          expect(await mode.inputValue()).toBe("edit");
-          await page.getByTestId("main-menu-trigger").waitFor();
-          await page
-            .getByRole("dialog", { name: "Search and controls" })
-            .waitFor({ state: "hidden" });
-          await page
-            .locator(".excalidraw canvas.interactive")
-            .click({ position: { x: 300, y: 250 } });
-          await page.keyboard.press("Shift+1");
-          if (process.env.SCOPE_TEST_SCREENSHOTS) {
-            await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
-            await page.screenshot({
-              path: join(process.env.SCOPE_TEST_SCREENSHOTS, `${appearance}-diagram-edit.png`),
-            });
-          }
-          await mode.selectOption("view");
-          expect(await page.locator(".excalidraw .layer-ui__wrapper").isVisible()).toBe(false);
-          expect(await page.locator(".excalidraw .App-bottom-bar").isVisible()).toBe(false);
-          expect(
-            await page.getByRole("button", { name: "Ask agent", exact: true }).isVisible(),
-          ).toBe(false);
-          const tabId = (await page
-            .getByRole("tabpanel", { name: example.title })
-            .getAttribute("id"))!.slice(5);
-          await expect
-            .poll(
-              async () =>
-                (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))?.viewport,
-            )
-            .toBeDefined();
-          const initialViewport = (await page.evaluate(
-            (id) => window.scope.diagramDraft(id),
-            tabId,
-          ))!.viewport;
-          await page.mouse.move(400, 300);
-          await page.mouse.wheel(100, 140);
-          await expect
-            .poll(() => page.evaluate((id) => window.scope.diagramDraft(id), tabId))
-            .not.toMatchObject({ viewport: initialViewport });
-          const pannedZoom = (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))!
-            .viewport!.zoom;
-          await page.keyboard.down("Control");
-          await page.mouse.wheel(0, -200);
-          await page.keyboard.up("Control");
-          await expect
-            .poll(
-              async () =>
-                (await page.evaluate((id) => window.scope.diagramDraft(id), tabId))?.viewport?.zoom,
-            )
-            .not.toBe(pannedZoom);
-          if (process.env.SCOPE_TEST_SCREENSHOTS) {
-            await page.screenshot({
-              path: join(process.env.SCOPE_TEST_SCREENSHOTS, `${appearance}-diagram-view.png`),
-            });
-          }
-          await mode.selectOption("present");
-          await page.mouse.move(250, 250);
-          await expect
-            .poll(() =>
-              page.locator(".presentation-pointer").evaluate((element) => element.style.opacity),
-            )
-            .toBe("1");
-          if (process.env.SCOPE_TEST_SCREENSHOTS) {
-            await page.screenshot({
-              path: join(process.env.SCOPE_TEST_SCREENSHOTS, `${appearance}-diagram-present.png`),
-            });
-          }
-          await page.keyboard.press("Escape");
-          expect(await mode.inputValue()).toBe("edit");
-          await mode.selectOption("tabs");
-        } else if (example.kind === "html") {
+        if (example.kind === "html") {
           await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
         } else {
           await page.getByRole("button", { name: "Exit focus mode" }).click();
@@ -315,9 +233,7 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
     ).toEqual(expect.arrayContaining(visibleIds));
     const before = await page.evaluate(() => window.scope.workspace());
     expect(before?.tabs.every((tab) => tab.id !== tab.state.data.artifactId)).toBe(true);
-    expect(before?.tabs.find((tab) => tab.state.data.artifactId === "drawing")?.type).toBe(
-      "diagram",
-    );
+    expect(before?.tabs.find((tab) => tab.state.data.artifactId === "drawing")?.type).toBe("file");
     const accepted = await page.evaluate(async () => {
       const tab = (await window.scope.workspace())!.tabs[0];
       const event = {
@@ -356,14 +272,12 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
       await page.getByLabel("Search artifacts", { exact: true }).fill(example.title);
       await page.keyboard.press("Enter");
       await tab.waitFor();
-      const id = (await tab.getAttribute("id"))!.slice(4);
       await page.keyboard.press("ControlOrMeta+w");
       await expect
         .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
         .toBe(examples.length - index - 1);
       expect(await client.get(example.id)).toBeDefined();
       await client.delete(example.id);
-      expect(await page.evaluate((tabId) => window.scope.diagramDraft(tabId), id)).toBeNull();
     }
     expect(await client.list()).toEqual([]);
     await application.close();

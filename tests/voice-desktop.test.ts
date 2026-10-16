@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { rm } from "node:fs/promises";
 import { desktopFixture } from "./desktop-fixture.ts";
 
-test("shared key and independent switches work in Electron, and Chromium decodes the generated WAV", async () => {
+test("the shared key and voice switch work in Electron, and Chromium decodes the generated WAV", async () => {
   const { directory, launch, connect } = await desktopFixture();
   const application = await launch();
   try {
@@ -35,7 +35,6 @@ test("shared key and independent switches work in Electron, and Chromium decodes
     await page.getByRole("button", { name: "Save key", exact: true }).click();
     await page.getByText("Key saved", { exact: true }).waitFor();
     expect(await page.evaluate(() => window.scope.settings())).toMatchObject({
-      diagramGenerationEnabled: false,
       voiceGenerationEnabled: false,
       hasApiKey: true,
     });
@@ -76,12 +75,13 @@ test("shared key and independent switches work in Electron, and Chromium decodes
       );
     }
     await search.fill("diagram generation");
-    await page.getByRole("switch", { name: "Diagram generation", exact: true }).click();
+    expect(
+      await page.getByRole("switch", { name: "Diagram generation", exact: true }).count(),
+    ).toBe(0);
     await search.fill("voice generation");
     await voice.click();
     await expect.poll(() => voice.getAttribute("aria-checked")).toBe("false");
     expect(await page.evaluate(() => window.scope.settings())).toMatchObject({
-      diagramGenerationEnabled: true,
       voiceGenerationEnabled: false,
       hasApiKey: true,
     });

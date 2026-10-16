@@ -55,7 +55,7 @@ export function validateTransferredContent(manifest: TransferManifest, bytes: Ui
       !Array.isArray(document.elements) ||
       document.elements.length > 10_000
     )
-      throw new ScopeError(400, "The transferred diagram is invalid.");
+      throw new ScopeError(400, "The transferred Excalidraw file is invalid.");
   }
 }
 
@@ -100,7 +100,7 @@ export function importTransferredTab(
       const tab = decode(Tab, {
         id: tabId,
         groupId,
-        type: manifest.kind === "excalidraw" ? "diagram" : "file",
+        type: "file",
         title: manifest.title,
         state: { version: 1, data: { artifactId } },
       });

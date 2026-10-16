@@ -165,12 +165,13 @@ async function openArtifact(
       });
       break;
     case "file":
-      await pane
-        .getByRole("heading", { name: options.fileName ?? "sample.bin", exact: true })
-        .waitFor();
-      break;
     case "excalidraw":
-      await pane.locator(".excalidraw canvas").first().waitFor({ state: "visible" });
+      await pane
+        .getByRole("heading", {
+          name: options.fileName ?? `sample.${artifactFile(kind).extension}`,
+          exact: true,
+        })
+        .waitFor();
       break;
   }
   return { elapsedMs: performance.now() - started, pane };

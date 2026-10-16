@@ -2,7 +2,7 @@ import { memoryPlugin } from "./memory/renderer.tsx";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { Tab } from "../workspace/contract.ts";
 import { filePlugin } from "./file/renderer.tsx";
-import { diagramPlugin } from "./diagram/renderer.tsx";
+import { sketchpadPlugin } from "./sketchpad/renderer.tsx";
 import { planPlugin } from "./plan/renderer.tsx";
 
 import { pullRequestsPlugin } from "./pull-requests/renderer.tsx";
@@ -10,7 +10,7 @@ import { retroPlugin } from "./retro/renderer.tsx";
 
 export const tabPlugins = [
   memoryPlugin,
-  diagramPlugin,
+  sketchpadPlugin,
   planPlugin,
   pullRequestsPlugin,
   retroPlugin,

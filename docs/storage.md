@@ -6,7 +6,7 @@ to select separate directories for development.
 
 | Data                | Location                                                       | Contents                                                                                                                                                                                           |
 | ------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, diagram drafts, retro reports and independent session tracking.                             |
+| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, the Sketchpad drawing, retro reports and independent session tracking.                      |
 | Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, remote, retro and memory configuration, and retained speech receipts/audio.                                                         |
 | Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                                                                                                                          |
 | Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                                                                                                      |
@@ -59,14 +59,14 @@ the helper changes access permission, not the stored provider key or remote
 tokens. Changing the executable that accesses this entry may require another
 Keychain approval.
 
-Closing an individual tab moves it to Trashcan and retains its content and state. A draft
-contains the working canvas, base revision, conversation, unsent prompt, panel
-state, and zoom and pan. Autosave writes the draft before updating the artifact
-revision. Conversation and viewport changes update only the draft. If a newer
-artifact arrives before pending canvas edits are published, the draft retains
-those edits until the user chooses which version to keep.
-An unviewed diagram draft can omit its viewport so Scope fits it when first
-displayed. Existing drafts with a viewport retain their saved zoom and pan.
+Closing an individual tab moves it to Trashcan and retains its content and state.
+The Sketchpad stores one `tab_drafts` row with Excalidraw's local serialization
+and its zoom and pan. That serialization omits deleted elements and images no
+element uses, so removed images leave storage on the next save. An empty canvas
+has no row: deleting every element removes it, and Reset canvas removes it when
+its ten-second undo window ends or the tab closes or Scope quits. SQLite reuses
+the freed pages; the file shrinks during regular maintenance. A draft over
+32 MiB is not saved and the Sketchpad shows an error.
 Quitting Scope, closing its last window, updating, and restarting preserve tabs
 that remain open. Pending edits flush before application shutdown.
 
@@ -229,18 +229,15 @@ returning an outage error.
 Artifact schema 5 adds retention columns to the tab table. Existing tabs keep
 their IDs, order, names, and drafts and begin as temporary with a fresh visibility
 timestamp. Schema 4 introduced the unique index for optional tab names. Older
-builds reject schema 5; restore a pre-upgrade backup to downgrade. Diagram drafts may
-also contain an editable proposal and the selected conversation recipient.
-Drafts without a viewport require a desktop that supports fitting on first
-display; older desktops cannot open those drafts.
-Permanent deletion removes these with its ordinary content. Delta history is bounded
-in renderer memory and disappears on restart. The hub stores no diagram model.
+builds reject schema 5; restore a pre-upgrade backup to downgrade.
 
-An agent's explicit `diagram pull --output FILE` export is a disposable working
-file in its worktree. It contains a base, current native document, and optimistic
-version; image data is stored once, with hashes in the base. Removing the worktree
-removes these files. Another session can pull the same name to a new file while
-the Scope tab exists. There is no global agent cache to collect.
+Scope no longer has diagram tabs. On startup it permanently deletes saved tabs of
+type `diagram`, including hidden and trashed ones, with their artifacts and
+drafts, in one transaction. Other `.excalidraw` artifacts open as downloadable
+files. The legacy `diagram_drafts` table in `desktop.db` is no longer read or
+created; an existing table is left in place. A paired hub may keep metadata for
+a deleted diagram for up to 48 hours; an offline update to that ID fails on
+delivery and stays visible in `hub queue`.
 
 For an artifact directory containing a database and a `blobs/` directory,
 Scope verifies hashes, sizes, and referenced content before importing bytes
@@ -250,8 +247,8 @@ and files. To move such a library, stop every process using it, copy the
 complete directory, and set `SCOPE_DATA_DIR` to the copy. Do not merge it with
 a nonempty library or run two stores against it.
 
-Settings JSON versions 1 and 2 import into `desktop.db`. Diagram generation
-defaults to off when its preference is absent. Existing Keychain keys are
+Settings JSON versions 1 and 2 import into `desktop.db`. A saved diagram
+generation preference is ignored. Existing Keychain keys are
 retained. Encrypted provider keys in legacy JSON require macOS secure storage
 and migrate directly to Keychain on the first shared-key operation.
 Startup imports ordinary preferences without accessing credentials. The legacy
@@ -259,9 +256,8 @@ JSON remains until its key has migrated, including across restarts and failed
 access attempts. It is removed only after the replacement is saved. Obsolete
 connection settings are discarded.
 Existing artifact-ID tab lists first acquire stable tab and group UUIDs in
-`desktop.db`. On startup, Scope imports saved open tabs and their drafts into
-`scope.db`, then removes the old workspace document and artifact-keyed drafts
-from `desktop.db`. Workspace views use version 3. Order, selection, groups,
+`desktop.db`. On startup, Scope imports saved open tabs into
+`scope.db`, then removes the old workspace document from `desktop.db`. Workspace views use version 3. Order, selection, groups,
 non-tab preferences, and unknown open plugin records survive. Artifacts referenced
 only by old closed history are deleted; an artifact still referenced by an open
 tab survives. Other existing library items receive queued tabs.

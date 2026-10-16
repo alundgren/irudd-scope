@@ -1,7 +1,6 @@
 import { MAX_PULL_REQUESTS_REQUEST_BYTES } from "@irudd-scope/protocol/pull-requests";
 import { MAX_VOICE_REQUEST_BYTES } from "@irudd-scope/protocol/voice";
 import { MAX_PLAN_REQUEST_BYTES } from "@irudd-scope/protocol/plan";
-import { MAX_DIAGRAM_REQUEST_BYTES } from "@irudd-scope/protocol/diagram";
 import {
   MAX_TRANSFER_IMPORT_REQUEST_BYTES,
   TRANSFER_IMPORT_TIMEOUT_MS,
@@ -416,11 +415,9 @@ export async function startPairedHub(
               ? MAX_PLAN_REQUEST_BYTES
               : item.path === "/v1/voice"
                 ? MAX_VOICE_REQUEST_BYTES
-                : ["/v1/diagrams", "/v1/diagram-agents"].includes(item.path)
-                  ? MAX_DIAGRAM_REQUEST_BYTES
-                  : item.path.endsWith("/blobs") || item.path === "/v1/diagrams/sync"
-                    ? MAX_CONTENT_BYTES
-                    : MAX_METADATA_BYTES,
+                : item.path.endsWith("/blobs")
+                  ? MAX_CONTENT_BYTES
+                  : MAX_METADATA_BYTES,
         ),
         response,
         { signal: item.controller.signal },
