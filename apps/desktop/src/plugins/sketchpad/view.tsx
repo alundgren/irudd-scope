@@ -34,7 +34,7 @@ export function SketchpadView({
   const display = useRef({ theme, viewing });
   display.current = { theme, viewing };
   const content = useSceneContent();
-  const canvasReset = useCanvasReset(api, () => draftSave.schedule());
+  const canvasReset = useCanvasReset(api, active, () => draftSave.schedule());
   const loading = useSketchpadLoad({
     api,
     tabId: context.tabId,

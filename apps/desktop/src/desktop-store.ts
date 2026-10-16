@@ -56,6 +56,8 @@ const LegacySettings = Schema.Struct({
   endpoint: Schema.optionalKey(Schema.String),
   hubToken: Schema.optionalKey(Schema.String),
   apiKey: Schema.optionalKey(Schema.String),
+  // Removed diagram generation switch; read so older documents still load, then dropped.
+  diagramGenerationEnabled: Schema.optionalKey(Schema.Boolean),
 });
 const databaseRuntime = (filename: string) => ManagedRuntime.make(SqliteClient.layer({ filename }));
 

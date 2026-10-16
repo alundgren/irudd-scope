@@ -95,6 +95,15 @@ test("the Sketchpad opens from search, keeps drawings across restart, and Reset 
     await expect.poll(() => draft(page, id)).toBeNull();
     expect(storedDrafts(f.settingsDirectory)).toBe(0);
 
+    await addText(page, "Hidden idea");
+    await expect.poll(async () => (await draft(page, id))?.content ?? "").toContain("Hidden idea");
+    await resetCanvas(page);
+    // Leaving the Sketchpad during the undo window keeps the reset.
+    await page.getByRole("tab", { name: "Sketchpad" }).focus();
+    await page.keyboard.press("ControlOrMeta+w");
+    await expect.poll(() => draft(page, id), { timeout: 3000 }).toBeNull();
+    await openSketchpad(page);
+
     await addText(page, "Second idea");
     await expect.poll(async () => (await draft(page, id))?.content ?? "").toContain("Second idea");
     await resetCanvas(page);
@@ -113,9 +122,9 @@ test("the Sketchpad opens from search, keeps drawings across restart, and Reset 
 
 test("saving the Sketchpad drops images no drawing uses and agents have no Sketchpad commands", async () => {
   const f = await desktopFixture();
-  const application = await f.launch();
+  let application = await f.launch();
   try {
-    const page = await application.firstWindow();
+    let page = await application.firstWindow();
     await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
     const id = await openSketchpad(page);
     const file = (fileId: string) => ({
@@ -124,32 +133,40 @@ test("saving the Sketchpad drops images no drawing uses and agents have no Sketc
       dataURL: png,
       created: 1,
     });
-    await page.evaluate(
-      ({ id, content }) => window.scope.saveSketchpadDraft(id, { version: 1, content }),
-      {
+    await application.close();
+    // Seed while Scope is closed so the open editor's empty-canvas save cannot race it.
+    const db = new DatabaseSync(join(f.settingsDirectory, "artifacts/scope.db"));
+    try {
+      db.prepare("INSERT INTO tab_drafts VALUES (?, ?)").run(
         id,
-        content: JSON.stringify({
-          type: "excalidraw",
-          version: 2,
-          source: "test",
-          elements: [
-            {
-              type: "image",
-              id: "picture",
-              x: 100,
-              y: 100,
-              width: 40,
-              height: 40,
-              fileId: "used",
-              status: "saved",
-            },
-          ],
-          appState: {},
-          files: { used: file("used"), unused: file("unused") },
+        JSON.stringify({
+          version: 1,
+          content: JSON.stringify({
+            type: "excalidraw",
+            version: 2,
+            source: "test",
+            elements: [
+              {
+                type: "image",
+                id: "picture",
+                x: 100,
+                y: 100,
+                width: 40,
+                height: 40,
+                fileId: "used",
+                status: "saved",
+              },
+            ],
+            appState: {},
+            files: { used: file("used"), unused: file("unused") },
+          }),
         }),
-      },
-    );
-    await page.reload();
+      );
+    } finally {
+      db.close();
+    }
+    application = await f.launch();
+    page = await application.firstWindow();
     await page.getByTestId("main-menu-trigger").waitFor();
     await addText(page, "Caption");
     const before = (await draft(page, id))?.viewport;

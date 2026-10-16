@@ -489,3 +489,36 @@ test("startup permanently removes saved diagram tabs with their drafts and keeps
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("saved settings from builds with diagram generation still load and drop the old switch", async () => {
+  for (const source of ["row", "file"] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "scope-old-settings-"));
+    const old = {
+      version: 2,
+      appearance: "dark",
+      diagramGenerationEnabled: true,
+      voiceGenerationEnabled: true,
+      provider: "openrouter",
+      model: "google/gemini-3.8-flash",
+    };
+    if (source === "row") {
+      const db = new DatabaseSync(join(directory, "desktop.db"));
+      try {
+        db.exec("CREATE TABLE preferences(name TEXT PRIMARY KEY, document TEXT NOT NULL) STRICT");
+        db.prepare("INSERT INTO preferences VALUES ('settings', ?)").run(JSON.stringify(old));
+      } finally {
+        db.close();
+      }
+    } else await writeFile(join(directory, "settings.json"), JSON.stringify(old));
+    const store = new DesktopStore(directory);
+    try {
+      await store.load();
+      expect(store.settings()).toMatchObject({ appearance: "dark", voiceGenerationEnabled: true });
+      expect(documents(directory)).not.toContain("diagramGenerationEnabled");
+      expect(documents(directory)).toContain('\\"provider\\":\\"openrouter\\"');
+    } finally {
+      await store.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});

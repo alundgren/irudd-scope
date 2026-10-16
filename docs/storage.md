@@ -64,7 +64,7 @@ The Sketchpad stores one `tab_drafts` row with Excalidraw's local serialization
 and its zoom and pan. That serialization omits deleted elements and images no
 element uses, so removed images leave storage on the next save. An empty canvas
 has no row: deleting every element removes it, and Reset canvas removes it when
-its ten-second undo window ends or the tab closes or Scope quits. SQLite reuses
+its ten-second undo window ends, the person leaves the tab, or Scope quits. SQLite reuses
 the freed pages; the file shrinks during regular maintenance. A draft over
 32 MiB is not saved and the Sketchpad shows an error.
 Quitting Scope, closing its last window, updating, and restarting preserve tabs

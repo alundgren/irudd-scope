@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CaptureUpdateAction, newElementWith } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
@@ -10,7 +10,12 @@ type PendingReset = {
 };
 
 // Reset clears the canvas at once but keeps saved content until the undo window ends.
-export function useCanvasReset(api: ExcalidrawImperativeAPI | undefined, settled: () => void) {
+// Call before useAutosave so its unmount flush sees the finished reset.
+export function useCanvasReset(
+  api: ExcalidrawImperativeAPI | undefined,
+  active: boolean,
+  settled: () => void,
+) {
   const pending = useRef<PendingReset | null>(null);
   const [resetting, setResetting] = useState(false);
   function finish(restore: boolean) {
@@ -50,11 +55,23 @@ export function useCanvasReset(api: ExcalidrawImperativeAPI | undefined, settled
     };
     setResetting(true);
   }
-  useEffect(() => () => clearTimeout(pending.current?.timer), []);
+  const latestFinish = useRef(finish);
+  latestFinish.current = finish;
+  // Leaving the Sketchpad keeps the reset, so a later undo elsewhere cannot restore it.
+  useLayoutEffect(() => () => latestFinish.current(false), []);
   useEffect(() => {
-    if (!resetting) return;
+    if (!active) finish(false);
+  }, [active]);
+  useEffect(() => {
+    if (!resetting || !active) return;
     // Excalidraw's history can be empty after loading, so the undo shortcut restores directly.
     const undo = (event: KeyboardEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        target?.closest("input, textarea, [contenteditable]") &&
+        !target.closest(".sketchpad-view")
+      )
+        return;
       if (
         (event.metaKey || event.ctrlKey) &&
         !event.shiftKey &&
@@ -68,6 +85,6 @@ export function useCanvasReset(api: ExcalidrawImperativeAPI | undefined, settled
     };
     window.addEventListener("keydown", undo, true);
     return () => window.removeEventListener("keydown", undo, true);
-  }, [resetting]);
+  }, [resetting, active]);
   return { resetting, isPending: () => pending.current !== null, reset, finish };
 }

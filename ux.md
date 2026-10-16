@@ -312,7 +312,7 @@ an image.
 Reset canvas clears the drawing immediately and shows "Canvas cleared." with
 Undo for ten seconds. Undo, Command-Z, or Ctrl+Z in that time restores the
 drawing. Drawing something new or opening a file ends the undo window and saves
-the new canvas. When the time passes, or the tab closes or Scope
+the new canvas. When the time passes, the person leaves or closes the Sketchpad, or Scope
 quits, Scope removes the stored drawing. An empty canvas takes no storage row.
 The canvas library lasts for the current session. The editor's bottom-right help
 button and sidebar trigger are hidden; the left menu offers both.
