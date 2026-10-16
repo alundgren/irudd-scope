@@ -19,7 +19,7 @@ flowchart LR
     Desktop --> DPAPI[Windows DPAPI]
     DPAPI -->|encrypted credentials| Preferences
     Desktop <-->|validated IPC| UI[Workspace host and built-in tab plugins]
-    Desktop -->|diagram and speech requests| Provider[OpenRouter]
+    Desktop -->|speech requests| Provider[OpenRouter]
 ```
 
 Speech generation lives in `apps/desktop/src/voice/`. Desktop main submits
@@ -65,7 +65,7 @@ and payloads never enter CLI arguments; the invitation's connection address does
 Tailcat is experimental; its hosted relays can observe connection metadata and
 provide rate-limited service without uptime guarantees.
 
-Send flushes edits and freezes an ordinary artifact or current diagram document.
+Send freezes an ordinary artifact, including an Excalidraw file, as published.
 Sharing links and Scope-to-Scope pairings are created only in the desktop app.
 The receiver can give an agent a tab sharing link and authorize
 `irudd-scope import-link LINK`. The authenticated publication API exposes only
@@ -134,7 +134,7 @@ hub publication queue.
 The CLI's `plan.ts` exports HTML and a visual feedback packet to explicit files,
 validates response files and submits replies. `plan-watch.ts` recovers pending
 rounds and listens for new submissions. `agent-notifications.ts` contains shared
-T3, Codex and Claude adapters used by both diagram and plan listeners. Listeners
+T3, Codex and Claude adapters used by plan listeners. Listeners
 notify an existing session and hold no model turn open. A durable round is the
 source of truth; SSE and host notices can repeat or be missed during disconnect.
 Scope does not orchestrate agent execution.
@@ -327,24 +327,19 @@ Use the same names in code, documentation, diagrams, issues, and reviews.
 Folders name the work they own. Names in saved records, commands, and wire
 formats are compatibility contracts.
 
-| Name                 | Meaning                                                                                             | Owner                                                                                                     |
-| -------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Artifact             | Latest published metadata and content for one stable ID.                                            | `packages/protocol/src/index.ts` defines the contract; `apps/desktop/src/library/` stores and serves it.  |
-| Revision             | Increasing integer for an artifact; writers supply the revision they read.                          | Artifact protocol and desktop artifact store.                                                             |
-| Tab name             | Optional second unique key, preserved across revisions and sessions.                                | Artifact protocol; desktop artifact store enforces uniqueness.                                            |
-| Diagram version      | Digest of the tab UUID and native canvas content, used for optimistic edits.                        | `packages/protocol/src/diagram-sync.ts`; desktop diagram editor.                                          |
-| Diagram working file | Explicit agent export with a native document, compact base, and version.                            | `packages/cli/src/diagram-working.ts`; disposable with the worktree.                                      |
-| Blob                 | Immutable bytes identified by SHA-256, stored in SQLite.                                            | `apps/desktop/src/library/store.ts`.                                                                      |
-| Source               | Optional publication provenance, such as host, repository, or agent. Unknown values stay absent.    | Protocol contract; `packages/cli` collects available values.                                              |
-| Artifact library     | Published artifact metadata and the desktop's connection status.                                    | `apps/desktop/src/library/library.ts`; `library/use-library.ts` tracks unread updates.                    |
-| Workspace            | Active, queued, and trashed tab records, retention timestamps, groups, and selection.               | `apps/desktop/src/workspace/contract.ts` defines the contract; `workspace/use-workspace.ts` manages tabs. |
-| Settings             | Appearance, provider configuration, and credential presence.                                        | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.               |
-| Semantic scene       | Diagram nodes, text, connections, and groups with stable IDs.                                       | `packages/protocol/src/diagram.ts`; desktop `scene.ts` validates relationships.                           |
-| Diagram operation    | A validated change to a semantic scene, such as moving a node or adding a connection.               | `packages/protocol/src/diagram.ts`; desktop `scene.ts` applies operations.                                |
-| Canvas               | The editable Excalidraw document and its view state.                                                | `apps/desktop/src/plugins/diagram/canvas.ts` converts scenes; `plugins/diagram/view.tsx` owns editing.    |
-| Diagram draft        | Working canvas, conversation, prompt, panel state, and view position based on an artifact revision. | `apps/desktop/src/plugins/diagram/draft.ts` defines the contract; `library/store.ts` stores drafts.       |
-| Diagram provider     | Generates validated diagram operations from an intent and semantic scene.                           | `apps/desktop/src/plugins/diagram/contract.ts`; `openrouter.ts` owns the external API format.             |
-| Publishing token     | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                      | Desktop discovery file; CLI and optional hub use it.                                                      |
+| Name             | Meaning                                                                                          | Owner                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Artifact         | Latest published metadata and content for one stable ID.                                         | `packages/protocol/src/index.ts` defines the contract; `apps/desktop/src/library/` stores and serves it.  |
+| Revision         | Increasing integer for an artifact; writers supply the revision they read.                       | Artifact protocol and desktop artifact store.                                                             |
+| Tab name         | Optional second unique key, preserved across revisions and sessions.                             | Artifact protocol; desktop artifact store enforces uniqueness.                                            |
+| Blob             | Immutable bytes identified by SHA-256, stored in SQLite.                                         | `apps/desktop/src/library/store.ts`.                                                                      |
+| Source           | Optional publication provenance, such as host, repository, or agent. Unknown values stay absent. | Protocol contract; `packages/cli` collects available values.                                              |
+| Artifact library | Published artifact metadata and the desktop's connection status.                                 | `apps/desktop/src/library/library.ts`; `library/use-library.ts` tracks unread updates.                    |
+| Workspace        | Active, queued, and trashed tab records, retention timestamps, groups, and selection.            | `apps/desktop/src/workspace/contract.ts` defines the contract; `workspace/use-workspace.ts` manages tabs. |
+| Settings         | Appearance, provider configuration, and credential presence.                                     | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.               |
+| Sketchpad        | The built-in Excalidraw canvas the person uses; agents have no access to it.                     | `apps/desktop/src/plugins/sketchpad/view.tsx` owns editing.                                               |
+| Sketchpad draft  | Local Excalidraw serialization and view position, stored only while the canvas is not empty.     | `apps/desktop/src/plugins/sketchpad/contract.ts`; `library/store.ts` stores drafts.                       |
+| Publishing token | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                   | Desktop discovery file; CLI and optional hub use it.                                                      |
 
 `packages/protocol` owns shared schemas, wire formats, limits, the discovery
 contract, and the HTTP client. It imports no app, filesystem, Electron, or
@@ -410,22 +405,20 @@ hash, which macOS uses for self-signed Keychain access, across ordinary updates.
 
 `desktop-store.ts` persists settings, workspace groups, and selection.
 `library/store.ts` persists tabs, artifact metadata, content references, bytes,
-and diagram drafts in `scope.db`. `lifecycle.ts` coordinates opening, closing,
+and the Sketchpad draft in `scope.db`. `lifecycle.ts` coordinates opening, closing,
 retention, and legacy imports. A saved tab owns its content and draft through foreign
 keys. Trash preserves those rows; permanent deletion removes them in one SQLite
 transaction. Their contracts live in `settings.ts`, `workspace/contract.ts`,
 `workspace/retention.ts`, and
-`plugins/diagram/draft.ts`, without filesystem or database dependencies. Provider
-configuration lives in `plugins/diagram/provider-settings.ts`; provider requests do
-not depend on desktop storage.
+`plugins/sketchpad/contract.ts`, without filesystem or database dependencies.
 
 `library/library.ts` watches publication events, refreshes metadata on
 connection, and caches content by revision. The sandboxed React renderer
 receives an `ArtifactLibrarySnapshot`. `library/use-library.ts`
 tracks unread updates, `workspace/use-workspace.ts` restores and saves tabs,
 and `workspace/search.tsx` presents search results. The workspace
-component owns layout, dialogs, and shortcuts. `plugins/diagram/` owns semantic scenes
-and their conversion to Excalidraw; `plugins/diagram/view.tsx` owns editing.
+component owns layout, dialogs, and shortcuts. `plugins/sketchpad/view.tsx` owns
+Sketchpad editing.
 
 ## Tabs, plugins, and groups
 
@@ -440,15 +433,15 @@ are not exposed. `source.sessionId` remains publication provenance.
 
 `workspace/` owns navigation, selection, closing, saved records, and event
 routing. `workspace/tab-host.tsx` supplies `TabContext`. File views load on first
-selection and remain mounted across tab switches. Diagram views mount immediately
-to receive editing commands. The error boundary in `tab-host.tsx` contains a
+selection and remain mounted across tab switches. The Sketchpad loads the same
+way and stays mounted while hidden. The error boundary in `tab-host.tsx` contains a
 failed view. Unknown plugin types and unsupported saved state remain stored and
 display an unavailable view.
 
 Each directory under `plugins/` owns one built-in implementation. `file/`
 keeps the existing image, Markdown, HTML, text, and download fallback views
-together. `diagram/` owns the editor, semantic operations,
-canvas conversion, provider calls, and draft contracts. A plugin can render
+together. `sketchpad/` owns the built-in Excalidraw editor, its Reset and
+undo window, and its draft contract. A plugin can render
 content without referencing a library item. Publication support is an optional
 registration. These are trusted modules in one renderer.
 Published HTML is trusted agent output and runs in an iframe without added restrictions.
@@ -634,72 +627,42 @@ link operations and error reporting. Markdown omits raw HTML and replaces links
 and images with text.
 Artifact downloads use a save dialog in main.
 
-OpenRouter is the diagram provider, using the model in `plugins/diagram/provider-settings.ts`. The
-settings form submits a new key to main and clears the input after saving.
+OpenRouter provides voice generation. The settings form submits a new key to main and clears the input after saving.
 Main stores the key through its credential store in a profile-specific macOS
 Keychain entry or a Windows DPAPI-encrypted record in `desktop.db`, and returns
 only presence or an access error. Linux and isolated development sessions
 keep keys in memory. Plaintext provider keys never enter SQLite, the hub, or artifact
 content.
 
-Diagram generation requires an explicit opt-in stored with desktop settings.
-Profiles without that preference default to off. Ordinary settings reads and
-writes do not access provider credentials. The shared OpenRouter settings section
-checks key presence through a named desktop IPC operation regardless of feature
-switches. Generation reads the key just before calling OpenRouter and checks its
-own feature switch in main. Saving and removing the shared key do not require
-either feature to be enabled. Voice generation has an independent opt-in and
-uses the same credential store.
+Voice generation requires an explicit opt-in stored with desktop settings.
+Ordinary settings reads and writes do not access provider credentials. The
+OpenRouter settings section checks key presence through a named desktop IPC
+operation regardless of the feature switch. Saving and removing the key do not
+require voice generation to be enabled.
 
-Create diagram and the Scope diagram agent recipient invoke the provider explicitly, one request
-at a time, with cancellation. The provider returns validated semantic
-operations and usage. The renderer applies those operations to Excalidraw.
-The diagram editor automatically saves canvas changes through the existing
-revision-checked publication API. It writes the draft first so a failed
-publication retains the working canvas. Conversation and viewport changes do
-not publish new artifact revisions.
-Concurrent edits and new artifact revisions retain the working canvas and
-offer recovery choices. The HTTP API accepts finished artifacts and semantic diagram operations. It
-also accepts narrow speech-generation requests. It does not expose arbitrary
-provider requests. Scope does not run or coordinate coding sessions.
-
-### Diagram authoring
-
-The shared protocol defines semantic diagram operations and named commands.
-The desktop diagram plugin validates relationships, converts native elements,
-and handles loaded tab drafts. Authenticated `POST /v1/diagrams` calls use named
-main-to-renderer IPC with a deadline. Creating a diagram publishes through the
-existing artifact API. Applying operations saves the draft and automatically publishes canvas changes,
-while retaining edits if publication fails or an incoming revision conflicts.
-The CLI owns file input and explicit PNG output. The hub only forwards requests.
-Embedded generation receives bounded recent conversation, current selection,
-and read-only object summaries as well as the editable scene. Supported imported
-and manually drawn objects use stable native aliases in semantic operations.
+The HTTP API accepts finished artifacts and narrow speech-generation requests.
+It does not expose arbitrary provider requests or the Sketchpad. Scope does not
+run or coordinate coding sessions.
 
 ### Coding session notifications
 
 Codex, Claude Code, or the enclosing host owns the coding session, its tools,
 and its lifetime. Scope's desktop and hub do not launch those processes or
-retain their transcripts. A named diagram identifies the document; the listener's
+retain their transcripts. A named plan identifies the document; the listener's
 explicit host and thread arguments select the session. Publication provenance
 such as `source.sessionId` does not establish a connection.
 
 ```text
-Human edits, sends a message, or decides a proposal
+Human submits a plan feedback round
   |
-  v
-Scope editor (renderer)
-  | scope:diagram-event IPC
   v
 Scope desktop main -- GET /v1/events (SSE) -- [optional paired hub]
   |                                                        |
   +-------------------- direct or relayed ------------------+
                               |
                               v
-               irudd-scope diagram watch NAME
-               filter by artifact; coalesce for 800 ms
-               host: messages and proposal decisions
-               --watch-edits also sends canvas edits
+               irudd-scope plan watch NAME
+               filter by plan; recover pending rounds
                               |
              +----------------+------------------+
              |                |                  |
@@ -715,7 +678,7 @@ Scope desktop main -- GET /v1/events (SSE) -- [optional paired hub]
              +----------------+----------> existing agent session
 ```
 
-The adapters live in `packages/cli/src/diagram-watch.ts`. The Codex listener
+The adapters live in `packages/cli/src/agent-notifications.ts`. The Codex listener
 connects to the App Server that owns the existing thread, initializes its RPC
 connection, and reads that thread before delivering notices. For an active turn
 it supplies the expected turn ID when steering. An unrelated App Server cannot
@@ -733,59 +696,7 @@ channel requires support and enablement in that Claude host. Scope cannot wake
 a closed Claude session. The [agent connection instructions](../.agents/skills/irudd-scope/references/agent-connections.md)
 contain the commands and host configuration.
 
-Host listeners send human messages and proposal decisions by default.
-`--watch-edits` also sends canvas changes; plain stdout observers receive all
-events. Notices carry message text and diagram versions, not full diagrams. The agent
-uses `diagram rebase` to read changes, edits its working file, then uses
-`diagram push` or `diagram propose` for visual review. `diagram reply` adds its
-response to the conversation. These calls use `POST /v1/diagrams/sync`, through
-the optional hub, then main-to-renderer IPC to the loaded editor. Writes check
-the current version and autosave through the artifact API. External writes do
-not echo back as human edits; embedded generation does notify listeners.
-
-A listener reconnects after a Scope event-stream disconnect and checks the
-current version. Missed canvas edits can be recovered with a rebase; missed
-messages are not replayed. Stop it when the task ends. Tab deletion or loss of
-its working directory also stops it. A host delivery error ends the listener
-with a diagnostic; inspect the session before retrying uncertain delivery.
-
-### Connected diagram agents
-
-An authenticated publisher can explicitly wait for a request from its diagram
-tab through `POST /v1/diagram-agents`. Desktop main owns bounded, temporary
-connection records. The tab sends intent, recent conversation, and a current
-snapshot only to an active waiter. A request-specific credential authorizes the
-reply; semantic edits use the same snapshot validation and automatic publication as
-other diagram commands. Connection records and reply credentials never enter
-SQLite. Renderer reload, tab close, cancellation, expiry, and desktop shutdown
-end them. The hub only forwards the HTTP traffic.
-
-Moving a tab to Trashcan ends its connection through the desktop lifecycle.
-Restoring that same tab UUID preserves its document and conversation, but does
-not restore requests or credentials. Permanent deletion and a later publication
-under the same artifact ID also require a fresh connection.
-
-This path needs no host adapter. Codex and Claude both receive the request as
-the result of a tool command they explicitly ran in their existing session:
-
-```text
-Running agent -- tool: diagram-agent wait ID --> desktop holds HTTP request
-                                                      ^
-Human -- Connected agent / Send --> renderer -- IPC ---+
-                                                      |
-Running agent <-- tool result: intent + canvas + token -+
-      |
-      +-- reasons and prepares operations
-      |
-      +-- tool: diagram-agent reply FILE --> desktop checks request + snapshot
-                                                      |
-Human <-- reply text + autosaved canvas <-- renderer ---+
-```
-
-An idle wait returns after 20 seconds. The agent explicitly waits again while
-it remains available, and after each accepted reply. A delivered request has
-a five-minute reply deadline. The CLI exits after returning each result; the
-agent host continues its existing tool loop. Running a wait command outside
-that loop does not attach it to a model. This mode does not resume an idle or
-closed host session. Connected-agent selection is temporary; existing named
-or embedded recipient preferences remain in the draft.
+A listener reconnects after a Scope event-stream disconnect and recovers saved
+pending rounds. Stop it when the task ends. Plan deletion or loss of its working
+directory also stops it. A host delivery error ends the listener with a
+diagnostic; inspect the session before retrying uncertain delivery.

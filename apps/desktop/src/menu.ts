@@ -1,12 +1,8 @@
 import { Menu, MenuItem, type BrowserWindow, type MenuItemConstructorOptions } from "electron";
-import type { DiagramMenuAction, DiagramMenuState } from "./menu-contract.ts";
+import type { SketchpadMenuState } from "./menu-contract.ts";
 
 export function createApplicationMenu(window: BrowserWindow) {
-  let target: DiagramMenuState = null;
-  function send(action: DiagramMenuAction["action"]) {
-    if (target && !window.isDestroyed())
-      window.webContents.send("scope:diagram-menu-action", { tabId: target.tabId, action });
-  }
+  let target: SketchpadMenuState = null;
   const menu = Menu.buildFromTemplate([
     ...(process.platform === "darwin" ? [{ role: "appMenu" } as MenuItemConstructorOptions] : []),
     { id: "file", role: "fileMenu" },
@@ -14,30 +10,24 @@ export function createApplicationMenu(window: BrowserWindow) {
     { id: "view", role: "viewMenu" },
     { role: "windowMenu" },
   ]);
-  const saveCopy = new MenuItem({
-    id: "diagram-save-copy",
-    label: "Save a copy",
-    enabled: false,
-    click: () => send("save-copy"),
-  });
   const fit = new MenuItem({
-    id: "diagram-fit",
+    id: "sketchpad-fit",
     label: "Fit to canvas",
     enabled: false,
-    click: () => send("fit"),
+    click: () => {
+      if (target && !window.isDestroyed())
+        window.webContents.send("scope:sketchpad-menu-action", {
+          tabId: target.tabId,
+          action: "fit",
+        });
+    },
   });
-  for (const [id, item] of [
-    ["file", saveCopy],
-    ["view", fit],
-  ] as const) {
-    const submenu = menu.getMenuItemById(id)!.submenu!;
-    submenu.insert(0, item);
-    submenu.insert(1, new MenuItem({ type: "separator" }));
-  }
+  const view = menu.getMenuItemById("view")!.submenu!;
+  view.insert(0, fit);
+  view.insert(1, new MenuItem({ type: "separator" }));
   Menu.setApplicationMenu(menu);
-  return (state: DiagramMenuState) => {
+  return (state: SketchpadMenuState) => {
     target = state;
-    saveCopy.enabled = state?.canSaveCopy ?? false;
     fit.enabled = state?.canFit ?? false;
   };
 }

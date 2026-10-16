@@ -24,12 +24,6 @@ const settingsSections = [
     terms: "theme system light dark colors",
   },
   {
-    id: "model",
-    title: "Diagram generation",
-    description: "Enable diagram generation and view its model",
-    terms: "openrouter gemini",
-  },
-  {
     id: "voice",
     title: "Voice generation",
     description: "Let coding agents generate narration audio",
@@ -39,7 +33,7 @@ const settingsSections = [
     id: "credentials",
     title: "OpenRouter",
     description: "Save, replace, or remove the shared API key",
-    terms: "provider credentials key keychain windows dpapi gemini diagram voice speech tts",
+    terms: "provider credentials key keychain windows dpapi gemini voice speech tts",
   },
   {
     id: "remotes",

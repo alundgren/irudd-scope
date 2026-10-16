@@ -655,11 +655,11 @@ test.for(["error", "bad-format", "odd", "large"])(
 
 test("speech keeps concurrency and expiry limits without a retained request count limit", async () => {
   const f = await fixture();
-  await f.store.saveSettings({ voiceGenerationEnabled: false, diagramGenerationEnabled: true });
+  await f.store.saveSettings({ voiceGenerationEnabled: false });
   await expect(f.client.submitVoice({ requestId: "off", text: "Hello" })).rejects.toMatchObject({
     status: 403,
   });
-  await f.store.saveSettings({ voiceGenerationEnabled: true, diagramGenerationEnabled: false });
+  await f.store.saveSettings({ voiceGenerationEnabled: true });
   expect((await f.credentials.read()).apiKey).toBe("synthetic-shared-key");
   await expect(
     f.client.submitVoice({ requestId: "too-big", text: "界".repeat(6000) }),

@@ -65,48 +65,6 @@ export const lintExceptions: readonly LintException[] = [
       "Electron startup registers services and their matching shutdown callbacks around the same window and databases. Keep resource initialization and cleanup order together instead of passing a mutable service collection between modules.",
   },
   {
-    file: "apps/desktop/src/plugins/diagram/canvas.ts",
-    at: "export function renderScene(",
-    limits: { "max-lines-per-function": 152 },
-    reason:
-      "Rendering measures native text before placing group borders and connections. The ordered conversion and its element data stay together so labels, bounds, and stable IDs remain consistent.",
-  },
-  {
-    file: "apps/desktop/src/plugins/diagram/chat.tsx",
-    at: "export function DiagramChat({",
-    limits: { complexity: 11 },
-    reason:
-      "One chat panel renders empty history, generation progress, opt-in recovery, and send or cancel controls. Its short conditional JSX keeps each action beside the state that enables it.",
-  },
-  {
-    file: "apps/desktop/src/plugins/diagram/openrouter.ts",
-    at: "generateDiagram: async (input, signal) => {",
-    limits: { complexity: 13 },
-    reason:
-      "A single provider request translates transport failures, validates bounded model output and operations, and reads optional usage. Keeping this sequence together preserves the rule that invalid output never reaches the canvas.",
-  },
-  {
-    file: "apps/desktop/src/plugins/diagram/scene.ts",
-    at: "export function applyOperations(",
-    limits: { complexity: 24 },
-    reason:
-      "The switch implements the finite diagram operation contract on a cloned scene, then validates the complete batch. Separate handlers would share mutable scene state and obscure atomic batch validation.",
-  },
-  {
-    file: "apps/desktop/src/plugins/diagram/view.tsx",
-    at: "export function DiagramView({",
-    limits: { "max-lines-per-function": 380 },
-    reason:
-      "The editor owns the canvas API, revision and dirty refs, draft autosave, and active generation request. Those callbacks share state to preserve edits during publication conflicts, cancellation, and restart.",
-  },
-  {
-    file: "apps/desktop/src/plugins/diagram/view.tsx",
-    at: "useEffect(() => {\nif (!api) return;",
-    limits: { complexity: 12 },
-    reason:
-      "Initial canvas loading chooses a compatible saved draft and restores its viewport. Its cleanup cancels the request owned by this mounted editor; the fallback checks are one restoration decision.",
-  },
-  {
     file: "apps/desktop/src/renderer/agent-tool-settings.tsx",
     at: "export function AgentToolSettings({",
     limits: { complexity: 13 },
@@ -313,13 +271,6 @@ export const lintExceptions: readonly LintException[] = [
     limits: { "max-lines": 502 },
     reason:
       "These publication tests share real CLI, HTTP server, and isolated library fixtures. The file groups successful publication with authentication, forwarding, deadlines, and provenance failures at the same public entry points.",
-  },
-  {
-    file: "tests/diagram-desktop.test.ts",
-    at: 'test("an agent-created diagram preserves editing, drafts, conflicts, and cancellation", async () => {',
-    limits: { "max-lines-per-function": 311 },
-    reason:
-      "This complete editor journey carries one artifact and its draft through generation, editing, cancellation, failed writes, conflicts, restart, copy, and permanent close. Splitting it would lose the continuity the assertions verify.",
   },
   {
     file: "tests/installation.test.ts",

@@ -92,7 +92,7 @@ export async function transferFixture() {
         {
           id: tabId,
           groupId: workspace.groups[0].id,
-          type: kind === "excalidraw" ? "diagram" : "file",
+          type: "file",
           title: artifact.title,
           state: { version: 1, data: { artifactId: id } },
         },

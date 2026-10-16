@@ -2,7 +2,6 @@ import { expect, test } from "vite-plus/test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
-import { emptyScene } from "../apps/desktop/src/plugins/diagram/contract.ts";
 
 test("Settings starts with folded sections, opens search matches, and preserves input", async () => {
   const { directory, launch } = await desktopFixture();
@@ -14,7 +13,7 @@ test("Settings starts with folded sections, opens search matches, and preserves 
     const settings = page.getByRole("dialog", { name: "Settings", exact: true });
     const search = settings.getByLabel("Search settings");
     const appearance = settings.getByRole("button", { name: "Appearance", exact: true });
-    const diagram = settings.getByRole("button", { name: "Diagram generation", exact: true });
+    const voiceSection = settings.getByRole("button", { name: "Voice generation", exact: true });
     const key = settings.getByLabel("OpenRouter API key");
     await expect
       .poll(() => search.evaluate((element) => element === document.activeElement))
@@ -30,8 +29,8 @@ test("Settings starts with folded sections, opens search matches, and preserves 
     await page.keyboard.press("Space");
     expect(await settings.getByLabel("Appearance", { exact: true }).isVisible()).toBe(false);
 
-    await diagram.click();
-    const enable = settings.getByRole("switch", { name: "Diagram generation", exact: true });
+    await voiceSection.click();
+    const enable = settings.getByRole("switch", { name: "Voice generation", exact: true });
     expect(await enable.getAttribute("aria-checked")).toBe("false");
     expect(await key.isVisible()).toBe(false);
     await enable.focus();
@@ -78,9 +77,9 @@ test("Settings starts with folded sections, opens search matches, and preserves 
           path: join(process.env.SCOPE_TEST_SCREENSHOTS, `settings-${theme}.png`),
           animations: "disabled",
         });
-        await search.fill("diagram generation");
+        await search.fill("voice generation");
         await page.screenshot({
-          path: join(process.env.SCOPE_TEST_SCREENSHOTS, `diagram-settings-${theme}.png`),
+          path: join(process.env.SCOPE_TEST_SCREENSHOTS, `voice-settings-${theme}.png`),
           animations: "disabled",
         });
         await search.fill("");
@@ -132,23 +131,17 @@ test("shared key checks require an open OpenRouter section and failed access can
   try {
     const page = await application.firstWindow();
     await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
-    await expect(
-      page.evaluate(
-        (scene) => window.scope.generateDiagram({ intent: "Draw a browser", scene }),
-        emptyScene(),
-      ),
-    ).rejects.toThrow("Enable diagram generation");
     const initial = await page.evaluate(() => window.scope.settings());
     await application.evaluate(({ ipcMain }, settings) => {
       const access = { checks: 0, fail: true, hasApiKey: false };
-      Object.assign(globalThis, { scopeTestDiagramAccess: access });
+      Object.assign(globalThis, { scopeTestKeyAccess: access });
       ipcMain.removeHandler("scope:provider-settings");
       ipcMain.handle("scope:provider-settings", () => {
         access.checks++;
         return {
           ...settings,
           keyStorage: "windows",
-          diagramGenerationEnabled: true,
+          voiceGenerationEnabled: true,
           hasApiKey: access.fail ? null : access.hasApiKey,
           ...(access.fail
             ? { credentialError: "Key status is unavailable. Retry to request access again." }
@@ -159,15 +152,15 @@ test("shared key checks require an open OpenRouter section and failed access can
     const checks = () =>
       application.evaluate(
         () =>
-          (globalThis as unknown as { scopeTestDiagramAccess: { checks: number } })
-            .scopeTestDiagramAccess.checks,
+          (globalThis as unknown as { scopeTestKeyAccess: { checks: number } }).scopeTestKeyAccess
+            .checks,
       );
 
     await page.keyboard.press("ControlOrMeta+,");
-    await page.getByLabel("Search settings").fill("diagram generation");
+    await page.getByLabel("Search settings").fill("voice generation");
     const settings = page.getByRole("dialog", { name: "Settings", exact: true });
     const search = settings.getByLabel("Search settings");
-    const enable = settings.getByRole("switch", { name: "Diagram generation", exact: true });
+    const enable = settings.getByRole("switch", { name: "Voice generation", exact: true });
     const key = settings.getByLabel("OpenRouter API key");
     expect(await enable.getAttribute("aria-checked")).toBe("false");
     expect(await key.isVisible()).toBe(false);
@@ -175,7 +168,7 @@ test("shared key checks require an open OpenRouter section and failed access can
     if (process.env.SCOPE_TEST_SCREENSHOTS) {
       await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
       await page.screenshot({
-        path: join(process.env.SCOPE_TEST_SCREENSHOTS, "diagram-generation-off.png"),
+        path: join(process.env.SCOPE_TEST_SCREENSHOTS, "voice-generation-off.png"),
         animations: "disabled",
       });
     }
@@ -188,21 +181,20 @@ test("shared key checks require an open OpenRouter section and failed access can
     expect(await checks()).toBe(1);
     expect(await settings.getByText("No key saved", { exact: true }).isVisible()).toBe(false);
     await application.evaluate(() => {
-      (
-        globalThis as unknown as { scopeTestDiagramAccess: { fail: boolean } }
-      ).scopeTestDiagramAccess.fail = false;
+      (globalThis as unknown as { scopeTestKeyAccess: { fail: boolean } }).scopeTestKeyAccess.fail =
+        false;
     });
     await settings.getByRole("button", { name: "Retry key access" }).click();
     await settings.getByText("No key saved", { exact: true }).waitFor();
     expect(await checks()).toBe(2);
-    await key.fill("synthetic-diagram-key");
+    await key.fill("synthetic-provider-key");
     await settings.getByRole("button", { name: "Save key", exact: true }).click();
     await settings.getByText("Key saved", { exact: true }).waitFor();
     await settings.getByText(/This development session keeps keys in memory/).waitFor();
     await application.evaluate(() => {
       (
-        globalThis as unknown as { scopeTestDiagramAccess: { hasApiKey: boolean } }
-      ).scopeTestDiagramAccess.hasApiKey = true;
+        globalThis as unknown as { scopeTestKeyAccess: { hasApiKey: boolean } }
+      ).scopeTestKeyAccess.hasApiKey = true;
     });
 
     await search.fill("theme");
@@ -218,16 +210,16 @@ test("shared key checks require an open OpenRouter section and failed access can
     await search.fill("credentials");
     await settings.getByText("Key saved", { exact: true }).waitFor();
     expect(await checks()).toBe(3);
-    await search.fill("diagram generation");
+    await search.fill("voice generation");
     await enable.click();
     await expect.poll(() => enable.getAttribute("aria-checked")).toBe("false");
     expect(await key.isVisible()).toBe(false);
     await search.fill("theme");
-    await search.fill("diagram generation");
+    await search.fill("voice generation");
     expect(await checks()).toBe(3);
     await settings.getByRole("button", { name: "Close", exact: true }).click();
     await page.keyboard.press("ControlOrMeta+,");
-    await search.fill("diagram generation");
+    await search.fill("voice generation");
     await enable.click();
     await search.fill("credentials");
     await settings.getByText("Key saved", { exact: true }).waitFor();
@@ -238,7 +230,7 @@ test("shared key checks require an open OpenRouter section and failed access can
   }
 });
 
-test("generation switches show confirmed state and allow retry after a failed save", async () => {
+test("the voice generation switch shows confirmed state and allows retry after a failed save", async () => {
   const { directory, launch } = await desktopFixture();
   const application = await launch();
   try {
@@ -248,22 +240,16 @@ test("generation switches show confirmed state and allow retry after a failed sa
     const settings = page.getByRole("dialog", { name: "Settings", exact: true });
     const search = settings.getByLabel("Search settings");
     await search.fill("generation");
-    const diagram = settings.getByRole("switch", { name: "Diagram generation", exact: true });
     const voice = settings.getByRole("switch", { name: "Voice generation", exact: true });
-    const diagramRow = settings.locator(".setting-switch").filter({
-      has: page.getByRole("switch", { name: "Diagram generation", exact: true }),
-    });
     const voiceRow = settings.locator(".setting-switch").filter({
       has: page.getByRole("switch", { name: "Voice generation", exact: true }),
     });
-    await diagram.waitFor();
     await voice.waitFor();
-    expect(await diagram.getAttribute("aria-checked")).toBe("false");
-    expect(await diagramRow.getByText("Off", { exact: true }).isVisible()).toBe(true);
-    await voice.focus();
-    await page.keyboard.press("Space");
-    await expect.poll(() => voice.getAttribute("aria-checked")).toBe("true");
-    expect(await voiceRow.getByText("On", { exact: true }).isVisible()).toBe(true);
+    expect(await voice.getAttribute("aria-checked")).toBe("false");
+    expect(await voiceRow.getByText("Off", { exact: true }).isVisible()).toBe(true);
+    expect(
+      await settings.getByRole("switch", { name: "Diagram generation", exact: true }).count(),
+    ).toBe(0);
 
     const initial = await page.evaluate(() => window.scope.settings());
     await application.evaluate(({ ipcMain }, saved) => {
@@ -287,11 +273,10 @@ test("generation switches show confirmed state and allow retry after a failed sa
         return state.saved;
       });
     }, initial);
-    await diagramRow.locator("label").click();
-    await expect.poll(() => diagram.isDisabled()).toBe(true);
-    expect(await voice.isDisabled()).toBe(true);
-    expect(await diagram.getAttribute("aria-checked")).toBe("false");
-    expect(await diagramRow.getByText("Off", { exact: true }).isVisible()).toBe(true);
+    await voiceRow.locator("label").click();
+    await expect.poll(() => voice.isDisabled()).toBe(true);
+    expect(await voice.getAttribute("aria-checked")).toBe("false");
+    expect(await voiceRow.getByText("Off", { exact: true }).isVisible()).toBe(true);
     await application.evaluate(() => {
       (
         globalThis as unknown as { scopeTestSwitchSave: { reject: () => void } }
@@ -301,16 +286,15 @@ test("generation switches show confirmed state and allow retry after a failed sa
       .getByRole("status")
       .filter({ hasText: "Synthetic settings save failure." })
       .waitFor();
-    expect(await diagram.isEnabled()).toBe(true);
     expect(await voice.isEnabled()).toBe(true);
-    expect(await diagram.getAttribute("aria-checked")).toBe("false");
-    expect(await diagramRow.getByText("Off", { exact: true }).isVisible()).toBe(true);
-    await diagramRow.locator("label").click();
-    await expect.poll(() => diagram.getAttribute("aria-checked")).toBe("true");
-    expect(await diagramRow.getByText("On", { exact: true }).isVisible()).toBe(true);
-    await diagram.focus();
+    expect(await voice.getAttribute("aria-checked")).toBe("false");
+    expect(await voiceRow.getByText("Off", { exact: true }).isVisible()).toBe(true);
+    await voiceRow.locator("label").click();
+    await expect.poll(() => voice.getAttribute("aria-checked")).toBe("true");
+    expect(await voiceRow.getByText("On", { exact: true }).isVisible()).toBe(true);
+    await voice.focus();
     await page.keyboard.press("Enter");
-    await expect.poll(() => diagram.getAttribute("aria-checked")).toBe("false");
+    await expect.poll(() => voice.getAttribute("aria-checked")).toBe("false");
 
     for (const theme of ["light", "dark"]) {
       await search.fill("appearance");
@@ -320,10 +304,9 @@ test("generation switches show confirmed state and allow retry after a failed sa
       await page.setViewportSize(
         theme === "light" ? { width: 1280, height: 820 } : { width: 480, height: 680 },
       );
-      await diagram.focus();
-      expect(await diagram.evaluate((element) => element === document.activeElement)).toBe(true);
-      expect(await diagramRow.getByText("Off", { exact: true }).isVisible()).toBe(true);
-      expect(await voiceRow.getByText("On", { exact: true }).isVisible()).toBe(true);
+      await voice.focus();
+      expect(await voice.evaluate((element) => element === document.activeElement)).toBe(true);
+      expect(await voiceRow.getByText("Off", { exact: true }).isVisible()).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
         false,
       );

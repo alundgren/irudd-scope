@@ -17,29 +17,7 @@ unavailable, the person can use Copy agent request in the plan's Feedback panel
 and paste the request into their coding session. It identifies the saved round
 so the agent can retrieve its comments and screenshots.
 
-The following diagram-specific version and working-file rules remain for
-`diagram watch`; host setup, credentials and process lifetime apply to both.
-
-`irudd-scope diagram watch NAME` holds one event connection to Scope, including
-through a paired hub. With a host destination, it wakes the agent for human
-messages and proposal acceptance or rejection. Canvas edits wait until the next
-request; rebase then to read the current canvas. Creating a proposal does not
-wake the agent that submitted it. Add `--watch-edits` only when the person wants
-live canvas feedback. Without a host destination, stdout includes all notices.
-
-Agent writes do not echo back as human edits. Notices coalesce for 800 ms;
-ignored canvas edits do not delay a queued message. On reconnect the listener
-checks the current version. Messages are transient and have no replay guarantee.
-Scope chat retains the conversation in its tab.
-If the editor is busy or still loading, the listener waits for its version
-without starting an agent turn. It reports `Listening to NAME` once that check
-succeeds. Stop the process to cancel the wait.
-Startup also waits through temporary Scope or T3 connection failures.
-Authentication failures, missing diagrams, and invalid host responses stop with
-an error. A reconnect during a pending version read schedules another read, so
-edit observers can recover the current version after a disconnect.
-
-Stop the listener when the task ends. It also stops when the named tab is deleted
+Stop the listener when the task ends. It also stops when the named plan is deleted
 or its working directory disappears. Run it from the worktree. Listeners store
 no global model or event cache. Use one destination per listener. The listener
 holds no model turn open. Do not keep a tool call waiting or poll it in an agent
@@ -61,7 +39,7 @@ Take the T3 thread ID from the active thread URL, and verify the thread's
 worktree before connecting; the provider's Codex thread ID is different.
 
 ```sh
-irudd-scope diagram watch NAME --t3-thread THREAD_ID \
+irudd-scope plan watch NAME --t3-thread THREAD_ID \
   --t3-token-file /private/token-file
 ```
 
@@ -76,23 +54,21 @@ after the launching tool call returns. Supply absolute paths and an explicit
 T3 address because the service manager does not inherit the tool's environment:
 
 ```sh
-systemd-run --user --collect --unit=scope-diagram-NAME \
+systemd-run --user --collect --unit=scope-plan-NAME \
   --working-directory="$PWD" \
   --setenv=SCOPE_CONNECTION_FILE=/absolute/path/to/desktop.json \
-  /absolute/path/to/irudd-scope diagram watch NAME --t3-thread THREAD_ID \
+  /absolute/path/to/irudd-scope plan watch NAME --t3-thread THREAD_ID \
   --t3-endpoint http://T3_ADDRESS:3773 --t3-token-file /private/token-file
-journalctl --user -u scope-diagram-NAME -n 10 --no-pager
+journalctl --user -u scope-plan-NAME -n 10 --no-pager
 ```
 
-Verify `Listening to NAME` in the log before reporting a connection. When the
-task ends, run `systemctl --user stop scope-diagram-NAME`. Do not enable automatic
+Verify `Listening for submitted feedback on NAME` in the log before reporting a
+connection. When the task ends, run `systemctl --user stop scope-plan-NAME`. Do not enable automatic
 restart after a host delivery error: inspect the thread before reconnecting so
 an uncertain request is not repeated. On other hosts, use their managed process
 facility with the same lifetime and cleanup rules.
 
-For a plan, replace `diagram watch` with `plan watch` and use a unit such as
-`scope-plan-NAME`. Verify `Listening for submitted feedback on NAME`, and stop
-that unit when the plan task ends. Reconnecting recovers saved pending rounds.
+Reconnecting recovers saved pending rounds.
 
 T3 receives a user follow-up through its authenticated orchestration API.
 Delivery while busy follows T3's queue behavior. Its command ID remains the
@@ -106,7 +82,7 @@ thread. Connecting to an unrelated App Server does not wake a terminal session
 owned by another process. Use the host's thread ID and endpoint:
 
 ```sh
-irudd-scope diagram watch NAME --codex-thread THREAD_ID --codex-url ws://127.0.0.1:4500
+irudd-scope plan watch NAME --codex-thread THREAD_ID --codex-url ws://127.0.0.1:4500
 ```
 
 Scope starts a turn when idle and steers the active turn using its expected
@@ -117,14 +93,14 @@ no universal external wake-up endpoint. Use T3's adapter for T3 sessions.
 ## Claude Code channels
 
 Register a local stdio MCP server in the project's `.mcp.json`, using an absolute
-CLI path and the diagram name:
+CLI path and the plan name:
 
 ```json
 {
   "mcpServers": {
-    "scope-diagram": {
+    "scope-plan": {
       "command": "/absolute/path/to/irudd-scope",
-      "args": ["diagram", "watch", "NAME", "--claude-channel"]
+      "args": ["plan", "watch", "NAME", "--claude-channel"]
     }
   }
 }
@@ -132,9 +108,9 @@ CLI path and the diagram name:
 
 Supply remote Scope connection settings through this server's `env` when needed.
 Launch Claude with
-`claude --dangerously-load-development-channels server:scope-diagram` for a
+`claude --dangerously-load-development-channels server:scope-plan` for a
 custom development channel. This preview feature also depends on the account
 and organization's channel policy. The adapter speaks MCP over stdio and sends
 `notifications/claude/channel`. Claude owns the process and its lifetime.
 Claude can receive a notice while idle or between active turns; a closed session
-cannot wake. Use the same CLI working file and conflict workflow for replies.
+cannot wake.

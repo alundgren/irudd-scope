@@ -7,7 +7,7 @@ changes and reviews. [UI decisions](../../../../ux.md) records product choices;
 `tokens.css` owns shared visual values. `style.css` maps them to component roles
 and lays out the desktop. Its Tailwind source scan covers all of `src/`,
 including plugin and workspace views. Reuse `components/ui/` controls. Keep arbitrary
-palette values out of components. Artifact content and Excalidraw drawing
+palette values out of components. Artifact content and Sketchpad drawing
 colors are separate from the control theme.
 
 Call named operations on `window.scope`. Use type-only imports for main-owned

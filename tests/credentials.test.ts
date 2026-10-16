@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { keychainCredentials } from "../apps/desktop/src/credentials.ts";
 import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
-import { DIAGRAM_MODEL } from "../apps/desktop/src/plugins/diagram/provider-settings.ts";
 import { randomBytes, randomUUID } from "node:crypto";
 
 function keychainEntry(initial: string | null | undefined) {
@@ -76,7 +75,7 @@ test("Keychain retains remote credentials across store instances and provider ke
       { id, name: "Test remote", endpoint: "https://remote.example.test", enabled: true },
       token,
     );
-    await first.saveSettings({ diagramGenerationEnabled: true, apiKey: "synthetic-provider-key" });
+    await first.saveSettings({ voiceGenerationEnabled: true, apiKey: "synthetic-provider-key" });
     await first.close();
     await second.load();
     expect(await second.remoteToken(id)).toBe(token);
@@ -149,14 +148,14 @@ test("legacy keys migrate on first use when the native Keychain entry does not e
       JSON.stringify({
         version: 2,
         provider: "openrouter",
-        model: DIAGRAM_MODEL,
+        model: "google/gemini-3.8-flash",
         apiKey: Buffer.from("synthetic-encrypted-key").toString("base64"),
       }),
     );
     await store.load();
-    expect(store.settings()).toMatchObject({ diagramGenerationEnabled: false, hasApiKey: null });
+    expect(store.settings()).toMatchObject({ voiceGenerationEnabled: false, hasApiKey: null });
     expect(await credentials.read()).toEqual({});
-    await store.saveSettings({ diagramGenerationEnabled: true });
+    await store.saveSettings({ voiceGenerationEnabled: true });
     await store.providerSettings();
     expect(store.settings()).toMatchObject({ hasApiKey: true, keyStorage: "keychain" });
     expect(store.settings().credentialError).toBeUndefined();
@@ -177,29 +176,20 @@ test("shared credentials are lazy and independent of both generation switches ac
   let store = new DesktopStore(directory, keychainCredentials(entry));
   try {
     await store.load();
-    expect(store.settings()).toMatchObject({
-      diagramGenerationEnabled: false,
-      voiceGenerationEnabled: false,
-      hasApiKey: null,
-    });
+    expect(store.settings()).toMatchObject({ voiceGenerationEnabled: false, hasApiKey: null });
     await store.saveSettings({ appearance: "dark" });
     await store.saveSettings({ voiceGenerationEnabled: true });
     expect(read).not.toHaveBeenCalled();
     expect(await store.providerSettings()).toMatchObject({ hasApiKey: true });
     expect(await store.secret("apiKey")).toBe("existing-synthetic-key");
-    await store.saveSettings({ diagramGenerationEnabled: true, voiceGenerationEnabled: false });
+    await store.saveSettings({ voiceGenerationEnabled: false });
     expect(await store.secret("apiKey")).toBe("existing-synthetic-key");
-    await store.saveSettings({ diagramGenerationEnabled: false });
     expect(await store.providerSettings()).toMatchObject({ hasApiKey: true });
     await store.saveSettings({ apiKey: "replacement" });
     await store.close();
     store = new DesktopStore(directory, keychainCredentials(entry));
     await store.load();
-    expect(store.settings()).toMatchObject({
-      diagramGenerationEnabled: false,
-      voiceGenerationEnabled: false,
-      hasApiKey: null,
-    });
+    expect(store.settings()).toMatchObject({ voiceGenerationEnabled: false, hasApiKey: null });
     expect(await store.secret("apiKey")).toBe("replacement");
     await store.saveSettings({ removeApiKey: true });
     expect(await store.secret("apiKey")).toBeUndefined();

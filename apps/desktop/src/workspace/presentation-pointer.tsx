@@ -25,7 +25,7 @@ export function PresentationPointer({ tabId }: { tabId: string }) {
       if (
         event.target instanceof Element &&
         pane.contains(event.target) &&
-        event.target.closest(".diagram-view")
+        event.target.closest(".sketchpad-view")
       )
         draw(event);
       else overlay.style.opacity = "0";

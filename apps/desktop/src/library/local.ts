@@ -10,9 +10,6 @@ export async function startLocalArtifacts(options: {
   importLink?: Parameters<typeof startArtifactServer>[0]["importLink"];
   memory?: Parameters<typeof startArtifactServer>[0]["memory"];
   voice?: Parameters<typeof startArtifactServer>[0]["voice"];
-  diagramAgent?: Parameters<typeof startArtifactServer>[0]["diagramAgent"];
-  diagram?: Parameters<typeof startArtifactServer>[0]["diagram"];
-  syncDiagram?: Parameters<typeof startArtifactServer>[0]["syncDiagram"];
   directory: string;
   connectionFile: string;
   port?: number;

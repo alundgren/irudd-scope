@@ -3,9 +3,9 @@
 `src/transfer.ts` defines portable manifests and signed fifteen-minute
 `scope-transfer://v2/` invitations for paired desktop copies. These contracts
 also define the agent link-import request and receipt. Transfers support ordinary
-artifact bytes and editable Excalidraw documents; they carry no credentials,
-unique tab names, conversation, or plan and PR inbox records. Main validates
-content sizes, media types, checksums, and native diagram structure before
+artifact bytes, including Excalidraw files, which import as file tabs; they carry
+no credentials, unique tab names, or plan and PR inbox records. Main validates
+content sizes, media types, checksums, and Excalidraw document structure before
 import. Invitations include a validated TCP port, signed together with the
 connection address and lifetime. Version 1 transfer links are rejected.
 Authentication and supervision of the user-installed Tailcat CLI belong to
@@ -36,8 +36,7 @@ An artifact is the latest content and metadata for one stable ID. A revision is 
 
 An optional `name` is a second unique, immutable key (lowercase letters, digits,
 and dashes, at most 128 characters). Existing writers that omit it preserve it.
-`GET /v1/names/:name` resolves the current artifact. Only named tabs support
-external-agent conversations and native versioned diagram synchronization.
+`GET /v1/names/:name` resolves the current artifact.
 
 The desktop owns the API and persistent library. `LocalConnection` defines the version 1 discovery file with `endpoint` and `token`, validated as loopback HTTP. Its default path is `%LOCALAPPDATA%\irudd-scope\desktop.json` on Windows and `~/.config/irudd-scope/desktop.json` on macOS and Linux, overridable through `SCOPE_CONNECTION_FILE`. Desktop main writes it with mode `0600` on Unix; Windows uses the current user's profile directory with inherited Windows access permissions. The CLI reads it when no endpoint or token override is supplied. Explicit endpoints require explicit credentials and never receive the discovered local token implicitly.
 
@@ -175,8 +174,7 @@ Missing saved metadata returns 503 with instructions to read or publish through
 the hub while connected. Successful deletes and artifact 404s remove saved
 metadata; unpairing clears it all. Older hubs and direct desktops ignore the
 header and retain their existing read behavior. No artifact wire fields change.
-Ordinary list and read requests, interactive diagram operations, speech, and
-maintenance continue to require a connected desktop.
+Ordinary list and read requests, speech, and maintenance continue to require a connected desktop.
 
 The local management endpoints generate
 pairing links, report status, and revoke access. Removing a paired remote
@@ -204,108 +202,13 @@ Mac and are excluded from the desktop relay allowlist. The stateless forwarding
 mode reports that it has no hub database. `irudd-scope hub shrink --status`
 reads the local hub result.
 
-## Diagram commands
+## Removed diagram routes
 
-`src/diagram.ts` defines semantic objects, operation batches, and the additive
-`POST /v1/diagrams` endpoint. The normal publishing bearer token is required.
-The hub forwards these commands to the desktop, which uses its trusted renderer.
-No model key is involved. Read, apply, and preview require a loaded diagram tab.
-
-| Action    | Input                                          | Result                                              |
-| --------- | ---------------------------------------------- | --------------------------------------------------- |
-| `create`  | `id`, `title`, `operations`, optional `source` | `{ type: "created", artifact }`, published revision |
-| `read`    | `id`                                           | `{ type: "snapshot", diagram }`                     |
-| `apply`   | `id`, `snapshot`, `operations`                 | Updated snapshot; edits save automatically          |
-| `preview` | `id`, optional `snapshot`                      | PNG `data` in base64, ID, revision, and snapshot    |
-
-Snapshots include the published revision, dirty flag, editable scene, selected IDs,
-read-only objects, and omitted-object count. The snapshot is a SHA-256 digest of
-revision and native document content. Apply rejects a changed snapshot or an
-unresolved incoming revision. All operations validate before any edit. Native IDs,
-styles, and unsupported objects are retained. Use opaque existing IDs verbatim;
-new IDs start with a letter and contain letters, digits, underscores, or hyphens.
-Existing native-file publication and saved diagram documents remain compatible.
-
-Requests are limited to 512 KiB and 100 operations. The desktop allows four active
-commands and one per artifact, each with a 20-second deadline. Disconnects cancel
-pending editor work. A timeout can follow a completed write; read before retrying.
-Preview is generated only on request, at most 2048 pixels on its longest side and
-8 MiB before base64 encoding. Clients bound the complete JSON response to 16 MiB.
-`irudd-scope diagram guide` returns the operation schema and usage instructions.
-
-## Connected diagram agents
-
-`src/diagram-agent.ts` defines `POST /v1/diagram-agents`. It uses the publishing
-bearer token and the diagram request/response size limits. Paired hubs forward it.
-Scope holds no agent runtime or host credentials. All connection state stays in
-desktop memory, with at most four connections and one per diagram.
-
-`wait` takes `id` and a display `name`. It verifies a loaded diagram tab, then
-waits up to 20 seconds. The reply is `{ type: "idle" }` or a `request` containing
-`id`, `requestId`, private `token`, `intent`, bounded `history`, and `diagram`.
-Only an agent with an outstanding wait is available for new tab requests.
-Closing that wait cancels availability. Repeat waits explicitly when idle.
-
-`reply` takes `id`, `requestId`, `token`, `snapshot`, `message`, and `operations`.
-The request credential is scoped to that diagram and one delivered request.
-Edits use the normal snapshot check and autosave to the artifact after saving
-the working draft. Empty operations
-send only a message. Successful replies consume the credential. A stale edit
-keeps the request available so the agent can inspect the current canvas before
-responding. `release` with the same identity and credential ends the request.
-The display name and artifact provenance are not authentication.
-
-Delivered requests have a five-minute reply deadline. Cancel, tab close,
-renderer reload, and desktop shutdown invalidate them. After delivery, the agent
-may compute its reply without keeping an HTTP request open, within that deadline.
-There is no offline request queue, automatic resume, replay, or agent launch.
-Lost reply responses are ambiguous: inspect the draft before retrying.
-
-## Native diagram synchronization
-
-`src/diagram-sync.ts` defines `POST /v1/diagrams/sync`. The desktop uses the loaded
-native Excalidraw canvas, including pending human edits. Requests require a
-unique `name`. The optional hub forwards them, with the same authentication,
-cancellation, and 32 MiB request bound. The 20-second diagram deadline and
-one-command-per-artifact limit also apply.
-
-| Action     | Input besides `name`               | Result                                            |
-| ---------- | ---------------------------------- | ------------------------------------------------- |
-| `read`     | Optional `since` version           | Full native document, or combined delta           |
-| `status`   | None                               | Version and published revision                    |
-| `write`    | `expectedVersion`, `delta`         | `applied` with normalization delta, or `conflict` |
-| `replace`  | `expectedVersion`, `document`      | Same check, transmitting the full document        |
-| `propose`  | `expectedVersion`, `delta`, `note` | Editable proposal for human acceptance            |
-| `proposal` | None                               | Pending proposal, or null                         |
-| `message`  | `text`                             | Assistant message in the named tab's conversation |
-
-Versions hash the tab UUID and serialized native document. They include unsaved
-canvas changes, while publication revisions describe persisted artifact updates.
-Every write checks the version again after asynchronous document restoration.
-A conflict is a typed `conflict` response, with the current version and a delta
-when its base remains available. It is not an accepted write. The CLI exits 2.
-While the human is drawing or editing text, mutations return HTTP 409 without
-applying the request. Retry after that edit finishes; the version check still
-applies. Reads remain available during the edit.
-
-Deltas contain element property assignments/removals, deleted IDs, optional
-element order, canvas settings, and changed assets. New elements replace their
-entire record; existing objects receive property changes. Native Excalidraw
-versions and required defaults are normalized by the editor. An `applied`
-response's delta is relative to the submitted candidate, so clients update
-their model without pulling it again.
-
-The renderer retains at most 128 deltas and 2 MiB of delta history per tab.
-Restart or history eviction causes a full `read` fallback. The native document
-and a pending proposal persist in the tab's SQLite draft. Accepting a proposal
-checks its base version; intervening edits require a new reconciliation.
-Rejecting leaves the original document intact.
-
-SSE adds `diagram` events with artifact ID, name, version, and an event kind:
-`changed`, `message`, `proposal`, `accepted`, or `rejected`. Human edits and
-embedded generation are on the human side; external agent writes do not echo.
-These notices carry no full diagram. They are transient; reconnecting clients
-check the version and rebase. There is no exclusive agent lease or model polling.
+Scope no longer accepts `POST /v1/diagrams`, `POST /v1/diagrams/sync`, or
+`POST /v1/diagram-agents`; the desktop returns 404 and paired hubs do not forward
+them. The desktop no longer sends `diagram` SSE events. `ScopeClient.watch` skips
+event types it does not know, so a newer CLI keeps watching an older desktop
+that still sends them.
 
 ## Agent speech generation
 
@@ -367,7 +270,7 @@ generation running. Inspect that ID before taking further action; never choose
 a new ID automatically after an uncertain outcome. Generation has a five-minute
 deadline. Cancellation aborts local work but does not promise provider cancellation
 or refund. Turning voice off blocks new generations and does not cancel accepted
-work, delete the shared key, or disable diagram generation.
+work or delete the shared key.
 
 Completed audio and receipts survive desktop restart. Unfinished requests become
 `interrupted`, never queued, resumed, or regenerated. A crash after acceptance may

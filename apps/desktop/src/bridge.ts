@@ -1,15 +1,10 @@
 import type { RetroCommand, RetroReply, RetroConfiguration } from "@irudd-scope/protocol/retro";
 import type { RetroEvent } from "@irudd-scope/protocol";
-import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
-import type { TabAgentRequest } from "./plugins/diagram/connected-agent.ts";
-import type { DiagramCommandRequest, DiagramCommandResponse } from "./plugins/diagram/commands.ts";
-import type { DiagramEvent } from "@irudd-scope/protocol";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { SettingsUpdate, SettingsView } from "./settings.ts";
 import type { RetainedTab, TrashEntry } from "./workspace/retention.ts";
 import type { Tab, Workspace } from "./workspace/contract.ts";
-import type { DiagramRequest, DiagramResult } from "./plugins/diagram/contract.ts";
-import type { DiagramDraft } from "./plugins/diagram/draft.ts";
+import type { SketchpadDraft } from "./plugins/sketchpad/contract.ts";
 import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 import type { MemoryStatus } from "@irudd-scope/protocol/memory";
@@ -20,7 +15,7 @@ import type {
   TransferPreview,
   TransferStatus,
 } from "./transfer/contract.ts";
-import type { DiagramMenuAction, DiagramMenuState } from "./menu-contract.ts";
+import type { SketchpadMenuAction, SketchpadMenuState } from "./menu-contract.ts";
 import type {
   PullRequestsInterest,
   PullRequestsCancelReads,
@@ -89,15 +84,8 @@ export type ScopeBridge = {
   savePlanDraft: (input: { tabId: string; draft: PlanDraft | null }) => Promise<void>;
   onPlanReconnected: (listener: () => void) => () => void;
   onPlanChanged: (listener: (event: PlanEvent) => void) => () => void;
-  diagramAgentStatus: (id: string) => Promise<DiagramAgentStatus>;
-  onDiagramAgentStatus: (listener: (status: DiagramAgentStatus) => void) => () => void;
-  requestDiagramAgent: (request: typeof TabAgentRequest.Type) => Promise<{ message: string }>;
-  cancelDiagramAgent: (id: string) => Promise<void>;
-  setDiagramMenu: (state: DiagramMenuState) => Promise<void>;
-  onDiagramMenuAction: (listener: (action: DiagramMenuAction) => void) => () => void;
-  onDiagramCommand: (listener: (input: DiagramCommandRequest) => void) => () => void;
-  onDiagramCommandCancel: (listener: (id: string) => void) => () => void;
-  diagramCommandResult: (response: DiagramCommandResponse) => Promise<void>;
+  setSketchpadMenu: (state: SketchpadMenuState) => Promise<void>;
+  onSketchpadMenuAction: (listener: (action: SketchpadMenuAction) => void) => () => void;
   platform: string;
   setFullscreen: (enabled: boolean) => Promise<void>;
   onFullscreenChange: (listener: (enabled: boolean) => void) => () => void;
@@ -161,21 +149,13 @@ export type ScopeBridge = {
   onTabsClosed: (listener: (ids: string[]) => void) => () => void;
   workspace: () => Promise<Workspace | null>;
   saveWorkspace: (input: Workspace) => Promise<void>;
-  diagramDraft: (id: string) => Promise<DiagramDraft | null>;
-  saveDiagramDraft: (id: string, draft: DiagramDraft) => Promise<void>;
-  diagramEvent: (event: DiagramEvent) => Promise<void>;
+  sketchpadDraft: (id: string) => Promise<SketchpadDraft | null>;
+  saveSketchpadDraft: (id: string, draft: SketchpadDraft) => Promise<void>;
+  deleteSketchpadDraft: (id: string) => Promise<void>;
   onBeforeClose: (listener: () => Promise<void>) => () => void;
   artifactLibrary: () => Promise<ArtifactLibrarySnapshot>;
   content: (id: string, revision: number) => Promise<ArtifactContent>;
   download: (id: string, revision: number) => Promise<boolean>;
-  generateDiagram: (request: DiagramRequest, tabId?: string) => Promise<DiagramResult>;
-  cancelDiagramGeneration: () => Promise<void>;
-  saveDiagram: (input: {
-    id: string;
-    title: string;
-    expectedRevision: number;
-    content: string;
-  }) => Promise<Artifact>;
   onArtifactLibraryChange: (listener: (snapshot: ArtifactLibrarySnapshot) => void) => () => void;
 };
 

@@ -1,7 +1,9 @@
 import { memoryTabState } from "../plugins/memory/contract.ts";
+import { sketchpadTabState } from "../plugins/sketchpad/contract.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
+  PencilLine,
   Download,
   Maximize2,
   Minimize2,
@@ -178,9 +180,9 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const active = workspace.tabs.find((tab) => tab.id === workspace.selected);
   const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
   const html = ["html", "plan", "pull-requests"].includes(activeArtifact?.kind ?? "");
-  const hasModes = active?.type === "diagram" || html;
+  const hasModes = active?.type === "sketchpad" || html;
   const returnFocus = focus && hasModes ? modeSelect : controlsButton;
-  const viewing = focus && active?.type === "diagram" && fullscreenMode !== "edit";
+  const viewing = focus && active?.type === "sketchpad" && fullscreenMode !== "edit";
   const presentation = focus && hasModes && fullscreenMode === "present";
   const trashedArtifacts = new Set(
     retention.tabs
@@ -307,23 +309,18 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     const tab = workspace.tabs.find((entry) => entry.id === id);
     if (tab) void activate(tab, keyboard);
   }
-  async function openMemoryTab() {
+  async function openBuiltinTab(type: string, title: string, state: Tab["state"]) {
     const saved =
-      workspace.tabs.find((tab) => tab.type === "memory") ??
-      retention.tabs.find((entry) => entry.tab.type === "memory")?.tab;
+      workspace.tabs.find((tab) => tab.type === type) ??
+      retention.tabs.find((entry) => entry.tab.type === type)?.tab;
     if (
       await activate(
-        saved ?? {
-          id: crypto.randomUUID(),
-          groupId: workspace.groups[0].id,
-          type: "memory",
-          title: "Librarian",
-          state: memoryTabState(),
-        },
+        saved ?? { id: crypto.randomUUID(), groupId: workspace.groups[0].id, type, title, state },
       )
     )
       setSettings(false);
   }
+  const openMemoryTab = () => openBuiltinTab("memory", "Librarian", memoryTabState());
   function open(id: string) {
     const artifact = artifacts.get(id);
     if (!artifact) return;
@@ -507,7 +504,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
               size="sm"
               className="fullscreen-mode-select"
               ref={modeSelect}
-              aria-label={html ? "Fullscreen HTML mode" : "Fullscreen diagram mode"}
+              aria-label={html ? "Fullscreen HTML mode" : "Fullscreen Sketchpad mode"}
               value={html && fullscreenMode === "edit" ? "view" : fullscreenMode}
               onChange={(event) => {
                 if (event.target.value === "tabs") toggleFocus();
@@ -632,6 +629,13 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             onSelect: () => void openMemoryTab(),
           },
           {
+            id: "sketchpad",
+            title: "Sketchpad",
+            keywords: "draw drawing sketch whiteboard scratchpad canvas excalidraw ideas",
+            icon: PencilLine,
+            onSelect: () => void openBuiltinTab("sketchpad", "Sketchpad", sketchpadTabState()),
+          },
+          {
             id: "import-tab",
             title: "Import tab",
             keywords: "receive transfer link scope",
@@ -673,7 +677,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                 actions: [
                   ...(activeArtifact &&
                   isTransferKind(activeArtifact.kind) &&
-                  (active.type === "file" || active.type === "diagram")
+                  active.type === "file"
                     ? [
                         {
                           id: "send-tab",
