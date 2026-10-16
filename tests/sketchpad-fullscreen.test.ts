@@ -38,8 +38,9 @@ test("the Sketchpad switches between Edit, View, and Present in fullscreen", asy
         path: join(process.env.SCOPE_TEST_SCREENSHOTS, "sketchpad-view.png"),
       });
     }
+    await page.mouse.move(400, 300);
     await mode.selectOption("present");
-    await page.mouse.move(250, 250);
+    await page.mouse.move(250, 250, { steps: 5 });
     await expect
       .poll(() =>
         page.locator(".presentation-pointer").evaluate((element) => element.style.opacity),
