@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { AppState, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import type { DiagramViewport } from "./draft.ts";
+import type { SketchpadViewport } from "./contract.ts";
 
 export function fitToCanvas(api: ExcalidrawImperativeAPI): boolean {
   const state = api.getAppState();
@@ -10,11 +10,11 @@ export function fitToCanvas(api: ExcalidrawImperativeAPI): boolean {
   return true;
 }
 
-export function useDiagramViewport(
+export function useSketchpadViewport(
   api: ExcalidrawImperativeAPI | undefined,
   active: boolean,
   ready: boolean,
-  initial?: DiagramViewport,
+  initial?: SketchpadViewport,
 ) {
   const current = useRef(initial);
   const pendingFit = useRef(!initial);
@@ -33,7 +33,7 @@ export function useDiagramViewport(
   return {
     read: () => current.current,
     observe,
-    restore: (viewport?: DiagramViewport) => {
+    restore: (viewport?: SketchpadViewport) => {
       current.current = viewport;
       pendingFit.current = !viewport;
     },

@@ -260,18 +260,6 @@ test(
       phase = "warm-up";
       await pressureWorkers(12, (index) => publish(-1, index, 1));
       await waitTabs(12);
-      const diagram = await page.evaluate(async () =>
-        (await window.scope.workspace())?.tabs.find((tab) => tab.type === "diagram"),
-      );
-      expect(diagram).toBeDefined();
-      await page.keyboard.press("ControlOrMeta+k");
-      await page.getByLabel("Search artifacts", { exact: true }).fill(diagram!.title);
-      await page.keyboard.press("Enter");
-      await page
-        .getByRole("tabpanel", { name: diagram!.title, exact: true })
-        .locator(".excalidraw canvas")
-        .first()
-        .waitFor();
       await pressureWorkers(12, (index) => remove(-1, index));
       await checkEmpty();
       const baseline = await shrink();
@@ -327,21 +315,6 @@ test(
       );
 
       const saved = await page.evaluate(() => window.scope.workspace());
-      const draftTab = saved!.tabs.find((tab) => tab.type === "diagram")!;
-      await page.evaluate(
-        async (tab) =>
-          window.scope.saveDiagramDraft(tab.id, {
-            version: 1,
-            content: '{"type":"excalidraw","elements":[],"files":{}}',
-            revision: 1,
-            dirty: true,
-            messages: [{ role: "user", text: "Synthetic unsent work" }],
-            intent: "Synthetic draft",
-            chatOpen: true,
-            viewport: { zoom: 1, scrollX: 0, scrollY: 0 },
-          }),
-        draftTab,
-      );
       samplingPaused = true;
       await sampling;
       phase = "overflow-restart";
@@ -353,9 +326,6 @@ test(
       samplingPaused = false;
       await waitTabs(119);
       await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).waitFor();
-      expect(await page.evaluate((id) => window.scope.diagramDraft(id), draftTab.id)).toMatchObject(
-        { intent: "Synthetic draft" },
-      );
       const restored = await page.evaluate(() => window.scope.workspace());
       expect(restored?.tabs.map((tab) => tab.id)).toEqual(saved!.tabs.map((tab) => tab.id));
       // Test profiles keep credentials in memory, so restart needs fresh pairing.

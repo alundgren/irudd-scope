@@ -127,15 +127,6 @@ export const ArtifactPage = Schema.Struct({
 export const BlobReceipt = Schema.Struct({ blob: BlobId });
 export const DeleteReceipt = Schema.Struct({ id: ArtifactId, deleted: Schema.Boolean });
 export type DeleteReceipt = typeof DeleteReceipt.Type;
-export const DiagramEvent = Schema.Struct({
-  type: Schema.Literal("diagram"),
-  id: ArtifactId,
-  name: ArtifactName,
-  event: Schema.Literals(["changed", "message", "proposal", "accepted", "rejected"]),
-  version: Schema.String,
-  text: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(4000))),
-});
-export type DiagramEvent = typeof DiagramEvent.Type;
 export const PlanEvent = Schema.Struct({
   type: Schema.Literal("plan"),
   name: ArtifactName,
@@ -168,12 +159,31 @@ export const LiveEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("ready") }),
   Schema.Struct({ type: Schema.Literal("artifact"), artifact: Artifact }),
   Schema.Struct({ type: Schema.Literal("deleted"), id: ArtifactId }),
-  DiagramEvent,
   PlanEvent,
   PullRequestsEvent,
   RetroEvent,
 ]);
 export type LiveEvent = typeof LiveEvent.Type;
+const LIVE_EVENT_TYPES = new Set([
+  "ready",
+  "artifact",
+  "deleted",
+  "plan",
+  "pull-requests",
+  "retro",
+]);
+// Older desktops can send event types this version no longer reads, such as removed diagram events.
+export function decodeLiveEvent(value: unknown): LiveEvent | undefined {
+  if (
+    value &&
+    typeof value === "object" &&
+    "type" in value &&
+    typeof value.type === "string" &&
+    !LIVE_EVENT_TYPES.has(value.type)
+  )
+    return undefined;
+  return decode(LiveEvent, value);
+}
 
 export class ScopeError extends Error {
   readonly status: number;

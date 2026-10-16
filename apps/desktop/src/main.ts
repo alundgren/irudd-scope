@@ -102,9 +102,6 @@ async function main() {
       read: () => store.retroConfiguration(),
       configure: (command) => store.saveRetroConfiguration(command),
     },
-    diagramAgent: (command, signal) => desktopIpc.diagramAgent(command, signal),
-    diagram: (command, signal) => desktopIpc.diagram(command, signal),
-    syncDiagram: (command, id, signal) => desktopIpc.syncDiagram(command, id, signal),
     initialize: async (artifacts) => {
       lifecycle = new DesktopLifecycle(artifacts, store);
       await lifecycle.recover();
@@ -157,7 +154,7 @@ async function main() {
   transfers = new TabTransfers(store, lifecycle!, new TailcatCliTransport());
   if (process.platform === "darwin") window.setWindowButtonVisibility(false);
   const client = new ScopeClient(artifacts.url, artifacts.token);
-  const setDiagramMenu = createApplicationMenu(window);
+  const setSketchpadMenu = createApplicationMenu(window);
   const remotes = new Remotes(
     store,
     artifacts,
@@ -209,7 +206,7 @@ async function main() {
     memory,
     librarian,
     transfers,
-    setDiagramMenu,
+    setSketchpadMenu,
     onRestartToUpdate: async () => {
       if (updates.snapshot().phase !== "ready") throw new Error("No update is ready.");
       if (agentTools.isBusy()) throw new Error("Wait for the agent tools installation to finish.");

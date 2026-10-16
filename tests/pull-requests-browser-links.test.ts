@@ -3,7 +3,6 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
-import { nativeDiagram } from "./fixtures/native-diagram.ts";
 
 const html = `<!doctype html><a id="ordinary" href="https://github.com/synthetic/private/pull/1">Open PR</a>
 <a id="blank" href="https://github.com/synthetic/private/pull/2" target="_blank">Open new</a>
@@ -349,75 +348,5 @@ test("generic HTML keeps embedded navigation and window.open", async () => {
   } finally {
     await app.close();
     await rm(fixture.directory, { recursive: true, force: true });
-  }
-});
-
-test("an inbox link canceled at the host keeps a connected diagram agent until actual navigation", async () => {
-  const fixture = await offlineFixture();
-  const app = await fixture.launch();
-  try {
-    const client = await fixture.connect();
-    await client.publish(
-      "kept-agent",
-      {
-        title: "Kept agent",
-        kind: "excalidraw",
-        mediaType: "application/vnd.excalidraw+json",
-        fileName: "diagram.excalidraw",
-        expectedRevision: 0,
-      },
-      Buffer.from(JSON.stringify(nativeDiagram(1))),
-    );
-    const page = await app.firstWindow();
-    await page.getByTestId("main-menu-trigger").waitFor();
-    const waiting = client.diagramAgent({
-      action: "wait",
-      id: "kept-agent",
-      name: "Still connected",
-    });
-    void waiting.catch(() => {});
-    await expect
-      .poll(() =>
-        page.evaluate(async () => (await window.scope.diagramAgentStatus("kept-agent")).phase),
-      )
-      .toBe("waiting");
-    await app.evaluate(({ shell }) => {
-      Object.assign(globalThis, { keptAgentLinks: [] as string[] });
-      shell.openExternal = async (url) => {
-        (globalThis as unknown as { keptAgentLinks: string[] }).keptAgentLinks.push(url);
-      };
-    });
-    await page.evaluate(
-      async (html) =>
-        window.scope.createPullRequests({
-          name: "kept-agent-inbox",
-          title: "Agent inbox",
-          html,
-          repository: { owner: "synthetic", name: "private" },
-        }),
-      html,
-    );
-    await page.getByRole("tab", { name: "Agent inbox", exact: true }).click();
-    const frame = page.frameLocator(".pull-requests-document");
-    await frame.locator("#top").click({ noWaitAfter: true });
-    await expect
-      .poll(() =>
-        app.evaluate(
-          () => (globalThis as unknown as { keptAgentLinks: string[] }).keptAgentLinks.length,
-        ),
-      )
-      .toBe(1);
-    expect(
-      await page.evaluate(async () => (await window.scope.diagramAgentStatus("kept-agent")).phase),
-    ).toBe("waiting");
-    await page.reload();
-    await expect(waiting).rejects.toThrow();
-    expect(
-      await page.evaluate(async () => (await window.scope.diagramAgentStatus("kept-agent")).phase),
-    ).toBe("disconnected");
-  } finally {
-    await app.close();
-    await rm(fixture.directory, { recursive: true, force: true });
-    await rm(fixture.ghDirectory, { recursive: true, force: true });
   }
 });

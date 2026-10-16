@@ -12,7 +12,6 @@ import {
   TEMPORARY_RETENTION_MS as DAY,
   TRASH_RETENTION_MS,
 } from "../apps/desktop/src/workspace/retention.ts";
-import type { DiagramDraft } from "../apps/desktop/src/plugins/diagram/draft.ts";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -66,16 +65,28 @@ async function fixture() {
   };
   return { directory, server, client, lifecycle, publish };
 }
-const draft: DiagramDraft = {
-  version: 1,
-  content: '{"type":"excalidraw","elements":[],"files":{}}',
-  revision: 1,
-  dirty: false,
-  messages: [],
-  intent: "Keep this prompt",
-  chatOpen: true,
-  viewport: { zoom: 1, scrollX: 20, scrollY: 30 },
-};
+const draft = { version: 1, content: "Keep this prompt" };
+function saveDraft(store: ArtifactStore, tabId: string) {
+  const db = new DatabaseSync(store.filename);
+  try {
+    db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000");
+    db.prepare("INSERT INTO tab_drafts SELECT id, ? FROM live_tabs WHERE id = ?").run(
+      JSON.stringify(draft),
+      tabId,
+    );
+  } finally {
+    db.close();
+  }
+}
+function savedDraft(store: ArtifactStore, tabId: string) {
+  const db = new DatabaseSync(store.filename);
+  try {
+    const row = db.prepare("SELECT document FROM tab_drafts WHERE tab_id = ?").get(tabId);
+    return row ? JSON.parse(String(row.document)) : null;
+  } finally {
+    db.close();
+  }
+}
 
 test("hidden temporary tabs get a day, visible and permanent tabs survive, and trash retains content for seven days", async () => {
   const f = await fixture();
@@ -86,7 +97,7 @@ test("hidden temporary tabs get a day, visible and permanent tabs survive, and t
   const now = Date.now();
   await store.markTabsVisible([hidden.id, visible.id, permanent.id], now);
   await store.setTabPermanent(permanent.id, true, now);
-  await store.saveDiagramDraft(hidden.id, draft);
+  saveDraft(store, hidden.id);
   const saved = await f.lifecycle.workspace();
   await f.lifecycle.checkRetention([visible.id], now + DAY - 1);
   expect((await f.lifecycle.workspace()).tabs).toHaveLength(3);
@@ -97,7 +108,7 @@ test("hidden temporary tabs get a day, visible and permanent tabs survive, and t
   ]);
   const trash = (await store.retainedTabs()).find((entry) => entry.tab.id === hidden.id)!;
   expect(trash.trashedAt).toBe(now + DAY);
-  expect(await store.diagramDraft(hidden.id)).toEqual(draft);
+  expect(savedDraft(store, hidden.id)).toEqual(draft);
   expect(Buffer.from(await f.client.content("hidden")).toString()).toBe("Shared content");
   await f.lifecycle.saveWorkspace(saved);
   expect(await f.lifecycle.openTab(hidden)).toBeNull();
@@ -121,7 +132,7 @@ test("hidden temporary tabs get a day, visible and permanent tabs survive, and t
   expect(await f.client.get("hidden")).toMatchObject({ name: "hidden" });
   await f.lifecycle.checkRetention([visible.id], now + DAY + TRASH_RETENTION_MS);
   await expect(f.client.get("hidden")).rejects.toMatchObject({ status: 404 });
-  expect(await store.diagramDraft(hidden.id)).toBeNull();
+  expect(savedDraft(store, hidden.id)).toBeNull();
   expect(Buffer.from(await f.client.content("visible")).toString()).toBe("Shared content");
   const db = new DatabaseSync(store.filename);
   try {
@@ -137,7 +148,7 @@ test("restore keeps permanence and drafts, resets the day, and stale empty-trash
   const first = await f.publish("first");
   const second = await f.publish("second");
   await f.lifecycle.setTabPermanent(first.id, true);
-  await f.server.store.saveDiagramDraft(first.id, draft);
+  saveDraft(f.server.store, first.id);
   await f.lifecycle.closeTab(first.id);
   const entry = (await f.server.store.retainedTabs()).find((entry) => entry.tab.id === first.id)!;
   const confirmation = [{ id: first.id, trashedAt: entry.trashedAt! }];
@@ -148,7 +159,7 @@ test("restore keeps permanence and drafts, resets the day, and stale empty-trash
     permanent: true,
     trashedAt: null,
   });
-  expect(await f.server.store.diagramDraft(first.id)).toEqual(draft);
+  expect(savedDraft(f.server.store, first.id)).toEqual(draft);
   await f.lifecycle.emptyTrash(confirmation);
   expect(await f.client.get("first")).toMatchObject({ name: "first" });
   await f.server.store.trashTab(first.id, entry.trashedAt! + 1000);
@@ -203,7 +214,7 @@ test("schema 4 upgrades preserve names, tab IDs, order, and drafts with a fresh 
     title: "Named",
     state: { version: 1, data: { artifactId: "named" } },
   });
-  await store.saveDiagramDraft(id, draft);
+  saveDraft(store, id);
   await store.close();
   const db = new DatabaseSync(join(directory, "scope.db"));
   db.exec(
@@ -216,7 +227,7 @@ test("schema 4 upgrades preserve names, tab IDs, order, and drafts with a fresh 
   expect(await store.named("release-review")).toMatchObject({ id: "named" });
   expect((await store.retainedTabs())[0]).toMatchObject({ tab, permanent: false, trashedAt: null });
   expect((await store.retainedTabs())[0].lastVisibleAt).toBeGreaterThanOrEqual(before);
-  expect(await store.diagramDraft(id)).toEqual(draft);
+  expect(savedDraft(store, id)).toEqual(draft);
 });
 
 test("built-in tabs stay permanent, reopen once with saved state, and reject retention and type changes", async () => {

@@ -54,21 +54,18 @@ before completion or pushing. CI after a push does not replace this local check.
 Validation does not rewrite source or the lockfile. Do not install validation hooks.
 
 `vp run test` selects the `standard` Vitest project, which excludes the
-dedicated diagram and remote-update suites. These suites also stay out of
-`ready` and its CI job. Shared desktop, workspace, and publication journeys
+dedicated remote-update suite. That suite also stays out of `ready` and its CI
+job. Shared desktop, workspace, and publication journeys
 remain in the standard suite.
 
-Run `vp run test:diagram` only when diagram plugin implementation changes,
-including its diagram-specific protocol, CLI, or persistence behavior. Run
-`vp run test:remote-updates` only after direct changes to remote update logic,
-such as desktop update synchronization, hub update execution, rollback, or
-update-driven skill synchronization. Both commands use the same display setup
-and test settings as the standard suite. Build first with `vp run build`.
+Run `vp run test:remote-updates` only after direct changes to remote update
+logic, such as desktop update synchronization, hub update execution, rollback,
+or update-driven skill synchronization. It uses the same display setup and test
+settings as the standard suite. Build first with `vp run build`.
 Documentation, test-selection changes, and unrelated shared infrastructure
-changes alone do not require either suite.
+changes alone do not require it.
 
 ```sh
-vp run test:diagram
 vp run test:remote-updates
 ```
 
@@ -368,10 +365,9 @@ vp run scope add report.md --title "Review" --id review
 vp run scope add screenshot.png --title "Layout"
 vp run scope add preview.html --title "Preview"
 vp run scope add build.zip --title "Build output"
-vp run scope add architecture.excalidraw --title "Architecture" --id architecture
-vp run scope update architecture architecture-v2.excalidraw
+vp run scope update review report-v2.md
 vp run scope list
-vp run scope get architecture
+vp run scope get review
 ```
 
 `get` returns metadata. Use Download in the desktop to save content. Install
@@ -382,8 +378,8 @@ or `./packages/cli/dist/main.mjs` directly. `vp run scope` invokes the source in
 the checkout. Pass `--help` to the chosen command for options. The
 [CLI skill](../.agents/skills/irudd-scope/SKILL.md) describes publication and recovery.
 
-Publication returns a JSON record after storage commits. Rendering and diagram
-generation in the desktop run independently of that receipt. Publication commands
+Publication returns a JSON record after storage commits. Rendering in the
+desktop runs independently of that receipt. Publication commands
 publish finished files. Optional Git provenance has a
 short time limit and stays absent if it cannot be collected.
 
@@ -399,21 +395,18 @@ file in place but stops publication.
 
 Open Settings from the search panel or Command-comma. The search button and
 Command-K open workspace controls, current-tab actions, and artifact search.
-Search also finds appearance and diagram generation settings. Appearance follows
-System unless Light or Dark is selected. Diagram generation uses OpenRouter and Gemini 3.8
-Flash. Enable it in Settings → Diagram generation and add the shared key in
-Settings → OpenRouter. Generation is off by default, including for existing
-profiles. On macOS keys live in Keychain. Windows stores them with DPAPI
+Search also finds settings such as appearance and voice generation. Appearance
+follows System unless Light or Dark is selected. Voice generation uses the
+shared key saved in Settings → OpenRouter. On macOS keys live in Keychain. Windows stores them with DPAPI
 encryption for the current account in `desktop.db`; Linux development keeps them in memory.
 Scope reads the key for generation, billing lookup, key changes, or when the
 OpenRouter section opens. Startup and other settings changes do not read it.
-Diagram and voice generation have independent switches that retain the key. Enabled remotes still access
+Turning voice generation off retains the key. Enabled remotes still access
 their saved credentials when connecting at startup.
 
-Use Create diagram in the empty workspace or search panel. A
-generated diagram becomes an editable artifact. Ask agent edits its current
-canvas; edits save automatically. The diagram's left menu provides Export,
-Find on canvas, and Library. HTML previews run trusted agent output with
+Search the panel for Sketchpad to open the personal Excalidraw canvas. Its
+drawing saves automatically and only the person uses it; agents have no
+commands for it. HTML previews run trusted agent output with
 scripts, external styles, images, fonts, network requests, forms, and popups.
 Publish a complete HTML document. Resources must be embedded or use reachable
 URLs; publishing a file does not upload adjacent files. A document can set its
@@ -728,8 +721,7 @@ previously read or published through this hub, preserving the saved name and tit
 The hub retains up to 1,000 recent artifact records for 48 hours after observation.
 If the saved revision is missing, read the artifact through the hub while connected first.
 If the desktop revision changed, delivery blocks without replacing newer content.
-Interactive diagram operations, speech generation, and maintenance are
-never buffered. Synchronous clients that omit the buffering header retain live
+Speech generation and maintenance are never buffered. Synchronous clients that omit the buffering header retain live
 forwarding. A live request interrupted by disconnection can fail;
 check the artifact and queue before retrying an uncertain publication.
 
@@ -836,58 +828,6 @@ close. Both paths require an awake desktop running Scope. Do not expose either
 listener through a public listener or funnel. Provider keys belong only to
 desktop main.
 
-### Diagram edit benchmark
-
-After building, run the native Excalidraw comparison against an isolated real
-desktop:
-
-```sh
-vp exec node tools/diagram-benchmark.ts /tmp/scope-diagram-benchmark.json
-```
-
-`SCOPE_DIAGRAM_BENCH_EDITS` selects 10–5000 edits per case (default 300). The
-script compares identical native edit traces for 24, 240, and 1200 objects, plus
-an image-heavy document. Both modes use optimistic versions; one sends field
-deltas and the other sends the full native document. Each trace includes
-competing updates and conflict retries. It verifies equivalent final content
-and that deleting each tab removes its content blobs.
-
-The JSON report separates initialization, median/p95 request latency, total
-editing time, request bodies, HTTP headers, response bodies, and retained blob
-bytes. Counts include failed stale requests, refreshes, and retries. They exclude
-TCP/TLS framing, simulated human traffic, and deletion. API timing excludes
-model inference and CLI process startup; response bytes are not model token
-usage. Run it without concurrent builds or tests. Its temporary profile is
-removed on completion.
-
-### Concurrent diagram editing
-
-After building, and only when diagram plugin implementation changes, run
-`vp run test:diagram tests/diagram-pressure.test.ts --maxWorkers=1`.
-Four fake agents compete over one named diagram through the HTTP API while
-Playwright draws and types in the real editor. Three agents send deltas and one
-sends full documents. Each operation increments a shared counter, updates its
-agent's progress, and edits native objects. The test checks every acknowledged
-increment and human drawing, text, additions, deletions, images, stale proposal
-rejection, restart recovery, and deletion during incoming writes. Reusing the
-name must reject a write carrying the deleted tab's version.
-
-The default run uses 40 edits per agent and eight pairs of human drawings and
-text entries. For a longer session:
-
-```sh
-SCOPE_DIAGRAM_PRESSURE_EDITS=250 SCOPE_DIAGRAM_PRESSURE_HUMAN=80 \
-SCOPE_DIAGRAM_PRESSURE_SEED=7294 \
-SCOPE_DIAGRAM_PRESSURE_OUTPUT=/tmp/scope-diagram-pressure.json \
-vp run test:diagram tests/diagram-pressure.test.ts --maxWorkers=1
-```
-
-The optional report records elapsed time, accepted edits, version conflicts,
-busy retries, full reads, renderer errors, and database content counts before
-and after tab deletion. The seed controls the edit sequence and retry delays;
-operating-system scheduling still varies. No live agent, account, or installed
-profile is used. Temporary profiles and processes are removed on completion.
-
 ### Relay diagnostics
 
 Forwarding failures are written to desktop stderr as `Scope relay` JSON records.
@@ -911,8 +851,8 @@ before retrying an uncertain publication.
 ## Speech generation
 
 Enable Voice generation in desktop Settings and save the shared key in the
-OpenRouter section. Diagram generation and voice generation have independent
-switches, both off by default. Turning either off preserves the key. The desktop
+OpenRouter section. Voice generation is off by default. Turning it off preserves
+the key. The desktop
 uses `google/gemini-3.8-flash-tts` through OpenRouter's speech endpoint. New requests default to Aoede with restrained
 conversational delivery; two-speaker scripts use Aoede to lead and Leda to reply.
 Agents generate turns separately and assemble the exported WAVs.

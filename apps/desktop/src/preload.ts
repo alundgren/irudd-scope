@@ -1,13 +1,11 @@
 import type { RetroEvent } from "@irudd-scope/protocol";
-import type { DiagramAgentStatus } from "@irudd-scope/protocol/diagram-agent";
-import type { DiagramCommandRequest } from "./plugins/diagram/commands.ts";
 import { contextBridge, ipcRenderer } from "electron";
 import type { ScopeBridge, ArtifactLibrarySnapshot } from "./bridge.ts";
 import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
 import type { RetainedTab } from "./workspace/retention.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 import type { MemoryStatus } from "@irudd-scope/protocol/memory";
-import type { DiagramMenuAction } from "./menu-contract.ts";
+import type { SketchpadMenuAction } from "./menu-contract.ts";
 
 import type { PlanEvent } from "@irudd-scope/protocol/plan";
 import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
@@ -102,37 +100,12 @@ const bridge: ScopeBridge = {
     ipcRenderer.on("scope:plan-changed", receive);
     return () => ipcRenderer.removeListener("scope:plan-changed", receive);
   },
-  diagramAgentStatus: (id) => ipcRenderer.invoke("scope:diagram-agent-status", id),
-  onDiagramAgentStatus: (listener) => {
-    const receive = (_event: unknown, status: DiagramAgentStatus) => listener(status);
-    ipcRenderer.on("scope:diagram-agent-status", receive);
-    return () => {
-      ipcRenderer.removeListener("scope:diagram-agent-status", receive);
-    };
+  setSketchpadMenu: (state) => ipcRenderer.invoke("scope:set-sketchpad-menu", state),
+  onSketchpadMenuAction: (listener) => {
+    const receive = (_event: unknown, action: SketchpadMenuAction) => listener(action);
+    ipcRenderer.on("scope:sketchpad-menu-action", receive);
+    return () => ipcRenderer.removeListener("scope:sketchpad-menu-action", receive);
   },
-  requestDiagramAgent: (request) => ipcRenderer.invoke("scope:request-diagram-agent", request),
-  cancelDiagramAgent: (id) => ipcRenderer.invoke("scope:cancel-diagram-agent", id),
-  setDiagramMenu: (state) => ipcRenderer.invoke("scope:set-diagram-menu", state),
-  onDiagramMenuAction: (listener) => {
-    const receive = (_event: unknown, action: DiagramMenuAction) => listener(action);
-    ipcRenderer.on("scope:diagram-menu-action", receive);
-    return () => ipcRenderer.removeListener("scope:diagram-menu-action", receive);
-  },
-  onDiagramCommand: (listener) => {
-    const receive = (_event: unknown, input: DiagramCommandRequest) => listener(input);
-    ipcRenderer.on("scope:diagram-command", receive);
-    return () => {
-      ipcRenderer.removeListener("scope:diagram-command", receive);
-    };
-  },
-  onDiagramCommandCancel: (listener) => {
-    const receive = (_event: unknown, id: string) => listener(id);
-    ipcRenderer.on("scope:diagram-command-cancel", receive);
-    return () => {
-      ipcRenderer.removeListener("scope:diagram-command-cancel", receive);
-    };
-  },
-  diagramCommandResult: (response) => ipcRenderer.invoke("scope:diagram-command-result", response),
   platform: process.platform,
   setFullscreen: (enabled) => ipcRenderer.invoke("scope:set-fullscreen", enabled),
   onFullscreenChange: (listener) => {
@@ -246,9 +219,10 @@ const bridge: ScopeBridge = {
   },
   workspace: () => ipcRenderer.invoke("scope:workspace"),
   saveWorkspace: (input) => ipcRenderer.invoke("scope:save-workspace", input),
-  diagramDraft: (id) => ipcRenderer.invoke("scope:diagram-draft", id),
-  saveDiagramDraft: (id, draft) => ipcRenderer.invoke("scope:save-diagram-draft", { id, draft }),
-  diagramEvent: (event) => ipcRenderer.invoke("scope:diagram-event", event),
+  sketchpadDraft: (id) => ipcRenderer.invoke("scope:sketchpad-draft", id),
+  saveSketchpadDraft: (id, draft) =>
+    ipcRenderer.invoke("scope:save-sketchpad-draft", { id, draft }),
+  deleteSketchpadDraft: (id) => ipcRenderer.invoke("scope:delete-sketchpad-draft", id),
   onBeforeClose: (listener) => {
     const flush = () => {
       void listener().then(
@@ -264,10 +238,6 @@ const bridge: ScopeBridge = {
   artifactLibrary: () => ipcRenderer.invoke("scope:artifact-library"),
   content: (id, revision) => ipcRenderer.invoke("scope:content", { id, revision }),
   download: (id, revision) => ipcRenderer.invoke("scope:download", { id, revision }),
-  generateDiagram: (request, tabId) =>
-    ipcRenderer.invoke("scope:generate-diagram", { request, ...(tabId ? { tabId } : {}) }),
-  cancelDiagramGeneration: () => ipcRenderer.invoke("scope:cancel-diagram-generation"),
-  saveDiagram: (input) => ipcRenderer.invoke("scope:save-diagram", input),
   onArtifactLibraryChange: (listener) => {
     const receive = (_event: unknown, snapshot: ArtifactLibrarySnapshot) => listener(snapshot);
     ipcRenderer.on("scope:artifact-library-changed", receive);

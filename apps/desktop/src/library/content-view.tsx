@@ -44,7 +44,7 @@ export function PublishedContent({
   return (
     <>
       {error && (
-        <p className="diagram-notice" role="alert">
+        <p className="content-notice" role="alert">
           {error} Showing the last loaded version.
         </p>
       )}

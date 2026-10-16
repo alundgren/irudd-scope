@@ -69,8 +69,8 @@ or choose **Import from link…** in search. Review the authenticated tab detail
 before importing. Each invitation expires after fifteen minutes.
 
 Both apps must be running and awake. Transfers create independent copies of
-ordinary artifacts and editable diagrams. The source keeps its tab. Plans and
-PR inboxes have additional records and cannot be transferred through this flow.
+ordinary artifacts, including Excalidraw files. The source keeps its tab. Plans,
+PR inboxes, and the Sketchpad cannot be transferred through this flow.
 See [tab transfer](docs/architecture.md#tab-transfer) for connection and security
 limits.
 
@@ -121,10 +121,11 @@ Memory on Windows uses the native irudd-okf executable installed with its
 PowerShell installer. Scope keeps automatic upgrades off there. Other native prerequisites include `gh` for PR inboxes and
 memory authentication, Git for memory sync, and Python 3 for agent retrospectives.
 
-Scope displays text, Markdown, raster images, interactive HTML, downloadable files,
-and editable Excalidraw diagrams. Diagram generation uses an OpenRouter key
-configured in the desktop. Built-in file and diagram plugins run inside a
-shared tab host with persistent groups and events limited to each group.
+Scope displays text, Markdown, raster images, interactive HTML, and downloadable
+files. Published `.excalidraw` files are downloadable files. The built-in
+Sketchpad is a personal Excalidraw canvas opened from search; agents have no
+access to it. Built-in plugins run inside a shared tab host with persistent
+groups and events limited to each group.
 Development launches run from the checkout and do not update themselves.
 
 Pull request inboxes bind to one GitHub repository. Their first successful sync

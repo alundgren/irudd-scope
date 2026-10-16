@@ -78,8 +78,8 @@ test("Electron receives and reopens interactive HTML and keeps development keys 
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     expect(await page.getByText("Hub connection", { exact: true }).count()).toBe(0);
     expect(await page.getByLabel("Hub token").count()).toBe(0);
-    await page.getByRole("button", { name: "Diagram generation", exact: true }).click();
-    await page.getByRole("switch", { name: "Diagram generation", exact: true }).click();
+    await page.getByRole("button", { name: "Voice generation", exact: true }).click();
+    await page.getByRole("switch", { name: "Voice generation", exact: true }).click();
     await page.getByRole("button", { name: "OpenRouter", exact: true }).click();
     await page.getByLabel("OpenRouter API key").fill("synthetic-desktop-api-key");
     await page.getByRole("button", { name: "Save key" }).click();

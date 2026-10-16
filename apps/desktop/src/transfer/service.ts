@@ -162,14 +162,10 @@ export class TabTransfers {
     const device = await this.store.transferDevice();
     const tab = (await this.lifecycle.workspace()).tabs.find((item) => item.id === tabId);
     const artifactId = tab && tabArtifactId(tab);
-    if (!tab || !artifactId || !["file", "diagram"].includes(tab.type))
+    if (!tab || !artifactId || tab.type !== "file")
       throw new Error("This tab cannot be transferred.");
     const artifact = await this.lifecycle.artifacts.get(artifactId);
-    const draft =
-      artifact.kind === "excalidraw" ? await this.lifecycle.artifacts.diagramDraft(tab.id) : null;
-    const bytes = draft
-      ? Buffer.from(draft.content)
-      : await this.lifecycle.artifacts.content(artifact.blob);
+    const bytes = await this.lifecycle.artifacts.content(artifact.blob);
     const manifest = decodeTransferManifest({
       version: 1,
       title: artifact.title,

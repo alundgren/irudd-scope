@@ -68,7 +68,7 @@ export function ProviderSettings({
   }
   return (
     <>
-      <p className="secondary">Shared by diagram and voice generation.</p>
+      <p className="secondary">Used by voice generation.</p>
       <form onSubmit={submit} className="settings-key-form">
         <label>
           OpenRouter API key

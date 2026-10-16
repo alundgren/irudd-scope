@@ -7,8 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
-import { DIAGRAM_MODEL } from "../apps/desktop/src/plugins/diagram/provider-settings.ts";
-import type { DiagramDraft } from "../apps/desktop/src/plugins/diagram/draft.ts";
+import type { SketchpadDraft } from "../apps/desktop/src/plugins/sketchpad/contract.ts";
 import {
   memoryCredentials,
   type CredentialStore,
@@ -27,18 +26,13 @@ function documents(directory: string): string {
   }
 }
 
-test("tab-owned drafts and plugin state survive restart, then close deletes them and ignores late saves", async () => {
+test("tab state and Sketchpad drafts survive restart, empty drafts leave no row, and other tabs reject drafts", async () => {
   const directory = await mkdtemp(join(tmpdir(), "scope-drafts-"));
   const store = new DesktopStore(directory);
   let artifacts = await ArtifactStore.open(join(directory, "artifacts"));
-  const draft: DiagramDraft = {
+  const draft: SketchpadDraft = {
     version: 1,
-    content: JSON.stringify({ type: "excalidraw", elements: [], files: {} }),
-    revision: 1,
-    dirty: true,
-    messages: [{ role: "user", text: "Move the API" }],
-    intent: "Unsent prompt",
-    chatOpen: true,
+    content: JSON.stringify({ type: "excalidraw", elements: [{ id: "idea" }], files: {} }),
     viewport: { zoom: 0.75, scrollX: 120, scrollY: -50 },
   };
   try {
@@ -76,24 +70,32 @@ test("tab-owned drafts and plugin state survive restart, then close deletes them
         selected: tab.id,
       }),
     ).toThrow();
-    await artifacts.saveDiagramDraft(tab.id, draft);
+    await expect(artifacts.saveSketchpadDraft(tab.id, draft)).rejects.toThrow();
+    const sketchpad = await lifecycle.openTab({
+      id: crypto.randomUUID(),
+      groupId: workspace.groups[0].id,
+      type: "sketchpad",
+      title: "Sketchpad",
+      state: { version: 1, data: {} },
+    });
+    if (!sketchpad) throw new Error("Expected the Sketchpad to open.");
+    await artifacts.saveSketchpadDraft(sketchpad.id, draft);
     await expect(
-      artifacts.saveDiagramDraft(tab.id, { ...draft, viewport: { ...draft.viewport, zoom: -1 } }),
+      artifacts.saveSketchpadDraft(sketchpad.id, {
+        ...draft,
+        viewport: { ...draft.viewport, zoom: -1 },
+      }),
     ).rejects.toThrow();
     await artifacts.close();
     artifacts = await ArtifactStore.open(join(directory, "artifacts"));
     lifecycle = new DesktopLifecycle(artifacts, store);
     await lifecycle.recover();
-    expect((await lifecycle.workspace()).tabs).toEqual([tab]);
-    expect(await artifacts.diagramDraft(tab.id)).toEqual(draft);
-    await lifecycle.closeTab(tab.id);
-    expect(await artifacts.diagramDraft(tab.id)).toEqual(draft);
-    const trashed = (await artifacts.retainedTabs()).find((entry) => entry.tab.id === tab.id)!;
-    await lifecycle.emptyTrash([{ id: tab.id, trashedAt: trashed.trashedAt! }]);
-    await lifecycle.saveWorkspace({ ...workspace, tabs: [tab], selected: tab.id });
-    await artifacts.saveDiagramDraft(tab.id, draft);
-    expect((await lifecycle.workspace()).tabs).toEqual([]);
-    expect(await artifacts.diagramDraft(tab.id)).toBeNull();
+    expect((await lifecycle.workspace()).tabs).toEqual([tab, sketchpad]);
+    expect(await artifacts.sketchpadDraft(sketchpad.id)).toEqual(draft);
+    expect(await artifacts.sketchpadDraft(tab.id)).toBeNull();
+    await artifacts.deleteSketchpadDraft(tab.id);
+    await artifacts.deleteSketchpadDraft(sketchpad.id);
+    expect(await artifacts.sketchpadDraft(sketchpad.id)).toBeNull();
     const db = new DatabaseSync(join(directory, "artifacts/scope.db"));
     try {
       expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -117,7 +119,7 @@ test("ordinary settings and tabs reopen from SQLite while credentials stay exclu
     await store.load();
     const secret = "synthetic-provider-secret";
     const view = await store.saveSettings({
-      diagramGenerationEnabled: true,
+      voiceGenerationEnabled: true,
       apiKey: secret,
       appearance: "dark",
     });
@@ -158,7 +160,7 @@ test("Linux development credentials disappear when the process store is recreate
   try {
     await store.load();
     await store.saveSettings({
-      diagramGenerationEnabled: true,
+      voiceGenerationEnabled: true,
       apiKey: "temporary-secret",
     });
     expect(await store.secret("apiKey")).toBe("temporary-secret");
@@ -191,13 +193,13 @@ test.for([1, 2] as const)(
             ? { endpoint: "https://old-hub.invalid", hubToken: "obsolete-encrypted-hub-token" }
             : {}),
           provider: "openrouter",
-          model: DIAGRAM_MODEL,
+          model: "google/gemini-3.8-flash",
           apiKey: ciphertext,
         }),
       );
       await store.load();
       expect(await credentials.read()).toEqual({});
-      await store.saveSettings({ diagramGenerationEnabled: true });
+      await store.saveSettings({ voiceGenerationEnabled: true });
       expect(await store.secret("apiKey")).toBe("legacy-provider-key");
       expect(await credentials.read()).toEqual({ apiKey: "legacy-provider-key" });
       expect(documents(directory)).not.toContain(ciphertext);
@@ -232,7 +234,7 @@ test("a locked or failing Keychain remains visible and cannot silently remove a 
   const store = new DesktopStore(directory, credentials);
   try {
     await store.load();
-    await store.saveSettings({ diagramGenerationEnabled: true });
+    await store.saveSettings({ voiceGenerationEnabled: true });
     await store.providerSettings();
     locked = true;
     await expect(store.saveSettings({ removeApiKey: true })).rejects.toThrow("Keychain locked");
@@ -267,7 +269,7 @@ test("existing SQLite preferences retain tabs and provider credentials while dis
       JSON.stringify({
         version: 1,
         provider: "openrouter",
-        model: DIAGRAM_MODEL,
+        model: "google/gemini-3.8-flash",
         endpoint: "https://old-hub.invalid",
       }),
     );
@@ -284,8 +286,8 @@ test("existing SQLite preferences retain tabs and provider credentials while dis
     expect(migrated?.tabs.map((tab) => tab.state.data.artifactId)).toEqual(workspace.tabs);
     expect(migrated?.selected).toBe(migrated?.tabs[0].id);
     expect(store.settings().appearance).toBe("system");
-    expect(store.settings().diagramGenerationEnabled).toBe(false);
-    await store.saveSettings({ diagramGenerationEnabled: true });
+    expect(store.settings().voiceGenerationEnabled).toBe(false);
+    await store.saveSettings({ voiceGenerationEnabled: true });
     expect(await store.secret("apiKey")).toBe("existing-provider-key");
     expect(documents(directory)).not.toContain("endpoint");
     expect(store.settings()).not.toHaveProperty("hasHubToken");
@@ -300,7 +302,7 @@ test("a failed credential migration retains the JSON settings for a successful r
   const legacy = JSON.stringify({
     version: 2,
     provider: "openrouter",
-    model: DIAGRAM_MODEL,
+    model: "google/gemini-3.8-flash",
     apiKey: Buffer.from("synthetic-ciphertext").toString("base64"),
   });
   const credentials = fakeKeychain();
@@ -311,7 +313,7 @@ test("a failed credential migration retains the JSON settings for a successful r
   try {
     await writeFile(join(directory, "settings.json"), legacy);
     await failed.load();
-    await failed.saveSettings({ diagramGenerationEnabled: true });
+    await failed.saveSettings({ voiceGenerationEnabled: true });
     await expect(failed.secret("apiKey")).rejects.toThrow("Keychain locked");
     expect(await readFile(join(directory, "settings.json"), "utf8")).toBe(legacy);
     expect(await credentials.read()).toEqual({});
@@ -365,18 +367,8 @@ test("legacy open tabs migrate with stable IDs while closed-only artifacts and d
       })),
     }),
   );
-  const legacyDraft: DiagramDraft = {
-    version: 1,
-    content: JSON.stringify({ type: "excalidraw", elements: [], files: {} }),
-    revision: 1,
-    dirty: true,
-    messages: [{ role: "user", text: "Keep the conversation" }],
-    intent: "Unsent draft",
-    chatOpen: true,
-    viewport: { zoom: 1, scrollX: 0, scrollY: 0 },
-  };
   for (const id of ["diagram", "closed", "overflow"])
-    db.prepare("INSERT INTO diagram_drafts VALUES (?, ?)").run(id, JSON.stringify(legacyDraft));
+    db.prepare("INSERT INTO diagram_drafts VALUES (?, ?)").run(id, "{}");
   db.prepare("INSERT INTO preferences VALUES ('unrelated-plugin', ?)").run(
     JSON.stringify({ keep: true }),
   );
@@ -398,11 +390,14 @@ test("legacy open tabs migrate with stable IDs while closed-only artifacts and d
     ]);
     await expect(artifacts.get("closed")).rejects.toMatchObject({ status: 404 });
     const owners = await artifacts.tabs();
-    for (const artifactId of ["diagram", "overflow"])
-      expect(
-        await artifacts.diagramDraft(owners.find((tab) => tab.artifact_id === artifactId)!.id),
-      ).toEqual(legacyDraft);
     expect(owners.some((tab) => tab.artifact_id === "closed")).toBe(false);
+    const library = new DatabaseSync(join(directory, "artifacts/scope.db"));
+    try {
+      // Legacy diagram drafts are no longer imported; Scope leaves the old table untouched.
+      expect(library.prepare("SELECT count(*) AS n FROM tab_drafts").get()?.n).toBe(0);
+    } finally {
+      library.close();
+    }
     expect(await store.legacyWorkspace()).toBeNull();
     await lifecycle.recover();
     expect(await lifecycle.workspace()).toEqual(workspace);
@@ -423,5 +418,107 @@ test("legacy open tabs migrate with stable IDs while closed-only artifacts and d
     await store.close();
     await artifacts.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("startup permanently removes saved diagram tabs with their drafts and keeps other Excalidraw files", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "scope-diagram-removal-"));
+  const store = new DesktopStore(directory);
+  let artifacts = await ArtifactStore.open(join(directory, "artifacts"));
+  try {
+    await store.load();
+    let lifecycle = new DesktopLifecycle(artifacts, store);
+    await lifecycle.recover();
+    const groupId = (await lifecycle.workspace()).groups[0].id;
+    const content = JSON.stringify({ type: "excalidraw", elements: [], files: {} });
+    async function publish(id: string, type: string) {
+      const tabId = await artifacts.reserve(id, 0);
+      const blob = await artifacts.upload(
+        tabId,
+        (async function* () {
+          yield Buffer.from(content);
+        })(),
+      );
+      const artifact = await artifacts.put(id, {
+        title: id,
+        kind: "excalidraw",
+        mediaType: "application/vnd.excalidraw+json",
+        fileName: `${id}.excalidraw`,
+        expectedRevision: 0,
+        tabId,
+        blob,
+      });
+      const tab = await lifecycle.openTab(
+        { id: tabId, groupId, type, title: id, state: { version: 1, data: { artifactId: id } } },
+        artifact.revision,
+      );
+      if (!tab) throw new Error("Expected the tab to open.");
+      return tab;
+    }
+    const open = await publish("open-diagram", "diagram");
+    const trashed = await publish("trashed-diagram", "diagram");
+    await publish("kept-file", "file");
+    await lifecycle.closeTab(trashed.id);
+    const db = new DatabaseSync(join(directory, "artifacts/scope.db"));
+    try {
+      db.prepare("INSERT INTO tab_drafts VALUES (?, ?)").run(open.id, "{}");
+    } finally {
+      db.close();
+    }
+    await artifacts.close();
+    artifacts = await ArtifactStore.open(join(directory, "artifacts"));
+    lifecycle = new DesktopLifecycle(artifacts, store);
+    await lifecycle.recover();
+    expect((await lifecycle.workspace()).tabs.map((tab) => tab.title)).toEqual(["kept-file"]);
+    expect((await artifacts.retainedTabs()).map((entry) => entry.tab.title)).toEqual(["kept-file"]);
+    await expect(artifacts.get("open-diagram")).rejects.toMatchObject({ status: 404 });
+    await expect(artifacts.get("trashed-diagram")).rejects.toMatchObject({ status: 404 });
+    expect(await artifacts.get("kept-file")).toMatchObject({ kind: "excalidraw" });
+    const after = new DatabaseSync(join(directory, "artifacts/scope.db"));
+    try {
+      expect(after.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+      expect(after.prepare("SELECT count(*) AS n FROM tab_drafts").get()?.n).toBe(0);
+    } finally {
+      after.close();
+    }
+    await lifecycle.recover();
+    expect((await lifecycle.workspace()).tabs.map((tab) => tab.title)).toEqual(["kept-file"]);
+  } finally {
+    await artifacts.close();
+    await store.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("saved settings from builds with diagram generation still load and drop the old switch", async () => {
+  for (const source of ["row", "file"] as const) {
+    const directory = await mkdtemp(join(tmpdir(), "scope-old-settings-"));
+    const old = {
+      version: 2,
+      appearance: "dark",
+      diagramGenerationEnabled: true,
+      voiceGenerationEnabled: true,
+      provider: "openrouter",
+      model: "google/gemini-3.8-flash",
+    };
+    if (source === "row") {
+      const db = new DatabaseSync(join(directory, "desktop.db"));
+      try {
+        db.exec("CREATE TABLE preferences(name TEXT PRIMARY KEY, document TEXT NOT NULL) STRICT");
+        db.prepare("INSERT INTO preferences VALUES ('settings', ?)").run(JSON.stringify(old));
+      } finally {
+        db.close();
+      }
+    } else await writeFile(join(directory, "settings.json"), JSON.stringify(old));
+    const store = new DesktopStore(directory);
+    try {
+      await store.load();
+      expect(store.settings()).toMatchObject({ appearance: "dark", voiceGenerationEnabled: true });
+      expect(documents(directory)).not.toContain("diagramGenerationEnabled");
+      expect(documents(directory)).toContain('\\"provider\\":\\"openrouter\\"');
+    } finally {
+      await store.close();
+      await rm(directory, { recursive: true, force: true });
+    }
   }
 });
