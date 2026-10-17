@@ -493,8 +493,9 @@ export function PromptsView({ context, tab, active }: TabProps) {
           </section>
         </div>
       </div>
-      {picker && document && (
+      {active && picker && document && (
         <PromptPicker
+          key={picker}
           field={picker}
           epoch={libraryEpoch}
           selectedId={document.parts[picker].itemId}

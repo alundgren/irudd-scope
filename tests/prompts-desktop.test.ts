@@ -279,6 +279,47 @@ test("Prompts starts empty, picks CLI images and text, preserves copies, resets 
   }
 });
 
+test.for(["Escape", "Back"] as const)(
+  "closing a pending picker with %s preserves later typing and a newly opened picker",
+  async (close) => {
+    const f = await desktopFixture();
+    const application = await f.launch();
+    try {
+      const page = await application.firstWindow();
+      await ready(page);
+      const create = createPromptItem();
+      await apply(f, create);
+      await page.getByRole("button", { name: "Choose Subject", exact: true }).click();
+      const gate = await gateCommand(application, true, false, "read-item");
+      await page.getByRole("button", { name: `Use ${create.item.name}`, exact: true }).click();
+      await expect.poll(gate.started).toBe(true);
+      if (close === "Escape") await page.keyboard.press("Escape");
+      else await page.getByRole("button", { name: "Back to prompt", exact: true }).click();
+      await page.getByRole("dialog").waitFor({ state: "hidden" });
+      const text = `newer text after closing with ${close}`;
+      await page.getByRole("textbox", { name: "Subject", exact: true }).fill(text);
+      await expect
+        .poll(async () => (await read(f)).workspace.document.parts.subject.text)
+        .toBe(text);
+      await page.getByRole("button", { name: "Choose Camera", exact: true }).click();
+      await page.getByRole("dialog", { name: "Camera", exact: true }).waitFor();
+      await gate.release();
+      // Wait through the autosave interval after delivering the obsolete selection response.
+      await page.waitForTimeout(600);
+      expect({
+        displayed: await page.locator(".prompt-field-subject textarea").inputValue(),
+        saved: (await read(f)).workspace.document.parts.subject,
+        nextPickerOpen: await page.getByRole("dialog", { name: "Camera", exact: true }).isVisible(),
+      }).toEqual({ displayed: text, saved: { itemId: null, text }, nextPickerOpen: true });
+      await page.keyboard.press("Escape");
+      await page.getByRole("dialog").waitFor({ state: "hidden" });
+    } finally {
+      await application.close();
+      await rm(f.directory, { recursive: true, force: true });
+    }
+  },
+);
+
 test("picking after a delayed item read and its Undo preserve a concurrent agent update to another field", async () => {
   const f = await desktopFixture();
   const application = await f.launch();

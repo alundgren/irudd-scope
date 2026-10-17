@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, Search } from "lucide-react";
 import {
   PROMPT_STRUCTURE,
@@ -102,6 +102,17 @@ export function PromptPicker({
   const [retry, setRetry] = useState(0);
   const generation = useRef(0);
   const query = useRef("");
+  const selection = useRef(0);
+  useLayoutEffect(() => {
+    selection.current++;
+    return () => {
+      selection.current++;
+    };
+  }, [field]);
+  function close() {
+    selection.current++;
+    onClose();
+  }
   useEffect(() => {
     const version = ++generation.current;
     setLoading(true);
@@ -157,25 +168,28 @@ export function PromptPicker({
     }
   }
   async function select(item: PromptItem) {
+    const version = ++selection.current;
     setSelecting(true);
     setError("");
     try {
-      onSelect(await readPromptItem(item.id));
+      const current = await readPromptItem(item.id);
+      if (version === selection.current) onSelect(current);
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "This item changed. Refresh the library and retry.",
-      );
+      if (version === selection.current)
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "This item changed. Refresh the library and retry.",
+        );
     } finally {
-      setSelecting(false);
+      if (version === selection.current) setSelecting(false);
     }
   }
   return (
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) close();
       }}
     >
       <DialogContent
@@ -186,12 +200,12 @@ export function PromptPicker({
           if (event.key === "Escape") {
             event.preventDefault();
             event.stopPropagation();
-            onClose();
+            close();
           }
         }}
       >
         <header className="prompt-picker-header">
-          <Button variant="ghost" aria-label="Back to prompt" onClick={onClose}>
+          <Button variant="ghost" aria-label="Back to prompt" onClick={close}>
             <ArrowLeft />
             Back
           </Button>

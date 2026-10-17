@@ -26,7 +26,7 @@ test("HTML and plan controls omit external publishing and preserve the interacti
       );
       for (const title of ["HTML review", "Plan review"]) {
         await page
-          .getByRole("button", { name: "Tabs and Trashcan, 2 active tabs", exact: true })
+          .getByRole("button", { name: "Tabs and Trashcan, 3 active tabs", exact: true })
           .click();
         await page
           .getByRole("button", {
