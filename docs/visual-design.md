@@ -67,3 +67,21 @@ and measurements in review evidence so this document remains current guidance.
 
 The shared theme values derive from Excalidraw. Attribution is in the desktop's
 [third-party notices](../apps/desktop/resources/THIRD-PARTY-NOTICES.md).
+
+## Prompt editor
+
+The Prompts tab uses the shared system UI font for controls and the reading
+font size and line height for fields and assembled output. Four columns keep
+the seven fields visible together at desktop widths, with Subject spanning two
+columns. The editor allocates most of its initial height to two multiline
+rows, followed by a keyboard-accessible horizontal divider and a scrollable
+full-width output. At smaller sizes the containing editor scrolls while its
+fields retain useful multiline height.
+
+Field headings use outlined buttons to open the picker. Current item names and
+Edited use compact secondary text; guidance stays inside the picker. Clear and
+Restore use labeled icon buttons. The full-window picker uses large contained
+example images, complete fragment and description text, and an explicit Use
+fragment action. Its search and return control stay above the scrolling list.
+Prompt states and recovery actions use the same control, text, focus, and error
+tokens as the rest of the desktop.

@@ -19,7 +19,7 @@ type OpenGate = {
 test.for(["before", "after"] as const)(
   "repeated initial memory opens racing with close stay hidden across restart (%s handler)",
   async (phase) => {
-    const f = await desktopFixture();
+    const f = await desktopFixture({ hideInitialPrompts: true });
     cleanup.push(() => rm(f.directory, { recursive: true, force: true }));
     let application = await f.launch();
     cleanup.push(() => application.close());

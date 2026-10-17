@@ -1,3 +1,4 @@
+import { initializeBuiltinPlugins } from "./plugins/registry.main.ts";
 import { VoiceService } from "./voice/service.ts";
 import {
   app,
@@ -105,6 +106,7 @@ async function main() {
     initialize: async (artifacts) => {
       lifecycle = new DesktopLifecycle(artifacts, store);
       await lifecycle.recover();
+      await initializeBuiltinPlugins(lifecycle);
     },
     deleteArtifact: (id) => lifecycle.deleteArtifact(id),
     shrink: (timeoutMs) => lifecycle.shrink(timeoutMs),

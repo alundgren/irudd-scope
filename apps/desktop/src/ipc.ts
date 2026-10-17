@@ -94,6 +94,12 @@ export function registerDesktopIpc({
     artifacts: lifecycle.artifacts,
     workspace: () => lifecycle.workspace(),
   });
+  const stopPromptEvents = library.onPromptsChanged((event) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:prompts-changed", event);
+  });
+  const stopPromptReconnects = library.onPromptsReconnected(() => {
+    if (!window.isDestroyed()) window.webContents.send("scope:prompts-reconnected");
+  });
   const stopRetroEvents = library.onRetroChanged((event) => {
     if (!window.isDestroyed()) window.webContents.send("scope:retro-changed", event);
   });
@@ -258,6 +264,8 @@ export function registerDesktopIpc({
     cancelPending: () => plugins.cancelPullRequests(),
     cancelTabs: (ids: string[]) => plugins.cancelTabs(ids),
     dispose: () => {
+      stopPromptEvents();
+      stopPromptReconnects();
       stopRetroEvents();
       stopRetroReconnects();
       stopPlanEvents();

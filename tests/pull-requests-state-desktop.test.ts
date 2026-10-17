@@ -34,7 +34,7 @@ window.draft=null;scope.pullRequests.beforeClose(async()=>{
 </script>`;
 
 test("authored inbox JSON edits reach all its frames and survive restart and HTML replacement", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   let app = await f.launch();
   try {
     let client = await f.connect();
@@ -218,7 +218,7 @@ test("PR state watches load large external edits, recover missed edits and reset
   process.env.PATH = `${ghDirectory}:${previousPath}`;
   let f: Awaited<ReturnType<typeof desktopFixture>>;
   try {
-    f = await desktopFixture();
+    f = await desktopFixture({ hideInitialPrompts: true });
   } finally {
     process.env.PATH = previousPath;
   }

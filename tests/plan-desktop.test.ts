@@ -40,6 +40,7 @@ async function draw(page: Page, from: [number, number], to: [number, number]) {
 
 test("a plan keeps interactive HTML while captured comments, feedback, replies, and versions persist", async () => {
   const { directory, launch, connect, cli } = await desktopFixture({
+    hideInitialPrompts: true,
     showWindow: process.platform === "darwin",
   });
   let application = await launch();
@@ -264,6 +265,7 @@ test("a plan keeps interactive HTML while captured comments, feedback, replies, 
 
 test("plan publications switch to the latest page while historical captures and unsent work survive navigation", async () => {
   const { directory, launch, connect } = await desktopFixture({
+    hideInitialPrompts: true,
     showWindow: process.platform === "darwin",
   });
   const application = await launch();
@@ -423,7 +425,10 @@ test("plan publications switch to the latest page while historical captures and 
 }, 60_000);
 
 test("zoomed plan capture includes the full authored viewport with normalized marks", async () => {
-  const { directory, launch } = await desktopFixture({ showWindow: process.platform === "darwin" });
+  const { directory, launch } = await desktopFixture({
+    hideInitialPrompts: true,
+    showWindow: process.platform === "darwin",
+  });
   const application = await launch();
   try {
     const page = await application.firstWindow();
@@ -507,6 +512,7 @@ test("zoomed plan capture includes the full authored viewport with normalized ma
 
 test("deleting queued comments from their pin and Feedback sends only the remaining comments", async () => {
   const { directory, launch, connect } = await desktopFixture({
+    hideInitialPrompts: true,
     showWindow: process.platform === "darwin",
   });
   const application = await launch();
@@ -577,7 +583,10 @@ test("deleting queued comments from their pin and Feedback sends only the remain
 }, 60_000);
 
 test("Escape closes plan capture before workspace shortcuts and focus keeps an unsent capture", async () => {
-  const { directory, launch } = await desktopFixture({ showWindow: process.platform === "darwin" });
+  const { directory, launch } = await desktopFixture({
+    hideInitialPrompts: true,
+    showWindow: process.platform === "darwin",
+  });
   const application = await launch();
   try {
     const page = await application.firstWindow();
@@ -634,6 +643,7 @@ test("Escape closes plan capture before workspace shortcuts and focus keeps an u
 
 test("plan metadata refreshes after reconnect when a text-only response notification was missed", async () => {
   const { directory, launch, connect } = await desktopFixture({
+    hideInitialPrompts: true,
     showWindow: process.platform === "darwin",
   });
   const application = await launch();

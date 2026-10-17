@@ -46,7 +46,7 @@ async function screenshot(page: Page, name: string) {
 }
 
 test("plan controls and feedback move without resetting HTML and persist separately per tab", async () => {
-  const { directory, launch } = await desktopFixture();
+  const { directory, launch } = await desktopFixture({ hideInitialPrompts: true });
   let application = await launch();
   try {
     await application.evaluate(({ BrowserWindow }) =>
@@ -157,7 +157,7 @@ test("plan controls and feedback move without resetting HTML and persist separat
 });
 
 test("fullscreen controls keep their position through focus, resizing, tabs, and restart", async () => {
-  const { directory, launch } = await desktopFixture();
+  const { directory, launch } = await desktopFixture({ hideInitialPrompts: true });
   let application = await launch();
   try {
     let page = await application.firstWindow();

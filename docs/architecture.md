@@ -723,3 +723,13 @@ revision invalidations. Reconnecting consumers reread current state because the
 stream has no replay. Shared contracts contain no desktop layout or IPC state.
 See the [protocol](../packages/protocol/README.md#prompt-library-and-current-workspace)
 for commands, bounds, image ownership and concurrency behavior.
+
+The desktop `plugins/prompts/` plugin owns the current editor, picker, save
+coordination and recovery UI. Its named main handlers validate commands and
+return item images without exposing publishing credentials. The plugin's
+versioned tab state stores only its divider setting. Local recovery drafts use
+`scope.db`'s existing `tab_drafts`, checked against the owning Prompts tab, and
+retain the latest local document separately from an uncertain dispatched write.
+The plugin registry creates the singleton at startup while preserving existing
+selection and stored hidden state. Library event and reconnect subscriptions
+invalidate clean editor state and visible picker reads without navigation.

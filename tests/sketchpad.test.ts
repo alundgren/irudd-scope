@@ -45,7 +45,7 @@ function storedDrafts(settingsDirectory: string) {
 }
 
 test("the Sketchpad opens from search, keeps drawings across restart, and Reset leaves no stored row", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   let application = await f.launch();
   try {
     let page = await application.firstWindow();
@@ -121,7 +121,7 @@ test("the Sketchpad opens from search, keeps drawings across restart, and Reset 
 }, 90_000);
 
 test("saving the Sketchpad drops images no drawing uses and agents have no Sketchpad commands", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   let application = await f.launch();
   try {
     let page = await application.firstWindow();

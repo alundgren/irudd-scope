@@ -55,7 +55,7 @@ test("published HTML runs external resources and embedded forms while links open
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Missing prototype server port.");
   const origin = `http://127.0.0.1:${address.port}`;
-  const { directory, launch, cli } = await desktopFixture();
+  const { directory, launch, cli } = await desktopFixture({ hideInitialPrompts: true });
   let application: Awaited<ReturnType<typeof launch>> | undefined;
   try {
     application = await launch();

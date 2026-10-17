@@ -6,7 +6,7 @@ import { desktopFixture } from "./desktop-fixture.ts";
 
 test("Electron receives and reopens interactive HTML and keeps development keys out of files", async () => {
   const { directory, settingsDirectory, connectionFile, launch, connect, cli } =
-    await desktopFixture();
+    await desktopFixture({ hideInitialPrompts: true });
   let application: Awaited<ReturnType<typeof launch>> | undefined;
   try {
     await expect(cli("list")).rejects.toMatchObject({

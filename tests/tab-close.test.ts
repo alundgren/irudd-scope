@@ -4,7 +4,7 @@ import { desktopFixture } from "./desktop-fixture.ts";
 
 for (const appearance of ["light", "dark"] as const) {
   test(`closing permanent tabs hides them while preserving content and selection in ${appearance} appearance`, async () => {
-    const f = await desktopFixture();
+    const f = await desktopFixture({ hideInitialPrompts: true });
     let application = await f.launch();
     try {
       let page = await application.firstWindow();
@@ -30,7 +30,11 @@ for (const appearance of ["light", "dark"] as const) {
       await page.getByRole("button", { name: `Make temporary: ${title}`, exact: true }).waitFor();
       const permanentId = await page.getByRole("tab", { name: title }).getAttribute("id");
       const order = () =>
-        page.evaluate(async () => (await window.scope.workspace())?.tabs.map((tab) => tab.title));
+        page.evaluate(async () =>
+          (await window.scope.workspace())?.tabs
+            .filter((tab) => tab.type !== "prompts")
+            .map((tab) => tab.title),
+        );
       await expect.poll(order).toEqual([title, "Bravo", "Charlie"]);
       await page.getByRole("button", { name: "Search and controls", exact: true }).click();
       await page.getByRole("button", { name: "Artifact details", exact: true }).click();
@@ -85,15 +89,20 @@ for (const appearance of ["light", "dark"] as const) {
 
       await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
       const drawer = page.locator(".tab-overflow-popup");
-      expect(await drawer.locator("[data-tab-result]").allTextContents()).toEqual([
-        "Bravo",
-        "Charlie",
-        title,
-      ]);
+      expect(
+        await drawer
+          .locator("[data-tab-result]")
+          .filter({ hasNotText: /^Prompts$/ })
+          .allTextContents(),
+      ).toEqual(["Bravo", "Charlie", title]);
       await drawer.getByRole("button", { name: "Trashcan", exact: true }).click();
       await page.getByText("Trashcan is empty.", { exact: true }).waitFor();
       await drawer.getByRole("button", { name: "Active", exact: true }).click();
-      await drawer.locator("[data-tab-result]").filter({ hasText: title }).click();
+      await drawer
+        .locator("[data-tab-result]")
+        .filter({ hasNotText: /^Prompts$/ })
+        .filter({ hasText: title })
+        .click();
       await page.getByRole("tab", { name: title, selected: true }).waitFor();
       expect(await note().inputValue()).toBe("Keep this unsaved browser state");
       expect(await page.getByRole("tab", { name: title }).getAttribute("id")).toBe(permanentId);
@@ -104,10 +113,18 @@ for (const appearance of ["light", "dark"] as const) {
         .poll(() => neighbor.evaluate((element) => element === document.activeElement))
         .toBe(true);
       await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
-      await drawer.locator("[data-tab-result]").filter({ hasText: title }).focus();
+      await drawer
+        .locator("[data-tab-result]")
+        .filter({ hasNotText: /^Prompts$/ })
+        .filter({ hasText: title })
+        .focus();
       await page.keyboard.press("Alt+ArrowUp");
       await expect.poll(order).toEqual(["Bravo", title, "Charlie"]);
-      await drawer.locator("[data-tab-result]").filter({ hasText: title }).click();
+      await drawer
+        .locator("[data-tab-result]")
+        .filter({ hasNotText: /^Prompts$/ })
+        .filter({ hasText: title })
+        .click();
       await page.getByRole("tab", { name: title, selected: true }).waitFor();
       expect(await note().inputValue()).toBe("Keep this unsaved browser state");
       await closeButton.click();
@@ -158,7 +175,9 @@ for (const appearance of ["light", "dark"] as const) {
       await page.getByRole("button", { name: "Search and controls", exact: true }).click();
       await page.getByRole("button", { name: "Move to Trashcan", exact: true }).click();
       await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
-      const retained = await page.evaluate(() => window.scope.retainedTabs());
+      const retained = (await page.evaluate(() => window.scope.retainedTabs())).filter(
+        (entry) => entry.tab.type !== "prompts",
+      );
       expect(retained).toHaveLength(3);
       expect(retained.every((entry) => entry.trashedAt !== null)).toBe(true);
       expect(retained.find((entry) => entry.tab.id === permanentId!.slice(4))?.permanent).toBe(
@@ -173,7 +192,7 @@ for (const appearance of ["light", "dark"] as const) {
 }
 
 test("background revisions, new publications, and arrow shortcuts leave closed permanent tabs hidden", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   const application = await f.launch();
   try {
     const page = await application.firstWindow();
@@ -229,7 +248,7 @@ test("background revisions, new publications, and arrow shortcuts leave closed p
 });
 
 test("a failed close-state save keeps a permanent tab visible for retry", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   const application = await f.launch();
   try {
     const page = await application.firstWindow();
@@ -268,10 +287,18 @@ test("a failed close-state save keeps a permanent tab visible for retry", async 
       .filter({ hasText: "Could not save this tab. Try again." })
       .waitFor();
     await page.getByRole("tab", { name: "Saved tool", selected: true }).waitFor();
-    expect((await page.evaluate(() => window.scope.workspace()))?.tabs[0].hidden).not.toBe(true);
+    expect(
+      (await page.evaluate(() => window.scope.workspace()))?.tabs.find(
+        (tab) => tab.type !== "prompts",
+      )?.hidden,
+    ).not.toBe(true);
     await page.getByRole("button", { name: "Close Saved tool", exact: true }).click();
     await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
-    expect((await page.evaluate(() => window.scope.workspace()))?.tabs[0].hidden).toBe(true);
+    expect(
+      (await page.evaluate(() => window.scope.workspace()))?.tabs.find(
+        (tab) => tab.type !== "prompts",
+      )?.hidden,
+    ).toBe(true);
   } finally {
     await application.close();
     await rm(f.directory, { recursive: true, force: true });

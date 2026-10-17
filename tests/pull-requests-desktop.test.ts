@@ -24,7 +24,7 @@ async function offlineFixture() {
   const previousPath = process.env.PATH;
   process.env.PATH = ghDirectory + ":" + previousPath;
   try {
-    return { ...(await desktopFixture()), ghDirectory };
+    return { ...(await desktopFixture({ hideInitialPrompts: true })), ghDirectory };
   } finally {
     process.env.PATH = previousPath;
   }

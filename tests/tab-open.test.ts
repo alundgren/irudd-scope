@@ -53,7 +53,7 @@ async function holdOpen(application: ElectronApplication, phase: "before" | "aft
 }
 
 test("switching between open tabs does not wait for an arriving publication", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   const application = await f.launch();
   let gate: Awaited<ReturnType<typeof holdOpen>> | undefined;
   try {
@@ -94,7 +94,7 @@ test("switching between open tabs does not wait for an arriving publication", as
 test.for(["before", "after"] as const)(
   "deletion and recreation while an open waits %s its real IPC handler cannot restore the old tab",
   async (phase) => {
-    const f = await desktopFixture();
+    const f = await desktopFixture({ hideInitialPrompts: true });
     const application = await f.launch();
     const gate = await holdOpen(application, phase);
     try {
@@ -146,7 +146,7 @@ test.for(["before", "after"] as const)(
 test.for(["before", "fail"] as const)(
   "a pending open handles %s without hiding unrelated failures",
   async (phase) => {
-    const f = await desktopFixture();
+    const f = await desktopFixture({ hideInitialPrompts: true });
     const application = await f.launch();
     const gate = await holdOpen(application, phase);
     try {
@@ -172,7 +172,11 @@ test.for(["before", "fail"] as const)(
         expect(await client.list()).toHaveLength(1);
       } else {
         expect(await page.getByRole("alert").allTextContents()).toEqual([]);
-        expect((await page.evaluate(() => window.scope.workspace()))?.tabs).toEqual([]);
+        expect(
+          (await page.evaluate(() => window.scope.workspace()))?.tabs.filter(
+            (tab) => tab.type !== "prompts",
+          ),
+        ).toEqual([]);
         expect(await client.list()).toEqual([]);
       }
     } finally {
@@ -184,7 +188,7 @@ test.for(["before", "fail"] as const)(
 );
 
 test("a replacement still opens when the previous tab's close notification arrives last", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   const application = await f.launch();
   try {
     const page = await application.firstWindow();
@@ -198,7 +202,9 @@ test("a replacement still opens when the previous tab's close notification arriv
     };
     await client.publish("reordered", metadata, Buffer.from("Original bytes"));
     await page.getByRole("tab", { name: metadata.title, exact: true }).waitFor();
-    const original = (await page.evaluate(() => window.scope.workspace()))!.tabs[0];
+    const original = (await page.evaluate(() => window.scope.workspace()))!.tabs.find(
+      (tab) => tab.type !== "prompts",
+    )!;
     await application.evaluate(({ BrowserWindow }) => {
       const contents = BrowserWindow.getAllWindows()[0].webContents;
       const send = contents.send.bind(contents);
@@ -230,7 +236,9 @@ test("a replacement still opens when the previous tab's close notification arriv
     );
     await expect
       .poll(async () => {
-        const tabs = (await page.evaluate(() => window.scope.workspace()))!.tabs;
+        const tabs = (await page.evaluate(() => window.scope.workspace()))!.tabs.filter(
+          (tab) => tab.type !== "prompts",
+        );
         return tabs.length === 1 && tabs[0].id !== original.id;
       })
       .toBe(true);

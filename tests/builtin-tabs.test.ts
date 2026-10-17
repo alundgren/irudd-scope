@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test("built-in tabs have a fixed indicator and close through Delete, controls, and restart without entering Trashcan", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   let application = await f.launch();
   try {
     let page = await application.firstWindow();
@@ -50,7 +50,9 @@ test("built-in tabs have a fixed indicator and close through Delete, controls, a
     await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
     await drawer.getByRole("button", { name: "Trashcan", exact: true }).click();
     await page.getByText("Trashcan is empty.", { exact: true }).waitFor();
-    expect((await page.evaluate(() => window.scope.retainedTabs()))[0]).toMatchObject({
+    expect(
+      (await page.evaluate(() => window.scope.retainedTabs())).find((entry) => entry.tab.id === id),
+    ).toMatchObject({
       tab: { id },
       permanent: true,
       trashedAt: null,

@@ -131,7 +131,7 @@ async function checkContent(page: Page, example: (typeof examples)[number]) {
 }
 
 test("the built CLI publishes every tab view through appearance, focus, restart, trash, and explicit deletion", async () => {
-  const { directory, launch, cli, connect } = await desktopFixture();
+  const { directory, launch, cli, connect } = await desktopFixture({ hideInitialPrompts: true });
   let application = await launch();
   const failures: string[] = [];
   const fullscreen = () =>
@@ -223,7 +223,12 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
         .evaluateAll((tabs) => new Set(tabs.map((tab) => tab.getBoundingClientRect().y)).size),
     ).toBe(1);
     await expect
-      .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
+      .poll(() =>
+        page.evaluate(
+          async () =>
+            (await window.scope.workspace())?.tabs.filter((tab) => tab.type !== "prompts").length,
+        ),
+      )
       .toBe(examples.length);
     const visibleIds = await page
       .getByRole("tab")
@@ -235,7 +240,7 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
     expect(before?.tabs.every((tab) => tab.id !== tab.state.data.artifactId)).toBe(true);
     expect(before?.tabs.find((tab) => tab.state.data.artifactId === "drawing")?.type).toBe("file");
     const accepted = await page.evaluate(async () => {
-      const tab = (await window.scope.workspace())!.tabs[0];
+      const tab = (await window.scope.workspace())!.tabs.find((tab) => tab.type !== "prompts")!;
       const event = {
         type: "resource.selected" as const,
         resource: { kind: "artifact", id: "notes" },
@@ -254,7 +259,12 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
     page = await application.firstWindow();
     page.on("pageerror", (error) => failures.push(error.message));
     await expect
-      .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
+      .poll(() =>
+        page.evaluate(
+          async () =>
+            (await window.scope.workspace())?.tabs.filter((tab) => tab.type !== "prompts").length,
+        ),
+      )
       .toBe(examples.length);
     expect(
       (await page.evaluate(() => window.scope.workspace()))?.tabs.map((tab) => tab.id),
@@ -274,7 +284,12 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
       await tab.waitFor();
       await page.keyboard.press("ControlOrMeta+w");
       await expect
-        .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
+        .poll(() =>
+          page.evaluate(
+            async () =>
+              (await window.scope.workspace())?.tabs.filter((tab) => tab.type !== "prompts").length,
+          ),
+        )
         .toBe(examples.length - index - 1);
       expect(await client.get(example.id)).toBeDefined();
       await client.delete(example.id);

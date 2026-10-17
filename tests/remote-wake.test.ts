@@ -4,7 +4,7 @@ import { desktopFixture } from "./desktop-fixture.ts";
 import { pressureHub } from "./pressure-fixture.ts";
 
 test("the Electron resume event reconnects enabled remotes with a wake signal and keeps disabled remotes off", async () => {
-  const desktop = await desktopFixture();
+  const desktop = await desktopFixture({ hideInitialPrompts: true });
   const hub = await pressureHub(desktop.directory);
   const application = await desktop.launch();
   try {

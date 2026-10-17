@@ -890,3 +890,14 @@ The prompt storage, API, built CLI and paired relay tests use synthetic images,
 isolated databases and no provider credentials. See the
 [protocol](../packages/protocol/README.md#prompt-library-and-current-workspace)
 for limits, pagination and retry handling.
+
+`prompts-desktop.test.ts` runs the current editor and picker in real isolated
+Electron with the built CLI. It covers library images, copied text, explicit
+Restore, reset and undo, native ZIP export, hide/restart, divider keyboard
+persistence, concurrent deletion, failed quit recovery, uncertain save retries
+with later typing, and missed-event refresh. The visual journey checks long
+synthetic text at 1366×768, 1440×900 and 1920×1080 in both appearances.
+`SCOPE_TEST_SCREENSHOTS` optionally saves screenshots and layout measurements
+outside the repository. Existing desktop fixture users explicitly hide the
+startup Prompts tab when their scenario needs an initially empty strip; the
+real built-in tab remains retained and its storage is included in assertions.

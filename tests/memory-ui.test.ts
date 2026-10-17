@@ -14,6 +14,7 @@ test("Memory settings turn sync on, show each machine, and warn about conflicts 
   const f = await memoryFixture(cleanup);
   const memoryDirectory = f.root("mac");
   const fixture = await desktopFixture({
+    hideInitialPrompts: true,
     env: { ...f.env("mac"), SCOPE_MEMORY_DIR: memoryDirectory },
   });
   const application = await fixture.launch();
@@ -103,6 +104,7 @@ test("Memory settings turn sync on, show each machine, and warn about conflicts 
 test("Memory status changes preserve an unsaved removal of a manual OKF destination", async () => {
   const f = await memoryFixture(cleanup);
   const fixture = await desktopFixture({
+    hideInitialPrompts: true,
     env: { ...f.env("mac"), SCOPE_MEMORY_DIR: f.root("mac") },
   });
   const application = await fixture.launch();

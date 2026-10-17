@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test("the Sketchpad switches between Edit, View, and Present in fullscreen", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   const application = await f.launch();
   const fullscreen = () =>
     application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.isFullScreen());

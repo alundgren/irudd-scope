@@ -34,7 +34,7 @@ async function screenshot(page: Page, name: string) {
 }
 
 test("Settings opens large and supports dragging and resizing without losing form input", async () => {
-  const { directory, launch } = await desktopFixture();
+  const { directory, launch } = await desktopFixture({ hideInitialPrompts: true });
   const application = await launch();
   try {
     const page = await application.firstWindow();
@@ -117,7 +117,7 @@ test("Settings opens large and supports dragging and resizing without losing for
 });
 
 test("Settings supports keyboard adjustments and stays reachable in a smaller window", async () => {
-  const { directory, launch } = await desktopFixture();
+  const { directory, launch } = await desktopFixture({ hideInitialPrompts: true });
   const application = await launch();
   try {
     const page = await application.firstWindow();
@@ -208,7 +208,7 @@ test("Settings supports keyboard adjustments and stays reachable in a smaller wi
 });
 
 test("Settings uses the release position when a pointer move is missing", async () => {
-  const { directory, launch } = await desktopFixture();
+  const { directory, launch } = await desktopFixture({ hideInitialPrompts: true });
   const application = await launch();
   try {
     const page = await application.firstWindow();

@@ -22,6 +22,7 @@ test.runIf(!!process.env.SCOPE_TEST_OKF_BINARY)(
     await chmod(executable, 0o700);
     const root = join(directory, "memory");
     const desktop = await desktopFixture({
+      hideInitialPrompts: true,
       env: {
         PATH: [bin, dirname(process.execPath), process.env.PATH].join(delimiter),
         XDG_CONFIG_HOME: join(directory, "config"),
