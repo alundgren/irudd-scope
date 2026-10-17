@@ -66,7 +66,7 @@ export const PROMPT_STRUCTURE: PromptStructure = {
     },
     {
       id: "action",
-      name: "Action",
+      name: "Action & details",
       guidance: "Describe what the subject is doing, including pose and movement.",
     },
     {
@@ -76,10 +76,14 @@ export const PROMPT_STRUCTURE: PromptStructure = {
     },
     {
       id: "lighting",
-      name: "Lighting",
+      name: "Lighting & color",
       guidance: "Describe the light sources, direction, softness and color.",
     },
-    { id: "style", name: "Style", guidance: "Describe the medium, visual treatment and texture." },
+    {
+      id: "style",
+      name: "Style & medium",
+      guidance: "Describe the medium, visual treatment and texture.",
+    },
     {
       id: "composition",
       name: "Composition",
@@ -208,7 +212,7 @@ export const PromptReply = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("workspace"),
     workspace: PromptWorkspace,
-    rendered: Schema.String.check(Schema.isMaxLength(7 * 8194)),
+    rendered: Schema.String,
   }),
   Schema.Struct({
     type: Schema.Literal("items"),

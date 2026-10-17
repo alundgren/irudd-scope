@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import { ScopeClient } from "@irudd-scope/protocol/client";
 import { expect, test } from "vite-plus/test";
 import { randomUUID } from "node:crypto";
 import { crc32 } from "node:zlib";
@@ -392,5 +394,74 @@ test("deleted item IDs cannot be recreated or changed by an old revision, and or
     ).toMatchObject({ revision: 1, name: replacement.item.name });
   } finally {
     await f.close();
+  }
+});
+
+test.each([
+  ["ß", "SS"],
+  ["ﬃ", "FFI"],
+])(
+  "maximum-length %s fields remain fully readable after capitalization and restart",
+  async (prefix, uppercase) => {
+    const f = await promptsFixture();
+    try {
+      const text = prefix + "a".repeat(8191);
+      const document = decode(PromptDocument, {
+        ...emptyPromptDocument(),
+        parts: Object.fromEntries(
+          Object.keys(emptyPromptDocument().parts).map((field) => [field, { itemId: null, text }]),
+        ),
+      });
+      const expected = Array(7)
+        .fill(uppercase + "a".repeat(8191) + ".")
+        .join(" ");
+      const saved = await f.client.prompts({
+        action: "update-workspace",
+        requestId: randomUUID(),
+        expectedRevision: 0,
+        document,
+      });
+      expect(saved).toMatchObject({ type: "receipt", workspaceRevision: 1 });
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const reply = promptReply(
+          await f.client.prompts({ action: "read-workspace" }),
+          "workspace",
+        );
+        expect(reply.workspace.document).toEqual(document);
+        expect(reply.rendered).toBe(expected);
+        expect(Buffer.byteLength(JSON.stringify(reply))).toBeLessThan(2 * 1024 * 1024);
+        if (attempt === 0) await f.restart();
+      }
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test("prompt client rejects an oversized remote reply before accepting its rendered content", async () => {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(
+      JSON.stringify({
+        type: "workspace",
+        workspace: { revision: 0, document: emptyPromptDocument() },
+        rendered: "x".repeat(2 * 1024 * 1024),
+      }),
+    );
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP address");
+    const client = new ScopeClient(`http://127.0.0.1:${address.port}`, promptToken);
+    await expect(client.prompts({ action: "read-workspace" })).rejects.toThrow(
+      "oversized response",
+    );
+  } finally {
+    const closed = new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+    server.closeAllConnections();
+    await closed;
   }
 });

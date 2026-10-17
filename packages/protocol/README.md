@@ -790,6 +790,8 @@ preserves their text. Reset clears the workspace and keeps the library.
 periods, commas, semicolons and colons, capitalizes the first character and adds
 a period. It skips blank fields and joins the seven fields in the order above.
 It preserves punctuation inside the text and makes no provider requests.
+Capitalization can expand a character, such as `ß` to `SS`; the rendered output
+retains the complete result within the overall reply byte limit.
 
 `set-image` accepts `image: {mediaType, base64}` or `image: null` to remove the
 image. PNG, JPEG and WebP files retain their original bytes. Uploads require
