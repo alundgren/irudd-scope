@@ -24,6 +24,7 @@
     "@types/cross-spawn": "catalog:",
     "@types/node": "catalog:",
     "cross-spawn": "catalog:",
+    "fflate": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
   },

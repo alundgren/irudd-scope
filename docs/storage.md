@@ -461,3 +461,28 @@ under `.irudd-okf/` and `.okf-*.tmp` stay local. Scope holds the OKF writer lock
 during Git changes. Unknown locks or unfinished rebases remain for explicit
 recovery. Turning memory or Git sync off leaves bundle files and repository
 history intact. CLI request files are private, temporary and removed afterward.
+
+## Prompt library
+
+`scope.db` stores one current prompt workspace, independently revised library
+items, original PNG/JPEG/WebP image bytes, and mutation receipts in the
+`prompt_state`, `prompt_items`, `prompt_images`, and `prompt_receipts` tables.
+Schema initialization is additive and preserves existing artifacts. Prompt rows
+are independent of artifact tabs and remain when a viewer closes. Item deletion
+removes its image reference and detaches current selections in one transaction,
+preserving copied workspace text. Unreferenced prompt image bytes are removed.
+Reset clears only the current workspace. Library edits never rewrite its text.
+Retained successful creation receipts reserve item IDs after deletion, so an old
+revision cannot update a replacement under the same ID. New items need new UUIDs.
+
+Include `scope.db` in the existing backup procedure. Older Scope versions that
+cannot read schema 14 reject this database; restore a matching backup before
+downgrading. Example images are at most 8 MiB and 4096 pixels per dimension;
+accepted formats are PNG, JPEG and WebP. Bytes stay original in SQLite.
+
+`irudd-scope prompts export --output NEW_FILE.zip` writes a versioned,
+library-only ZIP from one consistent database snapshot. Its manifest, library
+records, structure definitions and referenced images exclude the current
+workspace and all other Scope content. Separately authored example-scene
+metadata belongs to its library item. Export refuses an existing output path
+and libraries above the 128 MiB export bound. There is no ZIP import.

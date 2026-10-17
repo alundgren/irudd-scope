@@ -155,6 +155,14 @@ export const RetroEvent = Schema.Struct({
   event: Schema.Literals(["changed", "decision", "comment", "request", "finished"]),
 });
 export type RetroEvent = typeof RetroEvent.Type;
+export const PromptEvent = Schema.Struct({
+  type: Schema.Literal("prompts"),
+  workspaceRevision: Revision,
+  libraryRevision: Revision,
+  workspaceChanged: Schema.Boolean,
+  libraryChanged: Schema.Boolean,
+});
+export type PromptEvent = typeof PromptEvent.Type;
 export const LiveEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("ready") }),
   Schema.Struct({ type: Schema.Literal("artifact"), artifact: Artifact }),
@@ -162,6 +170,7 @@ export const LiveEvent = Schema.Union([
   PlanEvent,
   PullRequestsEvent,
   RetroEvent,
+  PromptEvent,
 ]);
 export type LiveEvent = typeof LiveEvent.Type;
 const LIVE_EVENT_TYPES = new Set([
@@ -171,6 +180,7 @@ const LIVE_EVENT_TYPES = new Set([
   "plan",
   "pull-requests",
   "retro",
+  "prompts",
 ]);
 // Older desktops can send event types this version no longer reads, such as removed diagram events.
 export function decodeLiveEvent(value: unknown): LiveEvent | undefined {
