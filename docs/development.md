@@ -47,15 +47,15 @@ request, but imports are never queued. The command defaults to a bounded
 
 `vp run ready` builds the CLI, hub, and desktop, runs `vp run check`, then runs
 the standard test suite. The check script verifies formatting, lint, and types with compact
-lint diagnostics. [CI](../.github/workflows/check.yml) uses that same command. It must pass
+lint diagnostics. Run it locally; CI has no test or validation jobs. It must pass
 on the finished changes before completion and every push, including the first
 push and documentation changes. Further edits require another successful run
-before completion or pushing. CI after a push does not replace this local check.
+before completion or pushing.
 Validation does not rewrite source or the lockfile. Do not install validation hooks.
 
 `vp run test` selects the `standard` Vitest project, which excludes the
-dedicated remote-update suite. That suite also stays out of `ready` and its CI
-job. Shared desktop, workspace, and publication journeys
+dedicated remote-update suite. That suite also stays out of `ready`.
+Shared desktop, workspace, and publication journeys
 remain in the standard suite.
 
 Run `vp run test:remote-updates` only after direct changes to remote update
@@ -862,3 +862,42 @@ The agent workflow and recovery rules are in the
 
 Standard speech tests use a fake external provider through real HTTP, the built
 CLI, paired-hub relay, and desktop settings. They require no live key or model.
+
+## Prompt curation commands
+
+```sh
+irudd-scope prompts guide
+irudd-scope prompts structures
+irudd-scope prompts read
+irudd-scope prompts list
+irudd-scope prompts item UUID
+irudd-scope prompts apply request.json
+irudd-scope prompts image image-request.json example.webp
+irudd-scope prompts export --output library.zip
+```
+
+The guide prints a machine-readable schema. Item and workspace writes need an
+expected revision and stable UUID request ID. Image request files use
+`action: "set-image"`, `id`, `requestId`, and `expectedRevision`, omitting `image`;
+the CLI reads the explicit file and inserts its MIME type and base64 bytes.
+Use an ordinary `set-image` command with `image: null` to remove it.
+PNG, JPEG and WebP examples are limited to 8 MiB and 4096 pixels per dimension.
+Exports refuse existing files and contain only the library, with no current
+workspace text. All prompt operations require the desktop connected, including
+through paired hubs. They never navigate the desktop or queue offline.
+
+The prompt storage, API, built CLI and paired relay tests use synthetic images,
+isolated databases and no provider credentials. See the
+[protocol](../packages/protocol/README.md#prompt-library-and-current-workspace)
+for limits, pagination and retry handling.
+
+`prompts-desktop.test.ts` runs the current editor and picker in real isolated
+Electron with the built CLI. It covers library images, copied text, explicit
+Restore, reset and undo, native ZIP export, hide/restart, divider keyboard
+persistence, concurrent deletion, failed quit recovery, uncertain save retries
+with later typing, and missed-event refresh. The visual journey checks long
+synthetic text at 1366×768, 1440×900 and 1920×1080 in both appearances.
+`SCOPE_TEST_SCREENSHOTS` optionally saves screenshots and layout measurements
+outside the repository. Existing desktop fixture users explicitly hide the
+startup Prompts tab when their scenario needs an initially empty strip; the
+real built-in tab remains retained and its storage is included in assertions.

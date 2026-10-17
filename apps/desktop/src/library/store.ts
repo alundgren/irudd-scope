@@ -1,3 +1,5 @@
+import { PromptDraft } from "../plugins/prompts/contract.ts";
+import { PromptStore } from "./prompt-store.ts";
 import { RetroStore, initializeRetroTab } from "./retro-store.ts";
 import { PullRequestStore, initializePullRequestsTab } from "./pull-request-store.ts";
 import { DatabaseMaintenance } from "@irudd-scope/sqlite";
@@ -64,6 +66,7 @@ export type LiveTab = {
 export class ArtifactStore {
   maintenance!: DatabaseMaintenance;
   plans!: PlanStore;
+  prompts!: PromptStore;
   retros!: RetroStore;
   pullRequests!: PullRequestStore;
   onChanged: (event: LiveEvent) => void = () => {};
@@ -125,6 +128,12 @@ export class ArtifactStore {
       await store.initializePullRequestAppState();
       await store.retros.initialize();
       await store.initializeBuiltinPullRequests();
+      store.prompts = new PromptStore({
+        sql,
+        run: (effect) => store.run(effect),
+        mutate: (effect, events) => store.mutate(effect, events),
+      });
+      await store.prompts.initialize();
       await store.pullRequests.recoverInterruptedSync();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
@@ -208,7 +217,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 13) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 14) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");
@@ -740,6 +749,29 @@ export class ArtifactStore {
       importTransferredTab(this.sql, sourceId, id, expiresAt, groupId, manifest, bytes, now),
       (result) => (result.alreadyImported ? [] : { type: "artifact", artifact: result.artifact }),
     );
+  }
+
+  async promptDraft(id: string): Promise<PromptDraft | null> {
+    decode(Uuid, id);
+    const [row] = await this.run(this.sql<{ document: string }>`SELECT d.document FROM tab_drafts d
+      JOIN live_tabs t ON t.id = d.tab_id WHERE d.tab_id = ${id}
+      AND json_extract(t.document, '$.type') = 'prompts'`);
+    return row ? decode(PromptDraft, JSON.parse(row.document)) : null;
+  }
+
+  async savePromptDraft(id: string, value: PromptDraft | null): Promise<void> {
+    decode(Uuid, id);
+    const draft = value === null ? null : decode(PromptDraft, value);
+    if (draft === null) {
+      await this.run(this.sql`DELETE FROM tab_drafts WHERE tab_id = ${id} AND tab_id IN
+        (SELECT id FROM live_tabs WHERE json_extract(document, '$.type') = 'prompts')`);
+      return;
+    }
+    const rows = await this.run(this.sql`INSERT INTO tab_drafts(tab_id, document)
+      SELECT id, ${JSON.stringify(draft)} FROM live_tabs WHERE id = ${id}
+      AND json_extract(document, '$.type') = 'prompts'
+      ON CONFLICT(tab_id) DO UPDATE SET document = excluded.document RETURNING tab_id`);
+    if (!rows.length) throw new Error("This Prompts tab no longer exists.");
   }
 
   async sketchpadDraft(id: string): Promise<SketchpadDraft | null> {

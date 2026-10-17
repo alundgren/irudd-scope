@@ -10,7 +10,7 @@ import { startPairedHub } from "../apps/hub/src/paired-server.ts";
 const exec = promisify(execFile);
 
 test("Settings pairs a remote, shows publications, disconnects, and removes its access", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   const state = await HubState.open(join(f.directory, "hub"));
   const connectionFile = join(f.directory, "remote.json");
   await state.configure({ endpoint: "http://127.0.0.1:1", port: 1, connectionFile });

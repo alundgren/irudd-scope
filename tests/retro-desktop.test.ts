@@ -158,7 +158,7 @@ type SDK = {
 };
 
 test("RETRO preserves drafts through data updates, HTML replacement, navigation, restart, and completed history", async () => {
-  const fixture = await desktopFixture();
+  const fixture = await desktopFixture({ hideInitialPrompts: true });
   let application = await fixture.launch();
   try {
     await mkdir(evidence, { recursive: true });
@@ -394,7 +394,7 @@ test("RETRO preserves drafts through data updates, HTML replacement, navigation,
 }, 60_000);
 
 test("an investigation can add a proposal to the same finding without replacing its draft editor", async () => {
-  const fixture = await desktopFixture();
+  const fixture = await desktopFixture({ hideInitialPrompts: true });
   const application = await fixture.launch();
   try {
     const page = await application.firstWindow();
@@ -457,7 +457,7 @@ test("an investigation can add a proposal to the same finding without replacing 
 }, 60_000);
 
 test("finishing an unvisited report does not flush another report's failing pending input", async () => {
-  const fixture = await desktopFixture();
+  const fixture = await desktopFixture({ hideInitialPrompts: true });
   const application = await fixture.launch();
   try {
     const page = await application.firstWindow();
@@ -534,7 +534,7 @@ test("finishing an unvisited report does not flush another report's failing pend
 }, 60_000);
 
 test("finish saves unsent drafts and failed report flushes leave audit markers unchanged", async () => {
-  const fixture = await desktopFixture();
+  const fixture = await desktopFixture({ hideInitialPrompts: true });
   const application = await fixture.launch();
   try {
     const page = await application.firstWindow();
@@ -622,7 +622,7 @@ test("finish saves unsent drafts and failed report flushes leave audit markers u
 }, 60_000);
 
 test("typing during a pending comment and draft save retains the newer input", async () => {
-  const fixture = await desktopFixture();
+  const fixture = await desktopFixture({ hideInitialPrompts: true });
   const application = await fixture.launch();
   try {
     const page = await application.firstWindow();
@@ -700,7 +700,7 @@ test("typing during a pending comment and draft save retains the newer input", a
 }, 60_000);
 
 test("a changed saved draft blocks HTML replacement until the human resolves it, and read errors keep the mounted report", async () => {
-  const fixture = await desktopFixture();
+  const fixture = await desktopFixture({ hideInitialPrompts: true });
   let application = await fixture.launch();
   try {
     let page = await application.firstWindow();
@@ -803,7 +803,7 @@ test("a changed saved draft blocks HTML replacement until the human resolves it,
 }, 60_000);
 
 test("RETRO watch assembles a multi-page inventory and history opens from searchable settings", async () => {
-  const fixture = await desktopFixture();
+  const fixture = await desktopFixture({ hideInitialPrompts: true });
   const application = await fixture.launch();
   try {
     const page = await application.firstWindow();

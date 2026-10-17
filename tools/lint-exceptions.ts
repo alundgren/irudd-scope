@@ -280,7 +280,7 @@ export const lintExceptions: readonly LintException[] = [
   },
   {
     file: "tests/lifecycle-pressure.test.ts",
-    at: "async () => {\nconst f = await desktopFixture();",
+    at: "async () => {\nconst f = await desktopFixture({ hideInitialPrompts: true });",
     limits: { complexity: 12, "max-lines-per-function": 273 },
     reason:
       "The pressure journey carries local and relayed publications through overflow, restart, queued-tab draining, repeated updates, deletion, and shrinking. The same session and baseline are needed to verify eventual reclamation and preserve diagnostic samples on failure.",

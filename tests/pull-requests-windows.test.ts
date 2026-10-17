@@ -85,7 +85,7 @@ test("authored windows share snapshots, context, messages and detail interests a
   process.env.PATH = `${ghDirectory}:${previousPath}`;
   let fixture: Awaited<ReturnType<typeof desktopFixture>>;
   try {
-    fixture = await desktopFixture();
+    fixture = await desktopFixture({ hideInitialPrompts: true });
   } finally {
     process.env.PATH = previousPath;
   }

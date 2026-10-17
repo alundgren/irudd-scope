@@ -1,3 +1,4 @@
+import { MAX_PROMPT_REQUEST_BYTES } from "@irudd-scope/protocol/prompts";
 import { MAX_PULL_REQUESTS_REQUEST_BYTES } from "@irudd-scope/protocol/pull-requests";
 import { MAX_VOICE_REQUEST_BYTES } from "@irudd-scope/protocol/voice";
 import { MAX_PLAN_REQUEST_BYTES } from "@irudd-scope/protocol/plan";
@@ -409,15 +410,17 @@ export async function startPairedHub(
       await pipeline(
         item.request,
         bounded(
-          item.path === "/v1/pull-requests"
-            ? MAX_PULL_REQUESTS_REQUEST_BYTES
-            : item.path === "/v1/plans"
-              ? MAX_PLAN_REQUEST_BYTES
-              : item.path === "/v1/voice"
-                ? MAX_VOICE_REQUEST_BYTES
-                : item.path.endsWith("/blobs")
-                  ? MAX_CONTENT_BYTES
-                  : MAX_METADATA_BYTES,
+          item.path === "/v1/prompts"
+            ? MAX_PROMPT_REQUEST_BYTES
+            : item.path === "/v1/pull-requests"
+              ? MAX_PULL_REQUESTS_REQUEST_BYTES
+              : item.path === "/v1/plans"
+                ? MAX_PLAN_REQUEST_BYTES
+                : item.path === "/v1/voice"
+                  ? MAX_VOICE_REQUEST_BYTES
+                  : item.path.endsWith("/blobs")
+                    ? MAX_CONTENT_BYTES
+                    : MAX_METADATA_BYTES,
         ),
         response,
         { signal: item.controller.signal },
@@ -542,11 +545,13 @@ export async function startPairedHub(
     const limit =
       request.url === "/v1/transfers/import"
         ? MAX_TRANSFER_IMPORT_REQUEST_BYTES
-        : request.url === "/v1/pull-requests"
-          ? MAX_PULL_REQUESTS_REQUEST_BYTES
-          : request.url === "/v1/plans"
-            ? MAX_PLAN_REQUEST_BYTES
-            : MAX_CONTENT_BYTES;
+        : request.url === "/v1/prompts"
+          ? MAX_PROMPT_REQUEST_BYTES
+          : request.url === "/v1/pull-requests"
+            ? MAX_PULL_REQUESTS_REQUEST_BYTES
+            : request.url === "/v1/plans"
+              ? MAX_PLAN_REQUEST_BYTES
+              : MAX_CONTENT_BYTES;
     if (Number(request.headers["content-length"]) > limit) {
       json(response, 413, { error: `Request exceeds the ${limit / (1024 * 1024)} MiB limit.` });
       return;

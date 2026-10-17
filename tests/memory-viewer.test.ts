@@ -37,7 +37,7 @@ async function fixture() {
   await writeFile(join(root, "index.md"), "# Memory\n");
   await writeFile(join(root, "recovery.md"), raw("Recovery", "Retry interrupted work."));
   await writeFile(join(root, "validation.md"), raw("Validation", "Use synthetic fixtures."));
-  const desktop = await desktopFixture({ env: memory.env("local") });
+  const desktop = await desktopFixture({ hideInitialPrompts: true, env: memory.env("local") });
   cleanup.push(() => rm(desktop.directory, { recursive: true, force: true }));
   let application = await desktop.launch();
   cleanup.push(() => application.close());

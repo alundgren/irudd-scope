@@ -1,3 +1,10 @@
+import type { PromptEvent } from "@irudd-scope/protocol";
+import type { PromptReply, PromptImage } from "@irudd-scope/protocol/prompts";
+import type {
+  PromptDesktopCommand,
+  PromptDraft,
+  PromptResult,
+} from "./plugins/prompts/contract.ts";
 import type { RetroCommand, RetroReply, RetroConfiguration } from "@irudd-scope/protocol/retro";
 import type { RetroEvent } from "@irudd-scope/protocol";
 import type { Artifact } from "@irudd-scope/protocol";
@@ -45,6 +52,17 @@ import type {
 } from "@irudd-scope/protocol/pull-requests";
 
 export type ScopeBridge = {
+  promptCommand: (input: PromptDesktopCommand) => Promise<PromptResult<PromptReply>>;
+  promptImage: (input: {
+    itemId: string;
+    imageId: string;
+  }) => Promise<{ image: PromptImage; bytes: Uint8Array }>;
+  loadPromptDraft: (tabId: string) => Promise<PromptDraft | null>;
+  savePromptDraft: (tabId: string, draft: PromptDraft | null) => Promise<void>;
+  copyPrompt: (text: string) => Promise<void>;
+  exportPromptLibrary: () => Promise<boolean>;
+  onPromptsChanged: (listener: (event: PromptEvent) => void) => () => void;
+  onPromptsReconnected: (listener: () => void) => () => void;
   onRetroFinishFlush: (
     listener: (request: { tabId: string; requestId: string }) => Promise<void>,
   ) => () => void;

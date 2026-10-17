@@ -539,3 +539,50 @@ Old wiki drafts remain read-only and copyable in Recovered draft. Migration keep
 the original tab state beside the recovery text. Hiding Librarian retains its
 state and reopening uses the same saved tab. Agent reads return the same current
 view, selected content, evidence, decision state and UI revision as the renderer.
+
+## Prompts
+
+Prompts is a permanent built-in tab available at startup, in the drawer, and in
+search. First launch opens its empty editor. Adding the tab to an existing
+workspace preserves the selected artifact. Closing, Delete, and dropping it on
+Trashcan hide it without deleting current text or library items. Its UUID,
+hidden state, and adjusted editor divider survive restart. Agent changes never
+select or reopen it.
+
+The desktop edits one current text-to-image prompt. Seven fixed fields occupy
+two rows of four columns, with Subject using two columns in the first row.
+Fields use multiline reading text, and the full-width assembled prompt scrolls
+below them. The horizontal divider supports dragging, arrow keys, Shift for
+larger steps, and Home to restore the default. Smaller windows scroll the
+editor instead of reducing fields to single lines. Appearance and typography
+follow Scope settings and shared tokens.
+
+Each field heading opens a full-window picker with field guidance and server
+search across item names, fragments, and descriptions. Explicit pagination
+keeps library reads bounded. Example images load as they approach the visible
+area and illustrate library entries only. The picker displays complete copied
+text and descriptions, preserves editor text, and returns focus on close.
+Escape closes the picker before exiting fullscreen. CLI agents curate the
+library; the desktop has no library editor or generation controls.
+
+Picking an item copies its text into one field. Editing that copy does not
+change the library. Its current item title and Edited indicator identify the
+copy. Library edits leave field text unchanged. Restore reads the latest
+library fragment explicitly. Deleting an item detaches its selection while
+retaining copied text. Clear, replacement, Restore, and Reset offer Undo;
+Undo detaches deleted item references too. Further text changes, including
+updates from an agent, dismiss the previous Undo so it cannot replace newer work.
+Reset clears only current choices
+and text. Output uses the fixed field order, highlights the corresponding
+text on field focus or hover, shows a word count, and offers Copy prompt.
+Prompt actions contains library ZIP export through a native save dialog.
+
+Typing saves automatically with revision checks. New typing and the cursor stay
+in place while earlier writes finish. A local SQLite recovery draft retains
+both the latest local text and any dispatched request awaiting confirmation.
+Conflicts keep local text visible and offer Keep my edits, Use saved prompt,
+and Copy my text. Keep my edits rereads current revisions and removes vanished
+item references before saving. Use saved prompt offers Undo. Failed saves
+prevent hiding or quitting through the existing workspace save barrier, with
+Keep open available on quit. Reconnection refreshes clean text and library
+items; dirty text remains available for recovery.

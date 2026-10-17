@@ -19,6 +19,8 @@
     "class-variance-authority": "catalog:",
     "cn": "catalog:",
     "effect": "catalog:",
+    "fflate": "catalog:",
+    "image-size": "catalog:",
     "lucide-react": "catalog:",
     "qrcode": "catalog:",
     "react": "catalog:",

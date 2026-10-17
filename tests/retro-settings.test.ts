@@ -7,7 +7,7 @@ import { HubState } from "../apps/hub/src/state.ts";
 import { startPairedHub } from "../apps/hub/src/paired-server.ts";
 
 test("retrospective settings automatically include this machine and preserve edits on conflict and restart", async () => {
-  const fixture = await desktopFixture();
+  const fixture = await desktopFixture({ hideInitialPrompts: true });
   let application = await fixture.launch();
   try {
     let page = await application.firstWindow();
@@ -105,7 +105,7 @@ test("retrospective settings automatically include this machine and preserve edi
 }, 60_000);
 
 test("paired remotes automatically appear in retrospective settings and disappear when removed", async () => {
-  const fixture = await desktopFixture();
+  const fixture = await desktopFixture({ hideInitialPrompts: true });
   const state = await HubState.open(join(fixture.directory, "hub"));
   const connectionFile = join(fixture.directory, "hub-connection.json");
   await state.configure({ endpoint: "http://127.0.0.1:1", port: 1, connectionFile });

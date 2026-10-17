@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test("150 tabs use a searchable overflow picker, keep their order, and survive restart", async () => {
-  const { directory, launch, connect } = await desktopFixture();
+  const { directory, launch, connect } = await desktopFixture({ hideInitialPrompts: true });
   let application = await launch();
   try {
     let page = await application.firstWindow();
@@ -28,7 +28,12 @@ test("150 tabs use a searchable overflow picker, keep their order, and survive r
       );
     }
     await expect
-      .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
+      .poll(() =>
+        page.evaluate(
+          async () =>
+            (await window.scope.workspace())?.tabs.filter((tab) => tab.type !== "prompts").length,
+        ),
+      )
       .toBe(150);
     expect(await client.list()).toHaveLength(150);
     expect(await page.getByRole("tab", { selected: true }).textContent()).toBe("Overflow 0");
@@ -45,7 +50,12 @@ test("150 tabs use a searchable overflow picker, keep their order, and survive r
           .evaluate((el) => el === document.activeElement),
       )
       .toBe(true);
-    expect(await page.locator("[data-tab-result]").count()).toBe(150);
+    expect(
+      await page
+        .locator("[data-tab-result]")
+        .filter({ hasNotText: /^Prompts$/ })
+        .count(),
+    ).toBe(150);
     await page.getByLabel("Search tabs", { exact: true }).fill("missing tab title");
     await page.getByRole("status").filter({ hasText: "No tabs match" }).waitFor();
     await page.getByRole("button", { name: "Clear tab search" }).click();
@@ -101,8 +111,8 @@ test("150 tabs use a searchable overflow picker, keep their order, and survive r
     client = await connect();
     await page.getByText("Synthetic 42", { exact: true }).waitFor();
     const saved = await page.evaluate(() => window.scope.workspace());
-    expect(saved?.tabs).toHaveLength(150);
-    expect(saved?.tabs[42]?.title).toBe("Overflow 42");
+    expect(saved?.tabs.filter((tab) => tab.type !== "prompts")).toHaveLength(150);
+    expect(saved?.tabs.filter((tab) => tab.type !== "prompts")[42]?.title).toBe("Overflow 42");
     expect(await page.getByRole("tab").first().textContent()).toBe("Overflow 42");
     await picker().click();
     await page.getByLabel("Search tabs", { exact: true }).fill("Overflow 42");
@@ -121,7 +131,7 @@ test("150 tabs use a searchable overflow picker, keep their order, and survive r
 }, 60_000);
 
 test("overflow preserves visited HTML, hands focus to dialogs, and remains available when tabs fit", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   const application = await f.launch();
   try {
     const page = await application.firstWindow();
@@ -205,7 +215,10 @@ test("overflow preserves visited HTML, hands focus to dialogs, and remains avail
     }
     await picker.click();
     await page.getByLabel("Search tabs", { exact: true }).fill("Background 0");
-    await page.locator("[data-tab-result]").waitFor();
+    await page
+      .locator("[data-tab-result]")
+      .filter({ hasNotText: /^Prompts$/ })
+      .waitFor();
     await client.delete("background-0");
     await page.getByRole("status").filter({ hasText: "No tabs match" }).waitFor();
     await page.keyboard.press("Escape");

@@ -317,7 +317,7 @@ setInterval(() => {}, 1000);
 
 test("Electron main supervises the installed CLI when creating and cancelling a real pairing", async () => {
   const f = await fixture();
-  const desktop = await desktopFixture();
+  const desktop = await desktopFixture({ hideInitialPrompts: true });
   const app = await desktop.launch();
   try {
     await app.evaluate((_electron, directory) => {

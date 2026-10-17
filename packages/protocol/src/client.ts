@@ -1,4 +1,13 @@
 import {
+  PromptCommand,
+  PromptReply,
+  PromptItemId,
+  MAX_PROMPT_REQUEST_BYTES,
+  MAX_PROMPT_REPLY_BYTES,
+  MAX_PROMPT_IMAGE_BYTES,
+  MAX_PROMPT_EXPORT_BYTES,
+} from "./prompts.ts";
+import {
   RetroCommand,
   RetroReply,
   MAX_RETRO_REQUEST_BYTES,
@@ -146,6 +155,57 @@ export class ScopeClient {
         MAX_RETRO_REPLY_BYTES,
       ),
     );
+  }
+
+  async prompts(input: PromptCommand): Promise<PromptReply> {
+    const body = JSON.stringify(decode(PromptCommand, input));
+    if (new TextEncoder().encode(body).byteLength > MAX_PROMPT_REQUEST_BYTES)
+      throw new Error("Prompt command exceeds 12 MiB.");
+    return decode(
+      PromptReply,
+      await readRemoteJson(
+        await this.request("/v1/prompts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }),
+        MAX_PROMPT_REPLY_BYTES,
+      ),
+    );
+  }
+  async promptImage(itemId: string, imageId: string): Promise<Uint8Array> {
+    return this.promptBytes(
+      `/v1/prompts/items/${decode(PromptItemId, itemId)}/images/${decode(BlobId, imageId)}`,
+      MAX_PROMPT_IMAGE_BYTES,
+    );
+  }
+  async exportPromptLibrary(): Promise<Uint8Array> {
+    return this.promptBytes("/v1/prompts/export", MAX_PROMPT_EXPORT_BYTES);
+  }
+  private async promptBytes(path: string, limit: number): Promise<Uint8Array> {
+    const response = await this.request(path);
+    if (!response.body) throw new Error("Scope returned empty prompt content.");
+    const reader = response.body.getReader();
+    const parts: Uint8Array[] = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > limit) throw new Error("Scope returned oversized prompt content.");
+        parts.push(value);
+      }
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const part of parts) {
+      bytes.set(part, offset);
+      offset += part.byteLength;
+    }
+    return bytes;
   }
 
   async librarian(input: LibrarianCommand): Promise<LibrarianReply> {

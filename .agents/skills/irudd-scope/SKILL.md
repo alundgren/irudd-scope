@@ -62,6 +62,34 @@ authorize import. Expired invitations require a new link from the source app.
 
 HTML previews run interactive prototypes and mockups, including scripts, external styles, fonts, images, network requests, forms, and popups. Publish a complete document with embedded resources or reachable URLs. Adjacent files are not uploaded; use absolute resource URLs or set the document's base URL. Normal browser rules such as CORS apply. For Markdown, raw HTML is omitted and links and image descriptions appear as text.
 
+### Prompt library and current prompt
+
+Use `irudd-scope prompts guide` for the installed command schema. `prompts
+structures` describes the seven predefined fields; `prompts read` returns the
+one current workspace and assembled text; `prompts list` and `prompts item UUID`
+read the initially empty library. Use `prompts apply REQUEST.json` to curate
+items, set current parts or reset the workspace. Every mutation needs a UUID
+requestId and expectedRevision. Give each new item a new UUID; deleted item IDs
+cannot be reused. Retry uncertain delivery with exactly the same
+request and body. On 409, read again and reconsider changes before using a new
+request ID. Continue library pages through apply using the returned cursor and
+unchanged filters; restart if the library revision changes.
+
+Library edits keep copied current text. Deletion detaches selection while
+preserving text. Do not replace a human's current work without their task's
+authorization. Commands never change the selected desktop tab. There is no
+model generation, saved-prompt history or import. Optional per-item
+exampleScene contains separately authored title and prompt metadata.
+
+`prompts image REQUEST.json IMAGE_FILE` reads an explicit PNG, JPEG or WebP.
+The request uses set-image, id, requestId and expectedRevision, omitting image.
+Images retain their bytes in SQLite and are limited to 8 MiB and 4096 pixels per
+dimension. Remove an image through apply with image=null.
+`prompts export --output NEW_FILE.zip` exports the library and referenced images
+with a versioned manifest, excluding the current workspace and other Scope
+content. It refuses overwrite and exports above 128 MiB. These operations need
+the desktop awake and connected; paired hubs never queue them offline.
+
 ### Pull request inbox apps
 
 When asked to create or customize a PR inbox, read

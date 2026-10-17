@@ -4,7 +4,7 @@ import { rm } from "node:fs/promises";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test("the shared key and voice switch work in Electron, and Chromium decodes the generated WAV", async () => {
-  const { directory, launch, connect } = await desktopFixture();
+  const { directory, launch, connect } = await desktopFixture({ hideInitialPrompts: true });
   const application = await launch();
   try {
     await application.evaluate(() => {
@@ -98,7 +98,7 @@ test("the shared key and voice switch work in Electron, and Chromium decodes the
 });
 
 test("desktop crash preserves the speech ID and never repeats provider submission after restart", async () => {
-  const { directory, launch, connect } = await desktopFixture();
+  const { directory, launch, connect } = await desktopFixture({ hideInitialPrompts: true });
   let application = await launch();
   try {
     let page = await application.firstWindow();

@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test("retention drawer keeps Trashcan secondary, restores tabs, and requires two steps to empty it", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   let application = await f.launch();
   try {
     let page = await application.firstWindow();
@@ -30,7 +30,12 @@ test("retention drawer keeps Trashcan secondary, restores tabs, and requires two
         Buffer.from(`Synthetic review ${index}`),
       );
     await expect
-      .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
+      .poll(() =>
+        page.evaluate(
+          async () =>
+            (await window.scope.workspace())?.tabs.filter((tab) => tab.type !== "prompts").length,
+        ),
+      )
       .toBe(12);
     const firstTitle = "Release review: recovery, tab order, and the decisions to revisit tomorrow";
     await page
@@ -44,9 +49,19 @@ test("retention drawer keeps Trashcan secondary, restores tabs, and requires two
     expect(await page.getByRole("button", { name: "Trashcan", exact: true }).count()).toBe(1);
     expect(await page.locator(".tab-retention-sections").count()).toBe(0);
     await page.getByRole("button", { name: "Permanent", exact: true }).click();
-    expect(await drawer().locator("[data-tab-result]").count()).toBe(1);
+    expect(
+      await drawer()
+        .locator("[data-tab-result]")
+        .filter({ hasNotText: /^Prompts$/ })
+        .count(),
+    ).toBe(1);
     await page.getByLabel("Search tabs", { exact: true }).fill("release-review-0");
-    expect(await drawer().locator("[data-tab-result]").count()).toBe(1);
+    expect(
+      await drawer()
+        .locator("[data-tab-result]")
+        .filter({ hasNotText: /^Prompts$/ })
+        .count(),
+    ).toBe(1);
     await page.getByRole("button", { name: "Temporary", exact: true }).click();
     await page.getByRole("status").filter({ hasText: "No tabs match" }).waitFor();
     await page.getByRole("button", { name: "Clear tab search" }).click();
@@ -79,15 +94,32 @@ test("retention drawer keeps Trashcan secondary, restores tabs, and requires two
         });
       }
     }
-    await drawer().locator("[data-tab-result]").first().focus();
+    await drawer()
+      .locator("[data-tab-result]")
+      .filter({ hasNotText: /^Prompts$/ })
+      .first()
+      .focus();
     await page.keyboard.press("Delete");
     await expect
-      .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
+      .poll(() =>
+        page.evaluate(
+          async () =>
+            (await window.scope.workspace())?.tabs.filter((tab) => tab.type !== "prompts").length,
+        ),
+      )
       .toBe(11);
     await page.getByRole("button", { name: "Trashcan", exact: true }).click();
     await page.getByRole("heading", { name: "Trashcan", exact: true }).waitFor();
-    expect(await drawer().locator("[data-tab-result]").count()).toBe(1);
-    await drawer().locator("[data-tab-result]").click();
+    expect(
+      await drawer()
+        .locator("[data-tab-result]")
+        .filter({ hasNotText: /^Prompts$/ })
+        .count(),
+    ).toBe(1);
+    await drawer()
+      .locator("[data-tab-result]")
+      .filter({ hasNotText: /^Prompts$/ })
+      .click();
     await page.getByRole("tab", { name: firstTitle, selected: true }).waitFor();
     expect(await page.getByRole("tab").last().textContent()).toBe(firstTitle);
     expect(
@@ -121,7 +153,12 @@ test("retention drawer keeps Trashcan secondary, restores tabs, and requires two
       ),
     );
     await expect
-      .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
+      .poll(() =>
+        page.evaluate(
+          async () =>
+            (await window.scope.workspace())?.tabs.filter((tab) => tab.type !== "prompts").length,
+        ),
+      )
       .toBe(11);
     await picker().click();
     await page.getByRole("button", { name: "Trashcan", exact: true }).click();

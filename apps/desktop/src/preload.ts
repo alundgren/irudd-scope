@@ -1,3 +1,4 @@
+import type { PromptEvent } from "@irudd-scope/protocol";
 import type { RetroEvent } from "@irudd-scope/protocol";
 import { contextBridge, ipcRenderer } from "electron";
 import type { ScopeBridge, ArtifactLibrarySnapshot } from "./bridge.ts";
@@ -35,6 +36,23 @@ ipcRenderer.on(
   },
 );
 const bridge: ScopeBridge = {
+  promptCommand: (input) => ipcRenderer.invoke("scope:prompt-command", input),
+  promptImage: (input) => ipcRenderer.invoke("scope:prompt-image", input),
+  loadPromptDraft: (tabId) => ipcRenderer.invoke("scope:load-prompt-draft", tabId),
+  savePromptDraft: (tabId, draft) =>
+    ipcRenderer.invoke("scope:save-prompt-draft", { tabId, draft }),
+  copyPrompt: (text) => ipcRenderer.invoke("scope:copy-prompt", text),
+  exportPromptLibrary: () => ipcRenderer.invoke("scope:export-prompt-library"),
+  onPromptsChanged: (listener) => {
+    const receive = (_event: unknown, event: PromptEvent) => listener(event);
+    ipcRenderer.on("scope:prompts-changed", receive);
+    return () => ipcRenderer.removeListener("scope:prompts-changed", receive);
+  },
+  onPromptsReconnected: (listener) => {
+    const receive = () => listener();
+    ipcRenderer.on("scope:prompts-reconnected", receive);
+    return () => ipcRenderer.removeListener("scope:prompts-reconnected", receive);
+  },
   onRetroFinishFlush: (listener) => {
     retroFinishListeners.add(listener);
     return () => {

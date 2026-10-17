@@ -1,3 +1,4 @@
+import { promptsTabState } from "../plugins/prompts/contract.ts";
 import { memoryTabState } from "../plugins/memory/contract.ts";
 import { sketchpadTabState } from "../plugins/sketchpad/contract.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -627,6 +628,13 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             keywords: "wiki notes knowledge graph search edit",
             icon: BookOpen,
             onSelect: () => void openMemoryTab(),
+          },
+          {
+            id: "prompts",
+            title: "Prompts",
+            keywords: "prompt text image library fragments",
+            icon: PencilLine,
+            onSelect: () => void openBuiltinTab("prompts", "Prompts", promptsTabState()),
           },
           {
             id: "sketchpad",
