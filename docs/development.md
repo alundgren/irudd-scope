@@ -862,3 +862,31 @@ The agent workflow and recovery rules are in the
 
 Standard speech tests use a fake external provider through real HTTP, the built
 CLI, paired-hub relay, and desktop settings. They require no live key or model.
+
+## Prompt curation commands
+
+```sh
+irudd-scope prompts guide
+irudd-scope prompts structures
+irudd-scope prompts read
+irudd-scope prompts list
+irudd-scope prompts item UUID
+irudd-scope prompts apply request.json
+irudd-scope prompts image image-request.json example.webp
+irudd-scope prompts export --output library.zip
+```
+
+The guide prints a machine-readable schema. Item and workspace writes need an
+expected revision and stable UUID request ID. Image request files use
+`action: "set-image"`, `id`, `requestId`, and `expectedRevision`, omitting `image`;
+the CLI reads the explicit file and inserts its MIME type and base64 bytes.
+Use an ordinary `set-image` command with `image: null` to remove it.
+PNG, JPEG and WebP examples are limited to 8 MiB and 4096 pixels per dimension.
+Exports refuse existing files and contain only the library, with no current
+workspace text. All prompt operations require the desktop connected, including
+through paired hubs. They never navigate the desktop or queue offline.
+
+The prompt storage, API, built CLI and paired relay tests use synthetic images,
+isolated databases and no provider credentials. See the
+[protocol](../packages/protocol/README.md#prompt-library-and-current-workspace)
+for limits, pagination and retry handling.

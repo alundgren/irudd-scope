@@ -700,3 +700,26 @@ A listener reconnects after a Scope event-stream disconnect and recovers saved
 pending rounds. Stop it when the task ends. Plan deletion or loss of its working
 directory also stops it. A host delivery error ends the listener with a
 diagnostic; inspect the session before retrying uncertain delivery.
+
+## Prompts
+
+`packages/protocol/src/prompts.ts` owns the fixed text-to-image structure,
+validated library/workspace contracts, sentence assembly and command guide.
+`library/prompt-store.ts` stores the singleton workspace, library items, image
+references and mutation receipts in `scope.db`. It uses ArtifactStore's existing
+serialized mutations and post-commit events. Item revisions protect curation;
+a separate workspace revision protects copied text. Deleting a selected item
+detaches its reference while retaining copied text in the same transaction.
+`library/image-validation.ts` validates PNG containers for Plans and Prompts;
+`library/prompt-image.ts` validates PNG/JPEG/WebP example metadata with
+`image-size`, without changing original image bytes.
+
+`library/prompt-http.ts` serves narrow authenticated commands, currently owned
+item images, and a library-only ZIP created with `fflate` from one SQL snapshot.
+The CLI reads explicit image files and downloads exports through the shared
+client. The hub forwards the allowlisted routes while connected and stores no
+prompt content or offline mutations. Live events carry workspace/library
+revision invalidations. Reconnecting consumers reread current state because the
+stream has no replay. Shared contracts contain no desktop layout or IPC state.
+See the [protocol](../packages/protocol/README.md#prompt-library-and-current-workspace)
+for commands, bounds, image ownership and concurrency behavior.

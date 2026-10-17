@@ -745,3 +745,78 @@ runs and invalidates capabilities. Retried request IDs require identical payload
 a receipt never grants a restored connection. Finish requires a separate explicit
 user instruction and no pending proposals. All conversation stays in the existing
 coding session. Weekly reminders merely announce that dreaming is due.
+
+## Prompt library and current workspace
+
+`@irudd-scope/protocol/prompts` defines the code-owned `text-to-image-seven`
+structure, its seven fixed fields, validated documents, commands and replies.
+`irudd-scope prompts guide` prints the exact command JSON Schema and bounds.
+The library starts empty. Agents curate examples; Scope keeps one current
+workspace with independent copied text. There is no generation, library import,
+saved-prompt collection or prompt history.
+
+Use `ScopeClient.prompts(command)` or authenticated `POST /v1/prompts`.
+Read actions are `structures`, `read-workspace`, `list-items`, and `read-item`.
+`list-items` accepts optional `field`, `search`, and `cursor` and returns at most
+25 complete items, a `libraryRevision`, and a nullable next cursor. Pages sort by
+stable item UUID. Keep filters fixed while continuing. A library change makes
+old cursors return 409; restart the read without a cursor.
+
+Mutation actions are `create-item`, `update-item`, `delete-item`, `set-image`,
+`update-workspace`, and `reset-workspace`. Every mutation carries a stable UUID
+`requestId` and `expectedRevision`. Creation uses revision zero and an explicit
+item UUID; other item operations use the item revision. Workspace operations use
+the workspace revision. An identical retry returns its original receipt without
+another write or event. Reusing an ID with different content, or using a stale
+revision, returns 409. Read again and reconsider the edit before submitting a
+new request ID. Mutation receipts contain `requestId`, `action`,
+`workspaceRevision`, `libraryRevision`, and optional `itemId`/`itemRevision`.
+
+An item contains `type: "text-to-image"`, `structureId: "text-to-image-seven"`,
+`structureVersion: 1`, `field`, `name`, `fragment`, optional `description`, and
+optional `exampleScene: {title, prompt}`. Updates replace that metadata and keep
+the image. The item's field and structure cannot change. An item returned by a
+read also has `id`, `revision`, and optional `image` metadata. A selected workspace
+part stores `{itemId: UUID | null, text: string}` for each of `subject`, `action`,
+`environment`, `lighting`, `style`, `composition`, and `camera`. Selection must
+match the field and structure, but its copied text may be edited. Library edits
+preserve copied text. Deletion atomically detaches affected selections and
+preserves their text. Reset clears the workspace and keeps the library.
+
+`assemblePrompt` trims each field, collapses whitespace, removes trailing
+periods, commas, semicolons and colons, capitalizes the first character and adds
+a period. It skips blank fields and joins the seven fields in the order above.
+It preserves punctuation inside the text and makes no provider requests.
+
+`set-image` accepts `image: {mediaType, base64}` or `image: null` to remove the
+image. PNG, JPEG and WebP files retain their original bytes. Uploads require
+matching file signatures and MIME types, valid dimensions and complete container
+metadata. PNG checks include chunk checksums. These checks do not decode every
+pixel. Limits are 8 MiB per image and 1 through 4096 pixels per dimension.
+Image metadata includes its SHA-256 `id`, `mediaType`, `size`, `width`, and
+`height`. `ScopeClient.promptImage(itemId, imageId)` uses authenticated
+`GET /v1/prompts/items/UUID/images/SHA256`. The image must still be attached to
+that item; replaced, removed or deleted references return 404.
+
+`ScopeClient.exportPromptLibrary()` downloads authenticated
+`GET /v1/prompts/export`. The ZIP contains `manifest.json`, `library.json`,
+code-owned structure metadata and original referenced images. The manifest uses
+`format: "scope-prompt-library"`, `version: 1`, library revision, item count,
+`itemsFile`, and an image list with archive-relative `file` paths. Controlled
+paths are `images/SHA256.png`, `.jpg`, or `.webp`. Export reads one consistent
+SQLite snapshot. It excludes the active workspace, credentials and unrelated
+artifacts. Example scenes are separately authored library metadata.
+
+Text is bounded to 8192 characters, names to 160, descriptions to 2048, and the
+library to 2000 items. Commands allow 12 MiB, replies 2 MiB, and ZIP exports
+128 MiB. Exports that exceed the limit fail without changing the library.
+
+The existing live stream includes
+`{type: "prompts", workspaceRevision, libraryRevision, workspaceChanged,
+libraryChanged}` after committed changes. Reads, rejected writes and identical
+retries emit nothing. Subscribe before reading the initial snapshot. Events
+invalidate cached reads and have no durable replay; reconnect requires fresh
+workspace and visible-library reads. A desktop editor must retain dirty local
+text and handle revision conflicts explicitly. Agent commands never navigate
+the selected desktop tab. Paired hubs forward these routes only while the
+desktop is connected; prompt commands and exports are never queued offline.

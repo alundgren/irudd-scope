@@ -87,6 +87,10 @@ export function artifactRequest(method: string, path: string): boolean {
   if (method === "POST" && path === "/v1/librarian") return true;
   if (method === "GET" && path === "/v1/memory") return true;
   if (method === "POST" && path === "/v1/memory/connection") return true;
+  if (method === "POST" && path === "/v1/prompts") return true;
+  if (method === "GET" && path === "/v1/prompts/export") return true;
+  if (method === "GET" && /^\/v1\/prompts\/items\/[0-9a-f-]{36}\/images\/[a-f0-9]{64}$/i.test(path))
+    return true;
   if (method === "POST" && path === "/v1/plans") return true;
   if (method === "POST" && path === "/v1/pull-requests") return true;
   if (method === "POST" && path === "/v1/transfers/import") return true;

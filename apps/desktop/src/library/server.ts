@@ -1,3 +1,4 @@
+import { handlePromptHttp } from "./prompt-http.ts";
 import { RetroCommand, RetroReply, MAX_RETRO_REQUEST_BYTES } from "@irudd-scope/protocol/retro";
 import type { RetroConfiguration } from "@irudd-scope/protocol/retro";
 import { MemoryConnectRequest, MemoryStatus } from "@irudd-scope/protocol/memory";
@@ -148,6 +149,7 @@ export async function startArtifactServer(options: {
       json(response, 200, decode(LibrarianReply, await options.librarian(input)));
       return;
     }
+    if (await handlePromptHttp(request, response, url, store.prompts)) return;
     if (await handlePlanHttp(request, response, url, store.plans)) return;
     if (await handlePullRequestsHttp(request, response, url, store.pullRequests)) return;
 

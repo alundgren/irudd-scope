@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { PromptsGuide } from "@irudd-scope/protocol/prompts";
+import { promptsCommand } from "./prompts.ts";
 import { RetroGuide, retroCommand } from "./retro.ts";
 import { LibrarianGuide } from "@irudd-scope/protocol/librarian";
 import { librarianCommand } from "./librarian.ts";
@@ -46,6 +48,9 @@ irudd-scope pull-requests guide|read|configure|sync|detail|apply [NAME_OR_FILE] 
 irudd-scope retro guide|settings|read NAME|apply REQUEST.json|history|watch NAME
 irudd-scope memory guide|status|connect OWNER/REPO
 irudd-scope librarian guide|read|apply REQUEST.json
+irudd-scope prompts guide|structures|read|list|item UUID|apply REQUEST.json
+irudd-scope prompts image REQUEST.json IMAGE_FILE
+irudd-scope prompts export --output NEW_FILE.zip
 irudd-scope plan guide
 irudd-scope plan read NAME [--since VERSION]
 irudd-scope plan feedback NAME [ROUND_ID] --output NEW_DIRECTORY
@@ -494,6 +499,21 @@ async function main() {
         ),
       );
     }
+    return;
+  }
+  if (command === "prompts") {
+    if (argument === "guide") {
+      console.log(JSON.stringify(PromptsGuide, null, 2));
+      return;
+    }
+    const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"]));
+    console.log(
+      JSON.stringify(
+        await promptsCommand(await connect(values, signal), positionals, values, signal),
+        null,
+        2,
+      ),
+    );
     return;
   }
   if (command === "librarian") {

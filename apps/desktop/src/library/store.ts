@@ -1,3 +1,4 @@
+import { PromptStore } from "./prompt-store.ts";
 import { RetroStore, initializeRetroTab } from "./retro-store.ts";
 import { PullRequestStore, initializePullRequestsTab } from "./pull-request-store.ts";
 import { DatabaseMaintenance } from "@irudd-scope/sqlite";
@@ -64,6 +65,7 @@ export type LiveTab = {
 export class ArtifactStore {
   maintenance!: DatabaseMaintenance;
   plans!: PlanStore;
+  prompts!: PromptStore;
   retros!: RetroStore;
   pullRequests!: PullRequestStore;
   onChanged: (event: LiveEvent) => void = () => {};
@@ -124,6 +126,12 @@ export class ArtifactStore {
       await store.initializePullRequestsAppState();
       await store.initializePullRequestAppState();
       await store.retros.initialize();
+      store.prompts = new PromptStore({
+        sql,
+        run: (effect) => store.run(effect),
+        mutate: (effect, events) => store.mutate(effect, events),
+      });
+      await store.prompts.initialize();
       await store.initializeBuiltinPullRequests();
       await store.pullRequests.recoverInterruptedSync();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
@@ -208,7 +216,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 13) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 14) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");
