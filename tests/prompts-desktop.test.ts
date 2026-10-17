@@ -360,6 +360,89 @@ test("loading the saved prompt after a conflict retains immediate Undo of local 
   }
 });
 
+test("typing during saved-prompt recovery cannot create Undo that discards newer text", async () => {
+  const f = await desktopFixture();
+  const application = await f.launch();
+  try {
+    const page = await application.firstWindow();
+    await ready(page);
+    const subject = page.getByRole("textbox", { name: "Subject", exact: true });
+    const camera = page.getByRole("textbox", { name: "Camera", exact: true });
+    await subject.fill("original subject");
+    await camera.fill("original camera");
+    await expect
+      .poll(async () => (await read(f)).workspace.document.parts.camera.text)
+      .toBe("original camera");
+    const save = await gateCommand(application, false);
+    await subject.fill("local recovery text");
+    await expect.poll(save.started).toBe(true);
+    const current = (await read(f)).workspace;
+    current.document.parts.subject.text = "agent saved subject";
+    await apply(f, {
+      action: "update-workspace",
+      requestId: randomUUID(),
+      expectedRevision: current.revision,
+      document: current.document,
+    });
+    await save.release();
+    await page.getByRole("button", { name: "Use saved prompt", exact: true }).waitFor();
+    await application.evaluate(({ ipcMain }) => {
+      type Handler = Parameters<typeof ipcMain.handle>[1];
+      const original = (
+        ipcMain as typeof ipcMain & { _invokeHandlers: Map<string, Handler> }
+      )._invokeHandlers.get("scope:save-prompt-draft")!;
+      const state = globalThis as typeof globalThis & {
+        promptCleanup: { started: boolean; release: () => void };
+      };
+      let release!: () => void;
+      const waiting = new Promise<void>((done) => {
+        release = done;
+      });
+      state.promptCleanup = { started: false, release };
+      ipcMain.removeHandler("scope:save-prompt-draft");
+      ipcMain.handle("scope:save-prompt-draft", async (event, input) => {
+        if (input.draft !== null) return original(event, input);
+        ipcMain.removeHandler("scope:save-prompt-draft");
+        ipcMain.handle("scope:save-prompt-draft", original);
+        state.promptCleanup.started = true;
+        await waiting;
+        return original(event, input);
+      });
+    });
+    await page.getByRole("button", { name: "Use saved prompt", exact: true }).click();
+    await expect
+      .poll(() =>
+        application.evaluate(
+          () =>
+            (globalThis as typeof globalThis & { promptCleanup: { started: boolean } })
+              .promptCleanup.started,
+        ),
+      )
+      .toBe(true);
+    const newer = "new camera typed during recovery";
+    await camera.fill(newer);
+    await application.evaluate(() =>
+      (
+        globalThis as typeof globalThis & { promptCleanup: { release: () => void } }
+      ).promptCleanup.release(),
+    );
+    await expect.poll(() => subject.inputValue()).toBe("agent saved subject");
+    await expect.poll(async () => (await read(f)).workspace.document.parts.camera.text).toBe(newer);
+    const undo = page.getByRole("button", { name: "Undo", exact: true });
+    if (await undo.isVisible()) await undo.click();
+    await expect
+      .poll(async () => ({
+        displayed: await camera.inputValue(),
+        saved: (await read(f)).workspace.document.parts.camera.text,
+      }))
+      .toEqual({ displayed: newer, saved: newer });
+    expect(await undo.isVisible()).toBe(false);
+  } finally {
+    await application.close();
+    await rm(f.directory, { recursive: true, force: true });
+  }
+});
+
 test.for(["Escape", "Back"] as const)(
   "closing a pending picker with %s preserves later typing and a newly opened picker",
   async (close) => {

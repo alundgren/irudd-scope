@@ -284,6 +284,7 @@ class PromptEditor {
       this.dirty = false;
       await this.persist();
       this.publish({ document: this.document, status: "saved", message: "" });
+      return remote.document;
     } catch (error) {
       this.fail(error);
     }

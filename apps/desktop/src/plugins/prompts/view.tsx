@@ -266,12 +266,11 @@ export function PromptsView({ context, tab, active }: TabProps) {
                     const previous = documentRef.current;
                     setBusy(true);
                     try {
-                      await editor.useSaved();
-                      const current = editor.getSnapshot();
-                      if (previous && current.document && current.status === "saved")
+                      const loaded = await editor.useSaved();
+                      if (previous && loaded)
                         setUndo({
                           document: structuredClone(previous),
-                          after: structuredClone(current.document),
+                          after: structuredClone(loaded),
                           message: "Saved prompt loaded.",
                         });
                     } finally {
