@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test("Settings starts with folded sections, opens search matches, and preserves input", async () => {
-  const { directory, launch } = await desktopFixture();
+  const { directory, launch } = await desktopFixture({ hideInitialPrompts: true });
   const application = await launch();
   try {
     const page = await application.firstWindow();
@@ -126,7 +126,7 @@ test("Settings starts with folded sections, opens search matches, and preserves 
 });
 
 test("shared key checks require an open OpenRouter section and failed access can be retried", async () => {
-  const { directory, launch } = await desktopFixture();
+  const { directory, launch } = await desktopFixture({ hideInitialPrompts: true });
   const application = await launch();
   try {
     const page = await application.firstWindow();
@@ -231,7 +231,7 @@ test("shared key checks require an open OpenRouter section and failed access can
 });
 
 test("the voice generation switch shows confirmed state and allows retry after a failed save", async () => {
-  const { directory, launch } = await desktopFixture();
+  const { directory, launch } = await desktopFixture({ hideInitialPrompts: true });
   const application = await launch();
   try {
     const page = await application.firstWindow();

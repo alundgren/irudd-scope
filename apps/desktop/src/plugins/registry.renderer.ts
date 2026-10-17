@@ -1,3 +1,4 @@
+import { promptsPlugin } from "./prompts/renderer.tsx";
 import { memoryPlugin } from "./memory/renderer.tsx";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { Tab } from "../workspace/contract.ts";
@@ -9,6 +10,7 @@ import { pullRequestsPlugin } from "./pull-requests/renderer.tsx";
 import { retroPlugin } from "./retro/renderer.tsx";
 
 export const tabPlugins = [
+  promptsPlugin,
   memoryPlugin,
   sketchpadPlugin,
   planPlugin,

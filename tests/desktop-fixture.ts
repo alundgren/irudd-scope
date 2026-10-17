@@ -13,7 +13,12 @@ const require = createRequire(new URL("../apps/desktop/package.json", import.met
 const exec = promisify(execFile);
 
 export async function desktopFixture(
-  options: { disableGpu?: boolean; showWindow?: boolean; env?: NodeJS.ProcessEnv } = {},
+  options: {
+    hideInitialPrompts?: boolean;
+    disableGpu?: boolean;
+    showWindow?: boolean;
+    env?: NodeJS.ProcessEnv;
+  } = {},
 ) {
   const showWindow = options.showWindow ?? process.env.SCOPE_TEST_SHOW_WINDOWS === "1";
   const directory = await mkdtemp(join(tmpdir(), "scope-desktop-"));
@@ -40,6 +45,7 @@ export async function desktopFixture(
     resolve("apps/desktop"),
     ...((options.disableGpu ?? true) ? ["--disable-gpu"] : []),
   ];
+  let firstLaunch = true;
   const launch = async () => {
     // Parallel Linux windows can steal focus and release another test's pointer capture.
     const display = process.platform === "linux" && !showWindow ? await testDisplay() : undefined;
@@ -120,6 +126,14 @@ export async function desktopFixture(
           });
         });
       }
+      if (firstLaunch && options.hideInitialPrompts) {
+        const page = await application.firstWindow();
+        await page.getByRole("tab", { name: "Prompts", exact: true }).waitFor();
+        await page.getByRole("tab", { name: "Prompts", exact: true }).focus();
+        await page.keyboard.press("Delete");
+        await page.getByRole("tab", { name: "Prompts", exact: true }).waitFor({ state: "hidden" });
+      }
+      firstLaunch = false;
       return application;
     } catch (error) {
       await application.close().catch(() => {});

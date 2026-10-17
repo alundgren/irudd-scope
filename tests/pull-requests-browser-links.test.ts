@@ -25,7 +25,7 @@ async function offlineFixture() {
   process.env.PATH = `${ghDirectory}:${previousPath}`;
   let fixture: Awaited<ReturnType<typeof desktopFixture>>;
   try {
-    fixture = await desktopFixture();
+    fixture = await desktopFixture({ hideInitialPrompts: true });
   } finally {
     process.env.PATH = previousPath;
   }
@@ -315,7 +315,7 @@ test("PR inbox browser links work before any snapshot is available", async () =>
 });
 
 test("generic HTML keeps embedded navigation and window.open", async () => {
-  const fixture = await desktopFixture();
+  const fixture = await desktopFixture({ hideInitialPrompts: true });
   const app = await fixture.launch();
   try {
     const client = await fixture.connect();

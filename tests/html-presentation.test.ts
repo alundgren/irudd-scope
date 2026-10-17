@@ -14,7 +14,7 @@ test("HTML presentation preserves page interactions and follows accessible frame
   await once(server, "listening");
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Missing page server port.");
-  const fixture = await desktopFixture();
+  const fixture = await desktopFixture({ hideInitialPrompts: true });
   let application: Awaited<ReturnType<typeof fixture.launch>> | undefined;
   try {
     application = await fixture.launch();

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test("HTML and plan controls omit external publishing and preserve the interactive document", async () => {
-  const { directory, launch, cli } = await desktopFixture();
+  const { directory, launch, cli } = await desktopFixture({ hideInitialPrompts: true });
   const application = await launch();
   try {
     const page = await application.firstWindow();

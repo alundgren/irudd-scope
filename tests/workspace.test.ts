@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test("new CLI publications open visible tabs and preserve reading and saved selection while closing retains content in Trashcan", async () => {
-  const { directory, launch, cli } = await desktopFixture();
+  const { directory, launch, cli } = await desktopFixture({ hideInitialPrompts: true });
   let application = await launch();
   try {
     let page = await application.firstWindow();
@@ -103,7 +103,7 @@ test("new CLI publications open visible tabs and preserve reading and saved sele
 }, 60_000);
 
 test("empty and populated workspaces offer no manual artifact creation", async () => {
-  const { directory, launch, cli } = await desktopFixture();
+  const { directory, launch, cli } = await desktopFixture({ hideInitialPrompts: true });
   const application = await launch();
   try {
     const page = await application.firstWindow();
@@ -207,7 +207,7 @@ test("empty and populated workspaces offer no manual artifact creation", async (
 });
 
 test("the compact workspace preserves reading position, supports overflowing tabs, and searches settings", async () => {
-  const { directory, launch, connect } = await desktopFixture();
+  const { directory, launch, connect } = await desktopFixture({ hideInitialPrompts: true });
   let application = await launch();
   try {
     const page = await application.firstWindow();
@@ -366,7 +366,12 @@ test("the compact workspace preserves reading position, supports overflowing tab
     await searchTrigger.click();
     await currentTab.getByRole("button", { name: "Move to Trashcan", exact: true }).click();
     await expect
-      .poll(() => page.evaluate(async () => (await window.scope.workspace())?.tabs.length))
+      .poll(() =>
+        page.evaluate(
+          async () =>
+            (await window.scope.workspace())?.tabs.filter((tab) => tab.type !== "prompts").length,
+        ),
+      )
       .toBe(11);
     await searchTrigger.click();
     expect(await currentTab.getByText(titles[10], { exact: true }).isVisible()).toBe(true);
@@ -388,7 +393,11 @@ test("the compact workspace preserves reading position, supports overflowing tab
     await reopened.getByRole("heading", { name: "Report 11", exact: true }).waitFor();
     await reopened.keyboard.press("ControlOrMeta+Shift+t");
     expect(await reopened.getByRole("tab", { selected: true }).textContent()).toBe(titles[10]);
-    expect((await reopened.evaluate(() => window.scope.workspace()))?.tabs).toHaveLength(11);
+    expect(
+      (await reopened.evaluate(() => window.scope.workspace()))?.tabs.filter(
+        (tab) => tab.type !== "prompts",
+      ),
+    ).toHaveLength(11);
     expect(await reopened.getByRole("heading", { name: "Report 12", exact: true }).count()).toBe(0);
     expect(await reopened.locator("html").getAttribute("data-theme")).toBe("dark");
   } finally {

@@ -30,7 +30,7 @@ const output = process.env.SCOPE_PRESSURE_OUTPUT;
 const settleMs = setting("SCOPE_PRESSURE_SETTLE_MS", output ? 2000 : 0, 30_000, 0);
 
 test("pressure cleanup counts include populated plan and pull request content owners", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   await mkdir(f.settingsDirectory, { recursive: true });
   const server = await startArtifactServer({
     directory: join(f.settingsDirectory, "artifacts"),
@@ -154,7 +154,7 @@ test("pressure cleanup counts include populated plan and pull request content ow
 test(
   "concurrent local and relayed publications open beyond one hundred tabs, survive restart, and reclaim content after repeated cycles",
   async () => {
-    const f = await desktopFixture();
+    const f = await desktopFixture({ hideInitialPrompts: true });
     const hub = await pressureHub(f.directory);
     let application = await f.launch();
     let page = await application.firstWindow();
@@ -229,9 +229,12 @@ test(
     };
     const waitTabs = (n: number) =>
       expect
-        .poll(() => page.locator(".artifact-pane[role=tabpanel]").count(), {
-          timeout: 30_000,
-        })
+        .poll(
+          () => page.locator('.artifact-pane[role=tabpanel]:not([aria-label="Prompts"])').count(),
+          {
+            timeout: 30_000,
+          },
+        )
         .toBe(n);
     const checkEmpty = async () => {
       await waitTabs(0);
@@ -239,7 +242,11 @@ test(
       const counts = contentCounts(f.settingsDirectory);
       expect(counts.integrity).toBe("ok");
       expect(counts.foreignKeys).toEqual([]);
-      expect(Object.values(counts.rows).every((rows) => rows === 0)).toBe(true);
+      expect(
+        Object.entries(counts.rows).every(
+          ([table, rows]) => rows === (table === "live_tabs" ? 1 : 0),
+        ),
+      ).toBe(true);
       expect(counts.unreferencedBlobs).toEqual({ rows: 0, bytes: 0 });
       expect(await page.getByRole("alert").allTextContents()).toEqual([]);
     };
@@ -274,7 +281,7 @@ test(
       await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).waitFor();
       expect(await page.getByRole("tab", { selected: true }).textContent()).toBe(idFor(0, 0));
       const filled = contentCounts(f.settingsDirectory);
-      expect(filled.rows.live_tabs).toBe(120);
+      expect(filled.rows.live_tabs).toBe(121);
       expect(filled.rows.artifacts).toBe(120);
       expect(filled.rows.blobs).toBeLessThan(120);
       await sample("overflow-full");
@@ -335,7 +342,7 @@ test(
         .toBe("connected");
       // Delete the first hundred, then close the remaining tabs through navigation.
       await pressureWorkers(100, async (index) => {
-        const tab = restored!.tabs[index];
+        const tab = restored!.tabs.filter((entry) => tabArtifactId(entry))[index];
         await clientFor(index).delete(tabArtifactId(tab)!);
       });
       await waitTabs(19);
@@ -346,7 +353,9 @@ test(
         .poll(async () =>
           (
             await page.evaluate(async () =>
-              (await window.scope.workspace())!.tabs.map((tab) => tab.title),
+              (await window.scope.workspace())!.tabs
+                .filter((tab) => tab.type !== "prompts")
+                .map((tab) => tab.title),
             )
           ).sort(),
         )

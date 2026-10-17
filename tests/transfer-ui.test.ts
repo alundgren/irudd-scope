@@ -139,7 +139,7 @@ async function screenshot(page: Page, name: string) {
 }
 
 test("Transfer links wait until artifact details close", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   const app = await f.launch();
   try {
     const page = await app.firstWindow();
@@ -192,7 +192,7 @@ test("Transfer links wait until artifact details close", async () => {
 }, 60_000);
 
 test("Send tab leaves the current tab open when pending workspace writes fail", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   const app = await f.launch();
   try {
     const page = await app.firstWindow();
@@ -258,7 +258,7 @@ test("Send tab leaves the current tab open when pending workspace writes fail", 
 }, 60_000);
 
 test("Other Scopes creates a public invitation, copies the secret through main, pairs, and forgets", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   const app = await f.launch();
   try {
     const page = await app.firstWindow();
@@ -350,7 +350,7 @@ test("Other Scopes creates a public invitation, copies the secret through main, 
 }, 60_000);
 
 test("Send tab shows QR, cancellation, expiry, import progress, and completion while preserving HTML", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   const app = await f.launch();
   try {
     const page = await app.firstWindow();
@@ -447,7 +447,7 @@ test("Send tab shows QR, cancellation, expiry, import progress, and completion w
 }, 60_000);
 
 test("Import reviews metadata before confirmation and duplicate import opens the existing tab", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   const app = await f.launch();
   try {
     const page = await app.firstWindow();

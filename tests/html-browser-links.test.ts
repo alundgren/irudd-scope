@@ -6,7 +6,7 @@ import { desktopFixture } from "./desktop-fixture.ts";
 test.each(["html", "plan"])(
   "%s links open externally and preserve the authored page",
   async (kind) => {
-    const fixture = await desktopFixture();
+    const fixture = await desktopFixture({ hideInitialPrompts: true });
     const app = await fixture.launch();
     try {
       await app.evaluate(({ shell }) => {

@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test("dragging tabs preserves filtered order and HTML state, supports recovery, and survives restart", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   let application = await f.launch();
   try {
     let page = await application.firstWindow();
@@ -23,7 +23,11 @@ test("dragging tabs preserves filtered order and HTML state, supports recovery, 
         Buffer.from("<label>Draft<input></label>"),
       );
     const order = () =>
-      page.evaluate(async () => (await window.scope.workspace())?.tabs.map((tab) => tab.title));
+      page.evaluate(async () =>
+        (await window.scope.workspace())?.tabs
+          .filter((tab) => tab.type !== "prompts")
+          .map((tab) => tab.title),
+      );
     const picker = () => page.getByRole("button", { name: /^Tabs and Trashcan,/ });
     const drawer = () => page.locator(".tab-overflow-popup");
     const row = (title: string) =>
@@ -47,11 +51,23 @@ test("dragging tabs preserves filtered order and HTML state, supports recovery, 
     await row("Delta").dragTo(row("Bravo"), { targetPosition: { x: 80, y: 3 }, steps: 8 });
     await expect.poll(order).toEqual(["Alpha", "Delta", "Bravo", "Charlie", "Echo", "Foxtrot"]);
     await drawer().getByRole("button", { name: "All", exact: true }).click();
+    // The retained startup tab adds a row. Keep the drop clear of the list's auto-scroll edge.
+    await drawer()
+      .locator(".tab-overflow-results")
+      .evaluate((element) => {
+        element.scrollTop = element.scrollHeight;
+      });
     const echoBounds = await row("Echo").boundingBox();
-    await row("Alpha").dragTo(row("Echo"), {
-      targetPosition: { x: 80, y: echoBounds!.height - 3 },
-      steps: 8,
-    });
+    const alphaBounds = (await row("Alpha").boundingBox())!;
+    const echoX = echoBounds!.x + 80;
+    const echoY = echoBounds!.y + echoBounds!.height - 8;
+    await page.mouse.move(alphaBounds.x + 80, alphaBounds.y + 16);
+    await page.mouse.down();
+    await page.mouse.move(alphaBounds.x + 88, alphaBounds.y + 16);
+    await page.mouse.move(echoX, echoY, { steps: 12 });
+    await page.mouse.move(echoX + 2, echoY);
+    await expect.poll(() => row("Echo").getAttribute("data-drop-edge")).toBe("after");
+    await page.mouse.up();
     await expect.poll(order).toEqual(["Delta", "Bravo", "Charlie", "Echo", "Alpha", "Foxtrot"]);
     const charlie = drawer().getByRole("button", { name: "Charlie html", exact: true });
     await charlie.focus();

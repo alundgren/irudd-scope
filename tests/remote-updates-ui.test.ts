@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test("Remotes shows update failures, details, retry progress, and the upgrade needed by an older hub", async () => {
-  const f = await desktopFixture();
+  const f = await desktopFixture({ hideInitialPrompts: true });
   const app = await f.launch();
   try {
     const page = await app.firstWindow();

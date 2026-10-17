@@ -38,6 +38,7 @@ async function expectPinTracksScroll(pin: Locator) {
 
 test("comment pins stay beside the page content through scrolling and restart with a compact editor", async () => {
   const { directory, launch, connect } = await desktopFixture({
+    hideInitialPrompts: true,
     showWindow: process.platform === "darwin",
   });
   let application = await launch();

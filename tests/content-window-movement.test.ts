@@ -15,7 +15,7 @@ test("content windows move from their title and frame while preserving controls 
   process.env.PATH = `${ghDirectory}:${previousPath}`;
   let fixture: Awaited<ReturnType<typeof desktopFixture>>;
   try {
-    fixture = await desktopFixture();
+    fixture = await desktopFixture({ hideInitialPrompts: true });
   } finally {
     process.env.PATH = previousPath;
   }

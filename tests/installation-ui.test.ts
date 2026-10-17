@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test("Settings finds agent tools and shows update progress, retry, and restart without leaving the artifact", async () => {
-  const { directory, launch, cli } = await desktopFixture();
+  const { directory, launch, cli } = await desktopFixture({ hideInitialPrompts: true });
   const application = await launch();
   try {
     const page = await application.firstWindow();

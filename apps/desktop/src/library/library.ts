@@ -1,3 +1,4 @@
+import type { PromptEvent } from "@irudd-scope/protocol";
 import type { RetroEvent } from "@irudd-scope/protocol";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { ScopeClient } from "@irudd-scope/protocol/client";
@@ -7,6 +8,20 @@ import type { PlanEvent } from "@irudd-scope/protocol/plan";
 import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
 
 export class ArtifactLibrary {
+  private promptListeners = new Set<(event: PromptEvent) => void>();
+  private promptReconnectListeners = new Set<() => void>();
+  onPromptsChanged(listener: (event: PromptEvent) => void) {
+    this.promptListeners.add(listener);
+    return () => {
+      this.promptListeners.delete(listener);
+    };
+  }
+  onPromptsReconnected(listener: () => void) {
+    this.promptReconnectListeners.add(listener);
+    return () => {
+      this.promptReconnectListeners.delete(listener);
+    };
+  }
   private retroListeners = new Set<(event: RetroEvent) => void>();
   private retroReconnectListeners = new Set<() => void>();
   onRetroChanged(listener: (event: RetroEvent) => void) {
@@ -118,7 +133,22 @@ export class ArtifactLibrary {
         await this.client.watch((event) => {
           if (active.signal.aborted) return;
           if (event.type === "retro") for (const listener of this.retroListeners) listener(event);
+          if (event.type === "prompts")
+            for (const listener of this.promptListeners) {
+              try {
+                listener(event);
+              } catch {
+                console.error("A prompt update listener failed.");
+              }
+            }
           if (event.type === "ready") {
+            for (const listener of this.promptReconnectListeners) {
+              try {
+                listener();
+              } catch {
+                console.error("A prompt reconnect listener failed.");
+              }
+            }
             for (const listener of this.retroReconnectListeners) listener();
             const refresh = ++this.refresh;
             changes = new Map();
@@ -217,6 +247,8 @@ export class ArtifactLibrary {
     for (const active of this.loads.keys()) active.abort();
     this.loads.clear();
     this.cache.clear();
+    this.promptListeners.clear();
+    this.promptReconnectListeners.clear();
     this.planListeners.clear();
     this.planReconnectListeners.clear();
     this.retroListeners.clear();
