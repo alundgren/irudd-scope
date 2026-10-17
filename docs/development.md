@@ -47,15 +47,15 @@ request, but imports are never queued. The command defaults to a bounded
 
 `vp run ready` builds the CLI, hub, and desktop, runs `vp run check`, then runs
 the standard test suite. The check script verifies formatting, lint, and types with compact
-lint diagnostics. [CI](../.github/workflows/check.yml) uses that same command. It must pass
+lint diagnostics. Run it locally; CI has no test or validation jobs. It must pass
 on the finished changes before completion and every push, including the first
 push and documentation changes. Further edits require another successful run
-before completion or pushing. CI after a push does not replace this local check.
+before completion or pushing.
 Validation does not rewrite source or the lockfile. Do not install validation hooks.
 
 `vp run test` selects the `standard` Vitest project, which excludes the
-dedicated remote-update suite. That suite also stays out of `ready` and its CI
-job. Shared desktop, workspace, and publication journeys
+dedicated remote-update suite. That suite also stays out of `ready`.
+Shared desktop, workspace, and publication journeys
 remain in the standard suite.
 
 Run `vp run test:remote-updates` only after direct changes to remote update
