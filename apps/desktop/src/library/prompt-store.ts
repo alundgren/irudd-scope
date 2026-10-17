@@ -48,6 +48,47 @@ function boundedReply(value: PromptReply): PromptReply {
   return reply;
 }
 
+function readItems(
+  sql: SqliteClient.SqliteClient,
+  command: Extract<PromptCommand, { action: "list-items" }>,
+  libraryRevision: number,
+) {
+  return Effect.gen(function* () {
+    if (command.cursor && command.cursor.revision !== libraryRevision)
+      return yield* Effect.fail(
+        new ScopeError(409, "Prompt library changed. Restart pagination without a cursor."),
+      );
+    let after = command.cursor?.after ?? "";
+    const field = command.field ?? "";
+    const search = (command.search ?? "").toLowerCase();
+    const matches: PromptItem[] = [];
+    while (matches.length <= PROMPT_PAGE_SIZE) {
+      const rows =
+        yield* sql<ItemRow>`SELECT document FROM prompt_items WHERE id > ${after} AND (${field} = '' OR json_extract(document, '$.field') = ${field}) ORDER BY id LIMIT 100`;
+      for (const row of rows) {
+        const item = decode(PromptItem, JSON.parse(row.document));
+        after = item.id;
+        if (
+          `${item.name} ${item.fragment} ${item.description ?? ""}`.toLowerCase().includes(search)
+        )
+          matches.push(item);
+        if (matches.length > PROMPT_PAGE_SIZE) break;
+      }
+      if (rows.length < 100) break;
+    }
+    const items = matches.slice(0, PROMPT_PAGE_SIZE);
+    return {
+      type: "items" as const,
+      libraryRevision,
+      items,
+      next:
+        matches.length > PROMPT_PAGE_SIZE
+          ? { revision: libraryRevision, after: items.at(-1)!.id }
+          : null,
+    };
+  });
+}
+
 export class PromptStore {
   constructor(private readonly database: Database) {}
   async initialize(): Promise<void> {
@@ -60,6 +101,7 @@ export class PromptStore {
           yield* sql`CREATE TABLE IF NOT EXISTS prompt_items (id TEXT PRIMARY KEY, document TEXT NOT NULL CHECK(json_valid(document)), image_id TEXT REFERENCES prompt_images(id)) STRICT`;
           yield* sql`CREATE INDEX IF NOT EXISTS prompt_items_image ON prompt_items(image_id)`;
           yield* sql`CREATE TABLE IF NOT EXISTS prompt_receipts (request_id TEXT PRIMARY KEY, payload_hash TEXT NOT NULL, receipt TEXT NOT NULL CHECK(json_valid(receipt))) STRICT`;
+          yield* sql`CREATE INDEX IF NOT EXISTS prompt_created_items ON prompt_receipts(json_extract(receipt, '$.itemId')) WHERE json_extract(receipt, '$.action') = 'create-item'`;
           const workspace = JSON.stringify({ revision: 0, document: emptyPromptDocument() });
           yield* sql`INSERT INTO prompt_state VALUES (1, ${workspace}, 0) ON CONFLICT(id) DO NOTHING`;
           yield* sql`PRAGMA user_version = 14`;
@@ -98,29 +140,8 @@ export class PromptStore {
             });
           if (command.action === "read-item")
             return read({ type: "item", libraryRevision, item: yield* itemById(command.id) });
-          if (command.action === "list-items") {
-            if (command.cursor && command.cursor.revision !== libraryRevision)
-              return yield* Effect.fail(
-                new ScopeError(409, "Prompt library changed. Restart pagination without a cursor."),
-              );
-            const after = command.cursor?.after ?? "";
-            const field = command.field ?? "";
-            const search = (command.search ?? "").toLowerCase();
-            const rows =
-              yield* sql<ItemRow>`SELECT document FROM prompt_items WHERE id > ${after} AND (${field} = '' OR json_extract(document, '$.field') = ${field}) AND (${search} = '' OR instr(lower(json_extract(document, '$.name') || ' ' || json_extract(document, '$.fragment') || ' ' || coalesce(json_extract(document, '$.description'), '')), ${search}) > 0) ORDER BY id LIMIT ${PROMPT_PAGE_SIZE + 1}`;
-            const items = rows
-              .slice(0, PROMPT_PAGE_SIZE)
-              .map((row) => decode(PromptItem, JSON.parse(row.document)));
-            return read({
-              type: "items",
-              libraryRevision,
-              items,
-              next:
-                rows.length > PROMPT_PAGE_SIZE
-                  ? { revision: libraryRevision, after: items.at(-1)!.id }
-                  : null,
-            });
-          }
+          if (command.action === "list-items")
+            return read(yield* readItems(sql, command, libraryRevision));
           const hash = payloadHash(command);
           const [saved] = yield* sql<{
             payload_hash: string;
@@ -176,6 +197,15 @@ export class PromptStore {
                   new ScopeError(
                     409,
                     "Prompt item already exists or expectedRevision is not zero.",
+                  ),
+                );
+              const [createdBefore] =
+                yield* sql`SELECT 1 FROM prompt_receipts WHERE json_extract(receipt, '$.itemId') = ${command.id} AND json_extract(receipt, '$.action') = 'create-item' LIMIT 1`;
+              if (createdBefore)
+                return yield* Effect.fail(
+                  new ScopeError(
+                    409,
+                    "Prompt item IDs cannot be reused after deletion. Choose a new UUID.",
                   ),
                 );
               const [{ count }] = yield* sql<{

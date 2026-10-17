@@ -759,14 +759,17 @@ Use `ScopeClient.prompts(command)` or authenticated `POST /v1/prompts`.
 Read actions are `structures`, `read-workspace`, `list-items`, and `read-item`.
 `list-items` accepts optional `field`, `search`, and `cursor` and returns at most
 25 complete items, a `libraryRevision`, and a nullable next cursor. Pages sort by
-stable item UUID. Keep filters fixed while continuing. A library change makes
+stable item UUID. Search applies the same Unicode case conversion to item text
+and the query before selecting a page. Keep filters fixed while continuing. A
+library change makes
 old cursors return 409; restart the read without a cursor.
 
 Mutation actions are `create-item`, `update-item`, `delete-item`, `set-image`,
 `update-workspace`, and `reset-workspace`. Every mutation carries a stable UUID
 `requestId` and `expectedRevision`. Creation uses revision zero and an explicit
-item UUID; other item operations use the item revision. Workspace operations use
-the workspace revision. An identical retry returns its original receipt without
+item UUID that has never been used, including by a deleted item. Retained creation
+receipts prevent deleted IDs from being recreated at revision one. Other item
+operations use the item revision. Workspace operations use the workspace revision. An identical retry returns its original receipt without
 another write or event. Reusing an ID with different content, or using a stale
 revision, returns 409. Read again and reconsider the edit before submitting a
 new request ID. Mutation receipts contain `requestId`, `action`,

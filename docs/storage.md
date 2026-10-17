@@ -472,6 +472,8 @@ are independent of artifact tabs and remain when a viewer closes. Item deletion
 removes its image reference and detaches current selections in one transaction,
 preserving copied workspace text. Unreferenced prompt image bytes are removed.
 Reset clears only the current workspace. Library edits never rewrite its text.
+Retained successful creation receipts reserve item IDs after deletion, so an old
+revision cannot update a replacement under the same ID. New items need new UUIDs.
 
 Include `scope.db` in the existing backup procedure. Older Scope versions that
 cannot read schema 14 reject this database; restore a matching backup before

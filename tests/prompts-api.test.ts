@@ -316,3 +316,81 @@ test("prompt HTTP validates authentication, origins, methods, bodies and request
     await f.close();
   }
 });
+
+test("Unicode library search matches accented case consistently before choosing pages", async () => {
+  const f = await promptsFixture();
+  try {
+    for (let i = 0; i < PROMPT_PAGE_SIZE + 1; i++) {
+      const create = createPromptItem();
+      await f.client.prompts({
+        ...create,
+        id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+      });
+    }
+    const create = createPromptItem();
+    const accented = {
+      ...create,
+      id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      item: {
+        ...create.item,
+        name: "Éclair",
+        fragment: "Un éclair sur la table",
+        description: "PÂTISSERIE",
+      },
+    };
+    await f.client.prompts(accented);
+    for (const search of ["Éclair", "éclair", "ÉCLAIR", "pâtisserie", "PÂTISSERIE"]) {
+      const result = promptReply(await f.client.prompts({ action: "list-items", search }), "items");
+      expect(
+        result.items.map((item) => item.id),
+        search,
+      ).toEqual([accented.id]);
+      expect(result.next).toBeNull();
+    }
+  } finally {
+    await f.close();
+  }
+});
+
+test("deleted item IDs cannot be recreated or changed by an old revision, and original request retries remain receipts", async () => {
+  const f = await promptsFixture();
+  try {
+    const create = createPromptItem();
+    const original = await f.client.prompts(create);
+    await f.client.prompts({
+      action: "delete-item",
+      requestId: randomUUID(),
+      id: create.id,
+      expectedRevision: 1,
+    });
+    await f.restart();
+    await expect(
+      f.client.prompts({
+        ...create,
+        requestId: randomUUID(),
+        item: { ...create.item, name: "Replacement" },
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      f.client.prompts({
+        action: "update-item",
+        requestId: randomUUID(),
+        id: create.id,
+        expectedRevision: 1,
+        item: { ...create.item, name: "Old writer" },
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(await f.client.prompts(create)).toEqual(original);
+    expect(promptReply(await f.client.prompts({ action: "list-items" }), "items")).toMatchObject({
+      libraryRevision: 2,
+      items: [],
+    });
+    const replacement = createPromptItem();
+    await f.client.prompts(replacement);
+    expect(
+      promptReply(await f.client.prompts({ action: "read-item", id: replacement.id }), "item").item,
+    ).toMatchObject({ revision: 1, name: replacement.item.name });
+  } finally {
+    await f.close();
+  }
+});

@@ -69,7 +69,8 @@ structures` describes the seven predefined fields; `prompts read` returns the
 one current workspace and assembled text; `prompts list` and `prompts item UUID`
 read the initially empty library. Use `prompts apply REQUEST.json` to curate
 items, set current parts or reset the workspace. Every mutation needs a UUID
-requestId and expectedRevision. Retry uncertain delivery with exactly the same
+requestId and expectedRevision. Give each new item a new UUID; deleted item IDs
+cannot be reused. Retry uncertain delivery with exactly the same
 request and body. On 409, read again and reconsider changes before using a new
 request ID. Continue library pages through apply using the returned cursor and
 unchanged filters; restart if the library revision changes.

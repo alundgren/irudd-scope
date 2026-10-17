@@ -126,13 +126,13 @@ export class ArtifactStore {
       await store.initializePullRequestsAppState();
       await store.initializePullRequestAppState();
       await store.retros.initialize();
+      await store.initializeBuiltinPullRequests();
       store.prompts = new PromptStore({
         sql,
         run: (effect) => store.run(effect),
         mutate: (effect, events) => store.mutate(effect, events),
       });
       await store.prompts.initialize();
-      await store.initializeBuiltinPullRequests();
       await store.pullRequests.recoverInterruptedSync();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
