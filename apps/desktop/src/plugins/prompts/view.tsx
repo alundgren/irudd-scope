@@ -29,7 +29,24 @@ export function PromptsView({ context, tab, active }: TabProps) {
   const [items, setItems] = useState<Partial<Record<PromptField, PromptItem>>>({});
   const [itemError, setItemError] = useState("");
   const [itemRetry, setItemRetry] = useState(0);
-  const [undo, setUndo] = useState<{ document: PromptDocument; message: string }>();
+  const [undo, setUndo] = useState<{
+    document: PromptDocument;
+    after: PromptDocument;
+    message: string;
+  }>();
+  const availableUndo =
+    undo &&
+    document &&
+    PROMPT_FIELDS.every(
+      (field) =>
+        document.parts[field].text === undo.after.parts[field].text &&
+        document.parts[field].itemId === undo.after.parts[field].itemId,
+    )
+      ? undo
+      : undefined;
+  useEffect(() => {
+    if (undo && !availableUndo) setUndo(undefined);
+  }, [undo, availableUndo]);
   const [notice, setNotice] = useState("");
   const [menu, setMenu] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -101,7 +118,7 @@ export function PromptsView({ context, tab, active }: TabProps) {
   function replace(next: PromptDocument, text: string) {
     const previous = documentRef.current;
     if (!previous) return;
-    setUndo({ document: structuredClone(previous), message: text });
+    setUndo({ document: structuredClone(previous), after: structuredClone(next), message: text });
     setNotice("");
     editor.edit(next);
   }
@@ -128,11 +145,11 @@ export function PromptsView({ context, tab, active }: TabProps) {
     }
   }
   async function undoChange() {
-    if (!undo || busy) return;
+    if (!availableUndo || busy) return;
     const before = documentRef.current;
     setBusy(true);
     try {
-      const recovered = await sanitizePrompt(undo.document);
+      const recovered = await sanitizePrompt(availableUndo.document);
       if (documentRef.current !== before)
         throw new Error("Text changed during undo. Try Undo again.");
       editor.edit(recovered);
@@ -246,14 +263,17 @@ export function PromptsView({ context, tab, active }: TabProps) {
                   variant="ghost"
                   disabled={busy}
                   onClick={async () => {
-                    if (document)
-                      setUndo({
-                        document: structuredClone(document),
-                        message: "Saved prompt loaded.",
-                      });
+                    const previous = documentRef.current;
                     setBusy(true);
                     try {
                       await editor.useSaved();
+                      const current = editor.getSnapshot();
+                      if (previous && current.document && current.status === "saved")
+                        setUndo({
+                          document: structuredClone(previous),
+                          after: structuredClone(current.document),
+                          message: "Saved prompt loaded.",
+                        });
                     } finally {
                       setBusy(false);
                     }
@@ -288,10 +308,10 @@ export function PromptsView({ context, tab, active }: TabProps) {
             )}
           </div>
         )}
-        {(undo || notice) && (
+        {(availableUndo || notice) && (
           <div className="prompt-notice" role="status">
-            <p>{notice || undo?.message}</p>
-            {undo && (
+            <p>{notice || availableUndo?.message}</p>
+            {availableUndo && (
               <Button variant="outline" disabled={busy} onClick={() => void undoChange()}>
                 Undo
               </Button>

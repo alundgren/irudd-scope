@@ -570,7 +570,9 @@ change the library. Its current item title and Edited indicator identify the
 copy. Library edits leave field text unchanged. Restore reads the latest
 library fragment explicitly. Deleting an item detaches its selection while
 retaining copied text. Clear, replacement, Restore, and Reset offer Undo;
-Undo detaches deleted item references too. Reset clears only current choices
+Undo detaches deleted item references too. Further text changes, including
+updates from an agent, dismiss the previous Undo so it cannot replace newer work.
+Reset clears only current choices
 and text. Output uses the fixed field order, highlights the corresponding
 text on field focus or hover, shows a word count, and offers Copy prompt.
 Prompt actions contains library ZIP export through a native save dialog.

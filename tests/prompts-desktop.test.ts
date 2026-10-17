@@ -279,6 +279,87 @@ test("Prompts starts empty, picks CLI images and text, preserves copies, resets 
   }
 });
 
+test.for(["desktop typing", "CLI update"] as const)(
+  "Undo cannot discard a newer Camera edit from %s after clearing Subject",
+  async (source) => {
+    const f = await desktopFixture();
+    const application = await f.launch();
+    try {
+      const page = await application.firstWindow();
+      await ready(page);
+      const subject = page.getByRole("textbox", { name: "Subject", exact: true });
+      const camera = page.getByRole("textbox", { name: "Camera", exact: true });
+      await subject.fill("subject to recover");
+      await camera.fill("original camera");
+      await expect
+        .poll(async () => (await read(f)).workspace.document.parts.camera.text)
+        .toBe("original camera");
+      await page.getByRole("button", { name: "Clear Subject", exact: true }).click();
+      await expect.poll(async () => (await read(f)).workspace.document.parts.subject.text).toBe("");
+      const undo = page.getByRole("button", { name: "Undo", exact: true });
+      await expect.poll(() => undo.isVisible()).toBe(true);
+      const newer = `newer camera from ${source}`;
+      if (source === "desktop typing") await camera.fill(newer);
+      else {
+        const current = (await read(f)).workspace;
+        current.document.parts.camera.text = newer;
+        await apply(f, {
+          action: "update-workspace",
+          requestId: randomUUID(),
+          expectedRevision: current.revision,
+          document: current.document,
+        });
+      }
+      await expect.poll(() => camera.inputValue()).toBe(newer);
+      await expect
+        .poll(async () => (await read(f)).workspace.document.parts.camera.text)
+        .toBe(newer);
+      if (await undo.isVisible()) await undo.click();
+      await expect
+        .poll(async () => ({
+          displayed: await camera.inputValue(),
+          saved: (await read(f)).workspace.document.parts.camera.text,
+        }))
+        .toEqual({ displayed: newer, saved: newer });
+      expect(await undo.isVisible()).toBe(false);
+    } finally {
+      await application.close();
+      await rm(f.directory, { recursive: true, force: true });
+    }
+  },
+);
+
+test("loading the saved prompt after a conflict retains immediate Undo of local text", async () => {
+  const f = await desktopFixture();
+  const application = await f.launch();
+  try {
+    const page = await application.firstWindow();
+    await ready(page);
+    const gate = await gateCommand(application, false);
+    await page.getByRole("textbox", { name: "Subject", exact: true }).fill("local recovery text");
+    await expect.poll(gate.started).toBe(true);
+    const current = (await read(f)).workspace;
+    current.document.parts.subject.text = "agent saved text";
+    await apply(f, {
+      action: "update-workspace",
+      requestId: randomUUID(),
+      expectedRevision: current.revision,
+      document: current.document,
+    });
+    await gate.release();
+    await page.getByRole("button", { name: "Use saved prompt", exact: true }).click();
+    await expect.poll(() => value(page)).toBe("agent saved text");
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await expect.poll(() => value(page)).toBe("local recovery text");
+    await expect
+      .poll(async () => (await read(f)).workspace.document.parts.subject.text)
+      .toBe("local recovery text");
+  } finally {
+    await application.close();
+    await rm(f.directory, { recursive: true, force: true });
+  }
+});
+
 test.for(["Escape", "Back"] as const)(
   "closing a pending picker with %s preserves later typing and a newly opened picker",
   async (close) => {
