@@ -6,6 +6,7 @@ export const PlanTabState = Schema.Struct({
   version: Schema.Literal(1),
   data: Schema.Struct({
     artifactId: ArtifactId,
+    // Saved by older plan tabs, which had a feedback panel and version picker.
     reviewOpen: Schema.optionalKey(Schema.Boolean),
     revision: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
   }),

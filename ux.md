@@ -321,58 +321,16 @@ English text, keyboard navigation, visible focus, labeled icon controls, and
 readable contrast apply throughout the workspace. Check long titles and more
 tabs than fit on a laptop or external monitor.
 
-## HTML plan feedback
+## HTML plans
 
 Plans always have an immutable unique name and start permanent. Later updates
 respect the person's permanence choice. Ordinary trusted HTML remains the
 content, including scripts and external resources. The reading page uses the
-available width and height. A small floating pin control starts a comment;
-Copy and Send appear beside it when feedback is collected. The toolbar and
-Feedback overlay move by dragging their frame or heading. Buttons and feedback
-content retain their normal interactions. Arrow keys move a focused frame,
-Shift makes larger steps, and Home restores its default position. Scope saves
-positions per tab in SQLite and
-keeps the controls inside the available area after resizing. Comment pins stay
-attached to their captured content. Focus mode hides these controls. Feedback and version history open in a compact overlay on
-request, with no reserved column or comment list. The page stays mounted when
-controls toggle, a comment is canceled, or an agent responds without changing HTML.
-
-The pin control freezes the visible page at its current revision. Clicking the
-capture places one pin and opens a small comment editor beside it with the
-text box focused for immediate typing. Moving the pin returns focus to that
-text box. Before placement, the capture shows only the crosshair cursor. Adding a comment
-saves it for the next feedback round. Enter adds it; Shift+Enter adds a line.
-The original image, marked image, geometry and text stay together. Unresolved
-pins, including unsent drafts, remain over the live page and move with document
-scrolling. Clicking a saved pin opens its comment and replies beside the pin.
-Only the pin and its open comment intercept page interactions. Existing box
-and arrow annotations remain visible in their captured screenshots. Marks
-appear only on their captured revision at the captured viewport width; Scope does not guess a new location
-after HTML changes or responsive reflow. Captured pins in Feedback provide
-access to saved comments and screenshots when their live pins are unavailable, including comments without capture
-position metadata.
-Unfinished comments persist across restart. Back to plan retains the draft;
-Discard comment removes it and returns to the live page.
-
-Queued comments offer Delete comment in both their pin and Feedback. Deleting
-removes the comment and any screenshots no other comment uses. Submitted comments
-offer Resolve comment or Reopen comment and retain their feedback history.
-The person explicitly sends queued comments as a feedback round. Awaiting agent
-means feedback is saved for an external agent; Scope does not claim one is
-running. Send submits collected comments together, up to 100 per round. Copy submits
-the collected comments and copies an agent request for all pending rounds.
-Pending rounds explain that automatic delivery requires an agent listener and
-also offer a request for the individual round. Pasting that request into a coding
-session lets the agent retrieve the saved round and its screenshots even when
-no listener is connected. Responses appear in Feedback with the original comments and a link to
-the resulting revision. Seeing a response, resolving a comment and approving a
-revision are separate actions. New HTML revisions automatically replace the
-reading page and select the latest version, including while viewing history.
-An open comment capture keeps its frozen image, text, and original revision
-while the live page updates behind it. An in-progress screenshot finishes
-before the live page switches. Metadata-only responses leave the page and
-its interactive state in place. Restoring history creates a new latest
-revision and retains the previous versions.
+available width and height, with no plan controls over it. Plans have no
+comments, feedback panel or version history; the person reads the plan and
+talks to their agent in the coding session. An agent update replaces the page
+with the new HTML. Switching tabs keeps the page's own state and scroll
+position.
 
 ## Pull request inboxes
 

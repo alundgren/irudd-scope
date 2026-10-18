@@ -1,23 +1,18 @@
 # Agent connections
 
-For HTML plans, use `irudd-scope plan watch NAME` with the same host flags below.
-It delivers submitted feedback rounds, including pending rounds recovered at
-startup or reconnect. Comments and agent responses do not wake the agent.
-Retrieve each round with `plan feedback NAME ROUND_ID --output NEW_DIRECTORY`
-and reply with `plan respond FILE.json`; use `plan guide` for the exact contract.
-Plan rounds are durable. Notices may repeat after listener restart, so identify
-work by round ID and keep response request IDs stable. The listener reports
-`Listening for submitted feedback on NAME`. Scope does not start agent sessions.
+For retrospectives, use `irudd-scope retro watch NAME` with the host flags
+below. It delivers the person's decisions, comments and pending investigation
+requests. Notices may repeat after a listener restart, so identify work by the
+durable record IDs from `retro read NAME`. The listener reports
+`Listening for retrospective decisions on NAME.` Scope does not start agent
+sessions.
 
-Connect the listener before handing a plan back for review. Verify that readiness
-message in the managed process log. A successful publication or feedback
-submission saves data but does not establish an agent connection. Without host
-flags, `plan watch` prints notices to stdout only. If automatic delivery is
-unavailable, the person can use Copy agent request in the plan's Feedback panel
-and paste the request into their coding session. It identifies the saved round
-so the agent can retrieve its comments and screenshots.
+Connect the listener before handing a retrospective back for review. Verify
+that readiness message in the managed process log. A successful publication
+saves data but does not establish an agent connection. Without host flags,
+`retro watch` prints notices to stdout only.
 
-Stop the listener when the task ends. It also stops when the named plan is deleted
+Stop the listener when the task ends. It also stops when the named retrospective is finished or deleted
 or its working directory disappears. Run it from the worktree. Listeners store
 no global model or event cache. Use one destination per listener. The listener
 holds no model turn open. Do not keep a tool call waiting or poll it in an agent
@@ -39,7 +34,7 @@ Take the T3 thread ID from the active thread URL, and verify the thread's
 worktree before connecting; the provider's Codex thread ID is different.
 
 ```sh
-irudd-scope plan watch NAME --t3-thread THREAD_ID \
+irudd-scope retro watch NAME --t3-thread THREAD_ID \
   --t3-token-file /private/token-file
 ```
 
@@ -54,21 +49,21 @@ after the launching tool call returns. Supply absolute paths and an explicit
 T3 address because the service manager does not inherit the tool's environment:
 
 ```sh
-systemd-run --user --collect --unit=scope-plan-NAME \
+systemd-run --user --collect --unit=scope-retro-NAME \
   --working-directory="$PWD" \
   --setenv=SCOPE_CONNECTION_FILE=/absolute/path/to/desktop.json \
-  /absolute/path/to/irudd-scope plan watch NAME --t3-thread THREAD_ID \
+  /absolute/path/to/irudd-scope retro watch NAME --t3-thread THREAD_ID \
   --t3-endpoint http://T3_ADDRESS:3773 --t3-token-file /private/token-file
-journalctl --user -u scope-plan-NAME -n 10 --no-pager
+journalctl --user -u scope-retro-NAME -n 10 --no-pager
 ```
 
-Verify `Listening for submitted feedback on NAME` in the log before reporting a
-connection. When the task ends, run `systemctl --user stop scope-plan-NAME`. Do not enable automatic
+Verify `Listening for retrospective decisions on NAME.` in the log before reporting a
+connection. When the task ends, run `systemctl --user stop scope-retro-NAME`. Do not enable automatic
 restart after a host delivery error: inspect the thread before reconnecting so
 an uncertain request is not repeated. On other hosts, use their managed process
 facility with the same lifetime and cleanup rules.
 
-Reconnecting recovers saved pending rounds.
+Reconnecting rereads the saved decisions, comments and pending requests.
 
 T3 receives a user follow-up through its authenticated orchestration API.
 Delivery while busy follows T3's queue behavior. Its command ID remains the
@@ -82,7 +77,7 @@ thread. Connecting to an unrelated App Server does not wake a terminal session
 owned by another process. Use the host's thread ID and endpoint:
 
 ```sh
-irudd-scope plan watch NAME --codex-thread THREAD_ID --codex-url ws://127.0.0.1:4500
+irudd-scope retro watch NAME --codex-thread THREAD_ID --codex-url ws://127.0.0.1:4500
 ```
 
 Scope starts a turn when idle and steers the active turn using its expected
@@ -93,14 +88,14 @@ no universal external wake-up endpoint. Use T3's adapter for T3 sessions.
 ## Claude Code channels
 
 Register a local stdio MCP server in the project's `.mcp.json`, using an absolute
-CLI path and the plan name:
+CLI path and the retrospective name:
 
 ```json
 {
   "mcpServers": {
-    "scope-plan": {
+    "scope-retro": {
       "command": "/absolute/path/to/irudd-scope",
-      "args": ["plan", "watch", "NAME", "--claude-channel"]
+      "args": ["retro", "watch", "NAME", "--claude-channel"]
     }
   }
 }
@@ -108,7 +103,7 @@ CLI path and the plan name:
 
 Supply remote Scope connection settings through this server's `env` when needed.
 Launch Claude with
-`claude --dangerously-load-development-channels server:scope-plan` for a
+`claude --dangerously-load-development-channels server:scope-retro` for a
 custom development channel. This preview feature also depends on the account
 and organization's channel policy. The adapter speaks MCP over stdio and sends
 `notifications/claude/channel`. Claude owns the process and its lifetime.

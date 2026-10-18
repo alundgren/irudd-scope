@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { Artifact, decode, ScopeError, type LiveEvent } from "@irudd-scope/protocol";
+import type { SqliteClient } from "@effect/sql-sqlite-node";
 import {
   RetroCommand,
   RetroReply,
@@ -10,7 +11,6 @@ import {
   type RetroSnapshot,
   type RetroSession,
 } from "@irudd-scope/protocol/retro";
-import type { PlanDatabase } from "./plan-store.ts";
 
 type Document = {
   -readonly [
@@ -48,7 +48,13 @@ function isLaterThan(value: string, cutoff: string): boolean {
   return fraction(value) > fraction(cutoff);
 }
 
-export function initializeRetroTab(sql: PlanDatabase["sql"], tabId: string, artifact: Artifact) {
+type Database = {
+  sql: SqliteClient.SqliteClient;
+  run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
+  mutate: <A, E>(effect: Effect.Effect<A, E>, events: (result: A) => LiveEvent[]) => Promise<A>;
+};
+
+export function initializeRetroTab(sql: Database["sql"], tabId: string, artifact: Artifact) {
   return Effect.gen(function* () {
     if (artifact.kind !== "retro") return;
     yield* sql`INSERT INTO retro_reports(tab_id, document) VALUES (${tabId}, ${JSON.stringify(emptyDocument())}) ON CONFLICT(tab_id) DO NOTHING`;
@@ -66,7 +72,7 @@ export class RetroStore {
       command: Extract<RetroCommand, { action: "configure" }>,
     ) => Promise<RetroConfiguration>;
   };
-  constructor(private readonly database: PlanDatabase) {}
+  constructor(private readonly database: Database) {}
   setConfiguration(handlers: typeof this.configuration) {
     this.configuration = handlers;
   }

@@ -4,7 +4,6 @@ import type { Artifact } from "@irudd-scope/protocol";
 import type { ScopeClient } from "@irudd-scope/protocol/client";
 import type { ArtifactContent, ArtifactLibrarySnapshot } from "../bridge.ts";
 
-import type { PlanEvent } from "@irudd-scope/protocol/plan";
 import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
 
 export class ArtifactLibrary {
@@ -50,22 +49,6 @@ export class ArtifactLibrary {
     this.pullRequestsListeners.add(listener);
     return () => {
       this.pullRequestsListeners.delete(listener);
-    };
-  }
-  private planListeners = new Set<(event: PlanEvent) => void>();
-  private planReconnectListeners = new Set<() => void>();
-
-  onPlanReconnected(listener: () => void): () => void {
-    this.planReconnectListeners.add(listener);
-    return () => {
-      this.planReconnectListeners.delete(listener);
-    };
-  }
-
-  onPlanChanged(listener: (event: PlanEvent) => void): () => void {
-    this.planListeners.add(listener);
-    return () => {
-      this.planListeners.delete(listener);
     };
   }
   private current: ArtifactLibrarySnapshot = { artifacts: [], connection: "connecting" };
@@ -152,13 +135,6 @@ export class ArtifactLibrary {
             for (const listener of this.retroReconnectListeners) listener();
             const refresh = ++this.refresh;
             changes = new Map();
-            for (const listener of this.planReconnectListeners) {
-              try {
-                listener();
-              } catch {
-                console.error("A plan reconnect listener failed.");
-              }
-            }
             for (const listener of this.pullRequestsReconnectListeners) {
               try {
                 listener();
@@ -195,14 +171,6 @@ export class ArtifactLibrary {
                 listener(event);
               } catch {
                 console.error("A pull request update listener failed.");
-              }
-            }
-          } else if (event.type === "plan") {
-            for (const listener of this.planListeners) {
-              try {
-                listener(event);
-              } catch {
-                console.error("A plan update listener failed.");
               }
             }
           } else if (event.type === "deleted") {
@@ -249,8 +217,6 @@ export class ArtifactLibrary {
     this.cache.clear();
     this.promptListeners.clear();
     this.promptReconnectListeners.clear();
-    this.planListeners.clear();
-    this.planReconnectListeners.clear();
     this.retroListeners.clear();
     this.retroReconnectListeners.clear();
     this.pullRequestsListeners.clear();

@@ -22,6 +22,7 @@ export const OverlayPosition = Schema.Struct({ x: OverlayCoordinate, y: OverlayC
 export type OverlayPosition = typeof OverlayPosition.Type;
 export const OverlayPositions = Schema.Struct({
   fullscreen: Schema.optionalKey(OverlayPosition),
+  // Saved by older plan tabs, which had movable feedback controls.
   planControls: Schema.optionalKey(OverlayPosition),
   planReview: Schema.optionalKey(OverlayPosition),
 });

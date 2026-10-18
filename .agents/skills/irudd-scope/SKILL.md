@@ -146,62 +146,23 @@ irudd-scope plan guide
 ```
 
 A plan always has a unique immutable name and starts permanent. Omitting
-`--name` generates one; announce the returned name. `update ID FILE.html`
-preserves the plan kind, name, and history. Avoid custom content blocks. Stable
-HTML IDs can help navigation but are optional.
+`--name` generates one; announce the returned name. Avoid custom content
+blocks. Stable HTML IDs can help navigation but are optional.
 
-The human navigates any page, captures its visible state, adds boxes or
-pins and text, then sends a feedback round. Retrieve it with:
+A plan is only its current HTML. Scope keeps no versions, comments or feedback
+for plans. The person reads the plan in Scope and talks to you in the coding
+session. To change the plan, read the current HTML first, edit it, then replace
+it:
 
 ```sh
-irudd-scope plan read NAME
-irudd-scope plan feedback NAME ROUND_ID --output NEW_DIRECTORY
+irudd-scope plan content NAME --output NEW_FILE.html
+irudd-scope update NAME FILE.html
 ```
 
-Read `packet.json`, inspect the marked PNGs with an image tool and edit the
-exported `plan.html`. The original screenshot and normalized geometry remain
-available. Feedback is tied to its captured revision; never move old annotation
-coordinates onto new HTML. The packet records the latest revision separately.
-If that revision differs from the captured revision, export it to a new file
-with `plan content NAME --revision N --output NEW_FILE.html` before editing.
-
-Write response JSON using `plan guide`'s exact schema: `action: "respond"`,
-`name`, a stable UUID `requestId`, `roundId`, `expectedRevision`, `summary`, and
-`replies: [{ commentId, text }]` for every comment in the round. Include the
-complete `html` string when changing the plan; omit it for answers only. Run
-`plan respond FILE.json`. HTML updates and replies commit atomically. A 409
-requires reading the current plan and reconsidering edits before a new request.
-After an uncertain outcome, retry the identical payload with the same request
-ID; a different payload under that ID is rejected. Trust a successful receipt.
-Writes return compact artifact/version receipts. Created comment, round and
-response IDs equal `requestId`. Reads are bounded pages: continue a returned
-`next` cursor using a read command through `plan apply`, retaining any filters.
-Restart if its review version changed. Feedback export retrieves only the
-selected round.
-
-Before handing a published plan back for review, read
-[agent connections](references/agent-connections.md) and connect
-`plan watch NAME` to the current supported host session. Keep it alive under
-the host's process manager and verify `Listening for submitted feedback on NAME`
-in its log before reporting that feedback is connected. Publishing a plan alone
-does not connect the agent. A watcher without a host destination only prints
-notices to stdout and cannot wake the agent. Use the T3 destination for Claude
-or Codex running inside T3; choose the destination by the session host.
-
-If the host destination, credentials or managed process facility are unavailable,
-say that automatic feedback delivery is unavailable. Tell the person to use
-Copy agent request on a pending round and paste it into this session. Read
-pending rounds with `plan read NAME` when continuing the plan task.
-Do not hold a model turn open waiting for feedback. Pending rounds recover after
-reconnect; notices may repeat after restart. Read durable round IDs and use stable
-response IDs. Scope does not launch agents. Review commands need the desktop
-online; initial plan publications can use the ordinary offline hub queue.
-
-Use an approved HTML revision and its feedback decisions as implementation
-instructions. Report implementation results, validation and remaining work in
-Scope through a response. Response seen state, comment resolution and revision
-approval are separate human actions. Closing a plan retains history and
-feedback in Trashcan; explicit deletion removes them with the tab.
+`update` keeps the plan kind and name and replaces the previous HTML. When
+implementing from a plan, read its current HTML with `plan content`. Reading a
+plan needs the desktop online; publications and updates can use the ordinary
+offline hub queue. Closing a plan moves it to Trashcan like other tabs.
 
 ## Connection and confirmation
 
