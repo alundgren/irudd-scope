@@ -7,7 +7,7 @@ export const PlanGuide = {
     "Publish ordinary trusted HTML: irudd-scope add plan.html --plan --name feature-plan. Plans require names and start permanent. Keep normal HTML/CSS/JavaScript, optional stable element IDs, and no mandatory content blocks.",
   update:
     "Run irudd-scope update NAME plan.html to replace the plan. Scope keeps only the current HTML; there is no version history.",
-  read: "Run plan content NAME --output NEW_FILE.html to save the current plan HTML. Read it before editing so you build on the latest content.",
+  read: "Run irudd-scope plan content NAME --output NEW_FILE.html to save the current plan HTML. Read it before editing so you build on the latest content.",
   feedback:
     "Scope has no feedback, comments or listener for plans. The human reads the plan in Scope and talks to you in the coding session.",
   limits:
