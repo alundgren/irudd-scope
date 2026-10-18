@@ -54,7 +54,7 @@ test("disconnecting a streamed relay upload settles source cancellation and pend
         ),
       );
     }
-    if (target === `${desktopUrl}/v1/plans`) {
+    if (target === `${desktopUrl}/v1/retros`) {
       if (!(init?.body instanceof ReadableStream) || !init.signal)
         throw new Error("The relay must forward a stream with a cancellation signal.");
       const reader = init.body.getReader();
@@ -86,7 +86,7 @@ test("disconnecting a streamed relay upload settles source cancellation and pend
     await remotes.start();
     await expect.poll(() => remotes.snapshot()[0]?.connection).toBe("connected");
     events!.write(
-      JSON.stringify({ type: "request", id: randomUUID(), method: "POST", path: "/v1/plans" }) +
+      JSON.stringify({ type: "request", id: randomUUID(), method: "POST", path: "/v1/retros" }) +
         "\n",
     );
     await upload;

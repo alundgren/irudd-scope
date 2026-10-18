@@ -29,7 +29,7 @@ const useCli = process.env.SCOPE_PRESSURE_CLI === "1";
 const output = process.env.SCOPE_PRESSURE_OUTPUT;
 const settleMs = setting("SCOPE_PRESSURE_SETTLE_MS", output ? 2000 : 0, 30_000, 0);
 
-test("pressure cleanup counts include populated plan and pull request content owners", async () => {
+test("pressure cleanup counts include a plan and populated pull request content owners", async () => {
   const f = await desktopFixture({ hideInitialPrompts: true });
   await mkdir(f.settingsDirectory, { recursive: true });
   const server = await startArtifactServer({
@@ -51,19 +51,6 @@ test("pressure cleanup counts include populated plan and pull request content ow
       },
       Buffer.from("<h1>Plan</h1>"),
     );
-    await client.plan({
-      action: "comment",
-      name: "pressure-plan",
-      requestId: randomUUID(),
-      revision: plan.revision,
-      text: "Inspect cleanup",
-      page: "overview",
-      image:
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=",
-      annotatedImage:
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=",
-      annotations: [],
-    });
     await client.publish(
       "pressure-inbox",
       {
@@ -126,11 +113,6 @@ test("pressure cleanup counts include populated plan and pull request content ow
     });
     const populated = contentCounts(f.settingsDirectory);
     for (const table of [
-      "plan_state",
-      "plan_revisions",
-      "plan_images",
-      "plan_records",
-      "plan_receipts",
       "pull_requests_state",
       "pull_requests_current",
       "pull_requests_pr_state",

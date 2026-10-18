@@ -33,7 +33,7 @@ test("schema 8 publication records survive edits and maintenance until their tab
     server = undefined;
     const db = new DatabaseSync(join(directory, "scope.db"));
     try {
-      expect(db.prepare("PRAGMA user_version").get()?.user_version).toBe(14);
+      expect(db.prepare("PRAGMA user_version").get()?.user_version).toBe(15);
       const tabId = String(
         db.prepare("SELECT tab_id FROM artifacts WHERE id = ?").get("saved-html")?.tab_id,
       );

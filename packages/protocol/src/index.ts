@@ -127,15 +127,6 @@ export const ArtifactPage = Schema.Struct({
 export const BlobReceipt = Schema.Struct({ blob: BlobId });
 export const DeleteReceipt = Schema.Struct({ id: ArtifactId, deleted: Schema.Boolean });
 export type DeleteReceipt = typeof DeleteReceipt.Type;
-export const PlanEvent = Schema.Struct({
-  type: Schema.Literal("plan"),
-  name: ArtifactName,
-  id: ArtifactId,
-  version: Revision,
-  event: Schema.Literals(["comment", "round", "response", "review"]),
-  roundId: Schema.optionalKey(PublicationTabId),
-});
-export type PlanEvent = typeof PlanEvent.Type;
 export const PullRequestsEvent = Schema.Struct({
   type: Schema.Literal("pull-requests"),
   name: ArtifactName,
@@ -167,7 +158,6 @@ export const LiveEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("ready") }),
   Schema.Struct({ type: Schema.Literal("artifact"), artifact: Artifact }),
   Schema.Struct({ type: Schema.Literal("deleted"), id: ArtifactId }),
-  PlanEvent,
   PullRequestsEvent,
   RetroEvent,
   PromptEvent,
@@ -177,12 +167,11 @@ const LIVE_EVENT_TYPES = new Set([
   "ready",
   "artifact",
   "deleted",
-  "plan",
   "pull-requests",
   "retro",
   "prompts",
 ]);
-// Older desktops can send event types this version no longer reads, such as removed diagram events.
+// Older desktops can send event types this version no longer reads, such as removed diagram and plan events.
 export function decodeLiveEvent(value: unknown): LiveEvent | undefined {
   if (
     value &&

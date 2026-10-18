@@ -304,29 +304,27 @@ Schema version 7 adds the table and the optional, default-off
 `voiceGenerationEnabled` setting without changing existing preference fields.
 Older desktops reject this newer database; restore a compatible backup to downgrade.
 
-## Plan history and feedback
+## Plans
 
-HTML plans use the existing `scope.db` tab ownership and blob tables. Plan
-revision rows retain HTML blobs; plan image rows retain original and marked
-PNGs. Comments, submitted rounds, responses, approval timestamps, idempotency
-receipts and unfinished screenshot drafts belong to the same tab. Closing it
-preserves those records in Trashcan. Permanent deletion or trash expiry cascades
-through their references; normal blob reclamation then removes unused bytes.
-Repeated identical images and HTML share their SHA-256 blob. Revisions and
-feedback have no separate expiry while the tab exists.
+A plan stores only its current HTML, in the same artifact and blob tables as
+other HTML. Updating a plan replaces that HTML; the previous bytes become
+unreferenced and normal blob reclamation removes them. `plan content` writes a
+local copy to a new file and refuses to overwrite an existing path.
 
-The plan migration is additive and preserves existing artifacts and workspace
-records. Older Scope builds reject the newer database version; do not open the
-profile with an older build. Back up the complete databases using the existing
-backup procedure. Explicit `plan feedback`, `plan content` and `plan image`
-exports are local files, independent of Scope's SQLite records, and refuse to
-overwrite existing output paths.
+Schema version 15 removes the plan history and feedback tables that earlier
+builds kept: `plan_state`, `plan_revisions`, `plan_images`, `plan_records`,
+`plan_receipts` and `plan_drafts`. Old plan versions, comments, screenshots,
+feedback rounds, agent responses, approvals and unfinished comment drafts are
+deleted. Each plan's current HTML and tab stay. The tables go during the
+upgrade; the old HTML and screenshot bytes are deleted by the next maintenance
+check, which runs at startup, and disk space is returned by the next shrink.
+Older builds reject schema 15. Back up the complete databases before upgrading
+if the old feedback matters; restore that backup to downgrade.
 
 ## Pull request inbox data
 
 Artifact schema 7 adds tab-owned repository state, current open PR records, and
-mutation receipts to `scope.db`. It preserves existing artifacts, plan records,
-and workspace state. Older builds reject this schema. Restore a complete
+mutation receipts to `scope.db`. It preserves existing artifacts and workspace state. Older builds reject this schema. Restore a complete
 pre-upgrade backup to downgrade.
 
 GitHub facts, local notes and snoozes, inspection and review baselines, and

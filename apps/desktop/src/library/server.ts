@@ -30,7 +30,6 @@ import {
   ShrinkReceipt,
   type DatabaseShrink,
 } from "@irudd-scope/protocol/maintenance";
-import { handlePlanHttp } from "./plan-http.ts";
 import { ArtifactStore } from "./store.ts";
 import { ArtifactName } from "@irudd-scope/protocol";
 import {
@@ -150,7 +149,6 @@ export async function startArtifactServer(options: {
       return;
     }
     if (await handlePromptHttp(request, response, url, store.prompts)) return;
-    if (await handlePlanHttp(request, response, url, store.plans)) return;
     if (await handlePullRequestsHttp(request, response, url, store.pullRequests)) return;
 
     if (route === "POST /v1/transfers/import" && !url.search) {

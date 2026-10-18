@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { ScopeClient } from "@irudd-scope/protocol/client";
-import { readPlanSnapshot } from "@irudd-scope/protocol/plan";
 import {
   BUFFERED_TAB_TTL_MS,
   MAX_CONTENT_BYTES,
@@ -276,11 +275,6 @@ test("offline named HTML plan updates preserve the plan kind and revision histor
   expect(Buffer.from(await f.direct.content(original.id)).toString()).toBe(
     "<h1>Updated offline</h1>",
   );
-  const snapshot = await readPlanSnapshot((command) => f.direct.plan(command), "plan-tab-design");
-  expect(snapshot.revisions.map((item) => item.revision)).toEqual([
-    original.revision,
-    original.revision + 1,
-  ]);
 });
 
 test("an offline CLI update uses the last observed revision and blocks instead of replacing newer content", async () => {
