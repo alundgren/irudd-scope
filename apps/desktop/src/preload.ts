@@ -8,7 +8,6 @@ import type { RemoteStatus } from "./remote-contract.ts";
 import type { MemoryStatus } from "@irudd-scope/protocol/memory";
 import type { SketchpadMenuAction } from "./menu-contract.ts";
 
-import type { PlanEvent } from "@irudd-scope/protocol/plan";
 import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
 import type { PullRequestsDetailUpdate } from "./plugins/pull-requests/interest.ts";
 import type { PullRequestsLinkResult } from "./plugins/pull-requests/contract.ts";
@@ -102,22 +101,6 @@ const bridge: ScopeBridge = {
     return () => ipcRenderer.removeListener("scope:pull-requests-changed", receive);
   },
   createPlan: (input) => ipcRenderer.invoke("scope:create-plan", input),
-  planCommand: (input) => ipcRenderer.invoke("scope:plan-command", input),
-  planImage: (input) => ipcRenderer.invoke("scope:plan-image", input),
-  planContent: (input) => ipcRenderer.invoke("scope:plan-content", input),
-  capturePlan: (input) => ipcRenderer.invoke("scope:capture-plan", input),
-  loadPlanDraft: (tabId) => ipcRenderer.invoke("scope:load-plan-draft", tabId),
-  savePlanDraft: (input) => ipcRenderer.invoke("scope:save-plan-draft", input),
-  onPlanReconnected: (listener) => {
-    const receive = () => listener();
-    ipcRenderer.on("scope:plan-reconnected", receive);
-    return () => ipcRenderer.removeListener("scope:plan-reconnected", receive);
-  },
-  onPlanChanged: (listener) => {
-    const receive = (_event: unknown, event: PlanEvent) => listener(event);
-    ipcRenderer.on("scope:plan-changed", receive);
-    return () => ipcRenderer.removeListener("scope:plan-changed", receive);
-  },
   setSketchpadMenu: (state) => ipcRenderer.invoke("scope:set-sketchpad-menu", state),
   onSketchpadMenuAction: (listener) => {
     const receive = (_event: unknown, action: SketchpadMenuAction) => listener(action);

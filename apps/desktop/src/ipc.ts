@@ -106,12 +106,6 @@ export function registerDesktopIpc({
   const stopRetroReconnects = library.onRetroReconnected(() => {
     if (!window.isDestroyed()) window.webContents.send("scope:retro-reconnected");
   });
-  const stopPlanEvents = library.onPlanChanged((event) => {
-    if (!window.isDestroyed()) window.webContents.send("scope:plan-changed", event);
-  });
-  const stopPlanReconnects = library.onPlanReconnected(() => {
-    if (!window.isDestroyed()) window.webContents.send("scope:plan-reconnected");
-  });
   const stopPullRequestsEvents = library.onPullRequestsChanged((event) => {
     if (!window.isDestroyed()) window.webContents.send("scope:pull-requests-changed", event);
   });
@@ -268,8 +262,6 @@ export function registerDesktopIpc({
       stopPromptReconnects();
       stopRetroEvents();
       stopRetroReconnects();
-      stopPlanEvents();
-      stopPlanReconnects();
       stopPullRequestsEvents();
       stopPullRequestsReconnects();
       window.removeListener("enter-full-screen", enteredFullscreen);

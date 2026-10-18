@@ -34,7 +34,6 @@ import { ScopeClient } from "@irudd-scope/protocol/client";
 import { setup, manageHub, printPairing } from "./setup.ts";
 import { checkSkill, installSkill, syncSkill } from "./skill.ts";
 import { PlanGuide, planCommand } from "./plan.ts";
-import { watchPlan } from "./plan-watch.ts";
 import {
   decodeTransferImportRequest,
   TRANSFER_IMPORT_TIMEOUT_MS,
@@ -52,12 +51,7 @@ irudd-scope prompts guide|structures|read|list|item UUID|apply REQUEST.json
 irudd-scope prompts image REQUEST.json IMAGE_FILE
 irudd-scope prompts export --output NEW_FILE.zip
 irudd-scope plan guide
-irudd-scope plan read NAME [--since VERSION]
-irudd-scope plan feedback NAME [ROUND_ID] --output NEW_DIRECTORY
-irudd-scope plan content NAME [--revision N] --output NEW_FILE.html
-irudd-scope plan image NAME HASH --output NEW_FILE.png
-irudd-scope plan respond|apply REQUEST.json
-irudd-scope plan watch NAME [--claude-channel | --t3-thread ID | --codex-thread ID]
+irudd-scope plan content NAME --output NEW_FILE.html
 irudd-scope voice generate|status|result|cancel|guide [FILE_OR_ID]
 irudd-scope list
 irudd-scope get ID
@@ -174,8 +168,6 @@ function parseOptions() {
       plan: { type: "boolean" },
       retro: { type: "boolean" },
       "pull-requests": { type: "boolean" },
-      revision: { type: "string" },
-      since: { type: "string" },
       name: { type: "string" },
       "claude-channel": { type: "boolean" },
       "t3-thread": { type: "string" },
@@ -570,27 +562,14 @@ async function main() {
       console.log(JSON.stringify(PlanGuide, null, 2));
       return;
     }
-    if (argument === "watch") {
-      if (!replacement) throw new Error("Provide the plan name.");
-      const controller = new AbortController();
-      const stop = () => controller.abort();
-      process.once("SIGINT", stop);
-      process.once("SIGTERM", stop);
-      try {
-        await watchPlan(await connect(values, controller.signal), replacement, values, controller);
-      } finally {
-        controller.abort();
-      }
-    } else {
-      const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"]));
-      console.log(
-        JSON.stringify(
-          await planCommand(await connect(values, signal), positionals, values, signal),
-          null,
-          2,
-        ),
-      );
-    }
+    const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"]));
+    console.log(
+      JSON.stringify(
+        await planCommand(await connect(values, signal), positionals, values, signal),
+        null,
+        2,
+      ),
+    );
     return;
   }
   const timeoutMs = validateArtifactCommand(command, argument, replacement, values);

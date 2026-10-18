@@ -91,16 +91,8 @@ export function artifactRequest(method: string, path: string): boolean {
   if (method === "GET" && path === "/v1/prompts/export") return true;
   if (method === "GET" && /^\/v1\/prompts\/items\/[0-9a-f-]{36}\/images\/[a-f0-9]{64}$/i.test(path))
     return true;
-  if (method === "POST" && path === "/v1/plans") return true;
   if (method === "POST" && path === "/v1/pull-requests") return true;
   if (method === "POST" && path === "/v1/transfers/import") return true;
-  if (
-    method === "GET" &&
-    /^\/v1\/plans\/[a-z0-9][a-z0-9-]{0,127}\/(?:images\/[a-f0-9]{64}|revisions\/[1-9][0-9]*\/content)$/.test(
-      path,
-    )
-  )
-    return true;
   if (method === "GET" && /^\/v1\/names\/[a-z0-9][a-z0-9-]{0,127}$/.test(path)) return true;
   if (method === "POST" && maintenanceRequest(path)) return true;
   if (method === "POST" && /^\/v1\/tabs\/[0-9a-f-]{36}\/blobs$/.test(path)) return true;

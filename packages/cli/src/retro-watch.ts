@@ -26,7 +26,7 @@ export async function watchRetro(
   let again = false;
   let artifactId: string | undefined;
   try {
-    const send = await agentNotificationSender(options, controller, "retro", name);
+    const send = await agentNotificationSender(options, controller, name);
     async function check() {
       if (checking) {
         again = true;

@@ -6,6 +6,7 @@ import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
 import { afterEach, expect, test } from "vite-plus/test";
 import { randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { promisify } from "node:util";
 import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -989,6 +990,119 @@ test("built watch delivers durable requests and stops after conversational finis
   });
   await f.write(owner, { action: "finish", operatorInstruction: "Please finish" });
   expect(await stopped).toBe(0);
+});
+
+function spawnRetroWatch(
+  f: Awaited<ReturnType<typeof fixture>>,
+  name: string,
+  destination: string[],
+) {
+  const child = spawn(
+    process.execPath,
+    [resolve("packages/cli/dist/main.mjs"), "retro", "watch", name, ...destination],
+    {
+      env: {
+        ...process.env,
+        SCOPE_ENDPOINT: f.server.url,
+        SCOPE_TOKEN: token,
+        SCOPE_TOKEN_FILE: undefined,
+      },
+      cwd: f.directory,
+    },
+  );
+  const output = { stdout: "", stderr: "" };
+  child.stdout!.on("data", (chunk) => {
+    output.stdout += String(chunk);
+  });
+  child.stderr!.on("data", (chunk) => {
+    output.stderr += String(chunk);
+  });
+  const stopped = new Promise<void>((resolve) => child.once("close", () => resolve()));
+  cleanup.push(async () => {
+    if (child.exitCode === null) child.kill("SIGTERM");
+    await stopped;
+  });
+  return { child, output };
+}
+
+test.for(["approval-required", "auto-accept-edits", "auto", "full-access"])(
+  "retro watch delivers requests to T3 in %s mode without changing the thread's modes",
+  async (runtimeMode) => {
+    const f = await fixture();
+    await f.configure();
+    const owner = await f.create();
+    await f.write(owner, { action: "publish", report: report() });
+    const requests: { runtimeMode: string; interactionMode: string; message: { text: string } }[] =
+      [];
+    const t3 = createServer(async (request, response) => {
+      if (request.headers.authorization !== "Bearer synthetic-t3-retro-token") {
+        response.writeHead(401).end();
+        return;
+      }
+      response.setHeader("Content-Type", "application/json");
+      if (request.method === "GET")
+        response.end(
+          JSON.stringify({
+            thread: { id: "retro-thread", runtimeMode, interactionMode: "default" },
+          }),
+        );
+      else {
+        let body = "";
+        for await (const chunk of request) body += chunk;
+        requests.push(JSON.parse(body));
+        response.end("{}");
+      }
+    });
+    await new Promise<void>((resolve) => t3.listen(0, "127.0.0.1", resolve));
+    cleanup.push(async () => {
+      t3.closeAllConnections();
+      await new Promise<void>((resolve) => t3.close(() => resolve()));
+    });
+    const address = t3.address();
+    if (!address || typeof address === "string") throw new Error("Missing address");
+    const tokenFile = join(f.directory, "t3-token");
+    await writeFile(tokenFile, "synthetic-t3-retro-token", { mode: 0o600 });
+    const { output } = spawnRetroWatch(f, owner.name, [
+      "--t3-thread",
+      "retro-thread",
+      "--t3-endpoint",
+      `http://127.0.0.1:${address.port}`,
+      "--t3-token-file",
+      tokenFile,
+    ]);
+    await expect
+      .poll(() => output.stderr, { timeout: 10000 })
+      .toContain(`Listening for retrospective decisions on ${owner.name}`);
+    await f.write(owner, { action: "request", findingId: null, text: "Check the T3 delivery" });
+    await expect.poll(() => requests.length, { timeout: 10000 }).toBe(1);
+    expect(requests[0]).toMatchObject({ runtimeMode, interactionMode: "default" });
+    expect(requests[0].message.text).toContain("Check the T3 delivery");
+  },
+);
+
+test("retro watch waits for Claude channel initialization before delivering requests", async () => {
+  const f = await fixture();
+  await f.configure();
+  const owner = await f.create();
+  await f.write(owner, { action: "publish", report: report() });
+  await f.write(owner, { action: "request", findingId: null, text: "Check the Claude channel" });
+  const { child, output } = spawnRetroWatch(f, owner.name, ["--claude-channel"]);
+  child.stdin!.write(
+    `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })}\n`,
+  );
+  await expect.poll(() => output.stdout, { timeout: 10000 }).toContain('"serverInfo"');
+  expect(output.stdout).not.toContain("notifications/claude/channel");
+  child.stdin!.write(
+    `${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`,
+  );
+  const notices = () =>
+    output.stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+      .filter((message) => message.method === "notifications/claude/channel");
+  await expect.poll(() => notices().length, { timeout: 10000 }).toBe(1);
+  expect(notices()[0].params.content).toContain("Check the Claude channel");
 });
 
 test("paired hub forwards retrospective commands live, then rejects edits to completed HTML", async () => {

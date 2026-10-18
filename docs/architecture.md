@@ -87,74 +87,31 @@ copy. Removing that copy retains its receipt until expiry and prevents
 recreation. Explicit desktop Import or an authorized agent command precedes HTML execution under the existing trusted
 content behavior. Both apps must be online and awake. Invitations and snapshots
 exist only in memory, with no offline queue or continuing synchronization.
-Plans, PR inboxes, and retros are excluded because their additional records are not in
-the portable manifest.
+Only ordinary file tabs transfer. Plans, PR inboxes, and retros are excluded;
+PR inboxes and retros keep additional records that are not in the portable
+manifest.
 
 ## HTML plans
 
-`packages/protocol/src/plan.ts` defines review commands, revisions, comments,
-normalized annotation geometry, feedback rounds, responses and bounds. A plan
-is a named `plan` artifact with `text/html` content. The HTML authoring contract
-is unchanged. The library enforces immutable names and kinds, and sets a new
-plan's tab permanent only at initial publication.
+A plan is a named `plan` artifact with `text/html` content. The library
+enforces immutable names and kinds, and sets a new plan's tab permanent only at
+initial publication. A plan keeps only its current HTML, like other artifacts:
+`update` replaces it and the previous bytes become unreferenced. Plans have no
+version history, comments or agent listener. People read the plan in Scope and
+talk to their agent in the coding session. The `plan` kind stays separate from
+ordinary HTML so plan-specific reading can be added later.
 
-`library/plan-store.ts` owns tab-bound history and feedback in `scope.db`, using
-the artifact store's SQL runtime and serialized mutation queue. HTML revisions
-and PNGs reuse content-addressed blobs. Comments retain both original and marked
-PNGs with their originating revision. Writes carry UUID request IDs; a matching
-retry returns a compact receipt without applying the mutation twice. Changed
-payloads under the same ID conflict. Responses that change HTML check the
-current revision and commit HTML, per-comment replies and round status together.
-Answers without HTML may refer to a retained older revision.
+`plugins/plan/view.tsx` shows the trusted HTML in an iframe. Hidden plan tabs
+stay rendered, so the page's own state and scroll position survive tab
+switches; `document-scroll.ts` restores the scroll position when the tab is
+shown again. `plugins/plan/main.ts` keeps the `scope:create-plan` IPC used to
+create a plan from the desktop.
 
-`library/plan-read.ts` loads bounded metadata pages using revision and record
-cursors. It queries document byte lengths before fetching JSON. Each page has
-at most 100 revisions and 100 records and stays below the 16 MiB reply bound.
-A cursor checks the review version in the same read transaction; changes
-require restarting the read. Round exports select only that round and its
-comments and responses. Listeners select only pending rounds. Shared protocol
-`readPlanSnapshot` combines pages and retries a changed-version read.
-
-`plugins/plan/main.ts` registers validated draft, review and native screenshot
-IPC. Capture checks the selected active named plan and window bounds before and
-after Electron captures its viewport. `plugins/plan/view.tsx` retains the live
-HTML iframe independently of review state. `annotation.tsx` overlays normalized
-marks on a frozen capture and rasterizes a marked PNG; `review.tsx` displays the
-feedback queue, responses and history. Explicit revision navigation replaces
-the iframe content. New HTML revisions select and load the latest content;
-unfinished captures retain their original revision. Incoming metadata and
-feedback without HTML changes leave the iframe in place. Reconnected event streams
-refresh durable review state even when the HTML revision did not change.
-
-`library/plan-http.ts` serves authenticated review commands, retained HTML and
-plan-owned images. Hubs forward those routes but store no review data. Review
-commands require the desktop online. Initial publications use the existing
-hub publication queue.
-
-The CLI's `plan.ts` exports HTML and a visual feedback packet to explicit files,
-validates response files and submits replies. `plan-watch.ts` recovers pending
-rounds and listens for new submissions. `agent-notifications.ts` contains shared
-T3, Codex and Claude adapters used by plan listeners. Listeners
-notify an existing session and hold no model turn open. A durable round is the
-source of truth; SSE and host notices can repeat or be missed during disconnect.
-Scope does not orchestrate agent execution.
-
-```mermaid
-flowchart LR
-    Human[Human reading HTML] --> Capture[Native viewport capture]
-    Capture --> Mark[Arrow, box or pin and comment]
-    Mark --> DB[scope.db: revision, PNGs, geometry, text]
-    Human --> Submit[Submit feedback round]
-    Submit --> DB
-    DB --> Events[Plan round event]
-    Events --> Watch[CLI listener]
-    Watch --> Host[Existing coding session]
-    Host --> Packet[HTML and annotated PNG packet]
-    DB --> Packet
-    Packet --> Reply[Revision-checked HTML and replies]
-    Reply --> DB
-    DB --> Review[Response overlay and revision navigation]
-```
+The CLI's `plan.ts` prints `plan guide` and writes the current HTML to a new
+file with `plan content NAME --output FILE`. It resolves the name through
+`/v1/names` and reads `/v1/artifacts/ID/content`, which paired hubs already
+forward. Reading needs the desktop online. Publications and updates use the
+ordinary hub publication queue.
 
 ## Pull request inboxes
 
@@ -648,12 +605,12 @@ run or coordinate coding sessions.
 
 Codex, Claude Code, or the enclosing host owns the coding session, its tools,
 and its lifetime. Scope's desktop and hub do not launch those processes or
-retain their transcripts. A named plan identifies the document; the listener's
+retain their transcripts. A named retrospective identifies the document; the listener's
 explicit host and thread arguments select the session. Publication provenance
 such as `source.sessionId` does not establish a connection.
 
 ```text
-Human submits a plan feedback round
+Human records a retrospective decision, comment or request
   |
   v
 Scope desktop main -- GET /v1/events (SSE) -- [optional paired hub]
@@ -661,8 +618,8 @@ Scope desktop main -- GET /v1/events (SSE) -- [optional paired hub]
   +-------------------- direct or relayed ------------------+
                               |
                               v
-               irudd-scope plan watch NAME
-               filter by plan; recover pending rounds
+               irudd-scope retro watch NAME
+               filter by retro; reread saved records
                               |
              +----------------+------------------+
              |                |                  |
@@ -696,9 +653,9 @@ channel requires support and enablement in that Claude host. Scope cannot wake
 a closed Claude session. The [agent connection instructions](../.agents/skills/irudd-scope/references/agent-connections.md)
 contain the commands and host configuration.
 
-A listener reconnects after a Scope event-stream disconnect and recovers saved
-pending rounds. Stop it when the task ends. Plan deletion or loss of its working
-directory also stops it. A host delivery error ends the listener with a
+A listener reconnects after a Scope event-stream disconnect and rereads the
+saved retrospective records. Stop it when the task ends. Finishing or deleting
+the retrospective, or loss of its working directory, also stops it. A host delivery error ends the listener with a
 diagnostic; inspect the session before retrying uncertain delivery.
 
 ## Prompts
@@ -710,7 +667,7 @@ references and mutation receipts in `scope.db`. It uses ArtifactStore's existing
 serialized mutations and post-commit events. Item revisions protect curation;
 a separate workspace revision protects copied text. Deleting a selected item
 detaches its reference while retaining copied text in the same transaction.
-`library/image-validation.ts` validates PNG containers for Plans and Prompts;
+`library/image-validation.ts` validates PNG containers for Prompts;
 `library/prompt-image.ts` validates PNG/JPEG/WebP example metadata with
 `image-size`, without changing original image bytes.
 

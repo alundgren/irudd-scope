@@ -1,31 +1,24 @@
 import { expect, test } from "vite-plus/test";
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { ArtifactStore } from "../apps/desktop/src/library/store.ts";
-import type { Artifact } from "@irudd-scope/protocol";
-import { readPlanSnapshot, type PlanCommand, type PlanSnapshot } from "@irudd-scope/protocol/plan";
 
-const png =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=";
-const name = "storage-plan";
-async function fixture() {
-  const directory = await mkdtemp(join(tmpdir(), "scope-plan-storage-"));
-  const store = await ArtifactStore.open(directory);
-  return {
-    directory,
-    store,
-    close: async () => {
-      await store.close();
-      await rm(directory, { recursive: true, force: true });
-    },
-  };
-}
-async function publish(store: ArtifactStore, html: string, previous?: Artifact) {
-  const id = previous?.id ?? "storage-plan-artifact";
-  const tabId = await store.reserve(id, previous?.revision ?? 0);
+const planTables = [
+  "plan_state",
+  "plan_revisions",
+  "plan_images",
+  "plan_records",
+  "plan_receipts",
+  "plan_drafts",
+];
+const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+
+async function publish(store: ArtifactStore, html: string, previousRevision = 0) {
+  const id = "storage-plan-artifact";
+  const tabId = await store.reserve(id, previousRevision);
   const blob = await store.upload(
     tabId,
     (async function* () {
@@ -35,361 +28,109 @@ async function publish(store: ArtifactStore, html: string, previous?: Artifact) 
   return store.put(id, {
     tabId,
     blob,
-    expectedRevision: previous?.revision ?? 0,
-    name,
+    expectedRevision: previousRevision,
+    name: "storage-plan",
     title: "A plan",
     kind: "plan",
     mediaType: "text/html",
     fileName: "plan.html",
   });
 }
-async function snapshot(store: ArtifactStore): Promise<PlanSnapshot> {
-  return readPlanSnapshot((command) => store.plans.command(command), name);
-}
-function comment(revision: number): Extract<PlanCommand, { action: "comment" }> {
-  return {
-    action: "comment",
-    name,
-    requestId: randomUUID(),
-    revision,
-    page: "overview",
-    text: "Clarify the API",
-    image: png,
-    annotatedImage: png,
-    annotations: [{ type: "pin", at: { x: 0.25, y: 0.75 } }],
-  };
-}
 
-test("capture positions persist beside legacy comments and drafts without changing existing records", async () => {
-  const f = await fixture();
-  let reopened: ArtifactStore | undefined;
+test("upgrading removes plan feedback and old versions while keeping the current plan", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "scope-plan-storage-"));
   try {
-    const artifact = await publish(f.store, "<h1>Capture positions</h1>");
-    const tab = (await f.store.tabs())[0];
-    const viewport = { scrollX: 0, scrollY: 320, width: 1000, height: 700 };
-    const legacy = comment(artifact.revision);
-    await f.store.plans.command(legacy);
-    const positioned = { ...comment(artifact.revision), viewport };
-    await f.store.plans.command(positioned);
-    await expect(
-      f.store.plans.command({ ...comment(artifact.revision), viewport: { ...viewport, width: 0 } }),
-    ).rejects.toThrow();
-    await expect(
-      f.store.plans.command({
-        ...comment(artifact.revision),
-        viewport: { ...viewport, scrollY: Infinity },
-      }),
-    ).rejects.toThrow();
-    const draft = {
-      revision: artifact.revision,
-      image: png,
-      width: 1,
-      height: 1,
-      text: "Draft",
-      page: "overview",
-      annotations: [],
-      requestId: randomUUID(),
-    };
-    await f.store.plans.saveDraft(tab.id, draft);
-    expect(await f.store.plans.draft(tab.id)).toEqual(draft);
-    await f.store.plans.saveDraft(tab.id, { ...draft, viewport });
-    await f.store.close();
-    reopened = await ArtifactStore.open(f.directory);
-    const state = await snapshot(reopened);
-    expect(state.comments).toHaveLength(2);
-    expect(state.comments.find((entry) => entry.id === legacy.requestId)?.viewport).toBeUndefined();
-    expect(state.comments.find((entry) => entry.id === positioned.requestId)?.viewport).toEqual(
-      viewport,
-    );
-    expect(await reopened.plans.draft(tab.id)).toEqual({ ...draft, viewport });
-  } finally {
-    await reopened?.close();
-    await f.close();
-  }
-});
+    let store = await ArtifactStore.open(directory);
+    const first = await publish(store, "<h1>First</h1>");
+    const current = await publish(store, "<h1>Current</h1>", first.revision);
+    const [tab] = await store.tabs();
+    await store.close();
 
-test("deleting queued comments preserves shared screenshots and remains deleted after retry and restart", async () => {
-  const f = await fixture();
-  let reopened: ArtifactStore | undefined;
-  try {
-    const artifact = await publish(f.store, "<p>Queued feedback</p>");
-    const first = comment(artifact.revision);
-    const second = comment(artifact.revision);
-    await f.store.plans.command(first);
-    await f.store.plans.command(second);
-    const before = await snapshot(f.store);
-    const imageId = before.comments[0].image.id;
-    const deletion = {
-      action: "delete-comment" as const,
-      name,
-      requestId: randomUUID(),
-      commentId: first.requestId,
-    };
-    const receipt = await f.store.plans.command(deletion);
-    expect(await f.store.plans.command(deletion)).toEqual(receipt);
-    expect((await snapshot(f.store)).comments.map((entry) => entry.id)).toEqual([second.requestId]);
-    await f.store.reclaim(Date.now() + 60 * 60_000);
-    expect(await f.store.plans.image(name, imageId)).toEqual(Buffer.from(png, "base64"));
-    await f.store.plans.command({
-      ...deletion,
-      requestId: randomUUID(),
-      commentId: second.requestId,
-    });
-    await expect(f.store.plans.image(name, imageId)).rejects.toThrow("not found");
-    await f.store.reclaim(Date.now() + 60 * 60_000);
-    const db = new DatabaseSync(f.store.filename, { readOnly: true });
+    // Recreate the records a schema 14 database kept for this plan.
+    const oldHtml = Buffer.from("<h1>First</h1>");
+    const screenshot = Buffer.from("synthetic screenshot bytes");
+    const db = new DatabaseSync(join(directory, "scope.db"));
     try {
-      expect(db.prepare("SELECT count(*) AS count FROM plan_images").get()?.count).toBe(0);
-      expect(
-        db.prepare("SELECT count(*) AS count FROM blobs WHERE id = ?").get(imageId)?.count,
-      ).toBe(0);
+      db.exec(
+        "CREATE TABLE plan_state(tab_id TEXT PRIMARY KEY REFERENCES live_tabs(id) ON DELETE CASCADE, version INTEGER NOT NULL CHECK(version > 0)) STRICT;" +
+          "CREATE TABLE plan_revisions(tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE, revision INTEGER NOT NULL, blob_id TEXT NOT NULL, title TEXT NOT NULL, created_at TEXT NOT NULL, approved_at TEXT, PRIMARY KEY(tab_id, revision), FOREIGN KEY(tab_id, blob_id) REFERENCES tab_blobs(tab_id, blob_id) ON DELETE CASCADE) STRICT;" +
+          "CREATE TABLE plan_images(tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE, blob_id TEXT NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL, PRIMARY KEY(tab_id, blob_id), FOREIGN KEY(tab_id, blob_id) REFERENCES tab_blobs(tab_id, blob_id) ON DELETE CASCADE) STRICT;" +
+          "CREATE TABLE plan_records(tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK(kind IN ('comment', 'round', 'response')), id TEXT NOT NULL, document TEXT NOT NULL CHECK(json_valid(document)), PRIMARY KEY(tab_id, id)) STRICT;" +
+          "CREATE TABLE plan_receipts(tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE, request_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(tab_id, request_id)) STRICT;" +
+          "CREATE TABLE plan_drafts(tab_id TEXT PRIMARY KEY REFERENCES live_tabs(id) ON DELETE CASCADE, document TEXT NOT NULL CHECK(json_valid(document))) STRICT;",
+      );
+      for (const bytes of [oldHtml, screenshot]) {
+        db.prepare("INSERT OR IGNORE INTO blobs(id, content) VALUES (?, ?)").run(
+          sha256(bytes),
+          bytes,
+        );
+        db.prepare("INSERT OR IGNORE INTO tab_blobs VALUES (?, ?, 0)").run(tab.id, sha256(bytes));
+      }
+      db.prepare("INSERT INTO plan_state VALUES (?, 3)").run(tab.id);
+      db.prepare("INSERT INTO plan_revisions VALUES (?, 1, ?, 'A plan', '2026-10-01', NULL)").run(
+        tab.id,
+        sha256(oldHtml),
+      );
+      db.prepare("INSERT INTO plan_revisions VALUES (?, 2, ?, 'A plan', '2026-10-02', NULL)").run(
+        tab.id,
+        current.blob,
+      );
+      db.prepare("INSERT INTO plan_images VALUES (?, ?, 1, 1)").run(tab.id, sha256(screenshot));
+      db.prepare("INSERT INTO plan_records VALUES (?, 'comment', 'comment-1', ?)").run(
+        tab.id,
+        JSON.stringify({ text: "Clarify the API" }),
+      );
+      db.prepare("INSERT INTO plan_receipts VALUES (?, 'request-1', 'payload')").run(tab.id);
+      db.prepare("INSERT INTO plan_drafts VALUES (?, ?)").run(tab.id, JSON.stringify({}));
+      db.exec("PRAGMA user_version = 14");
     } finally {
       db.close();
     }
-    await f.store.close();
-    reopened = await ArtifactStore.open(f.directory);
-    expect((await snapshot(reopened)).comments).toEqual([]);
-    await reopened.plans.command(deletion);
-    await reopened.plans.command(first);
-    expect((await snapshot(reopened)).comments).toEqual([]);
-    expect((await snapshot(reopened)).version).toBe(before.version + 2);
-  } finally {
-    await reopened?.close();
-    await f.close();
-  }
-});
 
-test("plan history survives publication, reclamation, restart and restore while preserving permanence", async () => {
-  const f = await fixture();
-  let reopened: ArtifactStore | undefined;
-  try {
-    const first = await publish(f.store, "<h1>First</h1>");
-    const tab = (await f.store.tabs())[0];
-    expect(tab.permanent).toBe(1);
-    await f.store.setTabPermanent(tab.id, false);
-    const second = await publish(f.store, "<h1>Second</h1>", first);
-    await f.store.plans.command({
-      action: "approve",
-      name,
-      requestId: randomUUID(),
-      expectedRevision: second.revision,
-    });
-    await f.store.reclaim(Date.now() + 60 * 60_000);
-    expect((await f.store.tabs())[0].permanent).toBe(0);
-    expect(await f.store.plans.content(name, first.revision)).toEqual(
-      Buffer.from("<h1>First</h1>"),
-    );
-    await f.store.close();
-    reopened = await ArtifactStore.open(f.directory);
-    expect((await snapshot(reopened)).revisions[1].approvedAt).toBeTruthy();
-    const restored = await reopened.plans.command({
-      action: "restore",
-      name,
-      requestId: randomUUID(),
-      revision: first.revision,
-      expectedRevision: second.revision,
-    });
-    expect(restored.type).toBe("receipt");
-    const current = await snapshot(reopened);
-    expect(current.artifact.revision).toBe(second.revision + 1);
-    expect(await reopened.plans.content(name, current.artifact.revision)).toEqual(
-      Buffer.from("<h1>First</h1>"),
-    );
-    expect(current.revisions.map((entry) => entry.revision)).toEqual([
-      first.revision,
-      second.revision,
-      second.revision + 1,
-    ]);
-  } finally {
-    await reopened?.close();
-    if (!reopened) await f.store.close();
-    await rm(f.directory, { recursive: true, force: true });
-  }
-});
+    store = await ArtifactStore.open(directory);
+    expect(await store.named("storage-plan")).toEqual(current);
+    expect(Buffer.from(await store.content(current.blob)).toString()).toBe("<h1>Current</h1>");
+    await store.reclaim(Date.now() + 60 * 60_000);
+    await store.close();
 
-test("plan comments reuse screenshot bytes, retries preserve IDs, and rounds require complete atomic responses", async () => {
-  const f = await fixture();
-  try {
-    const first = await publish(f.store, "<p>First</p>");
-    const request = comment(first.revision);
-    await Promise.all([f.store.plans.command(request), f.store.plans.command(request)]);
-    let state = await snapshot(f.store);
-    expect(state.comments).toHaveLength(1);
-    const firstId = state.comments[0].id;
-    await expect(
-      f.store.plans.command({ ...request, action: "comment", text: "Changed" }),
-    ).rejects.toThrow("different content");
-    await f.store.plans.command(comment(first.revision));
-    state = await snapshot(f.store);
-    expect(state.comments[0].id).toBe(firstId);
-    expect(state.comments[0].image.id).toBe(state.comments[1].image.id);
-    await f.store.plans.command({
-      action: "submit",
-      name,
-      requestId: randomUUID(),
-      commentIds: state.comments.map((entry) => entry.id),
-    });
-    state = await snapshot(f.store);
-    const round = state.rounds[0];
-    const response = {
-      action: "respond" as const,
-      name,
-      requestId: randomUUID(),
-      roundId: round.id,
-      expectedRevision: first.revision,
-      summary: "Addressed review",
-      replies: [{ commentId: firstId, text: "Added details" }],
-      html: "<p>Second</p>",
-    };
-    await expect(f.store.plans.command(response)).rejects.toThrow("every comment");
-    expect((await f.store.get(first.id)).revision).toBe(first.revision);
-    const complete = {
-      ...response,
-      replies: state.comments.map((entry) => ({ commentId: entry.id, text: "Addressed" })),
-    };
-    await f.store.plans.command(complete);
-    await f.store.plans.command(complete);
-    state = await snapshot(f.store);
-    expect(state.rounds[0].status).toBe("responded");
-    expect(state.responses).toHaveLength(1);
-    expect(state.artifact.revision).toBe(first.revision + 1);
-    expect(state.comments.every((entry) => !entry.resolved)).toBe(true);
-    expect(state.responses[0].seen).toBe(false);
-    await f.store.plans.command({
-      action: "resolve",
-      name,
-      requestId: randomUUID(),
-      commentId: firstId,
-      resolved: true,
-    });
-    expect((await snapshot(f.store)).responses[0].seen).toBe(false);
-    await f.store.plans.command({
-      action: "seen",
-      name,
-      requestId: randomUUID(),
-      responseId: state.responses[0].id,
-      seen: true,
-    });
-    await f.store.reclaim(Date.now() + 60 * 60_000);
-    expect(await f.store.reclaim(Date.now() + 60 * 60_000)).toBe(0);
-    expect(await f.store.plans.image(name, state.comments[0].image.id)).toEqual(
-      Buffer.from(png, "base64"),
-    );
-    const db = new DatabaseSync(f.store.filename, { readOnly: true });
+    const upgraded = new DatabaseSync(join(directory, "scope.db"));
     try {
-      expect(db.prepare("SELECT count(*) AS count FROM plan_images").get()?.count).toBe(1);
+      expect(upgraded.prepare("PRAGMA user_version").get()?.user_version).toBe(15);
+      const tables = upgraded
+        .prepare("SELECT name FROM sqlite_schema WHERE type = 'table'")
+        .all()
+        .map((row) => row.name);
+      for (const table of planTables) expect(tables).not.toContain(table);
+      const blobs = upgraded
+        .prepare("SELECT id FROM blobs")
+        .all()
+        .map((row) => row.id);
+      expect(blobs).toEqual([current.blob]);
     } finally {
-      db.close();
+      upgraded.close();
     }
+
+    store = await ArtifactStore.open(directory);
+    expect(Buffer.from(await store.content(current.blob)).toString()).toBe("<h1>Current</h1>");
+    await store.close();
   } finally {
-    await f.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });
 
-test("a reply without HTML may use a retained older revision and screenshots cannot belong to another plan", async () => {
-  const f = await fixture();
+test("republishing a plan keeps only its current HTML bytes", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "scope-plan-storage-"));
+  const store = await ArtifactStore.open(directory);
   try {
-    const first = await publish(f.store, "<p>First</p>");
-    await f.store.plans.command(comment(first.revision));
-    let state = await snapshot(f.store);
-    await f.store.plans.command({
-      action: "submit",
-      name,
-      requestId: randomUUID(),
-      commentIds: [state.comments[0].id],
-    });
-    const second = await publish(f.store, "<p>Second</p>", first);
-    state = await snapshot(f.store);
-    await f.store.plans.command({
-      action: "respond",
-      name,
-      requestId: randomUUID(),
-      roundId: state.rounds[0].id,
-      expectedRevision: first.revision,
-      summary: "Explanation",
-      replies: [
-        { commentId: state.comments[0].id, text: "The current content already answers this" },
-      ],
-    });
-    expect((await snapshot(f.store)).artifact.revision).toBe(second.revision);
-    const tabId = await f.store.reserve("another-plan", 0);
-    const blob = await f.store.upload(
-      tabId,
-      (async function* () {
-        yield Buffer.from("<p>Other</p>");
-      })(),
-    );
-    await f.store.put("another-plan", {
-      tabId,
-      blob,
-      expectedRevision: 0,
-      name: "other-plan",
-      title: "Other",
-      kind: "plan",
-      mediaType: "text/html",
-      fileName: "other.html",
-    });
-    await expect(f.store.plans.image("other-plan", state.comments[0].image.id)).rejects.toThrow(
-      "not found",
-    );
+    const first = await publish(store, "<h1>First</h1>");
+    const current = await publish(store, "<h1>Second</h1>", first.revision);
+    expect(current).toMatchObject({ id: first.id, kind: "plan", name: "storage-plan" });
+    await store.reclaim(Date.now() + 60 * 60_000);
+    expect(await store.reclaim(Date.now() + 60 * 60_000)).toBe(0);
+    await expect(store.content(sha256(Buffer.from("<h1>First</h1>")))).rejects.toThrow();
+    expect(Buffer.from(await store.content(current.blob)).toString()).toBe("<h1>Second</h1>");
   } finally {
-    await f.close();
-  }
-});
-
-test("Trashcan retains plan history, screenshots, drafts and identities, then permanent deletion removes all bytes", async () => {
-  const f = await fixture();
-  try {
-    const artifact = await publish(f.store, "<p>Plan</p>");
-    const tab = (await f.store.tabs())[0];
-    await f.store.openTab(
-      {
-        id: tab.id,
-        groupId: randomUUID(),
-        type: "plan",
-        title: "Plan",
-        state: { version: 1, data: { artifactId: artifact.id } },
-      },
-      artifact.revision,
-    );
-    await f.store.plans.command(comment(artifact.revision));
-    const before = await snapshot(f.store);
-    const draft = {
-      revision: artifact.revision,
-      image: png,
-      width: 1,
-      height: 1,
-      text: "Unsent",
-      page: "overview",
-      annotations: [],
-      requestId: randomUUID(),
-    };
-    await f.store.plans.saveDraft(tab.id, draft);
-    await f.store.trashTab(tab.id, 123);
-    await expect(f.store.plans.command(comment(artifact.revision))).rejects.toThrow("Trashcan");
-    await f.store.reclaim(Date.now() + 60 * 60_000);
-    expect(await snapshot(f.store)).toEqual(before);
-    expect(await f.store.plans.draft(tab.id)).toEqual(draft);
-    expect((await f.store.restoreTab(tab.id)).id).toBe(tab.id);
-    expect((await snapshot(f.store)).comments[0].id).toBe(before.comments[0].id);
-    await f.store.trashTab(tab.id, 456);
-    await f.store.emptyTrash([{ id: tab.id, trashedAt: 456 }]);
-    const db = new DatabaseSync(f.store.filename, { readOnly: true });
-    try {
-      for (const table of [
-        "blobs",
-        "plan_state",
-        "plan_revisions",
-        "plan_images",
-        "plan_records",
-        "plan_receipts",
-        "plan_drafts",
-      ])
-        expect(db.prepare(`SELECT count(*) AS count FROM ${table}`).get()?.count).toBe(0);
-    } finally {
-      db.close();
-    }
-  } finally {
-    await f.close();
+    await store.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });

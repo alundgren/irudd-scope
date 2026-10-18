@@ -9,7 +9,6 @@
     "./remote": "./src/remote.ts",
     "./maintenance": "./src/maintenance.ts",
     "./voice": "./src/voice.ts",
-    "./plan": "./src/plan.ts",
     "./pull-requests": "./src/pull-requests.ts",
     "./transfer": "./src/transfer.ts",
     "./retro": "./src/retro.ts",

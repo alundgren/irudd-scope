@@ -194,7 +194,6 @@ test("HTML presentation preserves page interactions and follows accessible frame
     await plan.getByRole("button", { name: "Count 0" }).click();
     await page.keyboard.press("ControlOrMeta+Shift+f");
     await mode.selectOption("present");
-    expect(await page.getByRole("button", { name: "Comment", exact: true }).count()).toBe(0);
     await plan.getByRole("button", { name: "Count 1" }).click();
     await plan.getByRole("button", { name: "Count 2" }).waitFor();
     const evidence = "/tmp/scope-html-presentation-evidence";
@@ -203,7 +202,6 @@ test("HTML presentation preserves page interactions and follows accessible frame
     await page.keyboard.press("Escape");
     await expect.poll(() => mode.inputValue()).toBe("view");
     await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: "Comment", exact: true }).waitFor();
     await plan.getByRole("button", { name: "Count 2" }).waitFor();
   } finally {
     await application?.close();
