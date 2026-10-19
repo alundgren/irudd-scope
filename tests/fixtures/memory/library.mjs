@@ -4,8 +4,8 @@ import { join } from "node:path";
 
 const hash = (raw) => createHash("sha256").update(raw).digest("hex");
 const output = (value) => process.stdout.write(JSON.stringify(value));
-const failure = (message) => {
-  process.stderr.write(JSON.stringify({ version: 1, error: { code: "CONFLICT", message } }));
+const failure = (message, code = "CONFLICT") => {
+  process.stderr.write(JSON.stringify({ version: 1, error: { code, message } }));
   process.exit(2);
 };
 export function librarianFixture(args, root) {
@@ -131,6 +131,9 @@ export function librarianFixture(args, root) {
       ? hash(readFileSync(join(root, change.path), "utf8"))
       : null;
     if (current !== (change.after?.hash ?? null)) failure("The proposal changed outside Scope.");
+    // Synthetic stand-in for irudd-okf rechecking a removal when it is reviewed.
+    if (request.actor.type === "agent" && change.path.startsWith("rechecked-"))
+      failure("This change requires a human decision.", "HUMAN_REVIEW_REQUIRED");
     if (JSON.stringify(change.sources) !== JSON.stringify(request.sources))
       failure("The sources changed.");
     for (const source of change.sources)

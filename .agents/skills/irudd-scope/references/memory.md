@@ -17,17 +17,30 @@ choices. Preserve existing content and follow the CLI's migration recovery rules
 ## Dreaming
 
 Begin only after the person asks their existing coding agent. Read the current
-UI revision, then send action `start` with the exact user request, existing
-session ID and only automatic categories the person explicitly allowed. Save
-the returned run ID and temporary capability for this connection.
+UI revision, then send action `start` with the exact user request and existing
+session ID. Omit `automaticPermissions` to allow the routine categories listed
+in the guide. Pass a narrower list only when the person names one, or `[]` when
+they want to decide every change. Save the returned run ID and temporary
+capability for this connection.
 
-Read and reason in the existing conversation. Submit a `propose` command or
-`present` an existing immutable change with human or automatic disposition,
-reason and evidence. Automatic disposition requires a matching permission from
-start. irudd-okf can require human review regardless of the requested disposition.
-Scope displays one human decision at a time. Its renderer records acceptance or
-rejection against the displayed proposal and source revisions. The agent endpoint
-cannot record a human decision or pretend an agent decision was human.
+Read and reason in the existing conversation. Install and follow the
+okf-librarian workflow (`irudd-okf skill install DIRECTORY --name okf-librarian`).
+Pick a bounded batch. Do routine work yourself: consolidate repeated episodes,
+merge duplicates, add evidence, promote stage, archive stale memories and repair
+links. Submit each as a `propose` command with disposition `automatic`, its
+routine category as `permission`, a reason and evidence. Present judgment calls
+with disposition `human`. Category names are labels; irudd-okf decides which
+changes need a human, and Scope presents those for a human decision regardless
+of the requested disposition. Scope displays one human decision at a time. Its
+renderer records acceptance or rejection against the displayed proposal and
+source revisions. The agent endpoint cannot record a human decision or pretend
+an agent decision was human. When the batch is done, tell the person what you
+completed, what waits for them and what remains for the next run.
+
+Proposals left pending by an older run keep their recorded review requirement.
+Propose the same bytes again to get a fresh assessment. An interrupted run keeps
+its permissions; pass `automaticPermissions` on `resume` only when the person
+changes them.
 
 Use a new revision to amend a pending proposal. Earlier revisions remain
 inspectable and become superseded. Undo a completed change as a fresh proposal;

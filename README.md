@@ -158,8 +158,10 @@ irudd-scope librarian read
 irudd-scope librarian apply request.json
 ```
 
-Dreaming starts and finishes through your existing agent conversation. Scope
-records exact human decisions and permitted automatic changes, with before and
-after text, actor, reason and evidence. Interrupted queues persist and require
+Dreaming starts and finishes through your existing agent conversation. The
+agent consolidates, deduplicates, promotes and archives routine memories itself
+and asks you about procedure rewrites, applicability changes and removals that
+would lose evidence. Scope records exact human decisions and automatic changes,
+with before and after text, actor, reason and evidence. Interrupted queues persist and require
 an explicit resume. Completed changes remain available for inspection. The
 Librarian tab retains old wiki drafts as copyable recovery text.

@@ -688,7 +688,12 @@ sends a validated command to authenticated `POST /v1/librarian`.
 
 Local setup selects an absolute bundle location and can initialize only an empty
 folder. Start and explicit resume bind an existing agent session to a run and
-return a temporary capability. Proposal, presentation, selection, undo and finish
+return a temporary capability. Start without `automaticPermissions` allows the
+routine categories in the guide's `routine` list. A list narrows them, and `[]`
+sends every proposal to the person. Resume keeps the run's list unless it
+supplies a new one. Category names are labels; irudd-okf decides which changes
+need a human, and Scope queues those for a human decision, including when
+irudd-okf refuses the agent review. Proposal, presentation, selection, undo and finish
 commands require that connection plus a stable request ID and expected UI
 revision. The endpoint has no human decision action. Scope's validated renderer
 IPC records human decisions against the displayed revision and exact source

@@ -246,7 +246,10 @@ presentation. `apps/desktop/src/librarian.ts` owns dreaming runs, session
 capabilities, queues, human decision recording and selection. `desktop.db` stores
 the run document and idempotency receipts. The renderer's named IPC is the only
 Scope path for human acceptance or rejection. The authenticated agent endpoint
-can present, propose and select with an active run capability. Its read returns
+can present, propose and select with an active run capability. Runs allow a
+fixed list of routine categories unless the agent passes the person's narrower
+list. irudd-okf's human-required flag still decides which changes reach the
+person. Its read returns
 the same projected page and selected raw content that the UI displays.
 Capabilities remain in process memory and expire on restart. Resume requires an
 explicit user request and a fresh session attachment. Scope never calls a model,

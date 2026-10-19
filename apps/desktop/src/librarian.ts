@@ -7,6 +7,7 @@ import { decode, ScopeError } from "@irudd-scope/protocol";
 import {
   LibrarianCommand,
   LibrarianHumanCommand,
+  LibrarianRoutineWork,
   MemoryChange,
   type LibrarianReply,
   type LibrarianView,
@@ -26,6 +27,15 @@ function cli<S extends Schema.ConstraintDecoder<unknown>>(schema: S, input: unkn
   return Schema.decodeUnknownSync(schema)(input);
 }
 const WEEK = 7 * 24 * 60 * 60_000;
+/** Keeps the irudd-okf error code so a caller can react to one specific refusal. */
+class OkfFailure extends ScopeError {
+  constructor(
+    message: string,
+    readonly code?: string,
+  ) {
+    super(409, message);
+  }
+}
 const Inspection = Schema.Struct({
   version: Schema.Literal(1),
   bundle: Schema.String,
@@ -194,10 +204,13 @@ export class LibrarianService {
       if (result.code !== 0) {
         let message =
           "irudd-okf could not complete this operation. Retry after checking your bundle.";
+        let code: string | undefined;
         try {
-          message = JSON.parse(result.stderr || result.stdout).error.message;
+          const { error } = JSON.parse(result.stderr || result.stdout);
+          message = error.message;
+          if (typeof error.code === "string") code = error.code;
         } catch {}
-        throw new ScopeError(409, String(message).slice(0, 2048));
+        throw new OkfFailure(String(message).slice(0, 2048), code);
       }
       return JSON.parse(result.stdout) as unknown;
     } finally {
@@ -289,19 +302,26 @@ export class LibrarianService {
           403,
           "This automatic change was not permitted when dreaming started. Present it for a human decision.",
         );
-      if (proposal.change.status === "pending")
-        proposal.change = mutable(
-          cli(
-            MemoryChange,
-            await this.okf(["change", "review", "personal", proposal.change.id], {
-              expectedRevisionHash: proposal.change.revisionHash,
-              decision: "accept",
-              actor: { type: "agent", id: run.sessionId },
-              reason: `${proposal.permission}: ${proposal.change.reason}`,
-              sources: proposal.change.sources,
-            }),
-          ),
-        );
+      if (proposal.change.status === "pending") {
+        try {
+          proposal.change = mutable(
+            cli(
+              MemoryChange,
+              await this.okf(["change", "review", "personal", proposal.change.id], {
+                expectedRevisionHash: proposal.change.revisionHash,
+                decision: "accept",
+                actor: { type: "agent", id: run.sessionId },
+                reason: `${proposal.permission}: ${proposal.change.reason}`,
+                sources: proposal.change.sources,
+              }),
+            ),
+          );
+        } catch (error) {
+          // irudd-okf rechecks some removals at review time; the proposal already exists, so queue it for the person.
+          if (!(error instanceof OkfFailure && error.code === "HUMAN_REVIEW_REQUIRED")) throw error;
+          proposal.disposition = "human";
+        }
+      }
     }
     const existing = run.proposals.findIndex((p) => p.change.id === proposal.change.id);
     if (existing >= 0) {
@@ -428,7 +448,7 @@ export class LibrarianService {
           startedAt: this.now().toISOString(),
           status: "active",
           bundle: await this.inspection(),
-          automaticPermissions: [...new Set(command.automaticPermissions)],
+          automaticPermissions: [...new Set(command.automaticPermissions ?? LibrarianRoutineWork)],
           proposals: [],
         };
         state.view = "decision";
@@ -445,6 +465,8 @@ export class LibrarianService {
         await this.assertBundle(state.run);
         state.run.status = "active";
         state.run.sessionId = command.sessionId;
+        if (command.automaticPermissions)
+          state.run.automaticPermissions = [...new Set(command.automaticPermissions)];
         capability = randomBytes(32).toString("base64url");
         this.capability = { runId: state.run.id, sessionId: command.sessionId, token: capability };
       } else {
@@ -476,7 +498,7 @@ export class LibrarianService {
           )
             throw new ScopeError(
               403,
-              "Present this proposal for a human decision, or ask the user to permit this category in a new run.",
+              "Present this proposal for a human decision, or ask the user to permit this category when resuming.",
             );
           let change: MemoryChange;
           if (command.action === "present")

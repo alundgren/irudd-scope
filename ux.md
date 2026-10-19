@@ -476,8 +476,9 @@ existing coding session.
 
 Dreaming starts when the person asks their existing agent. Scope supplies no
 chat, model call, agent launch, or automatic finish. The agent attaches its
-session to a run, records which routine categories the person permitted, and
-presents proposals. Each human decision fills the reading area with its reason,
+session to a run, does routine curation itself, and presents only the changes
+that need the person. Routine categories are allowed unless the person narrows
+them, so a typical run asks about a few changes rather than every file. Each human decision fills the reading area with its reason,
 exact before and after text, and collapsed evidence. Search, library lists and
 unrelated controls are absent. Accept proposal and Reject proposal record the
 exact displayed revision and source revisions. A changed proposal or evidence
