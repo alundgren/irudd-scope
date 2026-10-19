@@ -38,7 +38,10 @@ an agent decision was human. When the batch is done, tell the person what you
 completed, what waits for them and what remains for the next run.
 
 Proposals left pending by an older run keep their recorded review requirement.
-Propose the same bytes again to get a fresh assessment. An interrupted run keeps
+Propose the same bytes again to get a fresh assessment. Outside edits,
+migrations and the person's own proposals stay with them: irudd-okf refuses
+agent proposals for those files, so `present` the pending change with
+disposition `human`. An interrupted run keeps
 its permissions; pass `automaticPermissions` on `resume` only when the person
 changes them.
 
