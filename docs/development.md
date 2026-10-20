@@ -256,6 +256,52 @@ without concurrent builds or tests. Reports contain raw samples and measurement
 definitions. Process memory sums RSS and can count shared pages more than once.
 The benchmark is separate from `ready` and needs no provider key.
 
+The comprehensive Linux protocol keeps one visible Electron session running while
+it measures individual features, mixed usage, equivalent repeat workloads,
+cleanup and restart. Build first, then select a new absolute run directory:
+
+```sh
+vp exec node tools/performance.ts --smoke --run-dir /absolute/path/smoke
+vp exec node tools/performance.ts --duration 8h --run-dir /absolute/path/overnight --okf-binary /absolute/path/irudd-okf
+```
+
+`--smoke` defaults to four minutes. `--duration` accepts seconds, minutes or
+hours, for example `30s`, `4m`, or `8h`. Fixture setup precedes the measurement
+deadline. Smoke reserves at least 75 seconds for the final comparison and
+restart scenarios. `--inject-failure` adds an intentional smoke failure to check that
+later scenarios still run. `--okf-binary` opts into native local Librarian
+measurements with synthetic notes and isolated configuration. Without a compatible binary,
+Librarian uses the existing synthetic OKF fixture and records native timing as
+unmeasured. Memory sync always uses
+synthetic external services.
+
+The controller owns a monotonic deadline, worker heartbeat watchdog, process
+group cancellation and bounded recovery. It stops for disk or memory pressure
+and bounds content, logs and open tabs. Run it alone, without concurrent builds
+or tests. SIGINT and SIGTERM preserve partial reports and stop the worker's
+children. Final cleanup removes routine isolated state and retains reports.
+The selected run directory must not already exist. Every run must start its
+measurement clock, complete the requested duration and record all required
+features, phases and checkpoints to report success. Interrupted and incomplete
+runs preserve their reasons. Cleanup verifies that owned process groups stopped
+before removing profiles; failed termination retains those profiles.
+
+`events.jsonl` records operations and coverage, `resources.jsonl` records
+centralized Electron process CPU/RSS, database sizes and renderer frame/timer
+samples, and `external.jsonl` records command intervals with workload identity.
+`summary.json` is refreshed during the run and `run-state.json` records its
+status. Logs and reports stay below the selected directory. Percentiles use
+nearest rank and include actual sample counts. CLI, API, visible interaction
+and integration measurements remain separate. The known-delay smoke scenario
+checks that an injected GitHub command delay appears in external timing data.
+
+Read coverage reasons before interpreting a report. Linux uses software
+rendering on isolated Xvfb displays. Synthetic providers, GitHub and transport
+establish integration behavior; they do not measure live services. Native
+platform dialogs, macOS/Windows behavior and Tailcat relay latency remain
+unmeasured. External durations can overlap application work. Remaining elapsed
+time is unattributed, and rising RSS alone does not establish a memory leak.
+
 ## Personal memory viewer
 
 The Personal memory tab calls an installed irudd-okf through the existing
