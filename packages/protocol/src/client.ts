@@ -13,7 +13,8 @@ import {
   MAX_RETRO_REQUEST_BYTES,
   MAX_RETRO_REPLY_BYTES,
 } from "./retro.ts";
-import { LibrarianCommand, LibrarianReply } from "./librarian.ts";
+import { Schema } from "effect";
+import { LibrarianCommand, LibrarianReplyEnvelope, type LibrarianReply } from "./librarian.ts";
 import {
   PullRequestsCommand,
   PullRequestsReply,
@@ -204,17 +205,17 @@ export class ScopeClient {
     const body = JSON.stringify(decode(LibrarianCommand, input));
     if (new TextEncoder().encode(body).byteLength > 2 * 1024 * 1024)
       throw new Error("Librarian command exceeds 2 MiB.");
-    return decode(
-      LibrarianReply,
-      await readRemoteJson(
-        await this.request("/v1/librarian", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body,
-        }),
-        16 * 1024 * 1024,
-      ),
+    const reply = await readRemoteJson(
+      await this.request("/v1/librarian", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      }),
+      16 * 1024 * 1024,
     );
+    // A newer desktop can add views and fields; strict decoding would make this CLI unusable.
+    Schema.decodeUnknownSync(LibrarianReplyEnvelope)(reply);
+    return reply as LibrarianReply;
   }
 
   async pullRequests(input: PullRequestsCommand): Promise<PullRequestsReply> {

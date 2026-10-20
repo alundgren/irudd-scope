@@ -9,6 +9,7 @@ import {
   LibrarianHumanCommand,
   LibrarianRoutineWork,
   MemoryChange,
+  type LibrarianFilters,
   type LibrarianReply,
   type LibrarianView,
   type LibrarianRun,
@@ -17,7 +18,17 @@ import {
 import { MemoryCommands } from "@irudd-scope/memory-sync/commands";
 import type { DesktopStore } from "./desktop-store.ts";
 import type { MemoryService } from "./memory.ts";
-import { MemoryConcept, MemorySearch } from "./plugins/memory/contract.ts";
+import {
+  MemoryConcept,
+  MemoryList,
+  MemorySearch,
+  memoryFields,
+  type MemoryChanges,
+  type MemoryChangeSummary,
+  type MemoryFacets,
+  type MemoryListPage,
+  type MemorySummary,
+} from "./plugins/memory/contract.ts";
 
 type Mutable<T> = T extends object ? { -readonly [K in keyof T]: Mutable<T[K]> } : T;
 type Document = Mutable<LibrarianView>;
@@ -64,15 +75,72 @@ const Browse = Schema.Struct({
   total: Schema.optionalKey(Schema.Number),
   truncated: Schema.Boolean,
 });
-type Selection = {
-  view: LibrarianView["view"];
-  historyRunId?: string;
-  path?: string;
-  changeId?: string;
-  query?: string;
-  directory?: string;
-  offset?: number;
-};
+const ChangeList = Schema.Struct({
+  version: Schema.Literal(1),
+  changes: Schema.Array(MemoryChange),
+  total: Schema.Number,
+});
+type Selection = Omit<
+  Extract<LibrarianHumanCommand, { action: "navigate" }>,
+  "action" | "requestId" | "expectedUiRevision"
+>;
+const OUTPUT_LIMIT = "Memory command output exceeds";
+/** Bounds how much recorded history one path scan reads; the UI reports when it stops early. */
+const SCAN_LIMIT = 1000;
+const SEARCH_LIMIT = 300;
+
+function matches(concept: MemorySummary, filters: LibrarianFilters) {
+  const memory = memoryFields(concept.memory);
+  return (
+    (!filters.tag || concept.tags.includes(filters.tag)) &&
+    (!filters.stage || (memory.stage ?? "none") === filters.stage) &&
+    (!filters.kind || memory.kind === filters.kind) &&
+    (!filters.applicability || memory.applicability?.type === filters.applicability)
+  );
+}
+const filtered = (filters: LibrarianFilters | undefined) =>
+  !!filters && Object.values(filters).some((value) => value !== undefined);
+function counted(values: string[]) {
+  const counts = new Map<string, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return [...counts]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+}
+function facets(concepts: readonly MemorySummary[]): MemoryFacets {
+  const fields = concepts.map((concept) => memoryFields(concept.memory));
+  const tags = counted(concepts.flatMap((concept) => [...new Set(concept.tags)]));
+  return {
+    tags: tags.slice(0, 50),
+    tagTotal: tags.length,
+    kinds: counted(fields.flatMap((field) => (field.kind ? [field.kind] : []))),
+    stages: counted(fields.map((field) => field.stage ?? "none")),
+    applicability: counted(fields.flatMap((field) => field.applicability?.type ?? [])),
+  };
+}
+const byTitle = (a: MemorySummary, b: MemorySummary) =>
+  a.title.localeCompare(b.title) || a.path.localeCompare(b.path);
+export function changeSummary(change: MemoryChange): MemoryChangeSummary {
+  const before = memoryFields(change.display?.beforeMemory).stage;
+  const after = memoryFields(change.display?.afterMemory).stage;
+  const reviews = change.reviews ?? (change.review ? [change.review] : []);
+  return {
+    id: change.id,
+    path: change.path,
+    ...(change.display?.title ? { title: change.display.title.slice(0, 4096) } : {}),
+    action: change.action,
+    status: change.status,
+    createdAt: change.createdAt,
+    actor: change.actor,
+    decidedBy: reviews.map((review) => ({
+      actor: review.actor,
+      decision: review.decision,
+      at: review.at,
+    })),
+    reason: change.reason.length > 280 ? `${change.reason.slice(0, 279)}…` : change.reason,
+    ...(before && after && before !== after ? { stageChange: { from: before, to: after } } : {}),
+  };
+}
 
 /** Stores presentation and human decisions. File semantics belong to irudd-okf. */
 export class LibrarianService {
@@ -202,6 +270,11 @@ export class LibrarianService {
       }
       const result = await this.memory.runOkf(identity, args);
       if (result.code !== 0) {
+        if (result.stderr.startsWith(OUTPUT_LIMIT))
+          throw new OkfFailure(
+            "This memory read is larger than Scope can display. The library is unchanged.",
+            "OUTPUT_LIMIT",
+          );
         let message =
           "irudd-okf could not complete this operation. Retry after checking your bundle.";
         let code: string | undefined;
@@ -217,9 +290,132 @@ export class LibrarianService {
       if (directory) await rm(directory, { recursive: true, force: true });
     }
   }
+  private async list() {
+    return cli(MemoryList, await this.okf(["list", "--scope", "personal", "--all-applicability"]))
+      .concepts;
+  }
+  private async search(query: string, offset: number) {
+    // Leading whitespace prevents a query beginning with a flag from becoming CLI input.
+    return cli(
+      MemorySearch,
+      await this.okf([
+        "search",
+        ` ${query}`,
+        "--scope",
+        "personal",
+        "--all-applicability",
+        "--limit",
+        "30",
+        "--offset",
+        String(offset),
+      ]),
+    );
+  }
+  /** The result page for the stored query, folder, filters and offset. */
+  private async page(state: Document, concepts?: readonly MemorySummary[]) {
+    const filters = state.browse?.filters;
+    const query = state.query.trim();
+    if (!filtered(filters)) {
+      if (query) return this.search(query, state.offset);
+      return cli(
+        Browse,
+        await this.okf([
+          "browse",
+          "personal",
+          "--all-applicability",
+          "--limit",
+          "20",
+          "--offset",
+          String(state.offset),
+          ...(state.directory ? ["--path", state.directory] : []),
+        ]),
+      );
+    }
+    const allowed = new Map(
+      (concepts ?? (await this.list()))
+        .filter((concept) => matches(concept, filters!))
+        .map((concept) => [concept.path, concept]),
+    );
+    let ordered: (MemorySummary & { excerpt?: string })[] = [...allowed.values()].sort(byTitle);
+    let searchLimited: MemoryListPage["searchLimited"];
+    if (query) {
+      // Search has no facet options, so its hits are intersected with the filtered library.
+      const hits = new Map<string, string>();
+      let total = 0;
+      for (let offset = 0; offset < SEARCH_LIMIT; offset += 30) {
+        const found = await this.search(query, offset);
+        total = found.total;
+        for (const hit of found.results) if (!hits.has(hit.path)) hits.set(hit.path, hit.excerpt);
+        if (!found.truncated) break;
+      }
+      ordered = [...hits].flatMap(([path, excerpt]) => {
+        const concept = allowed.get(path);
+        return concept ? [{ ...concept, excerpt }] : [];
+      });
+      if (total > hits.size) searchLimited = { scanned: hits.size, total };
+    }
+    return {
+      version: 1,
+      filtered: true,
+      query,
+      results: ordered.slice(state.offset, state.offset + 30),
+      total: ordered.length,
+      offset: state.offset,
+      limit: 30,
+      truncated: state.offset + 30 < ordered.length,
+      ...(searchLimited ? { searchLimited } : {}),
+    } satisfies MemoryListPage;
+  }
+  private async changes(offset: number, limit: number) {
+    return cli(
+      ChangeList,
+      await this.okf([
+        "change",
+        "list",
+        "personal",
+        "--limit",
+        String(limit),
+        "--offset",
+        String(offset),
+      ]),
+    );
+  }
+  /**
+   * Reads recorded changes newest first until enough match. irudd-okf lists oldest first, so pages
+   * are taken from the end; a change recorded mid-scan can shift a page, which ids deduplicate.
+   */
+  private async scan(match: (change: MemoryChange) => boolean, wanted: number) {
+    const total = (await this.changes(0, 1)).total;
+    const items: MemoryChange[] = [];
+    const seen = new Set<string>();
+    let scanned = 0;
+    let size = 50;
+    while (scanned < total && scanned < SCAN_LIMIT && items.length < wanted) {
+      const limit = Math.min(size, total - scanned, SCAN_LIMIT - scanned);
+      let page;
+      try {
+        page = await this.changes(total - scanned - limit, limit);
+      } catch (error) {
+        // Recorded changes carry full file bytes, so a few large notes can exceed the output cap.
+        if (error instanceof OkfFailure && error.code === "OUTPUT_LIMIT" && size > 5) {
+          size = Math.max(5, Math.floor(size / 2));
+          continue;
+        }
+        throw error;
+      }
+      for (const change of [...page.changes].reverse()) {
+        if (seen.has(change.id)) continue;
+        seen.add(change.id);
+        if (items.length < wanted && match(change)) items.push(change);
+      }
+      scanned += limit;
+    }
+    return { items, scanned, total, partial: items.length < wanted && scanned < total };
+  }
   private async navigate(state: Document, command: Selection) {
-    if (command.view === "browse" || command.view === "memory")
+    if (["browse", "memory", "connections", "stages", "activity"].includes(command.view))
       state.bundle = await this.inspection();
+    const prior = state.view === "browse" ? state.displayed : undefined;
     state.view = command.view;
     delete state.selectedPath;
     delete state.selectedChangeId;
@@ -228,48 +424,62 @@ export class LibrarianService {
     state.evidenceOpen = false;
     if (command.historyRunId) state.historyRunId = command.historyRunId;
     else delete state.historyRunId;
+    if (command.returnChangeId) state.returnChangeId = command.returnChangeId;
+    else delete state.returnChangeId;
+    const browse = (state.browse ??= { filters: {}, trail: [] });
+    if (command.filters) browse.filters = mutable(command.filters);
+    if (command.section === null) delete browse.section;
+    else if (command.section) browse.section = command.section;
+    if (command.focusPath) state.focusPath = command.focusPath;
+    if (command.connections) state.connections = mutable(command.connections);
+    if (command.stages) state.stages = mutable(command.stages);
+    if (command.activity) state.activity = mutable(command.activity);
     if (command.view === "memory") {
       if (!command.path) throw new ScopeError(400, "Choose a memory.");
+      browse.trail = mutable(command.trail ?? []);
       state.selectedPath = command.path;
-      state.displayed = cli(
+      state.focusPath = command.path;
+      const concept = cli(
         MemoryConcept,
         await this.okf(["read", "personal", command.path, "--all-applicability"]),
       );
+      const path = command.path;
+      const changes =
+        browse.section === "changes" ? await this.scan((c) => c.path === path, 20) : undefined;
+      state.displayed = {
+        ...concept,
+        ...(changes
+          ? {
+              changes: {
+                items: changes.items.map(changeSummary),
+                scanned: changes.scanned,
+                total: changes.total,
+                partial: changes.partial,
+              } satisfies MemoryChanges,
+            }
+          : {}),
+      };
+      if (command.offset !== undefined) {
+        state.offset = browse.offset = command.offset;
+        state.results = await this.page(state);
+      } else if (prior) state.results = prior;
     } else if (command.view === "browse") {
       state.query = command.query ?? "";
       state.directory = command.directory ?? "";
-      state.offset = command.offset ?? 0;
-      if (state.query.trim()) {
-        // Leading whitespace prevents a query beginning with a flag from becoming CLI input.
-        state.displayed = cli(
-          MemorySearch,
-          await this.okf([
-            "search",
-            ` ${state.query.trim()}`,
-            "--scope",
-            "personal",
-            "--all-applicability",
-            "--limit",
-            "30",
-            "--offset",
-            String(state.offset),
-          ]),
-        );
-      } else {
-        state.displayed = cli(
-          Browse,
-          await this.okf([
-            "browse",
-            "personal",
-            "--all-applicability",
-            "--limit",
-            "20",
-            "--offset",
-            String(state.offset),
-            ...(state.directory ? ["--path", state.directory] : []),
-          ]),
-        );
+      state.offset = browse.offset = command.offset ?? 0;
+      let concepts: readonly MemorySummary[] | undefined;
+      try {
+        concepts = await this.list();
+        state.facets = facets(concepts);
+      } catch (error) {
+        // Filters need the library list; plain folder browsing and search still work without it.
+        if (filtered(browse.filters)) throw error;
+        state.facets = {
+          ...facets([]),
+          unavailable: "Filters are unavailable because the library list could not be read.",
+        } satisfies MemoryFacets;
       }
+      state.displayed = await this.page(state, concepts);
     } else if (command.view === "decision") {
       const proposal =
         state.run?.proposals.find((p) => p.change.id === command.changeId) ??
@@ -472,7 +682,12 @@ export class LibrarianService {
       } else {
         const run = this.connection(command, state);
         await this.assertBundle(run);
-        if (command.action === "select") await this.navigate(state, command);
+        if (command.action === "select")
+          // The agent asked for plain results; the person's filters would hide some of them.
+          await this.navigate(
+            state,
+            command.view === "browse" ? { ...command, filters: {} } : command,
+          );
         else if (command.action === "interrupt") {
           if (!command.userRequest.trim())
             throw new ScopeError(400, "Include the user's explicit request to pause dreaming.");

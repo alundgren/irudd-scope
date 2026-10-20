@@ -1,55 +1,25 @@
-import { useContext, useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import { Search } from "lucide-react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { decode } from "@irudd-scope/protocol";
 import type { LibrarianHumanCommand, LibrarianProposal } from "@irudd-scope/protocol/librarian";
 import type { TabPlugin, TabProps } from "../api.ts";
+import type { TabState } from "../../workspace/contract.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
-import { Input } from "../../renderer/components/ui/input.tsx";
 import { SettingsContext } from "../../renderer/settings-context.tsx";
 import { useLibrarian } from "../../renderer/librarian-state.ts";
-import { MemoryTabState, type MemoryConcept, type MemorySearch } from "./contract.ts";
-import { MemoryWiki } from "./wiki.tsx";
+import { MemoryTabState, memoryFields } from "./contract.ts";
+import { applicability, memoryKind, memoryStage } from "./format.ts";
+import { BrowseView } from "./browse.tsx";
+import { current, type Navigation } from "./navigation.ts";
+import { Markdown } from "./wiki.tsx";
 import "./style.css";
 
-type Navigation = Omit<
-  Extract<LibrarianHumanCommand, { action: "navigate" }>,
-  "requestId" | "expectedUiRevision" | "action"
->;
-type Browse = {
-  entries: { path: string; kind: "directory" | "memory"; title?: string }[];
-  total?: number;
-  truncated: boolean;
-};
-type MemoryFields = {
-  kind?: string;
-  stage?: string;
-  applicability?: { type: string; id?: string };
-};
-const memoryKind = (kind: string | undefined) =>
-  ({ procedural: "Procedure", episodic: "Experience", semantic: "Fact" })[kind ?? ""] ?? "Memory";
-const memoryStage = (stage: string | undefined) =>
-  stage ? stage[0]!.toUpperCase() + stage.slice(1) : "";
-function applicability(value: MemoryFields["applicability"]) {
-  if (!value) return "No scope";
-  if (value.type === "global") return "Everywhere";
-  return `${value.type === "repository" ? "Repository" : "Machine"} ${value.id}`;
-}
-function Body({ text }: { text: string }) {
-  return (
-    <article className="memory-wiki markdown-document">
-      <ReactMarkdown
-        skipHtml
-        components={{
-          a: ({ children }) => <span>{children}</span>,
-          img: ({ alt }) => <span>{alt}</span>,
-        }}
-      >
-        {text}
-      </ReactMarkdown>
-    </article>
-  );
-}
+const SECTIONS = [{ view: "browse", label: "Browse" }] as const;
+type Section = (typeof SECTIONS)[number]["view"];
+const sectionOf = (view: string): Section | undefined =>
+  view === "memory" ? "browse" : SECTIONS.find((section) => section.view === view)?.view;
+const POSITIONS = ["browse", "memory", "connections", "stages", "activity", "machines"] as const;
+type Positioned = (typeof POSITIONS)[number];
+
 function Proposal({
   proposal,
   comparison,
@@ -63,8 +33,8 @@ function Proposal({
 }) {
   const change = proposal.change;
   const display = change.display;
-  const before = display?.beforeMemory as MemoryFields | null;
-  const after = display?.afterMemory as MemoryFields | null;
+  const before = display?.beforeMemory ? memoryFields(display.beforeMemory) : null;
+  const after = display?.afterMemory ? memoryFields(display.afterMemory) : null;
   const changes =
     before && after
       ? [
@@ -105,7 +75,7 @@ function Proposal({
       {change.action === "delete" ? (
         <p>This memory will be removed.</p>
       ) : (
-        <Body
+        <Markdown
           text={
             display?.afterBody ??
             "The memory text is unavailable. Ask your agent to refresh this proposal."
@@ -134,11 +104,11 @@ function Proposal({
         <div className="librarian-comparison">
           <section>
             <h3>Before</h3>
-            <Body text={display?.beforeBody ?? "No memory"} />
+            <Markdown text={display?.beforeBody ?? "No memory"} />
           </section>
           <section>
             <h3>After</h3>
-            <Body text={display?.afterBody ?? "Memory removed"} />
+            <Markdown text={display?.afterBody ?? "Memory removed"} />
           </section>
         </div>
       )}
@@ -159,22 +129,31 @@ function Proposal({
     </section>
   );
 }
-function MemoryView({ tab, active }: TabProps) {
+function MemoryView({ tab, active, context }: TabProps) {
   const saved = decode(MemoryTabState, tab.state);
   const legacy = saved.version === 1 ? saved.data : (saved.data.recovery ?? {});
   const settings = useContext(SettingsContext);
   const { state, setState, error, setError } = useLibrarian();
-  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState(false);
+  // A failed read is not saved, so Retry must resend it rather than the view still stored.
+  const failed = useRef<Navigation>(undefined);
+  const scroller = useRef<HTMLDivElement>(null);
+  const positions = useRef<Partial<Record<Positioned, number>>>(
+    saved.version === 3 ? { ...saved.data.positions } : {},
+  );
+  const saving = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const shown = useRef<{ view?: string; path?: string }>({});
 
   const initialized = useRef<string>(undefined);
-  async function run(command: LibrarianHumanCommand) {
+  async function run(command: LibrarianHumanCommand, navigation?: Navigation) {
     setBusy(true);
     setError("");
     try {
       setState(await window.scope.librarianHuman(JSON.parse(JSON.stringify(command))));
+      failed.current = undefined;
     } catch (cause) {
+      failed.current = navigation;
       setError(cause instanceof Error ? cause.message : "Could not load memory. Retry.");
     } finally {
       setBusy(false);
@@ -182,30 +161,59 @@ function MemoryView({ tab, active }: TabProps) {
   }
   function navigate(selection: Navigation) {
     if (!state || busy) return;
-    return run({
-      action: "navigate",
-      requestId: crypto.randomUUID(),
-      expectedUiRevision: state.uiRevision,
-      ...selection,
-    });
+    return run(
+      {
+        action: "navigate",
+        requestId: crypto.randomUUID(),
+        expectedUiRevision: state.uiRevision,
+        ...selection,
+      },
+      selection,
+    );
   }
   useEffect(() => {
     if (!active || !state || initialized.current === (state.bundle?.id ?? "unset")) return;
     initialized.current = state.bundle?.id ?? "unset";
-    if (state.displayed === null && state.view === "browse") void navigate({ view: "browse" });
+    if (state.displayed === null && state.view === "browse") void navigate(current(state));
   }, [active, state]);
-  useEffect(() => {
-    if (state?.view === "browse") setQuery(state.query);
-  }, [state?.query, state?.view]);
+  useEffect(() => () => clearTimeout(saving.current), []);
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element || !state) return;
+    const key = POSITIONS.find((view) => view === state.view);
+    const previous = shown.current;
+    shown.current = { view: state.view, path: state.selectedPath };
+    if (previous.view === state.view && previous.path === state.selectedPath) return;
+    // Opening another memory starts at its top; returning to a view restores its saved place.
+    const restore = previous.view === state.view ? 0 : key ? (positions.current[key] ?? 0) : 0;
+    element.scrollTop = restore;
+    if (key) positions.current[key] = restore;
+  }, [state?.view, state?.selectedPath]);
   if (!state)
     return (
       <div className="memory-view">
         <p role="status">{error || "Loading memory…"}</p>
       </div>
     );
+  function remember() {
+    const element = scroller.current;
+    const key = POSITIONS.find((view) => view === state?.view) as Positioned | undefined;
+    if (!element || !key || saved.version === 1) return;
+    positions.current[key] = Math.round(element.scrollTop);
+    clearTimeout(saving.current);
+    saving.current = setTimeout(
+      () =>
+        context.updateState({
+          version: 3,
+          data: { ...saved.data, positions: { ...positions.current } } as TabState["data"],
+        }),
+      500,
+    );
+  }
   const proposal = state.displayed as LibrarianProposal | null;
   const selected = state.run?.proposals.find((p) => p.change.id === state.selectedChangeId);
   const completed = state.overview ?? [];
+  const section = sectionOf(state.view);
   async function decide(decision: "accept" | "reject") {
     if (!state?.run || !selected) return;
     await run({
@@ -223,25 +231,29 @@ function MemoryView({ tab, active }: TabProps) {
           : "Rejected the displayed proposal.",
     });
   }
-  const browse = state.displayed as Browse | MemorySearch | null;
+  function open(view: Section) {
+    if (view === "browse")
+      return navigate(
+        state!.focusPath
+          ? { view: "memory", path: state!.focusPath, trail: [...(state!.browse?.trail ?? [])] }
+          : current({ ...state!, view: "browse" }),
+      );
+    return navigate({ view });
+  }
   return (
-    <div className="memory-view librarian-view" aria-label="Librarian">
+    <div
+      ref={scroller}
+      className="memory-view librarian-view"
+      aria-label="Librarian"
+      onScroll={remember}
+    >
       {error && (
         <div role="alert" className="memory-error">
           <p>{error}</p>
           <Button
             variant="secondary"
             disabled={busy}
-            onClick={() =>
-              void navigate({
-                view: state.view,
-                path: state.selectedPath,
-                changeId: state.selectedChangeId,
-                query: state.query,
-                directory: state.directory,
-                offset: state.offset,
-              })
-            }
+            onClick={() => void navigate(failed.current ?? current(state))}
           >
             Retry
           </Button>
@@ -250,46 +262,45 @@ function MemoryView({ tab, active }: TabProps) {
           </Button>
         </div>
       )}
-      {state.view === "browse" && (
-        <>
-          <form
-            className="memory-search"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void navigate({ view: "browse", query });
-            }}
-          >
-            <Input
-              aria-label="Search memory"
-              placeholder="Search memory…"
-              value={query}
-              maxLength={512}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              type="submit"
-              aria-label="Search memory"
-              disabled={busy}
+      {section && (
+        <div className="librarian-header">
+          <p className="librarian-note">Personal library on this desktop</p>
+          {SECTIONS.length > 1 && (
+            <div
+              role="tablist"
+              aria-label="Librarian views"
+              className="librarian-tabs"
+              onKeyDown={(event) => {
+                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                event.preventDefault();
+                const index = SECTIONS.findIndex((entry) => entry.view === section);
+                const next =
+                  event.key === "Home"
+                    ? 0
+                    : event.key === "End"
+                      ? SECTIONS.length - 1
+                      : (index + (event.key === "ArrowRight" ? 1 : -1) + SECTIONS.length) %
+                        SECTIONS.length;
+                const tabs = event.currentTarget.querySelectorAll<HTMLButtonElement>("[role=tab]");
+                tabs[next]?.focus();
+                void open(SECTIONS[next]!.view);
+              }}
             >
-              <Search />
-            </Button>
-          </form>
+              {SECTIONS.map((entry) => (
+                <button
+                  key={entry.view}
+                  role="tab"
+                  aria-selected={entry.view === section}
+                  tabIndex={entry.view === section ? 0 : -1}
+                  disabled={busy && entry.view !== section}
+                  onClick={() => void open(entry.view)}
+                >
+                  {entry.label}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="memory-note-actions">
-            {(state.query || state.directory) && (
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  void navigate({
-                    view: "browse",
-                    directory: state.directory.split("/").slice(0, -1).join("/"),
-                  })
-                }
-              >
-                Back
-              </Button>
-            )}
             {state.run && (
               <Button
                 variant="ghost"
@@ -308,100 +319,15 @@ function MemoryView({ tab, active }: TabProps) {
               </Button>
             )}
           </div>
-          <ul className="memory-link-list" aria-label="Memory results">
-            {browse && "entries" in browse
-              ? browse.entries.map((entry) => (
-                  <li key={entry.path}>
-                    <button
-                      disabled={busy}
-                      onClick={() =>
-                        void navigate(
-                          entry.kind === "directory"
-                            ? { view: "browse", directory: entry.path }
-                            : { view: "memory", path: entry.path },
-                        )
-                      }
-                    >
-                      {entry.title || entry.path.split("/").at(-1)}
-                    </button>
-                  </li>
-                ))
-              : browse && "results" in browse
-                ? browse.results.map((hit) => (
-                    <li key={hit.path}>
-                      <button
-                        disabled={busy}
-                        onClick={() => void navigate({ view: "memory", path: hit.path })}
-                      >
-                        {hit.title}
-                      </button>
-                      <p>{hit.excerpt || hit.description}</p>
-                    </li>
-                  ))
-                : null}
-          </ul>
-          {browse &&
-            (("entries" in browse && !browse.entries.length) ||
-              ("results" in browse && !browse.results.length)) && <p>No memories found.</p>}
-          {browse && (
-            <div className="memory-note-actions">
-              {state.offset > 0 && (
-                <Button
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() =>
-                    void navigate({
-                      view: "browse",
-                      query: state.query,
-                      directory: state.directory,
-                      offset: Math.max(0, state.offset - (state.query ? 30 : 20)),
-                    })
-                  }
-                >
-                  Previous
-                </Button>
-              )}
-              {browse.truncated && (
-                <Button
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() =>
-                    void navigate({
-                      view: "browse",
-                      query: state.query,
-                      directory: state.directory,
-                      offset: state.offset + (state.query ? 30 : 20),
-                    })
-                  }
-                >
-                  Next
-                </Button>
-              )}
-            </div>
-          )}
-        </>
+        </div>
       )}
-      {state.view === "memory" && state.displayed !== null && (
-        <>
-          <Button
-            variant="ghost"
-            onClick={() =>
-              void navigate({
-                view: "browse",
-                query: state.query,
-                directory: state.directory,
-                offset: state.offset,
-              })
-            }
-          >
-            Back to results
-          </Button>
-          <MemoryWiki
-            concept={state.displayed as MemoryConcept}
-            onOpen={(path) => void navigate({ view: "memory", path })}
-            onError={setError}
-          />
-        </>
+      {(state.view === "browse" || state.view === "memory") && (
+        <BrowseView
+          state={state}
+          busy={busy}
+          navigate={(n) => void navigate(n)}
+          onError={setError}
+        />
       )}
       {state.view === "decision" && (
         <>
@@ -441,7 +367,10 @@ function MemoryView({ tab, active }: TabProps) {
           )}
           {!selected && (
             <div className="memory-note-actions">
-              <Button variant="ghost" onClick={() => void navigate({ view: "browse" })}>
+              <Button
+                variant="ghost"
+                onClick={() => void navigate(current({ ...state, view: "browse" }))}
+              >
                 Browse memories
               </Button>
               {!!state.completedCount && (
@@ -458,13 +387,13 @@ function MemoryView({ tab, active }: TabProps) {
           <Button
             variant="ghost"
             onClick={() =>
-              void navigate({
-                view: state.selectedChangeId
-                  ? "overview"
+              void navigate(
+                state.selectedChangeId
+                  ? { view: "overview" }
                   : state.run?.status === "completed"
-                    ? "browse"
-                    : "decision",
-              })
+                    ? current({ ...state, view: "browse" })
+                    : { view: "decision" },
+              )
             }
           >
             Back
@@ -566,7 +495,10 @@ function MemoryView({ tab, active }: TabProps) {
       )}
       {state.view === "recovery" && (
         <>
-          <Button variant="ghost" onClick={() => void navigate({ view: "browse" })}>
+          <Button
+            variant="ghost"
+            onClick={() => void navigate(current({ ...state, view: "browse" }))}
+          >
             Back
           </Button>
           {legacy.draft ? (

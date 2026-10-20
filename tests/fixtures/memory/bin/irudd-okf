@@ -20,7 +20,7 @@ const fail = (code, message, details = {}) => {
 };
 if (librarianFixture(args, explicitRoot)) process.exit(0);
 
-if (explicitRoot && ["read", "search", "graph", "write"].includes(args[0])) {
+if (explicitRoot && ["read", "search", "graph", "write", "list"].includes(args[0])) {
   const hash = raw => createHash("sha256").update(raw).digest("hex");
   const concept = path => {
     const raw = readFileSync(join(explicitRoot, path), "utf8");
@@ -31,13 +31,21 @@ if (explicitRoot && ["read", "search", "graph", "write"].includes(args[0])) {
       const target = external ? match[2] : relative(explicitRoot, resolve(explicitRoot, path, "..", match[2]));
       return { target, label: match[1], external, broken: !external && !existsSync(join(explicitRoot, target)) };
     });
-    return { bundle: "personal", path, title, type: "Rule", description: "", tags: [], hash: hash(raw), malformed: false, raw, body, links, backlinks: [] };
+    const front = /^---\n([\s\S]*?)\n---\n/.exec(raw)?.[1] ?? "";
+    const tags = (/^tags: \[(.*)\]$/m.exec(front)?.[1] ?? "").split(",").map(tag => tag.trim()).filter(Boolean);
+    let memory;
+    try { memory = JSON.parse(/^memory: (.+)$/m.exec(front)?.[1] ?? "null") ?? undefined; } catch {}
+    return { bundle: "personal", path, title, type: "Rule", description: "", tags, hash: hash(raw), malformed: false, ...(memory ? { memory } : {}), raw, body, links, backlinks: [] };
   };
   const paths = (root = explicitRoot) => readdirSync(root, { withFileTypes: true }).flatMap(entry => entry.name.startsWith(".") ? [] : entry.isDirectory() ? paths(join(root, entry.name)) : entry.name.endsWith(".md") && !["index.md", "log.md"].includes(entry.name) ? [relative(explicitRoot, join(root, entry.name))] : []);
   if (process.env.FAKE_OKF_BAD_VIEWER_OUTPUT) { process.stdout.write('{"unexpected":true}'); process.exit(0); }
   if (args[0] === "read") {
     if (!existsSync(join(explicitRoot, args[2]))) fail("NOT_FOUND", "This note does not exist.");
-    process.stdout.write(JSON.stringify(concept(args[2])));
+    const backlinks = paths().map(concept).filter(note => note.links.some(link => !link.external && link.target === args[2])).map(note => ({ bundle: "personal", path: note.path, title: note.title }));
+    process.stdout.write(JSON.stringify({ ...concept(args[2]), backlinks }));
+  } else if (args[0] === "list") {
+    if (process.env.FAKE_OKF_LIST_FAILS) fail("LIST_FAILED", "The library list is unavailable.");
+    process.stdout.write(JSON.stringify({ version: 1, concepts: paths().map(concept).map(({ raw, body, links, backlinks, ...summary }) => summary) }));
   } else if (args[0] === "write") {
     const path = args[2];
     const current = concept(path);
