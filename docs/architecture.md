@@ -245,8 +245,7 @@ structured JSON. It never starts an OKF browser server.
 presentation. `apps/desktop/src/librarian.ts` owns dreaming runs, session
 capabilities, queues, human decision recording and selection.
 `apps/desktop/src/librarian-reads.ts` builds the read-only Browse, Connections,
-Stages and Activity projections from irudd-okf `list`, `search`, `graph` and
-`change list` output. `desktop.db` stores
+Stages and Activity projections from irudd-okf reads. `desktop.db` stores
 the run document and idempotency receipts. The renderer's named IPC is the only
 Scope path for human acceptance or rejection. The authenticated agent endpoint
 can present, propose and select with an active run capability. Runs allow a

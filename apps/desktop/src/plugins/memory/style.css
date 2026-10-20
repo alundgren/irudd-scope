@@ -358,6 +358,10 @@
   border-top: 1px solid var(--scope-line);
   padding-block: var(--scope-space-3);
 }
+.librarian-offline {
+  color: var(--scope-muted);
+  font-weight: var(--scope-weight-regular);
+}
 .librarian-attention {
   color: var(--scope-danger);
   font-weight: var(--scope-weight-regular);

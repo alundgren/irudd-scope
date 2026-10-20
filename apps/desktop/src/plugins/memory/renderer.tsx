@@ -173,11 +173,15 @@ function MemoryView({ tab, active, context }: TabProps) {
     setError("");
     // The change notification can render the new state before this reply arrives.
     const remembered = focus.current;
+    const library = state?.bundle?.id;
     try {
       const next = await window.scope.librarianHuman(JSON.parse(JSON.stringify(command)));
       // The main process forgets a selected memory that dreaming or sync removed.
       setNotice(
-        command.action === "navigate" && remembered && !next.focusPath
+        command.action === "navigate" &&
+          remembered &&
+          !next.focusPath &&
+          next.bundle?.id === library
           ? "That memory is no longer in the library."
           : "",
       );

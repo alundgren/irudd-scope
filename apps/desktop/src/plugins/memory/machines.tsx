@@ -1,4 +1,4 @@
-import type { MemoryMachine } from "@irudd-scope/protocol/memory";
+import type { MemoryMachine, MemoryMachineStatus } from "@irudd-scope/protocol/memory";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { useMemory } from "../../renderer/memory-state.ts";
 import { time } from "./format.ts";
@@ -11,81 +11,107 @@ const PHASES = {
   error: "Sync error",
 } as const;
 
+function tooling(okf: MemoryMachineStatus["okf"]) {
+  if (okf.installed) return `irudd-okf ${okf.version ?? "installed"}`;
+  // A machine with memory off never checks for the tool, so absence is not a finding.
+  return okf.message ? "irudd-okf is not installed" : "Not checked";
+}
+function syncState(status: MemoryMachineStatus) {
+  if (status.phase === "waiting" && status.repository === null)
+    return "Local only (Git sync is off)";
+  return PHASES[status.phase];
+}
+
 function Machine({ machine }: { machine: MemoryMachine }) {
   const status = machine.status;
   const name = machine.local ? `${machine.name} (this device)` : machine.name;
+  // A remote message means the connection or relay is not current; any status is older.
+  const stale = !machine.local && !!machine.message;
   if (!status)
     return (
       <li className="librarian-machine">
         <h3>
-          {name} <span className="librarian-attention">· needs attention</span>
+          {name} <span className="librarian-offline">· not connected</span>
         </h3>
         <p>Current state unknown. Scope keeps no earlier observation.</p>
         {machine.message && <p className="librarian-note">{machine.message}</p>}
       </li>
     );
-  const tooling = status.okf.installed
-    ? `irudd-okf ${status.okf.version ?? "installed"}`
-    : "irudd-okf is not installed";
+  const off = status.phase === "off";
   const attention =
     status.phase === "error" ||
-    !status.okf.installed ||
     !!status.okf.message ||
-    status.bundle !== "registered" ||
+    status.bundle === "name-taken" ||
     !!status.conflicts.length;
   return (
     <li className="librarian-machine">
       <h3>
-        {name} {attention && <span className="librarian-attention">· needs attention</span>}
+        {name}{" "}
+        {stale ? (
+          <span className="librarian-offline">· not connected</span>
+        ) : (
+          attention && <span className="librarian-attention">· needs attention</span>
+        )}
       </h3>
+      {stale && (
+        <p>
+          {machine.message} The details below were last observed this session and may have changed.
+        </p>
+      )}
       <dl className="librarian-facts">
         <dt>Memory sync</dt>
         <dd>
-          {PHASES[status.phase]}
+          {syncState(status)}
           {status.message && <p className="librarian-note">{status.message}</p>}
         </dd>
-        <dt>Last successful sync</dt>
-        <dd>{status.lastSyncAt ? time(status.lastSyncAt) : "Not recorded"}</dd>
-        <dt>Memory tooling</dt>
-        <dd>
-          {tooling}
-          {status.okf.message && <p className="librarian-note">{status.okf.message}</p>}
-        </dd>
-        <dt>Library</dt>
-        <dd>
-          {status.bundle === "registered"
-            ? "Registered as the personal library"
-            : status.bundle === "name-taken"
-              ? "Another library uses the name personal"
-              : "Not registered"}
-          {status.bundleMessage && <p className="librarian-note">{status.bundleMessage}</p>}
-        </dd>
-        <dt>Conflicts</dt>
-        <dd>
-          {status.conflicts.length ? (
-            <ul className="memory-link-list" aria-label={`${machine.name} conflicts`}>
-              {status.conflicts.map((conflict) => (
-                <li key={conflict.url}>
-                  <button
-                    onClick={() => void window.scope.openMemoryLink(conflict.url).catch(() => {})}
-                  >
-                    {conflict.title}
-                  </button>
-                  <small>{conflict.branch}</small>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            "None reported"
-          )}
-        </dd>
+        {!off && (
+          <>
+            <dt>Last successful sync</dt>
+            <dd>{status.lastSyncAt ? time(status.lastSyncAt) : "Not recorded"}</dd>
+            <dt>Memory tooling</dt>
+            <dd>
+              {tooling(status.okf)}
+              {status.okf.message && <p className="librarian-note">{status.okf.message}</p>}
+            </dd>
+            <dt>Library</dt>
+            <dd>
+              {status.bundle === "registered"
+                ? "Registered as the personal library"
+                : status.bundle === "name-taken"
+                  ? "Another library uses the name personal"
+                  : "Not registered"}
+              {status.bundleMessage && <p className="librarian-note">{status.bundleMessage}</p>}
+            </dd>
+            <dt>Conflicts</dt>
+            <dd>
+              {status.conflicts.length ? (
+                <ul className="memory-link-list" aria-label={`${machine.name} conflicts`}>
+                  {status.conflicts.map((conflict) => (
+                    <li key={conflict.url}>
+                      <button
+                        onClick={() =>
+                          void window.scope.openMemoryLink(conflict.url).catch(() => {})
+                        }
+                      >
+                        {conflict.title}
+                      </button>
+                      <small>{conflict.branch}</small>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                "None reported"
+              )}
+            </dd>
+          </>
+        )}
       </dl>
     </li>
   );
 }
 
 export function MachinesView({ onSettings }: { onSettings: () => void }) {
-  const { status, error } = useMemory();
+  const { status, error, setStatus, setError } = useMemory();
   return (
     <section className="librarian-machines" aria-label="Machines">
       <p className="librarian-note">
@@ -96,7 +122,23 @@ export function MachinesView({ onSettings }: { onSettings: () => void }) {
         Memory settings
       </Button>
       {error ? (
-        <p role="alert">{error}</p>
+        <div role="alert" className="memory-error">
+          <p>Could not read memory status.</p>
+          <Button
+            variant="secondary"
+            onClick={() =>
+              void window.scope
+                .memory()
+                .then((next) => {
+                  setError("");
+                  setStatus(next);
+                })
+                .catch(() => setError("Could not read memory status."))
+            }
+          >
+            Retry
+          </Button>
+        </div>
       ) : !status ? (
         <p role="status">Reading memory status…</p>
       ) : (
@@ -117,7 +159,7 @@ export function MachinesView({ onSettings }: { onSettings: () => void }) {
         <li>Which machine recorded each change</li>
         <li>Whether two machines hold the same content</li>
         <li>Live sync progress and last contact time</li>
-        <li>Earlier observations of a machine that cannot be reached</li>
+        <li>Observations of an unreachable machine after Scope restarts</li>
       </ul>
     </section>
   );

@@ -707,8 +707,9 @@ revision. The endpoint has no human decision action. Scope's validated renderer
 IPC records human decisions against the displayed revision and exact source
 list. File acceptance, recall and restoration remain irudd-okf operations.
 
-Reads are bounded to the current results page, selected memory, proposal or
-recorded change, and ten completed summaries. Queues remain durable in SQLite. Restart interrupts
+Reads are bounded: the selected memory, proposal or recorded change, ten
+completed summaries, and fixed-size pages of summaries for results, facets,
+connections, stages, activity and recent runs. Queues remain durable in SQLite. Restart interrupts
 runs and invalidates capabilities. Retried request IDs require identical payloads;
 a receipt never grants a restored connection. Finish requires a separate explicit
 user instruction and no pending proposals. All conversation stays in the existing
