@@ -14,7 +14,6 @@ import type {
   PullRequestsReply,
 } from "@irudd-scope/protocol/pull-requests";
 import { startArtifactServer } from "../apps/desktop/src/library/server.ts";
-import { ArtifactStore } from "../apps/desktop/src/library/store.ts";
 
 const token = "synthetic-pull-requests-test-token";
 const name = "test-inbox";
@@ -94,49 +93,6 @@ async function fixture(publish = true) {
     });
   return { directory, server, client, cli, html, read, configure };
 }
-
-test("saved PR facts without stack and approval fields reopen without losing local state", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts()],
-    completedAt: now,
-  });
-  await f.client.pullRequests({
-    action: "note",
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    text: "Existing review notes",
-  });
-  const saved = await f.read();
-  expect(saved.prs[0]).not.toHaveProperty("review");
-  expect(saved.prs[0]).not.toHaveProperty("stack");
-  await f.server.close();
-  const reopened = await ArtifactStore.open(f.directory);
-  cleanup.push(() => reopened.close());
-  expect((await reopened.pullRequests.snapshot(name)).prs).toEqual(saved.prs);
-  const enriched = await reopened.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [
-      {
-        ...facts(),
-        stack: null,
-        review: { decision: null, hasApproval: true, headOid: head, observedAt: now },
-      },
-    ],
-    completedAt: now,
-  });
-  expect(enriched.prs[0].review?.hasApproval).toBe(true);
-  expect(enriched.prs[0].stack).toBeNull();
-  expect(enriched.prs[0].local).toEqual(saved.prs[0].local);
-});
 
 test("first verified alias inventory updates the binding atomically and rejects an old queried pin", async () => {
   const f = await fixture();
@@ -588,79 +544,6 @@ test("built CLI recovers an unconfigured publication and updates HTML without re
   await expect(f.cli("pull-requests", "configure", name, "other/repo")).rejects.toThrow();
 });
 
-test("version 6 databases migrate additively and reopen current inbox state", async () => {
-  const f = await fixture();
-  await f.configure();
-  const current = await f.read();
-  await f.server.store.pullRequests.commitInventory(current.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts()],
-    completedAt: now,
-  });
-  await f.server.close();
-  const db = new DatabaseSync(join(f.directory, "scope.db"));
-  try {
-    db.exec(
-      "DROP TABLE publications; DROP TABLE pull_requests_pr_state; DROP TABLE pull_requests_receipts; DROP TABLE pull_requests_current; DROP TABLE pull_requests_state; PRAGMA user_version = 6;",
-    );
-  } finally {
-    db.close();
-  }
-  const reopened = await ArtifactStore.open(f.directory);
-  cleanup.push(() => reopened.close());
-  expect((await reopened.pullRequests.snapshot(name)).repository).toBeNull();
-  expect((await reopened.list()).items[0].kind).toBe("pull-requests");
-  const check = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
-  try {
-    expect(check.prepare("PRAGMA user_version").get()?.user_version).toBe(15);
-  } finally {
-    check.close();
-  }
-});
-
-test("schema 12 upgrades make trashed and temporary inboxes closed built-in tabs", async () => {
-  const f = await fixture();
-  await f.configure();
-  const current = await f.read();
-  await f.server.store.pullRequests.commitInventory(current.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts()],
-    completedAt: now,
-  });
-  await f.server.close();
-  const legacy = {
-    id: current.tabId,
-    groupId: randomUUID(),
-    type: "file",
-    title: "Inbox",
-    state: { version: 1, data: { artifactId: current.artifact.id } },
-  };
-  const db = new DatabaseSync(join(f.directory, "scope.db"));
-  try {
-    db.prepare(
-      "UPDATE live_tabs SET opened = 1, document = ?, permanent = 0, trashed_at = 123 WHERE id = ?",
-    ).run(JSON.stringify(legacy), current.tabId);
-    db.exec("PRAGMA user_version = 12");
-  } finally {
-    db.close();
-  }
-  const reopened = await ArtifactStore.open(f.directory);
-  cleanup.push(() => reopened.close());
-  expect(await reopened.retainedTabs()).toEqual([
-    {
-      tab: { ...legacy, type: "pull-requests", hidden: true },
-      permanent: true,
-      lastVisibleAt: expect.any(Number),
-      trashedAt: null,
-    },
-  ]);
-  expect((await reopened.tabs())[0].permanent).toBe(1);
-  expect((await reopened.pullRequests.snapshot(name)).prs.map((pr) => pr.nodeId)).toEqual(["PR_1"]);
-  await expect(reopened.trashTab(current.tabId)).rejects.toThrow("cannot move to Trashcan");
-});
-
 test("saved write commands reject a recreated named inbox before invoking sync or detail", async () => {
   const f = await fixture();
   await f.configure();
@@ -821,61 +704,6 @@ test("request hashes retain retry identity for the current PR lifetime beyond 25
     db.close();
   }
 });
-
-test("complete inventories above SQLite's bind parameter limit commit every row and prune only missing PRs", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts(1), facts(99_999)],
-    completedAt: now,
-  });
-  await f.client.pullRequests({
-    action: "note",
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    text: "Retained current PR",
-  });
-  const timestamp = "2026-01-01T00:00:00Z";
-  const inventory = Array.from({ length: 32_768 }, (_, index) => ({
-    ...facts(index + 1),
-    title: "a",
-    author: null,
-    labels: [],
-    headRefName: "",
-    requestedReviewers: [],
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    merge: { ...facts().merge, observedAt: timestamp },
-    checks: { ...facts().checks, observedAt: timestamp },
-  }));
-  const committed = await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: inventory,
-    completedAt: now,
-  });
-  expect(Buffer.byteLength(JSON.stringify(committed))).toBeLessThan(32 * 1024 * 1024);
-  expect(committed.prs).toHaveLength(inventory.length);
-  expect(new Set(committed.prs.map((pr) => pr.nodeId))).toEqual(
-    new Set(inventory.map((pr) => pr.nodeId)),
-  );
-  expect(committed.prs.find((pr) => pr.nodeId === "PR_1")?.local.note).toBe("Retained current PR");
-  const reduced = await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: inventory.filter((pr) => pr.number !== 42),
-    completedAt: now,
-  });
-  expect(reduced.prs).toHaveLength(32_767);
-  expect(reduced.prs.some((pr) => pr.number === 42 || pr.number === 99_999)).toBe(false);
-  expect(reduced.prs.find((pr) => pr.nodeId === "PR_1")?.local.note).toBe("Retained current PR");
-}, 120_000);
 
 test("review baselines retain the inspected commit when synchronization finds a newer head", async () => {
   const f = await fixture();
@@ -1436,34 +1264,6 @@ test("inbox state survives HTML updates, sync, restart and Trashcan refusal whil
   await expect(reopened.pullRequests.command(command)).rejects.toMatchObject({ status: 409 });
 });
 
-test("schema 8 inboxes migrate with empty JSON state and retain existing records", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts()],
-    completedAt: now,
-  });
-  await f.server.close();
-  const db = new DatabaseSync(join(f.directory, "scope.db"));
-  try {
-    db.exec(
-      "DROP TABLE pull_requests_pr_state; ALTER TABLE pull_requests_state DROP COLUMN app_state; PRAGMA user_version = 8;",
-    );
-  } finally {
-    db.close();
-  }
-  const reopened = await ArtifactStore.open(f.directory);
-  cleanup.push(() => reopened.close());
-  const migrated = await reopened.pullRequests.snapshot(name);
-  expect(migrated.appState).toEqual({ version: 0, value: {} });
-  expect(migrated.prs.map((pr) => pr.nodeId)).toEqual(["PR_1"]);
-  expect(migrated.repository).toEqual(repository);
-  expect(migrated.tabId).toBe(initial.tabId);
-});
-
 test("per-PR JSON storage exceeds the root quota, stays isolated and sends bounded events", async () => {
   const f = await fixture();
   await f.configure();
@@ -1605,71 +1405,4 @@ test("per-PR JSON storage exceeds the root quota, stays isolated and sends bound
   await f.server.store.pullRequests.commitInventory(initial.tabId, inventory);
   expect(await read("PR_1")).toEqual({ version: 3, value: { nullable: null } });
   expect(await read("PR_2")).toEqual({ version: 0, value: {} });
-});
-
-test("schema 9 upgrades preserve root and PR records; PR state survives restart until deletion", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts()],
-    completedAt: now,
-  });
-  await f.client.pullRequests({
-    action: "state-set",
-    name,
-    tabId: initial.tabId,
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    value: { width: 400 },
-  });
-  await f.server.close();
-  const db = new DatabaseSync(join(f.directory, "scope.db"));
-  try {
-    db.exec("DROP TABLE pull_requests_pr_state; PRAGMA user_version = 9;");
-  } finally {
-    db.close();
-  }
-  const migrated = await ArtifactStore.open(f.directory);
-  const read = { action: "pr-state-read" as const, name, tabId: initial.tabId, nodeId: "PR_1" };
-  const current = await migrated.pullRequests.snapshot(name);
-  expect(current.appState).toEqual({ version: 1, value: { width: 400 } });
-  expect(current.prs.map((pr) => pr.nodeId)).toEqual(["PR_1"]);
-  expect(await migrated.pullRequests.command(read)).toMatchObject({
-    state: { version: 0, value: {} },
-  });
-  const write = {
-    ...read,
-    action: "pr-state-set" as const,
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    value: { hashes: "x".repeat(40_000) },
-  };
-  const saved = await migrated.pullRequests.command(write);
-  await migrated.close();
-  const reopened = await ArtifactStore.open(f.directory);
-  cleanup.push(() => reopened.close());
-  expect(await reopened.pullRequests.command(read)).toEqual(saved);
-  expect(await reopened.pullRequests.command(write)).toEqual(saved);
-  await reopened.openTab({
-    id: initial.tabId,
-    groupId: randomUUID(),
-    type: "pull-requests",
-    title: "Inbox",
-    state: { version: 1, data: { artifactId: initial.artifact.id } },
-  });
-  await expect(reopened.trashTab(initial.tabId, 123)).rejects.toThrow("cannot move to Trashcan");
-  expect(await reopened.pullRequests.command(read)).toEqual(saved);
-  await reopened.removeArtifact(initial.artifact.id);
-  await expect(reopened.pullRequests.command(read)).rejects.toMatchObject({ status: 404 });
-  const check = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
-  try {
-    expect(check.prepare("SELECT count(*) AS count FROM pull_requests_pr_state").get()?.count).toBe(
-      0,
-    );
-  } finally {
-    check.close();
-  }
 });

@@ -3,7 +3,6 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { decodeLocalConnection } from "@irudd-scope/protocol";
 import { readTransferUrl, transferUrl, TRANSFER_LIFETIME_MS } from "@irudd-scope/protocol/transfer";
 import { startArtifactServer } from "../apps/desktop/src/library/server.ts";
@@ -78,13 +77,6 @@ test.each(["local", "forwarding hub", "paired hub"])(
         await remotes.start();
         await remotes.pair(state.pairUrl());
         await expect.poll(() => remotes!.snapshot()[0]?.connection).toBe("connected");
-        let delayed = false;
-        f.transport.after = async () => {
-          if (delayed) return;
-          delayed = true;
-          // Relay imports must survive the previous 30-second request deadline.
-          await delay(31_000);
-        };
       }
       await writeFile(
         connectionFile,

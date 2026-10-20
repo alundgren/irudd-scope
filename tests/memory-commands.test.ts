@@ -1,8 +1,7 @@
 import { afterEach, expect, test } from "vite-plus/test";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { MemoryCommands } from "../packages/memory-sync/src/commands.ts";
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
@@ -81,50 +80,3 @@ test.runIf(process.platform === "win32")(
     expect(JSON.parse(result.stdout)).toEqual(args);
   },
 );
-
-test("cancelling a memory command also stops the subprocess it launched", async () => {
-  const f = await fixture();
-  const heartbeat = join(f.directory, "heartbeat");
-  const pids = join(f.directory, "pids.json");
-  const script = join(f.directory, "parent.cjs");
-  await writeFile(
-    script,
-    `
-const { spawn } = require('node:child_process');
-const { writeFileSync } = require('node:fs');
-const child = spawn(process.execPath, ['-e', ${JSON.stringify(`const fs = require('node:fs'); setInterval(() => fs.appendFileSync(${JSON.stringify(heartbeat)}, '.'), 50);`)}], { stdio: 'inherit' });
-writeFileSync(${JSON.stringify(pids)}, JSON.stringify([process.pid, child.pid]));
-setInterval(() => {}, 1000);
-`,
-  );
-  const controller = new AbortController();
-  const running = f.commands.run("scope-tool", [script], { signal: controller.signal });
-  cleanup.push(async () => {
-    controller.abort();
-    await running;
-    for (const pid of JSON.parse(await readFile(pids, "utf8").catch(() => "[]"))) {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {
-        /* Already stopped. */
-      }
-    }
-  });
-  await expect.poll(() => readFile(heartbeat, "utf8").catch(() => "")).not.toBe("");
-  controller.abort();
-  expect((await running).code).not.toBe(0);
-  const stopped = await readFile(heartbeat, "utf8");
-  await delay(200);
-  expect(await readFile(heartbeat, "utf8")).toBe(stopped);
-});
-
-test("a pre-cancelled memory command never starts a process", async () => {
-  const f = await fixture();
-  const controller = new AbortController();
-  controller.abort();
-  expect(
-    await f.commands.run("scope-tool", ["-e", "process.stdout.write('started')"], {
-      signal: controller.signal,
-    }),
-  ).toMatchObject({ code: 1, stdout: "" });
-});

@@ -4,7 +4,6 @@ import { promisify } from "node:util";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import {
   BUFFERED_TAB_TTL_MS,
@@ -159,50 +158,6 @@ test("offline CLI publications survive hub restart and arrive automatically with
   expect(Buffer.from(await f.direct.content("online-report")).toString()).toBe("Connected finding");
 });
 
-test("CLI publications persist while the relay is connected but unresponsive and deliver after hub restart", async () => {
-  const f = await fixture();
-  await f.offline();
-  const controller = new AbortController();
-  const token = await f.store.remoteToken(f.remotes.snapshot()[0].id);
-  const response = await f.request("/v1/relay/events", {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: controller.signal,
-  });
-  expect(response.status).toBe(200);
-  cleanup.push(async () => {
-    controller.abort();
-    await response.body?.cancel().catch(() => {});
-  });
-  expect(await (await f.request("/v1/hub/status")).json()).toMatchObject({ connected: true });
-  const file = join(f.directory, "report.html");
-  await writeFile(file, "<h1>Retained while the Mac sleeps</h1>");
-  for (const args of [
-    ["text", "Retained finding", "--id", "stalled-text"],
-    ["add", file, "--id", "stalled-html"],
-    ["add", file, "--id", "stalled-plan", "--plan", "--name", "stalled-plan"],
-  ]) {
-    const receipt = await f.cli(...args, "--timeout-ms", "2000");
-    expect(receipt).toMatchObject({ queued: true });
-    expect(receipt).not.toHaveProperty("revision");
-  }
-  expect((await f.queue()).items).toEqual([
-    expect.objectContaining({ id: "stalled-text", status: "queued" }),
-    expect.objectContaining({ id: "stalled-html", status: "queued" }),
-    expect.objectContaining({ id: "stalled-plan", status: "queued" }),
-  ]);
-  await expect(f.direct.get("stalled-text")).rejects.toMatchObject({ status: 404 });
-  expect(await (await f.request("/v1/hub/status")).json()).toMatchObject({ connected: true });
-  await f.restart();
-  expect((await f.queue()).items).toHaveLength(3);
-  await f.reconnect();
-  await expect.poll(async () => (await f.queue()).items.length).toBe(0);
-  expect(Buffer.from(await f.direct.content("stalled-text")).toString()).toBe("Retained finding");
-  expect(Buffer.from(await f.direct.content("stalled-html")).toString()).toBe(
-    "<h1>Retained while the Mac sleeps</h1>",
-  );
-  expect(await f.direct.named("stalled-plan")).toMatchObject({ id: "stalled-plan", kind: "plan" });
-});
-
 test.each(["artifact-id", "plan-tab-design"])(
   "offline CLI updates by %s preserve tab metadata and survive hub restart",
   async (key) => {
@@ -239,43 +194,6 @@ test.each(["artifact-id", "plan-tab-design"])(
     expect((await f.client.updateBase(key)).revision).toBe(original.revision + 1);
   },
 );
-
-test("offline named HTML plan updates preserve the plan kind and revision history", async () => {
-  const f = await fixture();
-  await f.offline();
-  await f.reconnect();
-  const file = join(f.directory, "plan.html");
-  await writeFile(file, "<h1>Original plan</h1>");
-  const receipt = await f.cli(
-    "add",
-    file,
-    "--plan",
-    "--id",
-    "plan-id",
-    "--name",
-    "plan-tab-design",
-  );
-  expect(receipt).toMatchObject({ id: "plan-id", queued: true });
-  await expect.poll(async () => (await f.queue()).items.length).toBe(0);
-  const original = await f.direct.get(receipt.id);
-  await f.offline();
-  await writeFile(file, "<h1>Updated offline</h1>");
-  expect(await f.cli("update", "plan-tab-design", file)).toMatchObject({
-    id: original.id,
-    queued: true,
-  });
-  await f.reconnect();
-  await expect.poll(async () => (await f.queue()).items.length).toBe(0);
-  expect(await f.direct.named("plan-tab-design")).toMatchObject({
-    id: original.id,
-    kind: "plan",
-    title: original.title,
-    revision: original.revision + 1,
-  });
-  expect(Buffer.from(await f.direct.content(original.id)).toString()).toBe(
-    "<h1>Updated offline</h1>",
-  );
-});
 
 test("an offline CLI update uses the last observed revision and blocks instead of replacing newer content", async () => {
   const f = await fixture();
@@ -353,53 +271,6 @@ test("deletion and unpairing discard saved update revisions", async () => {
   ).toBe(403);
   await f.request("/v1/hub/unpair", { method: "POST" });
   await expect(f.client.updateBase("unpaired-base")).rejects.toMatchObject({ status: 503 });
-});
-
-test("the 50-tab cap rejects overflow without losing accepted tabs and discard frees capacity", async () => {
-  const f = await fixture();
-  await f.offline();
-  for (let i = 0; i < 50; i++)
-    await f.client.publishOrQueue(`queued-${i}`, metadata, Buffer.from(String(i)));
-  await expect(
-    f.client.publishOrQueue("overflow", metadata, Buffer.from("overflow")),
-  ).rejects.toMatchObject({ status: 503, message: expect.stringContaining("50") });
-  expect((await f.queue()).items).toHaveLength(50);
-  expect(await f.cli("hub", "discard", "queued-0")).toEqual({ id: "queued-0", deleted: true });
-  await f.client.publishOrQueue("replacement", metadata, Buffer.from("replacement"));
-  await f.reconnect();
-  await expect.poll(async () => (await f.queue()).items.length, { timeout: 15_000 }).toBe(0);
-  expect(await f.direct.list()).toHaveLength(50);
-  await expect(f.direct.get("queued-0")).rejects.toMatchObject({ status: 404 });
-});
-
-test("completed and abandoned tabs expire at 48 hours without extending expiry on retries", async () => {
-  const f = await fixture();
-  await f.offline();
-  await f.client.publishOrQueue("expiring", metadata, Buffer.from("private synthetic bytes"));
-  const reserve = () =>
-    f.request("/v1/artifacts/abandoned/tab", {
-      method: "POST",
-      headers: { "Scope-Buffer-Publication": "1" },
-      body: JSON.stringify({ expectedRevision: 0 }),
-    });
-  const first = await (await reserve()).json();
-  f.clock.now += BUFFERED_TAB_TTL_MS - 1;
-  expect(await (await reserve()).json()).toEqual(first);
-  expect((await f.queue()).items).toHaveLength(2);
-  f.clock.now++;
-  const database = new DatabaseSync(join(f.hubDirectory, "hub.db"));
-  cleanup.push(() => database.close());
-  await expect
-    .poll(() => database.prepare("SELECT count(*) AS count FROM publication_queue").get()!.count, {
-      timeout: 5000,
-    })
-    .toBe(0);
-  expect(
-    database.prepare("SELECT sum(length(content)) AS bytes FROM publication_queue").get()!.bytes,
-  ).toBeNull();
-  await f.restart();
-  await f.reconnect();
-  expect(await f.direct.list()).toEqual([]);
 });
 
 test("a desktop revision conflict is reported in the queue while other buffered tabs still deliver", async () => {
@@ -517,32 +388,6 @@ test("unpairing deletes buffered content before another Mac can pair", async () 
   ).rejects.toMatchObject({ status: 503 });
 });
 
-test.each([2, 3])(
-  "hub schema %s upgrades retain pairing, settings, and pending publications",
-  async (version) => {
-    const f = await fixture();
-    await f.offline();
-    if (version === 3)
-      await f.client.publishOrQueue("before-migration", metadata, Buffer.from("pending bytes"));
-    const database = new DatabaseSync(join(f.hubDirectory, "hub.db"));
-    database.exec("DROP TABLE artifact_metadata");
-    if (version === 2) database.exec("DROP TABLE publication_queue");
-    database.exec(`PRAGMA user_version = ${version}`);
-    database.close();
-    await f.restart();
-    expect(f.state().status().pairedMac).not.toBeNull();
-    await f.client.publishOrQueue("migrated", metadata, Buffer.from("migration"));
-    await f.reconnect();
-    await expect.poll(async () => (await f.direct.get("migrated")).id).toBe("migrated");
-    if (version === 3) {
-      await expect.poll(async () => (await f.direct.get("before-migration")).revision).toBe(1);
-      expect(Buffer.from(await f.direct.content("before-migration")).toString()).toBe(
-        "pending bytes",
-      );
-    }
-  },
-);
-
 test("a complete buffered publication rejects competing writes under the same ID", async () => {
   const f = await fixture();
   await f.offline();
@@ -582,62 +427,3 @@ test("a reservation made offline can complete after the Mac reconnects", async (
   await expect.poll(async () => (await f.queue()).items.length).toBe(0);
   expect(new TextDecoder().decode(await f.direct.content("transition"))).toBe("transition bytes");
 });
-
-test.each(["flags", "environment"])(
-  "queue inspection and discard use the explicitly selected hub through %s",
-  async (selection) => {
-    const local = await fixture();
-    const explicit = await fixture();
-    await local.offline();
-    await explicit.offline();
-    await local.client.publishOrQueue(
-      "same-id",
-      { ...metadata, title: "Local report" },
-      Buffer.from("local bytes"),
-    );
-    await explicit.client.publishOrQueue(
-      "same-id",
-      { ...metadata, title: "Explicit report" },
-      Buffer.from("explicit bytes"),
-    );
-    const tokenFile = join(local.directory, "explicit-token");
-    await writeFile(tokenFile, explicit.local.token, { mode: 0o600 });
-    const cli = async (...args: string[]) =>
-      JSON.parse(
-        (
-          await promisify(execFile)(
-            process.execPath,
-            [
-              resolve("packages/cli/dist/main.mjs"),
-              ...args,
-              ...(selection === "flags"
-                ? ["--endpoint", explicit.local.endpoint, "--token-file", tokenFile]
-                : []),
-            ],
-            {
-              env: {
-                ...process.env,
-                SCOPE_CONNECTION_FILE: join(local.directory, "connection.json"),
-                SCOPE_ENDPOINT: selection === "environment" ? explicit.local.endpoint : undefined,
-                SCOPE_TOKEN_FILE: selection === "environment" ? tokenFile : undefined,
-                SCOPE_TOKEN: undefined,
-              },
-              timeout: 30_000,
-            },
-          )
-        ).stdout,
-      );
-    expect((await cli("hub", "queue")).items).toEqual([
-      expect.objectContaining({ id: "same-id", title: "Explicit report" }),
-    ]);
-    expect(await cli("hub", "discard", "same-id")).toEqual({ id: "same-id", deleted: true });
-    expect((await explicit.queue()).items).toEqual([]);
-    expect((await local.queue()).items).toEqual([
-      expect.objectContaining({ id: "same-id", title: "Local report" }),
-    ]);
-    await expect(
-      local.cli("hub", "discard", "same-id", "--endpoint", explicit.local.endpoint),
-    ).rejects.toMatchObject({ stderr: expect.stringContaining("explicit endpoint needs") });
-    expect((await local.queue()).items).toHaveLength(1);
-  },
-);

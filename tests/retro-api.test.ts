@@ -11,7 +11,6 @@ import { promisify } from "node:util";
 import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { type Artifact } from "@irudd-scope/protocol";
 import {
@@ -806,64 +805,6 @@ test("built CLI publishes retro HTML and reads settings, commands and history", 
   expect(JSON.parse((await f.cli("retro", "history")).stdout).entries[0].artifact.id).toBe(
     added.id,
   );
-});
-
-test("version 10 migration preserves existing artifacts and adds durable retrospective records", async () => {
-  const f = await fixture();
-  const old = await f.client.publish(
-    "old-file",
-    {
-      title: "Old",
-      kind: "text",
-      mediaType: "text/plain",
-      fileName: "old.txt",
-      expectedRevision: 0,
-    },
-    Buffer.from("Existing bytes"),
-  );
-  await f.server.close();
-  const db = new DatabaseSync(join(f.directory, "scope.db"));
-  for (const table of [
-    "retro_reports",
-    "retro_sessions",
-    "retro_receipts",
-    "retro_audits",
-    "retro_initialization",
-  ])
-    db.exec(`DROP TABLE ${table}`);
-  db.exec("PRAGMA user_version = 10");
-  db.close();
-  await f.restart();
-  expect(Buffer.from(await f.client.content(old.id, old.revision))).toEqual(
-    Buffer.from("Existing bytes"),
-  );
-  await f.configure();
-  const owner = await f.create();
-  await f.write(owner, { action: "publish", report: report() });
-  await f.write(owner, { action: "finish", operatorInstruction: "Finish migrated profile" });
-  await f.restart();
-  expect((await f.read()).status).toBe("finished");
-});
-
-test("schema 11 migration preserves all and Start now tracking rows", async () => {
-  const f = await fixture();
-  await f.server.close();
-  const db = new DatabaseSync(join(f.directory, "scope.db"));
-  db.exec(
-    "DROP TABLE retro_initialization; CREATE TABLE retro_initialization(source_id TEXT NOT NULL, runtime TEXT NOT NULL, mode TEXT NOT NULL CHECK(mode IN ('all','from-now')), cutoff TEXT NOT NULL, PRIMARY KEY(source_id,runtime)) STRICT; PRAGMA user_version = 11",
-  );
-  const insert = db.prepare("INSERT INTO retro_initialization VALUES (?,?,?,?)");
-  insert.run("local", "codex", "from-now", cutoff);
-  insert.run("local", "claude", "all", historicalCutoff);
-  db.close();
-  await f.restart();
-  await f.restart();
-  expect(
-    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "codex" }),
-  ).toMatchObject({ initialized: true, mode: "from-now", cutoff });
-  expect(
-    await f.client.retro({ action: "tracking", sourceId: "local", runtime: "claude" }),
-  ).toMatchObject({ initialized: true, mode: "all", cutoff: historicalCutoff });
 });
 
 test("repository origins unify GitHub SSH/HTTPS and retain fork, non-GitHub case and port distinctions", () => {

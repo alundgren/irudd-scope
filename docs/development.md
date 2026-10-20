@@ -70,7 +70,7 @@ vp run test:remote-updates
 ```
 
 Standard validation runs at most two test files concurrently to keep Electron
-interaction responsive. Writers inside the pressure tests still compete concurrently.
+interaction responsive.
 Use `vp run test --maxWorkers=N` to override the file-worker count.
 
 Keep successful tests quiet. The minimal reporter prints totals without listing
@@ -203,43 +203,6 @@ waiting for someone to dismiss them. Use
 `SCOPE_TEST_SHOW_WINDOWS=1 vp run test tests/workspace.test.ts` to show windows
 on the current display and allow native dialogs during manual checks. Installed apps are unaffected.
 
-### Lifecycle pressure test
-
-After building, run `vp run test tests/lifecycle-pressure.test.ts --maxWorkers=1`.
-The standard test uses generated content, a temporary desktop profile, and a
-paired hub on loopback. Four publishers, two direct and two through the hub,
-exercise all six artifact kinds, shared bytes, 120 publications with
-tab overflow, drafts, and restart. It then runs two
-12-artifact create/update/delete cycles. It verifies content bytes, deletion,
-database integrity, empty content tables, and physical reclamation in all three
-databases. `tests/tab-open.test.ts` holds real IPC requests before and after
-opening to check deletion and recreation races and unrelated error reporting.
-
-For a longer run through the built CLI, with 1,600 creates, updates, and deletes
-in addition to warm-up and overflow checks:
-
-```sh
-SCOPE_PRESSURE_CYCLES=20 SCOPE_PRESSURE_COUNT=80 SCOPE_PRESSURE_KIB=64 \
-SCOPE_PRESSURE_CLI=1 SCOPE_PRESSURE_SETTLE_MS=2000 \
-SCOPE_PRESSURE_OUTPUT=/tmp/scope-pressure.json \
-vp run test tests/lifecycle-pressure.test.ts --maxWorkers=1
-```
-
-Run memory measurements without concurrent builds or other tests. The optional
-report records phase timings, main/WAL/shared-memory file sizes, allocated disk
-space, Electron RSS, and macOS physical footprint. RSS can count shared pages more than
-once. Physical-footprint sampling uses `python3` and macOS `proc_pid_rusage`;
-Linux reports RSS. Memory samples support comparison between runs, without a
-machine-dependent pass threshold. `SCOPE_PRESSURE_SETTLE_MS` sets the quiet
-period between cycle phases, defaulting to two seconds when reporting and zero
-otherwise. Reports omit hostnames, endpoints, credentials, and local paths.
-
-The test uses no installed profile, Keychain entries, real remote host, or
-provider. Its temporary pairing credentials live in memory, so it pairs again
-after restart. The local hub exercises forwarding; it does not reproduce a
-physical network's latency or outages. Temporary profiles and processes are
-removed even when assertions fail.
-
 ### Performance measurements
 
 The comprehensive Linux protocol keeps one visible Electron session running while
@@ -303,8 +266,7 @@ Native `git.exe` and `gh.exe` must also be on PATH, with `gh` authenticated as
 the current desktop user. macOS and Linux retain the daily tool upgrade.
 
 `tests/memory-viewer.test.ts` exercises the native tab in real Electron with
-synthetic memory files and CLI responses. `tests/memory-viewer-queue.test.ts`
-checks cancellation and ordering with Git sync, without credentials or a live
+synthetic memory files and CLI responses, without credentials or a live
 GitHub repository. The synthetic CLI models file hashes and save conflicts.
 
 ## GitHub pull request inboxes

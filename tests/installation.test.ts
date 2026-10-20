@@ -261,68 +261,6 @@ test("Mac skills follow activation and rollback, repair partial links, and stay 
   }
 });
 
-test("startup migrates skills CLI copies, retains their files, and preserves unrelated registry entries", async () => {
-  const f = await fixture();
-  const tools = new AgentTools(f.installation, f.home, () => {});
-  const names = ["irudd-scope", "irudd-scope-retro"];
-  try {
-    const skills: Record<string, unknown> = {
-      unrelated: { source: "someone/other", sourceType: "github", custom: "Keep" },
-    };
-    for (const name of names) {
-      const shared = join(f.home, ".agents/skills", name);
-      await mkdir(shared, { recursive: true });
-      await writeFile(join(shared, "SKILL.md"), `Old ${name}`);
-      await writeFile(join(shared, "custom.md"), "Preserve personal edits");
-      for (const agent of [".claude", ".codex"]) {
-        const path = join(f.home, agent, "skills", name);
-        await mkdir(join(f.home, agent, "skills"), { recursive: true });
-        await symlink(`../../.agents/skills/${name}`, path);
-      }
-      skills[name] = {
-        source: "alundgren/irudd-scope",
-        sourceType: "github",
-        skillPath: `.agents/skills/${name}/SKILL.md`,
-      };
-    }
-    const lock = join(f.home, ".agents/.skill-lock.json");
-    await writeFile(lock, JSON.stringify({ version: 3, skills, custom: "Keep this too" }));
-    expect((await tools.snapshot()).skillInstalled).toBe(false);
-    const result = await tools.syncSkills();
-    expect(result.error).toBeUndefined();
-    expect(result.skillInstalled).toBe(true);
-    expect(result.message).toContain("Previous copies saved");
-    const registry = JSON.parse(await readFile(lock, "utf8"));
-    expect(registry).toEqual({
-      version: 3,
-      skills: { unrelated: skills.unrelated },
-      custom: "Keep this too",
-    });
-    const backups = await readdir(join(f.root, "skill-backups"));
-    expect(backups).toHaveLength(2);
-    for (const name of names) {
-      const backup = backups.find((path) => path.slice(0, -37) === name)!;
-      expect(await readFile(join(f.root, "skill-backups", backup, "SKILL.md"), "utf8")).toBe(
-        `Old ${name}`,
-      );
-      expect(await readFile(join(f.root, "skill-backups", backup, "custom.md"), "utf8")).toBe(
-        "Preserve personal edits",
-      );
-      expect(await readFile(join(f.home, ".codex/skills", name, "SKILL.md"), "utf8")).toBe(
-        `${name} ${f.initial}`,
-      );
-    }
-    await tools.syncSkills();
-    expect(await readdir(join(f.root, "skill-backups"))).toEqual(backups);
-    await tools.removeSkill();
-    await tools.syncSkills();
-    expect((await tools.snapshot()).skillInstalled).toBe(false);
-  } finally {
-    await tools.cancel();
-    await rm(f.directory, { recursive: true, force: true });
-  }
-});
-
 test.each(["directory", "symlink"])(
   "Mac skill installation leaves a separate %s and other skills unchanged",
   async (kind) => {

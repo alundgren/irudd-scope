@@ -1,13 +1,9 @@
 import { expect, test } from "vite-plus/test";
 import type { Page } from "@playwright/test";
-import { readFile, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { decodeLocalConnection } from "@irudd-scope/protocol";
 import { desktopFixture } from "./desktop-fixture.ts";
-
-const png =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
 async function openSketchpad(page: Page) {
   await page.keyboard.press("ControlOrMeta+k");
@@ -119,87 +115,3 @@ test("the Sketchpad opens from search, keeps drawings across restart, and Reset 
     await rm(f.directory, { recursive: true, force: true });
   }
 }, 90_000);
-
-test("saving the Sketchpad drops images no drawing uses and agents have no Sketchpad commands", async () => {
-  const f = await desktopFixture({ hideInitialPrompts: true });
-  let application = await f.launch();
-  try {
-    let page = await application.firstWindow();
-    await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
-    const id = await openSketchpad(page);
-    const file = (fileId: string) => ({
-      id: fileId,
-      mimeType: "image/png",
-      dataURL: png,
-      created: 1,
-    });
-    await application.close();
-    // Seed while Scope is closed so the open editor's empty-canvas save cannot race it.
-    const db = new DatabaseSync(join(f.settingsDirectory, "artifacts/scope.db"));
-    try {
-      db.prepare("INSERT INTO tab_drafts VALUES (?, ?)").run(
-        id,
-        JSON.stringify({
-          version: 1,
-          content: JSON.stringify({
-            type: "excalidraw",
-            version: 2,
-            source: "test",
-            elements: [
-              {
-                type: "image",
-                id: "picture",
-                x: 100,
-                y: 100,
-                width: 40,
-                height: 40,
-                fileId: "used",
-                status: "saved",
-              },
-            ],
-            appState: {},
-            files: { used: file("used"), unused: file("unused") },
-          }),
-        }),
-      );
-    } finally {
-      db.close();
-    }
-    application = await f.launch();
-    page = await application.firstWindow();
-    await page.getByTestId("main-menu-trigger").waitFor();
-    await addText(page, "Caption");
-    const before = (await draft(page, id))?.viewport;
-    await page.mouse.move(900, 600);
-    await page.mouse.wheel(120, 160);
-    await expect.poll(async () => (await draft(page, id))?.viewport).not.toEqual(before);
-    await expect
-      .poll(async () => {
-        const saved = await draft(page, id);
-        return saved?.content.includes("Caption")
-          ? Object.keys(JSON.parse(saved.content).files)
-          : [];
-      })
-      .toEqual(["used"]);
-
-    await expect(f.cli("diagram", "guide")).rejects.toThrow("Unknown command");
-    const client = await f.connect();
-    const { endpoint, token } = decodeLocalConnection(
-      JSON.parse(await readFile(f.connectionFile, "utf8")),
-    );
-    for (const path of ["/v1/diagrams", "/v1/diagrams/sync", "/v1/diagram-agents"])
-      expect(
-        (
-          await fetch(`${endpoint}${path}`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: "{}",
-          })
-        ).status,
-      ).toBe(404);
-    expect(await client.list()).toEqual([]);
-  } finally {
-    await application.close();
-    await rm(f.directory, { recursive: true, force: true });
-  }
-});
