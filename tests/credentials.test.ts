@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vite-plus/test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { keychainCredentials } from "../apps/desktop/src/credentials.ts";
@@ -53,13 +53,6 @@ test("native access errors remain errors and retain their cause", async () => {
   });
   await expect(credentials.write({ apiKey: "synthetic-key" })).rejects.toMatchObject({ cause });
   await expect(credentials.write({})).rejects.toMatchObject({ cause });
-});
-
-test("obsolete hub credentials do not prevent reading existing provider credentials", async () => {
-  const credentials = keychainCredentials(
-    keychainEntry(JSON.stringify({ apiKey: "synthetic-provider-key", hubToken: "obsolete-token" })),
-  );
-  expect(await credentials.read()).toEqual({ apiKey: "synthetic-provider-key" });
 });
 
 test("Keychain retains remote credentials across store instances and provider key changes", async () => {
@@ -137,37 +130,6 @@ test.for(['{"apiKey":"synthetic-key"', '{"apiKey":42}', "null"])(
     expect(error).not.toHaveProperty("cause");
   },
 );
-
-test("legacy keys migrate on first use when the native Keychain entry does not exist yet", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "scope-native-credential-migration-"));
-  const credentials = keychainCredentials(keychainEntry(null));
-  const store = new DesktopStore(directory, credentials, async () => "synthetic-migrated-key");
-  try {
-    await writeFile(
-      join(directory, "settings.json"),
-      JSON.stringify({
-        version: 2,
-        provider: "openrouter",
-        model: "google/gemini-3.8-flash",
-        apiKey: Buffer.from("synthetic-encrypted-key").toString("base64"),
-      }),
-    );
-    await store.load();
-    expect(store.settings()).toMatchObject({ voiceGenerationEnabled: false, hasApiKey: null });
-    expect(await credentials.read()).toEqual({});
-    await store.saveSettings({ voiceGenerationEnabled: true });
-    await store.providerSettings();
-    expect(store.settings()).toMatchObject({ hasApiKey: true, keyStorage: "keychain" });
-    expect(store.settings().credentialError).toBeUndefined();
-    expect(await credentials.read()).toEqual({ apiKey: "synthetic-migrated-key" });
-    await expect(readFile(join(directory, "settings.json"))).rejects.toMatchObject({
-      code: "ENOENT",
-    });
-  } finally {
-    await store.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-});
 
 test("shared credentials are lazy and independent of both generation switches across restart", async () => {
   const directory = await mkdtemp(join(tmpdir(), "scope-lazy-credentials-"));

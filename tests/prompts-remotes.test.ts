@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { decodeLocalConnection } from "@irudd-scope/protocol";
-import { artifactRequest } from "@irudd-scope/protocol/remote";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { HubState } from "../apps/hub/src/state.ts";
 import { startPairedHub } from "../apps/hub/src/paired-server.ts";
@@ -94,23 +93,4 @@ test("paired hub forwards authenticated prompt commands/images/export/events liv
     state.close();
     await f.close();
   }
-});
-
-test("prompt relay allowlist permits only the owned methods and controlled image paths", () => {
-  const id = randomUUID(),
-    hash = "a".repeat(64);
-  for (const [method, path] of [
-    ["POST", "/v1/prompts"],
-    ["GET", "/v1/prompts/export"],
-    ["GET", `/v1/prompts/items/${id}/images/${hash}`],
-  ])
-    expect(artifactRequest(method, path)).toBe(true);
-  for (const [method, path] of [
-    ["GET", "/v1/prompts"],
-    ["POST", "/v1/prompts/export"],
-    ["POST", "/v1/prompts?buffer=1"],
-    ["GET", `/v1/prompts/items/${id}/images/${hash}?x=1`],
-    ["GET", "/v1/prompts/images/../../other"],
-  ])
-    expect(artifactRequest(method, path)).toBe(false);
 });

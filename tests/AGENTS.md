@@ -14,8 +14,7 @@ checks tab ownership, publication races, cache convergence, and process crashes.
 `maintenance.test.ts` checks scheduling, interruption, and disk reclamation.
 `desktop-storage.test.ts` and `credentials.test.ts` cover preferences, drafts,
 and credential failures.
-`sketchpad.test.ts` and `sketchpad-fullscreen.test.ts` cover the Sketchpad
-through Electron. `desktop.test.ts` and
+`sketchpad.test.ts` covers the Sketchpad through Electron. `desktop.test.ts` and
 `workspace.test.ts` and `tab-types.test.ts` exercise real Electron through
 `desktop-fixture.ts`. `tab-events.test.ts` checks group routing and subscription
 cleanup through the tab event API.

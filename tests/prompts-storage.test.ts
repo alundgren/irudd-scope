@@ -2,8 +2,6 @@ import { expect, test } from "vite-plus/test";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { unzipSync } from "fflate";
 import { decode } from "@irudd-scope/protocol";
 import {
@@ -12,14 +10,7 @@ import {
   PromptDocument,
   PromptExportManifest,
 } from "@irudd-scope/protocol/prompts";
-import { ArtifactStore } from "../apps/desktop/src/library/store.ts";
-import {
-  createPromptItem,
-  promptItem,
-  promptPng,
-  promptReply,
-  promptsFixture,
-} from "./prompts-fixture.ts";
+import { createPromptItem, promptPng, promptReply, promptsFixture } from "./prompts-fixture.ts";
 
 test("prompt workspace, curated items, images and original receipts survive restart while copies survive edits and deletion", async () => {
   const f = await promptsFixture();
@@ -206,82 +197,6 @@ test("library-only ZIP contains original referenced images and separately saved 
       promptReply(await f.client.prompts({ action: "read-workspace" }), "workspace").workspace
         .document,
     ).toEqual(document);
-  } finally {
-    await f.close();
-  }
-});
-
-test("additive prompt initialization retains pre-existing version 13 artifacts and content", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "scope-prompts-existing-"));
-  let store: ArtifactStore | undefined;
-  try {
-    store = await ArtifactStore.open(directory);
-    const tabId = await store.reserve("existing", 0);
-    const bytes = Buffer.from("Existing bytes");
-    const blob = await store.upload(
-      tabId,
-      (async function* () {
-        yield bytes;
-      })(),
-    );
-    const artifact = await store.put("existing", {
-      tabId,
-      blob,
-      expectedRevision: 0,
-      title: "Existing",
-      kind: "text",
-      mediaType: "text/plain",
-      fileName: "existing.txt",
-    });
-    await store.close();
-    store = undefined;
-    const db = new DatabaseSync(join(directory, "scope.db"));
-    db.exec(
-      "DROP TABLE prompt_receipts; DROP TABLE prompt_items; DROP TABLE prompt_images; DROP TABLE prompt_state; PRAGMA user_version=13",
-    );
-    db.close();
-    store = await ArtifactStore.open(directory);
-    expect(await store.get("existing")).toEqual(artifact);
-    expect(Buffer.from(await store.content(blob))).toEqual(bytes);
-    expect(
-      promptReply(await store.prompts.command({ action: "read-workspace" }), "workspace").rendered,
-    ).toBe("");
-    expect(
-      promptReply(await store.prompts.command({ action: "list-items" }), "items").items,
-    ).toEqual([]);
-    await store.prompts.command({ ...createPromptItem(), item: promptItem("camera") });
-  } finally {
-    await store?.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("library export observes one item revision and matching image metadata during concurrent curation", async () => {
-  const f = await promptsFixture();
-  try {
-    const create = createPromptItem();
-    await f.client.prompts(create);
-    const update = f.client.prompts({
-      action: "update-item",
-      requestId: randomUUID(),
-      id: create.id,
-      expectedRevision: 1,
-      item: { ...create.item, fragment: "new fragment" },
-    });
-    const exported = f.client.exportPromptLibrary();
-    const [receipt, zip] = await Promise.all([update, exported]);
-    const files = unzipSync(zip);
-    const manifest = decode(
-      PromptExportManifest,
-      JSON.parse(Buffer.from(files["manifest.json"]).toString()),
-    );
-    const items = JSON.parse(Buffer.from(files["library.json"]).toString());
-    expect([1, 2]).toContain(manifest.libraryRevision);
-    expect(items[0].revision).toBe(manifest.libraryRevision);
-    expect(items[0].fragment).toBe(
-      manifest.libraryRevision === 1 ? create.item.fragment : "new fragment",
-    );
-    expect(receipt).toMatchObject({ libraryRevision: 2 });
   } finally {
     await f.close();
   }

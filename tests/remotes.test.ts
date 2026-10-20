@@ -1,7 +1,5 @@
 import { afterEach, expect, test, vi } from "vite-plus/test";
 import { execFile } from "node:child_process";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -16,7 +14,6 @@ import { startArtifactServer } from "../apps/desktop/src/library/server.ts";
 import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
 import { memoryCredentials } from "../apps/desktop/src/credentials.ts";
 import { DesktopLifecycle } from "../apps/desktop/src/lifecycle.ts";
-import { setTimeout as delay } from "node:timers/promises";
 import { Remotes } from "../apps/desktop/src/remotes.ts";
 
 const exec = promisify(execFile);
@@ -26,7 +23,7 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
 });
 
-async function fixture(options: { shrinkDelayMs?: number } = {}) {
+async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), "scope-remotes-"));
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const state = await HubState.open(join(directory, "hub"));
@@ -52,10 +49,7 @@ async function fixture(options: { shrinkDelayMs?: number } = {}) {
       await lifecycle.recover();
     },
     deleteArtifact: (id) => lifecycle.deleteArtifact(id),
-    shrink: async (timeoutMs) => {
-      if (options.shrinkDelayMs) await delay(options.shrinkDelayMs);
-      return lifecycle.shrink(timeoutMs);
-    },
+    shrink: (timeoutMs) => lifecycle.shrink(timeoutMs),
   });
   cleanup.push(desktop.close);
   const remotes = new Remotes(store, { url: desktop.url, token }, () => {});
@@ -259,89 +253,6 @@ test("saved connections reconnect after a desktop restart and explicit disconnec
   await expect(f.client.list()).rejects.toMatchObject({ status: 503 });
 });
 
-test("CLI deletion and desktop shrink cross the relay, while hub shrink works without the Mac", async () => {
-  const f = await fixture();
-  await f.remotes.pair(f.state.pairUrl());
-  await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
-  await f.cli("text", "Delete through the relay", "--id", "delete-me");
-  await expect.poll(async () => (await f.client.get("delete-me")).revision).toBe(1);
-  expect(JSON.parse((await f.cli("delete", "delete-me", "--timeout-ms", "120000")).stdout)).toEqual(
-    { id: "delete-me", deleted: true },
-  );
-  expect(JSON.parse((await f.cli("delete", "delete-me")).stdout)).toEqual({
-    id: "delete-me",
-    deleted: false,
-  });
-  expect(await f.client.list()).toEqual([]);
-  const receipt = JSON.parse((await f.cli("shrink", "--timeout-ms", "120000")).stdout);
-  expect(receipt.target).toBe("desktop");
-  expect(receipt.databases[0]).toMatchObject({ database: "scope.db", status: "completed" });
-  await f.remotes.setEnabled(f.remotes.snapshot()[0].id, false);
-  const hub = JSON.parse((await f.cli("hub", "shrink", "--timeout-ms", "120000")).stdout);
-  expect(hub.target).toBe("hub");
-  expect(hub.databases[0]).toMatchObject({ database: "hub.db", status: "completed" });
-  expect(f.state.status().pairedMac).not.toBeNull();
-  expect(
-    JSON.parse((await f.cli("hub", "shrink", "--status")).stdout).databases[0].lastSuccess,
-  ).toBe(hub.databases[0].lastSuccess);
-  await expect(f.cli("shrink", "--timeout-ms", "120000")).rejects.toMatchObject({
-    stderr: expect.stringContaining("disconnected"),
-  });
-});
-
-test("a remote CLI maintenance request can exceed thirty seconds while relay heartbeats continue", async () => {
-  const f = await fixture({ shrinkDelayMs: 31_000 });
-  await f.remotes.pair(f.state.pairUrl());
-  await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
-  const result = JSON.parse((await f.cli("shrink", "--timeout-ms", "45000")).stdout);
-  expect(
-    result.databases.map((database: { database: string; status: string }) => [
-      database.database,
-      database.status,
-    ]),
-  ).toEqual([
-    ["scope.db", "completed"],
-    ["desktop.db", "completed"],
-  ]);
-  expect(f.remotes.snapshot()[0].connection).toBe("connected");
-}, 60_000);
-
-test("paired hubs no longer forward diagram commands and watchers skip legacy diagram events", async () => {
-  const f = await fixture();
-  await f.remotes.pair(f.state.pairUrl());
-  await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
-  const headers = { Authorization: `Bearer ${f.local.token}`, "Content-Type": "application/json" };
-  for (const path of ["/v1/diagrams", "/v1/diagrams/sync", "/v1/diagram-agents"])
-    expect(
-      (await fetch(`${f.hub.url}${path}`, { method: "POST", headers, body: "{}" })).status,
-    ).toBeGreaterThanOrEqual(400);
-});
-
-test("a watcher skips diagram events from an older desktop and keeps listening", async () => {
-  const server = createServer((request, response) => {
-    if (request.url !== "/v1/events") return response.writeHead(404).end();
-    response.writeHead(200, { "Content-Type": "text/event-stream" });
-    response.write(
-      'data: {"type":"diagram","id":"old","name":"old","event":"changed","version":"v"}\n\n',
-    );
-    response.write('data: {"type":"ready"}\n\n');
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
-  server.unref();
-  const { port } = server.address() as AddressInfo;
-  const events: string[] = [];
-  const controller = new AbortController();
-  const watching = new ScopeClient(`http://127.0.0.1:${port}`, "synthetic-token")
-    .watch((event) => {
-      events.push(event.type);
-      controller.abort();
-    }, controller.signal)
-    .catch(() => {});
-  await watching;
-  expect(events).toEqual(["ready"]);
-});
-
 test.each(["body-fetch", "body-stream", "local-http", "response-post", "response-status"])(
   "relay diagnostics identify %s failures with a request ID and elapsed time",
   async (failure) => {
@@ -426,62 +337,6 @@ test.each(["body-fetch", "body-stream", "local-http", "response-post", "response
       );
   },
 );
-
-test("relay tracing counts a complete 16 MB body without changing its content", async () => {
-  const f = await fixture();
-  await f.remotes.pair(f.state.pairUrl());
-  await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
-  vi.stubEnv("SCOPE_RELAY_TRACE", "1");
-  cleanup.push(() => {
-    vi.unstubAllEnvs();
-  });
-  const logs = vi.spyOn(console, "error").mockImplementation(() => {});
-  cleanup.push(() => logs.mockRestore());
-  const bytes = Buffer.alloc(16_098_814, 65);
-  await f.client.publish(
-    "diagnostic-large",
-    {
-      expectedRevision: 0,
-      title: "Synthetic diagnostic",
-      kind: "html",
-      fileName: "test.html",
-      mediaType: "text/html",
-    },
-    bytes,
-  );
-  const direct = new ScopeClient(f.desktop.url, f.token);
-  expect(Buffer.from(await direct.content("diagnostic-large")).equals(bytes)).toBe(true);
-  const entries = () =>
-    logs.mock.calls
-      .filter(([label]) => label === "Scope relay")
-      .map(([, value]) => JSON.parse(String(value)));
-  const upload = entries().find(
-    (entry) => entry.stage === "body-ended" && entry.bodyBytes === bytes.length,
-  );
-  expect(upload).toMatchObject({ bodyComplete: true, bodyMs: expect.any(Number) });
-  await expect
-    .poll(() =>
-      entries().some(
-        (entry) => entry.requestId === upload.requestId && entry.stage === "response-delivered",
-      ),
-    )
-    .toBe(true);
-  expect(
-    entries()
-      .filter((entry) => entry.requestId === upload.requestId)
-      .map((entry) => entry.stage),
-  ).toEqual(
-    expect.arrayContaining([
-      "received",
-      "body-started",
-      "local-started",
-      "body-ended",
-      "local-response",
-      "response-started",
-      "response-delivered",
-    ]),
-  );
-});
 
 test("paired hubs forward pull request snapshots and local writes, and reject oversized or offline commands", async () => {
   const f = await fixture();

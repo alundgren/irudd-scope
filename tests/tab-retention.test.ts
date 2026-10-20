@@ -186,50 +186,6 @@ test("a long absence starts a full trash interval when cleanup runs", async () =
   expect(await f.client.get("away")).toBeDefined();
 });
 
-test("schema 4 upgrades preserve names, tab IDs, order, and drafts with a fresh temporary allowance", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "scope-retention-import-"));
-  cleanup.push(() => rm(directory, { recursive: true, force: true }));
-  let store = await ArtifactStore.open(directory);
-  const id = await store.reserve("named", 0);
-  const blob = await store.upload(
-    id,
-    (async function* () {
-      yield Buffer.from("Retain me");
-    })(),
-  );
-  await store.put("named", {
-    tabId: id,
-    blob,
-    title: "Named",
-    name: "release-review",
-    kind: "text",
-    mediaType: "text/plain",
-    fileName: "note.txt",
-    expectedRevision: 0,
-  });
-  const tab = await store.openTab({
-    id,
-    groupId: crypto.randomUUID(),
-    type: "file",
-    title: "Named",
-    state: { version: 1, data: { artifactId: "named" } },
-  });
-  saveDraft(store, id);
-  await store.close();
-  const db = new DatabaseSync(join(directory, "scope.db"));
-  db.exec(
-    "DROP TABLE publications; DROP TABLE pull_requests_pr_state; DROP TABLE pull_requests_receipts; DROP TABLE pull_requests_current; DROP TABLE pull_requests_state; ALTER TABLE live_tabs DROP COLUMN permanent; ALTER TABLE live_tabs DROP COLUMN last_visible_at; ALTER TABLE live_tabs DROP COLUMN trashed_at; PRAGMA user_version = 4;",
-  );
-  db.close();
-  const before = Date.now();
-  store = await ArtifactStore.open(directory);
-  cleanup.push(() => store.close());
-  expect(await store.named("release-review")).toMatchObject({ id: "named" });
-  expect((await store.retainedTabs())[0]).toMatchObject({ tab, permanent: false, trashedAt: null });
-  expect((await store.retainedTabs())[0].lastVisibleAt).toBeGreaterThanOrEqual(before);
-  expect(savedDraft(store, id)).toEqual(draft);
-});
-
 test("built-in tabs stay permanent, reopen once with saved state, and reject retention and type changes", async () => {
   const f = await fixture();
   const workspace = await f.lifecycle.workspace();

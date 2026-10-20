@@ -169,13 +169,6 @@ export const lintExceptions: readonly LintException[] = [
       "The keyboard handler distinguishes entry from the search field, wrapping through results in either direction, and Enter activation. These short branches implement one focus movement and exclude unrelated controls.",
   },
   {
-    file: "tests/tab-overflow.test.ts",
-    at: 'test("150 tabs use a searchable overflow picker, keep their order, and survive restart", async () => {',
-    limits: { complexity: 12 },
-    reason:
-      "One Electron scenario checks publication, keyboard selection, both appearances, restart, and deletion against the same 150-tab workspace. Conditional fixture titles and optional screenshot capture belong with the complete user flow.",
-  },
-  {
     file: "apps/hub/src/paired-server.ts",
     at: "async function handleHub(",
     limits: { complexity: 17 },
@@ -267,23 +260,10 @@ export const lintExceptions: readonly LintException[] = [
       "Maintenance holds one write barrier through cleanup, disk checks, vacuum, and receipt persistence. Keep completion and failure handling with the final barrier release so a failed receipt cannot leave database writers blocked.",
   },
   {
-    file: "tests/artifacts.test.ts",
-    limits: { "max-lines": 502 },
-    reason:
-      "These publication tests share real CLI, HTTP server, and isolated library fixtures. The file groups successful publication with authentication, forwarding, deadlines, and provenance failures at the same public entry points.",
-  },
-  {
     file: "tests/installation.test.ts",
     limits: { "max-lines": 635 },
     reason:
       "Installer, activation, update, and signing tests share synthetic app bundles and process fixtures. Keeping those installation lifecycle cases together avoids duplicating fixture setup across files.",
-  },
-  {
-    file: "tests/lifecycle-pressure.test.ts",
-    at: "async () => {\nconst f = await desktopFixture({ hideInitialPrompts: true });",
-    limits: { complexity: 12, "max-lines-per-function": 273 },
-    reason:
-      "The pressure journey carries local and relayed publications through overflow, restart, queued-tab draining, repeated updates, deletion, and shrinking. The same session and baseline are needed to verify eventual reclamation and preserve diagnostic samples on failure.",
   },
   {
     file: "tests/lifecycle.test.ts",
@@ -304,25 +284,5 @@ export const lintExceptions: readonly LintException[] = [
     limits: { complexity: 15 },
     reason:
       "The viewer matrix covers all artifact kinds in both appearances, focus mode, restart, and permanent close. Branches select kind-specific observable checks while reusing the real desktop session.",
-  },
-  {
-    file: "tests/workspace.test.ts",
-    at: 'test("the compact workspace preserves reading position, supports overflowing tabs, and searches settings", async () => {',
-    limits: { "max-lines-per-function": 173 },
-    reason:
-      "The journey retains the same mounted reading pane through overflowing tabs, focus, settings search, background updates, deletion, and restart. Shared session state is the behavior under test.",
-  },
-  {
-    file: "tools/benchmark.ts",
-    limits: { "max-lines": 609 },
-    reason:
-      "This standalone measurement tool keeps synthetic content, process sampling, CLI timings, and report definitions beside its ordered desktop experiment. It has no application callers requiring separate modules.",
-  },
-  {
-    file: "tools/benchmark.ts",
-    at: "async function main() {",
-    limits: { complexity: 24, "max-lines-per-function": 286 },
-    reason:
-      "The benchmark intentionally measures an ordered progression from empty startup through publication, large content, many tabs, and restart. One resource owner writes partial results on failure and closes the active Electron process.",
   },
 ];
