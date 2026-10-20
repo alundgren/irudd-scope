@@ -230,7 +230,7 @@ export function ActivityView({
         <Button
           variant={selectedOnly ? "secondary" : "outline"}
           size="sm"
-          aria-pressed={options.onlySelected && !!state.focusPath}
+          aria-pressed={selectedOnly}
           disabled={busy || !state.focusPath}
           onClick={() => update({ onlySelected: !options.onlySelected })}
         >

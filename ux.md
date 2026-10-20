@@ -460,7 +460,8 @@ The agent can initialize a new empty folder through `librarian apply`.
 
 Memory enables local reading. Git sync has a separate opt-in switch when a
 repository is connected. Existing repository preferences remain compatible.
-Sync status stays in Settings; conflicts offer an agent request. Scope performs
+Settings holds every memory and sync control; conflicts offer an agent request.
+Librarian's Machines view shows the same per-machine status read-only. Scope performs
 no background memory curation or agent calls. Weekly dreaming reminders start
 on, can be disabled in Settings, and retain their due and dismissal dates.
 Missed reminders produce one notice while Scope is running. Dismissing schedules
@@ -469,10 +470,37 @@ the next week. A reminder never begins dreaming.
 ## Librarian
 
 Librarian replaces the personal memory wiki and graph in the permanent built-in
-tab. Browsing opens a small page of folders and memories. Search replaces that
-page with results; choosing a result opens one memory. Reading keeps the text
-central and offers Back to results. Editing and discussion belong to the
-existing coding session.
+tab. Views for Browse, Connections, Stages, Activity and Machines share one
+selected memory and each keep their place, filters and scroll position across
+restart. Editing and discussion belong to the existing coding session; no view
+changes memory.
+
+Browse opens a small page of folders and memories. Search and the Stage, Kind,
+Applies to and Tag filters replace that page with results. Filter counts cover
+the whole library; combined with search they cover the first 300 search hits and
+say so. On a wide window the results stay beside the memory being read; on a
+narrow one the reader replaces them and offers Back to results. The reader shows
+stage, kind, applicability and review as separate plain details, tags as filter
+buttons, references with broken targets explained, backlinks, a back trail, and
+the memory's recorded changes on request.
+
+Connections draws explicit links one or two steps from the selected memory with
+a capped number of nodes, and lists every connected memory with its relation for
+keyboard use. Shared tags are an optional overlay labelled as not a reference.
+Stages counts the library by Bronze, Silver and Gold, says a stage is not an
+approval, and shows a memory's recorded stage changes when chosen there.
+
+Activity lists recorded changes newest first, including changes synced from
+other machines, and says what it cannot attribute. Each change shows who
+proposed and decided it, why, its dreaming run and evidence when it came from one
+on this desktop, before and after text, and cited source revisions. Recorded
+evidence opens read-only, separate from the current accepted memory. Decisions
+stay in Dreaming: a pending proposal in the open run offers Open in Dreaming.
+Machines shows each machine's observed sync state, last successful sync, tooling,
+library registration and conflicts; a machine with memory off shows only its
+sync state. A remote that disconnected keeps this session's last details,
+marked as possibly out of date, and a remote without any status is marked
+unknown. Machines lists what Scope cannot know and links to Settings.
 
 Dreaming starts when the person asks their existing agent. Scope supplies no
 chat, model call, agent launch, or automatic finish. The agent attaches its

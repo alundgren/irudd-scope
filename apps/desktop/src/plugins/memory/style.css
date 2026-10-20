@@ -349,6 +349,27 @@
 .librarian-stage.gold {
   border-top-width: 5px;
 }
+.librarian-machine-list,
+.librarian-unavailable {
+  padding-left: 0;
+  list-style: none;
+}
+.librarian-machine {
+  border-top: 1px solid var(--scope-line);
+  padding-block: var(--scope-space-3);
+}
+.librarian-offline {
+  color: var(--scope-muted);
+  font-weight: var(--scope-weight-regular);
+}
+.librarian-attention {
+  color: var(--scope-danger);
+  font-weight: var(--scope-weight-regular);
+}
+.librarian-unavailable li::before {
+  content: "– ";
+  color: var(--scope-muted);
+}
 .librarian-stage-detail {
   border-top: 1px solid var(--scope-line);
   margin-top: var(--scope-space-4);
