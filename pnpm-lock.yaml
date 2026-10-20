@@ -188,6 +188,9 @@ catalogs:
     '@types/cross-spawn':
       specifier: ^6.0.6
       version: 6.0.6
+    '@types/hast':
+      specifier: 3.0.5
+      version: 3.0.5
     '@types/node':
       specifier: 26.6.3
       version: 26.6.3
@@ -221,6 +224,9 @@ catalogs:
     fflate:
       specifier: 0.8.3
       version: 0.8.3
+    hast-util-to-jsx-runtime:
+      specifier: 2.3.6
+      version: 2.3.6
     image-size:
       specifier: 2.0.4
       version: 2.0.4
@@ -239,6 +245,12 @@ catalogs:
     react-markdown:
       specifier: 10.1.0
       version: 10.1.0
+    remark-parse:
+      specifier: 11.0.0
+      version: 11.0.0
+    remark-rehype:
+      specifier: 11.1.2
+      version: 11.1.2
     shadcn:
       specifier: 4.21.0
       version: 4.21.0
@@ -251,6 +263,9 @@ catalogs:
     typescript:
       specifier: 7.0.2
       version: 7.0.2
+    unified:
+      specifier: 11.0.5
+      version: 11.0.5
     vite-plus:
       specifier: 1.0.0-rc.1
       version: 1.0.0-rc.1
@@ -331,6 +346,9 @@ importers:
       fflate:
         specifier: 'catalog:'
         version: 0.8.3
+      hast-util-to-jsx-runtime:
+        specifier: 'catalog:'
+        version: 2.3.6
       image-size:
         specifier: 'catalog:'
         version: 2.0.4
@@ -349,13 +367,25 @@ importers:
       react-markdown:
         specifier: 'catalog:'
         version: 10.1.0(@types/react@19.3.0)(react@19.3.0)
+      remark-parse:
+        specifier: 'catalog:'
+        version: 11.0.0
+      remark-rehype:
+        specifier: 'catalog:'
+        version: 11.1.2
       tw-animate-css:
         specifier: 'catalog:'
         version: 1.4.0
+      unified:
+        specifier: 'catalog:'
+        version: 11.0.5
     devDependencies:
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.3(@voidzero-dev/vite-plus-core@1.0.0-rc.1(@types/node@26.6.3)(jiti@2.7.0)(typescript@7.0.2))
+      '@types/hast':
+        specifier: 'catalog:'
+        version: 3.0.5
       '@types/qrcode':
         specifier: 'catalog:'
         version: 1.5.6

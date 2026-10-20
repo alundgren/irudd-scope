@@ -35,6 +35,11 @@ catalog:
   "@types/cross-spawn": ^6.0.6
   fflate: 0.8.3
   image-size: 2.0.4
+  hast-util-to-jsx-runtime: 2.3.6
+  remark-parse: 11.0.0
+  remark-rehype: 11.1.2
+  unified: 11.0.5
+  "@types/hast": 3.0.5
 
 overrides:
   vite@*: "catalog:"

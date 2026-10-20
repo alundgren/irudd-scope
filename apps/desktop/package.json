@@ -20,16 +20,21 @@
     "cn": "catalog:",
     "effect": "catalog:",
     "fflate": "catalog:",
+    "hast-util-to-jsx-runtime": "catalog:",
     "image-size": "catalog:",
     "lucide-react": "catalog:",
     "qrcode": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-markdown": "catalog:",
-    "tw-animate-css": "catalog:"
+    "remark-parse": "catalog:",
+    "remark-rehype": "catalog:",
+    "tw-animate-css": "catalog:",
+    "unified": "catalog:"
   },
   "devDependencies": {
     "@tailwindcss/vite": "catalog:",
+    "@types/hast": "catalog:",
     "@types/qrcode": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",

@@ -1,7 +1,10 @@
-import { memo, useEffect, useState, type ComponentType } from "react";
-import ReactMarkdown from "react-markdown";
+import { memo, useEffect, useMemo, useState, type ComponentType } from "react";
+import { Fragment, jsx, jsxs } from "react/jsx-runtime";
+import type { Root } from "hast";
+import { toJsxRuntime } from "hast-util-to-jsx-runtime";
 import type { Artifact, ArtifactKind } from "@irudd-scope/protocol";
 import type { ArtifactContent } from "../../bridge.ts";
+import { parseMarkdownInBackground } from "./markdown-client.ts";
 
 type RendererProps = { item: ArtifactContent };
 const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
@@ -9,21 +12,43 @@ function TextView({ item }: RendererProps) {
   return <pre className="text-document">{text(item.bytes)}</pre>;
 }
 function MarkdownView({ item }: RendererProps) {
-  return (
-    <article className="markdown-document">
-      {/* react-markdown keys blocks by tag and count (h2-0, p-12). Inserting a heading above
-          another makes React move nearly every later block, which is quadratic in large
-          documents, so each content version mounts a fresh tree. */}
-      <ReactMarkdown
-        key={item.artifact.blob}
-        skipHtml
-        components={{
+  const [parsed, setParsed] = useState<{ blob: string; tree: Root }>();
+  useEffect(() => {
+    let active = true;
+    const blob = item.artifact.blob;
+    void parseMarkdownInBackground(text(item.bytes)).then((tree) => {
+      if (active) setParsed({ blob, tree });
+    });
+    return () => {
+      active = false;
+    };
+  }, [item]);
+  const content = useMemo(
+    () =>
+      parsed &&
+      toJsxRuntime(parsed.tree, {
+        Fragment,
+        jsx,
+        jsxs,
+        components: {
           a: ({ children }) => <span>{children}</span>,
           img: ({ alt }) => <span>{alt}</span>,
-        }}
-      >
-        {text(item.bytes)}
-      </ReactMarkdown>
+        },
+      }),
+    [parsed],
+  );
+  if (!parsed)
+    return (
+      <p className="empty-state" role="status">
+        Loading artifact…
+      </p>
+    );
+  return (
+    <article className="markdown-document">
+      {/* hast-util-to-jsx-runtime keys blocks by tag and count (h2-0, p-12). Inserting a heading
+          above another makes React move nearly every later block, which is quadratic in large
+          documents, so each content version mounts a fresh tree. */}
+      <Fragment key={parsed.blob}>{content}</Fragment>
     </article>
   );
 }
