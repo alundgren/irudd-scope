@@ -73,7 +73,29 @@ if (explicitRoot && ["read", "search", "graph", "write", "list"].includes(args[0
       const offset = Number(args[args.indexOf("--offset") + 1]);
       const results = concepts.filter(note => (note.raw + note.path).toLowerCase().includes(query.trim().toLowerCase()));
       process.stdout.write(JSON.stringify({ version: 1, query, results: results.slice(offset, offset + 30).map(note => ({ ...note, excerpt: note.body.slice(0, 180) })), total: results.length, limit: 30, offset: process.env.FAKE_OKF_WRONG_SEARCH_OFFSET ? offset + 1 : offset, truncated: offset + 30 < results.length }));
-    } else process.stdout.write(JSON.stringify({ version: 1, nodes: concepts.slice(0, 80), edges: concepts.flatMap(note => note.links.map(link => ({ from: `personal:${note.path}`, to: `personal:${link.target}`, ...link }))), truncated: concepts.length > 80, limit: 80 }));
+    } else {
+      const option = (name, fallback) => args.includes(name) ? args[args.indexOf(name) + 1] : fallback;
+      const limit = Number(option("--limit", 80));
+      const focus = option("--path");
+      const links = concepts.flatMap(note => note.links.map(link => ({ from: note.path, ...link })));
+      let included = concepts.map(note => note.path);
+      if (focus) {
+        // Explicit links in either direction, like irudd-okf's bounded graph.
+        const seen = new Set([focus]);
+        let frontier = [focus];
+        for (let step = 0; step < Number(option("--depth", 1)); step++) {
+          const next = [];
+          for (const link of links.filter(link => !link.external && !link.broken))
+            for (const [a, b] of [[link.from, link.target], [link.target, link.from]])
+              if (frontier.includes(a) && !seen.has(b)) { seen.add(b); next.push(b); }
+          frontier = next;
+        }
+        included = [...seen];
+      }
+      const nodes = concepts.filter(note => included.includes(note.path)).slice(0, limit);
+      const kept = new Set(nodes.map(note => note.path));
+      process.stdout.write(JSON.stringify({ version: 1, nodes, edges: links.filter(link => kept.has(link.from)).map(({ from, target, ...link }) => ({ from: `personal:${from}`, to: `personal:${target}`, ...link })), truncated: included.length > limit, limit }));
+    }
   }
 } else if (args[0] === "--version") process.stdout.write(`irudd-okf v${process.env.FAKE_OKF_VERSION ?? "0.1.0"}\n`);
 else if (args[0] === "bundle" && args[1] === "list") {

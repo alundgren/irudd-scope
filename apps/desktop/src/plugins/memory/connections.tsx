@@ -1,0 +1,233 @@
+import { useState } from "react";
+import type { LibrarianView } from "@irudd-scope/protocol/librarian";
+import { Button } from "../../renderer/components/ui/button.tsx";
+import { memoryFields, type MemoryConnections } from "./contract.ts";
+import { memoryKind, memoryStage } from "./format.ts";
+import type { Navigation } from "./navigation.ts";
+
+/** The drawing stays readable at this size; the list below always holds every node. */
+const DRAWN = 16;
+const WIDTH = 760;
+const HEIGHT = 420;
+const RINGS = [
+  { rx: 0, ry: 0 },
+  { rx: 220, ry: 115 },
+  { rx: 330, ry: 175 },
+];
+const short = (text: string) => (text.length > 22 ? `${text.slice(0, 21)}…` : text);
+
+function relation(graph: MemoryConnections, path: string) {
+  const out = graph.edges.some((edge) => edge.from === graph.focus && edge.to === path);
+  const back = graph.edges.some((edge) => edge.to === graph.focus && edge.from === path);
+  const shared = graph.sharedTags.find((entry) => entry.to === path);
+  const parts = [
+    out && back ? "References each other" : out ? "Referenced by this memory" : "",
+    !out && back ? "References this memory" : "",
+    !out && !back ? "Linked through another memory" : "",
+    shared ? `Shares #${shared.tags.join(" #")} (not a reference)` : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+export function ConnectionsView({
+  state,
+  busy,
+  navigate,
+}: {
+  state: LibrarianView;
+  busy: boolean;
+  navigate: (selection: Navigation) => void;
+}) {
+  const [drawing, setDrawing] = useState(false);
+  const graph = state.displayed as MemoryConnections | null;
+  const options = state.connections ?? { depth: 1, sharedTags: false };
+  if (!state.focusPath || !graph)
+    return (
+      <section aria-label="Connections">
+        <p>Choose a memory in Browse first. Connections shows the memories it links with.</p>
+        <Button variant="secondary" onClick={() => navigate({ view: "browse" })}>
+          Browse memories
+        </Button>
+      </section>
+    );
+  const focus = graph.nodes.find((node) => node.path === graph.focus);
+  const others = graph.nodes
+    .filter((node) => node.path !== graph.focus)
+    .sort((a, b) => a.distance - b.distance || a.title.localeCompare(b.title));
+  const drawn = others.slice(0, DRAWN - 1);
+  const position = new Map<string, { x: number; y: number }>([
+    [graph.focus, { x: WIDTH / 2, y: HEIGHT / 2 }],
+  ]);
+  for (const ring of [1, 2]) {
+    const members = drawn.filter((node) => Math.min(node.distance, 2) === ring);
+    members.forEach((node, index) => {
+      // The outer ring is turned by half a slot so its nodes sit between the inner ones.
+      const angle = ((index + (ring === 2 ? 0.5 : 0)) / members.length) * 2 * Math.PI - Math.PI / 2;
+      position.set(node.path, {
+        x: WIDTH / 2 + RINGS[ring]!.rx * Math.cos(angle),
+        y: HEIGHT / 2 + RINGS[ring]!.ry * Math.sin(angle),
+      });
+    });
+  }
+  const broken = graph.edges.filter((edge) => edge.broken);
+  const select = (path: string) =>
+    navigate({ view: "connections", focusPath: path, connections: options });
+  return (
+    <section className="librarian-connections" aria-label="Connections">
+      <div className="librarian-toolbar">
+        <p className="librarian-note">
+          Focused on <strong>{focus?.title ?? graph.focus}</strong>
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() =>
+            navigate({
+              view: "connections",
+              connections: { ...options, depth: options.depth === 1 ? 2 : 1 },
+            })
+          }
+        >
+          {options.depth === 1 ? "Expand to 2 steps" : "Return to 1 step"}
+        </Button>
+        <Button
+          variant={options.sharedTags ? "secondary" : "outline"}
+          size="sm"
+          aria-pressed={options.sharedTags}
+          disabled={busy}
+          onClick={() =>
+            navigate({
+              view: "connections",
+              connections: { ...options, sharedTags: !options.sharedTags },
+            })
+          }
+        >
+          Shared tags
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() =>
+            navigate({ view: "memory", path: graph.focus, trail: [...(state.browse?.trail ?? [])] })
+          }
+        >
+          Read this memory
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="librarian-narrow-only"
+          aria-expanded={drawing}
+          onClick={() => setDrawing(!drawing)}
+        >
+          {drawing ? "Hide graph" : "Show graph"}
+        </Button>
+      </div>
+      <p className="librarian-legend">
+        <span className="reference">Reference</span>
+        <span className="tagged">Shared tag, not a reference</span>
+        <span>Explicit links only. A connection is not evidence.</span>
+      </p>
+      <div className={drawing ? "librarian-graph shown" : "librarian-graph"}>
+        <svg
+          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+          role="group"
+          aria-label="Connection graph. The list below holds the same memories."
+        >
+          {graph.edges
+            .filter((edge) => position.has(edge.from) && position.has(edge.to))
+            .map((edge, index) => (
+              <line
+                key={`e${index}`}
+                className="librarian-edge"
+                x1={position.get(edge.from)!.x}
+                y1={position.get(edge.from)!.y}
+                x2={position.get(edge.to)!.x}
+                y2={position.get(edge.to)!.y}
+              />
+            ))}
+          {graph.sharedTags
+            .filter((entry) => position.has(entry.to))
+            .map((entry) => (
+              <line
+                key={`t${entry.to}`}
+                className="librarian-edge tagged"
+                x1={WIDTH / 2}
+                y1={HEIGHT / 2}
+                x2={position.get(entry.to)!.x}
+                y2={position.get(entry.to)!.y}
+              />
+            ))}
+          {[...(focus ? [focus] : []), ...drawn].map((node) => {
+            const at = position.get(node.path)!;
+            const fields = memoryFields(node.memory);
+            return (
+              <g
+                key={node.path}
+                className={
+                  node.path === graph.focus ? "memory-graph-node focus" : "memory-graph-node"
+                }
+                role="button"
+                tabIndex={0}
+                aria-label={`Focus ${node.title}`}
+                transform={`translate(${at.x - 80},${at.y - 22})`}
+                onClick={() => select(node.path)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  select(node.path);
+                }}
+              >
+                <title>{node.title}</title>
+                <rect width="160" height="44" rx="6" />
+                <text x="10" y="19">
+                  {short(node.title)}
+                </text>
+                <text x="10" y="35" className="detail">
+                  {memoryStage(fields.stage)} · {memoryKind(fields.kind)}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      <p className="librarian-note">
+        {others.length + 1} memories · {options.depth === 1 ? "1 step" : "2 steps"} · up to{" "}
+        {graph.limit}
+        {graph.truncated ? " · More connections exist than this limit shows." : ""}
+        {others.length >= DRAWN ? ` · The graph draws ${DRAWN}; the list shows all.` : ""}
+      </p>
+      <h3>Connections in a list</h3>
+      {others.length ? (
+        <ul className="memory-link-list" aria-label="Connected memories">
+          {others.map((node) => (
+            <li key={node.path}>
+              <button disabled={busy} onClick={() => select(node.path)}>
+                {node.title}
+              </button>
+              <small>{relation(graph, node.path)}</small>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No other memory links with this one.</p>
+      )}
+      {!!broken.length && (
+        <>
+          <h3>Broken references · {broken.length}</h3>
+          <ul className="memory-link-list">
+            {broken.map((edge, index) => (
+              <li key={`${edge.from}-${edge.to}-${index}`}>
+                <span>{edge.label || edge.to}</span>
+                <small>
+                  {edge.from} points to {edge.to}, which does not exist in this library.
+                </small>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}

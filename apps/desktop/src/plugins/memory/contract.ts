@@ -207,3 +207,40 @@ export function memoryFields(value: unknown): MemoryFields {
     deprecated: flag("deprecated"),
   };
 }
+
+/** `irudd-okf graph`: explicit links around one memory. */
+export const MemoryGraph = Schema.Struct({
+  version: Schema.Literal(1),
+  nodes: Schema.Array(Summary),
+  edges: Schema.Array(
+    Schema.Struct({
+      from: Label,
+      to: Label,
+      label: Schema.optionalKey(Label),
+      external: Schema.optionalKey(Schema.Boolean),
+      broken: Schema.optionalKey(Schema.Boolean),
+    }),
+  ),
+  truncated: Schema.Boolean,
+});
+export type MemoryConnections = {
+  focus: string;
+  nodes: (MemorySummary & { distance: number })[];
+  edges: { from: string; to: string; label: string; broken: boolean }[];
+  sharedTags: { to: string; tags: string[] }[];
+  truncated: boolean;
+  depth: 1 | 2;
+  limit: number;
+};
+export type MemoryStageName = "bronze" | "silver" | "gold" | "none";
+export type MemoryStages = {
+  counts: Record<MemoryStageName, number>;
+  columns?: Record<MemoryStageName, MemorySummary[]>;
+  page?: { stage: MemoryStageName; items: MemorySummary[]; offset: number; total: number };
+  selected?: {
+    summary: MemorySummary;
+    transitions?: MemoryChangeSummary[];
+    scanned?: number;
+    partial?: boolean;
+  };
+};
