@@ -119,18 +119,20 @@ function Filters({
 
 function Results({
   page,
+  failed,
   selected,
   busy,
   onOpen,
   onFolder,
 }: {
   page: Page | null | undefined;
+  failed: boolean;
   selected?: string;
   busy: boolean;
   onOpen: (path: string) => void;
   onFolder: (path: string) => void;
 }) {
-  if (page === null)
+  if (failed)
     return <p>The result list could not be loaded. Search or clear filters to reload it.</p>;
   if (!page) return <p role="status">Loading memories…</p>;
   if ("entries" in page)
@@ -299,6 +301,7 @@ export function BrowseView({
           {summary(page) && <p className="librarian-note">{summary(page)}</p>}
           <Results
             page={page}
+            failed={reading && state.results === null}
             selected={concept?.path}
             busy={busy}
             onOpen={open}

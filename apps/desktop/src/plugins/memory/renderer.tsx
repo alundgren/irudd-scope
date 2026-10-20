@@ -142,6 +142,7 @@ function MemoryView({ tab, active, context }: TabProps) {
   const { state, setState, error, setError } = useLibrarian();
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState(false);
+  const [notice, setNotice] = useState("");
   // A failed read is not saved, so Retry must resend it rather than the view still stored.
   const failed = useRef<Navigation>(undefined);
   const scroller = useRef<HTMLDivElement>(null);
@@ -161,7 +162,14 @@ function MemoryView({ tab, active, context }: TabProps) {
     setBusy(true);
     setError("");
     try {
-      setState(await window.scope.librarianHuman(JSON.parse(JSON.stringify(command))));
+      const next = await window.scope.librarianHuman(JSON.parse(JSON.stringify(command)));
+      // The main process forgets a selected memory that dreaming or sync removed.
+      setNotice(
+        command.action === "navigate" && state?.focusPath && !next.focusPath
+          ? "That memory is no longer in the library."
+          : "",
+      );
+      setState(next);
       failed.current = undefined;
     } catch (cause) {
       failed.current = navigation;
@@ -285,6 +293,7 @@ function MemoryView({ tab, active, context }: TabProps) {
           <p className="librarian-note">
             Personal library on this desktop
             {busy && <span role="status"> · Reading…</span>}
+            {notice && <span role="status"> · {notice}</span>}
           </p>
           {SECTIONS.length > 1 && (
             <div
@@ -351,11 +360,9 @@ function MemoryView({ tab, active, context }: TabProps) {
         />
       )}
       {state.view === "connections" && (
-        <ConnectionsView state={state} busy={busy} navigate={(n) => void navigate(n)} />
+        <ConnectionsView state={state} navigate={(n) => void navigate(n)} />
       )}
-      {state.view === "stages" && (
-        <StagesView state={state} busy={busy} navigate={(n) => void navigate(n)} />
-      )}
+      {state.view === "stages" && <StagesView state={state} navigate={(n) => void navigate(n)} />}
       {state.view === "decision" && (
         <>
           {state.run?.status === "interrupted" && (

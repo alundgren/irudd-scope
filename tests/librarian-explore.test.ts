@@ -168,15 +168,65 @@ test("large neighbourhoods and stages stay bounded, narrow windows list first, a
   const page = f.page.getByRole("region", { name: "Bronze", exact: true });
   await expect.poll(() => page.getByRole("listitem").count()).toBe(20);
   await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Previous", exact: true }).waitFor();
+  await expect
+    .poll(() => f.client.librarian({ action: "read" }).then((r) => r.state.stages?.offset))
+    .toBe(20);
   await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect.poll(() => page.getByRole("listitem").count()).toBe(8);
   await page.getByRole("button", { name: "All stages", exact: true }).click();
   await f.page.getByRole("region", { name: "Silver", exact: true }).waitFor();
 
-  await rm(join(f.root, "hub.md"));
+  // Both rings filled: drawn nodes stay apart and inside the drawing.
+  for (let leaf = 0; leaf < 5; leaf++) {
+    const fars = [0, 1].map((far) => `far-${leaf}-${far}`);
+    for (const far of fars) await writeFile(join(f.root, `${far}.md`), raw(far, "Far away."));
+    await writeFile(
+      join(f.root, `near-${leaf}.md`),
+      raw(`near-${leaf}`, fars.map((far) => `[${far}](${far}.md)`).join(" ")),
+    );
+  }
+  await writeFile(
+    join(f.root, "center.md"),
+    raw("Center", [0, 1, 2, 3, 4].map((leaf) => `[near ${leaf}](near-${leaf}.md)`).join(" ")),
+  );
+  await tabs.getByRole("tab", { name: "Browse", exact: true }).click();
+  await f.page.getByRole("textbox", { name: "Search memory", exact: true }).fill("Center");
+  await f.page.getByRole("button", { name: "Search memory", exact: true }).click();
+  await f.page.getByRole("button", { name: "Center", exact: true }).click();
+  await tabs.getByRole("tab", { name: "Connections", exact: true }).click();
+  await f.page.getByText("Focused on", { exact: false }).getByText("Center").waitFor();
+  await f.page.getByRole("button", { name: "Expand to 2 steps", exact: true }).click();
+  await f.page.getByRole("button", { name: "Return to 1 step", exact: true }).waitFor();
+  await f.page.getByText("The graph draws 14; the list shows all.", { exact: false }).waitFor();
+  const boxes = await f.page.locator(".librarian-graph g.memory-graph-node").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const [x, y] = /translate\(([-\d.]+),([-\d.]+)\)/
+        .exec(node.getAttribute("transform")!)!
+        .slice(1)
+        .map(Number);
+      return { x: x!, y: y! };
+    }),
+  );
+  expect(boxes).toHaveLength(14);
+  for (const [index, box] of boxes.entries()) {
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + 160).toBeLessThanOrEqual(840);
+    expect(box.y + 44).toBeLessThanOrEqual(420);
+    for (const other of boxes.slice(index + 1))
+      expect(Math.abs(box.x - other.x) >= 160 || Math.abs(box.y - other.y) >= 44).toBe(true);
+  }
+
+  await tabs.getByRole("tab", { name: "Stages", exact: true }).click();
+  await f.page.getByRole("region", { name: "Bronze", exact: true }).waitFor();
+  await rm(join(f.root, "center.md"));
   await tabs.getByRole("tab", { name: "Connections", exact: true }).click();
   await f.page.getByText("Choose a memory in Browse first.", { exact: false }).waitFor();
+  await f.page.getByText("That memory is no longer in the library.", { exact: false }).waitFor();
   await tabs.getByRole("tab", { name: "Browse", exact: true }).click();
+  await f.page.getByRole("textbox", { name: "Search memory", exact: true }).fill("leaf-00");
+  await f.page.getByRole("button", { name: "Search memory", exact: true }).click();
   await f.page.getByRole("button", { name: "leaf-00", exact: true }).click();
   await f.page
     .getByRole("region", { name: "Memory", exact: true })

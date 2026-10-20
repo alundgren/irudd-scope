@@ -128,7 +128,9 @@ function facets(concepts: readonly MemorySummary[]): MemoryFacets {
     applicability: counted(fields.flatMap((field) => field.applicability?.type ?? [])),
   };
 }
-const missing = (error: unknown) => error instanceof OkfFailure && error.code === "NOT_FOUND";
+/** irudd-okf reports a removed memory as NOT_ACCEPTED from read and NOT_FOUND from graph. */
+const missing = (error: unknown) =>
+  error instanceof OkfFailure && (error.code === "NOT_FOUND" || error.code === "NOT_ACCEPTED");
 const byTitle = (a: MemorySummary, b: MemorySummary) =>
   a.title.localeCompare(b.title) || a.path.localeCompare(b.path);
 export function changeSummary(change: MemoryChange): MemoryChangeSummary {
@@ -525,6 +527,7 @@ export class LibrarianService {
         ? await this.scan(
             (change) => change.path === focus && !!changeSummary(change).stageChange,
             20,
+            (change) => change.path === focus && change.action === "create",
           )
         : undefined;
     return {
@@ -597,7 +600,8 @@ export class LibrarianService {
       } catch (error) {
         // Returning to a memory that dreaming or sync removed shows the list instead of a dead end.
         if (!(missing(error) && [remembered, previousPath].includes(command.path))) throw error;
-        delete state.focusPath;
+        if (remembered && remembered !== command.path) state.focusPath = remembered;
+        else delete state.focusPath;
         return this.navigate(state, {
           view: "browse",
           query: state.query,

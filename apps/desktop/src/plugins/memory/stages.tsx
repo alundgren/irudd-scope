@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { LibrarianView } from "@irudd-scope/protocol/librarian";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import {
@@ -19,16 +20,22 @@ const STAGES: { stage: MemoryStageName; description: string }[] = [
 
 export function StagesView({
   state,
-  busy,
   navigate,
   onChange,
 }: {
   state: LibrarianView;
-  busy: boolean;
   navigate: (selection: Navigation) => void;
   onChange?: (id: string) => void;
 }) {
   const stages = state.displayed as MemoryStages | null;
+  const history = useRef<HTMLHeadingElement>(null);
+  const shown = !!stages?.selected?.transitions;
+  const asked = useRef(false);
+  useEffect(() => {
+    // After asking for the history, keyboard focus moves to it instead of the removed button.
+    if (shown && asked.current) history.current?.focus();
+    asked.current = false;
+  }, [shown, stages?.selected?.summary.path]);
   if (!stages) return <p role="status">Reading stages…</p>;
   const choose = (path: string) => navigate({ view: "stages", focusPath: path });
   const item = (memory: MemorySummary) => {
@@ -71,7 +78,6 @@ export function StagesView({
             {stages.page.offset > 0 && (
               <Button
                 variant="ghost"
-                disabled={busy}
                 onClick={() =>
                   navigate({
                     view: "stages",
@@ -88,7 +94,6 @@ export function StagesView({
             {stages.page.offset + 20 < stages.page.total && (
               <Button
                 variant="ghost"
-                disabled={busy}
                 onClick={() =>
                   navigate({
                     view: "stages",
@@ -118,7 +123,6 @@ export function StagesView({
                 {stages.counts[stage] > (stages.columns?.[stage].length ?? 0) && (
                   <Button
                     variant="ghost"
-                    disabled={busy}
                     onClick={() => navigate({ view: "stages", stages: { stage, offset: 0 } })}
                   >
                     Show all {stages.counts[stage]}
@@ -140,7 +144,9 @@ export function StagesView({
           </p>
           {selected.transitions ? (
             <>
-              <h4>Recorded stage changes</h4>
+              <h4 ref={history} tabIndex={-1}>
+                Recorded stage changes
+              </h4>
               {selected.transitions.length ? (
                 <ul className="memory-link-list">
                   {selected.transitions.map((change) => (
@@ -166,8 +172,10 @@ export function StagesView({
           ) : (
             <Button
               variant="secondary"
-              disabled={busy}
-              onClick={() => choose(selected.summary.path)}
+              onClick={() => {
+                asked.current = true;
+                choose(selected.summary.path);
+              }}
             >
               Show recorded stage changes
             </Button>

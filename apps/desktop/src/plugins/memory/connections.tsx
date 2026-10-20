@@ -7,11 +7,26 @@ import type { Navigation } from "./navigation.ts";
 
 const WIDTH = 840;
 const HEIGHT = 420;
-/** Ring sizes and capacities that keep 160×44 nodes apart; the list below holds every memory. */
-const RINGS = [
-  { rx: 0, ry: 0, fits: 1 },
-  { rx: 200, ry: 110, fits: 6 },
-  { rx: 300, ry: 175, fits: 8 },
+/**
+ * Fixed node centres, filled in order, keep 160×44 nodes apart for every combination of ring
+ * counts; memories beyond these slots appear only in the list.
+ */
+const SLOTS = [
+  [],
+  [0, 1, 2, 3, 4, 5].map((slot) => {
+    const angle = ((slot * 60 - 90) * Math.PI) / 180;
+    return { x: WIDTH / 2 + 200 * Math.cos(angle), y: HEIGHT / 2 + 110 * Math.sin(angle) };
+  }),
+  [
+    { x: 420, y: 30 },
+    { x: 420, y: 390 },
+    { x: 80, y: 210 },
+    { x: 760, y: 210 },
+    { x: 100, y: 40 },
+    { x: 740, y: 40 },
+    { x: 100, y: 380 },
+    { x: 740, y: 380 },
+  ],
 ];
 const short = (text: string) => (text.length > 22 ? `${text.slice(0, 21)}…` : text);
 
@@ -30,11 +45,9 @@ function relation(graph: MemoryConnections, path: string) {
 
 export function ConnectionsView({
   state,
-  busy,
   navigate,
 }: {
   state: LibrarianView;
-  busy: boolean;
   navigate: (selection: Navigation) => void;
 }) {
   const [drawing, setDrawing] = useState(false);
@@ -61,22 +74,15 @@ export function ConnectionsView({
     .filter((node) => node.path !== graph.focus)
     .sort((a, b) => a.distance - b.distance || a.title.localeCompare(b.title));
   const drawn = [1, 2].flatMap((ring) =>
-    others.filter((node) => Math.min(node.distance, 2) === ring).slice(0, RINGS[ring]!.fits),
+    others.filter((node) => Math.min(node.distance, 2) === ring).slice(0, SLOTS[ring]!.length),
   );
   const position = new Map<string, { x: number; y: number }>([
     [graph.focus, { x: WIDTH / 2, y: HEIGHT / 2 }],
   ]);
-  for (const ring of [1, 2]) {
-    const members = drawn.filter((node) => Math.min(node.distance, 2) === ring);
-    members.forEach((node, index) => {
-      // The outer ring is turned by half a slot so its nodes sit between the inner ones.
-      const angle = ((index + (ring === 2 ? 0.5 : 0)) / members.length) * 2 * Math.PI - Math.PI / 2;
-      position.set(node.path, {
-        x: WIDTH / 2 + RINGS[ring]!.rx * Math.cos(angle),
-        y: HEIGHT / 2 + RINGS[ring]!.ry * Math.sin(angle),
-      });
-    });
-  }
+  for (const ring of [1, 2])
+    drawn
+      .filter((node) => Math.min(node.distance, 2) === ring)
+      .forEach((node, index) => position.set(node.path, SLOTS[ring]![index]!));
   const broken = graph.edges.filter((edge) => edge.broken);
   const select = (path: string) =>
     navigate({ view: "connections", focusPath: path, connections: options });
@@ -89,7 +95,6 @@ export function ConnectionsView({
         <Button
           variant="outline"
           size="sm"
-          disabled={busy}
           onClick={() =>
             navigate({
               view: "connections",
@@ -103,7 +108,6 @@ export function ConnectionsView({
           variant={options.sharedTags ? "secondary" : "outline"}
           size="sm"
           aria-pressed={options.sharedTags}
-          disabled={busy}
           onClick={() =>
             navigate({
               view: "connections",

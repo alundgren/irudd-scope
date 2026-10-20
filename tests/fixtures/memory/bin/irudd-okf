@@ -44,7 +44,7 @@ if (explicitRoot && ["read", "search", "graph", "write", "list"].includes(args[0
   const paths = (root = explicitRoot) => readdirSync(root, { withFileTypes: true }).flatMap(entry => entry.name.startsWith(".") ? [] : entry.isDirectory() ? paths(join(root, entry.name)) : entry.name.endsWith(".md") && !["index.md", "log.md"].includes(entry.name) ? [relative(explicitRoot, join(root, entry.name))] : []);
   if (process.env.FAKE_OKF_BAD_VIEWER_OUTPUT) { process.stdout.write('{"unexpected":true}'); process.exit(0); }
   if (args[0] === "read") {
-    if (!existsSync(join(explicitRoot, args[2]))) fail("NOT_FOUND", "This note does not exist.");
+    if (!existsSync(join(explicitRoot, args[2]))) fail("NOT_ACCEPTED", "This path has no accepted revision matching the selected applicability.");
     const backlinks = paths().map(concept).filter(note => note.links.some(link => !link.external && link.target === args[2])).map(note => ({ bundle: "personal", path: note.path, title: note.title }));
     process.stdout.write(JSON.stringify({ ...concept(args[2]), backlinks }));
   } else if (args[0] === "list") {
