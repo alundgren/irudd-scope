@@ -187,7 +187,8 @@ function MemoryView({ tab, active, context }: TabProps) {
       );
       revision.current = next.uiRevision;
       focus.current = next.focusPath;
-      setState(next);
+      // A change notification may already have delivered a newer state.
+      setState((shown) => (shown && shown.uiRevision > next.uiRevision ? shown : next));
       failed.current = undefined;
     } catch (cause) {
       failed.current = navigation;
@@ -285,7 +286,7 @@ function MemoryView({ tab, active, context }: TabProps) {
   function open(view: Section) {
     if (view === "browse")
       return navigate(
-        state!.focusPath
+        state!.focusPath && state!.browse?.reading !== false
           ? { view: "memory", path: state!.focusPath, trail: [...(state!.browse?.trail ?? [])] }
           : current({ ...state!, view: "browse" }),
       );
@@ -460,7 +461,10 @@ function MemoryView({ tab, active, context }: TabProps) {
             onClick={() =>
               void navigate(
                 state.selectedChangeId
-                  ? { view: "overview" }
+                  ? {
+                      view: "overview",
+                      ...(state.historyRunId ? { historyRunId: state.historyRunId } : {}),
+                    }
                   : state.run?.status === "completed"
                     ? current({ ...state, view: "browse" })
                     : { view: "decision" },

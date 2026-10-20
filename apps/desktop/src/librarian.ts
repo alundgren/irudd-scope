@@ -229,7 +229,6 @@ export class LibrarianService {
         state.displayed = null;
       }
     }
-    const prior = state.view === "browse" ? state.displayed : undefined;
     const previousPath = state.selectedPath;
     state.view = command.view;
     delete state.selectedPath;
@@ -252,6 +251,7 @@ export class LibrarianService {
     if (command.view === "memory") {
       if (!command.path) throw new ScopeError(400, "Choose a memory.");
       browse.trail = mutable(command.trail ?? []);
+      browse.reading = true;
       const remembered = state.focusPath;
       state.selectedPath = command.path;
       state.focusPath = command.path;
@@ -307,7 +307,7 @@ export class LibrarianService {
       if (command.offset !== undefined) {
         state.offset = browse.offset = command.offset;
         state.results = await this.reads.page(state);
-      } else if (prior) state.results = prior;
+      }
       // Documents saved before results were kept have no list to show beside the reader.
       else if (!state.results) {
         browse.offset ??= state.offset;
@@ -327,6 +327,9 @@ export class LibrarianService {
         state.facets = await this.reads.facets();
       }
       state.displayed = await this.reads.page(state, concepts);
+      // The reader shows this page beside the memory, so it always matches the current search.
+      state.results = state.displayed;
+      browse.reading = false;
     } else if (command.view === "connections") {
       state.connections ??= { depth: 1, sharedTags: false };
       if (state.focusPath)
@@ -723,11 +726,13 @@ export class LibrarianService {
       }
       state.uiRevision++;
       const projected = this.project(state);
-      await this.store.saveLibrarian(state, {
-        id: command.requestId,
-        payload,
-        reply: { state: projected },
-      });
+      // Renderer navigation never repeats a request ID, so it needs no stored receipt.
+      await this.store.saveLibrarian(
+        state,
+        command.action === "navigate"
+          ? undefined
+          : { id: command.requestId, payload, reply: { state: projected } },
+      );
       this.changed(projected);
       return projected;
     });

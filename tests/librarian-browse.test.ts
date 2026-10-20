@@ -390,3 +390,38 @@ test("switching to another library forgets the previous library's selection and 
     true,
   );
 });
+
+test("Browse returns to the list or reader the person left, with results matching the search", async () => {
+  const f = await librarianFixture(cleanup);
+  await library(f.root);
+  await f.page.setViewportSize({ width: 1280, height: 820 });
+  await f.open();
+  const page = f.page;
+  const tabs = page.getByRole("tablist", { name: "Librarian views" });
+  const results = page.getByRole("list", { name: "Memory results" });
+  await results.getByRole("button", { name: "deploy", exact: true }).click();
+  const reader = page.getByRole("region", { name: "Memory", exact: true });
+  await reader.getByRole("heading", { name: "Deploy steps" }).waitFor();
+  await page.getByRole("textbox", { name: "Search memory", exact: true }).fill("Deploys can");
+  await page.getByRole("button", { name: "Search memory", exact: true }).click();
+  await results.getByRole("button", { name: "Retry rule", exact: true }).waitFor();
+  await tabs.getByRole("tab", { name: "Activity", exact: true }).click();
+  await page.getByText("Recorded changes in this desktop's copy", { exact: false }).waitFor();
+  // The person left the search results, so Browse returns to them rather than the old reader.
+  await tabs.getByRole("tab", { name: "Browse", exact: true }).click();
+  await page.getByText("Choose a memory to read it here.", { exact: true }).waitFor();
+  expect(await results.getByRole("listitem").count()).toBe(1);
+  await results.getByRole("button", { name: "Retry rule", exact: true }).click();
+  await reader.getByRole("heading", { name: "Retry rule" }).waitFor();
+  await tabs.getByRole("tab", { name: "Stages", exact: true }).click();
+  await page.getByRole("region", { name: "Bronze", exact: true }).waitFor();
+  await tabs.getByRole("tab", { name: "Browse", exact: true }).click();
+  await reader.getByRole("heading", { name: "Retry rule" }).waitFor();
+  // The list beside the reader is still the search the box shows.
+  expect(await results.getByRole("listitem").count()).toBe(1);
+  expect(
+    await results
+      .getByRole("button", { name: "Retry rule", exact: true })
+      .getAttribute("aria-current"),
+  ).toBe("true");
+});

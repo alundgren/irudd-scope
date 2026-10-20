@@ -3,7 +3,7 @@ import type { LibrarianView } from "@irudd-scope/protocol/librarian";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { memoryFields, type MemoryConnections } from "./contract.ts";
 import { memoryKind, memoryStage } from "./format.ts";
-import type { Navigation } from "./navigation.ts";
+import { current, type Navigation } from "./navigation.ts";
 
 const WIDTH = 840;
 const HEIGHT = 420;
@@ -61,7 +61,7 @@ export function ConnectionsView({
     return (
       <section aria-label="Connections">
         <p>Choose a memory in Browse first. Connections shows the memories it links with.</p>
-        <Button variant="secondary" onClick={() => navigate({ view: "browse" })}>
+        <Button variant="secondary" onClick={() => navigate(current({ ...state, view: "browse" }))}>
           Browse memories
         </Button>
       </section>

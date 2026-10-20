@@ -436,8 +436,9 @@ Scope never deletes or migrates their files when connecting or disabling memory.
 The `librarian` preference stores the selected view and full dreaming run queue,
 completed history, evidence and weekly reminder dates. `librarian_receipts`
 stores a request ID, payload hash and bounded response in one transaction with
-the state. Session capabilities remain in process memory; neither receipts nor
-payload hashes restore authority after restart. An active persisted run becomes
+the state for agent commands and human decisions; view navigation stores none.
+Session capabilities remain in process memory; neither receipts nor payload
+hashes restore authority after restart. An active persisted run becomes
 interrupted at startup and requires an explicit user-requested resume.
 
 The `librarian` preference also keeps each Librarian view's place: Browse

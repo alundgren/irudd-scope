@@ -181,6 +181,8 @@ export const LibrarianView = Schema.Struct({
       section: Schema.optionalKey(Section),
       /** Browse's own page, since the completed overview reuses the top-level offset. */
       offset: Schema.optionalKey(Revision),
+      /** Whether Browse last showed the reader rather than the result list. */
+      reading: Schema.optionalKey(Schema.Boolean),
     }),
   ),
   /** The result page shown beside the reader. */
