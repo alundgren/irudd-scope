@@ -39,6 +39,8 @@ export async function librarianFixture(
   let client = await desktop.connect();
   await client.librarian({ action: "local", root, initialize: false });
   const open = async () => {
+    // The shortcut is handled once the workspace has rendered; a just-launched window may not have.
+    await page.getByRole("button", { name: "Search and controls" }).waitFor();
     await page.keyboard.press("ControlOrMeta+k");
     await page.getByRole("button", { name: "Librarian", exact: true }).click();
   };
