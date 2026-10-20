@@ -237,11 +237,31 @@
 .librarian-results [aria-current="true"] {
   font-weight: var(--scope-weight-strong);
 }
-.librarian-reader {
+.librarian-reader,
+.librarian-detail {
   min-width: 0;
   border-left: 1px solid var(--scope-line);
   padding-left: var(--scope-space-4);
 }
+.librarian-detail h2 {
+  overflow-wrap: anywhere;
+}
+.librarian-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--scope-space-1) var(--scope-space-3);
+}
+.librarian-facts dt {
+  color: var(--scope-muted);
+}
+.librarian-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.librarian-facts dd p {
+  margin: 0;
+}
+
 .librarian-labels {
   color: var(--scope-muted);
   margin: 0;
@@ -338,12 +358,16 @@
   .librarian-split {
     grid-template-columns: minmax(0, 1fr);
   }
-  .librarian-reader {
+  .librarian-reader,
+  .librarian-detail {
     border-left: 0;
     padding-left: 0;
   }
   .librarian-browse.reading .librarian-toolbar,
+  .librarian-activity.reading > .librarian-toolbar,
+  .librarian-activity.reading > .librarian-note,
   .librarian-browse.reading .librarian-results,
+  .librarian-activity.reading .librarian-results,
   .librarian-wide-only {
     display: none;
   }

@@ -27,6 +27,7 @@ import {
   memoryFields,
   type MemoryChanges,
   type MemoryChangeSummary,
+  type MemoryActivity,
   type MemoryConnections,
   type MemoryStageName,
   type MemoryStages,
@@ -89,6 +90,7 @@ type Selection = Omit<
   Extract<LibrarianHumanCommand, { action: "navigate" }>,
   "action" | "requestId" | "expectedUiRevision"
 >;
+type ChangeStatus = "pending" | "accepted" | "rejected" | "superseded";
 /** Bounds how much recorded history one path scan reads; the UI reports when it stops early. */
 const SCAN_LIMIT = 1000;
 const SEARCH_LIMIT = 300;
@@ -157,6 +159,22 @@ export function changeSummary(change: MemoryChange): MemoryChangeSummary {
   };
 }
 
+/** Selections, pages and filters belong to one library; another library starts fresh. */
+function forgetLibrary(state: Document) {
+  for (const key of [
+    "focusPath",
+    "results",
+    "facets",
+    "activity",
+    "stages",
+    "returnChangeId",
+  ] as const)
+    delete state[key];
+  state.query = "";
+  state.directory = "";
+  state.offset = 0;
+  state.browse = { filters: {}, trail: [] };
+}
 /** Stores presentation and human decisions. File semantics belong to irudd-okf. */
 export class LibrarianService {
   private capability?: { runId: string; sessionId: string; token: string };
@@ -391,19 +409,49 @@ export class LibrarianService {
       ...(searchLimited ? { searchLimited } : {}),
     } satisfies MemoryListPage;
   }
-  private async changes(offset: number, limit: number) {
+  private async changes(offset: number, limit: number, status?: ChangeStatus) {
     return cli(
       ChangeList,
       await this.okf([
         "change",
         "list",
         "personal",
+        ...(status ? ["--status", status] : []),
         "--limit",
         String(limit),
         "--offset",
         String(offset),
       ]),
     );
+  }
+  /** One newest-first page of recorded changes, read in smaller parts if bytes exceed the cap. */
+  private async recent(offset: number, status?: ChangeStatus) {
+    const total = (await this.changes(0, 1, status)).total;
+    const end = Math.max(0, total - offset);
+    const start = Math.max(0, end - 20);
+    const items: MemoryChange[] = [];
+    const seen = new Set<string>();
+    let size = 20;
+    for (let to = end; to > start;) {
+      const from = Math.max(start, to - size);
+      try {
+        const page = await this.changes(from, to - from, status);
+        // A change recorded between reads shifts the pages; ids keep each change once.
+        for (const change of [...page.changes].reverse())
+          if (!seen.has(change.id)) {
+            seen.add(change.id);
+            items.push(change);
+          }
+        to = from;
+      } catch (error) {
+        if (error instanceof OkfFailure && error.code === "OUTPUT_LIMIT" && size > 1) {
+          size = Math.max(1, Math.floor(size / 2));
+          continue;
+        }
+        throw error;
+      }
+    }
+    return { items, total };
   }
   /**
    * Reads recorded changes newest first until enough match. irudd-okf lists oldest first, so pages
@@ -562,9 +610,133 @@ export class LibrarianService {
         : {}),
     };
   }
+  private async activity(state: Document): Promise<MemoryActivity> {
+    const options = state.activity!;
+    const focus = state.focusPath;
+    let listing: Pick<MemoryActivity, "total" | "page" | "scanned" | "partial" | "more">;
+    if (options.onlySelected && focus) {
+      // One extra match shows whether an older page exists; history ends at the file's creation.
+      // A page kept from another memory may lie past this memory's history; start it again.
+      const found = await this.scan(
+        (change) => change.path === focus && (!options.status || change.status === options.status),
+        options.offset + 21,
+        (change) => change.path === focus && change.action === "create",
+      );
+      if (!found.items.slice(options.offset).length && options.offset > 0) {
+        options.offset = 0;
+        return this.activity(state);
+      }
+      listing = {
+        total: Math.min(found.items.length, options.offset + 20),
+        page: found.items.slice(options.offset, options.offset + 20).map(changeSummary),
+        scanned: found.scanned,
+        partial: found.partial,
+        more: found.items.length > options.offset + 20,
+      };
+    } else {
+      const found = await this.recent(options.offset, options.status);
+      listing = {
+        total: found.total,
+        page: found.items.map(changeSummary),
+        more: options.offset + 20 < found.total,
+      };
+    }
+    let selected: MemoryActivity["selected"];
+    let missingChange = false;
+    if (options.changeId) {
+      let change: MemoryChange | undefined;
+      try {
+        change = cli(
+          MemoryChange,
+          await this.okf(["change", "read", "personal", options.changeId]),
+        );
+      } catch (error) {
+        // A change from another library, or one that no longer exists, must not lock Activity.
+        if (!(error instanceof OkfFailure && error.code === "CHANGE_NOT_FOUND")) throw error;
+        delete options.changeId;
+        delete options.sourceHash;
+        missingChange = true;
+      }
+      if (change) {
+        const runs = [state.run, ...state.history].filter((run) => !!run);
+        const run = runs.find((run) => run.proposals.some((p) => p.change.id === change.id));
+        const proposal = run?.proposals.find((p) => p.change.id === change.id);
+        selected = {
+          change,
+          ...(run && proposal
+            ? {
+                run: {
+                  id: run.id,
+                  startedAt: run.startedAt,
+                  ...(run.completedAt ? { completedAt: run.completedAt } : {}),
+                  userRequest: run.userRequest,
+                  disposition: proposal.disposition,
+                  ...(proposal.permission ? { permission: proposal.permission } : {}),
+                  evidence: proposal.evidence,
+                  decidable:
+                    run === state.run &&
+                    run.status !== "completed" &&
+                    proposal.disposition === "human" &&
+                    proposal.change.status === "pending" &&
+                    change.status === "pending",
+                },
+              }
+            : {}),
+        };
+      }
+    }
+    let revision: MemoryActivity["revision"];
+    const source = selected?.change.sources.find((entry) => entry.hash === options.sourceHash);
+    if (source) revision = await this.revision(source, state.bundle?.id);
+    return {
+      ...listing,
+      offset: options.offset,
+      ...(selected ? { selected } : {}),
+      ...(missingChange ? { missingChange } : {}),
+      ...(revision ? { revision } : {}),
+    };
+  }
+  /** Finds the bytes a change cited: the current file when it still matches, else recorded history. */
+  private async revision(
+    source: { path: string; hash: string; bundle?: string },
+    bundleId: string | undefined,
+  ): Promise<NonNullable<MemoryActivity["revision"]>> {
+    const base = { path: source.path, hash: source.hash };
+    // irudd-okf records a source's library by bundle id; the name is accepted too.
+    if (source.bundle && source.bundle !== "personal" && source.bundle !== bundleId)
+      return { ...base, raw: null, current: false, otherBundle: true };
+    try {
+      const concept = await this.okf(["read", "personal", source.path, "--all-applicability"])
+        .then((value) => cli(MemoryConcept, value))
+        .catch(() => undefined);
+      if (concept?.hash === source.hash) return { ...base, raw: concept.raw, current: true };
+      const recorded = await this.scan(
+        (change) => change.after?.hash === source.hash || change.before?.hash === source.hash,
+        1,
+      );
+      const match = recorded.items[0];
+      return {
+        ...base,
+        raw: match
+          ? match.after?.hash === source.hash
+            ? match.after.raw
+            : match.before!.raw
+          : null,
+        current: false,
+        scanned: recorded.scanned,
+        partial: recorded.partial,
+      };
+    } catch {
+      return { ...base, raw: null, current: false, unreadable: true };
+    }
+  }
   private async navigate(state: Document, command: Selection): Promise<void> {
-    if (["browse", "memory", "connections", "stages", "activity"].includes(command.view))
+    if (["browse", "memory", "connections", "stages", "activity"].includes(command.view)) {
+      const before = state.bundle?.id;
       state.bundle = await this.inspection();
+      // A repository connection can switch libraries without passing through `local`.
+      if (before && before !== state.bundle.id) forgetLibrary(state);
+    }
     const prior = state.view === "browse" ? state.displayed : undefined;
     const previousPath = state.selectedPath;
     state.view = command.view;
@@ -674,6 +846,9 @@ export class LibrarianService {
     } else if (command.view === "stages") {
       state.stages ??= { offset: 0 };
       state.displayed = await this.medallion(state.stages, state.focusPath, !!command.focusPath);
+    } else if (command.view === "activity") {
+      state.activity ??= { offset: 0, onlySelected: false };
+      state.displayed = await this.activity(state);
     } else if (command.view === "decision") {
       const proposal =
         state.run?.proposals.find((p) => p.change.id === command.changeId) ??
@@ -815,6 +990,7 @@ export class LibrarianService {
         state.displayed = null;
         delete state.selectedPath;
         delete state.selectedChangeId;
+        forgetLibrary(state);
         state.bundle = await this.inspection();
         state.uiRevision++;
         await this.store.saveLibrarian(state);

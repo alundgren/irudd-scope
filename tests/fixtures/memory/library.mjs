@@ -95,7 +95,11 @@ export function librarianFixture(args, root) {
       actor: request.actor,
       reason: request.reason,
       createdAt: new Date().toISOString(),
-      sources: request.sources ?? [],
+      // irudd-okf records each source's library by bundle id.
+      sources: (request.sources ?? []).map((source) => ({
+        ...source,
+        bundle: JSON.parse(readFileSync(marker, "utf8")).id,
+      })),
       status: "pending",
       humanRequired: false,
       reviews: [],
@@ -171,7 +175,7 @@ export function librarianFixture(args, root) {
     });
     return true;
   }
-  if (!change) failure("The change does not exist.");
+  if (!change) failure("The immutable change does not exist.", "CHANGE_NOT_FOUND");
   writeFileSync(historyPath, JSON.stringify(history));
   output(change);
   return true;
