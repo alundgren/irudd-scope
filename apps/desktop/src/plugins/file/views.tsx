@@ -3,9 +3,7 @@ import ReactMarkdown from "react-markdown";
 import type { Artifact, ArtifactKind } from "@irudd-scope/protocol";
 import type { ArtifactContent } from "../../bridge.ts";
 
-import type { Theme } from "../../renderer/appearance.ts";
-
-type RendererProps = { item: ArtifactContent; theme: Theme; focus: boolean };
+type RendererProps = { item: ArtifactContent };
 const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 function TextView({ item }: RendererProps) {
   return <pre className="text-document">{text(item.bytes)}</pre>;
@@ -13,7 +11,11 @@ function TextView({ item }: RendererProps) {
 function MarkdownView({ item }: RendererProps) {
   return (
     <article className="markdown-document">
+      {/* react-markdown keys blocks by tag and count (h2-0, p-12). Inserting a heading above
+          another makes React move nearly every later block, which is quadratic in large
+          documents, so each content version mounts a fresh tree. */}
       <ReactMarkdown
+        key={item.artifact.blob}
         skipHtml
         components={{
           a: ({ children }) => <span>{children}</span>,
