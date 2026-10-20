@@ -285,12 +285,31 @@ export async function pullRequests(s: Session, knownDelay = false) {
     return;
   }
   const frame = s.page.frameLocator(".pull-requests-document");
+  const before = await client.pullRequests({ action: "read", name: "performance-pr" });
+  check(before.type === "snapshot", "Expected PR snapshot before note edit");
+  const previous = before.snapshot.prs.find((pr) => pr.number === 1);
+  check(previous, "Expected performance PR before note edit");
+  const note = `Synthetic performance note ${randomUUID()}`;
+  const noteVersion = previous.local.noteVersion + 1;
   await s.run("detail-note-state", "interaction", async () => {
     await frame.getByRole("button", { name: "Performance review", exact: true }).click();
     await frame.getByText("Synthetic performance details", { exact: true }).waitFor();
-    await frame.getByLabel("Your notes").fill("Synthetic performance note");
-    await frame.getByRole("button", { name: "Save note", exact: true }).click();
+    const editor = frame.getByLabel("Your notes");
+    await editor.fill(note);
+    await editor.press("Tab");
+    await until(
+      () => client.pullRequests({ action: "read", name: "performance-pr" }),
+      (reply) =>
+        reply.type === "snapshot" &&
+        reply.snapshot.prs.some(
+          (pr) =>
+            pr.nodeId === previous.nodeId &&
+            pr.local.noteVersion === noteVersion &&
+            pr.local.note === note,
+        ),
+    );
     await frame.getByText("Saved", { exact: true }).waitFor();
+    check((await editor.inputValue()) === note, "Visible PR note differs from saved edit");
   });
   await s.run("open-diff-window", "interaction", async () => {
     await frame.getByRole("button", { name: "Diff", exact: true }).click();
