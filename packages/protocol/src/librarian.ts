@@ -100,10 +100,48 @@ export const LibrarianRun = Schema.Struct({
   ),
 });
 export type LibrarianRun = typeof LibrarianRun.Type;
+const Views = [
+  "browse",
+  "memory",
+  "decision",
+  "overview",
+  "recovery",
+  "connections",
+  "stages",
+  "activity",
+  "machines",
+] as const;
+const Value = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096));
+export const LibrarianStage = Schema.Literals(["bronze", "silver", "gold", "none"]);
+export const LibrarianFilters = Schema.Struct({
+  tag: Schema.optionalKey(Value),
+  stage: Schema.optionalKey(LibrarianStage),
+  kind: Schema.optionalKey(Value),
+  applicability: Schema.optionalKey(Schema.Literals(["global", "machine", "repository"])),
+});
+export type LibrarianFilters = typeof LibrarianFilters.Type;
+const Trail = Schema.Array(LibrarianPath).check(Schema.isMaxLength(20));
+const Section = Schema.Literals(["connections", "changes"]);
+export const LibrarianConnections = Schema.Struct({
+  depth: Schema.Literals([1, 2]),
+  sharedTags: Schema.Boolean,
+});
+export const LibrarianStages = Schema.Struct({
+  stage: Schema.optionalKey(LibrarianStage),
+  offset: Revision,
+});
+export const LibrarianActivity = Schema.Struct({
+  offset: Revision,
+  status: Schema.optionalKey(Schema.Literals(["pending", "accepted", "rejected", "superseded"])),
+  onlySelected: Schema.Boolean,
+  changeId: Schema.optionalKey(Name),
+  sourceHash: Schema.optionalKey(Hash),
+});
+export type LibrarianActivity = typeof LibrarianActivity.Type;
 export const LibrarianView = Schema.Struct({
   version: Schema.Literal(1),
   uiRevision: Revision,
-  view: Schema.Literals(["browse", "memory", "decision", "overview", "recovery"]),
+  view: Schema.Literals(Views),
   query: Text,
   directory: Schema.String,
   offset: Revision,
@@ -134,8 +172,35 @@ export const LibrarianView = Schema.Struct({
     dueAt: Name,
     dismissedAt: Schema.optionalKey(Name),
   }),
+  /** The memory shared by the reader, Connections, Stages and Activity. */
+  focusPath: Schema.optionalKey(LibrarianPath),
+  browse: Schema.optionalKey(
+    Schema.Struct({
+      filters: LibrarianFilters,
+      trail: Trail,
+      section: Schema.optionalKey(Section),
+      /** Browse's own page, since the completed overview reuses the top-level offset. */
+      offset: Schema.optionalKey(Revision),
+      /** Whether Browse last showed the reader rather than the result list. */
+      reading: Schema.optionalKey(Schema.Boolean),
+    }),
+  ),
+  /** The result page shown beside the reader. */
+  results: Schema.optionalKey(Schema.Unknown),
+  facets: Schema.optionalKey(Schema.Unknown),
+  connections: Schema.optionalKey(LibrarianConnections),
+  stages: Schema.optionalKey(LibrarianStages),
+  activity: Schema.optionalKey(LibrarianActivity),
+  returnChangeId: Schema.optionalKey(Name),
 });
 export type LibrarianView = typeof LibrarianView.Type;
+/**
+ * Clients check only the reply envelope so a newer desktop's views and fields reach them unchanged.
+ */
+export const LibrarianReplyEnvelope = Schema.Struct({
+  state: Schema.Struct({ version: Schema.Literal(1), uiRevision: Revision, view: Schema.String }),
+  capability: Schema.optionalKey(Name),
+});
 /** Routine categories a dreaming run may handle without a human unless the person narrows them. */
 export const LibrarianRoutineWork = [
   "merge-duplicates",
@@ -231,13 +296,21 @@ export const LibrarianHumanCommand = Schema.Union([
   Schema.Struct({
     action: Schema.Literal("navigate"),
     ...Operation,
-    view: Schema.Literals(["browse", "memory", "decision", "overview", "recovery"]),
+    view: Schema.Literals(Views),
     historyRunId: Schema.optionalKey(Name),
     path: Schema.optionalKey(LibrarianPath),
     changeId: Schema.optionalKey(Name),
     query: Schema.optionalKey(Text),
     directory: Schema.optionalKey(Schema.String),
     offset: Schema.optionalKey(Revision),
+    filters: Schema.optionalKey(LibrarianFilters),
+    trail: Schema.optionalKey(Trail),
+    section: Schema.optionalKey(Schema.NullOr(Section)),
+    focusPath: Schema.optionalKey(LibrarianPath),
+    connections: Schema.optionalKey(LibrarianConnections),
+    stages: Schema.optionalKey(LibrarianStages),
+    activity: Schema.optionalKey(LibrarianActivity),
+    returnChangeId: Schema.optionalKey(Name),
   }),
   Schema.Struct({
     action: Schema.Literal("decide"),
@@ -268,7 +341,7 @@ export const LibrarianGuide = {
     "Dreaming begins only after the user asks their existing coding agent. Read librarian read, then librarian apply REQUEST.json with action start, a stable requestId, the displayed uiRevision, the existing sessionId and the exact user request. Omit automaticPermissions to allow the routine categories in routine; pass a narrower list only when the user names one, or [] when the user wants to decide every change. Scope never starts a model or agent. Continue the conversation in that existing session. Pick a bounded batch, do routine work yourself and present only judgment calls. Follow the okf-librarian workflow from irudd-okf skill install for what counts as routine. Finish requires a separate explicit conversational instruction.",
   routine: LibrarianRoutineWork,
   connection:
-    "Start and explicit resume return a connection capability. All proposal and presentation changes need the active runId, sessionId and capability. Restart interrupts the queue and invalidates all capabilities. Resume only when the user requests it. Retry uncertain operations with the same requestId and exact payload. Reconcile conflicts from librarian read.",
+    "Start and explicit resume return a connection capability. All proposal and presentation changes need the active runId, sessionId and capability. Restart interrupts the queue and invalidates all capabilities. Resume only when the user requests it. Retry uncertain operations with the same requestId and exact payload. Reconcile conflicts from librarian read; the person browsing Librarian views also changes uiRevision.",
   decisions:
     "Propose sends file semantics to irudd-okf. Present references an existing immutable change. Routine work uses disposition automatic with its routine category as permission; Scope records the agent review with reason, actor, revisions and evidence for the completed overview. Category names are labels: irudd-okf decides which changes need a human and Scope then presents them for a human decision regardless of the requested disposition. Present judgment calls with disposition human. Human proposals appear one at a time with exact before and after, reasons and evidence. Only the Scope renderer can record a human decision. Ask the user to review the displayed proposal; never claim an agent decision was human. Proposals left pending by an older run keep their recorded review requirement; propose the same bytes again to get a fresh assessment. Outside edits, migrations and the user's own proposals stay with the user: irudd-okf refuses agent proposals for those files, so present the pending change with disposition human. Resume accepts automaticPermissions only when the user changes them. Amend with a new proposal or undo a completed change. Read returns the same projected content and uiRevision displayed by the UI.",
   setup:

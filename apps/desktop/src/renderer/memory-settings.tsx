@@ -5,36 +5,7 @@ import { Button } from "./components/ui/button.tsx";
 import { Switch } from "./components/ui/switch.tsx";
 import { SettingsSection } from "./settings-section.tsx";
 import { useLibrarian } from "./librarian-state.ts";
-
-export function useMemory() {
-  const [status, setStatus] = useState<MemoryStatus>();
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let current = true;
-    let observed = false;
-    const unsubscribe = window.scope.onMemoryChange((next) => {
-      observed = true;
-      if (current) {
-        setStatus(next);
-        setError("");
-      }
-    });
-    void window.scope
-      .memory()
-      .then((next) => {
-        if (current && !observed) setStatus(next);
-      })
-      .catch(() => {
-        if (current && !observed)
-          setError("Could not read memory status. Close Settings and retry.");
-      });
-    return () => {
-      current = false;
-      unsubscribe();
-    };
-  }, []);
-  return { status, error, setStatus, setError };
-}
+import { useMemory } from "./memory-state.ts";
 
 function machineSummary(machine: MemoryMachine) {
   const status = machine.status;

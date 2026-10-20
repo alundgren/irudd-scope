@@ -8,7 +8,7 @@ import { SettingsSection } from "./settings-section.tsx";
 import { RetroHistory } from "./retro-history.tsx";
 import { retroError } from "./retro-error.ts";
 import { isPersonalMemoryDestination } from "../memory-contract.ts";
-import { useMemory } from "./memory-settings.tsx";
+import { useMemory } from "./memory-state.ts";
 
 type Source = RetroConfiguration["sources"][number];
 const destinationLabel = {
