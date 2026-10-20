@@ -136,6 +136,16 @@ export const LibrarianView = Schema.Struct({
   }),
 });
 export type LibrarianView = typeof LibrarianView.Type;
+/** Routine categories a dreaming run may handle without a human unless the person narrows them. */
+export const LibrarianRoutineWork = [
+  "merge-duplicates",
+  "consolidate-episodes",
+  "add-evidence",
+  "promote-stage",
+  "archive-stale",
+  "repair-links",
+] as const;
+const Permissions = Schema.Array(Name).check(Schema.isMaxLength(30));
 const Operation = { requestId: Name, expectedUiRevision: Revision };
 const Connection = { runId: Name, capability: Name, sessionId: Name };
 export const LibrarianCommand = Schema.Union([
@@ -146,7 +156,7 @@ export const LibrarianCommand = Schema.Union([
     ...Operation,
     sessionId: Name,
     userRequest: Text,
-    automaticPermissions: Schema.Array(Name).check(Schema.isMaxLength(30)),
+    automaticPermissions: Schema.optionalKey(Permissions),
   }),
   Schema.Struct({
     action: Schema.Literal("resume"),
@@ -154,6 +164,7 @@ export const LibrarianCommand = Schema.Union([
     runId: Name,
     sessionId: Name,
     userRequest: Text,
+    automaticPermissions: Schema.optionalKey(Permissions),
   }),
   Schema.Struct({
     action: Schema.Literal("present"),
@@ -254,11 +265,12 @@ export const LibrarianHumanCommand = Schema.Union([
 export type LibrarianHumanCommand = typeof LibrarianHumanCommand.Type;
 export const LibrarianGuide = {
   workflow:
-    "Dreaming begins only after the user asks their existing coding agent. Read librarian read, then librarian apply REQUEST.json with action start, a stable requestId, the displayed uiRevision, the existing sessionId, the exact user request, and only explicitly permitted automatic categories. Scope never starts a model or agent. Continue the conversation in that existing session. Finish requires a separate explicit conversational instruction.",
+    "Dreaming begins only after the user asks their existing coding agent. Read librarian read, then librarian apply REQUEST.json with action start, a stable requestId, the displayed uiRevision, the existing sessionId and the exact user request. Omit automaticPermissions to allow the routine categories in routine; pass a narrower list only when the user names one, or [] when the user wants to decide every change. Scope never starts a model or agent. Continue the conversation in that existing session. Pick a bounded batch, do routine work yourself and present only judgment calls. Follow the okf-librarian workflow from irudd-okf skill install for what counts as routine. Finish requires a separate explicit conversational instruction.",
+  routine: LibrarianRoutineWork,
   connection:
     "Start and explicit resume return a connection capability. All proposal and presentation changes need the active runId, sessionId and capability. Restart interrupts the queue and invalidates all capabilities. Resume only when the user requests it. Retry uncertain operations with the same requestId and exact payload. Reconcile conflicts from librarian read.",
   decisions:
-    "Propose sends file semantics to irudd-okf. Present references an existing immutable change. Human proposals appear one at a time with exact before and after, reasons and evidence. Only the Scope renderer can record a human decision. Automatic disposition requires a permission granted at start; reasons, actor, revisions and evidence remain inspectable. Ask the user to review the displayed proposal; never claim an agent decision was human. Amend with a new proposal or undo a completed change. Read returns the same projected content and uiRevision displayed by the UI.",
+    "Propose sends file semantics to irudd-okf. Present references an existing immutable change. Routine work uses disposition automatic with its routine category as permission; Scope records the agent review with reason, actor, revisions and evidence for the completed overview. Category names are labels: irudd-okf decides which changes need a human and Scope then presents them for a human decision regardless of the requested disposition. Present judgment calls with disposition human. Human proposals appear one at a time with exact before and after, reasons and evidence. Only the Scope renderer can record a human decision. Ask the user to review the displayed proposal; never claim an agent decision was human. Proposals left pending by an older run keep their recorded review requirement; propose the same bytes again to get a fresh assessment. Outside edits, migrations and the user's own proposals stay with the user: irudd-okf refuses agent proposals for those files, so present the pending change with disposition human. Resume accepts automaticPermissions only when the user changes them. Amend with a new proposal or undo a completed change. Read returns the same projected content and uiRevision displayed by the UI.",
   setup:
     "librarian apply with action local and an absolute root connects a local bundle without Git. initialize true calls irudd-okf init only for a new empty location. Existing older bundles require user-directed migration through irudd-okf migration guide; connecting never migrates them. Git sync remains optional via memory connect OWNER/REPO.",
   schema: Schema.toJsonSchemaDocument(LibrarianCommand, { onExcessProperty: "error" }).schema,

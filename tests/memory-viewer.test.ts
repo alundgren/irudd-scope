@@ -8,10 +8,11 @@ import { HubState } from "../apps/hub/src/state.ts";
 import { startPairedHub } from "../apps/hub/src/paired-server.ts";
 import { desktopFixture } from "./desktop-fixture.ts";
 import { memoryFixture } from "./memory-fixture.ts";
-import type {
-  LibrarianCommand,
-  LibrarianReply,
-  LibrarianView,
+import {
+  LibrarianRoutineWork,
+  type LibrarianCommand,
+  type LibrarianReply,
+  type LibrarianView,
 } from "@irudd-scope/protocol/librarian";
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
@@ -72,7 +73,7 @@ async function fixture() {
     },
   };
 }
-async function dreaming(f: Awaited<ReturnType<typeof fixture>>, permissions: string[] = []) {
+async function dreaming(f: Awaited<ReturnType<typeof fixture>>, permissions: string[] | null = []) {
   const read = await f.client.librarian({ action: "read" });
   const start: LibrarianCommand = {
     action: "start",
@@ -80,7 +81,7 @@ async function dreaming(f: Awaited<ReturnType<typeof fixture>>, permissions: str
     expectedUiRevision: read.state.uiRevision,
     sessionId: "existing-session",
     userRequest: "Begin dreaming. Ask me about substantive changes.",
-    automaticPermissions: permissions,
+    ...(permissions ? { automaticPermissions: permissions } : {}),
   };
   let reply = await f.client.librarian(start);
   const capability = reply.capability!;
@@ -242,6 +243,69 @@ test("dreaming shows one exact human decision, records automatic work, rejects s
   expect((await f.client.librarian({ action: "read" })).state.displayed).toMatchObject({
     change: { review: { actor: { type: "agent" } } },
   });
+});
+
+test("dreaming handles routine work by default, queues refused automatic reviews and honours a narrowed list on resume", async () => {
+  const f = await fixture();
+  await f.open();
+  await f.page.getByRole("button", { name: "recovery", exact: true }).waitFor();
+  const run = await dreaming(f, null);
+  expect(run.reply.state.run!.automaticPermissions).toEqual([...LibrarianRoutineWork]);
+  const merged = await run.propose(
+    "merged.md",
+    raw("Merged", "One copy of the lesson."),
+    "automatic",
+    "merge-duplicates",
+  );
+  expect(merged.state.pendingCount).toBe(0);
+  expect(merged.state.completedCount).toBe(1);
+  const refused = await run.propose(
+    "rechecked-episode.md",
+    raw("Rechecked", "Removal needs a person after all."),
+    "automatic",
+    "consolidate-episodes",
+  );
+  expect(refused.state.pendingCount).toBe(1);
+  expect(refused.state.completedCount).toBe(1);
+  await f.page.getByRole("heading", { name: "Rechecked", exact: true }).waitFor();
+  await f.page.getByRole("button", { name: "Accept proposal", exact: true }).waitFor();
+  const paused = await f.client.librarian({
+    action: "interrupt",
+    requestId: randomUUID(),
+    expectedUiRevision: refused.state.uiRevision,
+    runId: run.runId,
+    capability: run.capability,
+    sessionId: "existing-session",
+    userRequest: "Pause dreaming.",
+  });
+  const resumed = await f.client.librarian({
+    action: "resume",
+    requestId: randomUUID(),
+    expectedUiRevision: paused.state.uiRevision,
+    runId: run.runId,
+    sessionId: "resumed-session",
+    userRequest: "Resume, but ask me about everything from now on.",
+    automaticPermissions: [],
+  });
+  expect(resumed.state.run!.automaticPermissions).toEqual([]);
+  await expect(
+    f.client.librarian({
+      action: "propose",
+      requestId: randomUUID(),
+      expectedUiRevision: resumed.state.uiRevision,
+      runId: run.runId,
+      capability: resumed.capability!,
+      sessionId: "resumed-session",
+      path: "later.md",
+      raw: raw("Later", "Asked about every change."),
+      expectedHash: null,
+      reason: "Improve later.md",
+      sources: [],
+      disposition: "automatic",
+      permission: "merge-duplicates",
+      evidence: "Evidence for later.md",
+    }),
+  ).rejects.toThrow(/human decision/);
 });
 
 test("old memory tabs retain a copyable draft, and reminder preferences persist without agent work", async () => {
