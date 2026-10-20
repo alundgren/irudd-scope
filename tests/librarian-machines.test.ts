@@ -1,9 +1,12 @@
 import { afterEach, expect, test } from "vite-plus/test";
+import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { MemorySync } from "@irudd-scope/memory-sync";
 import { HubState } from "../apps/hub/src/state.ts";
 import { startPairedHub } from "../apps/hub/src/paired-server.ts";
+import { desktopFixture } from "./desktop-fixture.ts";
 import { librarianFixture } from "./librarian-fixture.ts";
+import { MEMORY_REPOSITORY, memoryFixture } from "./memory-fixture.ts";
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -62,14 +65,78 @@ test("Machines shows each machine's observed memory state read-only and states w
 
   open = false;
   await hub.close();
-  await f.page.evaluate(() => window.scope.retryMemory().catch(() => undefined));
-  await remote.getByRole("heading", { name: /not connected/ }).waitFor();
-  // Whatever Scope still holds from this session is marked as an earlier observation.
-  expect(await remote.textContent()).toMatch(
-    /Current state unknown|last observed this session and may have changed/,
-  );
+  // The ended connection keeps this session's last status, marked as possibly out of date.
+  await remote
+    .getByRole("heading", { name: /details may be out of date/ })
+    .waitFor({ timeout: 30_000 });
+  await remote
+    .getByText("last observed this session and may have changed", { exact: false })
+    .waitFor();
 
   await f.page.getByRole("button", { name: "Memory settings", exact: true }).click();
   await f.page.getByRole("dialog", { name: "Settings", exact: true }).waitFor();
   expect((await f.client.librarian({ action: "read" })).state.view).toBe("machines");
 });
+
+test("Machines flags conflicts but not routine tooling messages on a synced machine", async () => {
+  const f = await memoryFixture(cleanup);
+  const fixture = await desktopFixture({
+    hideInitialPrompts: true,
+    env: { ...f.env("mac", { extra: { FAKE_OKF_UPGRADE: "1" } }), SCOPE_MEMORY_DIR: f.root("mac") },
+  });
+  cleanup.push(() => rm(fixture.directory, { recursive: true, force: true }));
+  const application = await fixture.launch();
+  cleanup.push(() => application.close());
+  const page = await application.firstWindow();
+  page.setDefaultTimeout(10_000);
+  await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+  await page.evaluate(() => window.scope.setMemoryEnabled(true));
+  const client = await fixture.connect();
+  await client.connectMemory(MEMORY_REPOSITORY);
+  await page.evaluate(() => window.scope.setMemorySyncEnabled(true));
+  await expect
+    .poll(
+      () => page.evaluate(async () => (await window.scope.memory()).machines[0]?.status?.phase),
+      { timeout: 30_000 },
+    )
+    .toBe("synced");
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async () => (await window.scope.memory()).machines[0]?.status?.okf.message),
+      { timeout: 30_000 },
+    )
+    .toMatch(/irudd-okf/);
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByRole("button", { name: "Librarian", exact: true }).click();
+  await page
+    .getByRole("tablist", { name: "Librarian views" })
+    .getByRole("tab", { name: "Machines", exact: true })
+    .click();
+  const local = page
+    .getByRole("list", { name: "Memory by machine" })
+    .getByRole("listitem")
+    .filter({ hasText: "(this device)" });
+  await local.getByText("Last sync succeeded", { exact: false }).waitFor();
+  expect(await local.textContent()).not.toContain("needs attention");
+
+  const laptop = new MemorySync({
+    root: f.root("laptop"),
+    machine: "laptop",
+    env: f.env("laptop"),
+    intervalMs: 60 * 60_000,
+  });
+  cleanup.push(() => laptop.close());
+  laptop.configure({ enabled: true, repository: MEMORY_REPOSITORY });
+  await laptop.sync();
+  await writeFile(join(f.clone("laptop"), "index.md"), "Laptop line.\n");
+  await laptop.sync();
+  await writeFile(join(f.clone("mac"), "index.md"), "Mac line.\n");
+  await page.evaluate(() => window.scope.retryMemory());
+  await local.getByRole("heading", { name: /needs attention/ }).waitFor({ timeout: 30_000 });
+  await local
+    .getByRole("list", { name: /conflicts/ })
+    .getByRole("button")
+    .first()
+    .waitFor();
+}, 90_000);

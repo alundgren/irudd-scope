@@ -31,24 +31,26 @@ function Machine({ machine }: { machine: MemoryMachine }) {
     return (
       <li className="librarian-machine">
         <h3>
-          {name} <span className="librarian-offline">· not connected</span>
+          {name} <span className="librarian-offline">· state unknown</span>
         </h3>
         <p>Current state unknown. Scope keeps no earlier observation.</p>
         {machine.message && <p className="librarian-note">{machine.message}</p>}
       </li>
     );
   const off = status.phase === "off";
+  // Tooling messages also report routine upgrades, so only a missing tool counts, as in Settings.
   const attention =
-    status.phase === "error" ||
-    !!status.okf.message ||
-    status.bundle === "name-taken" ||
-    !!status.conflicts.length;
+    !off &&
+    (status.phase === "error" ||
+      (!status.okf.installed && !!status.okf.message) ||
+      (status.bundle !== "registered" && !!status.bundleMessage) ||
+      !!status.conflicts.length);
   return (
     <li className="librarian-machine">
       <h3>
         {name}{" "}
         {stale ? (
-          <span className="librarian-offline">· not connected</span>
+          <span className="librarian-offline">· details may be out of date</span>
         ) : (
           attention && <span className="librarian-attention">· needs attention</span>
         )}

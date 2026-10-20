@@ -497,8 +497,10 @@ on this desktop, before and after text, and cited source revisions. Recorded
 evidence opens read-only, separate from the current accepted memory. Decisions
 stay in Dreaming: a pending proposal in the open run offers Open in Dreaming.
 Machines shows each machine's observed sync state, last successful sync, tooling,
-library registration and conflicts, labels unknown states, lists what Scope
-cannot know, and links to Settings.
+library registration and conflicts; a machine with memory off shows only its
+sync state. A remote that disconnected keeps this session's last details,
+marked as possibly out of date, and a remote without any status is marked
+unknown. Machines lists what Scope cannot know and links to Settings.
 
 Dreaming starts when the person asks their existing agent. Scope supplies no
 chat, model call, agent launch, or automatic finish. The agent attaches its
