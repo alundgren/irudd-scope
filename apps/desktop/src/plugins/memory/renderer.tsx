@@ -155,9 +155,15 @@ function MemoryView({ tab, active, context }: TabProps) {
   const shown = useRef<{ view?: string; path?: string }>({});
 
   const initialized = useRef<string>(undefined);
-  // Commands carry the displayed revision, so a second one sent before the first returns would
-  // fail; the ref closes the gap before the busy state re-renders the controls.
+  // Commands carry the displayed revision, so one sent before the previous reply would fail. A
+  // navigation made meanwhile waits and runs next against the newer revision; other commands are
+  // offered only while idle.
   const running = useRef(false);
+  const waiting = useRef<Navigation>(undefined);
+  const revision = useRef(state?.uiRevision);
+  const focus = useRef(state?.focusPath);
+  revision.current = state?.uiRevision ?? revision.current;
+  focus.current = state?.focusPath;
   async function run(command: LibrarianHumanCommand, navigation?: Navigation) {
     if (running.current) return;
     running.current = true;
@@ -167,10 +173,12 @@ function MemoryView({ tab, active, context }: TabProps) {
       const next = await window.scope.librarianHuman(JSON.parse(JSON.stringify(command)));
       // The main process forgets a selected memory that dreaming or sync removed.
       setNotice(
-        command.action === "navigate" && state?.focusPath && !next.focusPath
+        command.action === "navigate" && focus.current && !next.focusPath
           ? "That memory is no longer in the library."
           : "",
       );
+      revision.current = next.uiRevision;
+      focus.current = next.focusPath;
       setState(next);
       failed.current = undefined;
     } catch (cause) {
@@ -179,15 +187,22 @@ function MemoryView({ tab, active, context }: TabProps) {
     } finally {
       running.current = false;
       setBusy(false);
+      const queued = waiting.current;
+      waiting.current = undefined;
+      if (queued) void navigate(queued);
     }
   }
   function navigate(selection: Navigation) {
-    if (!state || busy) return;
+    if (revision.current === undefined) return;
+    if (running.current) {
+      waiting.current = selection;
+      return;
+    }
     return run(
       {
         action: "navigate",
         requestId: crypto.randomUUID(),
-        expectedUiRevision: state.uiRevision,
+        expectedUiRevision: revision.current,
         ...selection,
       },
       selection,

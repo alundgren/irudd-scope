@@ -159,6 +159,22 @@ export function changeSummary(change: MemoryChange): MemoryChangeSummary {
   };
 }
 
+/** Selections, pages and filters belong to one library; another library starts fresh. */
+function forgetLibrary(state: Document) {
+  for (const key of [
+    "focusPath",
+    "results",
+    "facets",
+    "activity",
+    "stages",
+    "returnChangeId",
+  ] as const)
+    delete state[key];
+  state.query = "";
+  state.directory = "";
+  state.offset = 0;
+  state.browse = { filters: {}, trail: [] };
+}
 /** Stores presentation and human decisions. File semantics belong to irudd-okf. */
 export class LibrarianService {
   private capability?: { runId: string; sessionId: string; token: string };
@@ -600,11 +616,16 @@ export class LibrarianService {
     let listing: Pick<MemoryActivity, "total" | "page" | "scanned" | "partial" | "more">;
     if (options.onlySelected && focus) {
       // One extra match shows whether an older page exists; history ends at the file's creation.
+      // A page kept from another memory may lie past this memory's history; start it again.
       const found = await this.scan(
         (change) => change.path === focus && (!options.status || change.status === options.status),
         options.offset + 21,
         (change) => change.path === focus && change.action === "create",
       );
+      if (!found.items.slice(options.offset).length && options.offset > 0) {
+        options.offset = 0;
+        return this.activity(state);
+      }
       listing = {
         total: Math.min(found.items.length, options.offset + 20),
         page: found.items.slice(options.offset, options.offset + 20).map(changeSummary),
@@ -666,7 +687,7 @@ export class LibrarianService {
     }
     let revision: MemoryActivity["revision"];
     const source = selected?.change.sources.find((entry) => entry.hash === options.sourceHash);
-    if (source) revision = await this.revision(source);
+    if (source) revision = await this.revision(source, state.bundle?.id);
     return {
       ...listing,
       offset: options.offset,
@@ -676,14 +697,14 @@ export class LibrarianService {
     };
   }
   /** Finds the bytes a change cited: the current file when it still matches, else recorded history. */
-  private async revision(source: {
-    path: string;
-    hash: string;
-    bundle?: string;
-  }): Promise<NonNullable<MemoryActivity["revision"]>> {
+  private async revision(
+    source: { path: string; hash: string; bundle?: string },
+    bundleId: string | undefined,
+  ): Promise<NonNullable<MemoryActivity["revision"]>> {
     const base = { path: source.path, hash: source.hash };
-    if (source.bundle && source.bundle !== "personal")
-      return { ...base, raw: null, current: false, otherBundle: source.bundle };
+    // irudd-okf records a source's library by bundle id; the name is accepted too.
+    if (source.bundle && source.bundle !== "personal" && source.bundle !== bundleId)
+      return { ...base, raw: null, current: false, otherBundle: true };
     try {
       const concept = await this.okf(["read", "personal", source.path, "--all-applicability"])
         .then((value) => cli(MemoryConcept, value))
@@ -710,8 +731,12 @@ export class LibrarianService {
     }
   }
   private async navigate(state: Document, command: Selection): Promise<void> {
-    if (["browse", "memory", "connections", "stages", "activity"].includes(command.view))
+    if (["browse", "memory", "connections", "stages", "activity"].includes(command.view)) {
+      const before = state.bundle?.id;
       state.bundle = await this.inspection();
+      // A repository connection can switch libraries without passing through `local`.
+      if (before && before !== state.bundle.id) forgetLibrary(state);
+    }
     const prior = state.view === "browse" ? state.displayed : undefined;
     const previousPath = state.selectedPath;
     state.view = command.view;
@@ -965,17 +990,7 @@ export class LibrarianService {
         state.displayed = null;
         delete state.selectedPath;
         delete state.selectedChangeId;
-        // Selections and pages belong to the previous library.
-        for (const key of [
-          "focusPath",
-          "results",
-          "facets",
-          "activity",
-          "stages",
-          "returnChangeId",
-        ] as const)
-          delete state[key];
-        if (state.browse) state.browse.trail = [];
+        forgetLibrary(state);
         state.bundle = await this.inspection();
         state.uiRevision++;
         await this.store.saveLibrarian(state);

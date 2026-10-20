@@ -30,9 +30,9 @@ function Evidence({
       {revision.raw === null ? (
         <p>
           {revision.otherBundle
-            ? `This source is in the ${revision.otherBundle} library. Scope reads only the personal library.`
+            ? "This source is in another library. Scope reads only the personal library."
             : revision.unreadable
-              ? "The recorded bytes could not be read. Retry from the change."
+              ? "The recorded bytes could not be read. Go back to the change and open the source again."
               : revision.partial
                 ? `Not found in the latest ${revision.scanned} recorded changes.`
                 : "No recorded change contains these bytes."}
@@ -228,7 +228,7 @@ export function ActivityView({
           </NativeSelect>
         </label>
         <Button
-          variant={options.onlySelected ? "secondary" : "outline"}
+          variant={selectedOnly ? "secondary" : "outline"}
           size="sm"
           aria-pressed={options.onlySelected && !!state.focusPath}
           disabled={busy || !state.focusPath}

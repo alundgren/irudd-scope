@@ -283,6 +283,6 @@ export type MemoryActivity = {
     scanned?: number;
     partial?: boolean;
     unreadable?: boolean;
-    otherBundle?: string;
+    otherBundle?: boolean;
   };
 };
