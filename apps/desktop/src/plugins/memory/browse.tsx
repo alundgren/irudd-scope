@@ -124,12 +124,14 @@ function Results({
   onOpen,
   onFolder,
 }: {
-  page: Page | null;
+  page: Page | null | undefined;
   selected?: string;
   busy: boolean;
   onOpen: (path: string) => void;
   onFolder: (path: string) => void;
 }) {
+  if (page === null)
+    return <p>The result list could not be loaded. Search or clear filters to reload it.</p>;
   if (!page) return <p role="status">Loading memories…</p>;
   if ("entries" in page)
     return page.entries.length ? (
@@ -179,7 +181,7 @@ function Results({
   );
 }
 
-function summary(page: Page | null) {
+function summary(page: Page | null | undefined) {
   if (!page || "entries" in page) return "";
   if ("filtered" in page) {
     const shown = page.results.length
@@ -208,7 +210,7 @@ export function BrowseView({
   const [query, setQuery] = useState(state.query);
   useEffect(() => setQuery(state.query), [state.query]);
   const reading = state.view === "memory" && state.displayed !== null;
-  const page = (reading ? (state.results ?? null) : state.displayed) as Page | null;
+  const page = (reading ? state.results : state.displayed) as Page | null | undefined;
   const concept = reading ? (state.displayed as MemoryConcept) : undefined;
   const filters = state.browse?.filters ?? {};
   const trail = state.browse?.trail ?? [];

@@ -79,6 +79,7 @@ if (explicitRoot && ["read", "search", "graph", "write", "list"].includes(args[0
       const focus = option("--path");
       const links = concepts.flatMap(note => note.links.map(link => ({ from: note.path, ...link })));
       let included = concepts.map(note => note.path);
+      if (focus && !existsSync(join(explicitRoot, focus))) fail("NOT_FOUND", "The graph source does not exist.");
       if (focus) {
         // Explicit links in either direction, like irudd-okf's bounded graph.
         const seen = new Set([focus]);
@@ -92,7 +93,8 @@ if (explicitRoot && ["read", "search", "graph", "write", "list"].includes(args[0
         }
         included = [...seen];
       }
-      const nodes = concepts.filter(note => included.includes(note.path)).slice(0, limit);
+      // Like irudd-okf, the requested memory comes first so a limit never drops it.
+      const nodes = concepts.filter(note => included.includes(note.path)).sort((a, b) => (b.path === focus) - (a.path === focus)).slice(0, limit);
       const kept = new Set(nodes.map(note => note.path));
       process.stdout.write(JSON.stringify({ version: 1, nodes, edges: links.filter(link => kept.has(link.from)).map(({ from, target, ...link }) => ({ from: `personal:${from}`, to: `personal:${target}`, ...link })), truncated: included.length > limit, limit }));
     }

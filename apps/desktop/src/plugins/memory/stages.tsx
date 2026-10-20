@@ -36,7 +36,6 @@ export function StagesView({
     return (
       <li key={memory.path}>
         <button
-          disabled={busy}
           aria-current={memory.path === state.focusPath ? "true" : undefined}
           onClick={() => choose(memory.path)}
         >
@@ -154,13 +153,15 @@ export function StagesView({
                   ))}
                 </ul>
               ) : (
-                <p>No recorded stage change. The memory may have started at this stage.</p>
+                <p>No recorded stage change.</p>
               )}
-              {selected.partial && (
-                <p className="librarian-note">
-                  Searched the latest {selected.scanned} recorded changes only.
-                </p>
-              )}
+              <p className="librarian-note">
+                {selected.partial
+                  ? `Searched the latest ${selected.scanned} recorded changes only. `
+                  : ""}
+                Changes made under an earlier file name and edits outside recorded changes are not
+                shown.
+              </p>
             </>
           ) : (
             <Button

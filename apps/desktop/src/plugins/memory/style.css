@@ -350,7 +350,16 @@
   .librarian-narrow-only {
     display: inline-flex;
   }
-  .librarian-graph:not(.shown) {
+}
+.librarian-compact-only {
+  display: none;
+}
+@container (max-width: 699px) {
+  .librarian-compact-only {
+    display: inline-flex;
+  }
+  .librarian-graph:not(.shown),
+  .librarian-legend:not(.shown) {
     display: none;
   }
 }

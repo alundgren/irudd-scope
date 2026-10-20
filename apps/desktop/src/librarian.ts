@@ -8,6 +8,7 @@ import {
   LibrarianCommand,
   LibrarianHumanCommand,
   LibrarianRoutineWork,
+  LibrarianStage,
   MemoryChange,
   type LibrarianFilters,
   type LibrarianReply,
@@ -92,7 +93,7 @@ type Selection = Omit<
 const SCAN_LIMIT = 1000;
 const SEARCH_LIMIT = 300;
 const GRAPH_LIMIT = 40;
-const STAGE_NAMES = ["bronze", "silver", "gold", "none"] as const;
+const STAGE_NAMES = LibrarianStage.literals;
 const stageOf = (concept: MemorySummary): MemoryStageName => {
   const stage = memoryFields(concept.memory).stage;
   return STAGE_NAMES.find((name) => name === stage) ?? "none";
@@ -127,6 +128,7 @@ function facets(concepts: readonly MemorySummary[]): MemoryFacets {
     applicability: counted(fields.flatMap((field) => field.applicability?.type ?? [])),
   };
 }
+const missing = (error: unknown) => error instanceof OkfFailure && error.code === "NOT_FOUND";
 const byTitle = (a: MemorySummary, b: MemorySummary) =>
   a.title.localeCompare(b.title) || a.path.localeCompare(b.path);
 export function changeSummary(change: MemoryChange): MemoryChangeSummary {
@@ -147,7 +149,9 @@ export function changeSummary(change: MemoryChange): MemoryChangeSummary {
       at: review.at,
     })),
     reason: change.reason.length > 280 ? `${change.reason.slice(0, 279)}…` : change.reason,
-    ...(after && before !== after ? { stageChange: { from: before ?? "none", to: after } } : {}),
+    ...(change.action !== "delete" && (before ?? "none") !== (after ?? "none")
+      ? { stageChange: { from: before ?? "none", to: after ?? "none" } }
+      : {}),
   };
 }
 
@@ -555,10 +559,11 @@ export class LibrarianService {
         : {}),
     };
   }
-  private async navigate(state: Document, command: Selection) {
+  private async navigate(state: Document, command: Selection): Promise<void> {
     if (["browse", "memory", "connections", "stages", "activity"].includes(command.view))
       state.bundle = await this.inspection();
     const prior = state.view === "browse" ? state.displayed : undefined;
+    const previousPath = state.selectedPath;
     state.view = command.view;
     delete state.selectedPath;
     delete state.selectedChangeId;
@@ -580,12 +585,26 @@ export class LibrarianService {
     if (command.view === "memory") {
       if (!command.path) throw new ScopeError(400, "Choose a memory.");
       browse.trail = mutable(command.trail ?? []);
+      const remembered = state.focusPath;
       state.selectedPath = command.path;
       state.focusPath = command.path;
-      const concept = cli(
-        MemoryConcept,
-        await this.okf(["read", "personal", command.path, "--all-applicability"]),
-      );
+      let concept: MemoryConcept;
+      try {
+        concept = cli(
+          MemoryConcept,
+          await this.okf(["read", "personal", command.path, "--all-applicability"]),
+        );
+      } catch (error) {
+        // Returning to a memory that dreaming or sync removed shows the list instead of a dead end.
+        if (!(missing(error) && [remembered, previousPath].includes(command.path))) throw error;
+        delete state.focusPath;
+        return this.navigate(state, {
+          view: "browse",
+          query: state.query,
+          directory: state.directory,
+          offset: browse.offset ?? 0,
+        });
+      }
       const path = command.path;
       let changes: Awaited<ReturnType<typeof this.scan>> | undefined;
       let unreadable = false;
@@ -621,7 +640,10 @@ export class LibrarianService {
         state.results = await this.page(state);
       } else if (prior) state.results = prior;
       // Documents saved before results were kept have no list to show beside the reader.
-      else if (!state.results) state.results = await this.page(state);
+      else if (!state.results) {
+        browse.offset ??= state.offset;
+        state.results = await this.page(state).catch(() => null);
+      }
     } else if (command.view === "browse") {
       state.query = command.query ?? "";
       state.directory = command.directory ?? "";
@@ -639,7 +661,12 @@ export class LibrarianService {
     } else if (command.view === "connections") {
       state.connections ??= { depth: 1, sharedTags: false };
       if (state.focusPath)
-        state.displayed = await this.neighbourhood(state.focusPath, state.connections);
+        try {
+          state.displayed = await this.neighbourhood(state.focusPath, state.connections);
+        } catch (error) {
+          if (!missing(error)) throw error;
+          delete state.focusPath;
+        }
     } else if (command.view === "stages") {
       state.stages ??= { offset: 0 };
       state.displayed = await this.medallion(state.stages, state.focusPath, !!command.focusPath);

@@ -152,7 +152,12 @@ function MemoryView({ tab, active, context }: TabProps) {
   const shown = useRef<{ view?: string; path?: string }>({});
 
   const initialized = useRef<string>(undefined);
+  // Commands carry the displayed revision, so a second one sent before the first returns would
+  // fail; the ref closes the gap before the busy state re-renders the controls.
+  const running = useRef(false);
   async function run(command: LibrarianHumanCommand, navigation?: Navigation) {
+    if (running.current) return;
+    running.current = true;
     setBusy(true);
     setError("");
     try {
@@ -162,6 +167,7 @@ function MemoryView({ tab, active, context }: TabProps) {
       failed.current = navigation;
       setError(cause instanceof Error ? cause.message : "Could not load memory. Retry.");
     } finally {
+      running.current = false;
       setBusy(false);
     }
   }

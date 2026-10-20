@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "vite-plus/test";
-import { readFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { dreaming, librarianFixture, library, note } from "./librarian-fixture.ts";
+import { dreaming, librarianFixture, library, note, raw } from "./librarian-fixture.ts";
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -108,11 +108,7 @@ test("Stages counts the whole library and shows a memory's recorded promotion se
   expect(await readFile(join(f.root, "retry.md"), "utf8")).toBe(promoted);
 
   await silver.getByRole("button", { name: "Deploy steps", exact: true }).click();
-  await history
-    .getByText("No recorded stage change. The memory may have started at this stage.", {
-      exact: true,
-    })
-    .waitFor();
+  await history.getByText("No recorded stage change.", { exact: true }).waitFor();
   const seen = (await f.client.librarian({ action: "read" })).state;
   expect(seen.view).toBe("stages");
   expect((seen.displayed as { counts: object }).counts).toEqual({
@@ -131,4 +127,69 @@ test("Stages counts the whole library and shows a memory's recorded promotion se
       .getAttribute("aria-selected"),
   ).toBe("true");
   await f.page.getByRole("region", { name: "Silver", exact: true }).waitFor();
+});
+
+test("large neighbourhoods and stages stay bounded, narrow windows list first, and removed memories fall back", async () => {
+  const f = await librarianFixture(cleanup);
+  const links = Array.from({ length: 45 }, (_, index) => {
+    const name = `leaf-${String(index).padStart(2, "0")}`;
+    return { name, line: `[Leaf ${index}](${name}.md)` };
+  });
+  for (const { name } of links)
+    await writeFile(join(f.root, `${name}.md`), raw(name, "A leaf memory."));
+  await writeFile(join(f.root, "hub.md"), raw("Hub", links.map((link) => link.line).join(" ")));
+  await f.page.setViewportSize({ width: 1280, height: 820 });
+  await f.open();
+  await f.page.getByRole("button", { name: "hub", exact: true }).click();
+  const tabs = f.page.getByRole("tablist", { name: "Librarian views" });
+  await tabs.getByRole("tab", { name: "Connections", exact: true }).click();
+  await f.page
+    .getByText("More connections exist than this limit shows.", { exact: false })
+    .waitFor();
+  await f.page.getByText("The graph draws 7; the list shows all.", { exact: false }).waitFor();
+  expect(await f.page.getByRole("button", { name: /^Focus / }).count()).toBe(7);
+  expect(
+    await f.page.getByRole("list", { name: "Connected memories" }).getByRole("listitem").count(),
+  ).toBe(39);
+
+  await f.page.setViewportSize({ width: 620, height: 700 });
+  await expect.poll(() => f.page.locator(".librarian-graph svg").isVisible()).toBe(false);
+  await f.page.getByRole("button", { name: "Show graph", exact: true }).click();
+  await expect.poll(() => f.page.locator(".librarian-graph svg").isVisible()).toBe(true);
+  await f.page.setViewportSize({ width: 1280, height: 820 });
+
+  // Arriving with a memory from Browse does not scan history until asked.
+  await tabs.getByRole("tab", { name: "Stages", exact: true }).click();
+  const bronze = f.page.getByRole("region", { name: "Bronze", exact: true });
+  await bronze.getByRole("heading", { name: "Bronze 48" }).waitFor();
+  await f.page.getByRole("button", { name: "Show recorded stage changes", exact: true }).click();
+  await f.page.getByText("No recorded stage change.", { exact: true }).waitFor();
+  await bronze.getByRole("button", { name: "Show all 48", exact: true }).click();
+  const page = f.page.getByRole("region", { name: "Bronze", exact: true });
+  await expect.poll(() => page.getByRole("listitem").count()).toBe(20);
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect.poll(() => page.getByRole("listitem").count()).toBe(8);
+  await page.getByRole("button", { name: "All stages", exact: true }).click();
+  await f.page.getByRole("region", { name: "Silver", exact: true }).waitFor();
+
+  await rm(join(f.root, "hub.md"));
+  await tabs.getByRole("tab", { name: "Connections", exact: true }).click();
+  await f.page.getByText("Choose a memory in Browse first.", { exact: false }).waitFor();
+  await tabs.getByRole("tab", { name: "Browse", exact: true }).click();
+  await f.page.getByRole("button", { name: "leaf-00", exact: true }).click();
+  await f.page
+    .getByRole("region", { name: "Memory", exact: true })
+    .getByRole("heading", { name: "leaf-00" })
+    .waitFor();
+  await tabs.getByRole("tab", { name: "Stages", exact: true }).click();
+  await f.page.getByRole("region", { name: "Bronze", exact: true }).waitFor();
+  await rm(join(f.root, "leaf-00.md"));
+  await tabs.getByRole("tab", { name: "Browse", exact: true }).click();
+  await f.page.getByText("Choose a memory to read it here.", { exact: true }).waitFor();
+  await f.page.getByRole("list", { name: "Memory results" }).waitFor();
+  expect(await f.page.getByRole("alert").count()).toBe(0);
+  const seen = (await f.client.librarian({ action: "read" })).state;
+  expect(seen.view).toBe("browse");
+  expect(seen.focusPath).toBeUndefined();
 });

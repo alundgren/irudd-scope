@@ -96,7 +96,7 @@ export function Reader({
           ...(fields.archived ? ["Archived"] : []),
           ...(fields.deprecated ? ["Deprecated"] : []),
         ].map((label, index) => (
-          <span key={label}>
+          <span key={index}>
             {index ? " · " : ""}
             <span>{label}</span>
           </span>
@@ -213,7 +213,10 @@ export function Reader({
           </p>
         </>
       ) : concept.changesUnavailable ? (
-        <p role="alert">Recorded changes could not be read. The memory is unchanged.</p>
+        <p role="alert">
+          Recorded changes could not be read. The memory is unchanged. Select Recorded changes to
+          try again.
+        </p>
       ) : (
         <p role="status">Reading recorded changes…</p>
       )}

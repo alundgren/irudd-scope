@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { MemoryRepository } from "@irudd-scope/protocol/memory";
-import { MemoryActor } from "@irudd-scope/protocol/librarian";
+import { LibrarianPath, LibrarianStage, MemoryActor } from "@irudd-scope/protocol/librarian";
 
 export const MemoryPath = Schema.String.check(
   Schema.isMinLength(1),
@@ -42,7 +42,7 @@ export const MemoryPositions = Schema.Struct({
   browse: Schema.optionalKey(Position),
   memory: Schema.optionalKey(Position),
   /** The memory whose place `memory` records; another memory opens at its top. */
-  memoryPath: Schema.optionalKey(MemoryPath),
+  memoryPath: Schema.optionalKey(LibrarianPath),
   connections: Schema.optionalKey(Position),
   stages: Schema.optionalKey(Position),
   activity: Schema.optionalKey(Position),
@@ -232,7 +232,7 @@ export type MemoryConnections = {
   depth: 1 | 2;
   limit: number;
 };
-export type MemoryStageName = "bronze" | "silver" | "gold" | "none";
+export type MemoryStageName = typeof LibrarianStage.Type;
 export type MemoryStages = {
   counts: Record<MemoryStageName, number>;
   columns?: Record<MemoryStageName, MemorySummary[]>;

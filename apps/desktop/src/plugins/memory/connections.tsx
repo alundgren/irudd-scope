@@ -1,18 +1,17 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { LibrarianView } from "@irudd-scope/protocol/librarian";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { memoryFields, type MemoryConnections } from "./contract.ts";
 import { memoryKind, memoryStage } from "./format.ts";
 import type { Navigation } from "./navigation.ts";
 
-/** The drawing stays readable at this size; the list below always holds every node. */
-const DRAWN = 16;
-const WIDTH = 760;
+const WIDTH = 840;
 const HEIGHT = 420;
+/** Ring sizes and capacities that keep 160×44 nodes apart; the list below holds every memory. */
 const RINGS = [
-  { rx: 0, ry: 0 },
-  { rx: 220, ry: 115 },
-  { rx: 330, ry: 175 },
+  { rx: 0, ry: 0, fits: 1 },
+  { rx: 200, ry: 110, fits: 6 },
+  { rx: 300, ry: 175, fits: 8 },
 ];
 const short = (text: string) => (text.length > 22 ? `${text.slice(0, 21)}…` : text);
 
@@ -40,6 +39,13 @@ export function ConnectionsView({
 }) {
   const [drawing, setDrawing] = useState(false);
   const graph = state.displayed as MemoryConnections | null;
+  const heading = useRef<HTMLParagraphElement>(null);
+  const shownFocus = useRef(graph?.focus);
+  useEffect(() => {
+    // The chosen memory leaves the list, so keyboard focus moves to the line naming it.
+    if (graph && shownFocus.current && shownFocus.current !== graph.focus) heading.current?.focus();
+    shownFocus.current = graph?.focus;
+  }, [graph?.focus]);
   const options = state.connections ?? { depth: 1, sharedTags: false };
   if (!state.focusPath || !graph)
     return (
@@ -54,7 +60,9 @@ export function ConnectionsView({
   const others = graph.nodes
     .filter((node) => node.path !== graph.focus)
     .sort((a, b) => a.distance - b.distance || a.title.localeCompare(b.title));
-  const drawn = others.slice(0, DRAWN - 1);
+  const drawn = [1, 2].flatMap((ring) =>
+    others.filter((node) => Math.min(node.distance, 2) === ring).slice(0, RINGS[ring]!.fits),
+  );
   const position = new Map<string, { x: number; y: number }>([
     [graph.focus, { x: WIDTH / 2, y: HEIGHT / 2 }],
   ]);
@@ -75,7 +83,7 @@ export function ConnectionsView({
   return (
     <section className="librarian-connections" aria-label="Connections">
       <div className="librarian-toolbar">
-        <p className="librarian-note">
+        <p className="librarian-note" ref={heading} tabIndex={-1}>
           Focused on <strong>{focus?.title ?? graph.focus}</strong>
         </p>
         <Button
@@ -117,15 +125,15 @@ export function ConnectionsView({
         <Button
           variant="ghost"
           size="sm"
-          className="librarian-narrow-only"
+          className="librarian-compact-only"
           aria-expanded={drawing}
           onClick={() => setDrawing(!drawing)}
         >
           {drawing ? "Hide graph" : "Show graph"}
         </Button>
       </div>
-      <p className="librarian-legend">
-        <span className="reference">Reference</span>
+      <p className={drawing ? "librarian-legend shown" : "librarian-legend"}>
+        <span className="reference">Link, either direction</span>
         <span className="tagged">Shared tag, not a reference</span>
         <span>Explicit links only. A connection is not evidence.</span>
       </p>
@@ -196,16 +204,16 @@ export function ConnectionsView({
         {others.length + 1} memories · {options.depth === 1 ? "1 step" : "2 steps"} · up to{" "}
         {graph.limit}
         {graph.truncated ? " · More connections exist than this limit shows." : ""}
-        {others.length >= DRAWN ? ` · The graph draws ${DRAWN}; the list shows all.` : ""}
+        {drawn.length < others.length
+          ? ` · The graph draws ${drawn.length + 1}; the list shows all.`
+          : ""}
       </p>
       <h3>Connections in a list</h3>
       {others.length ? (
         <ul className="memory-link-list" aria-label="Connected memories">
           {others.map((node) => (
             <li key={node.path}>
-              <button disabled={busy} onClick={() => select(node.path)}>
-                {node.title}
-              </button>
+              <button onClick={() => select(node.path)}>{node.title}</button>
               <small>{relation(graph, node.path)}</small>
             </li>
           ))}
