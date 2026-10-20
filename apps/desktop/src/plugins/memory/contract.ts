@@ -41,6 +41,8 @@ const Position = Schema.Number.check(Schema.isGreaterThanOrEqualTo(0));
 export const MemoryPositions = Schema.Struct({
   browse: Schema.optionalKey(Position),
   memory: Schema.optionalKey(Position),
+  /** The memory whose place `memory` records; another memory opens at its top. */
+  memoryPath: Schema.optionalKey(MemoryPath),
   connections: Schema.optionalKey(Position),
   stages: Schema.optionalKey(Position),
   activity: Schema.optionalKey(Position),
@@ -108,6 +110,7 @@ export type MemoryChanges = typeof MemoryChanges.Type;
 export const MemoryConcept = Schema.Struct({
   ...Summary.fields,
   changes: Schema.optionalKey(MemoryChanges),
+  changesUnavailable: Schema.optionalKey(Schema.Literal(true)),
   raw: Text,
   body: Text,
   metadata: Schema.optionalKey(Schema.Unknown),

@@ -139,7 +139,7 @@ function MemoryView({ tab, active, context }: TabProps) {
   // A failed read is not saved, so Retry must resend it rather than the view still stored.
   const failed = useRef<Navigation>(undefined);
   const scroller = useRef<HTMLDivElement>(null);
-  const positions = useRef<Partial<Record<Positioned, number>>>(
+  const positions = useRef<Partial<Record<Positioned, number>> & { memoryPath?: string }>(
     saved.version === 3 ? { ...saved.data.positions } : {},
   );
   const saving = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -174,7 +174,10 @@ function MemoryView({ tab, active, context }: TabProps) {
   useEffect(() => {
     if (!active || !state || initialized.current === (state.bundle?.id ?? "unset")) return;
     initialized.current = state.bundle?.id ?? "unset";
-    if (state.displayed === null && state.view === "browse") void navigate(current(state));
+    const stale =
+      (state.view === "browse" || state.view === "memory") && state.facets === undefined;
+    if ((state.displayed === null && state.view === "browse") || stale)
+      void navigate(current(state));
   }, [active, state]);
   useEffect(() => () => clearTimeout(saving.current), []);
   useLayoutEffect(() => {
@@ -184,10 +187,13 @@ function MemoryView({ tab, active, context }: TabProps) {
     const previous = shown.current;
     shown.current = { view: state.view, path: state.selectedPath };
     if (previous.view === state.view && previous.path === state.selectedPath) return;
-    // Opening another memory starts at its top; returning to a view restores its saved place.
-    const restore = previous.view === state.view ? 0 : key ? (positions.current[key] ?? 0) : 0;
+    // Returning to a view restores its place; a memory other than the one saved opens at its top.
+    const other = key === "memory" && positions.current.memoryPath !== state.selectedPath;
+    const restore =
+      previous.view === state.view || other || !key ? 0 : (positions.current[key] ?? 0);
     element.scrollTop = restore;
     if (key) positions.current[key] = restore;
+    if (key === "memory") positions.current.memoryPath = state.selectedPath;
   }, [state?.view, state?.selectedPath]);
   if (!state)
     return (
@@ -264,7 +270,10 @@ function MemoryView({ tab, active, context }: TabProps) {
       )}
       {section && (
         <div className="librarian-header">
-          <p className="librarian-note">Personal library on this desktop</p>
+          <p className="librarian-note">
+            Personal library on this desktop
+            {busy && <span role="status"> · Reading…</span>}
+          </p>
           {SECTIONS.length > 1 && (
             <div
               role="tablist"

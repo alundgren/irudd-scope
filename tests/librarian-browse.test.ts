@@ -4,7 +4,9 @@ import { createServer } from "node:http";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ScopeClient } from "@irudd-scope/protocol/client";
-import { dreaming, librarianFixture, library, note } from "./librarian-fixture.ts";
+import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
+import { memoryCredentials } from "../apps/desktop/src/credentials.ts";
+import { dreaming, librarianFixture, library, note, raw } from "./librarian-fixture.ts";
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -184,7 +186,7 @@ test("the reader's scroll position is saved in the tab and restored after restar
   expect((await tabState()).version).toBe(2);
   await f.page.getByRole("button", { name: "long", exact: true }).click();
   await f.page.getByText("Paragraph 80.", { exact: true }).waitFor();
-  const view = f.page.locator(".librarian-view");
+  let view = f.page.locator(".librarian-view");
   await view.evaluate((element) => {
     element.scrollTop = 600;
     element.dispatchEvent(new Event("scroll"));
@@ -196,9 +198,14 @@ test("the reader's scroll position is saved in the tab and restored after restar
   await f.page.setViewportSize({ width: 620, height: 560 });
   await f.open();
   await f.page.getByText("Paragraph 80.", { exact: true }).waitFor();
+  view = f.page.locator(".librarian-view");
   await expect
     .poll(() => f.page.locator(".librarian-view").evaluate((element) => element.scrollTop))
     .toBe(600);
+  await f.page.getByRole("button", { name: "Back to results", exact: true }).click();
+  await f.page.getByRole("button", { name: "recovery", exact: true }).click();
+  await f.page.getByText("Retry interrupted work.", { exact: true }).waitFor();
+  expect(await view.evaluate((element) => element.scrollTop)).toBe(0);
 });
 
 test("the CLI client accepts Librarian replies from newer desktops with unknown views and fields", async () => {
@@ -220,3 +227,128 @@ test("the CLI client accepts Librarian replies from newer desktops with unknown 
   expect(reply.state.view).toBe("future-view");
   expect((reply.state as unknown as { futureField: object }).futureField).toEqual({ kept: true });
 });
+
+test("a Librarian document saved before this version reopens its memory with results and filters", async () => {
+  const f = await librarianFixture(cleanup);
+  await library(f.root);
+  await f.page.setViewportSize({ width: 1280, height: 820 });
+  await f.open();
+  const run = await dreaming(f);
+  await run.refresh();
+  await f.client.librarian({
+    action: "finish",
+    requestId: randomUUID(),
+    expectedUiRevision: run.reply.state.uiRevision,
+    runId: run.runId,
+    capability: run.capability,
+    sessionId: "existing-session",
+    userRequest: "Finish dreaming.",
+  });
+  await f.page.getByRole("button", { name: "Back", exact: true }).click();
+  await f.page.getByRole("button", { name: "deploy", exact: true }).click();
+  const reader = f.page.getByRole("region", { name: "Memory", exact: true });
+  await reader.getByRole("heading", { name: "Deploy steps" }).waitFor();
+  await f.restart(async () => {
+    const store = new DesktopStore(f.desktop.settingsDirectory, memoryCredentials());
+    await store.load();
+    try {
+      // Keep only the fields the previous version stored: no groups, result page or facets.
+      const {
+        browse: _browse,
+        results: _results,
+        facets: _facets,
+        focusPath: _focus,
+        ...previous
+      } = await store.librarian();
+      expect(previous.view).toBe("memory");
+      await store.saveLibrarian(previous);
+    } finally {
+      await store.close();
+    }
+  });
+  await f.page.setViewportSize({ width: 1280, height: 820 });
+  await f.open();
+  await f.page
+    .getByRole("region", { name: "Memory", exact: true })
+    .getByRole("heading", { name: "Deploy steps" })
+    .waitFor();
+  await f.page
+    .getByRole("list", { name: "Memory results" })
+    .getByRole("button", { name: "deploy", exact: true })
+    .waitFor();
+  await expect.poll(() => f.page.getByLabel("Stage", { exact: true }).isEnabled()).toBe(true);
+  const tab = await f.page.evaluate(
+    async () => (await window.scope.workspace())!.tabs.find((tab) => tab.type === "memory")!.state,
+  );
+  expect(tab.version).toBe(2);
+  expect((await f.client.librarian({ action: "read" })).state.run?.status).toBe("completed");
+});
+
+test("filters with a search over 300 hits say how much was searched, and Back to results keeps the page", async () => {
+  const f = await librarianFixture(cleanup);
+  for (let index = 0; index < 310; index++)
+    await writeFile(
+      join(f.root, `needle-${String(index).padStart(3, "0")}.md`),
+      raw(`Needle ${String(index).padStart(3, "0")}`, "A needle in the library."),
+    );
+  await f.page.setViewportSize({ width: 620, height: 700 });
+  await f.open();
+  await f.page.getByLabel("Stage", { exact: true }).selectOption("bronze");
+  await f.page.getByRole("textbox", { name: "Search memory", exact: true }).fill("needle");
+  await f.page.getByRole("button", { name: "Search memory", exact: true }).click();
+  await f.page
+    .getByText("1–30 of 300 matches in the first 300 of 310 search results", { exact: true })
+    .waitFor();
+  await f.page.getByRole("button", { name: "Next", exact: true }).click();
+  await f.page
+    .getByText("31–60 of 300 matches in the first 300 of 310 search results", { exact: true })
+    .waitFor();
+  const first = f.page
+    .getByRole("list", { name: "Memory results" })
+    .getByRole("listitem")
+    .first()
+    .getByRole("button");
+  const title = (await first.textContent())!;
+  await first.click();
+  await f.page
+    .getByRole("region", { name: "Memory", exact: true })
+    .getByRole("heading", { name: title })
+    .waitFor();
+  await f.page.getByRole("button", { name: "Back to results", exact: true }).click();
+  await f.page
+    .getByText("31–60 of 300 matches in the first 300 of 310 search results", { exact: true })
+    .waitFor();
+  expect(
+    await f.page.getByRole("textbox", { name: "Search memory", exact: true }).inputValue(),
+  ).toBe("needle");
+});
+
+test("recorded changes stop at the scan limit and read large records in smaller pages", async () => {
+  const f = await librarianFixture(cleanup);
+  const big = "x".repeat(100_000);
+  const changes = Array.from({ length: 1001 }, (_, index) => ({
+    version: 1,
+    id: `bulk-${index}`,
+    bundle: "personal",
+    path: "elsewhere.md",
+    action: "update",
+    before: { raw: index > 970 ? big : "before", hash: "a".repeat(64) },
+    after: { raw: index > 970 ? big : "after", hash: "b".repeat(64) },
+    revisionHash: "c".repeat(64),
+    status: "accepted",
+    actor: { type: "agent", id: "bulk-session" },
+    reason: "Bulk synthetic change.",
+    createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index)).toISOString(),
+    sources: [],
+    reviews: [],
+  }));
+  await writeFile(join(f.root, "fixture-changes.json"), JSON.stringify(changes));
+  await f.open();
+  await f.page.getByRole("button", { name: "recovery", exact: true }).click();
+  const reader = f.page.getByRole("region", { name: "Memory", exact: true });
+  await reader.getByRole("button", { name: "Recorded changes", exact: true }).click();
+  await reader
+    .getByText("Showing changes found in the latest 1000 recorded changes.", { exact: false })
+    .waitFor({ timeout: 60_000 });
+  await reader.getByText("No recorded changes for this memory.", { exact: true }).waitFor();
+}, 120_000);

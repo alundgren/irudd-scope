@@ -84,7 +84,6 @@ type Selection = Omit<
   Extract<LibrarianHumanCommand, { action: "navigate" }>,
   "action" | "requestId" | "expectedUiRevision"
 >;
-const OUTPUT_LIMIT = "Memory command output exceeds";
 /** Bounds how much recorded history one path scan reads; the UI reports when it stops early. */
 const SCAN_LIMIT = 1000;
 const SEARCH_LIMIT = 300;
@@ -138,7 +137,7 @@ export function changeSummary(change: MemoryChange): MemoryChangeSummary {
       at: review.at,
     })),
     reason: change.reason.length > 280 ? `${change.reason.slice(0, 279)}…` : change.reason,
-    ...(before && after && before !== after ? { stageChange: { from: before, to: after } } : {}),
+    ...(after && before !== after ? { stageChange: { from: before ?? "none", to: after } } : {}),
   };
 }
 
@@ -270,7 +269,7 @@ export class LibrarianService {
       }
       const result = await this.memory.runOkf(identity, args);
       if (result.code !== 0) {
-        if (result.stderr.startsWith(OUTPUT_LIMIT))
+        if (result.exceeded)
           throw new OkfFailure(
             "This memory read is larger than Scope can display. The library is unchanged.",
             "OUTPUT_LIMIT",
@@ -293,6 +292,16 @@ export class LibrarianService {
   private async list() {
     return cli(MemoryList, await this.okf(["list", "--scope", "personal", "--all-applicability"]))
       .concepts;
+  }
+  private async facets(): Promise<MemoryFacets> {
+    try {
+      return facets(await this.list());
+    } catch {
+      return {
+        ...facets([]),
+        unavailable: "Filters are unavailable because the library list could not be read.",
+      };
+    }
   }
   private async search(query: string, offset: number) {
     // Leading whitespace prevents a query beginning with a flag from becoming CLI input.
@@ -384,13 +393,18 @@ export class LibrarianService {
    * Reads recorded changes newest first until enough match. irudd-okf lists oldest first, so pages
    * are taken from the end; a change recorded mid-scan can shift a page, which ids deduplicate.
    */
-  private async scan(match: (change: MemoryChange) => boolean, wanted: number) {
+  private async scan(
+    match: (change: MemoryChange) => boolean,
+    wanted: number,
+    stop: (change: MemoryChange) => boolean = () => false,
+  ) {
     const total = (await this.changes(0, 1)).total;
     const items: MemoryChange[] = [];
     const seen = new Set<string>();
     let scanned = 0;
     let size = 50;
-    while (scanned < total && scanned < SCAN_LIMIT && items.length < wanted) {
+    let stopped = false;
+    while (!stopped && scanned < total && scanned < SCAN_LIMIT && items.length < wanted) {
       const limit = Math.min(size, total - scanned, SCAN_LIMIT - scanned);
       let page;
       try {
@@ -404,13 +418,19 @@ export class LibrarianService {
         throw error;
       }
       for (const change of [...page.changes].reverse()) {
-        if (seen.has(change.id)) continue;
+        if (stopped || seen.has(change.id)) continue;
         seen.add(change.id);
         if (items.length < wanted && match(change)) items.push(change);
+        stopped = stop(change);
       }
       scanned += limit;
     }
-    return { items, scanned, total, partial: items.length < wanted && scanned < total };
+    return {
+      items,
+      scanned,
+      total,
+      partial: !stopped && items.length < wanted && scanned < total,
+    };
   }
   private async navigate(state: Document, command: Selection) {
     if (["browse", "memory", "connections", "stages", "activity"].includes(command.view))
@@ -444,8 +464,19 @@ export class LibrarianService {
         await this.okf(["read", "personal", command.path, "--all-applicability"]),
       );
       const path = command.path;
-      const changes =
-        browse.section === "changes" ? await this.scan((c) => c.path === path, 20) : undefined;
+      let changes: Awaited<ReturnType<typeof this.scan>> | undefined;
+      let unreadable = false;
+      if (browse.section === "changes")
+        try {
+          // A file's creation ends its history; earlier changes belong to a removed file.
+          changes = await this.scan(
+            (c) => c.path === path,
+            20,
+            (c) => c.path === path && c.action === "create",
+          );
+        } catch {
+          unreadable = true;
+        }
       state.displayed = {
         ...concept,
         ...(changes
@@ -457,12 +488,17 @@ export class LibrarianService {
                 partial: changes.partial,
               } satisfies MemoryChanges,
             }
-          : {}),
+          : unreadable
+            ? { changesUnavailable: true }
+            : {}),
       };
+      if (!state.facets) state.facets = await this.facets();
       if (command.offset !== undefined) {
         state.offset = browse.offset = command.offset;
         state.results = await this.page(state);
       } else if (prior) state.results = prior;
+      // Documents saved before results were kept have no list to show beside the reader.
+      else if (!state.results) state.results = await this.page(state);
     } else if (command.view === "browse") {
       state.query = command.query ?? "";
       state.directory = command.directory ?? "";
@@ -474,10 +510,7 @@ export class LibrarianService {
       } catch (error) {
         // Filters need the library list; plain folder browsing and search still work without it.
         if (filtered(browse.filters)) throw error;
-        state.facets = {
-          ...facets([]),
-          unavailable: "Filters are unavailable because the library list could not be read.",
-        } satisfies MemoryFacets;
+        state.facets = await this.facets();
       }
       state.displayed = await this.page(state, concepts);
     } else if (command.view === "decision") {

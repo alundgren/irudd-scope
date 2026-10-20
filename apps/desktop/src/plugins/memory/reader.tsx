@@ -88,12 +88,19 @@ export function Reader({
         )}
       </div>
       <p className="librarian-labels" aria-label="Memory details">
-        <span>{memoryStage(fields.stage)}</span>
-        <span>{memoryKind(fields.kind)}</span>
-        <span>Applies: {applicability(fields.applicability)}</span>
-        <span>{review(fields)}</span>
-        {fields.archived && <span>Archived</span>}
-        {fields.deprecated && <span>Deprecated</span>}
+        {[
+          memoryStage(fields.stage),
+          memoryKind(fields.kind),
+          `Applies: ${applicability(fields.applicability)}`,
+          review(fields),
+          ...(fields.archived ? ["Archived"] : []),
+          ...(fields.deprecated ? ["Deprecated"] : []),
+        ].map((label, index) => (
+          <span key={label}>
+            {index ? " · " : ""}
+            <span>{label}</span>
+          </span>
+        ))}
       </p>
       <p className="librarian-path">{concept.path} · Accepted content</p>
       {!!concept.tags.length && (
@@ -205,6 +212,8 @@ export function Reader({
             shown.
           </p>
         </>
+      ) : concept.changesUnavailable ? (
+        <p role="alert">Recorded changes could not be read. The memory is unchanged.</p>
       ) : (
         <p role="status">Reading recorded changes…</p>
       )}

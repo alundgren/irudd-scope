@@ -18,7 +18,11 @@ const fail = (code, message, details = {}) => {
   process.stdout.write(JSON.stringify({ version: 1, error: { code, message, details } }));
   process.exit(2);
 };
-if (librarianFixture(args, explicitRoot)) process.exit(0);
+if (librarianFixture(args, explicitRoot)) {
+  // Exiting at once can cut off a large reply still queued for the pipe.
+  await new Promise((resolve) => process.stdout.write("", resolve));
+  process.exit(0);
+}
 
 if (explicitRoot && ["read", "search", "graph", "write", "list"].includes(args[0])) {
   const hash = raw => createHash("sha256").update(raw).digest("hex");

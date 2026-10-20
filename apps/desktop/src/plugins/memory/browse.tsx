@@ -275,7 +275,7 @@ export function BrowseView({
       <div className="librarian-split">
         <section className="librarian-results" aria-label="Results">
           <div className="memory-note-actions">
-            {(state.query || state.directory) && !Object.keys(filters).length && (
+            {(state.query || (state.directory && !Object.keys(filters).length)) && (
               <Button
                 variant="ghost"
                 disabled={busy}

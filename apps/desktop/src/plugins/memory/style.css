@@ -243,15 +243,12 @@
   padding-left: var(--scope-space-4);
 }
 .librarian-labels {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--scope-space-2);
+  color: var(--scope-muted);
   margin: 0;
 }
-.librarian-labels span {
-  border: 1px solid var(--scope-outline);
-  border-radius: var(--scope-radius-control);
-  padding: 0 var(--scope-space-2);
+.librarian-view h3 {
+  font-weight: var(--scope-weight-strong);
+  margin-top: var(--scope-space-4);
 }
 .librarian-tags,
 .librarian-sections {

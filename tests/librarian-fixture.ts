@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { LibrarianCommand } from "@irudd-scope/protocol/librarian";
+import type { LibrarianCommand, LibrarianReply } from "@irudd-scope/protocol/librarian";
 import { desktopFixture } from "./desktop-fixture.ts";
 import { memoryFixture } from "./memory-fixture.ts";
 
@@ -56,8 +56,9 @@ export async function librarianFixture(
     get application() {
       return application;
     },
-    restart: async () => {
+    restart: async (whileClosed?: () => Promise<void>) => {
       await application.close();
+      await whileClosed?.();
       application = await desktop.launch();
       page = await application.firstWindow();
       page.setDefaultTimeout(8000);
@@ -69,16 +70,26 @@ export async function dreaming(
   f: Awaited<ReturnType<typeof librarianFixture>>,
   permissions: string[] | null = [],
 ) {
-  const read = await f.client.librarian({ action: "read" });
-  const start: LibrarianCommand = {
-    action: "start",
-    requestId: randomUUID(),
-    expectedUiRevision: read.state.uiRevision,
-    sessionId: "existing-session",
-    userRequest: "Begin dreaming. Ask me about substantive changes.",
-    ...(permissions ? { automaticPermissions: permissions } : {}),
-  };
-  let reply = await f.client.librarian(start);
+  let start!: LibrarianCommand;
+  let reply!: LibrarianReply;
+  // Opening Librarian loads its first page; like an agent, read again if that changed the view.
+  for (let attempt = 1; ; attempt++) {
+    const read = await f.client.librarian({ action: "read" });
+    start = {
+      action: "start",
+      requestId: randomUUID(),
+      expectedUiRevision: read.state.uiRevision,
+      sessionId: "existing-session",
+      userRequest: "Begin dreaming. Ask me about substantive changes.",
+      ...(permissions ? { automaticPermissions: permissions } : {}),
+    };
+    try {
+      reply = await f.client.librarian(start);
+      break;
+    } catch (error) {
+      if (attempt === 3 || !/view changed/.test(String(error))) throw error;
+    }
+  }
   const capability = reply.capability!;
   const runId = reply.state.run!.id;
   async function propose(
