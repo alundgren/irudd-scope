@@ -13,7 +13,7 @@ import {
 } from "./contract.ts";
 import { applicability, applicabilityType, memoryKind, memoryStage } from "./format.ts";
 import { Reader } from "./reader.tsx";
-import type { Navigation } from "./navigation.ts";
+import { openChange, type Navigation } from "./navigation.ts";
 
 type Folder = {
   entries: { path: string; kind: "directory" | "memory"; title?: string }[];
@@ -331,7 +331,9 @@ export function BrowseView({
             concept={concept}
             trail={trail}
             section={state.browse?.section ?? "connections"}
-            returning={false}
+            returning={!!state.returnChangeId}
+            onReturn={() => navigate(openChange(state, state.returnChangeId!))}
+            onChange={(id) => navigate(openChange(state, id))}
             onOpen={(path) =>
               navigate({ view: "memory", path, trail: [...trail, concept.path].slice(-20) })
             }

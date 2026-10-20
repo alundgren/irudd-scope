@@ -14,15 +14,23 @@ import { MemoryWiki } from "./wiki.tsx";
 
 export function ChangeItem({
   change,
+  current,
   onOpen,
 }: {
   change: MemoryChangeSummary;
+  current?: boolean;
   onOpen?: () => void;
 }) {
   const title = `${action(change.action)} ${change.title || change.path}`;
   return (
     <>
-      {onOpen ? <button onClick={onOpen}>{title}</button> : <strong>{title}</strong>}
+      {onOpen ? (
+        <button aria-current={current ? "true" : undefined} onClick={onOpen}>
+          {title}
+        </button>
+      ) : (
+        <strong>{title}</strong>
+      )}
       <small>
         {time(change.createdAt)} · {outcome(change.status)} · Proposed by {actor(change.actor)}
         {change.decidedBy.map(

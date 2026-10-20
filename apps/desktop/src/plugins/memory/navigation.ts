@@ -45,3 +45,12 @@ export function current(state: LibrarianView): Navigation {
       return { view: state.view, ...common };
   }
 }
+
+/** Shows one recorded change in Activity, keeping Activity's filters and page. */
+export function openChange(state: LibrarianView, changeId: string): Navigation {
+  const { sourceHash: _evidence, ...activity } = state.activity ?? {
+    offset: 0,
+    onlySelected: false,
+  };
+  return { view: "activity", activity: { ...activity, changeId } };
+}

@@ -1,6 +1,11 @@
 import { Schema } from "effect";
 import { MemoryRepository } from "@irudd-scope/protocol/memory";
-import { LibrarianPath, LibrarianStage, MemoryActor } from "@irudd-scope/protocol/librarian";
+import {
+  LibrarianPath,
+  LibrarianStage,
+  MemoryActor,
+  type MemoryChange,
+} from "@irudd-scope/protocol/librarian";
 
 export const MemoryPath = Schema.String.check(
   Schema.isMinLength(1),
@@ -243,4 +248,27 @@ export type MemoryStages = {
     scanned?: number;
     partial?: boolean;
   };
+};
+export type MemoryActivity = {
+  total: number;
+  offset: number;
+  page: MemoryChangeSummary[];
+  /** Set when "Selected memory only" stopped at the scan limit. */
+  scanned?: number;
+  partial?: boolean;
+  selected?: {
+    change: MemoryChange;
+    run?: {
+      id: string;
+      startedAt: string;
+      completedAt?: string;
+      userRequest: string;
+      disposition: "human" | "automatic";
+      permission?: string;
+      evidence: string;
+      /** The change waits for the person in the open dreaming run. */
+      decidable: boolean;
+    };
+  };
+  revision?: { path: string; hash: string; raw: string | null; current: boolean };
 };

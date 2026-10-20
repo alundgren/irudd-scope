@@ -11,7 +11,8 @@ import { applicability, memoryKind, memoryStage } from "./format.ts";
 import { BrowseView } from "./browse.tsx";
 import { ConnectionsView } from "./connections.tsx";
 import { StagesView } from "./stages.tsx";
-import { current, type Navigation } from "./navigation.ts";
+import { ActivityView } from "./activity.tsx";
+import { current, openChange, type Navigation } from "./navigation.ts";
 import { Markdown } from "./wiki.tsx";
 import "./style.css";
 
@@ -19,6 +20,7 @@ const SECTIONS = [
   { view: "browse", label: "Browse" },
   { view: "connections", label: "Connections" },
   { view: "stages", label: "Stages" },
+  { view: "activity", label: "Activity" },
 ] as const;
 type Section = (typeof SECTIONS)[number]["view"];
 const sectionOf = (view: string): Section | undefined =>
@@ -362,7 +364,16 @@ function MemoryView({ tab, active, context }: TabProps) {
       {state.view === "connections" && (
         <ConnectionsView state={state} navigate={(n) => void navigate(n)} />
       )}
-      {state.view === "stages" && <StagesView state={state} navigate={(n) => void navigate(n)} />}
+      {state.view === "stages" && (
+        <StagesView
+          state={state}
+          navigate={(n) => void navigate(n)}
+          onChange={(id) => void navigate(openChange(state, id))}
+        />
+      )}
+      {state.view === "activity" && (
+        <ActivityView state={state} busy={busy} navigate={(n) => void navigate(n)} />
+      )}
       {state.view === "decision" && (
         <>
           {state.run?.status === "interrupted" && (
