@@ -363,6 +363,16 @@ test("the compact workspace preserves reading position, supports overflowing tab
     );
     await page.getByRole("img", { name: "Updated artifact" }).first().waitFor();
     expect(await navigation.getByRole("tab", { selected: true }).textContent()).toBe(titles[11]);
+    await navigation.getByRole("tab", { selected: true }).focus();
+    await page.keyboard.press("Home");
+    const updated = page.getByRole("tabpanel", { name: titles[0] });
+    await updated.getByRole("heading", { name: "Updated report", exact: true }).waitFor();
+    expect(await updated.getByRole("heading", { name: "Report 1", exact: true }).count()).toBe(0);
+    expect(await updated.getByText("A paragraph that leaves enough room").count()).toBe(0);
+    await page.keyboard.press("End");
+    await expect
+      .poll(() => navigation.getByRole("tab", { selected: true }).textContent())
+      .toBe(titles[11]);
     await searchTrigger.click();
     await currentTab.getByRole("button", { name: "Move to Trashcan", exact: true }).click();
     await expect
