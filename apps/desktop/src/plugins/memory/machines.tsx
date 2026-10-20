@@ -13,7 +13,7 @@ const PHASES = {
 
 function tooling(okf: MemoryMachineStatus["okf"]) {
   if (okf.installed) return `irudd-okf ${okf.version ?? "installed"}`;
-  // A machine with memory or Git sync off never checks for the tool, so absence is not a finding.
+  // No message means no tool check has been reported yet, so absence is not a finding.
   return okf.message ? "irudd-okf is not installed" : "Not checked";
 }
 function syncState(status: MemoryMachineStatus) {
