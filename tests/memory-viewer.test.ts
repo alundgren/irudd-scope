@@ -1,129 +1,23 @@
 import { afterEach, expect, test } from "vite-plus/test";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { decodeLocalConnection } from "@irudd-scope/protocol";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { HubState } from "../apps/hub/src/state.ts";
 import { startPairedHub } from "../apps/hub/src/paired-server.ts";
-import { desktopFixture } from "./desktop-fixture.ts";
-import { memoryFixture } from "./memory-fixture.ts";
+import { dreaming, hash, librarianFixture, raw } from "./librarian-fixture.ts";
 import {
   LibrarianRoutineWork,
-  type LibrarianCommand,
   type LibrarianReply,
   type LibrarianView,
 } from "@irudd-scope/protocol/librarian";
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
+const fixture = () => librarianFixture(cleanup);
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
 });
-const raw = (title: string, body: string) => `---
-type: Memory
-title: ${title}
-memory: ${JSON.stringify({ id: title.toLowerCase().replaceAll(" ", "-"), kind: "procedural", stage: "bronze", applicability: { type: "global" } })}
----
-${body}
-`;
-const hash = (raw: string) => createHash("sha256").update(raw).digest("hex");
-async function fixture() {
-  const memory = await memoryFixture(cleanup);
-  const root = join(memory.directory, "local-bundle");
-  await mkdir(root);
-  await writeFile(
-    join(root, "memory-bundle.json"),
-    JSON.stringify({ id: randomUUID(), formatVersion: 2, name: "personal" }),
-  );
-  await writeFile(join(root, "index.md"), "# Memory\n");
-  await writeFile(join(root, "recovery.md"), raw("Recovery", "Retry interrupted work."));
-  await writeFile(join(root, "validation.md"), raw("Validation", "Use synthetic fixtures."));
-  const desktop = await desktopFixture({ hideInitialPrompts: true, env: memory.env("local") });
-  cleanup.push(() => rm(desktop.directory, { recursive: true, force: true }));
-  let application = await desktop.launch();
-  cleanup.push(() => application.close());
-  let page = await application.firstWindow();
-  page.setDefaultTimeout(8000);
-  let client = await desktop.connect();
-  await client.librarian({ action: "local", root, initialize: false });
-  const open = async () => {
-    await page.keyboard.press("ControlOrMeta+k");
-    await page.getByRole("button", { name: "Librarian", exact: true }).click();
-  };
-  return {
-    memory,
-    root,
-    desktop,
-    get client() {
-      return client;
-    },
-    open,
-    get page() {
-      return page;
-    },
-    get application() {
-      return application;
-    },
-    restart: async () => {
-      await application.close();
-      application = await desktop.launch();
-      page = await application.firstWindow();
-      page.setDefaultTimeout(8000);
-      client = await desktop.connect();
-    },
-  };
-}
-async function dreaming(f: Awaited<ReturnType<typeof fixture>>, permissions: string[] | null = []) {
-  const read = await f.client.librarian({ action: "read" });
-  const start: LibrarianCommand = {
-    action: "start",
-    requestId: randomUUID(),
-    expectedUiRevision: read.state.uiRevision,
-    sessionId: "existing-session",
-    userRequest: "Begin dreaming. Ask me about substantive changes.",
-    ...(permissions ? { automaticPermissions: permissions } : {}),
-  };
-  let reply = await f.client.librarian(start);
-  const capability = reply.capability!;
-  const runId = reply.state.run!.id;
-  async function propose(
-    path: string,
-    raw: string,
-    disposition: "human" | "automatic" = "human",
-    permission?: string,
-    sources: { path: string; hash: string }[] = [],
-  ) {
-    const before = await readFile(join(f.root, path), "utf8").catch(() => null);
-    reply = await f.client.librarian({
-      action: "propose",
-      requestId: randomUUID(),
-      expectedUiRevision: reply.state.uiRevision,
-      sessionId: "existing-session",
-      capability,
-      runId,
-      path,
-      raw,
-      expectedHash: before === null ? null : hash(before),
-      reason: `Improve ${path}`,
-      sources,
-      disposition,
-      ...(permission ? { permission } : {}),
-      evidence: `Evidence for ${path}`,
-    });
-    return reply;
-  }
-  return {
-    start,
-    capability,
-    runId,
-    propose,
-    get reply() {
-      return reply;
-    },
-    refresh: async () => (reply = await f.client.librarian({ action: "read" })),
-  };
-}
-
 test("Librarian browses a local folder without Git, searches a small result set and reads one memory", async () => {
   const f = await fixture();
   await f.open();

@@ -154,14 +154,20 @@ export function librarianFixture(args, root) {
       else if (existsSync(join(root, change.path))) unlinkSync(join(root, change.path));
     }
   } else if (args[1] === "list") {
+    const option = (name, fallback) =>
+      args.includes(name) ? args[args.indexOf(name) + 1] : fallback;
+    const status = option("--status");
+    const offset = Number(option("--offset", 0));
+    const limit = Number(option("--limit", 30));
+    const matching = history.filter((item) => !status || item.status === status);
     output({
       version: 1,
       bundle: "personal",
-      changes: history.slice(0, 30),
-      limit: 30,
-      offset: 0,
-      total: history.length,
-      truncated: history.length > 30,
+      changes: matching.slice(offset, offset + limit),
+      limit,
+      offset,
+      total: matching.length,
+      truncated: offset + limit < matching.length,
     });
     return true;
   }
