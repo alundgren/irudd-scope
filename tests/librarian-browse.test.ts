@@ -176,6 +176,15 @@ test("the reader's scroll position is saved in the tab and restored after restar
       body,
     ),
   );
+  await writeFile(
+    join(f.root, "other.md"),
+    note(
+      "Other note",
+      { kind: "semantic", stage: "gold", applicability: { type: "global" } },
+      [],
+      body.replaceAll("Paragraph", "Other paragraph"),
+    ),
+  );
   await f.page.setViewportSize({ width: 620, height: 560 });
   await f.open();
   const tabState = () =>
@@ -203,8 +212,8 @@ test("the reader's scroll position is saved in the tab and restored after restar
     .poll(() => f.page.locator(".librarian-view").evaluate((element) => element.scrollTop))
     .toBe(600);
   await f.page.getByRole("button", { name: "Back to results", exact: true }).click();
-  await f.page.getByRole("button", { name: "recovery", exact: true }).click();
-  await f.page.getByText("Retry interrupted work.", { exact: true }).waitFor();
+  await f.page.getByRole("button", { name: "other", exact: true }).click();
+  await f.page.getByText("Other paragraph 80.", { exact: true }).waitFor();
   expect(await view.evaluate((element) => element.scrollTop)).toBe(0);
 });
 

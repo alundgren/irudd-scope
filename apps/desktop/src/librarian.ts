@@ -8,6 +8,7 @@ import {
   LibrarianCommand,
   LibrarianHumanCommand,
   LibrarianRoutineWork,
+  LibrarianStage,
   MemoryChange,
   type LibrarianFilters,
   type LibrarianReply,
@@ -20,11 +21,15 @@ import type { DesktopStore } from "./desktop-store.ts";
 import type { MemoryService } from "./memory.ts";
 import {
   MemoryConcept,
+  MemoryGraph,
   MemoryList,
   MemorySearch,
   memoryFields,
   type MemoryChanges,
   type MemoryChangeSummary,
+  type MemoryConnections,
+  type MemoryStageName,
+  type MemoryStages,
   type MemoryFacets,
   type MemoryListPage,
   type MemorySummary,
@@ -87,6 +92,12 @@ type Selection = Omit<
 /** Bounds how much recorded history one path scan reads; the UI reports when it stops early. */
 const SCAN_LIMIT = 1000;
 const SEARCH_LIMIT = 300;
+const GRAPH_LIMIT = 40;
+const STAGE_NAMES = LibrarianStage.literals;
+const stageOf = (concept: MemorySummary): MemoryStageName => {
+  const stage = memoryFields(concept.memory).stage;
+  return STAGE_NAMES.find((name) => name === stage) ?? "none";
+};
 
 function matches(concept: MemorySummary, filters: LibrarianFilters) {
   const memory = memoryFields(concept.memory);
@@ -117,6 +128,9 @@ function facets(concepts: readonly MemorySummary[]): MemoryFacets {
     applicability: counted(fields.flatMap((field) => field.applicability?.type ?? [])),
   };
 }
+/** irudd-okf reports a removed memory as NOT_ACCEPTED from read and NOT_FOUND from graph. */
+const missing = (error: unknown) =>
+  error instanceof OkfFailure && (error.code === "NOT_FOUND" || error.code === "NOT_ACCEPTED");
 const byTitle = (a: MemorySummary, b: MemorySummary) =>
   a.title.localeCompare(b.title) || a.path.localeCompare(b.path);
 export function changeSummary(change: MemoryChange): MemoryChangeSummary {
@@ -137,7 +151,9 @@ export function changeSummary(change: MemoryChange): MemoryChangeSummary {
       at: review.at,
     })),
     reason: change.reason.length > 280 ? `${change.reason.slice(0, 279)}…` : change.reason,
-    ...(after && before !== after ? { stageChange: { from: before ?? "none", to: after } } : {}),
+    ...(change.action !== "delete" && (before ?? "none") !== (after ?? "none")
+      ? { stageChange: { from: before ?? "none", to: after ?? "none" } }
+      : {}),
   };
 }
 
@@ -432,10 +448,125 @@ export class LibrarianService {
       partial: !stopped && items.length < wanted && scanned < total,
     };
   }
-  private async navigate(state: Document, command: Selection) {
+  private async neighbourhood(
+    focus: string,
+    options: { depth: 1 | 2; sharedTags: boolean },
+  ): Promise<MemoryConnections> {
+    const graph = cli(
+      MemoryGraph,
+      await this.okf([
+        "graph",
+        "--scope",
+        "personal",
+        "--all-applicability",
+        "--path",
+        focus,
+        "--depth",
+        String(options.depth),
+        "--limit",
+        String(GRAPH_LIMIT),
+      ]),
+    );
+    const path = (id: string) => id.replace(/^personal:/, "");
+    const edges = graph.edges
+      .filter((edge) => !edge.external)
+      .map((edge) => ({
+        from: path(edge.from),
+        to: path(edge.to),
+        label: edge.label ?? "",
+        broken: !!edge.broken,
+      }));
+    // Rings follow explicit links in either direction; irudd-okf reports no other relation.
+    const distance = new Map([[focus, 0]]);
+    for (let step = 1; step <= options.depth; step++)
+      for (const edge of edges)
+        for (const [a, b] of [
+          [edge.from, edge.to],
+          [edge.to, edge.from],
+        ])
+          if (distance.get(a) === step - 1 && !distance.has(b) && !edge.broken)
+            distance.set(b, step);
+    const center = graph.nodes.find((node) => node.path === focus);
+    return {
+      focus,
+      nodes: graph.nodes.map((node) => ({
+        ...node,
+        distance: distance.get(node.path) ?? options.depth,
+      })),
+      edges,
+      sharedTags:
+        options.sharedTags && center
+          ? graph.nodes.flatMap((node) => {
+              const tags = node.tags.filter(
+                (tag) => node.path !== focus && center.tags.includes(tag),
+              );
+              return tags.length ? [{ to: node.path, tags }] : [];
+            })
+          : [],
+      truncated: graph.truncated,
+      depth: options.depth,
+      limit: GRAPH_LIMIT,
+    };
+  }
+  private async medallion(
+    options: { stage?: MemoryStageName; offset: number },
+    focus: string | undefined,
+    history: boolean,
+  ): Promise<MemoryStages> {
+    const concepts = [...(await this.list())].sort(byTitle);
+    const grouped = Object.fromEntries(
+      STAGE_NAMES.map((stage) => [stage, concepts.filter((concept) => stageOf(concept) === stage)]),
+    ) as Record<MemoryStageName, MemorySummary[]>;
+    const counts = Object.fromEntries(
+      STAGE_NAMES.map((stage) => [stage, grouped[stage].length]),
+    ) as Record<MemoryStageName, number>;
+    const summary = focus ? concepts.find((concept) => concept.path === focus) : undefined;
+    // Scanning recorded changes can take many reads, so it runs only when a memory is chosen here.
+    const transitions =
+      summary && history
+        ? await this.scan(
+            (change) => change.path === focus && !!changeSummary(change).stageChange,
+            20,
+            (change) => change.path === focus && change.action === "create",
+          )
+        : undefined;
+    return {
+      counts,
+      ...(options.stage
+        ? {
+            page: {
+              stage: options.stage,
+              items: grouped[options.stage].slice(options.offset, options.offset + 20),
+              offset: options.offset,
+              total: counts[options.stage],
+            },
+          }
+        : {
+            columns: Object.fromEntries(
+              STAGE_NAMES.map((stage) => [stage, grouped[stage].slice(0, 10)]),
+            ) as Record<MemoryStageName, MemorySummary[]>,
+          }),
+      ...(summary
+        ? {
+            selected: {
+              summary,
+              ...(transitions
+                ? {
+                    transitions: transitions.items.map(changeSummary),
+                    scanned: transitions.scanned,
+                    partial: transitions.partial,
+                  }
+                : {}),
+            },
+          }
+        : {}),
+    };
+  }
+  private async navigate(state: Document, command: Selection): Promise<void> {
     if (["browse", "memory", "connections", "stages", "activity"].includes(command.view))
       state.bundle = await this.inspection();
     const prior = state.view === "browse" ? state.displayed : undefined;
+    const previousPath = state.selectedPath;
     state.view = command.view;
     delete state.selectedPath;
     delete state.selectedChangeId;
@@ -457,12 +588,27 @@ export class LibrarianService {
     if (command.view === "memory") {
       if (!command.path) throw new ScopeError(400, "Choose a memory.");
       browse.trail = mutable(command.trail ?? []);
+      const remembered = state.focusPath;
       state.selectedPath = command.path;
       state.focusPath = command.path;
-      const concept = cli(
-        MemoryConcept,
-        await this.okf(["read", "personal", command.path, "--all-applicability"]),
-      );
+      let concept: MemoryConcept;
+      try {
+        concept = cli(
+          MemoryConcept,
+          await this.okf(["read", "personal", command.path, "--all-applicability"]),
+        );
+      } catch (error) {
+        // Returning to a memory that dreaming or sync removed shows the list instead of a dead end.
+        if (!(missing(error) && [remembered, previousPath].includes(command.path))) throw error;
+        if (remembered && remembered !== command.path) state.focusPath = remembered;
+        else delete state.focusPath;
+        return this.navigate(state, {
+          view: "browse",
+          query: state.query,
+          directory: state.directory,
+          offset: browse.offset ?? 0,
+        });
+      }
       const path = command.path;
       let changes: Awaited<ReturnType<typeof this.scan>> | undefined;
       let unreadable = false;
@@ -498,7 +644,10 @@ export class LibrarianService {
         state.results = await this.page(state);
       } else if (prior) state.results = prior;
       // Documents saved before results were kept have no list to show beside the reader.
-      else if (!state.results) state.results = await this.page(state);
+      else if (!state.results) {
+        browse.offset ??= state.offset;
+        state.results = await this.page(state).catch(() => null);
+      }
     } else if (command.view === "browse") {
       state.query = command.query ?? "";
       state.directory = command.directory ?? "";
@@ -513,6 +662,18 @@ export class LibrarianService {
         state.facets = await this.facets();
       }
       state.displayed = await this.page(state, concepts);
+    } else if (command.view === "connections") {
+      state.connections ??= { depth: 1, sharedTags: false };
+      if (state.focusPath)
+        try {
+          state.displayed = await this.neighbourhood(state.focusPath, state.connections);
+        } catch (error) {
+          if (!missing(error)) throw error;
+          delete state.focusPath;
+        }
+    } else if (command.view === "stages") {
+      state.stages ??= { offset: 0 };
+      state.displayed = await this.medallion(state.stages, state.focusPath, !!command.focusPath);
     } else if (command.view === "decision") {
       const proposal =
         state.run?.proposals.find((p) => p.change.id === command.changeId) ??

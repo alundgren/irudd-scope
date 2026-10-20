@@ -9,11 +9,17 @@ import { useLibrarian } from "../../renderer/librarian-state.ts";
 import { MemoryTabState, memoryFields } from "./contract.ts";
 import { applicability, memoryKind, memoryStage } from "./format.ts";
 import { BrowseView } from "./browse.tsx";
+import { ConnectionsView } from "./connections.tsx";
+import { StagesView } from "./stages.tsx";
 import { current, type Navigation } from "./navigation.ts";
 import { Markdown } from "./wiki.tsx";
 import "./style.css";
 
-const SECTIONS = [{ view: "browse", label: "Browse" }] as const;
+const SECTIONS = [
+  { view: "browse", label: "Browse" },
+  { view: "connections", label: "Connections" },
+  { view: "stages", label: "Stages" },
+] as const;
 type Section = (typeof SECTIONS)[number]["view"];
 const sectionOf = (view: string): Section | undefined =>
   view === "memory" ? "browse" : SECTIONS.find((section) => section.view === view)?.view;
@@ -136,6 +142,7 @@ function MemoryView({ tab, active, context }: TabProps) {
   const { state, setState, error, setError } = useLibrarian();
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState(false);
+  const [notice, setNotice] = useState("");
   // A failed read is not saved, so Retry must resend it rather than the view still stored.
   const failed = useRef<Navigation>(undefined);
   const scroller = useRef<HTMLDivElement>(null);
@@ -146,16 +153,29 @@ function MemoryView({ tab, active, context }: TabProps) {
   const shown = useRef<{ view?: string; path?: string }>({});
 
   const initialized = useRef<string>(undefined);
+  // Commands carry the displayed revision, so a second one sent before the first returns would
+  // fail; the ref closes the gap before the busy state re-renders the controls.
+  const running = useRef(false);
   async function run(command: LibrarianHumanCommand, navigation?: Navigation) {
+    if (running.current) return;
+    running.current = true;
     setBusy(true);
     setError("");
     try {
-      setState(await window.scope.librarianHuman(JSON.parse(JSON.stringify(command))));
+      const next = await window.scope.librarianHuman(JSON.parse(JSON.stringify(command)));
+      // The main process forgets a selected memory that dreaming or sync removed.
+      setNotice(
+        command.action === "navigate" && state?.focusPath && !next.focusPath
+          ? "That memory is no longer in the library."
+          : "",
+      );
+      setState(next);
       failed.current = undefined;
     } catch (cause) {
       failed.current = navigation;
       setError(cause instanceof Error ? cause.message : "Could not load memory. Retry.");
     } finally {
+      running.current = false;
       setBusy(false);
     }
   }
@@ -273,6 +293,7 @@ function MemoryView({ tab, active, context }: TabProps) {
           <p className="librarian-note">
             Personal library on this desktop
             {busy && <span role="status"> · Reading…</span>}
+            {notice && <span role="status"> · {notice}</span>}
           </p>
           {SECTIONS.length > 1 && (
             <div
@@ -338,6 +359,10 @@ function MemoryView({ tab, active, context }: TabProps) {
           onError={setError}
         />
       )}
+      {state.view === "connections" && (
+        <ConnectionsView state={state} navigate={(n) => void navigate(n)} />
+      )}
+      {state.view === "stages" && <StagesView state={state} navigate={(n) => void navigate(n)} />}
       {state.view === "decision" && (
         <>
           {state.run?.status === "interrupted" && (
