@@ -78,7 +78,7 @@ export async function runPerformance(
 ) {
   if (process.platform !== "linux")
     throw new Error(
-      "The comprehensive protocol currently requires Linux process groups and /proc safeguards. Use tools/benchmark.ts on other platforms.",
+      "The comprehensive protocol currently requires Linux process groups and /proc safeguards.",
     );
   if (existsSync(config.runDir))
     throw new Error(

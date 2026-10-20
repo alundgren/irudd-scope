@@ -157,9 +157,10 @@ models, or production data. Cleanup must close processes and databases and
 remove temporary data. Do not add application tests for prose-only edits;
 inspect changed text, links, and formatting instead.
 
-Choose additional evidence for the change's claims, such as the benchmark below
-for performance work. State what the evidence establishes and its limits in the
-PR. Passing standard checks does not replace the requested behavior.
+Choose additional evidence for the change's claims, such as the performance
+protocol below for performance work. State what the evidence establishes and
+its limits in the PR. Passing standard checks does not replace the requested
+behavior.
 
 Linux Electron tests need a display and shared libraries. On Ubuntu install
 `xvfb libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2t64`. The test
@@ -240,21 +241,6 @@ physical network's latency or outages. Temporary profiles and processes are
 removed even when assertions fail.
 
 ### Performance measurements
-
-For local performance measurements after building, run:
-
-```sh
-vp exec node tools/benchmark.ts --output /tmp/scope-benchmark.json
-vp exec node tools/benchmark.ts --gpu --output /tmp/scope-benchmark-gpu.json
-```
-
-The benchmark uses synthetic content and an isolated desktop profile. It measures
-built CLI calls, rendering, Electron CPU time, and process memory for all six
-viewers, large files, many tabs, and restart. The default disables GPU acceleration
-to match the test fixture; `--gpu` uses the app's normal graphics settings. Run
-without concurrent builds or tests. Reports contain raw samples and measurement
-definitions. Process memory sums RSS and can count shared pages more than once.
-The benchmark is separate from `ready` and needs no provider key.
 
 The comprehensive Linux protocol keeps one visible Electron session running while
 it measures individual features, mixed usage, equivalent repeat workloads,

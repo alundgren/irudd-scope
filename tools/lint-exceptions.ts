@@ -312,17 +312,4 @@ export const lintExceptions: readonly LintException[] = [
     reason:
       "The journey retains the same mounted reading pane through overflowing tabs, focus, settings search, background updates, deletion, and restart. Shared session state is the behavior under test.",
   },
-  {
-    file: "tools/benchmark.ts",
-    limits: { "max-lines": 609 },
-    reason:
-      "This standalone measurement tool keeps synthetic content, process sampling, CLI timings, and report definitions beside its ordered desktop experiment. It has no application callers requiring separate modules.",
-  },
-  {
-    file: "tools/benchmark.ts",
-    at: "async function main() {",
-    limits: { complexity: 24, "max-lines-per-function": 286 },
-    reason:
-      "The benchmark intentionally measures an ordered progression from empty startup through publication, large content, many tabs, and restart. One resource owner writes partial results on failure and closes the active Electron process.",
-  },
 ];
