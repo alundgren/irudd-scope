@@ -8,25 +8,22 @@ import type { Navigation } from "./navigation.ts";
 const WIDTH = 840;
 const HEIGHT = 420;
 /**
- * Fixed node centres, filled in order, keep 160×44 nodes apart for every combination of ring
- * counts; memories beyond these slots appear only in the list.
+ * Fixed node centres keep 160×44 nodes apart for every combination of ring counts; memories
+ * beyond these slots appear only in the list.
  */
-const SLOTS = [
-  [],
-  [0, 1, 2, 3, 4, 5].map((slot) => {
-    const angle = ((slot * 60 - 90) * Math.PI) / 180;
-    return { x: WIDTH / 2 + 200 * Math.cos(angle), y: HEIGHT / 2 + 110 * Math.sin(angle) };
-  }),
-  [
-    { x: 420, y: 30 },
-    { x: 420, y: 390 },
-    { x: 80, y: 210 },
-    { x: 760, y: 210 },
-    { x: 100, y: 40 },
-    { x: 740, y: 40 },
-    { x: 100, y: 380 },
-    { x: 740, y: 380 },
-  ],
+const INNER = [0, 1, 2, 3, 4, 5].map((slot) => {
+  const angle = ((slot * 60 - 90) * Math.PI) / 180;
+  return { x: WIDTH / 2 + 200 * Math.cos(angle), y: HEIGHT / 2 + 110 * Math.sin(angle) };
+});
+const OUTER = [
+  { x: 420, y: 30 },
+  { x: 420, y: 390 },
+  { x: 80, y: 210 },
+  { x: 760, y: 210 },
+  { x: 100, y: 40 },
+  { x: 740, y: 40 },
+  { x: 100, y: 380 },
+  { x: 740, y: 380 },
 ];
 const short = (text: string) => (text.length > 22 ? `${text.slice(0, 21)}…` : text);
 
@@ -73,16 +70,35 @@ export function ConnectionsView({
   const others = graph.nodes
     .filter((node) => node.path !== graph.focus)
     .sort((a, b) => a.distance - b.distance || a.title.localeCompare(b.title));
-  const drawn = [1, 2].flatMap((ring) =>
-    others.filter((node) => Math.min(node.distance, 2) === ring).slice(0, SLOTS[ring]!.length),
-  );
+  const inner = others.filter((node) => node.distance <= 1).slice(0, INNER.length);
+  const outer = others.filter((node) => node.distance >= 2).slice(0, OUTER.length);
+  const drawn = [...inner, ...outer];
   const position = new Map<string, { x: number; y: number }>([
     [graph.focus, { x: WIDTH / 2, y: HEIGHT / 2 }],
   ]);
-  for (const ring of [1, 2])
-    drawn
-      .filter((node) => Math.min(node.distance, 2) === ring)
-      .forEach((node, index) => position.set(node.path, SLOTS[ring]![index]!));
+  inner.forEach((node, index) => position.set(node.path, INNER[index]!));
+  // An outer memory takes the free slot nearest the inner memory it links through, so its line
+  // does not run behind unrelated nodes.
+  const free = [...OUTER];
+  for (const node of outer) {
+    const parent = graph.edges
+      .flatMap((edge) =>
+        edge.from === node.path ? [edge.to] : edge.to === node.path ? [edge.from] : [],
+      )
+      .filter((path) => inner.some((near) => near.path === path))
+      .map((path) => position.get(path)!)[0];
+    const nearest = parent
+      ? free.reduce(
+          (best, slot, index) =>
+            Math.hypot(slot.x - parent.x, slot.y - parent.y) <
+            Math.hypot(free[best]!.x - parent.x, free[best]!.y - parent.y)
+              ? index
+              : best,
+          0,
+        )
+      : 0;
+    position.set(node.path, free.splice(nearest, 1)[0]!);
+  }
   const broken = graph.edges.filter((edge) => edge.broken);
   const select = (path: string) =>
     navigate({ view: "connections", focusPath: path, connections: options });

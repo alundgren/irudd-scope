@@ -30,11 +30,11 @@ export function StagesView({
   const stages = state.displayed as MemoryStages | null;
   const history = useRef<HTMLHeadingElement>(null);
   const shown = !!stages?.selected?.transitions;
-  const asked = useRef(false);
+  const asked = useRef<string>(undefined);
   useEffect(() => {
     // After asking for the history, keyboard focus moves to it instead of the removed button.
-    if (shown && asked.current) history.current?.focus();
-    asked.current = false;
+    if (shown && asked.current === stages?.selected?.summary.path) history.current?.focus();
+    if (shown) asked.current = undefined;
   }, [shown, stages?.selected?.summary.path]);
   if (!stages) return <p role="status">Reading stages…</p>;
   const choose = (path: string) => navigate({ view: "stages", focusPath: path });
@@ -173,7 +173,7 @@ export function StagesView({
             <Button
               variant="secondary"
               onClick={() => {
-                asked.current = true;
+                asked.current = selected.summary.path;
                 choose(selected.summary.path);
               }}
             >

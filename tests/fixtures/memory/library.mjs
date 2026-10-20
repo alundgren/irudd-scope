@@ -171,7 +171,7 @@ export function librarianFixture(args, root) {
     });
     return true;
   }
-  if (!change) failure("The change does not exist.");
+  if (!change) failure("The immutable change does not exist.", "CHANGE_NOT_FOUND");
   writeFileSync(historyPath, JSON.stringify(history));
   output(change);
   return true;

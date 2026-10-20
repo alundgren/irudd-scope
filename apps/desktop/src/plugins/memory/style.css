@@ -364,6 +364,8 @@
     padding-left: 0;
   }
   .librarian-browse.reading .librarian-toolbar,
+  .librarian-activity.reading > .librarian-toolbar,
+  .librarian-activity.reading > .librarian-note,
   .librarian-browse.reading .librarian-results,
   .librarian-activity.reading .librarian-results,
   .librarian-wide-only {

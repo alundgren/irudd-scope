@@ -256,6 +256,10 @@ export type MemoryActivity = {
   /** Set when "Selected memory only" stopped at the scan limit. */
   scanned?: number;
   partial?: boolean;
+  /** An older page exists. */
+  more: boolean;
+  /** The requested change is not in this library; the list is shown instead. */
+  missingChange?: boolean;
   selected?: {
     change: MemoryChange;
     run?: {
@@ -270,5 +274,15 @@ export type MemoryActivity = {
       decidable: boolean;
     };
   };
-  revision?: { path: string; hash: string; raw: string | null; current: boolean };
+  revision?: {
+    path: string;
+    hash: string;
+    raw: string | null;
+    current: boolean;
+    /** How much recorded history was searched when the bytes are not the current file. */
+    scanned?: number;
+    partial?: boolean;
+    unreadable?: boolean;
+    otherBundle?: string;
+  };
 };

@@ -29,8 +29,13 @@ function Evidence({
       <p className="librarian-path">{revision.hash}</p>
       {revision.raw === null ? (
         <p>
-          These bytes were not recorded. The memory changed outside recorded changes, or the record
-          is older than this library's history.
+          {revision.otherBundle
+            ? `This source is in the ${revision.otherBundle} library. Scope reads only the personal library.`
+            : revision.unreadable
+              ? "The recorded bytes could not be read. Retry from the change."
+              : revision.partial
+                ? `Not found in the latest ${revision.scanned} recorded changes.`
+                : "No recorded change contains these bytes."}
         </p>
       ) : (
         <>
@@ -40,10 +45,16 @@ function Evidence({
           <Markdown text={body(revision.raw) ?? ""} />
         </>
       )}
-      <p className="librarian-note">The current accepted memory can differ from this revision.</p>
-      <Button variant="secondary" onClick={onCurrent}>
-        Open current accepted memory
-      </Button>
+      {!revision.otherBundle && (
+        <>
+          <p className="librarian-note">
+            The current accepted memory can differ from this revision.
+          </p>
+          <Button variant="secondary" onClick={onCurrent}>
+            Open current accepted memory
+          </Button>
+        </>
+      )}
     </section>
   );
 }
@@ -188,6 +199,7 @@ export function ActivityView({
     });
   const runs = [...state.history, ...(state.run ? [state.run] : [])].slice(-10).reverse();
   const detail = !!activity.selected;
+  const selectedOnly = options.onlySelected && !!state.focusPath;
   return (
     <section
       className={detail ? "librarian-activity reading" : "librarian-activity"}
@@ -218,7 +230,7 @@ export function ActivityView({
         <Button
           variant={options.onlySelected ? "secondary" : "outline"}
           size="sm"
-          aria-pressed={options.onlySelected}
+          aria-pressed={options.onlySelected && !!state.focusPath}
           disabled={busy || !state.focusPath}
           onClick={() => update({ onlySelected: !options.onlySelected })}
         >
@@ -234,14 +246,18 @@ export function ActivityView({
       </p>
       <div className="librarian-split">
         <section className="librarian-results" aria-label="Recorded work">
+          {activity.missingChange && <p role="status">That change is not in this library.</p>}
           <p className="librarian-note">
-            {activity.page.length
-              ? `${activity.offset + 1}–${activity.offset + activity.page.length} of ${activity.total}${activity.partial ? "+" : ""} recorded changes, newest first`
-              : "No recorded changes match."}
+            {!activity.page.length
+              ? "No recorded changes match."
+              : selectedOnly
+                ? `${activity.offset + 1}–${activity.offset + activity.page.length} recorded changes to this memory, newest first`
+                : `${activity.offset + 1}–${activity.offset + activity.page.length} of ${activity.total} recorded changes, newest first`}
           </p>
-          {activity.partial && (
+          {selectedOnly && (
             <p className="librarian-note">
-              Searched the latest {activity.scanned} recorded changes for this memory.
+              {activity.partial ? `Searched the latest ${activity.scanned} recorded changes. ` : ""}
+              Changes made under an earlier file name are not shown.
             </p>
           )}
           <ul className="memory-link-list" aria-label="Recorded changes">
@@ -270,7 +286,7 @@ export function ActivityView({
                 Newer
               </Button>
             )}
-            {(activity.offset + 20 < activity.total || activity.partial) && (
+            {activity.more && (
               <Button
                 variant="ghost"
                 disabled={busy}
@@ -286,23 +302,27 @@ export function ActivityView({
               <ul className="memory-link-list" aria-label="Dreaming runs">
                 {runs.map((run) => (
                   <li key={run.id}>
-                    <button
-                      disabled={busy || run.status !== "completed"}
-                      onClick={() =>
-                        navigate(
-                          run.id === state.run?.id
-                            ? { view: "overview" }
-                            : { view: "overview", historyRunId: run.id },
-                        )
-                      }
-                    >
-                      {time(run.startedAt)}
-                    </button>
+                    {run.status === "completed" ? (
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          navigate(
+                            run.id === state.run?.id
+                              ? { view: "overview" }
+                              : { view: "overview", historyRunId: run.id },
+                          )
+                        }
+                      >
+                        {time(run.startedAt)}
+                      </button>
+                    ) : (
+                      <span>{time(run.startedAt)}</span>
+                    )}
                     <small>
                       {run.status === "completed"
                         ? `Finished ${run.completedAt ? time(run.completedAt) : ""}`
                         : run.status === "active"
-                          ? "Open"
+                          ? "In progress"
                           : "Paused"}{" "}
                       · “{run.userRequest}”
                     </small>
