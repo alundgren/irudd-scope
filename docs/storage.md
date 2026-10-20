@@ -440,9 +440,16 @@ the state. Session capabilities remain in process memory; neither receipts nor
 payload hashes restore authority after restart. An active persisted run becomes
 interrupted at startup and requires an explicit user-requested resume.
 
+The `librarian` preference also keeps each Librarian view's place: Browse
+filters and page, the shared selected memory, the back trail, the result page
+beside the reader, filter facets and the Connections, Stages and Activity
+settings. Older builds reject a document with these fields and quit at startup;
+restore a complete pre-upgrade backup to downgrade.
+
 Librarian retains the memory built-in tab identity. Version 1 tab state migrates
 to version 2 with the original document and recovered draft kept together in
-`scope.db`. The draft remains inspectable and copyable even with memory disabled
+`scope.db`. A tab becomes version 3 when it first saves its views' scroll
+positions; older builds then show an error inside the Librarian tab. The draft remains inspectable and copyable even with memory disabled
 or its old repository disconnected. Other tabs, groups, preferences and saved
 selection retain their existing contracts.
 

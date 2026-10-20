@@ -361,3 +361,32 @@ test("recorded changes stop at the scan limit and read large records in smaller 
     .waitFor({ timeout: 60_000 });
   await reader.getByText("No recorded changes for this memory.", { exact: true }).waitFor();
 }, 120_000);
+
+test("switching to another library forgets the previous library's selection and filters", async () => {
+  const f = await librarianFixture(cleanup);
+  await library(f.root);
+  await f.page.setViewportSize({ width: 1280, height: 820 });
+  await f.open();
+  await f.page.getByLabel("Tag", { exact: true }).selectOption("ci");
+  await f.page.getByRole("button", { name: "Deploy steps", exact: true }).click();
+  await f.page
+    .getByRole("region", { name: "Memory", exact: true })
+    .getByRole("heading", { name: "Deploy steps" })
+    .waitFor();
+  // The same folder now holds a different library, as after connecting another repository.
+  await writeFile(
+    join(f.root, "memory-bundle.json"),
+    JSON.stringify({ id: randomUUID(), formatVersion: 2, name: "personal" }),
+  );
+  await f.page
+    .getByRole("tablist", { name: "Librarian views" })
+    .getByRole("tab", { name: "Activity", exact: true })
+    .click();
+  await f.page.getByText("Recorded changes in this desktop's copy", { exact: false }).waitFor();
+  const seen = (await f.client.librarian({ action: "read" })).state;
+  expect(seen.focusPath).toBeUndefined();
+  expect(seen.browse?.filters).toEqual({});
+  expect(await f.page.getByRole("button", { name: "Selected memory only" }).isDisabled()).toBe(
+    true,
+  );
+});

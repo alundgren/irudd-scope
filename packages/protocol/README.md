@@ -686,6 +686,14 @@ the Mac reports that the remote needs an update.
 `librarian read` returns the desktop presentation. `librarian apply REQUEST.json`
 sends a validated command to authenticated `POST /v1/librarian`.
 
+The presentation includes the person's current view (`browse`, `memory`,
+`connections`, `stages`, `activity`, `machines`, `decision`, `overview` or
+`recovery`), the shared `focusPath` and each view's settings. `ScopeClient`
+checks only the reply envelope and passes other fields through unchanged, so
+later views and fields reach agents without a client update. CLIs released
+before these views reject the newer replies until they are updated. An agent
+`select` of `browse` clears the person's filters so the agent sees plain results.
+
 Local setup selects an absolute bundle location and can initialize only an empty
 folder. Start and explicit resume bind an existing agent session to a run and
 return a temporary capability. Start without `automaticPermissions` allows the
@@ -699,8 +707,8 @@ revision. The endpoint has no human decision action. Scope's validated renderer
 IPC records human decisions against the displayed revision and exact source
 list. File acceptance, recall and restoration remain irudd-okf operations.
 
-Reads are bounded to the current results page, selected memory or proposal,
-and ten completed summaries. Queues remain durable in SQLite. Restart interrupts
+Reads are bounded to the current results page, selected memory, proposal or
+recorded change, and ten completed summaries. Queues remain durable in SQLite. Restart interrupts
 runs and invalidates capabilities. Retried request IDs require identical payloads;
 a receipt never grants a restored connection. Finish requires a separate explicit
 user instruction and no pending proposals. All conversation stays in the existing

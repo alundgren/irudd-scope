@@ -243,7 +243,10 @@ structured JSON. It never starts an OKF browser server.
 
 `packages/protocol/src/librarian.ts` defines agent commands and the shared
 presentation. `apps/desktop/src/librarian.ts` owns dreaming runs, session
-capabilities, queues, human decision recording and selection. `desktop.db` stores
+capabilities, queues, human decision recording and selection.
+`apps/desktop/src/librarian-reads.ts` builds the read-only Browse, Connections,
+Stages and Activity projections from irudd-okf `list`, `search`, `graph` and
+`change list` output. `desktop.db` stores
 the run document and idempotency receipts. The renderer's named IPC is the only
 Scope path for human acceptance or rejection. The authenticated agent endpoint
 can present, propose and select with an active run capability. Runs allow a
@@ -255,10 +258,12 @@ Capabilities remain in process memory and expire on restart. Resume requires an
 explicit user request and a fresh session attachment. Scope never calls a model,
 launches an agent, or finishes a run on a schedule.
 
-The memory plugin keeps browse, search, reading, one human decision, and optional
-completed-change inspection in separate views. Full queues stay in SQLite;
-projected responses include only the selected full proposal and at most ten
-completed summaries. Old tab states migrate with their original document and
+The memory plugin keeps browsing and reading, connections, stages, recorded
+activity, machine status, one human decision, and completed-change inspection
+in separate views. Full queues stay in SQLite; projected responses include only
+the selected full proposal or recorded change, at most ten completed summaries,
+and bounded pages of summaries. History scans read at most the 1000 newest
+recorded changes. Machine status comes from the memory service, not irudd-okf. Old tab states migrate with their original document and
 read-only draft retained. Reminder due and dismissal dates share the persistent
 Librarian document. Renderer checks announce a due reminder while the app is
 running and never invoke the file engine or an agent.

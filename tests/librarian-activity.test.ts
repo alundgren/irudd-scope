@@ -174,6 +174,18 @@ test("Activity pages one memory's history, recovers from a missing change and re
     .getByText("21–25 recorded changes to this memory, newest first", { exact: true })
     .waitFor();
   expect(await page.getByRole("button", { name: "Older", exact: true }).count()).toBe(0);
+  // Page 2 kept from that memory restarts at page 1 for a memory with fewer changes.
+  await tabs.getByRole("tab", { name: "Browse", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Back to results", exact: true })
+    .click()
+    .catch(() => {});
+  await page.getByRole("textbox", { name: "Search memory", exact: true }).fill("Deploy");
+  await page.getByRole("button", { name: "Search memory", exact: true }).click();
+  await page.getByRole("button", { name: "Deploy steps", exact: true }).click();
+  await tabs.getByRole("tab", { name: "Activity", exact: true }).click();
+  await page.getByText("No recorded changes match.", { exact: true }).waitFor();
+  expect((await f.client.librarian({ action: "read" })).state.activity?.offset).toBe(0);
 
   // A change id from another library no longer locks the view.
   await page.evaluate(async () => {

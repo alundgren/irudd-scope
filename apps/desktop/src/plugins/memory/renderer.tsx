@@ -12,6 +12,7 @@ import { BrowseView } from "./browse.tsx";
 import { ConnectionsView } from "./connections.tsx";
 import { StagesView } from "./stages.tsx";
 import { ActivityView } from "./activity.tsx";
+import { MachinesView } from "./machines.tsx";
 import { current, openChange, type Navigation } from "./navigation.ts";
 import { Markdown } from "./wiki.tsx";
 import "./style.css";
@@ -21,6 +22,7 @@ const SECTIONS = [
   { view: "connections", label: "Connections" },
   { view: "stages", label: "Stages" },
   { view: "activity", label: "Activity" },
+  { view: "machines", label: "Machines" },
 ] as const;
 type Section = (typeof SECTIONS)[number]["view"];
 const sectionOf = (view: string): Section | undefined =>
@@ -169,11 +171,13 @@ function MemoryView({ tab, active, context }: TabProps) {
     running.current = true;
     setBusy(true);
     setError("");
+    // The change notification can render the new state before this reply arrives.
+    const remembered = focus.current;
     try {
       const next = await window.scope.librarianHuman(JSON.parse(JSON.stringify(command)));
       // The main process forgets a selected memory that dreaming or sync removed.
       setNotice(
-        command.action === "navigate" && focus.current && !next.focusPath
+        command.action === "navigate" && remembered && !next.focusPath
           ? "That memory is no longer in the library."
           : "",
       );
@@ -388,6 +392,9 @@ function MemoryView({ tab, active, context }: TabProps) {
       )}
       {state.view === "activity" && (
         <ActivityView state={state} busy={busy} navigate={(n) => void navigate(n)} />
+      )}
+      {state.view === "machines" && (
+        <MachinesView onSettings={() => settings?.openSettings("memory")} />
       )}
       {state.view === "decision" && (
         <>
