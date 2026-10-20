@@ -129,6 +129,24 @@ test.runIf(!!process.env.SCOPE_TEST_OKF_BINARY)(
       type: "repository",
       id: "synthetic-repository",
     });
+    // The new views read real list, graph and change list output.
+    const tabs = page.getByRole("tablist", { name: "Librarian views" });
+    await tabs.getByRole("tab", { name: "Connections", exact: true }).click();
+    await page.getByText("No other memory links with this one.", { exact: true }).waitFor();
+    await tabs.getByRole("tab", { name: "Stages", exact: true }).click();
+    await page
+      .getByRole("region", { name: "Bronze", exact: true })
+      .getByRole("heading", { name: "Bronze 3" })
+      .waitFor();
+    await tabs.getByRole("tab", { name: "Activity", exact: true }).click();
+    const recorded = page.getByRole("list", { name: "Recorded changes" });
+    for (const item of kinds)
+      await recorded.getByRole("button", { name: `Created ${item.title}`, exact: true }).waitFor();
+    await recorded.getByRole("button", { name: "Created Repository fact", exact: true }).click();
+    await page
+      .getByRole("region", { name: "Change", exact: true })
+      .getByText("Presented for a human decision", { exact: true })
+      .waitFor();
   },
 );
 
@@ -159,6 +177,7 @@ test.runIf(!!process.env.SCOPE_TEST_OKF_BINARY)(
     await client.librarian({ action: "local", root, initialize: true });
     await page.keyboard.press("ControlOrMeta+k");
     await page.getByRole("button", { name: "Librarian", exact: true }).click();
+    await page.getByText("No memories found.", { exact: true }).waitFor();
     const memory = (id: string, title: string, kind: string, body: string, stage = "bronze") =>
       `---\ntype: Memory\ntitle: ${title}\nmemory: ${JSON.stringify({ id, kind, stage, applicability: { type: "global" } })}\n---\n${body}\n`;
     const digest = (text: string) => createHash("sha256").update(text).digest("hex");

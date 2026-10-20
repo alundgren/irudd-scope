@@ -17,25 +17,26 @@ import {
 import { MemoryCommands } from "@irudd-scope/memory-sync/commands";
 import type { DesktopStore } from "./desktop-store.ts";
 import type { MemoryService } from "./memory.ts";
-import { MemoryConcept, MemorySearch } from "./plugins/memory/contract.ts";
+import {
+  MemoryConcept,
+  type MemoryChanges,
+  type MemorySummary,
+} from "./plugins/memory/contract.ts";
+import {
+  changeSummary,
+  cli,
+  facets,
+  filtered,
+  LibrarianReads,
+  missing,
+  OkfFailure,
+} from "./librarian-reads.ts";
 
 type Mutable<T> = T extends object ? { -readonly [K in keyof T]: Mutable<T[K]> } : T;
 type Document = Mutable<LibrarianView>;
 const mutable = <T>(value: T): Mutable<T> => structuredClone(value) as Mutable<T>;
 
-function cli<S extends Schema.ConstraintDecoder<unknown>>(schema: S, input: unknown): S["Type"] {
-  return Schema.decodeUnknownSync(schema)(input);
-}
 const WEEK = 7 * 24 * 60 * 60_000;
-/** Keeps the irudd-okf error code so a caller can react to one specific refusal. */
-class OkfFailure extends ScopeError {
-  constructor(
-    message: string,
-    readonly code?: string,
-  ) {
-    super(409, message);
-  }
-}
 const Inspection = Schema.Struct({
   version: Schema.Literal(1),
   bundle: Schema.String,
@@ -47,36 +48,30 @@ const Inspection = Schema.Struct({
   status: Schema.Literals(["current", "migration-required", "newer", "invalid"]),
   supportedFormatVersion: Schema.Number,
 });
-const Browse = Schema.Struct({
-  version: Schema.Literal(1),
-  bundle: Schema.String,
-  path: Schema.String,
-  entries: Schema.Array(
-    Schema.Struct({
-      path: Schema.String,
-      kind: Schema.Literals(["directory", "memory"]),
-      title: Schema.optionalKey(Schema.String),
-      id: Schema.optionalKey(Schema.String),
-    }),
-  ),
-  offset: Schema.optionalKey(Schema.Number),
-  limit: Schema.optionalKey(Schema.Number),
-  total: Schema.optionalKey(Schema.Number),
-  truncated: Schema.Boolean,
-});
-type Selection = {
-  view: LibrarianView["view"];
-  historyRunId?: string;
-  path?: string;
-  changeId?: string;
-  query?: string;
-  directory?: string;
-  offset?: number;
-};
-
+type Selection = Omit<
+  Extract<LibrarianHumanCommand, { action: "navigate" }>,
+  "action" | "requestId" | "expectedUiRevision"
+>;
+/** Selections, pages and filters belong to one library; another library starts fresh. */
+function forgetLibrary(state: Document) {
+  for (const key of [
+    "focusPath",
+    "results",
+    "facets",
+    "activity",
+    "stages",
+    "returnChangeId",
+  ] as const)
+    delete state[key];
+  state.query = "";
+  state.directory = "";
+  state.offset = 0;
+  state.browse = { filters: {}, trail: [] };
+}
 /** Stores presentation and human decisions. File semantics belong to irudd-okf. */
 export class LibrarianService {
   private capability?: { runId: string; sessionId: string; token: string };
+  private reads = new LibrarianReads((args) => this.okf(args));
   private pending = Promise.resolve();
   private commands: MemoryCommands;
   constructor(
@@ -202,6 +197,11 @@ export class LibrarianService {
       }
       const result = await this.memory.runOkf(identity, args);
       if (result.code !== 0) {
+        if (result.exceeded)
+          throw new OkfFailure(
+            "This memory read is larger than Scope can display. The library is unchanged.",
+            "OUTPUT_LIMIT",
+          );
         let message =
           "irudd-okf could not complete this operation. Retry after checking your bundle.";
         let code: string | undefined;
@@ -217,9 +217,19 @@ export class LibrarianService {
       if (directory) await rm(directory, { recursive: true, force: true });
     }
   }
-  private async navigate(state: Document, command: Selection) {
-    if (command.view === "browse" || command.view === "memory")
+  private async navigate(state: Document, command: Selection): Promise<void> {
+    let switched = false;
+    if (["browse", "memory", "connections", "stages", "activity"].includes(command.view)) {
+      const before = state.bundle?.id;
       state.bundle = await this.inspection();
+      // A repository connection can switch libraries without passing through `local`.
+      switched = !!before && before !== state.bundle.id;
+      if (switched) {
+        forgetLibrary(state);
+        state.displayed = null;
+      }
+    }
+    const previousPath = state.selectedPath;
     state.view = command.view;
     delete state.selectedPath;
     delete state.selectedChangeId;
@@ -228,48 +238,117 @@ export class LibrarianService {
     state.evidenceOpen = false;
     if (command.historyRunId) state.historyRunId = command.historyRunId;
     else delete state.historyRunId;
+    if (command.returnChangeId) state.returnChangeId = command.returnChangeId;
+    else delete state.returnChangeId;
+    const browse = (state.browse ??= { filters: {}, trail: [] });
+    if (command.filters) browse.filters = mutable(command.filters);
+    if (command.section === null) delete browse.section;
+    else if (command.section) browse.section = command.section;
+    if (command.focusPath) state.focusPath = command.focusPath;
+    if (command.connections) state.connections = mutable(command.connections);
+    if (command.stages) state.stages = mutable(command.stages);
+    if (command.activity) state.activity = mutable(command.activity);
     if (command.view === "memory") {
       if (!command.path) throw new ScopeError(400, "Choose a memory.");
+      browse.trail = mutable(command.trail ?? []);
+      browse.reading = true;
+      const remembered = state.focusPath;
       state.selectedPath = command.path;
-      state.displayed = cli(
-        MemoryConcept,
-        await this.okf(["read", "personal", command.path, "--all-applicability"]),
-      );
+      state.focusPath = command.path;
+      let concept: MemoryConcept;
+      try {
+        concept = cli(
+          MemoryConcept,
+          await this.okf(["read", "personal", command.path, "--all-applicability"]),
+        );
+      } catch (error) {
+        // Returning to a memory that dreaming or sync removed shows the list instead of a dead end.
+        if (!(missing(error) && (switched || [remembered, previousPath].includes(command.path))))
+          throw error;
+        if (remembered && remembered !== command.path) state.focusPath = remembered;
+        else delete state.focusPath;
+        return this.navigate(state, {
+          view: "browse",
+          query: state.query,
+          directory: state.directory,
+          offset: browse.offset ?? 0,
+        });
+      }
+      const path = command.path;
+      let changes: Awaited<ReturnType<LibrarianReads["scan"]>> | undefined;
+      let unreadable = false;
+      if (browse.section === "changes")
+        try {
+          // A file's creation ends its history; earlier changes belong to a removed file.
+          changes = await this.reads.scan(
+            (c) => c.path === path,
+            20,
+            (c) => c.path === path && c.action === "create",
+          );
+        } catch {
+          unreadable = true;
+        }
+      state.displayed = {
+        ...concept,
+        ...(changes
+          ? {
+              changes: {
+                items: changes.items.map(changeSummary),
+                scanned: changes.scanned,
+                total: changes.total,
+                partial: changes.partial,
+              } satisfies MemoryChanges,
+            }
+          : unreadable
+            ? { changesUnavailable: true }
+            : {}),
+      };
+      if (!state.facets) state.facets = await this.reads.facets();
+      if (command.offset !== undefined) {
+        state.offset = browse.offset = command.offset;
+        state.results = await this.reads.page(state);
+      }
+      // Documents saved before results were kept have no list to show beside the reader.
+      else if (!state.results) {
+        browse.offset ??= state.offset;
+        state.results = await this.reads.page(state).catch(() => null);
+      }
     } else if (command.view === "browse") {
       state.query = command.query ?? "";
       state.directory = command.directory ?? "";
-      state.offset = command.offset ?? 0;
-      if (state.query.trim()) {
-        // Leading whitespace prevents a query beginning with a flag from becoming CLI input.
-        state.displayed = cli(
-          MemorySearch,
-          await this.okf([
-            "search",
-            ` ${state.query.trim()}`,
-            "--scope",
-            "personal",
-            "--all-applicability",
-            "--limit",
-            "30",
-            "--offset",
-            String(state.offset),
-          ]),
-        );
-      } else {
-        state.displayed = cli(
-          Browse,
-          await this.okf([
-            "browse",
-            "personal",
-            "--all-applicability",
-            "--limit",
-            "20",
-            "--offset",
-            String(state.offset),
-            ...(state.directory ? ["--path", state.directory] : []),
-          ]),
-        );
+      state.offset = browse.offset = command.offset ?? 0;
+      let concepts: readonly MemorySummary[] | undefined;
+      try {
+        concepts = await this.reads.list();
+        state.facets = facets(concepts);
+      } catch (error) {
+        // Filters need the library list; plain folder browsing and search still work without it.
+        if (filtered(browse.filters)) throw error;
+        state.facets = await this.reads.facets();
       }
+      state.displayed = await this.reads.page(state, concepts);
+      // The reader shows this page beside the memory, so it always matches the current search.
+      state.results = state.displayed;
+      browse.reading = false;
+    } else if (command.view === "connections") {
+      state.connections ??= { depth: 1, sharedTags: false };
+      if (state.focusPath)
+        try {
+          state.displayed = await this.reads.neighbourhood(state.focusPath, state.connections);
+        } catch (error) {
+          if (!missing(error)) throw error;
+          delete state.focusPath;
+        }
+    } else if (command.view === "stages") {
+      state.stages ??= { offset: 0 };
+      state.displayed = await this.reads.medallion(
+        state.stages,
+        state.focusPath,
+        !!command.focusPath,
+      );
+    } else if (command.view === "activity") {
+      state.activity ??= { offset: 0, onlySelected: false };
+      state.displayed = await this.reads.activity(state);
     } else if (command.view === "decision") {
       const proposal =
         state.run?.proposals.find((p) => p.change.id === command.changeId) ??
@@ -411,6 +490,7 @@ export class LibrarianService {
         state.displayed = null;
         delete state.selectedPath;
         delete state.selectedChangeId;
+        forgetLibrary(state);
         state.bundle = await this.inspection();
         state.uiRevision++;
         await this.store.saveLibrarian(state);
@@ -472,7 +552,12 @@ export class LibrarianService {
       } else {
         const run = this.connection(command, state);
         await this.assertBundle(run);
-        if (command.action === "select") await this.navigate(state, command);
+        if (command.action === "select")
+          // The agent asked for plain results; the person's filters would hide some of them.
+          await this.navigate(
+            state,
+            command.view === "browse" ? { ...command, filters: {} } : command,
+          );
         else if (command.action === "interrupt") {
           if (!command.userRequest.trim())
             throw new ScopeError(400, "Include the user's explicit request to pause dreaming.");
@@ -641,11 +726,13 @@ export class LibrarianService {
       }
       state.uiRevision++;
       const projected = this.project(state);
-      await this.store.saveLibrarian(state, {
-        id: command.requestId,
-        payload,
-        reply: { state: projected },
-      });
+      // Renderer navigation never repeats a request ID, so it needs no stored receipt.
+      await this.store.saveLibrarian(
+        state,
+        command.action === "navigate"
+          ? undefined
+          : { id: command.requestId, payload, reply: { state: projected } },
+      );
       this.changed(projected);
       return projected;
     });

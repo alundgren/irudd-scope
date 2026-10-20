@@ -18,9 +18,13 @@ const fail = (code, message, details = {}) => {
   process.stdout.write(JSON.stringify({ version: 1, error: { code, message, details } }));
   process.exit(2);
 };
-if (librarianFixture(args, explicitRoot)) process.exit(0);
+if (librarianFixture(args, explicitRoot)) {
+  // Exiting at once can cut off a large reply still queued for the pipe.
+  await new Promise((resolve) => process.stdout.write("", resolve));
+  process.exit(0);
+}
 
-if (explicitRoot && ["read", "search", "graph", "write"].includes(args[0])) {
+if (explicitRoot && ["read", "search", "graph", "write", "list"].includes(args[0])) {
   const hash = raw => createHash("sha256").update(raw).digest("hex");
   const concept = path => {
     const raw = readFileSync(join(explicitRoot, path), "utf8");
@@ -31,13 +35,21 @@ if (explicitRoot && ["read", "search", "graph", "write"].includes(args[0])) {
       const target = external ? match[2] : relative(explicitRoot, resolve(explicitRoot, path, "..", match[2]));
       return { target, label: match[1], external, broken: !external && !existsSync(join(explicitRoot, target)) };
     });
-    return { bundle: "personal", path, title, type: "Rule", description: "", tags: [], hash: hash(raw), malformed: false, raw, body, links, backlinks: [] };
+    const front = /^---\n([\s\S]*?)\n---\n/.exec(raw)?.[1] ?? "";
+    const tags = (/^tags: \[(.*)\]$/m.exec(front)?.[1] ?? "").split(",").map(tag => tag.trim()).filter(Boolean);
+    let memory;
+    try { memory = JSON.parse(/^memory: (.+)$/m.exec(front)?.[1] ?? "null") ?? undefined; } catch {}
+    return { bundle: "personal", path, title, type: "Rule", description: "", tags, hash: hash(raw), malformed: false, ...(memory ? { memory } : {}), raw, body, links, backlinks: [] };
   };
   const paths = (root = explicitRoot) => readdirSync(root, { withFileTypes: true }).flatMap(entry => entry.name.startsWith(".") ? [] : entry.isDirectory() ? paths(join(root, entry.name)) : entry.name.endsWith(".md") && !["index.md", "log.md"].includes(entry.name) ? [relative(explicitRoot, join(root, entry.name))] : []);
   if (process.env.FAKE_OKF_BAD_VIEWER_OUTPUT) { process.stdout.write('{"unexpected":true}'); process.exit(0); }
   if (args[0] === "read") {
-    if (!existsSync(join(explicitRoot, args[2]))) fail("NOT_FOUND", "This note does not exist.");
-    process.stdout.write(JSON.stringify(concept(args[2])));
+    if (!existsSync(join(explicitRoot, args[2]))) fail("NOT_ACCEPTED", "This path has no accepted revision matching the selected applicability.");
+    const backlinks = paths().map(concept).filter(note => note.links.some(link => !link.external && link.target === args[2])).map(note => ({ bundle: "personal", path: note.path, title: note.title }));
+    process.stdout.write(JSON.stringify({ ...concept(args[2]), backlinks }));
+  } else if (args[0] === "list") {
+    if (process.env.FAKE_OKF_LIST_FAILS) fail("LIST_FAILED", "The library list is unavailable.");
+    process.stdout.write(JSON.stringify({ version: 1, concepts: paths().map(concept).map(({ raw, body, links, backlinks, ...summary }) => summary) }));
   } else if (args[0] === "write") {
     const path = args[2];
     const current = concept(path);
@@ -61,7 +73,31 @@ if (explicitRoot && ["read", "search", "graph", "write"].includes(args[0])) {
       const offset = Number(args[args.indexOf("--offset") + 1]);
       const results = concepts.filter(note => (note.raw + note.path).toLowerCase().includes(query.trim().toLowerCase()));
       process.stdout.write(JSON.stringify({ version: 1, query, results: results.slice(offset, offset + 30).map(note => ({ ...note, excerpt: note.body.slice(0, 180) })), total: results.length, limit: 30, offset: process.env.FAKE_OKF_WRONG_SEARCH_OFFSET ? offset + 1 : offset, truncated: offset + 30 < results.length }));
-    } else process.stdout.write(JSON.stringify({ version: 1, nodes: concepts.slice(0, 80), edges: concepts.flatMap(note => note.links.map(link => ({ from: `personal:${note.path}`, to: `personal:${link.target}`, ...link }))), truncated: concepts.length > 80, limit: 80 }));
+    } else {
+      const option = (name, fallback) => args.includes(name) ? args[args.indexOf(name) + 1] : fallback;
+      const limit = Number(option("--limit", 80));
+      const focus = option("--path");
+      const links = concepts.flatMap(note => note.links.map(link => ({ from: note.path, ...link })));
+      let included = concepts.map(note => note.path);
+      if (focus && !existsSync(join(explicitRoot, focus))) fail("NOT_FOUND", "The graph source does not exist.");
+      if (focus) {
+        // Explicit links in either direction, like irudd-okf's bounded graph.
+        const seen = new Set([focus]);
+        let frontier = [focus];
+        for (let step = 0; step < Number(option("--depth", 1)); step++) {
+          const next = [];
+          for (const link of links.filter(link => !link.external && !link.broken))
+            for (const [a, b] of [[link.from, link.target], [link.target, link.from]])
+              if (frontier.includes(a) && !seen.has(b)) { seen.add(b); next.push(b); }
+          frontier = next;
+        }
+        included = [...seen];
+      }
+      // Like irudd-okf, the requested memory comes first so a limit never drops it.
+      const nodes = concepts.filter(note => included.includes(note.path)).sort((a, b) => (b.path === focus) - (a.path === focus)).slice(0, limit);
+      const kept = new Set(nodes.map(note => note.path));
+      process.stdout.write(JSON.stringify({ version: 1, nodes, edges: links.filter(link => kept.has(link.from)).map(({ from, target, ...link }) => ({ from: `personal:${from}`, to: `personal:${target}`, ...link })), truncated: included.length > limit, limit }));
+    }
   }
 } else if (args[0] === "--version") process.stdout.write(`irudd-okf v${process.env.FAKE_OKF_VERSION ?? "0.1.0"}\n`);
 else if (args[0] === "bundle" && args[1] === "list") {

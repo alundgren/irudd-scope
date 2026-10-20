@@ -95,7 +95,11 @@ export function librarianFixture(args, root) {
       actor: request.actor,
       reason: request.reason,
       createdAt: new Date().toISOString(),
-      sources: request.sources ?? [],
+      // irudd-okf records each source's library by bundle id.
+      sources: (request.sources ?? []).map((source) => ({
+        ...source,
+        bundle: JSON.parse(readFileSync(marker, "utf8")).id,
+      })),
       status: "pending",
       humanRequired: false,
       reviews: [],
@@ -154,18 +158,24 @@ export function librarianFixture(args, root) {
       else if (existsSync(join(root, change.path))) unlinkSync(join(root, change.path));
     }
   } else if (args[1] === "list") {
+    const option = (name, fallback) =>
+      args.includes(name) ? args[args.indexOf(name) + 1] : fallback;
+    const status = option("--status");
+    const offset = Number(option("--offset", 0));
+    const limit = Number(option("--limit", 30));
+    const matching = history.filter((item) => !status || item.status === status);
     output({
       version: 1,
       bundle: "personal",
-      changes: history.slice(0, 30),
-      limit: 30,
-      offset: 0,
-      total: history.length,
-      truncated: history.length > 30,
+      changes: matching.slice(offset, offset + limit),
+      limit,
+      offset,
+      total: matching.length,
+      truncated: offset + limit < matching.length,
     });
     return true;
   }
-  if (!change) failure("The change does not exist.");
+  if (!change) failure("The immutable change does not exist.", "CHANGE_NOT_FOUND");
   writeFileSync(historyPath, JSON.stringify(history));
   output(change);
   return true;

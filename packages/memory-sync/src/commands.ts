@@ -8,7 +8,13 @@ import { delimiter, extname, isAbsolute, join } from "node:path";
 const COMMAND_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
-export type Result = { code: number; stdout: string; stderr: string };
+export type Result = {
+  code: number;
+  stdout: string;
+  stderr: string;
+  /** Output passed the size cap, so stdout is incomplete. */
+  exceeded?: true;
+};
 export class SyncError extends Error {}
 
 /** Runs git, gh and irudd-okf with argument escaping for Windows command wrappers. */
@@ -186,6 +192,7 @@ export class MemoryCommands {
         options.signal?.removeEventListener("abort", stop);
         await stopping;
         done({
+          ...(bytes > MAX_OUTPUT_BYTES ? { exceeded: true as const } : {}),
           code: problem ? 1 : (code ?? 1),
           stdout: Buffer.concat(stdout).toString("utf8"),
           stderr:
