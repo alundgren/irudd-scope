@@ -26,7 +26,10 @@ const decodeText = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
 /**
  * Lines per block. Blocks away from the view keep their text as one plain text node, laid
- * out like the numbered lines, so Select All and copy include the whole file.
+ * out like the numbered lines, so Select All and copy include the whole file. Copied text
+ * equals the file's text: an empty numbered line holds a `<br>`, and a plain block that
+ * ends with an empty line gets one more newline, because a block's final newline neither
+ * shows nor copies. A file that ends with a newline shows an empty last line, as editors do.
  */
 const TEXT_BLOCK_LINES = 500;
 
@@ -44,7 +47,7 @@ function TextBlock({
   if (!shown)
     return (
       <div className="text-block" data-block={first} data-plain>
-        {lines.join("\n")}
+        {lines.join("\n") + (lines.at(-1) === "" ? "\n" : "")}
       </div>
     );
   return (
@@ -56,7 +59,7 @@ function TextBlock({
           data-line={first + index}
           aria-current={first + index === line || undefined}
         >
-          {text}
+          {text || <br />}
         </div>
       ))}
     </div>
@@ -70,7 +73,6 @@ function TextBlock({
 function TextView({ content, line }: ViewerProps) {
   const blocks = useMemo(() => {
     const all = decodeText(content.bytes).split("\n");
-    if (all.length > 1 && all.at(-1) === "") all.pop();
     const result: { first: number; lines: string[] }[] = [];
     for (let index = 0; index < all.length; index += TEXT_BLOCK_LINES)
       result.push({

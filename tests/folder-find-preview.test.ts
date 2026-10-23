@@ -81,9 +81,9 @@ async function syntheticFolder(folder: string) {
   await mkdir(join(folder, "src"));
   await writeFile(
     join(folder, "src", "code.ts"),
-    Array.from({ length: 1200 }, (_, index) =>
+    textWithBlankRuns(1200, (index) =>
       index === 249 ? "// todo: retry the request" : `export const line${index + 1} = ${index};`,
-    ).join("\n"),
+    ),
   );
   await writeFile(join(folder, "page.md"), "# Release notes\n\nShipped.\n");
   await writeFile(join(folder, "page.html"), "<!doctype html><h1>Synthetic page</h1>");
@@ -101,12 +101,28 @@ async function syntheticFolder(folder: string) {
   if (process.platform !== "win32") await exec("mkfifo", [join(folder, "notes", "pipe-todo.txt")]);
 }
 
-/** The text a person copies after Select All in a text view, without scrolling it first. */
-const selectedText = (view: Locator) =>
-  view.evaluate((element) => {
-    getSelection()!.selectAllChildren(element);
-    return getSelection()!.toString();
-  });
+/** Text with runs of empty lines across the 500-line blocks and a final newline. */
+function textWithBlankRuns(count: number, line: (index: number) => string) {
+  const blank = (index: number) => index % 500 >= 490 || index % 500 < 6;
+  return `${Array.from({ length: count }, (_, index) => (blank(index) ? "" : line(index))).join("\n")}\n`;
+}
+
+/**
+ * Select All in a text view copies exactly the file's text, both before scrolling, when
+ * most lines are not numbered yet, and after scrolling to the end.
+ */
+async function copiesExactly(view: Locator, text: string) {
+  const selected = () =>
+    view.evaluate((element) => {
+      getSelection()!.selectAllChildren(element);
+      return getSelection()!.toString();
+    });
+  expect(await view.locator(".text-block[data-plain]").count()).toBeGreaterThan(0);
+  expect(await selected()).toBe(text);
+  await view.locator(".text-block").last().scrollIntoViewIfNeeded();
+  await expect.poll(() => view.locator(".text-block").last().getAttribute("data-plain")).toBeNull();
+  expect(await selected()).toBe(text);
+}
 
 /** What a case-insensitive grep finds in the files content search may read. */
 async function referenceSearch(folder: string, query: string) {
@@ -203,7 +219,7 @@ async function useFolderTab(page: Page, label: string, folder: string) {
   ).toBe(true);
   // Lines away from the view are still copied.
   const code = await readFile(join(folder, "src", "code.ts"), "utf8");
-  expect((await selectedText(preview("code.ts").locator(".text-document"))).trimEnd()).toBe(code);
+  await copiesExactly(preview("code.ts").locator(".text-document"), code);
   await tab.getByRole("button", { name: "Files", exact: true }).click();
 }
 
@@ -241,7 +257,7 @@ test(
       await useFolderTab(page, "Find", folder);
 
       // A published text file copies whole, including lines that were never scrolled to.
-      const lines = Array.from({ length: 1400 }, (_, index) => `published line ${index + 1}`);
+      const notes = textWithBlankRuns(1600, (index) => `published line ${index + 1}`);
       const client = await f.connect();
       await client.publish(
         "long-notes",
@@ -252,12 +268,12 @@ test(
           fileName: "long-notes.txt",
           expectedRevision: 0,
         },
-        Buffer.from(lines.join("\n")),
+        Buffer.from(notes),
       );
       await page.getByRole("tab", { name: "Long notes", exact: true }).click();
       const published = '[role="tabpanel"][aria-label="Long notes"] .text-document';
       await page.locator(published).waitFor();
-      expect((await selectedText(page.locator(published))).trimEnd()).toBe(lines.join("\n"));
+      await copiesExactly(page.locator(published), notes);
 
       // The filter text survives a restart.
       await page.getByRole("tab", { name: "Find", exact: true }).click();
