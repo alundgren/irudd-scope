@@ -1,11 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { decode } from "@irudd-scope/protocol";
-import {
-  planItemPacket,
-  readPlan,
-  type PlanCheck,
-  type PlanDocument,
-} from "@irudd-scope/protocol/plan";
+import { planItemPacket, readPlan, type PlanDocument } from "@irudd-scope/protocol/plan";
 import type { ArtifactContent } from "../../bridge.ts";
 import type { TabProps } from "../api.ts";
 import { PublishedContent } from "../../library/content-view.tsx";
@@ -13,22 +8,8 @@ import { Button } from "../../renderer/components/ui/button.tsx";
 import { PlanTabState } from "./contract.ts";
 import { planHtml } from "./document.ts";
 import { useDocumentScroll } from "./document-scroll.ts";
+import { Check, ProposalContext, RetainedTarget } from "./retained-target.tsx";
 
-function Check({ check }: { check: PlanCheck }) {
-  return (
-    <details className="plan-check">
-      <summary>{check.label}</summary>
-      <p>{check.expectation}</p>
-      <h4>Conditions</h4>
-      <p>{check.conditions}</p>
-      <h4>Test procedure</h4>
-      <p>{check.method}</p>
-      <p className="plan-muted">
-        {check.kind === "human" ? "Requires human judgment" : "Agent check"}
-      </p>
-    </details>
-  );
-}
 function Records({ plan, inspect }: { plan: PlanDocument; inspect: (id: string) => void }) {
   if (!plan.agreements?.length && !plan.evidence?.length)
     return <p>No agreement or evidence recorded.</p>;
@@ -50,29 +31,17 @@ function Records({ plan, inspect }: { plan: PlanDocument; inspect: (id: string) 
             <Button variant="outline" onClick={() => inspect(basis.id)}>
               Inspect proposal from revision {basis.revision}
             </Button>
+            <ProposalContext proposal={basis.proposal} />
             {(plan.agreements ?? [])
               .filter((x) => x.basisId === basis.id)
               .map((record) => (
                 <div key={record.id}>
                   <h3>Agreement</h3>
                   <p>{record.note}</p>
-                  <ul>
+                  <ul aria-label="Agreement targets">
                     {record.targetIds.map((id) => (
                       <li key={id}>
-                        {
-                          [
-                            ...(basis.proposal.goals ?? []),
-                            ...(basis.proposal.checks ?? []),
-                            ...(basis.proposal.items ?? []),
-                            ...(basis.proposal.visuals ?? []),
-                          ]
-                            .map((x) => ({
-                              id: x.id,
-                              text:
-                                "label" in x ? x.label : "outcome" in x ? x.outcome : x.commitment,
-                            }))
-                            .find((x) => x.id === id)?.text
-                        }
+                        <RetainedTarget id={id} proposal={basis.proposal} />
                       </li>
                     ))}
                   </ul>
@@ -169,11 +138,11 @@ function PlanContent({ content, ...props }: TabProps & { content: ArtifactConten
         <Button
           variant={view === "work" ? "secondary" : "ghost"}
           aria-pressed={view === "work"}
-          onClick={() => update({ view: "work" })}
+          onClick={() => update({ view: "work", basisId: undefined })}
         >
           Work items
         </Button>
-        {basis && (
+        {view === "overview" && basis && (
           <>
             <span>Recorded proposal, revision {basis.revision}</span>
             <Button variant="outline" onClick={() => update({ basisId: undefined })}>

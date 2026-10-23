@@ -33,12 +33,19 @@ test("native plan reading, recorded bindings, copy, appearance, hide and restart
     );
     for (const appearance of ["light", "dark"] as const) {
       await page.keyboard.press("ControlOrMeta+,");
-      await page.getByRole("button", { name: "Appearance", exact: true }).click();
+      await page
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByLabel("Search settings")
+        .fill("appearance");
       await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
+      await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe(appearance);
       await page
         .getByRole("dialog", { name: "Settings", exact: true })
         .getByRole("button", { name: "Close", exact: true })
         .click();
+      await page
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .waitFor({ state: "hidden" });
       for (const width of [1366, 620]) {
         await page.setViewportSize({ width, height: 768 });
         await page.getByRole("button", { name: "Work items", exact: true }).focus();
