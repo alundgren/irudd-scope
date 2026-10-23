@@ -14,6 +14,7 @@ import { Uuid } from "../../workspace/contract.ts";
 import { RemoteUnavailableError } from "../../remotes.ts";
 import type { MainPluginContext } from "../main-api.ts";
 import type { FolderListResult, FolderUnavailable, FolderViewEvent } from "./contract.ts";
+import { registerFolderFind } from "./find.ts";
 import {
   FolderUpdateNeeded,
   MAX_FOLDER_IPC_READ,
@@ -68,7 +69,9 @@ export function registerFolderIpc({
           : remoteFolderSource(remotes, identity),
     };
   }
+  const find = registerFolderFind({ handle, window }, folder, unavailable);
   function send(tabId: string, event: FolderViewEvent["event"]) {
+    find.apply(tabId, event);
     if (!window.isDestroyed()) window.webContents.send("scope:folder-event", { tabId, event });
   }
   async function runFeed(tabId: string, signal: AbortSignal) {
@@ -88,6 +91,7 @@ export function registerFolderIpc({
   function stopFeed(tabId: string) {
     feeds.get(tabId)?.abort();
     feeds.delete(tabId);
+    find.stop(tabId);
   }
 
   handle("scope:folder-list", async (input): Promise<FolderListResult> => {

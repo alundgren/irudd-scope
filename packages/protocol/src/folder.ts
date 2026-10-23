@@ -21,6 +21,8 @@ export const FOLDER_FILE_ROUTES = {
 export const FOLDER_CAPABILITY = "folders";
 /** File size of a byte-range read, sent as a response header. */
 export const FOLDER_FILE_SIZE_HEADER = "Scope-Folder-File-Size";
+/** Modification time of a byte-range read in epoch milliseconds, sent as a response header. */
+export const FOLDER_FILE_MODIFIED_HEADER = "Scope-Folder-File-Modified";
 /** Folder command bodies stay small; file bytes never travel on the artifact API. */
 export const MAX_FOLDER_COMMAND_BYTES = 16 * 1024;
 /** One directory listing returns at most this many entries and reports truncation. */
@@ -204,10 +206,22 @@ export const FolderReadQuery = Schema.Struct({
 });
 export type FolderReadQuery = typeof FolderReadQuery.Type;
 
+/** Content search skips files larger than this. */
+export const MAX_FOLDER_SEARCH_FILE_BYTES = 1024 * 1024;
+/** Content search stops after this many matching lines and reports `truncated`. */
+export const MAX_FOLDER_SEARCH_MATCHES = 1000;
+/** A file name search stops after this many files and reports `truncated`. */
+export const MAX_FOLDER_NAME_MATCHES = 10_000;
+
+/**
+ * Body of `POST /v1/relay/folders/search`. The query is plain text matched in any letter
+ * case. With `names`, file paths are matched instead of file contents.
+ */
 export const FolderSearchRequest = Schema.Struct({
   root: FolderPath,
   query: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024)),
   showIgnored: Schema.Boolean,
+  names: Schema.optionalKey(Schema.Boolean),
 });
 export type FolderSearchRequest = typeof FolderSearchRequest.Type;
 /** One NDJSON line of `POST /v1/relay/folders/search`. */
@@ -217,6 +231,12 @@ export const FolderSearchEvent = Schema.Union([
     path: FolderRelativePath,
     line: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
     text: Schema.String.check(Schema.isMaxLength(4096)),
+  }),
+  /** A file whose path matches a `names` search. */
+  Schema.Struct({
+    type: Schema.Literal("file"),
+    path: FolderRelativePath,
+    ignored: Schema.Boolean,
   }),
   Schema.Struct({ type: Schema.Literal("done"), truncated: Schema.Boolean }),
   Schema.Struct({ type: Schema.Literal("heartbeat") }),

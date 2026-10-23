@@ -323,6 +323,28 @@ Close; the tree returns if the folder comes back. An offline remote shows
 `NAME is offline` with the path and no cached files. A remote whose hub lacks
 folder routes shows `Update Scope on NAME to view this folder`.
 
+Files and Search buttons sit above the tree. The filter box shows every file
+whose path contains its text, in any letter case, with parent folders open and
+everything else hidden. Closing a folder while filtering does not change the
+saved expanded folders, so clearing the filter restores the previous tree. The
+filter text survives restart. While Scope still lists the folder, the filter
+says `Still scanning…`; for folders with more than 200,000 paths it says that
+it asks the folder's machine instead. It shows at most 10,000 files and says so.
+
+Search looks through file contents on the folder's machine and lists each match
+as path, line number, and the line with the match marked. It skips binary files
+and files over 1 MiB, follows Show ignored files, stops at 1,000 matches with a
+note, and has Cancel while running. A new query cancels the previous one.
+Switching between Files and Search keeps both. Clicking a match selects the file
+and scrolls its preview to that line.
+
+Selecting a file shows a read-only preview beside the tree, below it in narrow
+windows, using the published-file viewers. Text has line numbers; Markdown and
+HTML have a Source button, which a search match turns on. Files Scope cannot
+display show name, size, and modified time. Text over 2 MiB shows its first
+2 MiB with a note. A file that changes reloads; a deleted file says
+`This file was deleted.` Published text files show line numbers too.
+
 ## Sketchpad
 
 The Sketchpad is one built-in Excalidraw canvas for the person's own ideas.

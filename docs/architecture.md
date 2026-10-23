@@ -49,7 +49,8 @@ flowchart LR
 
 `packages/folder` owns all file system work for both machines: the canonical
 path, per-directory listings, `.gitignore` rules, containment, byte-range reads,
-and change feeds. It reserves typed content search and staged write functions.
+change feeds, and content and file name search. It reserves a typed staged write
+function.
 Desktop main uses it for local folders; the hub uses it for remote folders.
 `packages/protocol/src/folder.ts` defines the routes and wire contracts and
 imports no file system code.
@@ -83,6 +84,19 @@ change feed writes a heartbeat every 10 seconds, under its 30-second socket
 timeout. macOS and Windows watch a folder recursively; Linux watches each
 directory that is not ignored and polls every few seconds when it runs out of
 watches. `.git` and ignored folders are never watched.
+
+The filter uses a path list that desktop main keeps in memory for each watched
+tab. A background walk builds it, locally with `packages/folder` and remotely by
+listing directories through the hub, four at a time. Change feed events keep it
+current. A created directory is walked, because its files may have no events of
+their own, and a changed `.gitignore` or an overflow rebuilds the list. Above
+200,000 paths the list is dropped and each filter text becomes a `names` search
+on the folder's machine. Content search always runs on the folder's machine with
+`searchFolder`, one search per tab; a new query or Cancel aborts the previous
+one, and the hub stops reading files when its response closes. Neither the path
+list nor search results are stored. Previews read byte ranges through the same
+source and show them with the published-file viewers in
+`renderer/file-views.tsx`, which take bytes, a kind, a media type, and a title.
 
 The desktop advertises folder support with `Scope-Relay-Capabilities: folders`
 when it opens the relay. A hub forwards folder commands only to a desktop that

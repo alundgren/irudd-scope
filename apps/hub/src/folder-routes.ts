@@ -3,6 +3,7 @@ import { pipeline } from "node:stream/promises";
 import { Schema } from "effect";
 import { decode } from "@irudd-scope/protocol";
 import {
+  FOLDER_FILE_MODIFIED_HEADER,
   FOLDER_FILE_ROUTES,
   FOLDER_FILE_SIZE_HEADER,
   FOLDER_HEARTBEAT_MS,
@@ -111,6 +112,7 @@ export class FolderFileRoutes {
       "Content-Length": file.end - file.start,
       "Cache-Control": "no-store",
       [FOLDER_FILE_SIZE_HEADER]: String(file.size),
+      [FOLDER_FILE_MODIFIED_HEADER]: String(Math.round(file.modifiedAt)),
     });
     await pipeline(file.stream, response).catch(() => response.destroy());
   }

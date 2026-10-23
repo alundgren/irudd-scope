@@ -42,7 +42,9 @@ export type ArtifactLibrarySnapshot = {
 export type ArtifactContent = { artifact: Artifact; bytes: Uint8Array };
 import type { TabEventEnvelope } from "./plugins/events.ts";
 import type {
+  FolderFilterResult,
   FolderListResult,
+  FolderSearchResult,
   FolderTabOpened,
   FolderViewEvent,
 } from "./plugins/folder/contract.ts";
@@ -65,7 +67,20 @@ export type ScopeBridge = {
     path: string;
     start: number;
     end: number;
-  }) => Promise<{ size: number; start: number; bytes: Uint8Array }>;
+  }) => Promise<{ size: number; modifiedAt: number; start: number; bytes: Uint8Array }>;
+  /** Matches file paths against the filter text; empty text starts the path list. */
+  folderFilter: (input: {
+    tabId: string;
+    text: string;
+    showIgnored: boolean;
+  }) => Promise<FolderFilterResult>;
+  /** Searches file contents on the folder's machine. A new search cancels the tab's last one. */
+  folderSearch: (input: {
+    tabId: string;
+    query: string;
+    showIgnored: boolean;
+  }) => Promise<FolderSearchResult>;
+  cancelFolderSearch: (tabId: string) => Promise<void>;
   watchFolder: (tabId: string) => Promise<void>;
   unwatchFolder: (tabId: string) => Promise<void>;
   copyFolderPath: (tabId: string) => Promise<void>;

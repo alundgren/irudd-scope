@@ -1029,10 +1029,25 @@ h2 {
   object-fit: contain;
 }
 .text-document {
-  padding: var(--scope-space-8);
+  padding: var(--scope-space-8) var(--scope-space-8) var(--scope-space-8) var(--scope-space-2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font: var(--scope-text-ui) / var(--scope-leading-reading) var(--scope-font-mono);
+}
+.text-line {
+  display: grid;
+  grid-template-columns: calc(var(--line-digits) * 1ch + var(--scope-space-4)) minmax(0, 1fr);
+  min-height: var(--scope-leading-reading);
+}
+.text-line::before {
+  content: attr(data-line);
+  padding-right: var(--scope-space-4);
+  text-align: right;
+  color: var(--scope-muted);
+  user-select: none;
+}
+.text-line[aria-current] {
+  background: var(--scope-selected);
 }
 .markdown-document {
   max-width: 78ch;
@@ -1611,4 +1626,156 @@ h2 {
   font-size: var(--scope-text-detail);
   color: var(--scope-muted);
   overflow-wrap: anywhere;
+}
+.folder-body {
+  display: grid;
+  grid-template-columns: minmax(220px, 32%) minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+.folder-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--scope-line);
+}
+.folder-find-modes {
+  display: flex;
+  gap: var(--scope-space-1);
+  padding: var(--scope-space-2) var(--scope-space-2) 0;
+}
+.folder-find {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.folder-find[hidden] {
+  display: none;
+}
+.folder-find-input {
+  margin: var(--scope-space-2);
+  height: var(--scope-control);
+  padding: 0 var(--scope-space-2);
+  border: 1px solid var(--scope-outline);
+  border-radius: var(--scope-radius-control);
+  background: var(--scope-canvas);
+  color: var(--scope-text);
+  font-size: var(--scope-text-detail);
+}
+.folder-find-input:focus-visible {
+  outline: var(--scope-focus-width) solid var(--scope-accent);
+  outline-offset: 1px;
+}
+.folder-find-status {
+  display: flex;
+  align-items: center;
+  gap: var(--scope-space-2);
+  padding: 0 var(--scope-space-3) var(--scope-space-2);
+  color: var(--scope-muted);
+  font-size: var(--scope-text-detail);
+}
+.folder-find-status:empty {
+  display: none;
+}
+.folder-search-results {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.folder-search-results button {
+  display: grid;
+  width: 100%;
+  padding: var(--scope-space-1) var(--scope-space-3);
+  text-align: left;
+  color: var(--scope-text);
+}
+.folder-search-results button:hover {
+  background: var(--scope-line);
+}
+.folder-search-results button[aria-current] {
+  background: var(--scope-selected);
+}
+.folder-search-results button:focus-visible {
+  outline: var(--scope-focus-width) solid var(--scope-accent);
+  outline-offset: -2px;
+}
+.folder-search-place {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--scope-muted);
+  font-size: var(--scope-text-detail);
+}
+.folder-search-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--scope-font-mono);
+  font-size: var(--scope-text-detail);
+}
+.folder-search-text mark {
+  background: var(--scope-selected);
+  color: inherit;
+  font-weight: var(--scope-weight-strong);
+}
+.folder-preview {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.folder-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--scope-space-2);
+  min-height: var(--scope-control);
+  padding: var(--scope-space-1) var(--scope-space-3);
+  border-bottom: 1px solid var(--scope-line);
+}
+.folder-preview-bar code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--scope-font-mono);
+  font-size: var(--scope-text-detail);
+  color: var(--scope-muted);
+}
+.folder-preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.folder-file-info {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--scope-space-1) var(--scope-space-4);
+  padding: var(--scope-space-6);
+}
+.folder-file-info dt {
+  color: var(--scope-muted);
+}
+.folder-file-info dd {
+  overflow-wrap: anywhere;
+}
+.folder-file-note {
+  grid-column: 1 / -1;
+  margin-top: var(--scope-space-2);
+  color: var(--scope-muted);
+}
+@media (max-width: 720px) {
+  .folder-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .folder-side {
+    border-right: 0;
+    border-bottom: 1px solid var(--scope-line);
+  }
+}
+.folder-preview-body > .text-document {
+  padding-top: var(--scope-space-3);
 }

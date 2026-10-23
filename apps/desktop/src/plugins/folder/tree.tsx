@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen, Link } from "lucide-react";
 import type { FolderEntry, FolderListing } from "@irudd-scope/protocol/folder";
+import type { FolderNameMatch } from "./contract.ts";
 
 const ROW_HEIGHT = 26;
 const OVERSCAN = 12;
@@ -59,6 +60,65 @@ export function folderRows(
         position: index + 1,
       });
       if (open) visit(entry.path, depth + 1);
+    });
+  };
+  visit("", 1);
+  return rows;
+}
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+/**
+ * Rows for a filter: every matching file with its parent folders open. Folders the person
+ * closes while filtering are in `collapsed`; the saved expanded folders are untouched.
+ */
+export function filteredRows(
+  matches: readonly FolderNameMatch[],
+  collapsed: ReadonlySet<string>,
+): FolderRow[] {
+  const children = new Map<string, { directories: Set<string>; files: FolderEntry[] }>();
+  const directory = (path: string) => {
+    let entry = children.get(path);
+    if (!entry) children.set(path, (entry = { directories: new Set(), files: [] }));
+    return entry;
+  };
+  for (const match of matches) {
+    const above = parent(match.path);
+    directory(above).files.push({
+      name: match.path.slice(above ? above.length + 1 : 0),
+      path: match.path,
+      kind: "file",
+      ignored: match.ignored,
+    });
+    for (let path = above; path; path = parent(path)) directory(parent(path)).directories.add(path);
+  }
+  const rows: FolderRow[] = [];
+  const visit = (path: string, depth: number) => {
+    const entry = children.get(path);
+    if (!entry) return;
+    const name = (child: string) => child.slice(path ? path.length + 1 : 0);
+    const entries: FolderEntry[] = [
+      ...[...entry.directories]
+        .map((child): FolderEntry => ({
+          name: name(child),
+          path: child,
+          kind: "directory",
+          ignored: false,
+        }))
+        .sort((a, b) => collator.compare(a.name, b.name)),
+      ...entry.files.sort((a, b) => collator.compare(a.name, b.name)),
+    ];
+    entries.forEach((child, index) => {
+      const open = child.kind === "directory" && !collapsed.has(child.path);
+      rows.push({
+        entry: child,
+        depth,
+        expanded: open,
+        deleted: false,
+        setSize: entries.length,
+        position: index + 1,
+      });
+      if (open) visit(child.path, depth + 1);
     });
   };
   visit("", 1);
