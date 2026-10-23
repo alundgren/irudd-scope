@@ -108,8 +108,8 @@ export async function listFolder(
  * Reads entry names from an opened directory handle. Linux reads through the handle itself;
  * elsewhere the handle is checked again after reading, so a swapped folder is rejected.
  */
-export async function readDirectory(root: string, path: string) {
-  const { handle, real } = await openInside(root, path, { directory: true });
+export async function readDirectory(root: string, path: string, noSymlinks = false) {
+  const { handle, real } = await openInside(root, path, { directory: true, noSymlinks });
   try {
     if (process.platform === "linux")
       return await readdir(`/proc/self/fd/${handle.fd}`, { withFileTypes: true }).catch(() =>

@@ -30,7 +30,7 @@ export async function* directories(
   while (queue.length && !options.signal?.aborted) {
     const { path, rules, ignoredAbove } = queue.shift()!;
     // A directory swapped for a link that leaves the folder is skipped.
-    const entries = await readDirectory(root, path).catch(() => undefined);
+    const entries = await readDirectory(root, path, true).catch(() => undefined);
     if (!entries) continue;
     entries.sort((a, b) => collator.compare(a.name, b.name));
     const directory: WalkedDirectory = {

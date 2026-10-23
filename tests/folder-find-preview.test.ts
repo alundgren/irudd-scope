@@ -1,7 +1,17 @@
 import { expect, test } from "vite-plus/test";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -227,6 +237,40 @@ async function useFolderTab(page: Page, label: string, folder: string) {
  * A remote directory with more entries than one listing returns cannot be kept as a path
  * list, so the filter asks the remote and asks again when files change.
  */
+/**
+ * A folder that search has listed but not yet entered is swapped for a link into `.git`.
+ * The search must not follow it: `.git` content never appears, under any path.
+ */
+async function searchIgnoresSwappedLinks(page: Page, folder: string, open: () => Promise<unknown>) {
+  await mkdir(join(folder, "aaa"), { recursive: true });
+  await mkdir(join(folder, "zzz-dir"));
+  await mkdir(join(folder, ".git"));
+  await writeFile(join(folder, "seed.txt"), "GITSWAP root\n");
+  await writeFile(join(folder, "zzz-dir", "inside.txt"), "GITSWAP inside\n");
+  await writeFile(join(folder, ".git", "secret.txt"), "GITSWAP GIT-INTERNAL\n");
+  // Reading these first keeps the search busy until the swap has happened.
+  for (let index = 0; index < 20_000; index += 1000)
+    await Promise.all(
+      Array.from({ length: 1000 }, (_, offset) =>
+        writeFile(join(folder, "aaa", `f${index + offset}.txt`), "x\n"),
+      ),
+    );
+  await open();
+  await page.getByRole("tab", { name: "Swap", exact: true }).click();
+  const tab = page.getByRole("region", { name: "Swap folder" });
+  await tab.getByRole("tree", { name: "Folder contents" }).waitFor();
+  await tab.getByRole("button", { name: "Search", exact: true }).click();
+  await tab.getByLabel("Search file contents").fill("GITSWAP");
+  await tab.getByText("Searching…").waitFor();
+  await rename(join(folder, "zzz-dir"), join(folder, "zzz-moved"));
+  await symlink(join(folder, ".git"), join(folder, "zzz-dir"));
+  const status = tab.locator(".folder-find").nth(1).locator(".folder-find-status");
+  await expect.poll(() => status.textContent(), { timeout: 30_000 }).toMatch(/match/);
+  const results = tab.getByRole("list", { name: "Search results" });
+  expect(await results.locator(".folder-search-place").allTextContents()).toEqual(["seed.txt:1"]);
+  expect(await results.textContent()).not.toContain("GIT-INTERNAL");
+}
+
 async function filterOnTheMachine(page: Page, label: string, folder: string, machine: string) {
   await page.getByRole("tab", { name: label, exact: true }).click();
   const tab = page.getByRole("region", { name: `${label.split(" · ").at(-1)} folder` });
@@ -255,6 +299,10 @@ test(
       page.setDefaultTimeout(15_000);
       await f.cli("folder", "open", folder, "--title", "Find");
       await useFolderTab(page, "Find", folder);
+      const swap = join(f.directory, "work", "swap");
+      await searchIgnoresSwappedLinks(page, swap, () =>
+        f.cli("folder", "open", swap, "--title", "Swap"),
+      );
 
       // A published text file copies whole, including lines that were never scrolled to.
       const notes = textWithBlankRuns(1600, (index) => `published line ${index + 1}`);
@@ -277,14 +325,29 @@ test(
 
       // The filter text survives a restart.
       await page.getByRole("tab", { name: "Find", exact: true }).click();
-      await page.getByLabel("Filter by file name").fill("readme");
-      await expect.poll(() => page.getByRole("treeitem", { name: "README.md" }).count()).toBe(12);
+      await page
+        .getByRole("region", { name: "Find folder" })
+        .getByLabel("Filter by file name")
+        .fill("readme");
+      await expect
+        .poll(() =>
+          page
+            .getByRole("region", { name: "Find folder" })
+            .getByRole("treeitem", { name: "README.md" })
+            .count(),
+        )
+        .toBe(12);
       await application.close();
       application = await f.launch();
       page = await application.firstWindow();
       page.setDefaultTimeout(15_000);
       await page.getByRole("tab", { name: "Find", exact: true }).click();
-      expect(await page.getByLabel("Filter by file name").inputValue()).toBe("readme");
+      expect(
+        await page
+          .getByRole("region", { name: "Find folder" })
+          .getByLabel("Filter by file name")
+          .inputValue(),
+      ).toBe("readme");
 
       // The same journey on a paired remote goes through its hub's file routes.
       await page.evaluate((url) => window.scope.pairRemote(url), devbox.pairUrl);

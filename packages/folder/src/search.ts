@@ -29,9 +29,11 @@ async function readText(
   path: string,
   signal: AbortSignal,
 ): Promise<string | undefined> {
-  const opened = await openInside(root, path, { internal: true, nonBlocking: true }).catch(
-    () => undefined,
-  );
+  const opened = await openInside(root, path, {
+    internal: true,
+    nonBlocking: true,
+    noSymlinks: true,
+  }).catch(() => undefined);
   if (!opened) return undefined;
   const { handle } = opened;
   try {

@@ -140,15 +140,23 @@ export async function verifyHandle(root: string, real: string, handle: FileHandl
 /**
  * Opens a file or directory inside the root without letting a swapped symlink widen it.
  * `nonBlocking` returns at once for a FIFO instead of waiting for a writer; callers that
- * walk the folder use it and then check that the handle is a regular file.
+ * walk the folder use it and then check that the handle is a regular file. `noSymlinks`
+ * refuses a symlink anywhere below the root, so a walked folder swapped for a link, even
+ * one into `.git` or an ignored folder, is never entered.
  */
 export async function openInside(
   root: string,
   relative: string,
-  options: { directory?: boolean; internal?: boolean; nonBlocking?: boolean } = {},
+  options: {
+    directory?: boolean;
+    internal?: boolean;
+    nonBlocking?: boolean;
+    noSymlinks?: boolean;
+  } = {},
 ): Promise<{ handle: FileHandle; real: string }> {
   const path = options.internal ? join(root, ...relative.split("/")) : joinInside(root, relative);
   const real = await resolveJoined(root, path, relative);
+  if (options.noSymlinks && real !== path) throw escaped();
   const flags =
     constants.O_RDONLY |
     (constants.O_NOFOLLOW ?? 0) |
