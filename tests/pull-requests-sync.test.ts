@@ -133,10 +133,14 @@ function enrichment(nodes: ReturnType<typeof pr>[]) {
 const signal = () => new AbortController().signal;
 
 describe("GitHub process failures", () => {
-  test("does not return CLI stderr containing credentials", async () => {
-    const gh = await fakeGh("console.error('HTTP 401 GH_TOKEN=super-secret'); process.exit(1)");
-    await expect(gh.process.run([], signal())).rejects.toThrow("Sign in with gh auth login");
-  });
+  test(
+    "does not return CLI stderr containing credentials",
+    { tags: ["secrets-stay-secret"] },
+    async () => {
+      const gh = await fakeGh("console.error('HTTP 401 GH_TOKEN=super-secret'); process.exit(1)");
+      await expect(gh.process.run([], signal())).rejects.toThrow("Sign in with gh auth login");
+    },
+  );
 });
 
 async function inboxFixture(gh: GitHubProcess, configuredRepository = repository) {
@@ -203,48 +207,52 @@ async function inboxFixture(gh: GitHubProcess, configuredRepository = repository
 }
 
 describe("tab-owned GitHub synchronization", () => {
-  test("startup recovers an interrupted sync without losing cache", async () => {
-    const gh = await fakeGh(
-      `if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
-    );
-    const f = await inboxFixture(gh.process);
-    let closed = false;
-    try {
-      const seeded = await f.service.sync(f.snapshot.tabId);
-      await f.server.store.pullRequests.setSyncStatus(f.snapshot.tabId, {
-        ...seeded.sync,
-        state: "syncing",
-        updatedAt: "2026-10-01T12:00:00Z",
-      });
-      await f.close();
-      closed = true;
-      let reopened = await ArtifactStore.open(f.directory);
+  test(
+    "startup recovers an interrupted sync without losing cache",
+    { tags: ["pr-inbox-keeps-local-work", "survives-restart"] },
+    async () => {
+      const gh = await fakeGh(
+        `if(args.some(a => (a.includes('ScopeOpenPullRequests') || a.includes('ScopeInitialOpenPullRequests')))) console.log(JSON.stringify(${JSON.stringify(inventory([pr(1)]))})); else if(args.some(a=>a.includes('ScopeEnrichPullRequests'))) console.log(JSON.stringify(${JSON.stringify(enrichment([pr(1)]))}));else throw new Error('Unexpected query');`,
+      );
+      const f = await inboxFixture(gh.process);
+      let closed = false;
       try {
-        const recovered = await reopened.pullRequests.snapshotByTab(f.snapshot.tabId);
-        expect(recovered.sync).toMatchObject({
-          state: "error",
-          lastSuccessAt: seeded.sync.lastSuccessAt,
-          error: "GitHub refresh was interrupted. Try Sync again.",
-        });
-        expect(recovered.prs).toEqual(seeded.prs);
-        await reopened.pullRequests.setSyncStatus(f.snapshot.tabId, {
+        const seeded = await f.service.sync(f.snapshot.tabId);
+        await f.server.store.pullRequests.setSyncStatus(f.snapshot.tabId, {
           ...seeded.sync,
           state: "syncing",
           updatedAt: "2026-10-01T12:00:00Z",
         });
+        await f.close();
+        closed = true;
+        let reopened = await ArtifactStore.open(f.directory);
+        try {
+          const recovered = await reopened.pullRequests.snapshotByTab(f.snapshot.tabId);
+          expect(recovered.sync).toMatchObject({
+            state: "error",
+            lastSuccessAt: seeded.sync.lastSuccessAt,
+            error: "GitHub refresh was interrupted. Try Sync again.",
+          });
+          expect(recovered.prs).toEqual(seeded.prs);
+          await reopened.pullRequests.setSyncStatus(f.snapshot.tabId, {
+            ...seeded.sync,
+            state: "syncing",
+            updatedAt: "2026-10-01T12:00:00Z",
+          });
+        } finally {
+          await reopened.close();
+        }
+        reopened = await ArtifactStore.open(f.directory);
+        try {
+          const recovered = await reopened.pullRequests.snapshotByTab(f.snapshot.tabId);
+          expect(recovered.sync.state).toBe("error");
+          expect(recovered.prs).toEqual(seeded.prs);
+        } finally {
+          await reopened.close();
+        }
       } finally {
-        await reopened.close();
+        if (!closed) await f.close();
       }
-      reopened = await ArtifactStore.open(f.directory);
-      try {
-        const recovered = await reopened.pullRequests.snapshotByTab(f.snapshot.tabId);
-        expect(recovered.sync.state).toBe("error");
-        expect(recovered.prs).toEqual(seeded.prs);
-      } finally {
-        await reopened.close();
-      }
-    } finally {
-      if (!closed) await f.close();
-    }
-  });
+    },
+  );
 });

@@ -1,5 +1,6 @@
 import { defineConfig } from "vite-plus";
 import { readdirSync } from "node:fs";
+import { promises } from "./tests/promises.ts";
 
 const plugins = readdirSync(new URL("./apps/desktop/src/plugins/", import.meta.url), {
   withFileTypes: true,
@@ -48,6 +49,7 @@ export default defineConfig({
     maxWorkers: 2,
     testTimeout: 30_000,
     reporters: ["minimal"],
+    tags: promises.map(({ name, description }) => ({ name, description })),
     // Project inheritance combines include lists, so each project defines its own.
     projects: [
       {

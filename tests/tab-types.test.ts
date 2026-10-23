@@ -130,159 +130,101 @@ async function checkContent(page: Page, example: (typeof examples)[number]) {
   }
 }
 
-test("the built CLI publishes every tab view through appearance, focus, restart, trash, and explicit deletion", async () => {
-  const { directory, launch, cli, connect } = await desktopFixture({ hideInitialPrompts: true });
-  let application = await launch();
-  const failures: string[] = [];
-  const fullscreen = () =>
-    application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.isFullScreen());
-  try {
-    let page = await application.firstWindow();
-    if (process.platform !== "darwin") {
-      expect(
-        await application.evaluate(({ BrowserWindow }) =>
-          BrowserWindow.getAllWindows()[0]!.isMenuBarVisible(),
-        ),
-      ).toBe(false);
-    }
-    page.on("pageerror", (error) => failures.push(error.message));
-    for (const example of examples) {
-      const file = join(directory, example.fileName);
-      await writeFile(file, example.content);
-      const receipt = await cli("add", file, "--id", example.id, "--title", example.title);
-      expect(JSON.parse(receipt.stdout)).toMatchObject({
-        id: example.id,
-        kind: example.kind,
-        mediaType: example.mediaType,
-        revision: 1,
-      });
-    }
-    for (const appearance of ["light", "dark"] as const) {
-      await page.getByRole("button", { name: "Search and controls", exact: true }).click();
-      await page
-        .getByRole("dialog", { name: "Search and controls", exact: true })
-        .getByRole("button", { name: "Settings", exact: true })
-        .click();
-      await page.getByRole("button", { name: "Appearance", exact: true }).click();
-      await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
-      await page
-        .getByRole("dialog", { name: "Settings", exact: true })
-        .getByRole("button", { name: "Close", exact: true })
-        .click();
-      await page.setViewportSize(
-        appearance === "light" ? { width: 1280, height: 820 } : { width: 700, height: 620 },
-      );
+test(
+  "the built CLI publishes every tab view through appearance, focus, restart, trash, and explicit deletion",
+  { tags: ["publish", "deletion-is-final"], timeout: 120_000 },
+  async () => {
+    const { directory, launch, cli, connect } = await desktopFixture({ hideInitialPrompts: true });
+    let application = await launch();
+    const failures: string[] = [];
+    const fullscreen = () =>
+      application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.isFullScreen());
+    try {
+      let page = await application.firstWindow();
+      if (process.platform !== "darwin") {
+        expect(
+          await application.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows()[0]!.isMenuBarVisible(),
+          ),
+        ).toBe(false);
+      }
+      page.on("pageerror", (error) => failures.push(error.message));
       for (const example of examples) {
-        await page.getByRole("button", { name: "Search and controls" }).click();
-        await page.getByLabel("Search artifacts", { exact: true }).fill(example.title);
+        const file = join(directory, example.fileName);
+        await writeFile(file, example.content);
+        const receipt = await cli("add", file, "--id", example.id, "--title", example.title);
+        expect(JSON.parse(receipt.stdout)).toMatchObject({
+          id: example.id,
+          kind: example.kind,
+          mediaType: example.mediaType,
+          revision: 1,
+        });
+      }
+      for (const appearance of ["light", "dark"] as const) {
+        await page.getByRole("button", { name: "Search and controls", exact: true }).click();
         await page
-          .getByRole("button", { name: `${example.title} ${example.kind}`, exact: true })
+          .getByRole("dialog", { name: "Search and controls", exact: true })
+          .getByRole("button", { name: "Settings", exact: true })
           .click();
-        await checkContent(page, example);
-        if (example.kind === "file" && appearance === "light") {
-          const destination = join(directory, "downloaded.bin");
-          await application.evaluate(({ dialog }, filePath) => {
-            dialog.showSaveDialog = async () => ({ canceled: false, filePath });
-          }, destination);
-          await page.getByRole("button", { name: "Search and controls", exact: true }).click();
-          await page.getByRole("button", { name: "Download", exact: true }).click();
-          await expect.poll(async () => [...(await readFile(destination))]).toEqual([0, 1, 2, 3]);
-        }
-        const pane = await page
-          .getByRole("tabpanel", { name: example.title, exact: true })
-          .elementHandle();
-        await page.getByRole("button", { name: "Search and controls" }).click();
-        await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
-        await checkContent(page, example);
-        await expect.poll(fullscreen).toBe(true);
-        if (example.kind === "html") {
-          await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
-        } else {
-          await page.getByRole("button", { name: "Exit focus mode" }).click();
-        }
-        await expect.poll(fullscreen).toBe(false);
-        expect(await pane!.evaluate((element) => element.isConnected)).toBe(true);
-        if (process.env.SCOPE_TEST_SCREENSHOTS) {
-          await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
-          await page.screenshot({
-            path: join(process.env.SCOPE_TEST_SCREENSHOTS, `${appearance}-${example.kind}.png`),
-          });
+        await page.getByRole("button", { name: "Appearance", exact: true }).click();
+        await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
+        await page
+          .getByRole("dialog", { name: "Settings", exact: true })
+          .getByRole("button", { name: "Close", exact: true })
+          .click();
+        await page.setViewportSize(
+          appearance === "light" ? { width: 1280, height: 820 } : { width: 700, height: 620 },
+        );
+        for (const example of examples) {
+          await page.getByRole("button", { name: "Search and controls" }).click();
+          await page.getByLabel("Search artifacts", { exact: true }).fill(example.title);
+          await page
+            .getByRole("button", { name: `${example.title} ${example.kind}`, exact: true })
+            .click();
+          await checkContent(page, example);
+          if (example.kind === "file" && appearance === "light") {
+            const destination = join(directory, "downloaded.bin");
+            await application.evaluate(({ dialog }, filePath) => {
+              dialog.showSaveDialog = async () => ({ canceled: false, filePath });
+            }, destination);
+            await page.getByRole("button", { name: "Search and controls", exact: true }).click();
+            await page.getByRole("button", { name: "Download", exact: true }).click();
+            await expect.poll(async () => [...(await readFile(destination))]).toEqual([0, 1, 2, 3]);
+          }
+          const pane = await page
+            .getByRole("tabpanel", { name: example.title, exact: true })
+            .elementHandle();
+          await page.getByRole("button", { name: "Search and controls" }).click();
+          await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
+          await checkContent(page, example);
+          await expect.poll(fullscreen).toBe(true);
+          if (example.kind === "html") {
+            await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).selectOption("tabs");
+          } else {
+            await page.getByRole("button", { name: "Exit focus mode" }).click();
+          }
+          await expect.poll(fullscreen).toBe(false);
+          expect(await pane!.evaluate((element) => element.isConnected)).toBe(true);
+          if (process.env.SCOPE_TEST_SCREENSHOTS) {
+            await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
+            await page.screenshot({
+              path: join(process.env.SCOPE_TEST_SCREENSHOTS, `${appearance}-${example.kind}.png`),
+            });
+          }
         }
       }
-    }
-    await page.keyboard.press("ControlOrMeta+Shift+f");
-    await expect.poll(fullscreen).toBe(true);
-    await application.evaluate(({ BrowserWindow }) => {
-      BrowserWindow.getAllWindows()[0]!.setFullScreen(false);
-    });
-    await page.getByRole("navigation", { name: "Open artifacts" }).waitFor();
-    expect(await page.getByRole("button", { name: "Exit focus mode" }).count()).toBe(0);
-    expect(
-      await page
-        .getByRole("tab")
-        .evaluateAll((tabs) => new Set(tabs.map((tab) => tab.getBoundingClientRect().y)).size),
-    ).toBe(1);
-    await expect
-      .poll(() =>
-        page.evaluate(
-          async () =>
-            (await window.scope.workspace())?.tabs.filter((tab) => tab.type !== "prompts").length,
-        ),
-      )
-      .toBe(examples.length);
-    const visibleIds = await page
-      .getByRole("tab")
-      .evaluateAll((tabs) => tabs.map((tab) => tab.id.slice(4)));
-    expect(
-      (await page.evaluate(() => window.scope.workspace()))?.tabs.map((tab) => tab.id),
-    ).toEqual(expect.arrayContaining(visibleIds));
-    const before = await page.evaluate(() => window.scope.workspace());
-    expect(before?.tabs.every((tab) => tab.id !== tab.state.data.artifactId)).toBe(true);
-    expect(before?.tabs.find((tab) => tab.state.data.artifactId === "drawing")?.type).toBe("file");
-    const accepted = await page.evaluate(async () => {
-      const tab = (await window.scope.workspace())!.tabs.find((tab) => tab.type !== "prompts")!;
-      const event = {
-        type: "resource.selected" as const,
-        resource: { kind: "artifact", id: "notes" },
-      };
-      await window.scope.publishTabEvent({ tabId: tab.id, groupId: tab.groupId, event });
-      try {
-        await window.scope.publishTabEvent({ tabId: tab.id, groupId: crypto.randomUUID(), event });
-        return false;
-      } catch {
-        return true;
-      }
-    });
-    expect(accepted).toBe(true);
-    await application.close();
-    application = await launch();
-    page = await application.firstWindow();
-    page.on("pageerror", (error) => failures.push(error.message));
-    await expect
-      .poll(() =>
-        page.evaluate(
-          async () =>
-            (await window.scope.workspace())?.tabs.filter((tab) => tab.type !== "prompts").length,
-        ),
-      )
-      .toBe(examples.length);
-    expect(
-      (await page.evaluate(() => window.scope.workspace()))?.tabs.map((tab) => tab.id),
-    ).toEqual(before?.tabs.map((tab) => tab.id));
-    for (const example of examples) {
-      await page.getByRole("button", { name: "Search and controls" }).click();
-      await page.getByLabel("Search artifacts", { exact: true }).fill(example.title);
-      await page.keyboard.press("Enter");
-      await checkContent(page, example);
-    }
-    const client = await connect();
-    for (const [index, example] of examples.entries()) {
-      const tab = page.getByRole("tab", { name: example.title, exact: true });
-      await page.getByRole("button", { name: "Search and controls" }).click();
-      await page.getByLabel("Search artifacts", { exact: true }).fill(example.title);
-      await page.keyboard.press("Enter");
-      await tab.waitFor();
-      await page.keyboard.press("ControlOrMeta+w");
+      await page.keyboard.press("ControlOrMeta+Shift+f");
+      await expect.poll(fullscreen).toBe(true);
+      await application.evaluate(({ BrowserWindow }) => {
+        BrowserWindow.getAllWindows()[0]!.setFullScreen(false);
+      });
+      await page.getByRole("navigation", { name: "Open artifacts" }).waitFor();
+      expect(await page.getByRole("button", { name: "Exit focus mode" }).count()).toBe(0);
+      expect(
+        await page
+          .getByRole("tab")
+          .evaluateAll((tabs) => new Set(tabs.map((tab) => tab.getBoundingClientRect().y)).size),
+      ).toBe(1);
       await expect
         .poll(() =>
           page.evaluate(
@@ -290,19 +232,88 @@ test("the built CLI publishes every tab view through appearance, focus, restart,
               (await window.scope.workspace())?.tabs.filter((tab) => tab.type !== "prompts").length,
           ),
         )
-        .toBe(examples.length - index - 1);
-      expect(await client.get(example.id)).toBeDefined();
-      await client.delete(example.id);
+        .toBe(examples.length);
+      const visibleIds = await page
+        .getByRole("tab")
+        .evaluateAll((tabs) => tabs.map((tab) => tab.id.slice(4)));
+      expect(
+        (await page.evaluate(() => window.scope.workspace()))?.tabs.map((tab) => tab.id),
+      ).toEqual(expect.arrayContaining(visibleIds));
+      const before = await page.evaluate(() => window.scope.workspace());
+      expect(before?.tabs.every((tab) => tab.id !== tab.state.data.artifactId)).toBe(true);
+      expect(before?.tabs.find((tab) => tab.state.data.artifactId === "drawing")?.type).toBe(
+        "file",
+      );
+      const accepted = await page.evaluate(async () => {
+        const tab = (await window.scope.workspace())!.tabs.find((tab) => tab.type !== "prompts")!;
+        const event = {
+          type: "resource.selected" as const,
+          resource: { kind: "artifact", id: "notes" },
+        };
+        await window.scope.publishTabEvent({ tabId: tab.id, groupId: tab.groupId, event });
+        try {
+          await window.scope.publishTabEvent({
+            tabId: tab.id,
+            groupId: crypto.randomUUID(),
+            event,
+          });
+          return false;
+        } catch {
+          return true;
+        }
+      });
+      expect(accepted).toBe(true);
+      await application.close();
+      application = await launch();
+      page = await application.firstWindow();
+      page.on("pageerror", (error) => failures.push(error.message));
+      await expect
+        .poll(() =>
+          page.evaluate(
+            async () =>
+              (await window.scope.workspace())?.tabs.filter((tab) => tab.type !== "prompts").length,
+          ),
+        )
+        .toBe(examples.length);
+      expect(
+        (await page.evaluate(() => window.scope.workspace()))?.tabs.map((tab) => tab.id),
+      ).toEqual(before?.tabs.map((tab) => tab.id));
+      for (const example of examples) {
+        await page.getByRole("button", { name: "Search and controls" }).click();
+        await page.getByLabel("Search artifacts", { exact: true }).fill(example.title);
+        await page.keyboard.press("Enter");
+        await checkContent(page, example);
+      }
+      const client = await connect();
+      for (const [index, example] of examples.entries()) {
+        const tab = page.getByRole("tab", { name: example.title, exact: true });
+        await page.getByRole("button", { name: "Search and controls" }).click();
+        await page.getByLabel("Search artifacts", { exact: true }).fill(example.title);
+        await page.keyboard.press("Enter");
+        await tab.waitFor();
+        await page.keyboard.press("ControlOrMeta+w");
+        await expect
+          .poll(() =>
+            page.evaluate(
+              async () =>
+                (await window.scope.workspace())?.tabs.filter((tab) => tab.type !== "prompts")
+                  .length,
+            ),
+          )
+          .toBe(examples.length - index - 1);
+        expect(await client.get(example.id)).toBeDefined();
+        await client.delete(example.id);
+      }
+      expect(await client.list()).toEqual([]);
+      await application.close();
+      application = await launch();
+      page = await application.firstWindow();
+      await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+      expect(await page.getByRole("tab").count()).toBe(0);
+      expect(failures).toEqual([]);
+    } finally {
+      await application.close();
+      await rm(directory, { recursive: true, force: true });
     }
-    expect(await client.list()).toEqual([]);
-    await application.close();
-    application = await launch();
-    page = await application.firstWindow();
-    await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
-    expect(await page.getByRole("tab").count()).toBe(0);
-    expect(failures).toEqual([]);
-  } finally {
-    await application.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-}, 120_000);
+  },
+);

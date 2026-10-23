@@ -46,8 +46,8 @@ request, but imports are never queued. The command defaults to a bounded
 ## Validation and tests
 
 `vp run ready` builds the CLI, hub, and desktop, runs `vp run check`, then runs
-the standard test suite. The check script verifies formatting, lint, and types with compact
-lint diagnostics. Run it locally; CI has no test or validation jobs. It must pass
+the standard test suite. The check script verifies formatting, lint, types, and the test rules below,
+with compact lint diagnostics. Run it locally; CI has no test or validation jobs. It must pass
 on the finished changes before completion and every push, including the first
 push and documentation changes. Further edits require another successful run
 before completion or pushing.
@@ -127,12 +127,39 @@ Use `vp run check` for the reviewed report, `vp lint --format=unix` for all raw
 lint and type diagnostics, or `vp check` when source context helps investigate
 a finding. Direct Vite+ commands do not apply the exception registry.
 
-Tests import from `vite-plus/test`. Prefer tests in this order:
+Tests import from `vite-plus/test`. `vp run check` enforces three test rules
+through `tools/test-rules.ts`:
 
-1. Complete outcomes through actual entry points: the built CLI, real Electron
-   flows, or a library's public API.
-2. Integration or component tests for collaborating parts and useful failures.
-3. Unit tests for isolated logic where that is the useful place to verify it.
+- Every test names a promise. [tests/promises.ts](../tests/promises.ts) lists
+  what Scope promises the people who use it. Each test lists the promises it
+  protects in its own options, for example
+  `test("name", { tags: ["survives-restart"] }, async () => {})`. Vitest
+  rejects unknown names. Suites and `@module-tag` comments cannot apply
+  promises. If no promise fits, the test is not needed. The repository owner
+  decides the list; agents propose changes in the pull request description.
+- Tests use Scope's entry points. Files in `tests/` reach Scope only through
+  the built CLI, the artifact and hub HTTP APIs, the Electron UI, and
+  `@irudd-scope/protocol`. They cannot import from `apps/`, `packages/`, or
+  other workspace packages, so a test cannot copy code it cannot see.
+  [tests/test-limits.ts](../tests/test-limits.ts) lists files written before
+  this rule with their remaining product imports and test counts. They take
+  no new imports or tests. Lower an entry when you remove an import or test.
+- The suite has a fixed size. `maxTests` in `tests/test-limits.ts` caps the
+  number of test definitions, including skipped ones. Add a test by deleting a
+  weaker one. Only the repository owner raises the limit. The cap counts tests
+  instead of time because suite time differs between machines.
+
+When a test fails after a change that keeps behavior the same, delete it
+instead of updating it. It was checking how the code works, not what Scope
+promises. Update a test only when promised behavior changed on purpose.
+
+`vp run test:report --since=YYYY-MM-DD` lists merged pull requests since the
+date, 30 days ago by default, with the tests each one added, deleted, and
+edited. It marks changes to `tests/promises.ts` and `tests/test-limits.ts`,
+counts merged `fix` pull requests as bugs that reached `main`, and prints how
+many tests protect each promise. Reformatting, timeouts, and promise tags do
+not count as edits. It needs `gh` and a fetched `main`. A high edit count means
+tests are checking how code works instead of what it promises.
 
 Derive expected results from requirements, domain facts, and intended contracts. Verify what
 users can observe, such as content after restart or preserved edits after a
@@ -145,9 +172,9 @@ unrelated installations or selecting only the requested skill and agents.
 Use real collaborating components where practical and isolate external systems
 for repeatable standard checks. A UI test with replaced IPC handlers establishes
 renderer behavior; it does not prove the real installation or update flow.
-Add focused tests when they catch meaningful failures or improve diagnosis.
-Do not duplicate every assertion at each level. Test counts and coverage
-percentages are not goals.
+Add a test when it protects a promise that no existing test covers well.
+Do not duplicate every assertion in several tests. Coverage percentages are
+not goals.
 
 Keep tests and small synthetic fixtures in `tests/`, where publication tests
 can exercise multiple owners. Name tests for the responsibility they verify.

@@ -121,127 +121,143 @@ function reader() {
   return { github, calls: () => calls };
 }
 
-test("same-repository tabs share inventory while notes remain independent", async () => {
-  const remote = reader();
-  let release!: () => void;
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const inventory = remote.github.inventory.bind(remote.github);
-  remote.github.inventory = async (...args) => {
-    await held;
-    return inventory(...args);
-  };
-  const f = await fixture(remote.github);
-  const first = await f.tab("first"),
-    second = await f.tab("second");
-  const one = f.service.sync(first),
-    two = f.service.sync(second);
-  release();
-  await Promise.all([one, two]);
-  expect(remote.calls()).toBe(1);
-  await f.store.command({
-    name: "first",
-    tabId: first,
-    requestId: randomUUID(),
-    action: "note",
-    nodeId: "PR_1",
-    expectedVersion: 0,
-    text: "private note",
-  });
-  await f.service.sync(second);
-  expect((await f.store.snapshotByTab(first)).prs[0].local.note).toBe("private note");
-  expect((await f.store.snapshotByTab(second)).prs[0].local.note).toBe("");
-});
-
-test("startup loads unmounted configured tabs and deletion stops the final repository", async () => {
-  const remote = reader(),
-    tasks = new Map<number, () => void>();
-  let timer = 0;
-  const f = await fixture(remote.github, {
-    now: () => Date.parse(stamp),
-    setTimeout: (callback) => {
-      const id = ++timer;
-      tasks.set(id, callback);
-      return id as unknown as ReturnType<typeof setTimeout>;
-    },
-    clearTimeout: (id) => {
-      tasks.delete(id as unknown as number);
-    },
-  });
-  const tabId = await f.tab("unmounted");
-  await f.service.start();
-  expect(tasks.size).toBe(1);
-  const task = tasks.values().next().value!;
-  tasks.clear();
-  task();
-  await expect
-    .poll(async () => (await f.store.snapshotByTab(tabId)).sync.lastSuccessAt)
-    .toBe(stamp);
-  await f.server.store.removeArtifact((await f.store.snapshotByTab(tabId)).artifact.id);
-  await f.service.reconcile();
-  expect(tasks.size).toBe(0);
-});
-
-test("throttle retry blocks manual sync until the server deadline", async () => {
-  const remote = reader();
-  let now = Date.parse(stamp),
-    calls = 0;
-  remote.github.inventory = async () => {
-    calls++;
-    throw new GitHubReadError("Wait for GitHub", "throttle", now + 120_000);
-  };
-  const f = await fixture(remote.github, { now: () => now }),
-    tabId = await f.tab("retry");
-  expect((await f.service.sync(tabId)).sync.state).toBe("error");
-  await f.service.sync(tabId);
-  expect(calls).toBe(1);
-  now += 120_000;
-  await f.service.sync(tabId);
-  expect(calls).toBe(2);
-});
-
-test("account change aborts old work and an account reserve prevents extra queries", async () => {
-  const remote = reader();
-  let observe!: Parameters<GitHubPullRequests["setReadHooks"]>[0];
-  let beforeRead!: NonNullable<Parameters<GitHubPullRequests["setReadHooks"]>[1]>;
-  remote.github.setReadHooks = (callback, before) => {
-    observe = callback;
-    beforeRead = before!;
-  };
-  let account = "first-account",
-    low = false;
-  remote.github.account = async () => account;
-  remote.github.inventory = async (_repository, signal) => {
-    await beforeRead(signal);
-    observe({
-      account,
-      cost: 1,
-      limit: 5000,
-      remaining: low ? 50 : 4000,
-      resetAt: "2026-10-02T01:00:00.000Z",
+test(
+  "same-repository tabs share inventory while notes remain independent",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const remote = reader();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
     });
-    signal.throwIfAborted();
-    return {
-      repository,
-      queriedRepository: repository,
-      viewer: account,
-      account,
-      startedAt: stamp,
-      cost: 1,
-      prs: [facts()],
+    const inventory = remote.github.inventory.bind(remote.github);
+    remote.github.inventory = async (...args) => {
+      await held;
+      return inventory(...args);
     };
-  };
-  const f = await fixture(remote.github, { now: () => Date.parse(stamp) }),
-    tabId = await f.tab("account");
-  expect((await f.service.sync(tabId)).viewer).toBe("first-account");
-  account = "second-account";
-  await expect(f.service.sync(tabId)).rejects.toThrow();
-  expect((await f.service.sync(tabId)).viewer).toBe("second-account");
-  low = true;
-  await f.service.sync(tabId);
-  await expect(
-    Promise.resolve().then(() => beforeRead(new AbortController().signal)),
-  ).rejects.toThrow("account query budget");
-  expect((await f.service.sync(tabId)).sync.nextAttemptAt).toBe("2026-10-02T01:00:00.000Z");
-});
+    const f = await fixture(remote.github);
+    const first = await f.tab("first"),
+      second = await f.tab("second");
+    const one = f.service.sync(first),
+      two = f.service.sync(second);
+    release();
+    await Promise.all([one, two]);
+    expect(remote.calls()).toBe(1);
+    await f.store.command({
+      name: "first",
+      tabId: first,
+      requestId: randomUUID(),
+      action: "note",
+      nodeId: "PR_1",
+      expectedVersion: 0,
+      text: "private note",
+    });
+    await f.service.sync(second);
+    expect((await f.store.snapshotByTab(first)).prs[0].local.note).toBe("private note");
+    expect((await f.store.snapshotByTab(second)).prs[0].local.note).toBe("");
+  },
+);
+
+test(
+  "startup loads unmounted configured tabs and deletion stops the final repository",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const remote = reader(),
+      tasks = new Map<number, () => void>();
+    let timer = 0;
+    const f = await fixture(remote.github, {
+      now: () => Date.parse(stamp),
+      setTimeout: (callback) => {
+        const id = ++timer;
+        tasks.set(id, callback);
+        return id as unknown as ReturnType<typeof setTimeout>;
+      },
+      clearTimeout: (id) => {
+        tasks.delete(id as unknown as number);
+      },
+    });
+    const tabId = await f.tab("unmounted");
+    await f.service.start();
+    expect(tasks.size).toBe(1);
+    const task = tasks.values().next().value!;
+    tasks.clear();
+    task();
+    await expect
+      .poll(async () => (await f.store.snapshotByTab(tabId)).sync.lastSuccessAt)
+      .toBe(stamp);
+    await f.server.store.removeArtifact((await f.store.snapshotByTab(tabId)).artifact.id);
+    await f.service.reconcile();
+    expect(tasks.size).toBe(0);
+  },
+);
+
+test(
+  "throttle retry blocks manual sync until the server deadline",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const remote = reader();
+    let now = Date.parse(stamp),
+      calls = 0;
+    remote.github.inventory = async () => {
+      calls++;
+      throw new GitHubReadError("Wait for GitHub", "throttle", now + 120_000);
+    };
+    const f = await fixture(remote.github, { now: () => now }),
+      tabId = await f.tab("retry");
+    expect((await f.service.sync(tabId)).sync.state).toBe("error");
+    await f.service.sync(tabId);
+    expect(calls).toBe(1);
+    now += 120_000;
+    await f.service.sync(tabId);
+    expect(calls).toBe(2);
+  },
+);
+
+test(
+  "account change aborts old work and an account reserve prevents extra queries",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const remote = reader();
+    let observe!: Parameters<GitHubPullRequests["setReadHooks"]>[0];
+    let beforeRead!: NonNullable<Parameters<GitHubPullRequests["setReadHooks"]>[1]>;
+    remote.github.setReadHooks = (callback, before) => {
+      observe = callback;
+      beforeRead = before!;
+    };
+    let account = "first-account",
+      low = false;
+    remote.github.account = async () => account;
+    remote.github.inventory = async (_repository, signal) => {
+      await beforeRead(signal);
+      observe({
+        account,
+        cost: 1,
+        limit: 5000,
+        remaining: low ? 50 : 4000,
+        resetAt: "2026-10-02T01:00:00.000Z",
+      });
+      signal.throwIfAborted();
+      return {
+        repository,
+        queriedRepository: repository,
+        viewer: account,
+        account,
+        startedAt: stamp,
+        cost: 1,
+        prs: [facts()],
+      };
+    };
+    const f = await fixture(remote.github, { now: () => Date.parse(stamp) }),
+      tabId = await f.tab("account");
+    expect((await f.service.sync(tabId)).viewer).toBe("first-account");
+    account = "second-account";
+    await expect(f.service.sync(tabId)).rejects.toThrow();
+    expect((await f.service.sync(tabId)).viewer).toBe("second-account");
+    low = true;
+    await f.service.sync(tabId);
+    await expect(
+      Promise.resolve().then(() => beforeRead(new AbortController().signal)),
+    ).rejects.toThrow("account query budget");
+    expect((await f.service.sync(tabId)).sync.nextAttemptAt).toBe("2026-10-02T01:00:00.000Z");
+  },
+);

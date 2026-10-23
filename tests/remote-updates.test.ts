@@ -16,36 +16,41 @@ import { once } from "node:events";
 import { synchronizeRemote } from "../apps/desktop/src/remote-updates.ts";
 import type { HubUpdateStatus } from "@irudd-scope/protocol/remote";
 
-test("an older hub explains its manual upgrade without sending an update request", async () => {
-  const methods: string[] = [];
-  const server = createServer((request, response) => {
-    methods.push(request.method!);
-    response.writeHead(404).end("Endpoint not found.");
-  });
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const port = (server.address() as { port: number }).port;
-  const statuses: HubUpdateStatus[] = [];
-  try {
-    await synchronizeRemote(
-      `http://127.0.0.1:${port}`,
-      "synthetic-token",
-      "a".repeat(40),
-      new AbortController().signal,
-      (status) => statuses.push(status),
-    );
-    expect(methods).toEqual(["GET"]);
-    expect(statuses).toHaveLength(1);
-    expect(statuses[0].supported).toBe(false);
-    expect(statuses[0].message).toContain("irudd-scope setup once");
-  } finally {
-    server.closeAllConnections();
-    await new Promise<void>((done) => server.close(() => done()));
-  }
-});
+test(
+  "an older hub explains its manual upgrade without sending an update request",
+  { tags: ["safe-updates"] },
+  async () => {
+    const methods: string[] = [];
+    const server = createServer((request, response) => {
+      methods.push(request.method!);
+      response.writeHead(404).end("Endpoint not found.");
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const port = (server.address() as { port: number }).port;
+    const statuses: HubUpdateStatus[] = [];
+    try {
+      await synchronizeRemote(
+        `http://127.0.0.1:${port}`,
+        "synthetic-token",
+        "a".repeat(40),
+        new AbortController().signal,
+        (status) => statuses.push(status),
+      );
+      expect(methods).toEqual(["GET"]);
+      expect(statuses).toHaveLength(1);
+      expect(statuses[0].supported).toBe(false);
+      expect(statuses[0].message).toContain("irudd-scope setup once");
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((done) => server.close(() => done()));
+    }
+  },
+);
 
 test.skipIf(process.platform !== "linux")(
   "the running Mac updates remote tools together, catches up after reconnect, and retries without losing pairing",
+  { tags: ["safe-updates"], timeout: 120_000 },
   async () => {
     const f = await remoteUpdateFixture();
     try {
@@ -140,11 +145,11 @@ test.skipIf(process.platform !== "linux")(
       await f.close();
     }
   },
-  120_000,
 );
 
 test.skipIf(process.platform !== "linux")(
   "an updated CLI cannot hide a copied agent skill, and retry fixes it without rebuilding",
+  { tags: ["safe-updates"], timeout: 60_000 },
   async () => {
     const f = await remoteUpdateFixture();
     try {
@@ -188,11 +193,11 @@ test.skipIf(process.platform !== "linux")(
       await f.close();
     }
   },
-  60_000,
 );
 
 test.skipIf(process.platform !== "linux")(
   "updates repair Scope links pinned to an old build and preserve an explicit skill removal",
+  { tags: ["safe-updates"], timeout: 60_000 },
   async () => {
     const f = await remoteUpdateFixture();
     try {
@@ -232,11 +237,11 @@ test.skipIf(process.platform !== "linux")(
       await f.close();
     }
   },
-  60_000,
 );
 
 test.skipIf(process.platform !== "linux")(
   "a separate Codex skill is reported even when the remote already matches the Mac",
+  { tags: ["safe-updates"], timeout: 60_000 },
   async () => {
     const f = await remoteUpdateFixture();
     try {
@@ -257,11 +262,11 @@ test.skipIf(process.platform !== "linux")(
       await f.close();
     }
   },
-  60_000,
 );
 
 test.skipIf(process.platform !== "linux")(
   "remote update requests require the paired Mac, reject invalid commits, and restore a hub that fails to start",
+  { tags: ["safe-updates"], timeout: 120_000 },
   async () => {
     const f = await remoteUpdateFixture();
     try {
@@ -308,5 +313,4 @@ test.skipIf(process.platform !== "linux")(
       await f.close();
     }
   },
-  120_000,
 );

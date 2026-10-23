@@ -12,8 +12,11 @@ async function fixture(source: string) {
   return { directory, executable };
 }
 
-test("credential processes preserve Unicode values and isolate desktop profiles through private pipes", async () => {
-  const { directory, executable } = await fixture(`
+test(
+  "credential processes preserve Unicode values and isolate desktop profiles through private pipes",
+  { tags: ["secrets-stay-secret"] },
+  async () => {
+    const { directory, executable } = await fixture(`
 const fs = require('node:fs');
 const path = require('node:path');
 let input = '';
@@ -30,30 +33,31 @@ process.stdin.on('end', () => {
   process.stdout.write(JSON.stringify(result));
 });
 `);
-  try {
-    const profile = join(directory, "first profile");
-    const first = await macCredentials(profile, executable);
-    const restarted = await macCredentials(profile, executable);
-    const otherProfile = await macCredentials(join(directory, "other profile"), executable);
-    const secrets = {
-      apiKey: 'synthetic-secret-å-🔑-"-\n-value',
-      remoteTokens: { remote: "synthetic-remote-credential" },
-    };
-    expect(await first.read()).toEqual({});
-    await first.write(secrets);
-    const launch = await readFile(join(directory, "launch.json"), "utf8");
-    expect(launch).not.toContain("synthetic-secret");
-    expect(launch).not.toContain("synthetic-remote-credential");
-    expect(await restarted.read()).toEqual(secrets);
-    expect(await otherProfile.read()).toEqual({});
-    await restarted.write({ remoteTokens: secrets.remoteTokens });
-    expect(await first.read()).toEqual({ remoteTokens: secrets.remoteTokens });
-    await first.write({});
-    expect(await restarted.read()).toEqual({});
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+    try {
+      const profile = join(directory, "first profile");
+      const first = await macCredentials(profile, executable);
+      const restarted = await macCredentials(profile, executable);
+      const otherProfile = await macCredentials(join(directory, "other profile"), executable);
+      const secrets = {
+        apiKey: 'synthetic-secret-å-🔑-"-\n-value',
+        remoteTokens: { remote: "synthetic-remote-credential" },
+      };
+      expect(await first.read()).toEqual({});
+      await first.write(secrets);
+      const launch = await readFile(join(directory, "launch.json"), "utf8");
+      expect(launch).not.toContain("synthetic-secret");
+      expect(launch).not.toContain("synthetic-remote-credential");
+      expect(await restarted.read()).toEqual(secrets);
+      expect(await otherProfile.read()).toEqual({});
+      await restarted.write({ remoteTokens: secrets.remoteTokens });
+      expect(await first.read()).toEqual({ remoteTokens: secrets.remoteTokens });
+      await first.write({});
+      expect(await restarted.read()).toEqual({});
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 test.for([
   'process.stdout.write("invalid synthetic-secret-response")',
@@ -62,6 +66,7 @@ test.for([
   'process.stdout.write("synthetic-secret-response".repeat(100_000))',
 ])(
   "helper failures never expose response bytes or become missing credentials: %s",
+  { tags: ["secrets-stay-secret"] },
   async (source) => {
     const { directory, executable } = await fixture(source);
     try {
@@ -79,15 +84,19 @@ test.for([
   },
 );
 
-test("an unavailable helper fails without falling back to another credential store", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "scope-missing-helper-"));
-  try {
-    const credentials = await macCredentials(directory, join(directory, "missing"));
-    await expect(credentials.read()).rejects.toThrow("Could not read Scope credentials");
-    await expect(credentials.write({ apiKey: "synthetic-secret" })).rejects.toThrow(
-      "Could not update Scope credentials",
-    );
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+test(
+  "an unavailable helper fails without falling back to another credential store",
+  { tags: ["secrets-stay-secret"] },
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "scope-missing-helper-"));
+    try {
+      const credentials = await macCredentials(directory, join(directory, "missing"));
+      await expect(credentials.read()).rejects.toThrow("Could not read Scope credentials");
+      await expect(credentials.write({ apiKey: "synthetic-secret" })).rejects.toThrow(
+        "Could not update Scope credentials",
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);

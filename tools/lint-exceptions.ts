@@ -273,14 +273,14 @@ export const lintExceptions: readonly LintException[] = [
   },
   {
     file: "tests/remote-installation.test.ts",
-    at: 'test("the standalone installer and CLI setup preserve existing Serve routes and can revoke and remove the hub", async () => {',
+    at: 'async () => {\nconst directory = await mkdtemp(join(tmpdir(), "scope-remote-install-"));',
     limits: { "max-lines-per-function": 160 },
     reason:
       "One standalone installation is set up, retried, paired, revoked, and removed while preserving an unrelated Serve route. The synthetic service processes and cleanup belong to that complete journey.",
   },
   {
     file: "tests/tab-types.test.ts",
-    at: 'test("the built CLI publishes every tab view through appearance, focus, restart, trash, and explicit deletion", async () => {',
+    at: "async () => {\nconst { directory, launch, cli, connect } = await desktopFixture({ hideInitialPrompts: true });",
     limits: { complexity: 15 },
     reason:
       "The viewer matrix covers all artifact kinds in both appearances, focus mode, restart, and permanent close. Branches select kind-specific observable checks while reusing the real desktop session.",

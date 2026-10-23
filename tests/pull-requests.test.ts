@@ -94,429 +94,166 @@ async function fixture(publish = true) {
   return { directory, server, client, cli, html, read, configure };
 }
 
-test("first verified alias inventory updates the binding atomically and rejects an old queried pin", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  const canonical = { owner: "canonical-owner", name: "canonical-project" };
-  const row = { ...facts(), url: "https://github.com/canonical-owner/canonical-project/pull/1" };
-  const inventory = {
-    queriedRepository: repository,
-    repository: canonical,
-    viewer: "viewer",
-    prs: [row],
-    completedAt: now,
-  };
-  const aborted = new AbortController();
-  aborted.abort();
-  await expect(
-    f.server.store.pullRequests.commitInventory(initial.tabId, inventory, aborted.signal),
-  ).rejects.toThrow();
-  expect(await f.read()).toEqual(initial);
-  const synced = await f.server.store.pullRequests.commitInventory(initial.tabId, inventory);
-  expect(synced).toMatchObject({
-    tabId: initial.tabId,
-    repository: canonical,
-    sync: { lastSuccessAt: now },
-    prs: [{ nodeId: "PR_1" }],
-  });
-  await expect(
-    f.server.store.pullRequests.commitInventory(initial.tabId, inventory),
-  ).rejects.toMatchObject({ status: 409 });
-  expect(await f.read()).toEqual(synced);
-});
-
-test("a successful empty inventory prevents later canonical rebinding", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [],
-    completedAt: now,
-  });
-  const before = await f.read();
-  await expect(
-    f.server.store.pullRequests.commitInventory(initial.tabId, {
+test(
+  "first verified alias inventory updates the binding atomically and rejects an old queried pin",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const f = await fixture();
+    await f.configure();
+    const initial = await f.read();
+    const canonical = { owner: "canonical-owner", name: "canonical-project" };
+    const row = { ...facts(), url: "https://github.com/canonical-owner/canonical-project/pull/1" };
+    const inventory = {
       queriedRepository: repository,
-      repository: { owner: "other", name: "project" },
+      repository: canonical,
+      viewer: "viewer",
+      prs: [row],
+      completedAt: now,
+    };
+    const aborted = new AbortController();
+    aborted.abort();
+    await expect(
+      f.server.store.pullRequests.commitInventory(initial.tabId, inventory, aborted.signal),
+    ).rejects.toThrow();
+    expect(await f.read()).toEqual(initial);
+    const synced = await f.server.store.pullRequests.commitInventory(initial.tabId, inventory);
+    expect(synced).toMatchObject({
+      tabId: initial.tabId,
+      repository: canonical,
+      sync: { lastSuccessAt: now },
+      prs: [{ nodeId: "PR_1" }],
+    });
+    await expect(
+      f.server.store.pullRequests.commitInventory(initial.tabId, inventory),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(await f.read()).toEqual(synced);
+  },
+);
+
+test(
+  "a successful empty inventory prevents later canonical rebinding",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const f = await fixture();
+    await f.configure();
+    const initial = await f.read();
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
+      repository,
       viewer: "viewer",
       prs: [],
-      completedAt: "2026-10-01T12:00:00Z",
-    }),
-  ).rejects.toMatchObject({ status: 409 });
-  expect(await f.read()).toEqual(before);
-});
-
-test("cached rows prevent rebinding even when a success timestamp is missing", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts()],
-    completedAt: now,
-  });
-  await f.server.store.pullRequests.setSyncStatus(initial.tabId, {
-    state: "error",
-    updatedAt: now,
-    lastSuccessAt: null,
-    error: "Earlier sync incomplete",
-  });
-  const before = await f.read();
-  await expect(
-    f.server.store.pullRequests.commitInventory(initial.tabId, {
-      queriedRepository: repository,
-      repository: { owner: "other", name: "project" },
-      viewer: "viewer",
-      prs: [],
-      completedAt: "2026-10-01T12:00:00Z",
-    }),
-  ).rejects.toMatchObject({ status: 409 });
-  expect(await f.read()).toEqual(before);
-});
-
-test("complete inventories preserve independent local writes and current agent values, then prune all removed PR data", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  expect((await f.server.store.tabs())[0].permanent).toBe(1);
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts(), facts(2)],
-    completedAt: now,
-  });
-  const events: number[] = [];
-  const watch = new AbortController();
-  const watching = f.client
-    .watch((event) => {
-      if (event.type === "pull-requests") events.push(event.generation);
-    }, watch.signal)
-    .catch(() => {});
-  cleanup.push(async () => {
-    watch.abort();
-    await watching;
-  });
-  const note = {
-    action: "note" as const,
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    text: "Keep this note",
-  };
-  const noted = snapshot(await f.client.pullRequests(note));
-  expect(snapshot(await f.client.pullRequests(note)).generation).toBe(noted.generation);
-  await expect(f.client.pullRequests({ ...note, text: "Different payload" })).rejects.toMatchObject(
-    { status: 409 },
-  );
-  await expect(f.client.pullRequests({ ...note, requestId: randomUUID() })).rejects.toMatchObject({
-    status: 409,
-  });
-  await f.client.pullRequests({
-    action: "snooze",
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    snooze: { until: "2026-10-05T12:00:00.000Z", headOid: head, wakeOnNewCommit: true },
-  });
-  await f.client.pullRequests({
-    action: "review",
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    baseline: "inspected",
-    headOid: head,
-  });
-  await f.client.pullRequests({
-    action: "assessment",
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    assessment: {
-      text: "Ready",
-      author: "agent",
-      headOid: head,
-      evidenceIds: ["check:1"],
-      discussionUpdatedAt: null,
-      createdAt: now,
-    },
-    customFields: [{ key: "risk", type: "number", value: 2 }],
-  });
-  let finish!: () => void;
-  const hold = new Promise<void>((resolve) => {
-    finish = resolve;
-  });
-  f.server.store.pullRequests.setHandlers({
-    sync: async (tabId) => {
-      await hold;
-      return f.server.store.pullRequests.commitInventory(tabId, {
-        repository,
+      completedAt: now,
+    });
+    const before = await f.read();
+    await expect(
+      f.server.store.pullRequests.commitInventory(initial.tabId, {
+        queriedRepository: repository,
+        repository: { owner: "other", name: "project" },
         viewer: "viewer",
-        prs: [{ ...facts(), title: "Updated title" }, facts(2)],
-        completedAt: now,
-      });
-    },
-    detail: async () => ({
-      headOid: head,
-      body: "Description",
-      diff: "+line",
-      reviews: [],
-      files: [],
-      fetchedAt: now,
-    }),
-  });
-  const syncing = f.client.pullRequests({
-    action: "sync",
-    name,
-    tabId: initial.tabId,
-    requestId: randomUUID(),
-  });
-  await f.client.pullRequests({
-    ...note,
-    requestId: randomUUID(),
-    expectedVersion: 1,
-    text: "Edited during sync",
-  });
-  finish();
-  const synced = snapshot(await syncing);
-  expect(synced.prs[0].draft).toBe(true);
-  expect(synced.prs[1]).toMatchObject({
-    title: "Updated title",
-    local: {
-      note: "Edited during sync",
-      noteVersion: 2,
-      snoozeVersion: 1,
-      inspected: { headOid: head },
-      reviewed: null,
-    },
-    agent: { version: 1, assessment: { text: "Ready" } },
-  });
-  await expect(
-    f.client.pullRequests({
-      action: "detail",
-      name,
-      tabId: initial.tabId,
-      nodeId: "PR_1",
-      requestId: randomUUID(),
-    }),
-  ).resolves.toMatchObject({ type: "detail", detail: { diff: "+line" } });
-  expect(synced.prs[1]).not.toHaveProperty("detail");
-  await expect.poll(() => events).toContain(synced.generation);
-  await expect(
-    f.server.store.pullRequests.commitInventory(initial.tabId, {
-      repository,
-      viewer: "viewer",
-      prs: [facts(), facts()],
-      completedAt: now,
-    }),
-  ).rejects.toThrow();
-  expect((await f.read()).prs).toHaveLength(2);
-  await f.server.store.pullRequests.setSyncStatus(initial.tabId, {
-    state: "error",
-    updatedAt: now,
-    lastSuccessAt: now,
-    error: "Refresh failed",
-  });
-  expect((await f.read()).prs[1].local.note).toBe("Edited during sync");
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts(2)],
-    completedAt: now,
-  });
-  expect((await f.read()).prs.map((pr) => pr.nodeId)).toEqual(["PR_2"]);
-  const db = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
-  try {
-    expect(
-      db
-        .prepare("SELECT count(*) AS count FROM pull_requests_receipts WHERE node_id = 'PR_1'")
-        .get()?.count,
-    ).toBe(0);
-  } finally {
-    db.close();
-  }
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [],
-    completedAt: now,
-  });
-  expect((await f.read()).prs).toEqual([]);
-  await expect(
-    f.client.pullRequests({
-      action: "configure",
-      name,
-      tabId: initial.tabId,
-      requestId: randomUUID(),
-      repository: { owner: "other", name: "repo" },
-    }),
-  ).rejects.toMatchObject({ status: 409 });
-  await expect(
-    f.client.pullRequests({
-      action: "configure",
-      name,
-      tabId: initial.tabId,
-      requestId: randomUUID(),
-      repository: { owner: "EXAMPLE", name: "PROJECT" },
-    }),
-  ).resolves.toMatchObject({ type: "snapshot" });
-});
+        prs: [],
+        completedAt: "2026-10-01T12:00:00Z",
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(await f.read()).toEqual(before);
+  },
+);
 
-test("HTML replacement and Trashcan refusal preserve records, deletion cascades and rejects a pinned old sync", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts()],
-    completedAt: now,
-  });
-  const before = await f.read();
-  await f.client.publish(
-    "inbox",
-    {
-      name,
-      title: "Redesigned",
-      kind: "pull-requests",
-      mediaType: "text/html",
-      fileName: "inbox.html",
-      expectedRevision: before.artifact.revision,
-    },
-    Buffer.from("<script>document.title='changed'</script>"),
-  );
-  expect((await f.read()).prs).toEqual(before.prs);
-  await expect(
-    f.client.publish(
-      "inbox",
-      {
-        title: "Wrong kind",
-        kind: "html",
-        mediaType: "text/html",
-        fileName: "inbox.html",
-        expectedRevision: (await f.read()).artifact.revision,
-      },
-      Buffer.from("wrong"),
-    ),
-  ).rejects.toMatchObject({ status: 409 });
-  const inboxTab = {
-    id: initial.tabId,
-    groupId: randomUUID(),
-    title: "Inbox",
-    state: { version: 1, data: { artifactId: "inbox" } },
-  };
-  await expect(f.server.store.openTab({ ...inboxTab, type: "file" })).rejects.toThrow(
-    "own tab type",
-  );
-  await f.server.store.openTab({ ...inboxTab, type: "pull-requests" });
-  await expect(f.server.store.trashTab(initial.tabId, 123)).rejects.toThrow(
-    "cannot move to Trashcan",
-  );
-  expect((await f.read()).prs).toHaveLength(1);
-  await f.server.store.removeArtifact("inbox");
-  await expect(
-    f.server.store.pullRequests.commitInventory(initial.tabId, {
-      repository,
-      viewer: "viewer",
-      prs: [],
-      completedAt: now,
-    }),
-  ).rejects.toThrow();
-  const db = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
-  try {
-    for (const table of [
-      "pull_requests_state",
-      "pull_requests_current",
-      "pull_requests_receipts",
-      "pull_requests_pr_state",
-    ])
-      expect(db.prepare(`SELECT count(*) AS count FROM ${table}`).get()?.count).toBe(0);
-  } finally {
-    db.close();
-  }
-  await f.client.publish(
-    "inbox",
-    {
-      name,
-      title: "Replacement inbox",
-      kind: "pull-requests",
-      mediaType: "text/html",
-      fileName: "inbox.html",
-      expectedRevision: 0,
-    },
-    Buffer.from("<h1>New tab</h1>"),
-  );
-  await f.configure();
-  const replacement = await f.read();
-  expect(replacement.tabId).not.toBe(initial.tabId);
-  await expect(
-    f.server.store.pullRequests.commitInventory(initial.tabId, {
+test(
+  "cached rows prevent rebinding even when a success timestamp is missing",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const f = await fixture();
+    await f.configure();
+    const initial = await f.read();
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
       repository,
       viewer: "viewer",
       prs: [facts()],
       completedAt: now,
-    }),
-  ).rejects.toThrow();
-  expect((await f.read()).prs).toEqual([]);
-});
-
-test("authenticated HTTP rejects malformed commands, browser callers and oversized bodies", async () => {
-  const f = await fixture();
-  const request = (
-    body: unknown,
-    headers: Record<string, string> = { Authorization: `Bearer ${token}` },
-  ) =>
-    fetch(`${f.server.url}/v1/pull-requests`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify(body),
     });
-  expect((await request({ action: "read", name }, {})).status).toBe(401);
-  expect(
-    (
-      await request(
-        { action: "read", name },
-        { Authorization: `Bearer ${token}`, Origin: "http://example.com" },
-      )
-    ).status,
-  ).toBe(403);
-  expect((await request({ action: "read", name, unexpected: true })).status).toBe(400);
-  expect((await request({ data: "x".repeat(256 * 1024) })).status).toBe(413);
-  expect(artifactRequest("POST", "/v1/pull-requests")).toBe(true);
-  expect(artifactRequest("POST", "/v1/pull-requests?anything=1")).toBe(false);
-  expect(artifactRequest("GET", "/v1/pull-requests")).toBe(false);
-});
+    await f.server.store.pullRequests.setSyncStatus(initial.tabId, {
+      state: "error",
+      updatedAt: now,
+      lastSuccessAt: null,
+      error: "Earlier sync incomplete",
+    });
+    const before = await f.read();
+    await expect(
+      f.server.store.pullRequests.commitInventory(initial.tabId, {
+        queriedRepository: repository,
+        repository: { owner: "other", name: "project" },
+        viewer: "viewer",
+        prs: [],
+        completedAt: "2026-10-01T12:00:00Z",
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(await f.read()).toEqual(before);
+  },
+);
 
-test("built CLI recovers an unconfigured publication and updates HTML without replacing local values", async () => {
-  const f = await fixture(false);
-  const created = JSON.parse(
-    (await f.cli("add", f.html, "--pull-requests", "--name", name)).stdout,
-  );
-  expect(created).toMatchObject({ kind: "pull-requests", name });
-  expect((await f.read()).repository).toBeNull();
-  await f.cli("pull-requests", "configure", name, "example/project");
-  const initial = await f.read();
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts()],
-    completedAt: now,
-  });
-  const request = join(f.directory, "assessment.json");
-  await writeFile(
-    request,
-    JSON.stringify({
+test(
+  "complete inventories preserve independent local writes and current agent values, then prune all removed PR data",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const f = await fixture();
+    await f.configure();
+    const initial = await f.read();
+    expect((await f.server.store.tabs())[0].permanent).toBe(1);
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
+      repository,
+      viewer: "viewer",
+      prs: [facts(), facts(2)],
+      completedAt: now,
+    });
+    const events: number[] = [];
+    const watch = new AbortController();
+    const watching = f.client
+      .watch((event) => {
+        if (event.type === "pull-requests") events.push(event.generation);
+      }, watch.signal)
+      .catch(() => {});
+    cleanup.push(async () => {
+      watch.abort();
+      await watching;
+    });
+    const note = {
+      action: "note" as const,
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      text: "Keep this note",
+    };
+    const noted = snapshot(await f.client.pullRequests(note));
+    expect(snapshot(await f.client.pullRequests(note)).generation).toBe(noted.generation);
+    await expect(
+      f.client.pullRequests({ ...note, text: "Different payload" }),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(f.client.pullRequests({ ...note, requestId: randomUUID() })).rejects.toMatchObject(
+      {
+        status: 409,
+      },
+    );
+    await f.client.pullRequests({
+      action: "snooze",
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      snooze: { until: "2026-10-05T12:00:00.000Z", headOid: head, wakeOnNewCommit: true },
+    });
+    await f.client.pullRequests({
+      action: "review",
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      baseline: "inspected",
+      headOid: head,
+    });
+    await f.client.pullRequests({
       action: "assessment",
       name,
       tabId: initial.tabId,
@@ -524,90 +261,388 @@ test("built CLI recovers an unconfigured publication and updates HTML without re
       requestId: randomUUID(),
       expectedVersion: 0,
       assessment: {
-        text: "Inspect",
-        author: "cli-agent",
+        text: "Ready",
+        author: "agent",
         headOid: head,
-        evidenceIds: [],
+        evidenceIds: ["check:1"],
         discussionUpdatedAt: null,
         createdAt: now,
       },
-      customFields: [{ key: "ready", type: "boolean", value: false }],
-    }),
-  );
-  await f.cli("pull-requests", "apply", request);
-  await writeFile(f.html, "<h1>Updated app</h1>");
-  await f.cli("update", name, f.html);
-  const read = JSON.parse((await f.cli("pull-requests", "read", name)).stdout).snapshot;
-  expect(read.tabId).toBe(initial.tabId);
-  expect(read.artifact.kind).toBe("pull-requests");
-  expect(read.prs[0].agent).toMatchObject({ version: 1, assessment: { author: "cli-agent" } });
-  await expect(f.cli("pull-requests", "configure", name, "other/repo")).rejects.toThrow();
-});
-
-test("saved write commands reject a recreated named inbox before invoking sync or detail", async () => {
-  const f = await fixture();
-  await f.configure();
-  const old = await f.read();
-  await f.server.store.pullRequests.commitInventory(old.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts()],
-    completedAt: now,
-  });
-  const named = { name, tabId: old.tabId, requestId: randomUUID() };
-  const field = { ...named, nodeId: "PR_1", expectedVersion: 0 };
-  const commands = [
-    { ...named, action: "configure" as const, repository },
-    { ...named, action: "sync" as const },
-    { ...named, action: "detail" as const, nodeId: "PR_1" },
-    { ...field, action: "note" as const, text: "Prepared for deleted inbox" },
-    { ...field, action: "snooze" as const, snooze: null },
-    { ...field, action: "review" as const, baseline: "reviewed" as const, headOid: head },
-    { ...field, action: "assessment" as const, assessment: null, customFields: [] },
-  ];
-  await f.client.delete("inbox");
-  await f.client.publish(
-    "inbox",
-    {
+      customFields: [{ key: "risk", type: "number", value: 2 }],
+    });
+    let finish!: () => void;
+    const hold = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    f.server.store.pullRequests.setHandlers({
+      sync: async (tabId) => {
+        await hold;
+        return f.server.store.pullRequests.commitInventory(tabId, {
+          repository,
+          viewer: "viewer",
+          prs: [{ ...facts(), title: "Updated title" }, facts(2)],
+          completedAt: now,
+        });
+      },
+      detail: async () => ({
+        headOid: head,
+        body: "Description",
+        diff: "+line",
+        reviews: [],
+        files: [],
+        fetchedAt: now,
+      }),
+    });
+    const syncing = f.client.pullRequests({
+      action: "sync",
       name,
-      title: "Replacement",
-      kind: "pull-requests",
-      mediaType: "text/html",
-      fileName: "inbox.html",
-      expectedRevision: 0,
-    },
-    Buffer.from("new"),
-  );
-  await f.configure();
-  const current = await f.read();
-  await f.server.store.pullRequests.commitInventory(current.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts()],
-    completedAt: now,
-  });
-  let called = 0;
-  f.server.store.pullRequests.setHandlers({
-    sync: async (tabId) => {
-      called++;
-      return f.server.store.pullRequests.snapshotByTab(tabId);
-    },
-    detail: async () => {
-      called++;
-      return { headOid: head, body: "", diff: "", reviews: [], files: [], fetchedAt: now };
-    },
-  });
-  for (const command of commands)
-    await expect(f.client.pullRequests(command)).rejects.toMatchObject({ status: 409 });
-  expect(called).toBe(0);
-  expect((await f.read()).prs[0]).toMatchObject({
-    local: { note: "", snooze: null, reviewed: null },
-    agent: { version: 0 },
-  });
-});
+      tabId: initial.tabId,
+      requestId: randomUUID(),
+    });
+    await f.client.pullRequests({
+      ...note,
+      requestId: randomUUID(),
+      expectedVersion: 1,
+      text: "Edited during sync",
+    });
+    finish();
+    const synced = snapshot(await syncing);
+    expect(synced.prs[0].draft).toBe(true);
+    expect(synced.prs[1]).toMatchObject({
+      title: "Updated title",
+      local: {
+        note: "Edited during sync",
+        noteVersion: 2,
+        snoozeVersion: 1,
+        inspected: { headOid: head },
+        reviewed: null,
+      },
+      agent: { version: 1, assessment: { text: "Ready" } },
+    });
+    await expect(
+      f.client.pullRequests({
+        action: "detail",
+        name,
+        tabId: initial.tabId,
+        nodeId: "PR_1",
+        requestId: randomUUID(),
+      }),
+    ).resolves.toMatchObject({ type: "detail", detail: { diff: "+line" } });
+    expect(synced.prs[1]).not.toHaveProperty("detail");
+    await expect.poll(() => events).toContain(synced.generation);
+    await expect(
+      f.server.store.pullRequests.commitInventory(initial.tabId, {
+        repository,
+        viewer: "viewer",
+        prs: [facts(), facts()],
+        completedAt: now,
+      }),
+    ).rejects.toThrow();
+    expect((await f.read()).prs).toHaveLength(2);
+    await f.server.store.pullRequests.setSyncStatus(initial.tabId, {
+      state: "error",
+      updatedAt: now,
+      lastSuccessAt: now,
+      error: "Refresh failed",
+    });
+    expect((await f.read()).prs[1].local.note).toBe("Edited during sync");
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
+      repository,
+      viewer: "viewer",
+      prs: [facts(2)],
+      completedAt: now,
+    });
+    expect((await f.read()).prs.map((pr) => pr.nodeId)).toEqual(["PR_2"]);
+    const db = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
+    try {
+      expect(
+        db
+          .prepare("SELECT count(*) AS count FROM pull_requests_receipts WHERE node_id = 'PR_1'")
+          .get()?.count,
+      ).toBe(0);
+    } finally {
+      db.close();
+    }
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
+      repository,
+      viewer: "viewer",
+      prs: [],
+      completedAt: now,
+    });
+    expect((await f.read()).prs).toEqual([]);
+    await expect(
+      f.client.pullRequests({
+        action: "configure",
+        name,
+        tabId: initial.tabId,
+        requestId: randomUUID(),
+        repository: { owner: "other", name: "repo" },
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      f.client.pullRequests({
+        action: "configure",
+        name,
+        tabId: initial.tabId,
+        requestId: randomUUID(),
+        repository: { owner: "EXAMPLE", name: "PROJECT" },
+      }),
+    ).resolves.toMatchObject({ type: "snapshot" });
+  },
+);
+
+test(
+  "HTML replacement and Trashcan refusal preserve records, deletion cascades and rejects a pinned old sync",
+  { tags: ["pr-inbox-keeps-local-work", "deletion-is-final"] },
+  async () => {
+    const f = await fixture();
+    await f.configure();
+    const initial = await f.read();
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
+      repository,
+      viewer: "viewer",
+      prs: [facts()],
+      completedAt: now,
+    });
+    const before = await f.read();
+    await f.client.publish(
+      "inbox",
+      {
+        name,
+        title: "Redesigned",
+        kind: "pull-requests",
+        mediaType: "text/html",
+        fileName: "inbox.html",
+        expectedRevision: before.artifact.revision,
+      },
+      Buffer.from("<script>document.title='changed'</script>"),
+    );
+    expect((await f.read()).prs).toEqual(before.prs);
+    await expect(
+      f.client.publish(
+        "inbox",
+        {
+          title: "Wrong kind",
+          kind: "html",
+          mediaType: "text/html",
+          fileName: "inbox.html",
+          expectedRevision: (await f.read()).artifact.revision,
+        },
+        Buffer.from("wrong"),
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+    const inboxTab = {
+      id: initial.tabId,
+      groupId: randomUUID(),
+      title: "Inbox",
+      state: { version: 1, data: { artifactId: "inbox" } },
+    };
+    await expect(f.server.store.openTab({ ...inboxTab, type: "file" })).rejects.toThrow(
+      "own tab type",
+    );
+    await f.server.store.openTab({ ...inboxTab, type: "pull-requests" });
+    await expect(f.server.store.trashTab(initial.tabId, 123)).rejects.toThrow(
+      "cannot move to Trashcan",
+    );
+    expect((await f.read()).prs).toHaveLength(1);
+    await f.server.store.removeArtifact("inbox");
+    await expect(
+      f.server.store.pullRequests.commitInventory(initial.tabId, {
+        repository,
+        viewer: "viewer",
+        prs: [],
+        completedAt: now,
+      }),
+    ).rejects.toThrow();
+    const db = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
+    try {
+      for (const table of [
+        "pull_requests_state",
+        "pull_requests_current",
+        "pull_requests_receipts",
+        "pull_requests_pr_state",
+      ])
+        expect(db.prepare(`SELECT count(*) AS count FROM ${table}`).get()?.count).toBe(0);
+    } finally {
+      db.close();
+    }
+    await f.client.publish(
+      "inbox",
+      {
+        name,
+        title: "Replacement inbox",
+        kind: "pull-requests",
+        mediaType: "text/html",
+        fileName: "inbox.html",
+        expectedRevision: 0,
+      },
+      Buffer.from("<h1>New tab</h1>"),
+    );
+    await f.configure();
+    const replacement = await f.read();
+    expect(replacement.tabId).not.toBe(initial.tabId);
+    await expect(
+      f.server.store.pullRequests.commitInventory(initial.tabId, {
+        repository,
+        viewer: "viewer",
+        prs: [facts()],
+        completedAt: now,
+      }),
+    ).rejects.toThrow();
+    expect((await f.read()).prs).toEqual([]);
+  },
+);
+
+test(
+  "authenticated HTTP rejects malformed commands, browser callers and oversized bodies",
+  { tags: ["bad-requests-change-nothing"] },
+  async () => {
+    const f = await fixture();
+    const request = (
+      body: unknown,
+      headers: Record<string, string> = { Authorization: `Bearer ${token}` },
+    ) =>
+      fetch(`${f.server.url}/v1/pull-requests`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body),
+      });
+    expect((await request({ action: "read", name }, {})).status).toBe(401);
+    expect(
+      (
+        await request(
+          { action: "read", name },
+          { Authorization: `Bearer ${token}`, Origin: "http://example.com" },
+        )
+      ).status,
+    ).toBe(403);
+    expect((await request({ action: "read", name, unexpected: true })).status).toBe(400);
+    expect((await request({ data: "x".repeat(256 * 1024) })).status).toBe(413);
+    expect(artifactRequest("POST", "/v1/pull-requests")).toBe(true);
+    expect(artifactRequest("POST", "/v1/pull-requests?anything=1")).toBe(false);
+    expect(artifactRequest("GET", "/v1/pull-requests")).toBe(false);
+  },
+);
+
+test(
+  "built CLI recovers an unconfigured publication and updates HTML without replacing local values",
+  { tags: ["pr-inbox-keeps-local-work", "publish"] },
+  async () => {
+    const f = await fixture(false);
+    const created = JSON.parse(
+      (await f.cli("add", f.html, "--pull-requests", "--name", name)).stdout,
+    );
+    expect(created).toMatchObject({ kind: "pull-requests", name });
+    expect((await f.read()).repository).toBeNull();
+    await f.cli("pull-requests", "configure", name, "example/project");
+    const initial = await f.read();
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
+      repository,
+      viewer: "viewer",
+      prs: [facts()],
+      completedAt: now,
+    });
+    const request = join(f.directory, "assessment.json");
+    await writeFile(
+      request,
+      JSON.stringify({
+        action: "assessment",
+        name,
+        tabId: initial.tabId,
+        nodeId: "PR_1",
+        requestId: randomUUID(),
+        expectedVersion: 0,
+        assessment: {
+          text: "Inspect",
+          author: "cli-agent",
+          headOid: head,
+          evidenceIds: [],
+          discussionUpdatedAt: null,
+          createdAt: now,
+        },
+        customFields: [{ key: "ready", type: "boolean", value: false }],
+      }),
+    );
+    await f.cli("pull-requests", "apply", request);
+    await writeFile(f.html, "<h1>Updated app</h1>");
+    await f.cli("update", name, f.html);
+    const read = JSON.parse((await f.cli("pull-requests", "read", name)).stdout).snapshot;
+    expect(read.tabId).toBe(initial.tabId);
+    expect(read.artifact.kind).toBe("pull-requests");
+    expect(read.prs[0].agent).toMatchObject({ version: 1, assessment: { author: "cli-agent" } });
+    await expect(f.cli("pull-requests", "configure", name, "other/repo")).rejects.toThrow();
+  },
+);
+
+test(
+  "saved write commands reject a recreated named inbox before invoking sync or detail",
+  { tags: ["pr-inbox-keeps-local-work", "deletion-is-final"] },
+  async () => {
+    const f = await fixture();
+    await f.configure();
+    const old = await f.read();
+    await f.server.store.pullRequests.commitInventory(old.tabId, {
+      repository,
+      viewer: "viewer",
+      prs: [facts()],
+      completedAt: now,
+    });
+    const named = { name, tabId: old.tabId, requestId: randomUUID() };
+    const field = { ...named, nodeId: "PR_1", expectedVersion: 0 };
+    const commands = [
+      { ...named, action: "configure" as const, repository },
+      { ...named, action: "sync" as const },
+      { ...named, action: "detail" as const, nodeId: "PR_1" },
+      { ...field, action: "note" as const, text: "Prepared for deleted inbox" },
+      { ...field, action: "snooze" as const, snooze: null },
+      { ...field, action: "review" as const, baseline: "reviewed" as const, headOid: head },
+      { ...field, action: "assessment" as const, assessment: null, customFields: [] },
+    ];
+    await f.client.delete("inbox");
+    await f.client.publish(
+      "inbox",
+      {
+        name,
+        title: "Replacement",
+        kind: "pull-requests",
+        mediaType: "text/html",
+        fileName: "inbox.html",
+        expectedRevision: 0,
+      },
+      Buffer.from("new"),
+    );
+    await f.configure();
+    const current = await f.read();
+    await f.server.store.pullRequests.commitInventory(current.tabId, {
+      repository,
+      viewer: "viewer",
+      prs: [facts()],
+      completedAt: now,
+    });
+    let called = 0;
+    f.server.store.pullRequests.setHandlers({
+      sync: async (tabId) => {
+        called++;
+        return f.server.store.pullRequests.snapshotByTab(tabId);
+      },
+      detail: async () => {
+        called++;
+        return { headOid: head, body: "", diff: "", reviews: [], files: [], fetchedAt: now };
+      },
+    });
+    for (const command of commands)
+      await expect(f.client.pullRequests(command)).rejects.toMatchObject({ status: 409 });
+    expect(called).toBe(0);
+    expect((await f.read()).prs[0]).toMatchObject({
+      local: { note: "", snooze: null, reviewed: null },
+      agent: { version: 0 },
+    });
+  },
+);
 
 test.each(["inventory", "status"] as const)(
   "cancelled queued %s writes preserve data",
+  { tags: ["pr-inbox-keeps-local-work", "no-lost-updates"] },
   async (kind) => {
     const f = await fixture();
     await f.configure();
@@ -658,260 +693,278 @@ test.each(["inventory", "status"] as const)(
   },
 );
 
-test("request hashes retain retry identity for the current PR lifetime beyond 256 unrelated writes", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts()],
-    completedAt: now,
-  });
-  const note = {
-    action: "note" as const,
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    text: "Uncertain delivery",
-  };
-  await f.client.pullRequests(note);
-  for (let index = 0; index < 260; index++)
-    await f.server.store.pullRequests.command({
-      action: "configure",
-      name,
-      tabId: initial.tabId,
-      requestId: randomUUID(),
+test(
+  "request hashes retain retry identity for the current PR lifetime beyond 256 unrelated writes",
+  { tags: ["no-lost-updates"] },
+  async () => {
+    const f = await fixture();
+    await f.configure();
+    const initial = await f.read();
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
       repository,
+      viewer: "viewer",
+      prs: [facts()],
+      completedAt: now,
     });
-  const current = await f.read();
-  const retry = snapshot(await f.client.pullRequests(note));
-  expect(retry.generation).toBe(current.generation);
-  expect(retry.prs[0].local).toMatchObject({ note: "Uncertain delivery", noteVersion: 1 });
-  await expect(
-    f.client.pullRequests({ ...note, expectedVersion: 1, text: "Reused UUID" }),
-  ).rejects.toMatchObject({ status: 409 });
-  const db = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
-  try {
-    expect(
-      db
-        .prepare("SELECT payload FROM pull_requests_receipts WHERE request_id = ?")
-        .get(note.requestId)?.payload,
-    ).toMatch(/^[a-f0-9]{64}$/);
-  } finally {
-    db.close();
-  }
-});
-
-test("review baselines retain the inspected commit when synchronization finds a newer head", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts()],
-    completedAt: now,
-  });
-  await f.client.pullRequests({
-    action: "review",
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    baseline: "inspected",
-    headOid: head,
-  });
-  const newerHead = "c".repeat(40);
-  const updated = {
-    ...facts(),
-    headOid: newerHead,
-    merge: { ...facts().merge, headOid: newerHead },
-  };
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [updated],
-    completedAt: now,
-  });
-  const marked = snapshot(
-    await f.client.pullRequests({
-      action: "review",
+    const note = {
+      action: "note" as const,
       name,
       tabId: initial.tabId,
       nodeId: "PR_1",
       requestId: randomUUID(),
-      expectedVersion: 1,
-      baseline: "reviewed",
-      headOid: head,
-    }),
-  );
-  expect(marked.prs[0]).toMatchObject({
-    headOid: newerHead,
-    local: { inspected: { headOid: head }, reviewed: { headOid: head }, reviewVersion: 2 },
-  });
-  expect(marked.prs[0].headOid !== marked.prs[0].local.reviewed?.headOid).toBe(true);
-  await expect(
-    f.client.pullRequests({
-      action: "review",
-      name,
-      tabId: initial.tabId,
-      nodeId: "PR_1",
-      requestId: randomUUID(),
-      expectedVersion: 1,
-      baseline: "reviewed",
-      headOid: newerHead,
-    }),
-  ).rejects.toMatchObject({ status: 409 });
-  const current = snapshot(
-    await f.client.pullRequests({
-      action: "review",
-      name,
-      tabId: initial.tabId,
-      nodeId: "PR_1",
-      requestId: randomUUID(),
-      expectedVersion: 2,
-      baseline: "reviewed",
-      headOid: newerHead,
-    }),
-  );
-  expect(current.prs[0].local.reviewed?.headOid).toBe(newerHead);
-  expect(current.prs[0].headOid !== current.prs[0].local.reviewed?.headOid).toBe(false);
-});
-
-test("complete sync wakes only commit-sensitive snoozes and invalidates stale Undo", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts(1), facts(2), facts(3)],
-    completedAt: now,
-  });
-  const snooze = {
-    action: "snooze" as const,
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    snooze: { until: "2026-10-05T12:00:00.000Z", headOid: head, wakeOnNewCommit: true },
-  };
-  await f.client.pullRequests(snooze);
-  await f.client.pullRequests({
-    ...snooze,
-    requestId: randomUUID(),
-    nodeId: "PR_2",
-    snooze: { ...snooze.snooze, wakeOnNewCommit: false },
-  });
-  await f.client.pullRequests({ ...snooze, requestId: randomUUID(), nodeId: "PR_3" });
-  await f.client.pullRequests({
-    action: "note",
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    text: "Retain my note",
-  });
-  await f.client.pullRequests({
-    action: "review",
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    baseline: "inspected",
-    headOid: head,
-  });
-  await f.client.pullRequests({
-    action: "assessment",
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    assessment: {
-      text: "Captured commit assessment",
-      author: "agent",
-      headOid: head,
-      evidenceIds: [],
-      discussionUpdatedAt: null,
-      createdAt: now,
-    },
-    customFields: [],
-  });
-  const newerHead = "c".repeat(40);
-  const changed = (number: number) => ({
-    ...facts(number),
-    headOid: newerHead,
-    merge: { ...facts(number).merge, headOid: newerHead },
-  });
-  f.server.store.pullRequests.setHandlers({
-    sync: (tabId) =>
-      f.server.store.pullRequests.commitInventory(tabId, {
+      expectedVersion: 0,
+      text: "Uncertain delivery",
+    };
+    await f.client.pullRequests(note);
+    for (let index = 0; index < 260; index++)
+      await f.server.store.pullRequests.command({
+        action: "configure",
+        name,
+        tabId: initial.tabId,
+        requestId: randomUUID(),
         repository,
-        viewer: "viewer",
-        prs: [
-          changed(1),
-          changed(2),
-          {
-            ...facts(3),
-            title: "Comments and base changed, same head",
-            baseOid: newerHead,
-            merge: { ...facts(3).merge, baseOid: newerHead },
-            hasUnresolvedConversations: true,
-          },
-        ],
-        completedAt: now,
+      });
+    const current = await f.read();
+    const retry = snapshot(await f.client.pullRequests(note));
+    expect(retry.generation).toBe(current.generation);
+    expect(retry.prs[0].local).toMatchObject({ note: "Uncertain delivery", noteVersion: 1 });
+    await expect(
+      f.client.pullRequests({ ...note, expectedVersion: 1, text: "Reused UUID" }),
+    ).rejects.toMatchObject({ status: 409 });
+    const db = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
+    try {
+      expect(
+        db
+          .prepare("SELECT payload FROM pull_requests_receipts WHERE request_id = ?")
+          .get(note.requestId)?.payload,
+      ).toMatch(/^[a-f0-9]{64}$/);
+    } finally {
+      db.close();
+    }
+  },
+);
+
+test(
+  "review baselines retain the inspected commit when synchronization finds a newer head",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const f = await fixture();
+    await f.configure();
+    const initial = await f.read();
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
+      repository,
+      viewer: "viewer",
+      prs: [facts()],
+      completedAt: now,
+    });
+    await f.client.pullRequests({
+      action: "review",
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      baseline: "inspected",
+      headOid: head,
+    });
+    const newerHead = "c".repeat(40);
+    const updated = {
+      ...facts(),
+      headOid: newerHead,
+      merge: { ...facts().merge, headOid: newerHead },
+    };
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
+      repository,
+      viewer: "viewer",
+      prs: [updated],
+      completedAt: now,
+    });
+    const marked = snapshot(
+      await f.client.pullRequests({
+        action: "review",
+        name,
+        tabId: initial.tabId,
+        nodeId: "PR_1",
+        requestId: randomUUID(),
+        expectedVersion: 1,
+        baseline: "reviewed",
+        headOid: head,
       }),
-    detail: async () => {
-      throw new Error("Not needed");
-    },
-  });
-  const sync = { action: "sync" as const, name, tabId: initial.tabId, requestId: randomUUID() };
-  const updated = snapshot(await f.client.pullRequests(sync));
-  const first = updated.prs.find((pr) => pr.nodeId === "PR_1")!;
-  expect(first).toMatchObject({
-    headOid: newerHead,
-    local: {
-      snooze: null,
-      snoozeVersion: 2,
-      note: "Retain my note",
-      noteVersion: 1,
-      inspected: { headOid: head },
-      reviewed: null,
-      reviewVersion: 1,
-    },
-    agent: { version: 1, assessment: { headOid: head } },
-  });
-  expect(updated.prs.find((pr) => pr.nodeId === "PR_2")?.local).toMatchObject({
-    snooze: { ...snooze.snooze, wakeOnNewCommit: false },
-    snoozeVersion: 1,
-  });
-  expect(updated.prs.find((pr) => pr.nodeId === "PR_3")?.local).toMatchObject({
-    snooze: snooze.snooze,
-    snoozeVersion: 1,
-  });
-  await expect(
-    f.client.pullRequests({ ...snooze, requestId: randomUUID(), expectedVersion: 1, snooze: null }),
-  ).rejects.toMatchObject({ status: 409 });
-  expect(
-    snapshot(await f.client.pullRequests(snooze)).prs.find((pr) => pr.nodeId === "PR_1")?.local,
-  ).toEqual(first.local);
-  expect(
-    snapshot(await f.client.pullRequests({ ...sync, requestId: randomUUID() })).prs.find(
-      (pr) => pr.nodeId === "PR_1",
-    )?.local,
-  ).toEqual(first.local);
-});
+    );
+    expect(marked.prs[0]).toMatchObject({
+      headOid: newerHead,
+      local: { inspected: { headOid: head }, reviewed: { headOid: head }, reviewVersion: 2 },
+    });
+    expect(marked.prs[0].headOid !== marked.prs[0].local.reviewed?.headOid).toBe(true);
+    await expect(
+      f.client.pullRequests({
+        action: "review",
+        name,
+        tabId: initial.tabId,
+        nodeId: "PR_1",
+        requestId: randomUUID(),
+        expectedVersion: 1,
+        baseline: "reviewed",
+        headOid: newerHead,
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    const current = snapshot(
+      await f.client.pullRequests({
+        action: "review",
+        name,
+        tabId: initial.tabId,
+        nodeId: "PR_1",
+        requestId: randomUUID(),
+        expectedVersion: 2,
+        baseline: "reviewed",
+        headOid: newerHead,
+      }),
+    );
+    expect(current.prs[0].local.reviewed?.headOid).toBe(newerHead);
+    expect(current.prs[0].headOid !== current.prs[0].local.reviewed?.headOid).toBe(false);
+  },
+);
+
+test(
+  "complete sync wakes only commit-sensitive snoozes and invalidates stale Undo",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const f = await fixture();
+    await f.configure();
+    const initial = await f.read();
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
+      repository,
+      viewer: "viewer",
+      prs: [facts(1), facts(2), facts(3)],
+      completedAt: now,
+    });
+    const snooze = {
+      action: "snooze" as const,
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      snooze: { until: "2026-10-05T12:00:00.000Z", headOid: head, wakeOnNewCommit: true },
+    };
+    await f.client.pullRequests(snooze);
+    await f.client.pullRequests({
+      ...snooze,
+      requestId: randomUUID(),
+      nodeId: "PR_2",
+      snooze: { ...snooze.snooze, wakeOnNewCommit: false },
+    });
+    await f.client.pullRequests({ ...snooze, requestId: randomUUID(), nodeId: "PR_3" });
+    await f.client.pullRequests({
+      action: "note",
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      text: "Retain my note",
+    });
+    await f.client.pullRequests({
+      action: "review",
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      baseline: "inspected",
+      headOid: head,
+    });
+    await f.client.pullRequests({
+      action: "assessment",
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      assessment: {
+        text: "Captured commit assessment",
+        author: "agent",
+        headOid: head,
+        evidenceIds: [],
+        discussionUpdatedAt: null,
+        createdAt: now,
+      },
+      customFields: [],
+    });
+    const newerHead = "c".repeat(40);
+    const changed = (number: number) => ({
+      ...facts(number),
+      headOid: newerHead,
+      merge: { ...facts(number).merge, headOid: newerHead },
+    });
+    f.server.store.pullRequests.setHandlers({
+      sync: (tabId) =>
+        f.server.store.pullRequests.commitInventory(tabId, {
+          repository,
+          viewer: "viewer",
+          prs: [
+            changed(1),
+            changed(2),
+            {
+              ...facts(3),
+              title: "Comments and base changed, same head",
+              baseOid: newerHead,
+              merge: { ...facts(3).merge, baseOid: newerHead },
+              hasUnresolvedConversations: true,
+            },
+          ],
+          completedAt: now,
+        }),
+      detail: async () => {
+        throw new Error("Not needed");
+      },
+    });
+    const sync = { action: "sync" as const, name, tabId: initial.tabId, requestId: randomUUID() };
+    const updated = snapshot(await f.client.pullRequests(sync));
+    const first = updated.prs.find((pr) => pr.nodeId === "PR_1")!;
+    expect(first).toMatchObject({
+      headOid: newerHead,
+      local: {
+        snooze: null,
+        snoozeVersion: 2,
+        note: "Retain my note",
+        noteVersion: 1,
+        inspected: { headOid: head },
+        reviewed: null,
+        reviewVersion: 1,
+      },
+      agent: { version: 1, assessment: { headOid: head } },
+    });
+    expect(updated.prs.find((pr) => pr.nodeId === "PR_2")?.local).toMatchObject({
+      snooze: { ...snooze.snooze, wakeOnNewCommit: false },
+      snoozeVersion: 1,
+    });
+    expect(updated.prs.find((pr) => pr.nodeId === "PR_3")?.local).toMatchObject({
+      snooze: snooze.snooze,
+      snoozeVersion: 1,
+    });
+    await expect(
+      f.client.pullRequests({
+        ...snooze,
+        requestId: randomUUID(),
+        expectedVersion: 1,
+        snooze: null,
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(
+      snapshot(await f.client.pullRequests(snooze)).prs.find((pr) => pr.nodeId === "PR_1")?.local,
+    ).toEqual(first.local);
+    expect(
+      snapshot(await f.client.pullRequests({ ...sync, requestId: randomUUID() })).prs.find(
+        (pr) => pr.nodeId === "PR_1",
+      )?.local,
+    ).toEqual(first.local);
+  },
+);
 
 test.each([false, true])(
   "sync uses the latest in-flight snooze with wake=%s",
+  { tags: ["pr-inbox-keeps-local-work", "no-lost-updates"] },
   async (wakeOnNewCommit) => {
     const f = await fixture();
     await f.configure();
@@ -993,416 +1046,451 @@ test.each([false, true])(
   },
 );
 
-test("failed, invalid and cancelled inventories preserve commit-sensitive snoozes", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [facts()],
-    completedAt: now,
-  });
-  await f.client.pullRequests({
-    action: "snooze",
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    snooze: { until: "2026-10-05T12:00:00.000Z", headOid: head, wakeOnNewCommit: true },
-  });
-  const saved = await f.read();
-  f.server.store.pullRequests.setHandlers({
-    sync: async () => {
-      throw new Error("Synthetic incomplete inventory");
-    },
-    detail: async () => {
-      throw new Error("Not needed");
-    },
-  });
-  await expect(
-    f.client.pullRequests({ action: "sync", name, tabId: initial.tabId, requestId: randomUUID() }),
-  ).rejects.toThrow();
-  const newerHead = "c".repeat(40);
-  const inventory = {
-    repository,
-    viewer: "viewer",
-    completedAt: now,
-    prs: [{ ...facts(), headOid: newerHead, merge: { ...facts().merge, headOid: newerHead } }],
-  };
-  await expect(
-    f.server.store.pullRequests.commitInventory(initial.tabId, {
-      ...inventory,
-      prs: [...inventory.prs, facts()],
-    }),
-  ).rejects.toThrow();
-  const controller = new AbortController();
-  controller.abort();
-  await expect(
-    f.server.store.pullRequests.commitInventory(initial.tabId, inventory, controller.signal),
-  ).rejects.toThrow();
-  expect(await f.read()).toEqual(saved);
-});
-
-test("inbox JSON state supports versioned replacement, patch, deletion and live events", async () => {
-  const f = await fixture();
-  const initial = await f.read();
-  expect(initial.appState).toEqual({ version: 0, value: {} });
-  const events: unknown[] = [];
-  const controller = new AbortController();
-  let ready!: () => void;
-  const connected = new Promise<void>((resolve) => {
-    ready = resolve;
-  });
-  const watching = f.client
-    .watch((event) => {
-      if (event.type === "ready") ready();
-      if (event.type === "pull-requests" && event.stateChange) events.push(event.stateChange);
-    }, controller.signal)
-    .catch(() => {});
-  cleanup.push(async () => {
-    controller.abort();
-    await watching;
-  });
-  await connected;
-  const set = {
-    action: "state-set" as const,
-    name,
-    tabId: initial.tabId,
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    value: { hidden: ["src/one.ts"], settings: { width: 300, selected: true } },
-  };
-  const saved = snapshot(await f.client.pullRequests(set));
-  expect(saved.appState).toEqual({ version: 1, value: set.value });
-  expect(snapshot(await f.client.pullRequests(set)).generation).toBe(saved.generation);
-  await expect(f.client.pullRequests({ ...set, value: {} })).rejects.toMatchObject({ status: 409 });
-  const competing = await Promise.allSettled(
-    ["one", "two"].map((selected) =>
-      f.client.pullRequests({
-        ...set,
-        action: "state-patch",
-        requestId: randomUUID(),
-        expectedVersion: 1,
-        value: { settings: { selected }, nullable: null },
-      }),
-    ),
-  );
-  expect(competing.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-  const conflict = competing.find((result) => result.status === "rejected");
-  expect(conflict).toMatchObject({ status: "rejected", reason: { status: 409 } });
-  const patched = await f.read();
-  expect(patched.appState?.version).toBe(2);
-  expect(patched.appState?.value.hidden).toEqual(["src/one.ts"]);
-  expect(patched.appState?.value.settings).not.toHaveProperty("width");
-  expect(patched.appState?.value.nullable).toBeNull();
-  const deleted = snapshot(
-    await f.client.pullRequests({
-      action: "state-delete",
-      name,
-      tabId: initial.tabId,
-      requestId: randomUUID(),
-      expectedVersion: 2,
-      keys: ["hidden", "absent"],
-    }),
-  );
-  expect(deleted.appState).toEqual({
-    version: 3,
-    value: {
-      settings: patched.appState?.value.settings,
-      nullable: null,
-    },
-  });
-  const replaced = snapshot(
-    await f.client.pullRequests({ ...set, requestId: randomUUID(), expectedVersion: 3, value: {} }),
-  );
-  expect(replaced.appState).toEqual({ version: 4, value: {} });
-  await expect
-    .poll(() => events)
-    .toEqual([
-      { operation: "set", ...saved.appState },
-      { operation: "patch", ...patched.appState },
-      { operation: "delete", ...deleted.appState },
-      { operation: "set", ...replaced.appState },
-    ]);
-});
-
-test("state validation and accumulated size limits leave the saved value and version intact", async () => {
-  const f = await fixture();
-  const initial = await f.read();
-  const command = {
-    action: "state-set" as const,
-    name,
-    tabId: initial.tabId,
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    value: {},
-  };
-  let deep: unknown = null;
-  for (let depth = 0; depth < 34; depth++) deep = { nested: deep };
-  for (const value of [
-    [],
-    new Date(),
-    new Map(),
-    { sparse: Array(2) },
-    null,
-    { number: Infinity },
-    { missing: undefined },
-    { invalid: new Date() },
-    { deep },
-    { large: "é".repeat(17_000) },
-  ]) {
-    await expect(
-      f.server.store.pullRequests.command({ ...command, value } as unknown as Parameters<
-        typeof f.server.store.pullRequests.command
-      >[0]),
-    ).rejects.toThrow();
-  }
-  const saved = snapshot(
-    await f.client.pullRequests({ ...command, value: { retained: "x".repeat(20_000) } }),
-  );
-  await expect(
-    f.client.pullRequests({
-      ...command,
-      action: "state-patch",
-      requestId: randomUUID(),
-      expectedVersion: 1,
-      value: { more: "x".repeat(20_000) },
-    }),
-  ).rejects.toThrow();
-  expect((await f.read()).appState).toEqual(saved.appState);
-  const special = JSON.parse('{"__proto__":{"polluted":true},"constructor":null}') as NonNullable<
-    PullRequestsSnapshot["appState"]
-  >["value"];
-  const patched = snapshot(
-    await f.client.pullRequests({
-      ...command,
-      action: "state-patch",
-      requestId: randomUUID(),
-      expectedVersion: 1,
-      value: special,
-    }),
-  );
-  expect(Object.hasOwn(patched.appState!.value, "__proto__")).toBe(true);
-  expect(patched.appState!.value.__proto__).toEqual({ polluted: true });
-  expect(({} as Record<string, unknown>).polluted).toBeUndefined();
-});
-
-test("inbox state survives HTML updates, sync, restart and Trashcan refusal while replacement tabs start empty", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  const command = {
-    action: "state-set" as const,
-    name,
-    tabId: initial.tabId,
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    value: { hidden: ["test.ts"] },
-  };
-  const saved = snapshot(await f.client.pullRequests(command));
-  await f.client.publish(
-    initial.artifact.id,
-    {
-      name,
-      title: "Updated inbox",
-      kind: "pull-requests",
-      mediaType: "text/html",
-      fileName: "inbox.html",
-      expectedRevision: initial.artifact.revision,
-    },
-    Buffer.from("<h1>Updated</h1>"),
-  );
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    repository,
-    viewer: "viewer",
-    prs: [],
-    completedAt: now,
-  });
-  expect((await f.read()).appState).toEqual(saved.appState);
-  await f.server.close();
-  const resumed = await startArtifactServer({ directory: f.directory, token, port: 0 });
-  cleanup.push(resumed.close);
-  const reopened = resumed.store;
-  const client = new ScopeClient(resumed.url, token);
-  expect((await reopened.pullRequests.snapshot(name)).appState).toEqual(saved.appState);
-  await reopened.openTab({
-    id: initial.tabId,
-    groupId: randomUUID(),
-    type: "pull-requests",
-    title: "Inbox",
-    state: { version: 1, data: { artifactId: initial.artifact.id } },
-  });
-  await expect(reopened.trashTab(initial.tabId, 123)).rejects.toThrow("cannot move to Trashcan");
-  expect((await reopened.pullRequests.snapshot(name)).appState).toEqual(saved.appState);
-  await reopened.removeArtifact(initial.artifact.id);
-  const check = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
-  try {
-    expect(
-      check
-        .prepare("SELECT count(*) AS count FROM pull_requests_receipts WHERE tab_id = ?")
-        .get(initial.tabId)?.count,
-    ).toBe(0);
-  } finally {
-    check.close();
-  }
-  const artifact = await client.publish(
-    "replacement",
-    {
-      name,
-      title: "Replacement",
-      kind: "pull-requests",
-      mediaType: "text/html",
-      fileName: "inbox.html",
-      expectedRevision: 0,
-    },
-    Buffer.from("<h1>Replacement</h1>"),
-  );
-  expect(artifact.id).not.toBe(initial.artifact.id);
-  expect((await reopened.pullRequests.snapshot(name)).appState).toEqual({ version: 0, value: {} });
-  await expect(reopened.pullRequests.command(command)).rejects.toMatchObject({ status: 409 });
-});
-
-test("per-PR JSON storage exceeds the root quota, stays isolated and sends bounded events", async () => {
-  const f = await fixture();
-  await f.configure();
-  const initial = await f.read();
-  const inventory = { repository, viewer: "viewer", prs: [facts(1), facts(2)], completedAt: now };
-  await f.server.store.pullRequests.commitInventory(initial.tabId, inventory);
-  const read = async (nodeId: string) => {
-    const reply = await f.client.pullRequests({
-      action: "pr-state-read",
-      name,
-      tabId: initial.tabId,
-      nodeId,
+test(
+  "failed, invalid and cancelled inventories preserve commit-sensitive snoozes",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const f = await fixture();
+    await f.configure();
+    const initial = await f.read();
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
+      repository,
+      viewer: "viewer",
+      prs: [facts()],
+      completedAt: now,
     });
-    if (reply.type !== "pr-state") throw new Error("Expected PR state");
-    return reply.state;
-  };
-  const events: unknown[] = [];
-  const controller = new AbortController();
-  let ready!: () => void;
-  const connected = new Promise<void>((resolve) => {
-    ready = resolve;
-  });
-  const watching = f.client
-    .watch((event) => {
-      if (event.type === "ready") ready();
-      if (event.type === "pull-requests" && event.prStateChange) events.push(event.prStateChange);
-    }, controller.signal)
-    .catch(() => {});
-  cleanup.push(async () => {
+    await f.client.pullRequests({
+      action: "snooze",
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      snooze: { until: "2026-10-05T12:00:00.000Z", headOid: head, wakeOnNewCommit: true },
+    });
+    const saved = await f.read();
+    f.server.store.pullRequests.setHandlers({
+      sync: async () => {
+        throw new Error("Synthetic incomplete inventory");
+      },
+      detail: async () => {
+        throw new Error("Not needed");
+      },
+    });
+    await expect(
+      f.client.pullRequests({
+        action: "sync",
+        name,
+        tabId: initial.tabId,
+        requestId: randomUUID(),
+      }),
+    ).rejects.toThrow();
+    const newerHead = "c".repeat(40);
+    const inventory = {
+      repository,
+      viewer: "viewer",
+      completedAt: now,
+      prs: [{ ...facts(), headOid: newerHead, merge: { ...facts().merge, headOid: newerHead } }],
+    };
+    await expect(
+      f.server.store.pullRequests.commitInventory(initial.tabId, {
+        ...inventory,
+        prs: [...inventory.prs, facts()],
+      }),
+    ).rejects.toThrow();
+    const controller = new AbortController();
     controller.abort();
-    await watching;
-  });
-  await connected;
-  const value = { files: { "src/large.ts": "x".repeat(80_000) }, nullable: null };
-  const command = {
-    action: "pr-state-set" as const,
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 0,
-    value,
-  };
-  const saved = await f.client.pullRequests(command);
-  expect(saved).toEqual({
-    type: "pr-state",
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    state: { version: 1, value },
-  });
-  expect(await f.client.pullRequests(command)).toEqual(saved);
-  await expect.poll(() => events).toEqual([{ nodeId: "PR_1", operation: "set", version: 1 }]);
-  expect(await read("PR_2")).toEqual({ version: 0, value: {} });
-  expect((await f.read()).appState).toEqual({ version: 0, value: {} });
-  expect(JSON.stringify(await f.read())).not.toContain("xxxxx");
-  await expect(
-    f.client.pullRequests({
-      action: "state-set",
+    await expect(
+      f.server.store.pullRequests.commitInventory(initial.tabId, inventory, controller.signal),
+    ).rejects.toThrow();
+    expect(await f.read()).toEqual(saved);
+  },
+);
+
+test(
+  "inbox JSON state supports versioned replacement, patch, deletion and live events",
+  { tags: ["pr-inbox-keeps-local-work", "no-lost-updates"] },
+  async () => {
+    const f = await fixture();
+    const initial = await f.read();
+    expect(initial.appState).toEqual({ version: 0, value: {} });
+    const events: unknown[] = [];
+    const controller = new AbortController();
+    let ready!: () => void;
+    const connected = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const watching = f.client
+      .watch((event) => {
+        if (event.type === "ready") ready();
+        if (event.type === "pull-requests" && event.stateChange) events.push(event.stateChange);
+      }, controller.signal)
+      .catch(() => {});
+    cleanup.push(async () => {
+      controller.abort();
+      await watching;
+    });
+    await connected;
+    const set = {
+      action: "state-set" as const,
       name,
       tabId: initial.tabId,
       requestId: randomUUID(),
       expectedVersion: 0,
+      value: { hidden: ["src/one.ts"], settings: { width: 300, selected: true } },
+    };
+    const saved = snapshot(await f.client.pullRequests(set));
+    expect(saved.appState).toEqual({ version: 1, value: set.value });
+    expect(snapshot(await f.client.pullRequests(set)).generation).toBe(saved.generation);
+    await expect(f.client.pullRequests({ ...set, value: {} })).rejects.toMatchObject({
+      status: 409,
+    });
+    const competing = await Promise.allSettled(
+      ["one", "two"].map((selected) =>
+        f.client.pullRequests({
+          ...set,
+          action: "state-patch",
+          requestId: randomUUID(),
+          expectedVersion: 1,
+          value: { settings: { selected }, nullable: null },
+        }),
+      ),
+    );
+    expect(competing.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const conflict = competing.find((result) => result.status === "rejected");
+    expect(conflict).toMatchObject({ status: "rejected", reason: { status: 409 } });
+    const patched = await f.read();
+    expect(patched.appState?.version).toBe(2);
+    expect(patched.appState?.value.hidden).toEqual(["src/one.ts"]);
+    expect(patched.appState?.value.settings).not.toHaveProperty("width");
+    expect(patched.appState?.value.nullable).toBeNull();
+    const deleted = snapshot(
+      await f.client.pullRequests({
+        action: "state-delete",
+        name,
+        tabId: initial.tabId,
+        requestId: randomUUID(),
+        expectedVersion: 2,
+        keys: ["hidden", "absent"],
+      }),
+    );
+    expect(deleted.appState).toEqual({
+      version: 3,
+      value: {
+        settings: patched.appState?.value.settings,
+        nullable: null,
+      },
+    });
+    const replaced = snapshot(
+      await f.client.pullRequests({
+        ...set,
+        requestId: randomUUID(),
+        expectedVersion: 3,
+        value: {},
+      }),
+    );
+    expect(replaced.appState).toEqual({ version: 4, value: {} });
+    await expect
+      .poll(() => events)
+      .toEqual([
+        { operation: "set", ...saved.appState },
+        { operation: "patch", ...patched.appState },
+        { operation: "delete", ...deleted.appState },
+        { operation: "set", ...replaced.appState },
+      ]);
+  },
+);
+
+test(
+  "state validation and accumulated size limits leave the saved value and version intact",
+  { tags: ["bad-requests-change-nothing"] },
+  async () => {
+    const f = await fixture();
+    const initial = await f.read();
+    const command = {
+      action: "state-set" as const,
+      name,
+      tabId: initial.tabId,
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      value: {},
+    };
+    let deep: unknown = null;
+    for (let depth = 0; depth < 34; depth++) deep = { nested: deep };
+    for (const value of [
+      [],
+      new Date(),
+      new Map(),
+      { sparse: Array(2) },
+      null,
+      { number: Infinity },
+      { missing: undefined },
+      { invalid: new Date() },
+      { deep },
+      { large: "é".repeat(17_000) },
+    ]) {
+      await expect(
+        f.server.store.pullRequests.command({ ...command, value } as unknown as Parameters<
+          typeof f.server.store.pullRequests.command
+        >[0]),
+      ).rejects.toThrow();
+    }
+    const saved = snapshot(
+      await f.client.pullRequests({ ...command, value: { retained: "x".repeat(20_000) } }),
+    );
+    await expect(
+      f.client.pullRequests({
+        ...command,
+        action: "state-patch",
+        requestId: randomUUID(),
+        expectedVersion: 1,
+        value: { more: "x".repeat(20_000) },
+      }),
+    ).rejects.toThrow();
+    expect((await f.read()).appState).toEqual(saved.appState);
+    const special = JSON.parse('{"__proto__":{"polluted":true},"constructor":null}') as NonNullable<
+      PullRequestsSnapshot["appState"]
+    >["value"];
+    const patched = snapshot(
+      await f.client.pullRequests({
+        ...command,
+        action: "state-patch",
+        requestId: randomUUID(),
+        expectedVersion: 1,
+        value: special,
+      }),
+    );
+    expect(Object.hasOwn(patched.appState!.value, "__proto__")).toBe(true);
+    expect(patched.appState!.value.__proto__).toEqual({ polluted: true });
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  },
+);
+
+test(
+  "inbox state survives HTML updates, sync, restart and Trashcan refusal while replacement tabs start empty",
+  { tags: ["pr-inbox-keeps-local-work", "survives-restart"] },
+  async () => {
+    const f = await fixture();
+    await f.configure();
+    const initial = await f.read();
+    const command = {
+      action: "state-set" as const,
+      name,
+      tabId: initial.tabId,
+      requestId: randomUUID(),
+      expectedVersion: 0,
+      value: { hidden: ["test.ts"] },
+    };
+    const saved = snapshot(await f.client.pullRequests(command));
+    await f.client.publish(
+      initial.artifact.id,
+      {
+        name,
+        title: "Updated inbox",
+        kind: "pull-requests",
+        mediaType: "text/html",
+        fileName: "inbox.html",
+        expectedRevision: initial.artifact.revision,
+      },
+      Buffer.from("<h1>Updated</h1>"),
+    );
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
+      repository,
+      viewer: "viewer",
+      prs: [],
+      completedAt: now,
+    });
+    expect((await f.read()).appState).toEqual(saved.appState);
+    await f.server.close();
+    const resumed = await startArtifactServer({ directory: f.directory, token, port: 0 });
+    cleanup.push(resumed.close);
+    const reopened = resumed.store;
+    const client = new ScopeClient(resumed.url, token);
+    expect((await reopened.pullRequests.snapshot(name)).appState).toEqual(saved.appState);
+    await reopened.openTab({
+      id: initial.tabId,
+      groupId: randomUUID(),
+      type: "pull-requests",
+      title: "Inbox",
+      state: { version: 1, data: { artifactId: initial.artifact.id } },
+    });
+    await expect(reopened.trashTab(initial.tabId, 123)).rejects.toThrow("cannot move to Trashcan");
+    expect((await reopened.pullRequests.snapshot(name)).appState).toEqual(saved.appState);
+    await reopened.removeArtifact(initial.artifact.id);
+    const check = new DatabaseSync(join(f.directory, "scope.db"), { readOnly: true });
+    try {
+      expect(
+        check
+          .prepare("SELECT count(*) AS count FROM pull_requests_receipts WHERE tab_id = ?")
+          .get(initial.tabId)?.count,
+      ).toBe(0);
+    } finally {
+      check.close();
+    }
+    const artifact = await client.publish(
+      "replacement",
+      {
+        name,
+        title: "Replacement",
+        kind: "pull-requests",
+        mediaType: "text/html",
+        fileName: "inbox.html",
+        expectedRevision: 0,
+      },
+      Buffer.from("<h1>Replacement</h1>"),
+    );
+    expect(artifact.id).not.toBe(initial.artifact.id);
+    expect((await reopened.pullRequests.snapshot(name)).appState).toEqual({
+      version: 0,
+      value: {},
+    });
+    await expect(reopened.pullRequests.command(command)).rejects.toMatchObject({ status: 409 });
+  },
+);
+
+test(
+  "per-PR JSON storage exceeds the root quota, stays isolated and sends bounded events",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const f = await fixture();
+    await f.configure();
+    const initial = await f.read();
+    const inventory = { repository, viewer: "viewer", prs: [facts(1), facts(2)], completedAt: now };
+    await f.server.store.pullRequests.commitInventory(initial.tabId, inventory);
+    const read = async (nodeId: string) => {
+      const reply = await f.client.pullRequests({
+        action: "pr-state-read",
+        name,
+        tabId: initial.tabId,
+        nodeId,
+      });
+      if (reply.type !== "pr-state") throw new Error("Expected PR state");
+      return reply.state;
+    };
+    const events: unknown[] = [];
+    const controller = new AbortController();
+    let ready!: () => void;
+    const connected = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const watching = f.client
+      .watch((event) => {
+        if (event.type === "ready") ready();
+        if (event.type === "pull-requests" && event.prStateChange) events.push(event.prStateChange);
+      }, controller.signal)
+      .catch(() => {});
+    cleanup.push(async () => {
+      controller.abort();
+      await watching;
+    });
+    await connected;
+    const value = { files: { "src/large.ts": "x".repeat(80_000) }, nullable: null };
+    const command = {
+      action: "pr-state-set" as const,
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 0,
       value,
-    }),
-  ).rejects.toThrow("32 KiB");
-  await expect(
-    f.client.pullRequests({ ...command, requestId: randomUUID() }),
-  ).rejects.toMatchObject({ status: 409 });
-  await expect(
-    f.client.pullRequests({ ...command, value: {}, expectedVersion: 1 }),
-  ).rejects.toMatchObject({ status: 409 });
-  await f.client.pullRequests({
-    ...command,
-    nodeId: "PR_2",
-    requestId: randomUUID(),
-    value: { selected: true },
-  });
-  await f.client.pullRequests({
-    ...command,
-    action: "pr-state-patch",
-    requestId: randomUUID(),
-    expectedVersion: 1,
-    value: JSON.parse('{"files":{"next":true},"__proto__":{"polluted":true}}'),
-  });
-  expect(await read("PR_1")).toEqual({
-    version: 2,
-    value: JSON.parse('{"files":{"next":true},"nullable":null,"__proto__":{"polluted":true}}'),
-  });
-  await f.client.pullRequests({
-    action: "pr-state-delete",
-    name,
-    tabId: initial.tabId,
-    nodeId: "PR_1",
-    requestId: randomUUID(),
-    expectedVersion: 2,
-    keys: ["files", "absent", "__proto__"],
-  });
-  expect(await read("PR_1")).toEqual({ version: 3, value: { nullable: null } });
-  expect(await read("PR_2")).toEqual({ version: 1, value: { selected: true } });
-  await expect(
-    f.client.pullRequests({ action: "pr-state-read", name, tabId: randomUUID(), nodeId: "PR_1" }),
-  ).rejects.toMatchObject({ status: 409 });
-  await expect(read("PR_absent")).rejects.toMatchObject({ status: 404 });
-  // The same node in another inbox starts independently.
-  await f.client.publish(
-    "other",
-    {
-      name: "other",
-      title: "Other",
-      kind: "pull-requests",
-      mediaType: "text/html",
-      fileName: "inbox.html",
-      expectedRevision: 0,
-    },
-    Buffer.from("<h1>Other</h1>"),
-  );
-  const other = snapshot(await f.client.pullRequests({ action: "read", name: "other" }));
-  await f.client.pullRequests({
-    action: "configure",
-    name: "other",
-    tabId: other.tabId,
-    requestId: randomUUID(),
-    repository,
-  });
-  await f.server.store.pullRequests.commitInventory(other.tabId, inventory);
-  expect(
+    };
+    const saved = await f.client.pullRequests(command);
+    expect(saved).toEqual({
+      type: "pr-state",
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      state: { version: 1, value },
+    });
+    expect(await f.client.pullRequests(command)).toEqual(saved);
+    await expect.poll(() => events).toEqual([{ nodeId: "PR_1", operation: "set", version: 1 }]);
+    expect(await read("PR_2")).toEqual({ version: 0, value: {} });
+    expect((await f.read()).appState).toEqual({ version: 0, value: {} });
+    expect(JSON.stringify(await f.read())).not.toContain("xxxxx");
+    await expect(
+      f.client.pullRequests({
+        action: "state-set",
+        name,
+        tabId: initial.tabId,
+        requestId: randomUUID(),
+        expectedVersion: 0,
+        value,
+      }),
+    ).rejects.toThrow("32 KiB");
+    await expect(
+      f.client.pullRequests({ ...command, requestId: randomUUID() }),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      f.client.pullRequests({ ...command, value: {}, expectedVersion: 1 }),
+    ).rejects.toMatchObject({ status: 409 });
     await f.client.pullRequests({
-      action: "pr-state-read",
+      ...command,
+      nodeId: "PR_2",
+      requestId: randomUUID(),
+      value: { selected: true },
+    });
+    await f.client.pullRequests({
+      ...command,
+      action: "pr-state-patch",
+      requestId: randomUUID(),
+      expectedVersion: 1,
+      value: JSON.parse('{"files":{"next":true},"__proto__":{"polluted":true}}'),
+    });
+    expect(await read("PR_1")).toEqual({
+      version: 2,
+      value: JSON.parse('{"files":{"next":true},"nullable":null,"__proto__":{"polluted":true}}'),
+    });
+    await f.client.pullRequests({
+      action: "pr-state-delete",
+      name,
+      tabId: initial.tabId,
+      nodeId: "PR_1",
+      requestId: randomUUID(),
+      expectedVersion: 2,
+      keys: ["files", "absent", "__proto__"],
+    });
+    expect(await read("PR_1")).toEqual({ version: 3, value: { nullable: null } });
+    expect(await read("PR_2")).toEqual({ version: 1, value: { selected: true } });
+    await expect(
+      f.client.pullRequests({ action: "pr-state-read", name, tabId: randomUUID(), nodeId: "PR_1" }),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(read("PR_absent")).rejects.toMatchObject({ status: 404 });
+    // The same node in another inbox starts independently.
+    await f.client.publish(
+      "other",
+      {
+        name: "other",
+        title: "Other",
+        kind: "pull-requests",
+        mediaType: "text/html",
+        fileName: "inbox.html",
+        expectedRevision: 0,
+      },
+      Buffer.from("<h1>Other</h1>"),
+    );
+    const other = snapshot(await f.client.pullRequests({ action: "read", name: "other" }));
+    await f.client.pullRequests({
+      action: "configure",
       name: "other",
       tabId: other.tabId,
-      nodeId: "PR_2",
-    }),
-  ).toMatchObject({ state: { version: 0, value: {} } });
-  await f.server.store.pullRequests.commitInventory(initial.tabId, {
-    ...inventory,
-    prs: [facts(1)],
-  });
-  await expect(read("PR_2")).rejects.toMatchObject({ status: 404 });
-  await f.server.store.pullRequests.commitInventory(initial.tabId, inventory);
-  expect(await read("PR_1")).toEqual({ version: 3, value: { nullable: null } });
-  expect(await read("PR_2")).toEqual({ version: 0, value: {} });
-});
+      requestId: randomUUID(),
+      repository,
+    });
+    await f.server.store.pullRequests.commitInventory(other.tabId, inventory);
+    expect(
+      await f.client.pullRequests({
+        action: "pr-state-read",
+        name: "other",
+        tabId: other.tabId,
+        nodeId: "PR_2",
+      }),
+    ).toMatchObject({ state: { version: 0, value: {} } });
+    await f.server.store.pullRequests.commitInventory(initial.tabId, {
+      ...inventory,
+      prs: [facts(1)],
+    });
+    await expect(read("PR_2")).rejects.toMatchObject({ status: 404 });
+    await f.server.store.pullRequests.commitInventory(initial.tabId, inventory);
+    expect(await read("PR_1")).toEqual({ version: 3, value: { nullable: null } });
+    expect(await read("PR_2")).toEqual({ version: 0, value: {} });
+  },
+);
