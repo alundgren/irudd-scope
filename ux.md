@@ -329,7 +329,8 @@ everything else hidden. Closing a folder while filtering does not change the
 saved expanded folders, so clearing the filter restores the previous tree. The
 filter text survives restart. While Scope still lists the folder, the filter
 says `Still scanning…`; for folders with more than 200,000 paths it says that
-it asks the folder's machine instead. It shows at most 10,000 files and says so.
+it asks the folder's machine instead, and asks again when files change. It
+shows at most 10,000 files and says so.
 
 Search looks through file contents on the folder's machine and lists each match
 as path, line number, and the line with the match marked. It skips binary files
@@ -342,8 +343,9 @@ Selecting a file shows a read-only preview beside the tree, below it in narrow
 windows, using the published-file viewers. Text has line numbers; Markdown and
 HTML have a Source button, which a search match turns on. Files Scope cannot
 display show name, size, and modified time. Text over 2 MiB shows its first
-2 MiB with a note. A file that changes reloads; a deleted file says
-`This file was deleted.` Published text files show line numbers too.
+2 MiB with a note. A file that changes reloads; a file that is deleted, or whose
+folder is renamed or deleted, says `This file was deleted.` Published text files
+show line numbers too, and Select All copies the whole text.
 
 ## Sketchpad
 

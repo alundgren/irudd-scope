@@ -90,10 +90,14 @@ tab. A background walk builds it, locally with `packages/folder` and remotely by
 listing directories through the hub, four at a time. Change feed events keep it
 current. A created directory is walked, because its files may have no events of
 their own, and a changed `.gitignore` or an overflow rebuilds the list. Above
-200,000 paths the list is dropped and each filter text becomes a `names` search
-on the folder's machine. Content search always runs on the folder's machine with
+200,000 paths, or when a remote directory has more entries than one listing
+returns, the list is dropped and each filter text becomes a `names` search on the
+folder's machine; changes then ask an open filter again about once a second. Content search always runs on the folder's machine with
 `searchFolder`, one search per tab; a new query or Cancel aborts the previous
-one, and the hub stops reading files when its response closes. Neither the path
+one, and the hub stops reading files when its response closes. Search enters a
+directory and reads a file only through handles checked to be inside the
+folder, never follows a final symlink, and skips FIFOs and other special files
+without waiting on them. Neither the path
 list nor search results are stored. Previews read byte ranges through the same
 source and show them with the published-file viewers in
 `renderer/file-views.tsx`, which take bytes, a kind, a media type, and a title.

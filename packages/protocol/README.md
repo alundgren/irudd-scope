@@ -241,7 +241,8 @@ the desktop connection credential, never the publishing token:
 | `PUT /v1/relay/folders/write?root=&path=&replace=0\|1`, raw body | `FolderWriteReceipt`. Not available yet: 501 `unsupported`.                                        |
 
 Search matches `query` as plain text in any letter case and honours
-`showIgnored`. A content search skips binary files and files over 1 MiB and
+`showIgnored`. A content search reads only regular files inside `root`, skips
+binary files and files over 1 MiB, and
 sends `match` lines with the path, line number, and line text, stopping at 1,000
 with `done` and `truncated: true`. With `names: true` it matches file paths
 instead and sends `file` lines, stopping at 10,000. Long searches send a
