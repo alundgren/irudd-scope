@@ -38,8 +38,8 @@ menu item, or drop target for it. Files stay on the machine that has them.
 
 ```mermaid
 flowchart LR
-    LocalCLI[CLI on this computer] -->|POST /v1/folders/open| Desktop[desktop main]
-    RemoteCLI[CLI on a remote] -->|POST /v1/folders/open| Hub[apps/hub]
+    LocalCLI[CLI on this computer] -->|/v1/folders/open, find, select, watch| Desktop[desktop main]
+    RemoteCLI[CLI on a remote] -->|/v1/folders/open, find, select, watch| Hub[apps/hub]
     Hub -->|canonical path, relayed command| Desktop
     Desktop -->|GET /v1/relay/folders/*| Hub
     Desktop --> LocalFiles[packages/folder on this computer]
@@ -73,6 +73,24 @@ select themselves only when no tab is selected; restored and unhidden tabs
 never change selection. A per-tab `revision` in the Folder tab state counts
 main-side changes, and `scope.db` ignores renderer saves with an older revision.
 Folder tabs are unread through a tab ID set in renderer memory until selected.
+
+`folder find` reports whether a folder's tab is in the strip; a tab in Trashcan
+or closed to the drawer is not open. `folder select` checks the file on the
+machine that has it, then opens the tab like `folder open` and, in the same
+transaction, sets the selected file, adds every folder down to it to the
+expanded list, and bumps `revision`. `scope:folder-tab-opened` carries the
+selected file so the renderer replaces its selection and expands those folders
+while keeping its other expanded folders.
+
+`folder watch` is a long NDJSON response with a heartbeat every 10 seconds.
+Desktop main ends it with `closed` when the tab leaves the strip: trashing
+reaches the plugin directly, and because closing a bookmarked tab is only a
+renderer save, open watches also re-check their tab every second. A hub relays
+a watch like other requests but keeps it in its own count of at most 16, apart
+from the 16 publication slots, and the desktop's relay does the same, so idle
+watches never block publishing and a full count never drops the relay. The
+desktop uploads the watch response to the hub with `node:http`, because fetch
+gives up on a request body that is still streaming after 300 seconds.
 
 The plugin's main handlers read the folder through one source contract. Local
 sources call `packages/folder`. Remote sources use `Remotes.request`, a

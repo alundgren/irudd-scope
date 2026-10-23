@@ -213,12 +213,12 @@ paired remote's ID. Paths inside a folder use `/` and have no `.` or `..` parts.
 
 Agent commands use the normal publishing token, locally or through a hub:
 
-| Request                                             | Result                                                                                |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `POST /v1/folders/open`, `{ path, title? }`         | `{ tabId, machine, path, created }`                                                   |
-| `POST /v1/folders/find`, `{ path }`                 | `{ open, tabId?, machine, path }`; a trashed tab is not open. Not available yet: 501. |
-| `POST /v1/folders/select`, `{ path, file, title? }` | `FolderOpenReceipt` plus `file`. Not available yet: 501.                              |
-| `GET /v1/folders/watch?path=`                       | NDJSON `dropped`, `closed`, and `heartbeat` lines. Not available yet: 501.            |
+| Request                                             | Result                                                                          |
+| --------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `POST /v1/folders/open`, `{ path, title? }`         | `{ tabId, machine, path, created }`                                             |
+| `POST /v1/folders/find`, `{ path }`                 | `{ open, tabId?, machine, path }`; a tab in Trashcan or the drawer is not open. |
+| `POST /v1/folders/select`, `{ path, file, title? }` | `FolderOpenReceipt` plus `file`                                                 |
+| `GET /v1/folders/watch?path=`                       | NDJSON `FolderWatchEvent` lines: `closed` and `heartbeat`                       |
 
 `path` is absolute on the machine that runs the command. Scope resolves it to
 the canonical real path on that machine; hubs resolve it before relaying. Any
@@ -228,6 +228,16 @@ delivered the command. Folder commands are never queued. Failures are JSON
 `not-a-directory`, `unsupported`, or `desktop-offline`. A 404 without a code
 comes from a Scope or hub without folder support; the CLI then prints
 `Update Scope on HOST to share folders`.
+
+`select` checks `file`, relative to `path`, on the machine that has it before
+opening anything: a path that leaves the folder fails with 403
+`outside-folder`, a missing file with 404 `not-found`, and a directory with
+`not-a-directory`. It opens the tab like `open` when needed. `watch` answers
+404 `no-tab` when the folder has no open tab. Otherwise it writes a heartbeat
+line every 10 seconds and ends after `{"type":"closed"}` when the tab is closed
+or trashed. A stream that ends without `closed` means Scope disconnected.
+Each hub relays at most `MAX_FOLDER_WATCHES` (16) watches, counted apart from
+its 16 publication slots.
 
 The hub serves the paired desktop's file requests on routes that accept only
 the desktop connection credential, never the publishing token:

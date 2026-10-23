@@ -302,6 +302,12 @@ selected. Reopening an existing tab marks it unread, renames it when the agent
 passes a new title, and returns a closed or trashed tab to the end of the
 strip without changing selection, even when nothing is selected.
 
+When the person asks to see a file, the agent runs `folder select`. Scope
+opens the folder's tab if needed, expands every folder down to the file, and
+selects it in the tree, scrolled into view when the tab is shown. The tab is
+marked unread and the selected tab does not change. A file outside the folder
+or missing fails in the agent's shell and changes nothing in Scope.
+
 A local Folder tab shows only its title, like any tab. A remote Folder tab shows
 the machine name first in the muted color, then `·` and the title; only the
 title is shortened with an ellipsis. Folder tabs have no icon. The tooltip
