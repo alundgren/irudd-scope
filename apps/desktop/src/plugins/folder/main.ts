@@ -59,6 +59,27 @@ function unavailable(
   return { status: "error", message };
 }
 
+// Listings and reads for one machine wait their turn instead of failing, which leaves the
+// remote's other streamed requests free for change feeds.
+const MAX_FILE_REQUESTS = 8;
+
+function machineLimiter() {
+  const queues = new Map<string, { active: number; waiting: (() => void)[] }>();
+  return async <T>(machineId: string, task: () => Promise<T>): Promise<T> => {
+    const queue = queues.get(machineId) ?? { active: 0, waiting: [] };
+    queues.set(machineId, queue);
+    if (queue.active >= MAX_FILE_REQUESTS)
+      await new Promise<void>((resolve) => queue.waiting.push(resolve));
+    queue.active++;
+    try {
+      return await task();
+    } finally {
+      queue.active--;
+      queue.waiting.shift()?.();
+    }
+  };
+}
+
 export function registerFolderIpc({
   handle,
   window,
@@ -67,6 +88,7 @@ export function registerFolderIpc({
   remotes,
 }: MainPluginContext) {
   const feeds = new Map<string, AbortController>();
+  const limited = machineLimiter();
   async function folder(tabId: string) {
     const identity = await artifacts.folderIdentity(tabId);
     if (!identity) throw new FolderError("no-tab", "This Folder tab no longer exists.");
@@ -103,11 +125,9 @@ export function registerFolderIpc({
   handle("scope:folder-list", async (input): Promise<FolderListResult> => {
     const request = decode(ListRequest, input);
     try {
-      const { source } = await folder(request.tabId);
-      const listing = await source.list(
-        request.path,
-        request.showIgnored,
-        AbortSignal.timeout(60_000),
+      const { identity, source } = await folder(request.tabId);
+      const listing = await limited(identity.machineId, () =>
+        source.list(request.path, request.showIgnored, AbortSignal.timeout(60_000)),
       );
       return { status: "ok", listing };
     } catch (error) {
@@ -123,9 +143,11 @@ export function registerFolderIpc({
     }
     if (request.end - request.start > MAX_FOLDER_IPC_READ)
       throw new Error("Read at most 8 MiB at a time.");
-    const { source } = await folder(request.tabId);
+    const { identity, source } = await folder(request.tabId);
     // packages/folder rejects `..`, absolute paths, and paths that leave the folder.
-    return source.read(request.path, request.start, request.end, AbortSignal.timeout(120_000));
+    return limited(identity.machineId, () =>
+      source.read(request.path, request.start, request.end, AbortSignal.timeout(120_000)),
+    );
   });
   handle("scope:folder-watch", (input) => {
     const tabId = decode(Uuid, input);

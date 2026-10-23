@@ -7,6 +7,8 @@ const OVERSCAN = 12;
 
 export type FolderRow = {
   entry: FolderEntry;
+  /** A row standing for an expanded folder whose contents are not loaded yet. */
+  placeholder?: "loading" | "failed";
   depth: number;
   expanded: boolean;
   /** The selected file was deleted; it stays shown until another file is selected. */
@@ -25,11 +27,24 @@ export function folderRows(
   listings: ReadonlyMap<string, FolderListing>,
   expanded: ReadonlySet<string>,
   selected: string | null,
+  failed: ReadonlySet<string> = new Set(),
 ): FolderRow[] {
   const rows: FolderRow[] = [];
   const visit = (directory: string, depth: number) => {
     const listing = listings.get(directory);
-    if (!listing) return;
+    if (!listing) {
+      if (directory)
+        rows.push({
+          entry: { name: "", path: `${directory}/`, kind: "other", ignored: false },
+          placeholder: failed.has(directory) ? "failed" : "loading",
+          depth,
+          expanded: false,
+          deleted: false,
+          setSize: 1,
+          position: 1,
+        });
+      return;
+    }
     const entries: { entry: FolderEntry; deleted: boolean }[] = listing.entries.map((entry) => ({
       entry,
       deleted: false,
@@ -66,6 +81,7 @@ export function folderRows(
 }
 
 function RowIcon({ row }: { row: FolderRow }) {
+  if (row.placeholder) return null;
   if (row.entry.kind === "symlink") return <Link aria-hidden="true" />;
   if (row.entry.kind === "directory")
     return row.expanded ? <FolderOpen aria-hidden="true" /> : <Folder aria-hidden="true" />;
@@ -73,6 +89,8 @@ function RowIcon({ row }: { row: FolderRow }) {
 }
 
 function rowLabel(row: FolderRow) {
+  if (row.placeholder === "loading") return "Loading…";
+  if (row.placeholder === "failed") return "Could not read this folder. Retrying…";
   if (row.deleted) return `${row.entry.name}, deleted`;
   if (row.entry.kind === "symlink")
     return `${row.entry.name}, ${row.entry.link === "outside" ? "link outside this folder" : "link"}`;
@@ -135,6 +153,7 @@ export function FolderTree({
     reveal(index);
   });
   function activate(row: FolderRow) {
+    if (row.placeholder) return;
     setFocused(row.entry.path);
     if (row.entry.kind === "directory") onToggle(row.entry.path, !row.expanded);
     else onSelect(row.entry.path);
@@ -208,6 +227,7 @@ export function FolderTree({
               data-focused={index === focusIndex || undefined}
               data-ignored={entry.ignored || undefined}
               data-deleted={row.deleted || undefined}
+              data-placeholder={row.placeholder}
               style={{
                 transform: `translateY(${index * ROW_HEIGHT}px)`,
                 paddingLeft: `calc(${row.depth - 1} * var(--folder-indent) + var(--scope-space-2))`,
@@ -218,7 +238,9 @@ export function FolderTree({
                 {expandable && (row.expanded ? <ChevronDown /> : <ChevronRight />)}
               </span>
               <RowIcon row={row} />
-              <span className="folder-row-name">{entry.name}</span>
+              <span className="folder-row-name">
+                {row.placeholder ? rowLabel(row) : entry.name}
+              </span>
               {row.deleted && <small>Deleted</small>}
             </div>
           );
