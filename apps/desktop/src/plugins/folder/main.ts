@@ -25,6 +25,7 @@ import type {
   FolderViewEvent,
 } from "./contract.ts";
 import { registerFolderFind } from "./find.ts";
+import { registerFolderTransfers } from "./transfer.ts";
 import {
   FolderUpdateNeeded,
   MAX_FOLDER_IPC_READ,
@@ -102,6 +103,7 @@ export function registerFolderIpc({
     };
   }
   const find = registerFolderFind({ handle, window }, folder, unavailable);
+  const transfers = registerFolderTransfers({ handle, window, folder, notifyWatchers });
   function send(tabId: string, event: FolderViewEvent["event"]) {
     find.apply(tabId, event);
     if (!window.isDestroyed()) window.webContents.send("scope:folder-event", { tabId, event });
@@ -318,10 +320,12 @@ export function registerFolderIpc({
     tabsClosed,
     cancelTabs: (ids: readonly string[]) => {
       for (const id of ids) stopFeed(id);
+      transfers.cancelTabs(ids);
       tabsClosed(ids);
     },
     dispose: () => {
       for (const id of feeds.keys()) stopFeed(id);
+      transfers.dispose();
     },
   };
 }

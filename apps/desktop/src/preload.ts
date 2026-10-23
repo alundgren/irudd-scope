@@ -1,6 +1,6 @@
 import type { PromptEvent } from "@irudd-scope/protocol";
 import type { RetroEvent } from "@irudd-scope/protocol";
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { ScopeBridge, ArtifactLibrarySnapshot } from "./bridge.ts";
 import type { AgentToolStatus, UpdateStatus } from "./installation-contract.ts";
 import type { RetainedTab } from "./workspace/retention.ts";
@@ -52,6 +52,19 @@ const bridge: ScopeBridge = {
   copyFolderPath: (tabId) => ipcRenderer.invoke("scope:folder-copy-path", tabId),
   onFolderEvent: (listener) => subscribe("scope:folder-event", listener),
   onFolderTabOpened: (listener) => subscribe("scope:folder-tab-opened", listener),
+  prepareFolderDrop: ({ tabId, target, files }) =>
+    ipcRenderer.invoke("scope:folder-drop-prepare", {
+      tabId,
+      target,
+      // Files that did not come from this computer, such as ones built by a page, have no path.
+      paths: [...files].map((file) => (file instanceof File ? webUtils.getPathForFile(file) : "")),
+    }),
+  startFolderDrop: (input) => ipcRenderer.invoke("scope:folder-drop-start", input),
+  discardFolderDrop: (planId) => ipcRenderer.invoke("scope:folder-drop-discard", planId),
+  saveFolderFile: (input) => ipcRenderer.invoke("scope:folder-save", input),
+  cancelFolderTransfer: (id) => ipcRenderer.invoke("scope:folder-transfer-cancel", id),
+  showFolderFileMenu: (input) => ipcRenderer.invoke("scope:folder-file-menu", input),
+  onFolderTransfer: (listener) => subscribe("scope:folder-transfer", listener),
   promptCommand: (input) => ipcRenderer.invoke("scope:prompt-command", input),
   promptImage: (input) => ipcRenderer.invoke("scope:prompt-image", input),
   loadPromptDraft: (tabId) => ipcRenderer.invoke("scope:load-prompt-draft", tabId),

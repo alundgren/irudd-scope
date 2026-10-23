@@ -44,6 +44,7 @@ export const FOLDER_ERROR_CODES = [
   "not-a-directory",
   "unsupported",
   "desktop-offline",
+  "exists",
 ] as const;
 export const FolderErrorCode = Schema.Literals(FOLDER_ERROR_CODES);
 export type FolderErrorCode = typeof FolderErrorCode.Type;
@@ -248,11 +249,16 @@ export const FolderSearchEvent = Schema.Union([
 ]);
 export type FolderSearchEvent = typeof FolderSearchEvent.Type;
 
-/** Query of `PUT /v1/relay/folders/write`; the body is the raw file. */
+/**
+ * Query of `PUT /v1/relay/folders/write`; the body is the raw file. Without `replace` an
+ * existing entry fails with 409 `exists`. With `directory` the body is empty and the
+ * folder is created, as when a dropped folder has empty folders inside.
+ */
 export const FolderWriteQuery = Schema.Struct({
   root: FolderPath,
   path: FolderRelativePath.check(Schema.isMinLength(1)),
   replace: Schema.Boolean,
+  directory: Schema.optionalKey(Schema.Boolean),
 });
 export type FolderWriteQuery = typeof FolderWriteQuery.Type;
 export const FolderWriteReceipt = Schema.Struct({
@@ -333,7 +339,7 @@ export const FolderGuide = {
     "Scope never switches the selected tab for an agent command. The Folder tab is marked unread.",
     "find reports open: false, and exits 0, when the folder has no tab or its tab is closed or in Trashcan.",
     "To show the person a file, usually the one you just wrote, run one select command. FILE is relative to PATH. It opens the tab when needed, expands the folders down to the file, and selects it.",
-    'watch prints one JSON line per event and keeps running. It prints {"type":"closed"} and exits 0 when the person closes the tab. It fails when the folder has no open tab or Scope disconnects.',
+    'watch prints one JSON line per event and keeps running. When the person drops files into the tab it prints {"type":"dropped","paths":["docs/spec.pdf"]} with the folder-relative paths written, once per drop. It prints {"type":"closed"} and exits 0 when the person closes the tab. It fails when the folder has no open tab or Scope disconnects.',
     "On a paired remote the command goes through the hub. It fails when the desktop is not connected and is never queued.",
     "Scope reads files only inside the folder and keeps no copy of them.",
   ],

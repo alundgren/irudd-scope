@@ -179,8 +179,13 @@ changes nothing.
 `irudd-scope folder find .` prints `open: true` and the `tabId` when the folder
 has a tab in the strip, and `open: false` (exit 0) when it has none or the tab is
 closed or in Trashcan. `irudd-scope folder watch .` keeps running and prints one
-JSON line per event; it prints `{"type":"closed"}` and exits 0 when the person
-closes the tab, and fails when the folder has no open tab or Scope disconnects.
+JSON line per event. When the person drops files into the Folder tab it prints
+one line per drop, such as `{"type":"dropped","paths":["docs/spec.pdf"]}`,
+with the folder-relative paths written; read those files when the person asks
+about them. It prints `{"type":"closed"}` and exits 0 when the person closes the
+tab, and fails when the folder has no open tab or Scope disconnects. The person
+can also save any file from the tab to their own computer; Scope never edits or
+deletes files in the folder.
 
 ## Connection and confirmation
 

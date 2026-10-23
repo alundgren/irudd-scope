@@ -8,7 +8,9 @@ out of this package.
 - Resolve real paths and keep every read, listing, and watch inside the
   canonical root. Symlinks that leave the root are listed but never followed.
 - Scope never edits, renames, or deletes files in a shared folder. The only
-  write will copy dropped files in through a staged file and rename.
+  write copies dropped files in with `writeFolderFile`: staged as
+  `.scope-partial-*`, checked again, and committed by rename or hard link.
+  It never writes through a link and removes the staged file on failure.
 - Never watch, list, or search through `.git`. Ignored folders are not watched,
   and search reads them only when ignored files are shown.
 - Open files and folders with `openInside`. On Linux it checks the opened handle's

@@ -282,7 +282,9 @@ file and expanded folders into this record. The `folder_tabs` table keys each ta
 machine and path and is removed with the tab. Scope stores no file bytes or
 file lists in `scope.db`, `desktop.db`, or `hub.db`. The filter's path list,
 content search results, and previews stay in memory only and end with the tab's
-view. Restored tabs show the
+view. Dropped and saved files stream between the two machines without being
+stored; only a staged `.scope-partial-*` file exists at the destination while a
+copy runs. Restored tabs show the
 folder's current contents. Trashing a Folder tab keeps only its record.
 
 ## Speech requests

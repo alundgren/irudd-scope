@@ -19,6 +19,7 @@ import {
 } from "@irudd-scope/protocol/folder";
 import {
   FolderError,
+  createFolderDirectory,
   listFolder,
   readFolderFile,
   searchFolder,
@@ -167,9 +168,21 @@ export class FolderFileRoutes {
       root: "string",
       path: "string",
       replace: "boolean",
+      directory: "boolean",
     });
+    if (input.directory) {
+      await createFolderDirectory(input.root, input.path);
+      send(response, 200, { path: input.path, size: 0 });
+      return;
+    }
+    // A desktop that cancels or disconnects ends the request before its body is complete;
+    // the staged file is then removed.
     const controller = new AbortController();
-    request.on("aborted", () => controller.abort());
+    const stop = () => {
+      if (!request.complete) controller.abort();
+    };
+    request.on("close", stop);
+    response.on("close", stop);
     send(
       response,
       200,

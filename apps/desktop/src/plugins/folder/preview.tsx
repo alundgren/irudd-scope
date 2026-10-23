@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Download } from "lucide-react";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { FileViews, type FileContent } from "../../renderer/file-views.tsx";
 import type { FolderViewEvent } from "./contract.ts";
@@ -217,6 +218,15 @@ export function FolderPreview({
                 : "Unknown"}
             </dd>
             <dd className="folder-file-note">Scope cannot preview this file.</dd>
+            <dd>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void window.scope.saveFolderFile({ tabId, path }).catch(() => {})}
+              >
+                <Download /> Save to computer…
+              </Button>
+            </dd>
           </dl>
         )}
         {loaded.status === "shown" && (

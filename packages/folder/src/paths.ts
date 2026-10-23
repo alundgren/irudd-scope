@@ -14,6 +14,7 @@ const STATUS: Record<FolderErrorCode, number> = {
   "not-a-directory": 400,
   unsupported: 501,
   "desktop-offline": 503,
+  exists: 409,
 };
 
 /** A folder operation failure with the wire error code and its HTTP status. */
@@ -75,9 +76,19 @@ export function validRelative(relative: string): string {
   } catch {
     throw new FolderError("outside-folder", "Use a path inside the folder.");
   }
-  if (path.split("/").includes(GIT_DIRECTORY))
+  // Letter case matters only on some file systems: `.GIT` is `.git` on macOS and Windows.
+  if (path.split("/").some(gitName))
     throw new FolderError("not-found", "Scope does not show .git.");
   return path;
+}
+
+export function gitName(name: string): boolean {
+  return name.toLowerCase() === GIT_DIRECTORY;
+}
+
+/** Whether a real path inside the root passes through `.git`, for example through a link. */
+export function insideGit(root: string, real: string): boolean {
+  return real.slice(root.length).split(sep).some(gitName);
 }
 
 /** The path inside the root, without following a final symlink. */
@@ -105,7 +116,9 @@ async function resolveJoined(root: string, path: string, shown: string): Promise
  * followed only while they stay inside the root.
  */
 export async function resolveInside(root: string, relative: string): Promise<string> {
-  return resolveJoined(root, joinInside(root, relative), relative);
+  const real = await resolveJoined(root, joinInside(root, relative), relative);
+  if (insideGit(root, real)) throw new FolderError("not-found", "Scope does not show .git.");
+  return real;
 }
 
 const escaped = () => new FolderError("outside-folder", "Use a path inside the folder.");
@@ -157,6 +170,9 @@ export async function openInside(
   const path = options.internal ? join(root, ...relative.split("/")) : joinInside(root, relative);
   const real = await resolveJoined(root, path, relative);
   if (options.noSymlinks && real !== path) throw escaped();
+  // A link inside the folder, such as docs/config -> ../.git/config, does not reach `.git`.
+  if (!options.internal && insideGit(root, real))
+    throw new FolderError("not-found", "Scope does not show .git.");
   const flags =
     constants.O_RDONLY |
     (constants.O_NOFOLLOW ?? 0) |

@@ -218,14 +218,14 @@ Agent commands use the normal publishing token, locally or through a hub:
 | `POST /v1/folders/open`, `{ path, title? }`         | `{ tabId, machine, path, created }`                                             |
 | `POST /v1/folders/find`, `{ path }`                 | `{ open, tabId?, machine, path }`; a tab in Trashcan or the drawer is not open. |
 | `POST /v1/folders/select`, `{ path, file, title? }` | `FolderOpenReceipt` plus `file`                                                 |
-| `GET /v1/folders/watch?path=`                       | NDJSON `FolderWatchEvent` lines: `closed` and `heartbeat`                       |
+| `GET /v1/folders/watch?path=`                       | NDJSON `FolderWatchEvent` lines: `dropped`, `closed`, `heartbeat`               |
 
 `path` is absolute on the machine that runs the command. Scope resolves it to
 the canonical real path on that machine; hubs resolve it before relaying. Any
 `machine` field in the body is ignored: the machine is the connection that
 delivered the command. Folder commands are never queued. Failures are JSON
 `{ error, code }` with `code` one of `no-tab`, `not-found`, `outside-folder`,
-`not-a-directory`, `unsupported`, or `desktop-offline`. A 404 without a code
+`not-a-directory`, `unsupported`, `desktop-offline`, or `exists`. A 404 without a code
 comes from a Scope or hub without folder support; the CLI then prints
 `Update Scope on HOST to share folders`.
 
@@ -233,7 +233,9 @@ comes from a Scope or hub without folder support; the CLI then prints
 opening anything: a path that leaves the folder fails with 403
 `outside-folder`, a missing file with 404 `not-found`, and a directory with
 `not-a-directory`. It opens the tab like `open` when needed. `watch` answers
-404 `no-tab` when the folder has no open tab. Otherwise it writes a heartbeat
+404 `no-tab` when the folder has no open tab. Otherwise it writes one
+`{"type":"dropped","paths":[...]}` line per finished drop, listing the
+folder-relative paths the person copied in, a heartbeat
 line every 10 seconds and ends after `{"type":"closed"}` when the tab is closed
 or trashed. A stream that ends without `closed` means Scope disconnected.
 Each hub relays at most `MAX_FOLDER_WATCHES` (16) watches, counted apart from
@@ -248,7 +250,7 @@ the desktop connection credential, never the publishing token:
 | `GET /v1/relay/folders/read?root=&path=&start=&end=`             | Raw bytes `start` to `end` (exclusive), `Scope-Folder-File-Size`, and `Scope-Folder-File-Modified` |
 | `GET /v1/relay/folders/events?root=`                             | NDJSON `FolderFeedEvent` lines with a heartbeat every 10 seconds                                   |
 | `POST /v1/relay/folders/search`, `FolderSearchRequest`           | NDJSON `FolderSearchEvent` lines ending with `done`                                                |
-| `PUT /v1/relay/folders/write?root=&path=&replace=0\|1`, raw body | `FolderWriteReceipt`. Not available yet: 501 `unsupported`.                                        |
+| `PUT /v1/relay/folders/write?root=&path=&replace=0\|1`, raw body | `FolderWriteReceipt` once the file is committed in place                                           |
 
 Search matches `query` as plain text in any letter case and honours
 `showIgnored`. A content search reads only regular files inside `root`, skips
@@ -257,6 +259,13 @@ sends `match` lines with the path, line number, and line text, stopping at 1,000
 with `done` and `truncated: true`. With `names: true` it matches file paths
 instead and sends `file` lines, stopping at 10,000. Long searches send a
 heartbeat at least every 10 seconds. Closing the request stops the search.
+
+A write stages the body inside the folder and renames it into place after
+checking containment again, creating missing folders on the way. It never
+writes through a link. Without `replace=1` an existing entry, including one
+created during the upload, fails with 409 `exists` and nothing is written.
+`directory=1` creates an empty folder instead. Closing the request before the
+body ends removes the staged file.
 
 Every file route resolves real paths and rejects paths that leave `root`,
 including through symlinks, with 403 `outside-folder`. A desktop sends

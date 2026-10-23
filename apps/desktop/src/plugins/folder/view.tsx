@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Copy } from "lucide-react";
 import { decode } from "@irudd-scope/protocol";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { useRemotes } from "../../renderer/remote-names.ts";
 import type { TabContext } from "../api.ts";
 import type { Tab } from "../../workspace/contract.ts";
-import { FolderTabState, type FolderTabData } from "./contract.ts";
+import { FolderTabState, folderAncestors, type FolderTabData } from "./contract.ts";
 import { useFolder, type FolderStatus } from "./use-folder.ts";
 import { FolderTree, filteredRows, folderRows } from "./tree.tsx";
 import { FolderSearch, filterStatus, useFolderFilter } from "./find-panel.tsx";
 import { FolderPreview } from "./preview.tsx";
+import { ClashQuestion, FolderTransfers, useFolderDrop } from "./transfers.tsx";
 
 function Unavailable({
   status,
@@ -82,6 +83,21 @@ export function FolderView({
   const [copied, setCopied] = useState(false);
   const update = (patch: Partial<FolderTabData>) =>
     context.updateState({ version: 1, data: { ...data, ...patch } });
+  const latest = useRef(data);
+  latest.current = data;
+  // The tree shows dropped files and selects the first one, opening its folders.
+  const dropping = useFolderDrop(tab.id, (paths) => {
+    const first = paths[0]!;
+    const current = latest.current;
+    context.updateState({
+      version: 1,
+      data: {
+        ...current,
+        expanded: [...new Set([...current.expanded, ...folderAncestors(first)])],
+        selectedPath: first,
+      },
+    });
+  });
 
   function toggle(path: string, open: boolean) {
     if (filtering) {
@@ -134,6 +150,12 @@ export function FolderView({
           every few seconds.
         </p>
       )}
+      <FolderTransfers
+        tabId={tab.id}
+        notice={dropping.notice}
+        onDismissNotice={dropping.dismissNotice}
+      />
+      <ClashQuestion question={dropping.question} />
       {status.kind === "ok" ? (
         <div className="folder-body">
           <div className="folder-side">
@@ -182,6 +204,7 @@ export function FolderView({
                   update({ selectedPath: path });
                 }}
                 onRetry={retry}
+                onDropFiles={(folder, files) => void dropping.drop(folder, files)}
               />
             </div>
             <div className="folder-find" hidden={mode !== "search"}>

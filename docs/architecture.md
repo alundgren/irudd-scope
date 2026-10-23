@@ -142,6 +142,33 @@ a folder swapped for a link and back between two checks could pass. Change feeds
 their own per-remote budget of 64, separate from the 32 streamed listings, reads, and
 writes; desktop main queues listings and reads 8 at a time per machine.
 
+Dropping files on the tree copies them in; it is the only time Scope writes to a
+shared folder. The preload turns dropped `File` objects into paths with
+`webUtils.getPathForFile` and sends them straight to main, so a page can pass
+dropped files but never a path of its choice. Main lists the dropped files and the
+files inside dropped folders (skipping links, special files, and `.git`), reads
+each target folder to find names that exist, and returns a plan. Nothing is written
+until the renderer answers Replace, Keep both, or Cancel for each existing name.
+Main then streams one file at a time to the folder source: locally to
+`writeFolderFile`, remotely as the raw body of `PUT /v1/relay/folders/write`,
+sent with `node:http` because fetch gives up on a response that waits more than
+300 seconds for a long upload. `writeFolderFile` opens every folder on the way
+without following links, stages the bytes in `.scope-partial-*` at the top of
+the folder (in the destination itself when that is on another file system),
+checks every folder again, and commits by rename. Without Replace it commits with a
+hard link, which fails if the name appeared during the copy; the renderer then asks
+again. A cancelled, failed, or disconnected copy removes the staged file. On Linux
+the opened folders are addressed through `/proc/self/fd`, so a folder swapped for
+a link cannot redirect the write; macOS and Windows rely on the repeated checks
+above. When a drop finishes, main sends one `dropped` line listing the written
+paths to every `folder watch` on the tab.
+
+Save to computer opens the native save dialog in Downloads, streams the file from
+the folder source into a `.scope-partial-*` file beside the chosen name, and
+renames it only when every byte arrived. Remote saves read
+`GET /v1/relay/folders/read` without an end. Saves and drops report progress to
+the tab, can be cancelled, and stop when the tab closes.
+
 ## Tab transfer
 
 `apps/desktop/src/transfer/` owns desktop pairing, temporary invitations,
