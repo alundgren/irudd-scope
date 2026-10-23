@@ -84,9 +84,13 @@ while keeping its other expanded folders.
 
 `folder watch` is a long NDJSON response with a heartbeat every 10 seconds.
 Desktop main ends it with `closed` at the moment the tab leaves the strip:
-trashing and deletion reach the plugin through the lifecycle, and a workspace
-save that closes a bookmarked tab to the drawer reports that tab. The watch ends
-even if an agent reopens the tab right after. A hub relays a watch like other
+trashing and deletion reach the plugin through the lifecycle. Closing a
+bookmarked tab to the drawer, and reopening it, are their own lifecycle
+operation (`scope:set-tab-hidden`), queued in order with agent commands. It
+changes only the stored tab's visibility, so a renderer save that `scope.db`
+ignores as older cannot undo the close, and it tells the plugin before the
+renderer's request resolves. The watch ends even if the tab is reopened right
+after. A hub relays a watch like other
 requests but keeps it in its own count of at most 16, apart from the 16
 publication slots, and reserves the slot before resolving the path, so
 concurrent watches cannot exceed it. If the desktop does not start answering

@@ -219,10 +219,47 @@ test(
       expect(await item("docs").getAttribute("aria-expanded")).toBe("true");
 
       // A local watch ends with `closed` when the person closes the tab, here a bookmark,
-      // even when an agent reopens the tab right after.
+      // even while the window still shows an older copy of the tab: main's notice of the
+      // agent's newer selection is held back until after the close.
+      await page.getByRole("button", { name: "Keep permanently: Login fix", exact: true }).click();
+      const stale = await startWatch(localEnv, app);
+      watches.push(stale);
+      await application.evaluate(({ BrowserWindow }) => {
+        const contents = BrowserWindow.getAllWindows()[0]!.webContents;
+        const send = contents.send.bind(contents);
+        const held: [string, ...unknown[]][] = [];
+        contents.send = (channel: string, ...args: unknown[]) => {
+          if (channel === "scope:folder-tab-opened") held.push([channel, ...args]);
+          else send(channel, ...args);
+        };
+        Object.assign(globalThis, {
+          releaseFolderEvents: () => {
+            contents.send = send;
+            for (const [channel, ...args] of held) send(channel, ...args);
+          },
+        });
+      });
+      await client.folderSelect({ path: app, file: "docs/plans/login.html" });
+      await page.getByRole("button", { name: "Close Login fix", exact: true }).click();
+      await folderTab.waitFor({ state: "hidden" });
+      expect(await stale.exited).toMatchObject({ code: 0, stdout: '{"type":"closed"}\n' });
+      expect(await folder("find", app)).toMatchObject({ open: false });
+      // Reopening from the drawer opens the tab again and keeps the agent's selection.
+      await page.getByRole("button", { name: /^Tabs and Trashcan/ }).click();
+      await page.locator(".tab-drawer-select").filter({ hasText: "Login fix" }).click();
+      await folderTab.waitFor();
+      expect(await folder("find", app)).toMatchObject({ open: true, tabId: selected.tabId });
+      await application.evaluate(() =>
+        (globalThis as unknown as { releaseFolderEvents: () => void }).releaseFolderEvents(),
+      );
+      await folderTab.click();
+      await expect
+        .poll(() => item("login.html, ignored").getAttribute("aria-selected"))
+        .toBe("true");
+
+      // A watch also ends when an agent reopens the tab right after the close.
       const local = await startWatch(localEnv, app);
       watches.push(local);
-      await page.getByRole("button", { name: "Keep permanently: Login fix", exact: true }).click();
       await page.getByRole("button", { name: "Close Login fix", exact: true }).click();
       await client.folderOpen({ path: app });
       expect(await local.exited).toMatchObject({ code: 0, stdout: '{"type":"closed"}\n' });

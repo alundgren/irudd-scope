@@ -208,12 +208,19 @@ export function useFolder(
     };
   }, [started, tabId, reloadAll, reload]);
 
-  // An agent's `folder select` can expand folders this view has not read yet.
+  // Expanding a folder, in the tree or by an agent's `folder select`, reads the folders
+  // this view has not read yet. Folders that failed are left to their retries. The key
+  // keeps this to real changes; the expanded list is a new array on every render.
+  const expandedKey = view.expanded.join("\n");
+  const failedNow = useRef(failed);
+  failedNow.current = failed;
   useEffect(() => {
     if (!started || statusRef.current.kind !== "ok") return;
-    const missing = visibleExpanded(view.expanded).filter((path) => !loaded.current.has(path));
+    const missing = visibleExpanded(current.current.expanded).filter(
+      (path) => !loaded.current.has(path) && !failedNow.current.has(path),
+    );
     if (missing.length) void load(missing);
-  }, [view.expanded, started, load]);
+  }, [expandedKey, started, load]);
 
   const shownIgnored = useRef(view.showIgnored);
   useEffect(() => {

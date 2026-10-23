@@ -203,6 +203,10 @@ export function registerDesktopIpc({
     const { id, permanent } = decode(Schema.Struct({ id: Uuid, permanent: Schema.Boolean }), input);
     return lifecycle.setTabPermanent(id, permanent);
   });
+  handle("scope:set-tab-hidden", (input) => {
+    const { id, hidden } = decode(Schema.Struct({ id: Uuid, hidden: Schema.Boolean }), input);
+    return lifecycle.setTabHidden(id, hidden);
+  });
   handle("scope:restore-tab", (input) => lifecycle.restoreTab(decode(Uuid, input)));
   handle("scope:empty-trash", (input) =>
     lifecycle.emptyTrash(decode(Schema.Array(TrashEntry), input)),

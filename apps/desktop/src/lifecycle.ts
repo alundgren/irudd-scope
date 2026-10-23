@@ -15,7 +15,7 @@ export class DesktopLifecycle {
   onRetentionChanged: (tabs: RetainedTab[]) => void = () => {};
   private visibleIds: readonly string[] = [];
   onClosed: (ids: string[]) => void = () => {};
-  /** Tabs a workspace save closed to the drawer. Their views stay mounted. */
+  /** Tabs closed to the drawer. Their views stay mounted. */
   onHidden: (ids: string[]) => void = () => {};
 
   constructor(
@@ -111,9 +111,8 @@ export class DesktopLifecycle {
     const workspace = decodeWorkspace(value);
     for (const tab of workspace.tabs) validateTabState(tab, true);
     return this.enqueue(async () => {
-      const hidden = await this.artifacts.saveTabs(workspace.tabs);
+      await this.artifacts.saveTabs(workspace.tabs);
       await this.desktop.saveLayout({ groups: workspace.groups, selected: workspace.selected });
-      if (hidden.length) this.onHidden(hidden);
     });
   }
 
@@ -135,6 +134,17 @@ export class DesktopLifecycle {
     return this.enqueue(async () => {
       await this.artifacts.setTabPermanent(id, permanent);
       await this.notifyRetention();
+    });
+  }
+
+  /**
+   * Closes a tab to the drawer or reopens it, in order with agent commands such as
+   * `folder open`. Plugins hear about a close before the renderer's request resolves, so
+   * a quick reopen cannot hide it, and a renderer save with an older tab cannot undo it.
+   */
+  setTabHidden(id: string, hidden: boolean): Promise<void> {
+    return this.enqueue(async () => {
+      if ((await this.artifacts.setTabHidden(id, hidden)) && hidden) this.onHidden([id]);
     });
   }
 

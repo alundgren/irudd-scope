@@ -490,6 +490,32 @@ export class ArtifactStore {
     );
   }
 
+  /**
+   * Closes an open tab to the drawer or reopens it, changing only the saved tab's
+   * visibility so newer changes from desktop main stay. A closed tab moves to the end.
+   * Returns whether the visibility changed.
+   */
+  async setTabHidden(id: string, hidden: boolean): Promise<boolean> {
+    const sql = this.sql;
+    return await this.run(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const [row] = yield* sql<{
+            document: string | null;
+          }>`SELECT document FROM live_tabs WHERE id = ${id} AND opened = 1 AND trashed_at IS NULL`;
+          if (!row?.document) return false;
+          const saved = decode(Tab, JSON.parse(row.document));
+          if (Boolean(saved.hidden) === hidden) return false;
+          const document = JSON.stringify({ ...saved, hidden });
+          if (hidden)
+            yield* sql`UPDATE live_tabs SET document = ${document}, position = (SELECT coalesce(max(position), -1) + 1 FROM live_tabs) WHERE id = ${id}`;
+          else yield* sql`UPDATE live_tabs SET document = ${document} WHERE id = ${id}`;
+          return true;
+        }),
+      ),
+    );
+  }
+
   async trashTab(id: string, now = Date.now()): Promise<string[]> {
     const sql = this.sql;
     const rows = await this.run(
@@ -726,13 +752,11 @@ export class ArtifactStore {
     );
   }
 
-  /** Saves the renderer's tabs and returns the IDs of tabs this save closed to the drawer. */
-  async saveTabs(tabs: readonly Tab[]): Promise<string[]> {
+  async saveTabs(tabs: readonly Tab[]): Promise<void> {
     const sql = this.sql;
-    return await this.run(
+    await this.run(
       sql.withTransaction(
         Effect.gen(function* () {
-          const hidden: string[] = [];
           for (const [position, tab] of tabs.entries()) {
             const [saved] = yield* sql<{
               document: string | null;
@@ -742,11 +766,8 @@ export class ArtifactStore {
               assertBuiltinType(previous, tab, yield* artifactKind(sql, tabArtifactId(tab)));
             // Desktop main changed this Folder tab after the renderer read it.
             if (previous && staleFolderTab(previous, tab)) continue;
-            const rows =
-              yield* sql`UPDATE live_tabs SET document = ${JSON.stringify(tab)}, position = ${position} WHERE id = ${tab.id} AND opened = 1 AND trashed_at IS NULL AND artifact_id IS ${tabArtifactId(tab) ?? null} RETURNING id`;
-            if (rows.length && tab.hidden && previous && !previous.hidden) hidden.push(tab.id);
+            yield* sql`UPDATE live_tabs SET document = ${JSON.stringify(tab)}, position = ${position} WHERE id = ${tab.id} AND opened = 1 AND trashed_at IS NULL AND artifact_id IS ${tabArtifactId(tab) ?? null}`;
           }
-          return hidden;
         }),
       ),
     );

@@ -265,7 +265,10 @@ export function useWorkspace(onError: (message: string) => void) {
   }
 
   function revealTab(id: string): void {
-    hiding.current.delete(id);
+    // Reopening also wins over a close that main has not finished.
+    const closing = hiding.current.delete(id);
+    if (closing || current.current.tabs.find((tab) => tab.id === id)?.hidden)
+      void window.scope.setTabHidden(id, false).catch(() => {});
     const previous = current.current;
     replace({
       ...previous,
@@ -299,7 +302,11 @@ export function useWorkspace(onError: (message: string) => void) {
     const next = deferred(current.current);
     if (next === current.current) return next.selected;
     for (const pending of pendingOpens.current) pending.closed.add(id);
-    const hide: Promise<void> = window.scope.saveWorkspace(next).then(() => {
+    // Main closes the stored tab first, so a workspace save it ignores as older cannot undo
+    // the close. Both requests are sent together to keep their order with a quick reopen.
+    const closing = window.scope.setTabHidden(id, true);
+    const saving = window.scope.saveWorkspace(next);
+    const hide: Promise<void> = Promise.all([closing, saving]).then(() => {
       // A reopen while this save was pending wins over the close.
       if (hiding.current.get(id) === hide) replace(deferred(current.current));
     });
