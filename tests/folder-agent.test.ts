@@ -1,5 +1,6 @@
 import { expect, test } from "vite-plus/test";
 import { spawn } from "node:child_process";
+import { createServer, request } from "node:http";
 import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
@@ -41,6 +42,50 @@ async function startWatch(env: NodeJS.ProcessEnv, folder: string) {
     );
   });
   return { child, exited };
+}
+
+/**
+ * Sits between the desktop and a hub so a test can hold back the remote folder's root
+ * listing, which the Folder tab reads first.
+ */
+async function listingProxy(endpoint: string) {
+  const held: (() => void)[] = [];
+  let holding = false;
+  const server = createServer((incoming, outgoing) => {
+    const url = new URL(incoming.url!, "http://127.0.0.1");
+    const root = url.pathname === "/v1/relay/folders/list" && url.searchParams.get("path") === "";
+    const upstream = request(
+      endpoint + incoming.url,
+      { method: incoming.method, headers: incoming.headers },
+      (response) => {
+        const deliver = () => {
+          outgoing.writeHead(response.statusCode!, response.headers);
+          response.pipe(outgoing);
+        };
+        if (holding && root) held.push(deliver);
+        else deliver();
+      },
+    );
+    upstream.on("error", () => outgoing.destroy());
+    // A relayed watch answer streams for minutes; pass its headers on at once.
+    upstream.flushHeaders();
+    incoming.pipe(upstream);
+    outgoing.on("close", () => upstream.destroy());
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  return {
+    endpoint: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
+    held,
+    hold: () => (holding = true),
+    release: () => {
+      holding = false;
+      for (const deliver of held.splice(0)) deliver();
+    },
+    close: () => {
+      server.closeAllConnections();
+      server.close();
+    },
+  };
 }
 
 /**
@@ -122,6 +167,7 @@ test(
     const folder = async (...args: string[]) =>
       JSON.parse((await f.cli("folder", ...args)).stdout) as Receipt & { open?: boolean };
     const devbox = await spawnedHub(join(f.directory, "devbox"));
+    const proxy = await listingProxy(devbox.endpoint);
     const application = await f.launch();
     const watches: Awaited<ReturnType<typeof startWatch>>[] = [];
     try {
@@ -274,7 +320,9 @@ test(
       const silentDesktop = await silentHub(join(f.directory, "silent"), app);
 
       // Through a hub, a remote agent gets its own tab and the same answers.
-      await page.evaluate((url) => window.scope.pairRemote(url), devbox.pairUrl);
+      const pairUrl = new URL(devbox.pairUrl);
+      pairUrl.searchParams.set("endpoint", proxy.endpoint);
+      await page.evaluate((url) => window.scope.pairRemote(url), pairUrl.href);
       await expect
         .poll(async () => (await page.evaluate(() => window.scope.remotes()))[0]?.connection)
         .toBe("connected");
@@ -303,6 +351,21 @@ test(
       expect(JSON.parse(await devbox.cli("folder", "find", other))).toMatchObject({
         open: false,
       });
+
+      // A file selected while the tab is still reading the folder for the first time
+      // appears once that first listing arrives.
+      await mkdir(join(app, "src"));
+      await writeFile(join(app, "src", "main.ts"), "export {};\n");
+      proxy.hold();
+      await remoteTab.click();
+      await expect.poll(() => proxy.held.length).toBeGreaterThan(0);
+      expect(JSON.parse(await devbox.cli("folder", "select", app, "src/main.ts"))).toMatchObject({
+        tabId: remote.tabId,
+        created: false,
+      });
+      await delay(300);
+      proxy.release();
+      await expect.poll(() => item("main.ts").getAttribute("aria-selected")).toBe("true");
 
       // A hub keeps at most 16 watches, even when many arrive at once, and open watches
       // leave all 16 publication slots free.
@@ -356,6 +419,7 @@ test(
       for (const { child } of watches) child.kill();
       await application.close();
       await devbox.stop();
+      proxy.close();
       await rm(f.directory, { recursive: true, force: true });
     }
   },
