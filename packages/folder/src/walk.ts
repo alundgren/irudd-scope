@@ -1,5 +1,4 @@
-import { readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { readContainedDirectory } from "./contained.ts";
 import { GIT_DIRECTORY, IgnoreRules } from "./ignore-rules.ts";
 
 export type WalkedDirectory = {
@@ -8,14 +7,17 @@ export type WalkedDirectory = {
   directories: string[];
   /** Names in this directory that ignore rules match. Empty unless ignored entries are included. */
   ignored: Set<string>;
+  /** Names in `files` that are not regular files, such as symlinks and FIFOs. */
+  special: Set<string>;
 };
 type WalkOptions = { start?: string; signal?: AbortSignal; includeIgnored?: boolean };
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 /**
- * Yields the folder's directories breadth first, without following symlinks. Ignored
- * directories such as node_modules are neither read nor returned unless requested.
+ * Yields the folder's directories breadth first, without following symlinks. A directory
+ * is entered only while it is still a real directory inside the root. Ignored directories
+ * such as node_modules are neither read nor returned unless requested.
  */
 export async function* directories(
   root: string,
@@ -27,12 +29,16 @@ export async function* directories(
   ];
   while (queue.length && !options.signal?.aborted) {
     const { path, rules, ignoredAbove } = queue.shift()!;
-    const entries = await readdir(path ? join(root, ...path.split("/")) : root, {
-      withFileTypes: true,
-    }).catch(() => undefined);
+    const entries = await readContainedDirectory(root, path);
     if (!entries) continue;
     entries.sort((a, b) => collator.compare(a.name, b.name));
-    const directory: WalkedDirectory = { path, files: [], directories: [], ignored: new Set() };
+    const directory: WalkedDirectory = {
+      path,
+      files: [],
+      directories: [],
+      ignored: new Set(),
+      special: new Set(),
+    };
     for (const entry of entries) {
       if (entry.name === GIT_DIRECTORY) continue;
       const child = path ? `${path}/${entry.name}` : entry.name;
@@ -41,7 +47,10 @@ export async function* directories(
         directory.ignored.add(entry.name);
       }
       if (entry.isDirectory()) directory.directories.push(entry.name);
-      else directory.files.push(entry.name);
+      else {
+        directory.files.push(entry.name);
+        if (!entry.isFile()) directory.special.add(entry.name);
+      }
     }
     yield directory;
     for (const name of directory.directories) {

@@ -24,7 +24,10 @@ type ViewerProps = { content: FileContent; line?: number };
 
 const decodeText = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
-/** Lines per block. Blocks outside the view render as empty space of the same height. */
+/**
+ * Lines per block. Blocks away from the view keep their text as one plain text node, laid
+ * out like the numbered lines, so Select All and copy include the whole file.
+ */
 const TEXT_BLOCK_LINES = 500;
 
 function TextBlock({
@@ -40,11 +43,9 @@ function TextBlock({
 }) {
   if (!shown)
     return (
-      <div
-        className="text-block"
-        data-block={first}
-        style={{ height: `calc(${lines.length} * var(--scope-leading-reading))` }}
-      />
+      <div className="text-block" data-block={first} data-plain>
+        {lines.join("\n")}
+      </div>
     );
   return (
     <div className="text-block" data-block={first}>
@@ -63,7 +64,7 @@ function TextBlock({
 }
 
 /**
- * Text with line numbers. `line` scrolls to and marks that line. Long files render only
+ * Text with line numbers. `line` scrolls to and marks that line. Long files number only
  * the blocks near the view, so a 2 MiB log with 300,000 short lines stays responsive.
  */
 function TextView({ content, line }: ViewerProps) {

@@ -1046,6 +1046,9 @@ h2 {
   color: var(--scope-muted);
   user-select: none;
 }
+.text-block[data-plain] {
+  padding-left: calc(var(--line-digits) * 1ch + var(--scope-space-4));
+}
 .text-line[aria-current] {
   background: var(--scope-selected);
 }

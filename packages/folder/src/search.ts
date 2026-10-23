@@ -1,6 +1,3 @@
-import { constants } from "node:fs";
-import { open } from "node:fs/promises";
-import { join } from "node:path";
 import {
   FOLDER_HEARTBEAT_MS,
   MAX_FOLDER_NAME_MATCHES,
@@ -9,6 +6,7 @@ import {
   type FolderSearchEvent,
   type FolderSearchRequest,
 } from "@irudd-scope/protocol/folder";
+import { openContainedFile } from "./contained.ts";
 import { checkRoot } from "./paths.ts";
 import { directories } from "./walk.ts";
 
@@ -23,16 +21,20 @@ function lineText(line: string, index: number) {
   return line.slice(from, from + MAX_LINE_TEXT);
 }
 
-/** Reads a small regular file, or nothing for links, large files, and binary files. */
-async function readText(absolute: string, signal: AbortSignal): Promise<string | undefined> {
-  // O_NOFOLLOW: a symlink swapped in after the walk is not read.
-  const handle = await open(absolute, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)).catch(
-    () => undefined,
-  );
+/**
+ * Reads a small regular file inside the root, or nothing for links, FIFOs, large files,
+ * binary files, and paths that a swapped folder would lead outside.
+ */
+async function readText(
+  root: string,
+  path: string,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const handle = await openContainedFile(root, path);
   if (!handle) return undefined;
   try {
     const info = await handle.stat();
-    if (!info.isFile() || info.size > MAX_FOLDER_SEARCH_FILE_BYTES) return undefined;
+    if (info.size > MAX_FOLDER_SEARCH_FILE_BYTES) return undefined;
     const bytes = await handle.readFile({ signal });
     if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) return undefined;
     return bytes.toString("utf8");
@@ -75,7 +77,8 @@ export async function* searchFolder(
         if (++found >= limit) return yield { type: "done", truncated: true };
         continue;
       }
-      const text = await readText(join(input.root, ...path.split("/")), signal);
+      if (directory.special.has(name)) continue;
+      const text = await readText(input.root, path, signal);
       if (text === undefined) continue;
       const lines = text.split("\n");
       for (let index = 0; index < lines.length; index++) {

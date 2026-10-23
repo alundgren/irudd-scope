@@ -32,6 +32,8 @@ export type FolderBytes = { size: number; modifiedAt: number; start: number; byt
 export type FolderDirectory = {
   path: string;
   entries: { name: string; directory: boolean; ignored: boolean }[];
+  /** The directory had more entries than one listing returns. */
+  truncated: boolean;
 };
 export type FolderSearchInput = Omit<FolderSearchRequest, "root">;
 /** Directories a remote walk lists at once, leaving room for the feed and previews. */
@@ -107,6 +109,7 @@ export function localFolderSource(root: string): FolderSource {
               ...directory.directories.map((name) => ({ name, directory: true })),
               ...directory.files.map((name) => ({ name, directory: false })),
             ].map((entry) => ({ ...entry, ignored: directory.ignored.has(entry.name) })),
+            truncated: false,
           }),
         { start, signal, includeIgnored: showIgnored },
       ),
@@ -237,6 +240,7 @@ export function remoteFolderSource(remotes: Remotes, identity: FolderIdentity): 
                     directory: entry.kind === "directory",
                     ignored: entry.ignored,
                   })),
+                  truncated: listing.truncated,
                 });
                 for (const entry of listing.entries)
                   if (entry.kind === "directory") queue.push(entry.path);

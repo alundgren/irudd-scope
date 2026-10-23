@@ -86,15 +86,23 @@ async function loadPreview(tabId: string, path: string): Promise<Loaded> {
   };
 }
 
+/**
+ * How a change batch affects the previewed file, including through a parent folder: a
+ * deleted or renamed `docs` deletes `docs/notes.txt`, and a created one may bring it back.
+ */
 function touches(event: FolderViewEvent["event"], path: string): "changed" | "deleted" | null {
   if (event.type !== "changes") return null;
   if (event.overflow) return "changed";
+  const covers = (changed: string) => changed === path || path.startsWith(`${changed}/`);
   let result: "changed" | "deleted" | null = null;
   for (const change of event.changes) {
     if (change.type === "renamed") {
-      if (change.to === path) result = "changed";
-      else if (change.from === path) result = "deleted";
-    } else if (change.path === path) result = change.type === "deleted" ? "deleted" : "changed";
+      if (covers(change.to)) result = "changed";
+      else if (covers(change.from)) result = "deleted";
+    } else if (change.type === "deleted") {
+      if (covers(change.path)) result = "deleted";
+    } else if (change.type === "created" ? covers(change.path) : change.path === path)
+      result = "changed";
   }
   return result;
 }
@@ -118,15 +126,18 @@ export function FolderPreview({
   const [source, setSource] = useState(false);
   const [reloads, setReloads] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Counts reads and deletions; a read that finishes after a newer one or a deletion is dropped.
+  const generation = useRef(0);
 
   useEffect(() => setSource(line !== undefined), [path, line]);
   useEffect(() => {
-    let current = true;
+    const run = ++generation.current;
+    const current = () => run === generation.current;
     if (!reloads) setLoaded({ status: "loading" });
     loadPreview(tabId, path).then(
-      (result) => current && setLoaded(result),
+      (result) => current() && setLoaded(result),
       (error: unknown) => {
-        if (!current) return;
+        if (!current()) return;
         const message = error instanceof Error ? error.message : "";
         setLoaded(
           /does not exist/.test(message)
@@ -136,15 +147,18 @@ export function FolderPreview({
       },
     );
     return () => {
-      current = false;
+      generation.current++;
     };
   }, [tabId, path, reloads]);
   useEffect(() => {
     const stop = window.scope.onFolderEvent(({ tabId: id, event }) => {
       if (id !== tabId) return;
       const change = touches(event, path);
-      if (change === "deleted") setLoaded({ status: "deleted" });
-      else if (change === "changed") {
+      if (change === "deleted") {
+        clearTimeout(timer.current);
+        generation.current++;
+        setLoaded({ status: "deleted" });
+      } else if (change === "changed") {
         clearTimeout(timer.current);
         timer.current = setTimeout(() => setReloads((count) => count + 1), 100);
       }

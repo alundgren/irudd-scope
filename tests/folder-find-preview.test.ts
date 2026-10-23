@@ -1,11 +1,11 @@
 import { expect, test } from "vite-plus/test";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 const exec = promisify(execFile);
@@ -81,7 +81,7 @@ async function syntheticFolder(folder: string) {
   await mkdir(join(folder, "src"));
   await writeFile(
     join(folder, "src", "code.ts"),
-    Array.from({ length: 400 }, (_, index) =>
+    Array.from({ length: 1200 }, (_, index) =>
       index === 249 ? "// todo: retry the request" : `export const line${index + 1} = ${index};`,
     ).join("\n"),
   );
@@ -97,7 +97,16 @@ async function syntheticFolder(folder: string) {
   await mkdir(join(folder, "ignored"));
   await writeFile(join(folder, ".gitignore"), "ignored/\n");
   await writeFile(join(folder, "ignored", "skip.txt"), "TODO ignored\n");
+  // Opening a FIFO for reading waits for a writer; search must skip it, not hang.
+  if (process.platform !== "win32") await exec("mkfifo", [join(folder, "notes", "pipe-todo.txt")]);
 }
+
+/** The text a person copies after Select All in a text view, without scrolling it first. */
+const selectedText = (view: Locator) =>
+  view.evaluate((element) => {
+    getSelection()!.selectAllChildren(element);
+    return getSelection()!.toString();
+  });
 
 /** What a case-insensitive grep finds in the files content search may read. */
 async function referenceSearch(folder: string, query: string) {
@@ -163,6 +172,11 @@ async function useFolderTab(page: Page, label: string, folder: string) {
   await item("logs").click();
   await item("huge.log").click();
   await preview("huge.log").getByText("Showing the first 2.0 MiB of 10.0 MiB.").waitFor();
+  // Moving the file's folder away deletes the file; moving it back shows it again.
+  await rename(join(folder, "logs"), join(folder, "logs-moved"));
+  await preview("huge.log").getByText("This file was deleted.").waitFor();
+  await rename(join(folder, "logs-moved"), join(folder, "logs"));
+  await preview("huge.log").getByText("Showing the first 2.0 MiB of 10.0 MiB.").waitFor();
   await item("page.md").click();
   await writeFile(join(folder, "page.md"), "# Updated notes\n");
   await preview("page.md").getByRole("heading", { name: "Updated notes" }).waitFor();
@@ -187,7 +201,28 @@ async function useFolderTab(page: Page, label: string, folder: string) {
       return box.top >= body.top && box.bottom <= body.bottom;
     }),
   ).toBe(true);
+  // Lines away from the view are still copied.
+  const code = await readFile(join(folder, "src", "code.ts"), "utf8");
+  expect((await selectedText(preview("code.ts").locator(".text-document"))).trimEnd()).toBe(code);
   await tab.getByRole("button", { name: "Files", exact: true }).click();
+}
+
+/**
+ * A remote directory with more entries than one listing returns cannot be kept as a path
+ * list, so the filter asks the remote and asks again when files change.
+ */
+async function filterOnTheMachine(page: Page, label: string, folder: string, machine: string) {
+  await page.getByRole("tab", { name: label, exact: true }).click();
+  const tab = page.getByRole("region", { name: `${label.split(" · ").at(-1)} folder` });
+  const tree = tab.getByRole("tree", { name: "Folder contents" });
+  const filterStatus = tab.locator(".folder-find").nth(0).locator(".folder-find-status");
+  await tab.getByLabel("Filter by file name").fill("readme");
+  const asks = `This folder has too many files to list, so Scope asks ${machine} for matching names.`;
+  // Listing 50,001 entries on the remote takes a few seconds.
+  await expect.poll(() => filterStatus.textContent(), { timeout: 30_000 }).toBe(`${asks} 1 file`);
+  await writeFile(join(folder, "later-README.md"), "# Later\n");
+  await expect.poll(() => filterStatus.textContent(), { timeout: 10_000 }).toBe(`${asks} 2 files`);
+  expect(await tree.getByRole("treeitem").count()).toBe(2);
 }
 
 test(
@@ -205,7 +240,27 @@ test(
       await f.cli("folder", "open", folder, "--title", "Find");
       await useFolderTab(page, "Find", folder);
 
+      // A published text file copies whole, including lines that were never scrolled to.
+      const lines = Array.from({ length: 1400 }, (_, index) => `published line ${index + 1}`);
+      const client = await f.connect();
+      await client.publish(
+        "long-notes",
+        {
+          title: "Long notes",
+          kind: "text",
+          mediaType: "text/plain",
+          fileName: "long-notes.txt",
+          expectedRevision: 0,
+        },
+        Buffer.from(lines.join("\n")),
+      );
+      await page.getByRole("tab", { name: "Long notes", exact: true }).click();
+      const published = '[role="tabpanel"][aria-label="Long notes"] .text-document';
+      await page.locator(published).waitFor();
+      expect((await selectedText(page.locator(published))).trimEnd()).toBe(lines.join("\n"));
+
       // The filter text survives a restart.
+      await page.getByRole("tab", { name: "Find", exact: true }).click();
       await page.getByLabel("Filter by file name").fill("readme");
       await expect.poll(() => page.getByRole("treeitem", { name: "README.md" }).count()).toBe(12);
       await application.close();
@@ -222,6 +277,18 @@ test(
         .toBe("connected");
       await devbox.cli("folder", "open", folder, "--title", "Remote find");
       await useFolderTab(page, `${hostname()} · Remote find`, folder);
+
+      const wide = join(f.directory, "work", "wide");
+      await mkdir(wide);
+      await writeFile(join(wide, "README.md"), "# Wide\n");
+      for (let index = 0; index <= 50_000; index += 1000)
+        await Promise.all(
+          Array.from({ length: 1000 }, (_, offset) =>
+            writeFile(join(wide, `f${index + offset}.txt`), ""),
+          ),
+        );
+      await devbox.cli("folder", "open", wide, "--title", "Wide");
+      await filterOnTheMachine(page, `${hostname()} · Wide`, wide, hostname());
 
       // The hub's search route refuses the publishing token.
       const response = await fetch(`${devbox.endpoint}/v1/relay/folders/search`, {

@@ -19,6 +19,8 @@ import type { FolderDirectory, FolderSource } from "./source.ts";
 
 /** Above this many paths the filter asks the folder's machine instead of keeping a list. */
 export const MAX_FOLDER_PATHS = 200_000;
+/** In machine mode, changes ask an open filter again at most this often. */
+const MACHINE_FILTER_REFRESH_MS = 1000;
 
 const FilterRequest = Schema.Struct({
   tabId: Uuid,
@@ -44,7 +46,9 @@ const under = (path: string, directory: string) =>
 /**
  * Every path in one folder, in memory only, built by a background walk and kept current
  * from the change feed. A created directory is walked, because its files may have no
- * change events of their own.
+ * change events of their own. When the list would pass 200,000 paths or a directory has
+ * too many entries to list completely, it is dropped and the folder's machine matches
+ * names instead.
  */
 class FolderPaths {
   readonly showIgnored: boolean;
@@ -56,6 +60,7 @@ class FolderPaths {
   state: "scanning" | "ready" | "machine" | "failed" = "scanning";
   private updates = Promise.resolve();
   private nameSearch: AbortController | undefined;
+  private refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(source: FolderSource, showIgnored: boolean, onUpdate: () => void) {
     this.source = source;
@@ -73,22 +78,29 @@ class FolderPaths {
     this.onUpdate();
   }
 
-  private add(directory: FolderDirectory, ignoredAbove: boolean) {
+  private toMachine() {
     if (this.state === "machine") return;
+    this.state = "machine";
+    this.paths = new Map();
+    // Stops the walk; name searches use their own signal.
+    this.walking.abort();
+    this.onUpdate();
+  }
+
+  /** Adds one path, unless the list is too long to keep. Returns false in machine mode. */
+  private insert(path: string, directory: boolean, ignored: boolean): boolean {
+    if (this.state === "machine") return false;
+    this.paths.set(path, { directory, ignored, lower: path.toLowerCase() });
+    if (this.paths.size <= MAX_FOLDER_PATHS) return true;
+    this.toMachine();
+    return false;
+  }
+
+  private add(directory: FolderDirectory, ignoredAbove: boolean) {
+    if (directory.truncated) return this.toMachine();
     for (const entry of directory.entries) {
       const path = directory.path ? `${directory.path}/${entry.name}` : entry.name;
-      this.paths.set(path, {
-        directory: entry.directory,
-        ignored: ignoredAbove || entry.ignored,
-        lower: path.toLowerCase(),
-      });
-    }
-    if (this.paths.size > MAX_FOLDER_PATHS) {
-      this.state = "machine";
-      this.paths = new Map();
-      // Stops the walk; name searches use their own signal.
-      this.walking.abort();
-      this.onUpdate();
+      if (!this.insert(path, entry.directory, ignoredAbove || entry.ignored)) return;
     }
   }
 
@@ -119,7 +131,9 @@ class FolderPaths {
       const listing = await this.source
         .list(directory, this.showIgnored, this.controller.signal)
         .catch(() => undefined);
-      if (!listing || this.controller.signal.aborted) continue;
+      if (!listing || this.controller.signal.aborted || this.state === "machine") continue;
+      // An incomplete listing cannot show which paths were removed.
+      if (listing.truncated) return this.toMachine();
       const present = new Set(listing.entries.map((entry) => entry.path));
       for (const key of this.paths.keys())
         if (parent(key) === directory && !present.has(key)) this.remove(key);
@@ -127,11 +141,7 @@ class FolderPaths {
       for (const entry of listing.entries) {
         if (this.paths.has(entry.path)) continue;
         const isDirectory = entry.kind === "directory";
-        this.paths.set(entry.path, {
-          directory: isDirectory,
-          ignored: ignoredAbove || entry.ignored,
-          lower: entry.path.toLowerCase(),
-        });
+        if (!this.insert(entry.path, isDirectory, ignoredAbove || entry.ignored)) return;
         if (isDirectory) await this.walk(entry.path, ignoredAbove || entry.ignored).catch(() => {});
       }
     }
@@ -139,7 +149,16 @@ class FolderPaths {
 
   /** Applies change feed events. Returns false when the list must be rebuilt. */
   apply(event: FolderFeedEvent): boolean {
-    if (this.state === "machine") return true;
+    if (this.state === "machine") {
+      if (event.type === "status" && !event.exists) return false;
+      // The machine answers from disk, so changes only need an open filter to ask again.
+      if (event.type === "changes" && !this.refreshTimer)
+        this.refreshTimer = setTimeout(() => {
+          this.refreshTimer = undefined;
+          if (!this.controller.signal.aborted) this.onUpdate();
+        }, MACHINE_FILTER_REFRESH_MS);
+      return true;
+    }
     if (event.type === "status") return event.exists && this.state !== "failed";
     if (event.type !== "changes") return true;
     if (event.overflow || event.changes.some(ignoreFileChanged)) return false;
@@ -186,6 +205,7 @@ class FolderPaths {
   }
 
   close() {
+    clearTimeout(this.refreshTimer);
     this.nameSearch?.abort();
     this.controller.abort();
     this.paths = new Map();
