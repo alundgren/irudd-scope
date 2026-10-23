@@ -15,7 +15,8 @@
     "./memory": "./src/memory.ts",
     "./librarian": "./src/librarian.ts",
     "./prompts": "./src/prompts.ts",
-    "./plan": "./src/plan.ts"
+    "./plan": "./src/plan.ts",
+    "./folder": "./src/folder.ts"
   },
   "dependencies": {
     "effect": "catalog:"

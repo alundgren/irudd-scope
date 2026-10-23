@@ -28,8 +28,17 @@ import {
   PairRequest,
   HubUpdateRequest,
   type RelayEvent,
+  RELAY_CAPABILITIES_HEADER,
   RELAY_WAKE_HEADER,
 } from "@irudd-scope/protocol/remote";
+import {
+  FOLDER_CAPABILITY,
+  FOLDER_COMMAND_ROUTES,
+  MAX_FOLDER_COMMAND_BYTES,
+  folderCommandRequest,
+} from "@irudd-scope/protocol/folder";
+import { FolderError, canonicalFolder } from "@irudd-scope/folder";
+import { FolderFileRoutes, folderFailure } from "./folder-routes.ts";
 import type { HubState } from "./state.ts";
 import type { HubUpdates } from "./updates.ts";
 import type { MemorySync } from "@irudd-scope/memory-sync";
@@ -105,6 +114,10 @@ export async function startPairedHub(
 ) {
   memory?.configure(state.memoryConfiguration());
   let desktop: ServerResponse | undefined;
+  // An older desktop drops the whole relay on an unknown request, so folder commands
+  // go only to a desktop that advertised folder support when it connected.
+  let desktopFolders = false;
+  const folderFiles = new FolderFileRoutes();
   const pending = new Map<string, Pending>();
   function forget(id: string) {
     const item = pending.get(id);
@@ -127,7 +140,9 @@ export async function startPairedHub(
   function disconnect() {
     const previous = desktop;
     desktop = undefined;
+    desktopFolders = false;
     previous?.destroy();
+    folderFiles.closeAll();
     for (const id of pending.keys())
       finish(
         id,
@@ -369,12 +384,16 @@ export async function startPairedHub(
       json(response, 200, { unpaired: true });
       return;
     }
+    if (await folderFiles.handle(request, response, url)) return;
     if (url.pathname === "/v1/relay/events" && request.method === "GET") {
       if (desktop) {
         json(response, 409, { error: "This hub already has a connected Mac." });
         return;
       }
       desktop = response;
+      desktopFolders = String(request.headers[RELAY_CAPABILITIES_HEADER.toLowerCase()] ?? "")
+        .split(",")
+        .some((value) => value.trim() === FOLDER_CAPABILITY);
       response.writeHead(200, {
         "Content-Type": "application/x-ndjson",
         "Cache-Control": "no-store",
@@ -511,6 +530,12 @@ export async function startPairedHub(
       json(response, 401, { error: "A valid publishing token is required." });
       return;
     }
+    if (folderCommandRequest(request.method ?? "", request.url ?? "")) {
+      await forwardFolderCommand(request, response).catch((error: unknown) =>
+        folderFailure(response, error),
+      );
+      return;
+    }
     if (!artifactRequest(request.method ?? "", request.url ?? "")) {
       json(response, 404, { error: "Artifact endpoint not found." });
       return;
@@ -557,12 +582,57 @@ export async function startPairedHub(
         ? TRANSFER_IMPORT_TIMEOUT_MS
         : 30_000;
     request.setTimeout(timeoutMs);
+    startForward(request, request, response, timeoutMs, request.headers["content-type"]);
+  }
+
+  /** Folder commands are live only: they are never queued and need a desktop that supports them. */
+  async function forwardFolderCommand(request: IncomingMessage, response: ServerResponse) {
+    if (!desktop)
+      throw new FolderError(
+        "desktop-offline",
+        "Scope desktop is not connected. Open Scope and connect this remote, then retry.",
+      );
+    if (!desktopFolders)
+      throw new FolderError("unsupported", "Update Scope on the paired desktop to share folders.");
+    if (request.method === "GET" || request.url === FOLDER_COMMAND_ROUTES.watch)
+      throw new FolderError("unsupported", "Watching folders is not available yet.");
+    if (pending.size >= 16) {
+      json(response, 503, { error: "The hub is busy. Retry after the current requests finish." });
+      return;
+    }
+    let input: Record<string, unknown>;
+    try {
+      const value: unknown = JSON.parse(
+        (await readBody(request, MAX_FOLDER_COMMAND_BYTES)).toString(),
+      );
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
+      input = value as Record<string, unknown>;
+    } catch {
+      throw new FolderError("not-found", "Send a folder command with an absolute path.");
+    }
+    if (typeof input.path !== "string" || input.path.length > 4096)
+      throw new FolderError("not-found", "Send a folder command with an absolute path.");
+    // The canonical path is computed on the machine that has the files.
+    const body = Buffer.from(JSON.stringify({ ...input, path: await canonicalFolder(input.path) }));
+    if (!desktop || !desktopFolders)
+      throw new FolderError("desktop-offline", "Scope desktop disconnected. Retry the command.");
+    request.setTimeout(30_000);
+    startForward(request, body, response, 30_000, "application/json");
+  }
+
+  function startForward(
+    request: IncomingMessage,
+    body: IncomingMessage | Buffer,
+    response: ServerResponse,
+    timeoutMs: number,
+    contentType: string | undefined,
+  ) {
     const id = randomUUID();
-    const receivingDesktop = desktop;
+    const receivingDesktop = desktop!;
     const item: Pending = {
       method: request.method!,
       path: request.url!,
-      request,
+      request: body,
       response,
       bodyRead: false,
       answered: false,
@@ -587,7 +657,7 @@ export async function startPairedHub(
       id,
       method: request.method as "GET" | "POST" | "PUT" | "DELETE",
       path: request.url!,
-      ...(request.headers["content-type"] ? { contentType: request.headers["content-type"] } : {}),
+      ...(contentType ? { contentType } : {}),
     });
   }
 

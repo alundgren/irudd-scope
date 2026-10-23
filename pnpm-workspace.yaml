@@ -35,6 +35,7 @@ catalog:
   "@types/cross-spawn": ^6.0.6
   fflate: 0.8.3
   image-size: 2.0.4
+  ignore: 7.0.13
 
 overrides:
   vite@*: "catalog:"

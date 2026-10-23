@@ -34,7 +34,21 @@ ipcRenderer.on(
       .catch(() => {});
   },
 );
+function subscribe<T>(channel: string, listener: (value: T) => void) {
+  const receive = (_event: unknown, value: T) => listener(value);
+  ipcRenderer.on(channel, receive);
+  return () => {
+    ipcRenderer.removeListener(channel, receive);
+  };
+}
 const bridge: ScopeBridge = {
+  folderList: (input) => ipcRenderer.invoke("scope:folder-list", input),
+  folderRead: (input) => ipcRenderer.invoke("scope:folder-read", input),
+  watchFolder: (tabId) => ipcRenderer.invoke("scope:folder-watch", tabId),
+  unwatchFolder: (tabId) => ipcRenderer.invoke("scope:folder-unwatch", tabId),
+  copyFolderPath: (tabId) => ipcRenderer.invoke("scope:folder-copy-path", tabId),
+  onFolderEvent: (listener) => subscribe("scope:folder-event", listener),
+  onFolderTabOpened: (listener) => subscribe("scope:folder-tab-opened", listener),
   promptCommand: (input) => ipcRenderer.invoke("scope:prompt-command", input),
   promptImage: (input) => ipcRenderer.invoke("scope:prompt-image", input),
   loadPromptDraft: (tabId) => ipcRenderer.invoke("scope:load-prompt-draft", tabId),

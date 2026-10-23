@@ -17,7 +17,21 @@ export type TabContext = {
   updateState: (state: TabState) => void;
   updateOverlayPosition: (name: OverlayName, position: OverlayPosition | undefined) => void;
   onBeforeClose: (save: (purpose: WorkspaceFlushPurpose) => Promise<void>) => () => void;
+  /** Closes this tab the way the strip's close button does. */
+  close: () => void;
 };
+/** How the strip, tooltip, and drawer describe a tab that is not a publication. */
+export type TabLabel = {
+  title: string;
+  /** Shown first and muted, and never cut when the title is shortened. */
+  machine?: string;
+  /** The drawer's second line. */
+  detail: string;
+  tooltip: string;
+  /** Extra text the drawer search matches. */
+  keywords: string;
+};
+export type TabLabelContext = { remoteName: (id: string) => string | undefined; platform: string };
 export type TabProps = {
   active: boolean;
   tab: Tab;
@@ -30,6 +44,7 @@ export type TabProps = {
 export type TabPlugin = {
   type: string;
   View: ComponentType<TabProps>;
+  label?: (tab: Tab, context: TabLabelContext) => TabLabel;
   publication?: {
     accepts: (artifact: Artifact) => boolean;
     artifactId: (state: TabState) => string;

@@ -6,6 +6,7 @@ import { registerPlanIpc } from "./plan/main.ts";
 import { registerSketchpadIpc } from "./sketchpad/main.ts";
 import { registerPullRequestsIpc } from "./pull-requests/main.ts";
 import type { MainPluginContext } from "./main-api.ts";
+import { registerFolderIpc } from "./folder/main.ts";
 
 export function registerMainPlugins(context: MainPluginContext) {
   registerPromptsIpc(context);
@@ -14,11 +15,17 @@ export function registerMainPlugins(context: MainPluginContext) {
   const retros = registerRetroIpc(context);
   registerSketchpadIpc(context);
   const pullRequests = registerPullRequestsIpc(context);
+  const folders = registerFolderIpc(context);
   return {
+    folderCommand: folders.command,
     cancelPullRequests: () => pullRequests.cancelPending(),
     resumePullRequests: () => pullRequests.resume(),
-    cancelTabs: (ids: string[]) => pullRequests.cancelTabs(ids),
+    cancelTabs: (ids: string[]) => {
+      pullRequests.cancelTabs(ids);
+      folders.cancelTabs(ids);
+    },
     dispose: () => {
+      folders.dispose();
       retros.dispose();
       pullRequests.dispose();
     },

@@ -3,6 +3,8 @@ import type { DesktopStore } from "../desktop-store.ts";
 import type { ScopeClient } from "@irudd-scope/protocol/client";
 
 import type { ArtifactStore } from "../library/store.ts";
+import type { DesktopLifecycle } from "../lifecycle.ts";
+import type { Remotes } from "../remotes.ts";
 import type { Workspace } from "../workspace/contract.ts";
 
 import type { BrowserWindow } from "electron";
@@ -15,4 +17,6 @@ export type MainPluginContext = {
   workspace: () => Promise<Workspace>;
   client: ScopeClient;
   memory: MemoryService;
+  lifecycle: DesktopLifecycle;
+  remotes: Remotes;
 };

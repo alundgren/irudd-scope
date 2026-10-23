@@ -60,6 +60,8 @@ export const RelayRequest = Schema.Struct({
 });
 export type RelayRequest = typeof RelayRequest.Type;
 export const RELAY_WAKE_HEADER = "Scope-Relay-Wake";
+/** Comma-separated features the desktop supports, sent when it opens the relay. */
+export const RELAY_CAPABILITIES_HEADER = "Scope-Relay-Capabilities";
 export const RelayEvent = Schema.Union([
   RelayRequest,
   Schema.Struct({ type: Schema.Literal("ready") }),

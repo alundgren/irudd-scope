@@ -41,6 +41,11 @@ export type ArtifactLibrarySnapshot = {
 };
 export type ArtifactContent = { artifact: Artifact; bytes: Uint8Array };
 import type { TabEventEnvelope } from "./plugins/events.ts";
+import type {
+  FolderListResult,
+  FolderTabOpened,
+  FolderViewEvent,
+} from "./plugins/folder/contract.ts";
 
 import type {
   PullRequestsCommand,
@@ -50,6 +55,22 @@ import type {
 } from "@irudd-scope/protocol/pull-requests";
 
 export type ScopeBridge = {
+  folderList: (input: {
+    tabId: string;
+    path: string;
+    showIgnored: boolean;
+  }) => Promise<FolderListResult>;
+  folderRead: (input: {
+    tabId: string;
+    path: string;
+    start: number;
+    end: number;
+  }) => Promise<{ size: number; start: number; bytes: Uint8Array }>;
+  watchFolder: (tabId: string) => Promise<void>;
+  unwatchFolder: (tabId: string) => Promise<void>;
+  copyFolderPath: (tabId: string) => Promise<void>;
+  onFolderEvent: (listener: (event: FolderViewEvent) => void) => () => void;
+  onFolderTabOpened: (listener: (opened: FolderTabOpened) => void) => () => void;
   promptCommand: (input: PromptDesktopCommand) => Promise<PromptResult<PromptReply>>;
   promptImage: (input: {
     itemId: string;

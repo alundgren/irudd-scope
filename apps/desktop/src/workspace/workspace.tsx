@@ -37,6 +37,7 @@ import type { SettingsView } from "../settings.ts";
 import { useArtifactLibrary } from "../library/use-library.ts";
 import { useTabRetention } from "./use-tab-retention.ts";
 import { useWorkspace } from "./use-workspace.ts";
+import { useRemotes } from "../renderer/remote-names.ts";
 import { WorkspaceSearch } from "./search.tsx";
 
 import type { Tab } from "./contract.ts";
@@ -119,8 +120,17 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     markRead,
     recordPublication,
   } = useArtifactLibrary(setError);
+  const remotes = useRemotes();
+  const labels = useMemo(
+    () => ({
+      remoteName: (id: string) => remotes.get(id)?.name,
+      platform: window.scope.platform,
+    }),
+    [remotes],
+  );
   const {
     workspace,
+    unreadTabs,
     ready: workspaceReady,
     save: workspaceSave,
     openTab,
@@ -479,6 +489,8 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           selectedId={workspace.selected}
           artifacts={artifacts}
           unread={activeUnread}
+          unreadTabs={unreadTabs}
+          labels={labels}
           tabButtons={tabButtons}
           controlsButton={controlsButton}
           searchOpen={search}
@@ -582,6 +594,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                 router={events}
                 updateState={updateState}
                 updateOverlayPosition={updateOverlayPosition}
+                onClose={(id) => void close(id)}
                 theme={theme}
                 focus={focus && id === workspace.selected}
                 viewing={viewing && id === workspace.selected}

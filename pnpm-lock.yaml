@@ -221,6 +221,9 @@ catalogs:
     fflate:
       specifier: 0.8.3
       version: 0.8.3
+    ignore:
+      specifier: 7.0.13
+      version: 7.0.13
     image-size:
       specifier: 2.0.4
       version: 2.0.4
@@ -307,6 +310,9 @@ importers:
       '@excalidraw/excalidraw':
         specifier: 'catalog:'
         version: 0.18.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@irudd-scope/folder':
+        specifier: workspace:*
+        version: link:../../packages/folder
       '@irudd-scope/memory-sync':
         specifier: workspace:*
         version: link:../../packages/memory-sync
@@ -380,6 +386,9 @@ importers:
 
   apps/hub:
     dependencies:
+      '@irudd-scope/folder':
+        specifier: workspace:*
+        version: link:../../packages/folder
       '@irudd-scope/memory-sync':
         specifier: workspace:*
         version: link:../../packages/memory-sync
@@ -401,6 +410,18 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.117
+
+  packages/folder:
+    dependencies:
+      '@irudd-scope/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.117
+      ignore:
+        specifier: 'catalog:'
+        version: 7.0.13
 
   packages/memory-sync:
     dependencies:
@@ -2992,6 +3013,10 @@ packages:
 
   ignore@5.3.2:
     resolution: {integrity: sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==}
+    engines: {node: '>= 4'}
+
+  ignore@7.0.13:
+    resolution: {integrity: sha512-2E8Q6rh+1RRSq/YdaGsNfXsEZy9FVqv6BSSrkmZJP7BnaoPnRfKL+YaofPvP+5rzdk144qSm6i4+hvPgUcbV4Q==}
     engines: {node: '>= 4'}
 
   image-blob-reduce@3.0.1:
@@ -7068,6 +7093,8 @@ snapshots:
       safer-buffer: 2.1.2
 
   ignore@5.3.2: {}
+
+  ignore@7.0.13: {}
 
   image-blob-reduce@3.0.1:
     dependencies:
