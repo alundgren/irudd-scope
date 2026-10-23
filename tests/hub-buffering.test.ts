@@ -427,3 +427,43 @@ test("a reservation made offline can complete after the Mac reconnects", async (
   await expect.poll(async () => (await f.queue()).items.length).toBe(0);
   expect(new TextDecoder().decode(await f.direct.content("transition"))).toBe("transition bytes");
 });
+
+test("structured plan JSON queues offline and reads through the paired hub after reconnect", async () => {
+  const f = await fixture();
+  await f.offline();
+  const source = resolve(".agents/skills/irudd-scope/examples/plans/non-ui");
+  const queued = await f.cli(
+    "plan",
+    "publish",
+    "queued-plan",
+    join(source, "plan.json"),
+    join(source, "overview.html"),
+  );
+  expect(queued).toMatchObject({ queued: true });
+  await expect(f.cli("plan", "read", "queued-plan")).rejects.toThrow();
+  await f.restart();
+  await f.reconnect();
+  await expect
+    .poll(async () => (await f.direct.list()).some((x) => x.name === "queued-plan"))
+    .toBe(true);
+  const read = await f.cli("plan", "read", "queued-plan");
+  expect(read.artifact.mediaType).toBe("application/json");
+  expect(read.document.overviewHtml).toBe(await readFile(join(source, "overview.html"), "utf8"));
+  expect((await f.cli("plan", "item", "queued-plan", "recover")).ownedChecks).toHaveLength(1);
+  await f.offline();
+  expect(
+    await f.cli(
+      "plan",
+      "publish",
+      "queued-plan",
+      join(source, "plan.json"),
+      join(source, "overview.html"),
+      "--expected-revision",
+      String(read.artifact.revision),
+    ),
+  ).toMatchObject({ queued: true });
+  await f.reconnect();
+  await expect
+    .poll(async () => (await f.direct.named("queued-plan")).revision)
+    .toBe(read.artifact.revision + 1);
+});

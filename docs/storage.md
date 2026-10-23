@@ -306,10 +306,20 @@ Older desktops reject this newer database; restore a compatible backup to downgr
 
 ## Plans
 
-A plan stores only its current HTML, in the same artifact and blob tables as
-other HTML. Updating a plan replaces that HTML; the previous bytes become
-unreferenced and normal blob reclamation removes them. `plan content` writes a
-local copy to a new file and refuses to overwrite an existing path.
+Structured plans store their versioned JSON in the artifact/blob tables. Exact
+proposal bases, including authored HTML, remain inside the current document so
+normal reclamation cannot erase the meaning of recorded agreement or evidence.
+Bases cannot be redefined or removed. Record correction requires explicit removal
+IDs and new record IDs. The 32 MiB artifact limit includes all retained material;
+publication fails instead of discarding old records.
+
+Artifact schema 16 converts legacy HTML plans to ordinary HTML, preserving bytes, artifact
+IDs, names, titles, permanence, tab order, hidden/trashed state and saved workspace
+fields. Conversion is idempotent and also reconciles imported legacy workspaces.
+Late HTML publishers create ordinary HTML; structured plans reject HTML downgrades.
+Older desktops reject schema 16. Restore a complete pre-upgrade backup to downgrade.
+Use the matching desktop and CLI for JSON plans. `plan content` exports authored
+HTML to a new file and refuses overwrite.
 
 Schema version 15 removes the plan history and feedback tables that earlier
 builds kept: `plan_state`, `plan_revisions`, `plan_images`, `plan_records`,

@@ -589,15 +589,49 @@ to every mounted frame in this inbox, including the sender.
 Context and broadcast values must be JSON, at most 64 KiB and 32 nested levels.
 HTML is limited to 32 MiB. Each inbox supports eight simultaneous windows.
 
-## Named HTML plans
+## Native structured plans
 
-Plans publish through the normal artifact API using `kind: "plan"`,
-`mediaType: "text/html"` and a required immutable name. New plans start
-permanent; updates retain later user choices. A plan has only its current HTML.
-Read it with `GET /v1/names/:name` and `GET /v1/artifacts/:id/content`, which
-paired hubs forward; `ScopeClient` exposes these as `named` and `content`. There
-are no plan-specific routes, commands or live events. `irudd-scope plan content
-NAME --output FILE` writes the current HTML to a new file.
+Publish `kind: "plan"`, `mediaType: "application/json"`, an immutable name and
+version 1 JSON through the ordinary artifact publication API. New plans start
+permanent. Replacements require the explicit artifact revision. The shared
+[plan contract](src/plan.ts) validates UTF-8 bytes, bounded records, unique IDs,
+references, visual anchors, goal consistency and acyclic item dependencies.
+Desktop publication validates bytes and preservation inside its transaction.
+Invalid or stale replacement leaves the stored content and revision unchanged.
+
+The proposal has title, overviewHtml, optional context, constraints, questions,
+goals, visuals, checks and items. A basis contains ID, source artifact revision
+and the exact proposal, excluding nested bases and records. New bases must match
+the current stored proposal and revision. Agreements identify a basis and its
+targets; evidence identifies a basis and its check, expected/observed behavior,
+implementation, conditions, result and references. Existing bases cannot change
+or disappear. Existing records cannot change. Deliberate record removal requires
+its ID in `removedRecordIds`; prior removal IDs remain and cannot be reused.
+No check or visual update automatically carries old evidence forward.
+
+The CLI field guide is `plan guide`. Commands are `plan publish NAME PLAN.json
+OVERVIEW.html [--expected-revision N]`, `plan read NAME`, `plan item NAME ITEM_ID`,
+`plan content NAME --output NEW_FILE.html`, and `plan capture-basis NAME BASIS_ID
+--expected-revision N`. Omitted revision on publish means create only. Capture
+adds the exact current basis through guarded publication and records no agreement.
+Read again before adding records and use the new artifact revision. Generic
+`update` rejects structured plans. `read` returns artifact and document; selected
+packets separate owned checks, prerequisites and related context and retain exact
+recorded proposals. Content export preserves the authored HTML bytes as UTF-8.
+
+Overview receives `window.scopePlan.data` before authored scripts. Declarative
+`data-plan-goal`, `data-plan-check`, `data-plan-procedure` and `data-plan-checks`
+bindings provide goal text, expectations, complete procedures and ordered visual
+check lists. A recorded view injects that basis's data. No sandbox or content policy
+is added to trusted authored HTML.
+
+The total byte limit is 32 MiB, including bases. Collections are limited to 2,000
+records, text fields to 262,144 characters, labels to 512, titles to 160 and IDs
+to 128. Early drafts may omit empty collections. Reads and basis capture need the
+desktop online. Same-version hubs forward reads and queue JSON publications through
+existing routes. A queued receipt confirms storage at the hub, not delivery.
+Installed older hubs reject JSON until updated separately. Legacy `text/html`
+plan publications become ordinary HTML and cannot downgrade a structured plan.
 
 ## Named retrospectives
 

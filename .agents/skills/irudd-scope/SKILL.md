@@ -1,6 +1,6 @@
 ---
 name: irudd-scope
-description: Create named HTML plans, retrospectives, and GitHub PR inbox apps in Scope, and set up the personal memory repository Scope syncs. Also publish or update artifacts and generate narration with the desktop OpenRouter key. Honor an explicitly requested planning tool or output format.
+description: Create native structured plans, retrospectives, and GitHub PR inbox apps in Scope, and set up the personal memory repository Scope syncs. Also publish or update artifacts and generate narration with the desktop OpenRouter key. Honor an explicitly requested planning tool or output format.
 ---
 
 # Use Scope CLI
@@ -129,40 +129,19 @@ require no Git or remote. Keep conversation in the person's existing agent
 session. Scope presents one human decision at a time and never launches an
 agent or finishes automatically.
 
-### HTML plans
+### Native plans
 
-For requests such as "make a plan", "create a plan", or "plan this feature",
-create and publish a named HTML plan for review before implementing it.
-Honor an explicit request for a chat-only answer, another format, or another
-planning tool. A request to plan does not authorize implementation or publication
-to other services. Feature planning needs no custom blocks or diagram format.
-Scope has no diagram tabs. For diagrams in plans or presentations, draw inline SVG inside the HTML.
+For feature planning, read [native plans](references/plans.md). Publish an authored
+visual overview with structured goals, checks and independently usable work items.
+Honor an explicitly requested planning tool or format. A planning request does not
+authorize implementation. Keep discussion in chat and record only actual agreement.
 
-Use ordinary HTML for feature plans and interactive walkthroughs. Publish with:
-
-```sh
-irudd-scope add feature.html --plan --name feature-plan --title "Feature plan"
-irudd-scope plan guide
-```
-
-A plan always has a unique immutable name and starts permanent. Omitting
-`--name` generates one; announce the returned name. Avoid custom content
-blocks. Stable HTML IDs can help navigation but are optional.
-
-A plan is only its current HTML. Scope keeps no versions, comments or feedback
-for plans. The person reads the plan in Scope and talks to you in the coding
-session. To change the plan, read the current HTML first, edit it, then replace
-it:
-
-```sh
-irudd-scope plan content NAME --output NEW_FILE.html
-irudd-scope update NAME FILE.html
-```
-
-`update` keeps the plan kind and name and replaces the previous HTML. When
-implementing from a plan, read its current HTML with `plan content`. Reading a
-plan needs the desktop online; publications and updates can use the ordinary
-offline hub queue. Closing a plan moves it to Trashcan like other tabs.
+Use `plan guide`, `plan publish NAME PLAN.json OVERVIEW.html`, `plan read NAME`,
+`plan item NAME ITEM_ID`, `plan content NAME --output FILE.html`, and
+`plan capture-basis NAME BASIS_ID --expected-revision REVISION`.
+Replacements require `--expected-revision`. Preserve retained proposal bases and
+records. Generic `update` rejects structured plans; legacy `add --plan` creates
+ordinary HTML. A new native plan starts permanent, so closing hides it by default.
 
 ## Connection and confirmation
 

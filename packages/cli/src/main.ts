@@ -51,6 +51,10 @@ irudd-scope prompts guide|structures|read|list|item UUID|apply REQUEST.json
 irudd-scope prompts image REQUEST.json IMAGE_FILE
 irudd-scope prompts export --output NEW_FILE.zip
 irudd-scope plan guide
+irudd-scope plan publish NAME PLAN.json OVERVIEW.html [--expected-revision REVISION]
+irudd-scope plan read NAME
+irudd-scope plan item NAME ITEM_ID
+irudd-scope plan capture-basis NAME BASIS_ID --expected-revision REVISION
 irudd-scope plan content NAME --output NEW_FILE.html
 irudd-scope voice generate|status|result|cancel|guide [FILE_OR_ID]
 irudd-scope list
@@ -176,6 +180,7 @@ function parseOptions() {
       "codex-thread": { type: "string" },
       "codex-url": { type: "string" },
       output: { type: "string" },
+      "expected-revision": { type: "string" },
       receipt: { type: "string" },
       "request-id": { type: "string" },
       instructions: { type: "string" },
@@ -333,6 +338,8 @@ async function preparePublication(
     provenance(values.agent, values["session-id"], deadline),
     file ? readFile(file, { signal }) : Promise.resolve(new TextEncoder().encode(argument!)),
   ]);
+  if (current?.kind === "plan" && current.mediaType === "application/json")
+    throw new Error("Use plan publish with --expected-revision to update a structured plan.");
   const id = current?.id ?? values.id ?? randomUUID();
   const title = values.title ?? current?.title ?? (command === "text" ? "Note" : fileName);
   if (values.plan && command !== "add") throw new Error("Use --plan when adding an HTML file.");

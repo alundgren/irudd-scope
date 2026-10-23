@@ -32,7 +32,7 @@ Opening a transfer URL normally still shows the dialog. Same-link agent retries
 return the existing copy.
 
 Scope is a macOS and Windows 11 x64 workspace for inspecting artifacts left by coding agents and
-reviewing HTML plans, with a personal Sketchpad for ideas. The selected artifact gets the window. One compact strip
+reviewing structured plans, with a personal Sketchpad for ideas. The selected artifact gets the window. One compact strip
 contains open tabs and a search button on the right. Search opens a roomy
 control panel so secondary actions take no permanent tab space. Prose has a
 reading width; images, HTML, and the Sketchpad use the available area.
@@ -321,16 +321,23 @@ English text, keyboard navigation, visible focus, labeled icon controls, and
 readable contrast apply throughout the workspace. Check long titles and more
 tabs than fit on a laptop or external monitor.
 
-## HTML plans
+## Structured plans
 
-Plans always have an immutable unique name and start permanent. Later updates
-respect the person's permanence choice. Ordinary trusted HTML remains the
-content, including scripts and external resources. The reading page uses the
-available width and height, with no plan controls over it. Plans have no
-comments, feedback panel or version history; the person reads the plan and
-talks to their agent in the coding session. An agent update replaces the page
-with the new HTML. Switching tabs keeps the page's own state and scroll
-position.
+Plans have an immutable unique name and start permanent. Later updates respect
+the person's permanence choice. Overview gives the authored HTML the available
+area beneath compact Overview and Work items controls. Trusted scripts and external
+resources remain supported. Work items exposes outcomes, full owned checks,
+prerequisites, related context and a copyable independent packet. It provides
+recorded agreement and evidence with inspection of the exact original proposal.
+Recorded results are labeled as results on that proposal, not current verification.
+
+Discussion stays in the coding session. There is no questionnaire, approval button
+or forced prose sidebar. Authored plans use dark neutral presentation with strong
+whole-scenario boundaries and visual checks where useful. Native controls follow
+Scope appearance. Each full check procedure remains accessible. Tab switching and
+hiding retain the document; current overview position and selected work view/item
+survive restart. Updates retain the current reading position where content permits.
+Legacy HTML plans become ordinary HTML tabs with their content and lifecycle intact.
 
 ## Pull request inboxes
 
