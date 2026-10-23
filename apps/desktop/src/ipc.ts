@@ -260,6 +260,7 @@ export function registerDesktopIpc({
     cancelPending: () => plugins.cancelPullRequests(),
     cancelTabs: (ids: string[]) => plugins.cancelTabs(ids),
     folderCommand: plugins.folderCommand,
+    watchFolder: plugins.watchFolder,
     dispose: () => {
       stopPromptEvents();
       stopPromptReconnects();

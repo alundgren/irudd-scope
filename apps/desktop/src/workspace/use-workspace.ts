@@ -119,14 +119,14 @@ export function useWorkspace(onError: (message: string) => void) {
    * Applies an agent's folder command. Restored and unhidden tabs move to the end without
    * changing selection; only a brand-new tab selects itself, and only when none is selected.
    */
-  function reconcileOpened({ tab, created, restored, unhidden }: FolderTabOpened): void {
+  function reconcileOpened({ tab, created, restored, unhidden, selected }: FolderTabOpened): void {
     const latest = current.current;
     if (latest.selected !== tab.id) setUnreadTabs((previous) => new Set([...previous, tab.id]));
     const existing = latest.tabs.find((entry) => entry.id === tab.id);
     if (existing) {
       const reopened = restored || unhidden;
       if (reopened) hiding.current.delete(tab.id);
-      const { hidden, ...merged } = mergeFolderTab(existing, tab);
+      const { hidden, ...merged } = mergeFolderTab(existing, tab, selected);
       const next = reopened || !hidden ? merged : { ...merged, hidden };
       const others = latest.tabs.filter((entry) => entry.id !== tab.id);
       replace(

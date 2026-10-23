@@ -30,8 +30,14 @@ import {
 } from "../workspace/retention.ts";
 import { SketchpadDraft } from "../plugins/sketchpad/contract.ts";
 import { importTransferredTab, transferReceipt } from "./transfer-import.ts";
-import { createFolderTabs, openFolderTab, staleFolderTab } from "./folder-tab-store.ts";
+import {
+  createFolderTabs,
+  findFolderTab,
+  openFolderTab,
+  staleFolderTab,
+} from "./folder-tab-store.ts";
 import { FolderIdentity } from "@irudd-scope/protocol/folder";
+import type { FolderSelection } from "../plugins/folder/contract.ts";
 import { TransferId, type TransferManifest } from "@irudd-scope/protocol/transfer";
 
 // An artifact tab may become built-in when its artifact kind does, such as HTML
@@ -742,12 +748,17 @@ export class ArtifactStore {
   }
 
   async openFolderTab(
-    input: FolderIdentity & { title?: string; groupId: string },
+    input: FolderIdentity & { title?: string; select?: FolderSelection; groupId: string },
     now = Date.now(),
   ) {
     const opened = await this.run(openFolderTab(this.sql, { ...input, now }));
     for (const listener of this.listeners) listener();
     return opened;
+  }
+
+  /** The one tab for a folder, and whether it is in the tab strip. */
+  findFolderTab(identity: FolderIdentity): Promise<{ tabId: string; open: boolean } | undefined> {
+    return this.run(findFolderTab(this.sql, identity));
   }
 
   /** The folder a Folder tab shows. The tab record's own copy is display state only. */

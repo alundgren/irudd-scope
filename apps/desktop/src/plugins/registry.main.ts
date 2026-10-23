@@ -18,6 +18,7 @@ export function registerMainPlugins(context: MainPluginContext) {
   const folders = registerFolderIpc(context);
   return {
     folderCommand: folders.command,
+    watchFolder: folders.watch,
     cancelPullRequests: () => pullRequests.cancelPending(),
     resumePullRequests: () => pullRequests.resume(),
     cancelTabs: (ids: string[]) => {

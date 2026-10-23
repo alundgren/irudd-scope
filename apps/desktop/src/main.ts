@@ -81,6 +81,7 @@ async function main() {
   let memory: MemoryService | undefined;
   let librarian: LibrarianService | undefined;
   let folderCommand: ReturnType<typeof registerDesktopIpc>["folderCommand"] | undefined;
+  let watchFolder: ReturnType<typeof registerDesktopIpc>["watchFolder"] | undefined;
   const startedMemory = () => {
     if (!memory) throw new ScopeError(503, "Scope is still starting. Retry shortly.");
     return memory;
@@ -113,6 +114,10 @@ async function main() {
     folders: (command, input, machineId) => {
       if (!folderCommand) throw new ScopeError(503, "Scope is still starting. Retry shortly.");
       return folderCommand(command, input, machineId);
+    },
+    watchFolder: (input, machineId, signal) => {
+      if (!watchFolder) throw new ScopeError(503, "Scope is still starting. Retry shortly.");
+      return watchFolder(input, machineId, signal);
     },
     shrink: (timeoutMs) => lifecycle.shrink(timeoutMs),
     maintenanceStatus: () =>
@@ -221,6 +226,7 @@ async function main() {
     },
   });
   folderCommand = desktopIpc.folderCommand;
+  watchFolder = desktopIpc.watchFolder;
   const externalLinks = registerExternalLinks(window);
   lifecycle!.onRemoved = (ids) => desktopIpc.cancelTabs(ids);
   lifecycle!.onRetentionChanged = (tabs) => {

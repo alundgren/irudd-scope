@@ -137,6 +137,13 @@ export function useFolder(
     };
   }, [started, tabId, reloadAll, reload]);
 
+  // An agent's `folder select` can expand folders this view has not read yet.
+  useEffect(() => {
+    if (!started || statusRef.current.kind !== "ok") return;
+    const missing = visibleExpanded(view.expanded).filter((path) => !loaded.current.has(path));
+    if (missing.length) void load(missing);
+  }, [view.expanded, started, load]);
+
   const shownIgnored = useRef(view.showIgnored);
   useEffect(() => {
     if (shownIgnored.current === view.showIgnored) return;
