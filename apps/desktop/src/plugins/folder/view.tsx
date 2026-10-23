@@ -60,7 +60,7 @@ export function FolderView({
   const remotes = useRemotes();
   const remote = data.machineId === "local" ? undefined : data.machineId;
   const machine = remote ? (remotes.get(remote)?.name ?? "The remote") : "This computer";
-  const { listings, failed, status, live } = useFolder(tab.id, data, active);
+  const { listings, failed, status, live, retry } = useFolder(tab.id, data, active);
   const expanded = useMemo(() => new Set(data.expanded), [data.expanded]);
   const rows = useMemo(
     () => folderRows(listings, expanded, data.selectedPath, failed),
@@ -119,6 +119,7 @@ export function FolderView({
           selected={data.selectedPath}
           onToggle={toggle}
           onSelect={(path) => update({ selectedPath: path })}
+          onRetry={retry}
         />
       ) : (
         <Unavailable status={status} machine={machine} path={data.path} onClose={context.close} />

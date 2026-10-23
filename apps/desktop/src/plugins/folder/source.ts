@@ -77,11 +77,18 @@ async function failure(response: Response): Promise<Error> {
 
 export function remoteFolderSource(remotes: Remotes, identity: FolderIdentity): FolderSource {
   const root = identity.path;
-  const request = async (path: string, signal: AbortSignal, deadlineMs: number, idleMs: number) => {
+  const request = async (
+    path: string,
+    signal: AbortSignal,
+    deadlineMs: number,
+    idleMs: number,
+    feed = false,
+  ) => {
     const response = await remotes.request(identity.machineId, path, {
       signal,
       deadlineMs,
       idleMs,
+      feed,
     });
     if (!response.ok) throw await failure(response);
     return response;
@@ -118,6 +125,7 @@ export function remoteFolderSource(remotes: Remotes, identity: FolderIdentity): 
         signal,
         2_147_483_647,
         35_000,
+        true,
       );
       const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
       let pending = "";

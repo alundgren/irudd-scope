@@ -33,7 +33,12 @@ export type RemoteCall = (
   body?: unknown,
 ) => Promise<Response>;
 type SessionListener = (remote: Remote, call: RemoteCall, signal: AbortSignal) => void;
-type Session = { endpoint: string; token: string; signal: AbortSignal; active: number };
+type Session = {
+  endpoint: string;
+  token: string;
+  signal: AbortSignal;
+  active: { requests: number; feeds: number };
+};
 /** Options for a streamed relay request. Deadlines are per operation, not global. */
 export type RemoteRequest = {
   method?: "GET" | "POST" | "PUT";
@@ -44,6 +49,11 @@ export type RemoteRequest = {
   deadlineMs: number;
   /** The request fails when the response body is silent this long. */
   idleMs?: number;
+  /**
+   * A long-lived stream such as a folder change feed. Feeds have their own budget, so open
+   * feeds never take the room that listings, reads, and writes need.
+   */
+  feed?: boolean;
 };
 /** The remote has no live relay session, so its files cannot be reached. */
 export class RemoteUnavailableError extends Error {
@@ -53,6 +63,8 @@ export class RemoteUnavailableError extends Error {
   }
 }
 const MAX_STREAMED_REQUESTS = 32;
+// Matches the hub's limit on open folder change feeds.
+const MAX_FEEDS = 64;
 
 export class Remotes {
   private readonly statuses = new Map<string, RemoteStatus>();
@@ -81,8 +93,13 @@ export class Remotes {
   async request(remoteId: string, path: string, options: RemoteRequest): Promise<Response> {
     const session = this.sessions.get(remoteId);
     if (!session || session.signal.aborted) throw new RemoteUnavailableError();
-    if (session.active >= MAX_STREAMED_REQUESTS)
-      throw new Error("Too many folder requests to this remote. Retry shortly.");
+    const budget = options.feed ? "feeds" : "requests";
+    if (session.active[budget] >= (options.feed ? MAX_FEEDS : MAX_STREAMED_REQUESTS))
+      throw new Error(
+        options.feed
+          ? "Too many folders are open on this remote. Close a Folder tab and retry."
+          : "Too many folder requests to this remote. Retry shortly.",
+      );
     const controller = new AbortController();
     const signal = AbortSignal.any([
       session.signal,
@@ -90,12 +107,12 @@ export class Remotes {
       AbortSignal.timeout(options.deadlineMs),
       ...(options.signal ? [options.signal] : []),
     ]);
-    session.active++;
+    session.active[budget]++;
     let released = false;
     const release = () => {
       if (released) return;
       released = true;
-      session.active--;
+      session.active[budget]--;
     };
     signal.addEventListener("abort", release, { once: true });
     try {
@@ -327,7 +344,12 @@ export class Remotes {
             this.status(remote, "connected", "Connected. Publications arrive while Scope is open.");
             if (!checkedUpdates) {
               checkedUpdates = true;
-              this.sessions.set(remote.id, { endpoint, token, signal: sessionSignal, active: 0 });
+              this.sessions.set(remote.id, {
+                endpoint,
+                token,
+                signal: sessionSignal,
+                active: { requests: 0, feeds: 0 },
+              });
               this.updateRemote(remote, token, sessionSignal);
               const call: RemoteCall = (method, path, body) =>
                 fetch(`${endpoint}${path}`, {

@@ -239,6 +239,23 @@ async function pollingChecks(hub: Hub, base: string) {
   );
 }
 
+/** Running out of watches while catching up after lost events switches the feed to polling. */
+async function exhaustionChecks(hub: Hub, base: string) {
+  const desktop = await pairAsDesktop(hub);
+  const root = join(base, "exhausted");
+  await mkdir(root, { recursive: true });
+  const events = await feed(hub, desktop, await realpath(root), async () => {
+    await mkdir(join(root, "burst"));
+    await wait(1000);
+    await writeFile(join(root, "burst", "later.txt"), "x");
+    await wait(4500);
+  });
+  expect(changed(events)).toContain("created burst/later.txt");
+  // Only Linux watches each folder; macOS and Windows watch the whole folder at once.
+  if (process.platform === "linux")
+    expect(events).toContainEqual(expect.objectContaining({ type: "status", live: false }));
+}
+
 /** Folder commands waiting for their bodies hold relay slots, so at most 16 reach the desktop. */
 async function admissionChecks(hub: Hub, desktop: Record<string, string>, folder: string) {
   const relay = new AbortController();
@@ -306,6 +323,9 @@ test(
     }
     const devbox = await spawnedHub(join(f.directory, "devbox"));
     const older = await spawnedHub(join(f.directory, "older-desktop"));
+    const exhausted = await spawnedHub(join(f.directory, "exhausted-hub"), {
+      NODE_OPTIONS: `--import=${resolve("tests/fixtures/folder/watches-run-out-on-burst.mjs")}`,
+    });
     const polled = await spawnedHub(join(f.directory, "polled-hub"), {
       NODE_OPTIONS: `--import=${resolve("tests/fixtures/folder/no-file-watches.mjs")}`,
     });
@@ -378,6 +398,42 @@ test(
       await expect.poll(placeholders).toBe(0);
       const expandedHeight = await treeHeight();
 
+      // Change feeds for many open remote folders leave room for listings.
+      const extras: string[] = [];
+      for (let index = 0; index < 33; index++) {
+        const extra = join(f.directory, "extras", `e${index}`);
+        await mkdir(extra, { recursive: true });
+        extras.push(
+          (
+            (await (
+              await fetch(`${devbox.endpoint}/v1/folders/open`, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${devbox.token}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ path: extra }),
+              })
+            ).json()) as Receipt
+          ).tabId,
+        );
+      }
+      await page.evaluate(
+        (ids) => Promise.all(ids.map((id) => window.scope.watchFolder(id))),
+        extras,
+      );
+      await wait(1000);
+      expect(
+        await page.evaluate(
+          (tabId) => window.scope.folderList({ tabId, path: "", showIgnored: false }),
+          receipt.tabId,
+        ),
+      ).toMatchObject({ status: "ok" });
+      await page.evaluate(
+        (ids) => Promise.all(ids.map((id) => window.scope.unwatchFolder(id))),
+        extras,
+      );
+
       // File routes refuse the hub's publishing token, a wrong token, and no token.
       const list = `${devbox.endpoint}/v1/relay/folders/list?${new URLSearchParams({ root: await realpath(folder), path: "", showIgnored: "0" })}`;
       for (const authorization of [undefined, `Bearer ${devbox.token}`, "Bearer wrong-token"]) {
@@ -432,6 +488,7 @@ test(
         .toMatch(/^Scope desktop is not connected/);
       await admissionChecks(older, desktop, folder);
       await pollingChecks(polled, f.directory);
+      await exhaustionChecks(exhausted, f.directory);
 
       // A hub without folder routes answers 404, which the CLI explains as an update.
       const stub = createServer((_request, response) => {
@@ -472,6 +529,7 @@ test(
       await devbox.stop();
       await older.stop();
       await polled.stop();
+      await exhausted.stop();
       await rm(f.directory, { recursive: true, force: true });
     }
   },
