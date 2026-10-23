@@ -1,19 +1,12 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import ignore, { type Ignore } from "ignore";
+import { GIT_DIRECTORY, readInsideText } from "./paths.ts";
 
-/** `.git` is never shown, listed, or watched. */
-export const GIT_DIRECTORY = ".git";
+export { GIT_DIRECTORY };
 
 type Level = { directory: string; rules: Ignore };
 
-async function readRules(path: string): Promise<string | undefined> {
-  try {
-    return await readFile(path, "utf8");
-  } catch {
-    return undefined;
-  }
-}
+// Ignore files are read like any other file: a symlink out of the folder is not followed.
+const readRules = (root: string, path: string) => readInsideText(root, path);
 
 /**
  * `.gitignore` rules for one directory: the folder's `.git/info/exclude` and every
@@ -28,11 +21,11 @@ export class IgnoreRules {
   static async load(root: string, directory: string): Promise<IgnoreRules> {
     const parts = directory ? directory.split("/") : [];
     const levels: Level[] = [];
-    const exclude = await readRules(join(root, GIT_DIRECTORY, "info", "exclude"));
+    const exclude = await readRules(root, `${GIT_DIRECTORY}/info/exclude`);
     if (exclude) levels.push({ directory: "", rules: ignore().add(exclude) });
     for (let depth = 0; depth <= parts.length; depth++) {
       const current = parts.slice(0, depth).join("/");
-      const text = await readRules(join(root, ...parts.slice(0, depth), ".gitignore"));
+      const text = await readRules(root, [...parts.slice(0, depth), ".gitignore"].join("/"));
       if (text) levels.push({ directory: current, rules: ignore().add(text) });
     }
     return new IgnoreRules(levels);
@@ -40,7 +33,7 @@ export class IgnoreRules {
 
   /** Rules for a child directory, reusing this directory's levels. */
   async child(root: string, directory: string): Promise<IgnoreRules> {
-    const text = await readRules(join(root, ...directory.split("/"), ".gitignore"));
+    const text = await readRules(root, `${directory}/.gitignore`);
     return new IgnoreRules(
       text ? [...this.levels, { directory, rules: ignore().add(text) }] : this.levels,
     );

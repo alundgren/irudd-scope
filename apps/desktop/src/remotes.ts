@@ -345,10 +345,17 @@ export class Remotes {
               artifactRequest(event.method, event.path) ||
               folderCommandRequest(event.method, event.path)
             ) ||
-            requests.has(event.id) ||
-            requests.size >= 16
+            requests.has(event.id)
           )
             throw new Error("The hub sent an invalid publication request.");
+          // A hub can free a slot a moment before this side does; answer busy, keep the relay.
+          if (requests.size >= 16) {
+            const busy = this.answerBusy(endpoint, token, event.id, sessionSignal).finally(() =>
+              tasks.delete(busy),
+            );
+            tasks.add(busy);
+            return;
+          }
           const controller = new AbortController();
           requests.set(event.id, controller);
           const task = this.forward(
@@ -385,6 +392,22 @@ export class Remotes {
       await delay(3000, undefined, { signal }).catch(() => {});
     }
   }
+  private async answerBusy(endpoint: string, token: string, id: string, signal: AbortSignal) {
+    await fetch(`${endpoint}/v1/relay/requests/${id}/response`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "scope-response-status": "503",
+      },
+      body: JSON.stringify({ error: "Scope is busy. Retry after the current requests finish." }),
+      redirect: "error",
+      signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+    })
+      .then((response) => response.body?.cancel())
+      .catch(() => {});
+  }
+
   private async forward(
     endpoint: string,
     token: string,
