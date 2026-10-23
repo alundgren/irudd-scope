@@ -12,6 +12,7 @@
     "@base-ui/react": "catalog:",
     "@effect/sql-sqlite-node": "catalog:",
     "@excalidraw/excalidraw": "catalog:",
+    "@irudd-scope/folder": "workspace:*",
     "@irudd-scope/memory-sync": "workspace:*",
     "@irudd-scope/protocol": "workspace:*",
     "@irudd-scope/sqlite": "workspace:*",

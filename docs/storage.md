@@ -273,6 +273,15 @@ These import paths support existing data. New writes use the stores listed
 above. Restore the complete backup before using a desktop that cannot read
 the upgraded schema.
 
+## Folder tabs
+
+A Folder tab stores only its tab record in `scope.db`: the machine ID,
+canonical folder path, expanded folders, filter text, ignored-files setting,
+selected file, and a change counter. The `folder_tabs` table keys each tab by
+machine and path and is removed with the tab. Scope stores no file bytes or
+file lists in `scope.db`, `desktop.db`, or `hub.db`. Restored tabs show the
+folder's current contents. Trashing a Folder tab keeps only its record.
+
 ## Speech requests
 
 The desktop-main `voice/` module owns `voice_requests` in `desktop.db`. Each row

@@ -14,3 +14,9 @@ export type RemoteStatus = Remote & {
   message: string;
   update?: HubUpdateStatus;
 };
+
+/**
+ * Set by desktop main on folder commands it forwards from a hub, as `SECRET:REMOTE_ID`.
+ * The secret exists only in this process, so a local caller cannot claim a remote origin.
+ */
+export const RELAY_ORIGIN_HEADER = "Scope-Relay-Origin";

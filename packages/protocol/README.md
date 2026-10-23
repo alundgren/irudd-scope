@@ -202,6 +202,51 @@ Mac and are excluded from the desktop relay allowlist. The stateless forwarding
 mode reports that it has no hub database. `irudd-scope hub shrink --status`
 reads the local hub result.
 
+## Folder tabs
+
+`src/folder.ts` defines the folder routes and contracts: `FolderIdentity`,
+`FolderOpenRequest`/`FolderOpenReceipt`, find and select requests and
+receipts, `FolderEntry`, `FolderListing`, `FolderChange`, `FolderFeedEvent`,
+`FolderDropEvent`, the watch stream line, search and write contracts, and
+`FolderErrorBody`. It imports no file system code. `MachineId` is `local` or a
+paired remote's ID. Paths inside a folder use `/` and have no `.` or `..` parts.
+
+Agent commands use the normal publishing token, locally or through a hub:
+
+| Request                                             | Result                                                                                |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `POST /v1/folders/open`, `{ path, title? }`         | `{ tabId, machine, path, created }`                                                   |
+| `POST /v1/folders/find`, `{ path }`                 | `{ open, tabId?, machine, path }`; a trashed tab is not open. Not available yet: 501. |
+| `POST /v1/folders/select`, `{ path, file, title? }` | `FolderOpenReceipt` plus `file`. Not available yet: 501.                              |
+| `GET /v1/folders/watch?path=`                       | NDJSON `dropped`, `closed`, and `heartbeat` lines. Not available yet: 501.            |
+
+`path` is absolute on the machine that runs the command. Scope resolves it to
+the canonical real path on that machine; hubs resolve it before relaying. Any
+`machine` field in the body is ignored: the machine is the connection that
+delivered the command. Folder commands are never queued. Failures are JSON
+`{ error, code }` with `code` one of `no-tab`, `not-found`, `outside-folder`,
+`not-a-directory`, `unsupported`, or `desktop-offline`. A 404 without a code
+comes from a Scope or hub without folder support; the CLI then prints
+`Update Scope on HOST to share folders`.
+
+The hub serves the paired desktop's file requests on routes that accept only
+the desktop connection credential, never the publishing token:
+
+| Request                                                          | Result                                                                  |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `GET /v1/relay/folders/list?root=&path=&showIgnored=0\|1`        | `FolderListing` of one directory, at most 50,000 entries                |
+| `GET /v1/relay/folders/read?root=&path=&start=&end=`             | Raw bytes `start` to `end` (exclusive) and `Scope-Folder-File-Size`     |
+| `GET /v1/relay/folders/events?root=`                             | NDJSON `FolderFeedEvent` lines with a heartbeat every 10 seconds        |
+| `POST /v1/relay/folders/search`, `FolderSearchRequest`           | NDJSON `FolderSearchEvent` lines. Not available yet: 501 `unsupported`. |
+| `PUT /v1/relay/folders/write?root=&path=&replace=0\|1`, raw body | `FolderWriteReceipt`. Not available yet: 501 `unsupported`.             |
+
+Every file route resolves real paths and rejects paths that leave `root`,
+including through symlinks, with 403 `outside-folder`. A desktop sends
+`Scope-Relay-Capabilities: folders` on `GET /v1/relay/events`; hubs forward
+folder commands only to such a desktop and otherwise answer 501 `unsupported`
+without sending a relay event, because older desktops drop the relay on an
+unknown request.
+
 ## Removed diagram routes
 
 Scope no longer accepts `POST /v1/diagrams`, `POST /v1/diagrams/sync`, or

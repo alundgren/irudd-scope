@@ -80,6 +80,7 @@ async function main() {
   let transfers: TabTransfers | undefined;
   let memory: MemoryService | undefined;
   let librarian: LibrarianService | undefined;
+  let folderCommand: ReturnType<typeof registerDesktopIpc>["folderCommand"] | undefined;
   const startedMemory = () => {
     if (!memory) throw new ScopeError(503, "Scope is still starting. Retry shortly.");
     return memory;
@@ -109,6 +110,10 @@ async function main() {
       await initializeBuiltinPlugins(lifecycle);
     },
     deleteArtifact: (id) => lifecycle.deleteArtifact(id),
+    folders: (command, input, machineId) => {
+      if (!folderCommand) throw new ScopeError(503, "Scope is still starting. Retry shortly.");
+      return folderCommand(command, input, machineId);
+    },
     shrink: (timeoutMs) => lifecycle.shrink(timeoutMs),
     maintenanceStatus: () =>
       [lifecycle.artifacts.maintenance.latest(), store.maintenance.latest()].filter(
@@ -215,6 +220,7 @@ async function main() {
       await close(true);
     },
   });
+  folderCommand = desktopIpc.folderCommand;
   const externalLinks = registerExternalLinks(window);
   lifecycle!.onRemoved = (ids) => desktopIpc.cancelTabs(ids);
   lifecycle!.onRetentionChanged = (tabs) => {

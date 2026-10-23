@@ -91,6 +91,8 @@ export function registerDesktopIpc({
     store,
     client,
     memory,
+    lifecycle,
+    remotes,
     artifacts: lifecycle.artifacts,
     workspace: () => lifecycle.workspace(),
   });
@@ -257,6 +259,7 @@ export function registerDesktopIpc({
     resumePending: () => plugins.resumePullRequests(),
     cancelPending: () => plugins.cancelPullRequests(),
     cancelTabs: (ids: string[]) => plugins.cancelTabs(ids),
+    folderCommand: plugins.folderCommand,
     dispose: () => {
       stopPromptEvents();
       stopPromptReconnects();

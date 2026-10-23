@@ -30,6 +30,12 @@ import {
 } from "./voice.ts";
 import { readRemoteJson } from "./remote.ts";
 import {
+  FOLDER_COMMAND_ROUTES,
+  FolderOpenReceipt,
+  FolderOpenRequest,
+  MAX_FOLDER_COMMAND_BYTES,
+} from "./folder.ts";
+import {
   MemoryConnectRequest,
   MemoryMachineStatus,
   MemoryStatus,
@@ -110,9 +116,31 @@ export class ScopeClient {
         body && typeof body === "object" && "error" in body && typeof body.error === "string"
           ? body.error
           : `Scope returned ${response.status}.`;
-      throw new ScopeError(response.status, message);
+      const code =
+        body && typeof body === "object" && "code" in body && typeof body.code === "string"
+          ? body.code.slice(0, 64)
+          : undefined;
+      throw new ScopeError(response.status, message, code);
     }
     return response;
+  }
+
+  /** Opens or reuses the Folder tab for a folder on the machine that runs this command. */
+  async folderOpen(input: FolderOpenRequest): Promise<FolderOpenReceipt> {
+    const body = JSON.stringify(decode(FolderOpenRequest, input));
+    if (new TextEncoder().encode(body).byteLength > MAX_FOLDER_COMMAND_BYTES)
+      throw new Error("Folder command exceeds 16 KiB.");
+    return decode(
+      FolderOpenReceipt,
+      await readRemoteJson(
+        await this.request(FOLDER_COMMAND_ROUTES.open, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }),
+        MAX_FOLDER_COMMAND_BYTES,
+      ),
+    );
   }
 
   async importLink(url: string): Promise<TransferImportReceipt> {

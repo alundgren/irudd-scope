@@ -8,10 +8,12 @@ import {
   readRemoteJson,
   readRelayEvents,
   type RelayRequest,
+  RELAY_CAPABILITIES_HEADER,
   RELAY_WAKE_HEADER,
 } from "@irudd-scope/protocol/remote";
+import { FOLDER_CAPABILITY, folderCommandRequest } from "@irudd-scope/protocol/folder";
 import type { DesktopStore } from "./desktop-store.ts";
-import type { Remote, RemoteStatus } from "./remote-contract.ts";
+import { RELAY_ORIGIN_HEADER, type Remote, type RemoteStatus } from "./remote-contract.ts";
 import { synchronizeRemote } from "./remote-updates.ts";
 
 type Connection = { controller: AbortController; task: Promise<void> };
@@ -22,6 +24,38 @@ export type RemoteCall = (
   body?: unknown,
 ) => Promise<Response>;
 type SessionListener = (remote: Remote, call: RemoteCall, signal: AbortSignal) => void;
+type Session = {
+  endpoint: string;
+  token: string;
+  signal: AbortSignal;
+  active: { requests: number; feeds: number };
+};
+/** Options for a streamed relay request. Deadlines are per operation, not global. */
+export type RemoteRequest = {
+  method?: "GET" | "POST" | "PUT";
+  body?: BodyInit;
+  contentType?: string;
+  signal?: AbortSignal;
+  /** Total time allowed for the request, including the response body. */
+  deadlineMs: number;
+  /** The request fails when the response body is silent this long. */
+  idleMs?: number;
+  /**
+   * A long-lived stream such as a folder change feed. Feeds have their own budget, so open
+   * feeds never take the room that listings, reads, and writes need.
+   */
+  feed?: boolean;
+};
+/** The remote has no live relay session, so its files cannot be reached. */
+export class RemoteUnavailableError extends Error {
+  constructor(message = "The remote is offline.") {
+    super(message);
+    this.name = "RemoteUnavailableError";
+  }
+}
+const MAX_STREAMED_REQUESTS = 32;
+// Matches the hub's limit on open folder change feeds.
+const MAX_FEEDS = 64;
 
 export class Remotes {
   private readonly statuses = new Map<string, RemoteStatus>();
@@ -29,18 +63,78 @@ export class Remotes {
   private readonly updating = new Map<string, Connection>();
   private readonly pairing = new AbortController();
   private readonly sessionListeners = new Set<SessionListener>();
+  private readonly sessions = new Map<string, Session>();
   private pending = Promise.resolve();
   private closed = false;
 
   constructor(
     private readonly store: DesktopStore,
-    private readonly local: { url: string; token: string },
+    private readonly local: { url: string; token: string; originSecret?: string },
     private readonly onChange: (status: RemoteStatus[]) => void,
     private readonly currentCommit?: string,
   ) {}
 
   snapshot() {
     return [...this.statuses.values()];
+  }
+  /**
+   * Opens a request on a connected remote's relay API with a raw streamed body. It is
+   * cancelled by the caller, by its deadline, by a silent response, or when the session ends.
+   */
+  async request(remoteId: string, path: string, options: RemoteRequest): Promise<Response> {
+    const session = this.sessions.get(remoteId);
+    if (!session || session.signal.aborted) throw new RemoteUnavailableError();
+    const budget = options.feed ? "feeds" : "requests";
+    if (session.active[budget] >= (options.feed ? MAX_FEEDS : MAX_STREAMED_REQUESTS))
+      throw new Error(
+        options.feed
+          ? "Too many folders are open on this remote. Close a Folder tab and retry."
+          : "Too many folder requests to this remote. Retry shortly.",
+      );
+    const controller = new AbortController();
+    const signal = AbortSignal.any([
+      session.signal,
+      controller.signal,
+      AbortSignal.timeout(options.deadlineMs),
+      ...(options.signal ? [options.signal] : []),
+    ]);
+    session.active[budget]++;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      session.active[budget]--;
+    };
+    signal.addEventListener("abort", release, { once: true });
+    try {
+      const init: RequestInit & { duplex: "half" } = {
+        method: options.method ?? "GET",
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          ...(options.contentType ? { "Content-Type": options.contentType } : {}),
+        },
+        body: options.body,
+        duplex: "half",
+        redirect: "error",
+        signal,
+      };
+      const response = await fetch(`${session.endpoint}${path}`, init).catch((error: unknown) => {
+        if (session.signal.aborted) throw new RemoteUnavailableError();
+        throw error;
+      });
+      if (!response.body) {
+        release();
+        return response;
+      }
+      return new Response(watchIdle(response.body, controller, options.idleMs, release), {
+        status: response.status,
+        headers: response.headers,
+      });
+    } catch (error) {
+      release();
+      controller.abort();
+      throw error;
+    }
   }
   onSession(listener: SessionListener) {
     this.sessionListeners.add(listener);
@@ -226,6 +320,7 @@ export class Remotes {
         const response = await fetch(`${endpoint}/v1/relay/events`, {
           headers: {
             Authorization: `Bearer ${token}`,
+            [RELAY_CAPABILITIES_HEADER]: FOLDER_CAPABILITY,
             ...(waking ? { [RELAY_WAKE_HEADER]: "1" } : {}),
           },
           redirect: "error",
@@ -238,6 +333,12 @@ export class Remotes {
             this.status(remote, "connected", "Connected. Publications arrive while Scope is open.");
             if (!checkedUpdates) {
               checkedUpdates = true;
+              this.sessions.set(remote.id, {
+                endpoint,
+                token,
+                signal: sessionSignal,
+                active: { requests: 0, feeds: 0 },
+              });
               this.updateRemote(remote, token, sessionSignal);
               const call: RemoteCall = (method, path, body) =>
                 fetch(`${endpoint}${path}`, {
@@ -262,17 +363,29 @@ export class Remotes {
             return;
           }
           if (
-            !artifactRequest(event.method, event.path) ||
-            requests.has(event.id) ||
-            requests.size >= 16
+            !(
+              artifactRequest(event.method, event.path) ||
+              folderCommandRequest(event.method, event.path)
+            ) ||
+            requests.has(event.id)
           )
             throw new Error("The hub sent an invalid publication request.");
+          // A hub can free a slot a moment before this side does; answer busy, keep the relay.
+          if (requests.size >= 16) {
+            const busy = this.answerBusy(endpoint, token, event.id, sessionSignal).finally(() =>
+              tasks.delete(busy),
+            );
+            tasks.add(busy);
+            return;
+          }
           const controller = new AbortController();
           requests.set(event.id, controller);
           const task = this.forward(
             endpoint,
             token,
-            event,
+            folderCommandRequest(event.method, event.path) && this.local.originSecret
+              ? { ...event, origin: `${this.local.originSecret}:${remote.id}` }
+              : event,
             AbortSignal.any([sessionSignal, controller.signal]),
           ).finally(() => {
             requests.delete(event.id);
@@ -292,6 +405,7 @@ export class Remotes {
       } finally {
         clearTimeout(heartbeat);
         session.abort();
+        if (this.sessions.get(remote.id)?.signal === sessionSignal) this.sessions.delete(remote.id);
         const update = this.updating.get(remote.id);
         update?.controller.abort();
         await update?.task;
@@ -300,7 +414,28 @@ export class Remotes {
       await delay(3000, undefined, { signal }).catch(() => {});
     }
   }
-  private async forward(endpoint: string, token: string, event: RelayRequest, signal: AbortSignal) {
+  private async answerBusy(endpoint: string, token: string, id: string, signal: AbortSignal) {
+    await fetch(`${endpoint}/v1/relay/requests/${id}/response`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "scope-response-status": "503",
+      },
+      body: JSON.stringify({ error: "Scope is busy. Retry after the current requests finish." }),
+      redirect: "error",
+      signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+    })
+      .then((response) => response.body?.cancel())
+      .catch(() => {});
+  }
+
+  private async forward(
+    endpoint: string,
+    token: string,
+    event: RelayRequest & { origin?: string },
+    signal: AbortSignal,
+  ) {
     const transfer = new AbortController();
     signal = AbortSignal.any([signal, transfer.signal]);
     const started = performance.now();
@@ -403,6 +538,7 @@ export class Remotes {
         headers: {
           Authorization: `Bearer ${this.local.token}`,
           ...(event.contentType ? { "Content-Type": event.contentType } : {}),
+          ...(event.origin ? { [RELAY_ORIGIN_HEADER]: event.origin } : {}),
         },
       };
       phase = "local-http";
@@ -450,4 +586,46 @@ export class Remotes {
     await this.pending;
     await Promise.all([...this.connections.keys()].map((id) => this.disconnect(id)));
   }
+}
+
+function watchIdle(
+  body: ReadableStream<Uint8Array>,
+  controller: AbortController,
+  idleMs: number | undefined,
+  release: () => void,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const reset = () => {
+    clearTimeout(timer);
+    if (idleMs)
+      timer = setTimeout(
+        () => controller.abort(new Error("The remote stopped responding.")),
+        idleMs,
+      );
+  };
+  reset();
+  return new ReadableStream<Uint8Array>({
+    async pull(stream) {
+      try {
+        const next = await reader.read();
+        reset();
+        if (next.done) {
+          clearTimeout(timer);
+          release();
+          stream.close();
+        } else stream.enqueue(next.value);
+      } catch (error) {
+        clearTimeout(timer);
+        release();
+        stream.error(error);
+      }
+    },
+    async cancel(reason) {
+      clearTimeout(timer);
+      release();
+      controller.abort();
+      await reader.cancel(reason).catch(() => {});
+    },
+  });
 }

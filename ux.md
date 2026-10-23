@@ -292,6 +292,37 @@ Search and the empty workspace offer no manual creation controls for them. The
 empty workspace shows existing artifacts or an example publication command.
 Published `.excalidraw` files open as downloadable files.
 
+## Folder tabs
+
+Only agents open Folder tabs, when the person asks them to share a folder.
+Scope has no Open folder button, menu item, or folder drop target, so the strip
+and menus stay unchanged. A new Folder tab follows publication rules: it
+appears unread at the end of the strip and selects itself only when no tab is
+selected. Reopening an existing tab marks it unread, renames it when the agent
+passes a new title, and returns a closed or trashed tab to the end of the
+strip without changing selection, even when nothing is selected.
+
+A local Folder tab shows only its title, like any tab. A remote Folder tab shows
+the machine name first in the muted color, then `·` and the title; only the
+title is shortened with an ellipsis. Folder tabs have no icon. The tooltip
+lists the full title, the machine (This Mac, This PC, or the remote's name),
+and the full path. The drawer's second line is the folder name, with the
+machine first for remotes, and drawer search matches the title, machine, and
+folder name.
+
+Inside the tab, a top bar shows a machine chip for remotes, the full path, a
+Show ignored files checkbox, and Copy path. The tree lists folders before
+files, each sorted by name, and renders only visible rows. `.git` is always
+hidden. Ignored files are hidden by default and dimmed when shown. Links that
+point outside the folder show a link icon and do not open. Changes on disk
+appear without losing scroll position, expanded folders, or the selected file.
+A deleted selected file stays in the tree, struck through and marked Deleted.
+When a Linux machine runs out of file watches, the tab says live updates are
+slower. A missing folder shows `This folder no longer exists`, its path, and
+Close; the tree returns if the folder comes back. An offline remote shows
+`NAME is offline` with the path and no cached files. A remote whose hub lacks
+folder routes shows `Update Scope on NAME to view this folder`.
+
 ## Sketchpad
 
 The Sketchpad is one built-in Excalidraw canvas for the person's own ideas.

@@ -34,6 +34,8 @@ import { ScopeClient } from "@irudd-scope/protocol/client";
 import { setup, manageHub, printPairing } from "./setup.ts";
 import { checkSkill, installSkill, syncSkill } from "./skill.ts";
 import { PlanGuide, planCommand } from "./plan.ts";
+import { folderCommand } from "./folder.ts";
+import { FolderGuide } from "@irudd-scope/protocol/folder";
 import {
   decodeTransferImportRequest,
   TRANSFER_IMPORT_TIMEOUT_MS,
@@ -56,6 +58,8 @@ irudd-scope plan read NAME
 irudd-scope plan item NAME ITEM_ID
 irudd-scope plan capture-basis NAME BASIS_ID --expected-revision REVISION
 irudd-scope plan content NAME --output NEW_FILE.html
+irudd-scope folder open [PATH] [--title TITLE]
+irudd-scope folder guide
 irudd-scope voice generate|status|result|cancel|guide [FILE_OR_ID]
 irudd-scope list
 irudd-scope get ID
@@ -79,6 +83,7 @@ Queued publications return an expiry receipt. Use hub queue to inspect them or h
 Import-link imports a tab sharing link into the receiver's paired Scope without a desktop confirmation.
 Create sharing links and pair in the desktop app. Both computers must be online with Tailcat installed separately.
 Import-link defaults to a 300000 ms timeout and is never queued. Retry the same link after an uncertain result.
+Folder open shows a folder on this machine as a Folder tab in Scope, once per folder. It is never queued.
 `;
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -562,6 +567,21 @@ async function main() {
       };
     });
     console.log(JSON.stringify(status, null, 2));
+    return;
+  }
+  if (command === "folder") {
+    if (argument === "guide") {
+      console.log(JSON.stringify(FolderGuide, null, 2));
+      return;
+    }
+    const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"]));
+    console.log(
+      JSON.stringify(
+        await folderCommand(() => connect(values, signal), positionals, values),
+        null,
+        2,
+      ),
+    );
     return;
   }
   if (command === "plan") {

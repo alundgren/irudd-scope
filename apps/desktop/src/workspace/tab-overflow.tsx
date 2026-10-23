@@ -4,7 +4,8 @@ import { ArrowLeft, ChevronDown, RotateCcw, Search, Trash2, X } from "lucide-rea
 import type { Artifact } from "@irudd-scope/protocol";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { Input } from "../renderer/components/ui/input.tsx";
-import { tabArtifactId } from "../plugins/registry.renderer.ts";
+import { tabArtifactId, tabLabel } from "../plugins/registry.renderer.ts";
+import type { TabLabelContext } from "../plugins/api.ts";
 import { isBuiltinTab } from "../plugins/registry.ts";
 import type { Tab } from "./contract.ts";
 import { TRASH_RETENTION_MS, type RetainedTab } from "./retention.ts";
@@ -18,6 +19,8 @@ export function TabOverflow({
   hiddenIds,
   artifacts,
   unread,
+  unreadTabs,
+  labels,
   tabButtons,
   onSelect,
   onPermanent,
@@ -32,6 +35,8 @@ export function TabOverflow({
   hiddenIds: ReadonlySet<string>;
   artifacts: ReadonlyMap<string, Artifact>;
   unread: ReadonlySet<string>;
+  unreadTabs: ReadonlySet<string>;
+  labels: TabLabelContext;
   tabButtons: RefObject<Map<string, HTMLButtonElement>>;
   onSelect: (id: string) => void;
   onPermanent: (id: string, permanent: boolean) => Promise<void>;
@@ -65,13 +70,18 @@ export function TabOverflow({
     const entry = retention.get(tab.id);
     const artifactId = tabArtifactId(tab);
     const artifact = artifacts.get(artifactId ?? "");
+    const label = tabLabel(tab, labels);
     const title = artifact?.title ?? tab.title;
-    const kind = artifact?.kind ?? tab.type;
+    const kind = label?.detail ?? artifact?.kind ?? tab.type;
     const name = artifact?.name;
     const permanent = isBuiltinTab(tab) || (entry?.permanent ?? false);
     if (section === "active" && filter !== "all" && permanent !== (filter === "permanent"))
       return [];
-    if (needle && !`${title} ${kind} ${name ?? ""}`.toLowerCase().includes(needle)) return [];
+    if (
+      needle &&
+      !`${title} ${kind} ${name ?? ""} ${label?.keywords ?? ""}`.toLowerCase().includes(needle)
+    )
+      return [];
     return [
       {
         tab,
@@ -84,7 +94,8 @@ export function TabOverflow({
     ];
   });
   const hasUnread = tabs.some(
-    (tab) => hiddenIds.has(tab.id) && unread.has(tabArtifactId(tab) ?? ""),
+    (tab) =>
+      hiddenIds.has(tab.id) && (unread.has(tabArtifactId(tab) ?? "") || unreadTabs.has(tab.id)),
   );
   const drawerLabel = `Tabs and Trashcan, ${tabs.length} active ${tabs.length === 1 ? "tab" : "tabs"}`;
   const trashEntries = trash.map((entry) => ({ id: entry.tab.id, trashedAt: entry.trashedAt! }));

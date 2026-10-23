@@ -6,6 +6,8 @@ import type { ArtifactStore } from "./library/store.ts";
 import type { DesktopStore } from "./desktop-store.ts";
 import { validateTabState } from "./plugins/registry.ts";
 import { LegacyMemoryTabState } from "./plugins/memory/contract.ts";
+import type { FolderIdentity } from "@irudd-scope/protocol/folder";
+import type { FolderTabOpened } from "./plugins/folder/contract.ts";
 
 export class DesktopLifecycle {
   private pending = Promise.resolve();
@@ -146,6 +148,18 @@ export class DesktopLifecycle {
       this.onRemoved(ids);
       await this.notifyRetention();
       this.onClosed(ids);
+    });
+  }
+
+  /** Opens, restores, unhides, or renames the one Folder tab for a folder. */
+  openFolderTab(input: FolderIdentity & { title?: string }): Promise<FolderTabOpened> {
+    return this.enqueue(async () => {
+      const layout = await this.desktop.layout();
+      const groupId = layout?.groups[0]?.id;
+      if (!groupId) throw new Error("Scope is still starting. Retry shortly.");
+      const opened = await this.artifacts.openFolderTab({ ...input, groupId });
+      if (opened.created || opened.restored || opened.unhidden) await this.notifyRetention();
+      return opened;
     });
   }
 

@@ -13,6 +13,7 @@ import {
 import { validateTabState } from "../plugins/registry.ts";
 import { discardTabSaves, flushWorkspace, useAutosave } from "./persistence.ts";
 import type { TabDropEdge } from "./use-tab-drag.ts";
+import { mergeFolderTab, type FolderTabOpened } from "../plugins/folder/contract.ts";
 
 function legacyWorkspace(): Workspace {
   try {
@@ -34,6 +35,8 @@ export function useWorkspace(onError: (message: string) => void) {
   const opening = useRef(Promise.resolve());
   const pendingOpens = useRef(new Set<{ closed: Set<string> }>());
   const hiding = useRef(new Map<string, Promise<void>>());
+  // Folder tabs opened by agents are unread until selected. Publications track unread by artifact.
+  const [unreadTabs, setUnreadTabs] = useState<ReadonlySet<string>>(new Set());
   const save = useAutosave(
     () => (loaded ? current.current : undefined),
     (value) => window.scope.saveWorkspace(value),
@@ -100,6 +103,48 @@ export function useWorkspace(onError: (message: string) => void) {
   useEffect(() => {
     if (loaded) save.schedule();
   }, [workspace, loaded, save.schedule]);
+  useEffect(() => {
+    const selected = workspace.selected;
+    if (selected)
+      setUnreadTabs((previous) => {
+        if (!previous.has(selected)) return previous;
+        const next = new Set(previous);
+        next.delete(selected);
+        return next;
+      });
+  }, [workspace.selected]);
+  useEffect(() => window.scope.onFolderTabOpened((opened) => reconcileOpened(opened)), []);
+
+  /**
+   * Applies an agent's folder command. Restored and unhidden tabs move to the end without
+   * changing selection; only a brand-new tab selects itself, and only when none is selected.
+   */
+  function reconcileOpened({ tab, created, restored, unhidden }: FolderTabOpened): void {
+    const latest = current.current;
+    if (latest.selected !== tab.id) setUnreadTabs((previous) => new Set([...previous, tab.id]));
+    const existing = latest.tabs.find((entry) => entry.id === tab.id);
+    if (existing) {
+      const reopened = restored || unhidden;
+      if (reopened) hiding.current.delete(tab.id);
+      const { hidden, ...merged } = mergeFolderTab(existing, tab);
+      const next = reopened || !hidden ? merged : { ...merged, hidden };
+      const others = latest.tabs.filter((entry) => entry.id !== tab.id);
+      replace(
+        decodeWorkspace({
+          ...latest,
+          tabs: reopened
+            ? [...others, next]
+            : latest.tabs.map((entry) => (entry.id === tab.id ? next : entry)),
+        }),
+      );
+      return;
+    }
+    if (created) {
+      void addTabs([{ tab }]);
+      return;
+    }
+    replace(decodeWorkspace({ ...latest, tabs: [...latest.tabs, tab] }));
+  }
 
   function createGroup(owner: TabGroup["owner"], id = crypto.randomUUID()): TabGroup {
     const previous = current.current;
@@ -311,6 +356,7 @@ export function useWorkspace(onError: (message: string) => void) {
   const updateState = (id: string, state: TabState) => updateTab(id, { state });
   return {
     workspace,
+    unreadTabs,
     ready,
     save,
     openTab,

@@ -12,7 +12,15 @@ import {
 } from "@irudd-scope/protocol/voice";
 import type { VoiceService } from "../voice/service.ts";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { RemoteId } from "@irudd-scope/protocol/remote";
+import {
+  FOLDER_COMMAND_ROUTES,
+  MAX_FOLDER_COMMAND_BYTES,
+  folderErrorBody,
+  type MachineId,
+} from "@irudd-scope/protocol/folder";
+import { RELAY_ORIGIN_HEADER } from "../remote-contract.ts";
 import {
   ArtifactId,
   ArtifactWrite,
@@ -59,7 +67,14 @@ export async function startArtifactServer(options: {
   shrink?: (timeoutMs: number) => Promise<ShrinkReceipt>;
   maintenanceStatus?: () => DatabaseShrink[];
   deleteArtifact?: (id: string) => Promise<{ id: string; deleted: boolean }>;
+  /** Runs an agent folder command for the machine that delivered it. */
+  folders?: (
+    command: keyof typeof FOLDER_COMMAND_ROUTES,
+    input: unknown,
+    machineId: MachineId,
+  ) => Promise<unknown>;
 }) {
+  const originSecret = randomBytes(32).toString("base64url");
   if (options.token.length < 24 || /[\r\n]/.test(options.token))
     throw new Error("Use a publishing token with at least 24 characters and no newlines.");
   const store = await ArtifactStore.open(options.directory);
@@ -146,6 +161,10 @@ export async function startArtifactServer(options: {
       const body = await readJson(request, 2 * 1024 * 1024, "Librarian command exceeds 2 MiB.");
       const input = validate(() => decode(LibrarianCommand, body));
       json(response, 200, decode(LibrarianReply, await options.librarian(input)));
+      return;
+    }
+    if (url.pathname.startsWith("/v1/folders/")) {
+      await folderCommand(request, response, url);
       return;
     }
     if (await handlePromptHttp(request, response, url, store.prompts)) return;
@@ -254,6 +273,50 @@ export async function startArtifactServer(options: {
     if (!match) throw new ScopeError(404, "Endpoint not found.");
     const id = validate(() => decode(ArtifactId, decodeURIComponent(match[1])));
     await handleArtifact(request, response, url, id, match[2]);
+  }
+
+  // The machine comes from the connection that delivered the command, never from its body.
+  function commandMachine(request: IncomingMessage): MachineId {
+    const value = request.headers[RELAY_ORIGIN_HEADER.toLowerCase()];
+    if (typeof value !== "string") return "local";
+    const separator = value.lastIndexOf(":");
+    const secret = Buffer.from(value.slice(0, Math.max(0, separator)));
+    const expected = Buffer.from(originSecret);
+    if (secret.length !== expected.length || !timingSafeEqual(secret, expected)) return "local";
+    try {
+      return decode(RemoteId, value.slice(separator + 1));
+    } catch {
+      return "local";
+    }
+  }
+
+  async function folderCommand(request: IncomingMessage, response: ServerResponse, url: URL) {
+    const command = (
+      Object.keys(FOLDER_COMMAND_ROUTES) as (keyof typeof FOLDER_COMMAND_ROUTES)[]
+    ).find((name) => FOLDER_COMMAND_ROUTES[name] === url.pathname);
+    const method = command === "watch" ? "GET" : "POST";
+    try {
+      if (!command || request.method !== method)
+        throw new ScopeError(404, "Folder endpoint not found.", "unsupported");
+      if (!options.folders)
+        throw new ScopeError(501, "Folders are unavailable in this Scope.", "unsupported");
+      const input =
+        method === "POST"
+          ? await readJson(request, MAX_FOLDER_COMMAND_BYTES, "Folder command exceeds 16 KiB.")
+          : Object.fromEntries(url.searchParams);
+      json(response, 200, await options.folders(command, input, commandMachine(request)));
+    } catch (error) {
+      const status =
+        error instanceof ScopeError
+          ? error.status
+          : error &&
+              typeof error === "object" &&
+              "status" in error &&
+              typeof error.status === "number"
+            ? error.status
+            : 400;
+      json(response, status, folderErrorBody(error, status === 400 ? "not-found" : "unsupported"));
+    }
   }
 
   function openEventStream(response: ServerResponse) {
@@ -373,6 +436,7 @@ export async function startArtifactServer(options: {
   let closing: Promise<void> | undefined;
   return {
     store,
+    originSecret,
     url: `http://127.0.0.1:${address.port}`,
     close: () =>
       (closing ??= (async () => {
