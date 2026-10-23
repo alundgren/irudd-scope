@@ -355,9 +355,18 @@ test(
       await item("retry.ts").waitFor();
       // Expand 40 folders of 100 files each, last first, with the keyboard.
       await item("many").click();
-      for (let index = 0; index < 40; index++) await page.keyboard.press("ArrowDown");
+      const focused = tree.locator("[data-focused]");
       for (let index = 0; index < 40; index++) {
+        await page.keyboard.press("ArrowDown");
+        await expect
+          .poll(() => focused.getAttribute("aria-label"))
+          .toBe(`d${String(index).padStart(2, "0")}`);
+      }
+      for (let index = 39; index >= 0; index--) {
+        const name = `d${String(index).padStart(2, "0")}`;
+        await expect.poll(() => focused.getAttribute("aria-label")).toBe(name);
         await page.keyboard.press("ArrowRight");
+        await expect.poll(() => focused.getAttribute("aria-expanded")).toBe("true");
         await page.keyboard.press("ArrowUp");
       }
       const treeHeight = () =>
