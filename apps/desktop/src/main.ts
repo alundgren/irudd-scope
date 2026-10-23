@@ -229,6 +229,7 @@ async function main() {
   watchFolder = desktopIpc.watchFolder;
   const externalLinks = registerExternalLinks(window);
   lifecycle!.onRemoved = (ids) => desktopIpc.cancelTabs(ids);
+  lifecycle!.onHidden = (ids) => desktopIpc.hiddenTabs(ids);
   lifecycle!.onRetentionChanged = (tabs) => {
     if (!window.isDestroyed()) window.webContents.send("scope:retention-changed", tabs);
   };

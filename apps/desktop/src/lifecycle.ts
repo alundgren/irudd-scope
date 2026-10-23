@@ -15,6 +15,8 @@ export class DesktopLifecycle {
   onRetentionChanged: (tabs: RetainedTab[]) => void = () => {};
   private visibleIds: readonly string[] = [];
   onClosed: (ids: string[]) => void = () => {};
+  /** Tabs a workspace save closed to the drawer. Their views stay mounted. */
+  onHidden: (ids: string[]) => void = () => {};
 
   constructor(
     readonly artifacts: ArtifactStore,
@@ -109,8 +111,9 @@ export class DesktopLifecycle {
     const workspace = decodeWorkspace(value);
     for (const tab of workspace.tabs) validateTabState(tab, true);
     return this.enqueue(async () => {
-      await this.artifacts.saveTabs(workspace.tabs);
+      const hidden = await this.artifacts.saveTabs(workspace.tabs);
       await this.desktop.saveLayout({ groups: workspace.groups, selected: workspace.selected });
+      if (hidden.length) this.onHidden(hidden);
     });
   }
 

@@ -259,6 +259,7 @@ export function registerDesktopIpc({
     resumePending: () => plugins.resumePullRequests(),
     cancelPending: () => plugins.cancelPullRequests(),
     cancelTabs: (ids: string[]) => plugins.cancelTabs(ids),
+    hiddenTabs: (ids: string[]) => plugins.hiddenTabs(ids),
     folderCommand: plugins.folderCommand,
     watchFolder: plugins.watchFolder,
     dispose: () => {

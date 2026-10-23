@@ -83,14 +83,18 @@ selected file so the renderer replaces its selection and expands those folders
 while keeping its other expanded folders.
 
 `folder watch` is a long NDJSON response with a heartbeat every 10 seconds.
-Desktop main ends it with `closed` when the tab leaves the strip: trashing
-reaches the plugin directly, and because closing a bookmarked tab is only a
-renderer save, open watches also re-check their tab every second. A hub relays
-a watch like other requests but keeps it in its own count of at most 16, apart
-from the 16 publication slots, and the desktop's relay does the same, so idle
-watches never block publishing and a full count never drops the relay. The
-desktop uploads the watch response to the hub with `node:http`, because fetch
-gives up on a request body that is still streaming after 300 seconds.
+Desktop main ends it with `closed` at the moment the tab leaves the strip:
+trashing and deletion reach the plugin through the lifecycle, and a workspace
+save that closes a bookmarked tab to the drawer reports that tab. The watch ends
+even if an agent reopens the tab right after. A hub relays a watch like other
+requests but keeps it in its own count of at most 16, apart from the 16
+publication slots, and reserves the slot before resolving the path, so
+concurrent watches cannot exceed it. If the desktop does not start answering
+within 20 seconds, the hub fails the watch and cancels it on the relay. The
+desktop's relay keeps its own watch count, so idle watches never block
+publishing, and it answers busy instead of dropping the relay. The desktop
+uploads the watch response to the hub with `node:http`, because fetch gives up
+on a request body that is still streaming after 300 seconds.
 
 The plugin's main handlers read the folder through one source contract. Local
 sources call `packages/folder`. Remote sources use `Remotes.request`, a

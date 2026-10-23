@@ -253,19 +253,13 @@ export function registerFolderIpc({
   function notifyWatchers(tabId: string, event: FolderWatchEvent) {
     for (const listener of watchers.get(tabId) ?? []) listener(event);
   }
-  /** Re-checks watched tabs and ends the watches whose tab left the strip. */
-  async function checkWatched(ids: Iterable<string> = watchers.keys()) {
-    for (const tabId of [...ids]) {
-      if (!watchers.has(tabId)) continue;
-      const folder = await artifacts.folderIdentity(tabId);
-      const tab = folder && (await artifacts.findFolderTab(folder));
-      if (!tab?.open || tab.tabId !== tabId) notifyWatchers(tabId, { type: "closed" });
-    }
+  /**
+   * Ends the watches of tabs that were just trashed, deleted, or closed to the drawer.
+   * Each watch ends at the close itself, even when an agent reopens the tab right after.
+   */
+  function tabsClosed(ids: readonly string[]) {
+    for (const id of ids) notifyWatchers(id, { type: "closed" });
   }
-  // Closing a bookmarked tab is a renderer save, not a main event, so open watches poll.
-  const watchTimer = setInterval(() => {
-    if (watchers.size) void checkWatched().catch(() => {});
-  }, 1000);
 
   /**
    * Starts an agent's watch on a folder's open tab. Events end with `closed` when the tab
@@ -317,13 +311,13 @@ export function registerFolderIpc({
   return {
     command,
     watch,
+    tabsClosed,
     cancelTabs: (ids: readonly string[]) => {
       for (const id of ids) stopFeed(id);
-      void checkWatched(ids).catch(() => {});
+      tabsClosed(ids);
     },
     dispose: () => {
       for (const id of feeds.keys()) stopFeed(id);
-      clearInterval(watchTimer);
     },
   };
 }

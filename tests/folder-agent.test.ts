@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type { Page } from "@playwright/test";
 import { desktopFixture } from "./desktop-fixture.ts";
 import { cliMain, spawnedHub } from "./hub-fixture.ts";
@@ -40,6 +41,56 @@ async function startWatch(env: NodeJS.ProcessEnv, folder: string) {
     );
   });
   return { child, exited };
+}
+
+/**
+ * Pairs a hub with a desktop stand-in that advertises folders but never answers, then
+ * starts a watch through it. `result` settles after the hub's forwarding deadline.
+ */
+async function silentHub(directory: string, folder: string) {
+  const hub = await spawnedHub(directory);
+  const pairToken = new URL(hub.pairUrl).hash.slice(1);
+  const paired = (await (
+    await fetch(`${hub.endpoint}/v1/pair`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${pairToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "silent desktop" }),
+    })
+  ).json()) as { token: string };
+  const relay = new AbortController();
+  const events = await fetch(`${hub.endpoint}/v1/relay/events`, {
+    headers: { Authorization: `Bearer ${paired.token}`, "Scope-Relay-Capabilities": "folders" },
+    signal: relay.signal,
+  });
+  const lines: string[] = [];
+  let relayOpen = true;
+  void (async () => {
+    for await (const chunk of events.body!.pipeThrough(new TextDecoderStream()))
+      lines.push(...chunk.split("\n").filter(Boolean));
+  })()
+    .catch(() => {})
+    .finally(() => (relayOpen = false));
+  const result = (async () => {
+    const response = await fetch(
+      `${hub.endpoint}/v1/folders/watch?path=${encodeURIComponent(folder)}`,
+      { headers: { Authorization: `Bearer ${hub.token}` } },
+    );
+    const body = (await response.json()) as { error: string };
+    const canceled = () => lines.some((line) => JSON.parse(line).type === "cancel");
+    for (let wait = 0; wait < 40 && !canceled(); wait++) await delay(50);
+    return {
+      status: response.status,
+      error: body.error,
+      canceled: canceled(),
+      relayOpen,
+    };
+  })().finally(async () => {
+    relay.abort();
+    await hub.stop();
+  });
+  // Keep an early test failure from leaving this rejection unhandled.
+  result.catch(() => {});
+  return { result };
 }
 
 test(
@@ -167,16 +218,23 @@ test(
       expect(await item("notes.md").getAttribute("aria-selected")).toBe("true");
       expect(await item("docs").getAttribute("aria-expanded")).toBe("true");
 
-      // A local watch ends with `closed` when the person closes the tab, here a bookmark.
+      // A local watch ends with `closed` when the person closes the tab, here a bookmark,
+      // even when an agent reopens the tab right after.
       const local = await startWatch(localEnv, app);
       watches.push(local);
       await page.getByRole("button", { name: "Keep permanently: Login fix", exact: true }).click();
       await page.getByRole("button", { name: "Close Login fix", exact: true }).click();
+      await client.folderOpen({ path: app });
       expect(await local.exited).toMatchObject({ code: 0, stdout: '{"type":"closed"}\n' });
-      expect(await folder("find", app)).toMatchObject({ open: false });
+      await page.getByRole("button", { name: "Close Login fix", exact: true }).click();
+      await expect.poll(async () => (await folder("find", app)).open).toBe(false);
       expect(await failure(f.cli("folder", "watch", app))).toBe(
         "This folder has no open Folder tab. Run irudd-scope folder open first.",
       );
+
+      // A hub whose desktop never answers a watch fails it at the forwarding deadline,
+      // cancels it, and keeps the relay. This runs alongside the steps below.
+      const silentDesktop = await silentHub(join(f.directory, "silent"), app);
 
       // Through a hub, a remote agent gets its own tab and the same answers.
       await page.evaluate((url) => window.scope.pairRemote(url), devbox.pairUrl);
@@ -209,9 +267,21 @@ test(
         open: false,
       });
 
-      // A watch through the hub leaves all 16 publication slots free.
+      // A hub keeps at most 16 watches, even when many arrive at once, and open watches
+      // leave all 16 publication slots free.
       const remoteWatch = await startWatch(devbox.env, app);
       watches.push(remoteWatch);
+      const extra = new AbortController();
+      const statuses = await Promise.all(
+        Array.from({ length: 24 }, () =>
+          fetch(`${devbox.endpoint}/v1/folders/watch?path=${encodeURIComponent(app)}`, {
+            headers: { Authorization: `Bearer ${devbox.token}` },
+            signal: extra.signal,
+          }).then((response) => response.status),
+        ),
+      );
+      expect(statuses.filter((status) => status === 200)).toHaveLength(15);
+      expect(statuses.filter((status) => status === 503)).toHaveLength(9);
       const published = await Promise.all(
         Array.from({ length: 16 }, (_, index) =>
           devbox.cli("text", `Concurrent ${index}`, "--title", `Concurrent ${index}`),
@@ -221,6 +291,7 @@ test(
       await page.getByRole("tab", { name: "Concurrent 15", exact: true }).waitFor();
       expect(remoteWatch.child.exitCode).toBeNull();
       expect((await page.evaluate(() => window.scope.remotes()))[0]?.connection).toBe("connected");
+      extra.abort();
       // The new tabs push the Folder tab into the drawer, so close it the way the strip does.
       await page.evaluate((id) => window.scope.closeTab(id), remote.tabId);
       expect(await remoteWatch.exited).toMatchObject({ code: 0, stdout: '{"type":"closed"}\n' });
@@ -238,6 +309,12 @@ test(
       expect(await failure(devbox.cli("folder", "watch", app))).toMatch(
         /^Scope desktop is not connected/,
       );
+      expect(await silentDesktop.result).toEqual({
+        status: 503,
+        error: "Scope desktop did not start the folder watch in time. Retry the command.",
+        canceled: true,
+        relayOpen: true,
+      });
     } finally {
       for (const { child } of watches) child.kill();
       await application.close();

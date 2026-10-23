@@ -726,11 +726,13 @@ export class ArtifactStore {
     );
   }
 
-  async saveTabs(tabs: readonly Tab[]): Promise<void> {
+  /** Saves the renderer's tabs and returns the IDs of tabs this save closed to the drawer. */
+  async saveTabs(tabs: readonly Tab[]): Promise<string[]> {
     const sql = this.sql;
-    await this.run(
+    return await this.run(
       sql.withTransaction(
         Effect.gen(function* () {
+          const hidden: string[] = [];
           for (const [position, tab] of tabs.entries()) {
             const [saved] = yield* sql<{
               document: string | null;
@@ -740,8 +742,11 @@ export class ArtifactStore {
               assertBuiltinType(previous, tab, yield* artifactKind(sql, tabArtifactId(tab)));
             // Desktop main changed this Folder tab after the renderer read it.
             if (previous && staleFolderTab(previous, tab)) continue;
-            yield* sql`UPDATE live_tabs SET document = ${JSON.stringify(tab)}, position = ${position} WHERE id = ${tab.id} AND opened = 1 AND trashed_at IS NULL AND artifact_id IS ${tabArtifactId(tab) ?? null}`;
+            const rows =
+              yield* sql`UPDATE live_tabs SET document = ${JSON.stringify(tab)}, position = ${position} WHERE id = ${tab.id} AND opened = 1 AND trashed_at IS NULL AND artifact_id IS ${tabArtifactId(tab) ?? null} RETURNING id`;
+            if (rows.length && tab.hidden && previous && !previous.hidden) hidden.push(tab.id);
           }
+          return hidden;
         }),
       ),
     );

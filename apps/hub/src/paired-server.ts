@@ -684,7 +684,8 @@ export async function startPairedHub(
     const forwarded = `${FOLDER_COMMAND_ROUTES.watch}?${folderQuery({ path: canonical })}`;
     if (!desktop || !desktopFolders)
       throw new FolderError("desktop-offline", "Scope desktop disconnected. Retry the command.");
-    startForward(request, Buffer.alloc(0), response, 30_000, undefined, {
+    // Shorter than the 30-second socket timeout, so the caller gets the failure.
+    startForward(request, Buffer.alloc(0), response, 20_000, undefined, {
       path: forwarded,
       slots: watches,
     });

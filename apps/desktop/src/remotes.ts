@@ -362,9 +362,10 @@ export class Remotes {
           )
             throw new Error("The hub sent an invalid publication request.");
           // A hub can free a slot a moment before this side does; answer busy, keep the relay.
-          // Watches have their own limit so they never take one of the 16 request slots.
+          // Watches have their own limit so they never take one of the 16 request slots, with
+          // room for watches the hub already ended that are still stopping here.
           const slots = watch ? watches : requests;
-          if (slots.size >= (watch ? MAX_FOLDER_WATCHES : 16)) {
+          if (slots.size >= (watch ? MAX_FOLDER_WATCHES * 2 : 16)) {
             const busy = this.answerBusy(endpoint, token, event.id, sessionSignal).finally(() =>
               tasks.delete(busy),
             );
