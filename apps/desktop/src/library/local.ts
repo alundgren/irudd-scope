@@ -18,6 +18,7 @@ export async function startLocalArtifacts(options: {
   maintenanceStatus?: Parameters<typeof startArtifactServer>[0]["maintenanceStatus"];
   deleteArtifact?: Parameters<typeof startArtifactServer>[0]["deleteArtifact"];
   folders?: Parameters<typeof startArtifactServer>[0]["folders"];
+  watchFolder?: Parameters<typeof startArtifactServer>[0]["watchFolder"];
 }) {
   let token: string;
   try {

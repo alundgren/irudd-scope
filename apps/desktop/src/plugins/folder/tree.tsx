@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen, Link } from "lucide-react";
 import type { FolderEntry, FolderListing } from "@irudd-scope/protocol/folder";
 import type { FolderNameMatch } from "./contract.ts";
@@ -203,6 +203,18 @@ export function FolderTree({
     else if (top + ROW_HEIGHT > element.scrollTop + element.clientHeight)
       element.scrollTop = top + ROW_HEIGHT - element.clientHeight;
   }
+  // Scroll to a file selected outside the tree, such as by an agent's `folder select`,
+  // once its row is loaded and the tree is visible.
+  const unrevealed = useRef(selected);
+  useEffect(() => {
+    unrevealed.current = selected;
+  }, [selected]);
+  useEffect(() => {
+    const index = rows.findIndex((row) => row.entry.path === unrevealed.current);
+    if (index < 0 || !container.current?.clientHeight) return;
+    unrevealed.current = null;
+    reveal(index);
+  });
   function activate(row: FolderRow) {
     if (row.placeholder === "failed") onRetry(row.entry.path.slice(0, -1));
     if (row.placeholder) return;

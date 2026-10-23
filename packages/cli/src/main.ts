@@ -34,7 +34,7 @@ import { ScopeClient } from "@irudd-scope/protocol/client";
 import { setup, manageHub, printPairing } from "./setup.ts";
 import { checkSkill, installSkill, syncSkill } from "./skill.ts";
 import { PlanGuide, planCommand } from "./plan.ts";
-import { folderCommand } from "./folder.ts";
+import { folderCommand, watchFolderCommand } from "./folder.ts";
 import { FolderGuide } from "@irudd-scope/protocol/folder";
 import {
   decodeTransferImportRequest,
@@ -59,6 +59,9 @@ irudd-scope plan item NAME ITEM_ID
 irudd-scope plan capture-basis NAME BASIS_ID --expected-revision REVISION
 irudd-scope plan content NAME --output NEW_FILE.html
 irudd-scope folder open [PATH] [--title TITLE]
+irudd-scope folder find [PATH]
+irudd-scope folder select PATH FILE [--title TITLE]
+irudd-scope folder watch [PATH]
 irudd-scope folder guide
 irudd-scope voice generate|status|result|cancel|guide [FILE_OR_ID]
 irudd-scope list
@@ -84,6 +87,8 @@ Import-link imports a tab sharing link into the receiver's paired Scope without 
 Create sharing links and pair in the desktop app. Both computers must be online with Tailcat installed separately.
 Import-link defaults to a 300000 ms timeout and is never queued. Retry the same link after an uncertain result.
 Folder open shows a folder on this machine as a Folder tab in Scope, once per folder. It is never queued.
+Folder find reports whether the folder's tab is open. Folder select opens the tab if needed and selects FILE, a path relative to PATH.
+Folder watch prints one JSON line per event and exits 0 when the tab closes.
 `;
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -572,6 +577,23 @@ async function main() {
   if (command === "folder") {
     if (argument === "guide") {
       console.log(JSON.stringify(FolderGuide, null, 2));
+      return;
+    }
+    if (argument === "watch") {
+      // A watch runs until the tab closes; the client detects a silent or lost connection.
+      const controller = new AbortController();
+      const stop = () => controller.abort();
+      process.once("SIGINT", stop);
+      process.once("SIGTERM", stop);
+      try {
+        await watchFolderCommand(
+          () => connect(values, controller.signal),
+          positionals,
+          controller.signal,
+        );
+      } catch (error) {
+        if (!controller.signal.aborted) throw error;
+      }
       return;
     }
     const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"]));

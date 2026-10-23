@@ -30,8 +30,14 @@ import {
 } from "../workspace/retention.ts";
 import { SketchpadDraft } from "../plugins/sketchpad/contract.ts";
 import { importTransferredTab, transferReceipt } from "./transfer-import.ts";
-import { createFolderTabs, openFolderTab, staleFolderTab } from "./folder-tab-store.ts";
+import {
+  createFolderTabs,
+  findFolderTab,
+  openFolderTab,
+  staleFolderTab,
+} from "./folder-tab-store.ts";
 import { FolderIdentity } from "@irudd-scope/protocol/folder";
+import type { FolderSelection } from "../plugins/folder/contract.ts";
 import { TransferId, type TransferManifest } from "@irudd-scope/protocol/transfer";
 
 // An artifact tab may become built-in when its artifact kind does, such as HTML
@@ -484,6 +490,32 @@ export class ArtifactStore {
     );
   }
 
+  /**
+   * Closes an open tab to the drawer or reopens it, changing only the saved tab's
+   * visibility so newer changes from desktop main stay. A closed tab moves to the end.
+   * Returns whether the visibility changed.
+   */
+  async setTabHidden(id: string, hidden: boolean): Promise<boolean> {
+    const sql = this.sql;
+    return await this.run(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const [row] = yield* sql<{
+            document: string | null;
+          }>`SELECT document FROM live_tabs WHERE id = ${id} AND opened = 1 AND trashed_at IS NULL`;
+          if (!row?.document) return false;
+          const saved = decode(Tab, JSON.parse(row.document));
+          if (Boolean(saved.hidden) === hidden) return false;
+          const document = JSON.stringify({ ...saved, hidden });
+          if (hidden)
+            yield* sql`UPDATE live_tabs SET document = ${document}, position = (SELECT coalesce(max(position), -1) + 1 FROM live_tabs) WHERE id = ${id}`;
+          else yield* sql`UPDATE live_tabs SET document = ${document} WHERE id = ${id}`;
+          return true;
+        }),
+      ),
+    );
+  }
+
   async trashTab(id: string, now = Date.now()): Promise<string[]> {
     const sql = this.sql;
     const rows = await this.run(
@@ -742,12 +774,17 @@ export class ArtifactStore {
   }
 
   async openFolderTab(
-    input: FolderIdentity & { title?: string; groupId: string },
+    input: FolderIdentity & { title?: string; select?: FolderSelection; groupId: string },
     now = Date.now(),
   ) {
     const opened = await this.run(openFolderTab(this.sql, { ...input, now }));
     for (const listener of this.listeners) listener();
     return opened;
+  }
+
+  /** The one tab for a folder, and whether it is in the tab strip. */
+  findFolderTab(identity: FolderIdentity): Promise<{ tabId: string; open: boolean } | undefined> {
+    return this.run(findFolderTab(this.sql, identity));
   }
 
   /** The folder a Folder tab shows. The tab record's own copy is display state only. */

@@ -35,9 +35,12 @@ import {
   FOLDER_CAPABILITY,
   FOLDER_COMMAND_ROUTES,
   MAX_FOLDER_COMMAND_BYTES,
+  MAX_FOLDER_WATCHES,
+  FolderRelativePath,
   folderCommandRequest,
+  folderQuery,
 } from "@irudd-scope/protocol/folder";
-import { FolderError, canonicalFolder } from "@irudd-scope/folder";
+import { FolderError, canonicalFolder, readFolderFile } from "@irudd-scope/folder";
 import { FolderFileRoutes, folderFailure } from "./folder-routes.ts";
 import type { HubState } from "./state.ts";
 import type { HubUpdates } from "./updates.ts";
@@ -123,9 +126,14 @@ export async function startPairedHub(
   // concurrent commands can never put more than 16 requests on the relay.
   let reserved = 0;
   const relayFull = () => pending.size + reserved >= 16;
+  // Folder watches stay open until a tab closes, so they have their own slots, reserved
+  // the same way before their path is resolved.
+  const watches = new Map<string, Pending>();
+  let reservedWatches = 0;
   function forget(id: string) {
-    const item = pending.get(id);
+    const item = pending.get(id) ?? watches.get(id);
     pending.delete(id);
+    watches.delete(id);
     if (item) clearTimeout(item.timer);
     return item;
   }
@@ -147,14 +155,14 @@ export async function startPairedHub(
     desktopFolders = false;
     previous?.destroy();
     folderFiles.closeAll();
-    for (const id of pending.keys())
+    for (const id of [...pending.keys(), ...watches.keys()])
       finish(
         id,
         "Scope on the Mac disconnected. Check the artifact before retrying an uncertain write.",
       );
   }
   function requestTimedOut(id: string, receivingDesktop: ServerResponse, error: string) {
-    const item = pending.get(id);
+    const item = pending.get(id) ?? watches.get(id);
     if (!item) return;
     const unstartedWrite = item.method !== "GET" && !item.bodyRead;
     finish(id, error);
@@ -413,7 +421,7 @@ export async function startPairedHub(
       return;
     }
     const match = /^\/v1\/relay\/requests\/([a-f0-9-]{36})\/(body|response)$/.exec(url.pathname);
-    const item = match && pending.get(match[1]);
+    const item = match && (pending.get(match[1]) ?? watches.get(match[1]));
     if (!match || !item) {
       json(response, 404, { error: "The publication request has ended." });
       return;
@@ -598,8 +606,10 @@ export async function startPairedHub(
       );
     if (!desktopFolders)
       throw new FolderError("unsupported", "Update Scope on the paired desktop to share folders.");
-    if (request.method === "GET" || request.url === FOLDER_COMMAND_ROUTES.watch)
-      throw new FolderError("unsupported", "Watching folders is not available yet.");
+    if (request.method === "GET") {
+      await forwardFolderWatch(request, response);
+      return;
+    }
     if (relayFull()) {
       json(response, 503, { error: "The hub is busy. Retry after the current requests finish." });
       return;
@@ -631,7 +641,54 @@ export async function startPairedHub(
     }
     if (typeof input.path !== "string" || input.path.length > 4096)
       throw new FolderError("not-found", "Send a folder command with an absolute path.");
-    return Buffer.from(JSON.stringify({ ...input, path: await canonicalFolder(input.path) }));
+    // The canonical path is computed on the machine that has the files.
+    const path = await canonicalFolder(input.path);
+    // A selected file is checked here too, so a missing or outside file opens no tab.
+    if (request.url === FOLDER_COMMAND_ROUTES.select && typeof input.file === "string") {
+      let file: string;
+      try {
+        file = decode(FolderRelativePath, input.file);
+      } catch {
+        throw new FolderError(
+          "outside-folder",
+          "Use a FILE path inside the folder, such as docs/plan.md.",
+        );
+      }
+      await readFolderFile(path, file, 0, 0);
+    }
+    return Buffer.from(JSON.stringify({ ...input, path }));
+  }
+
+  /**
+   * Relays `folder watch` as a long stream. The desktop's heartbeats keep both sockets
+   * under the 30-second timeout; the deadline only covers the desktop starting its answer.
+   */
+  async function forwardFolderWatch(request: IncomingMessage, response: ServerResponse) {
+    const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
+    const path = query.get("path");
+    if (!path || [...query.keys()].some((name) => name !== "path" && name !== "machine"))
+      throw new FolderError("not-found", "Send a folder watch with an absolute path.");
+    if (watches.size + reservedWatches >= MAX_FOLDER_WATCHES) {
+      json(response, 503, {
+        error: `This hub already has ${MAX_FOLDER_WATCHES} folder watches. Stop one and retry.`,
+      });
+      return;
+    }
+    reservedWatches++;
+    let canonical: string;
+    try {
+      canonical = await canonicalFolder(path);
+    } finally {
+      reservedWatches--;
+    }
+    const forwarded = `${FOLDER_COMMAND_ROUTES.watch}?${folderQuery({ path: canonical })}`;
+    if (!desktop || !desktopFolders)
+      throw new FolderError("desktop-offline", "Scope desktop disconnected. Retry the command.");
+    // Shorter than the 30-second socket timeout, so the caller gets the failure.
+    startForward(request, Buffer.alloc(0), response, 20_000, undefined, {
+      path: forwarded,
+      slots: watches,
+    });
   }
 
   function startForward(
@@ -640,12 +697,13 @@ export async function startPairedHub(
     response: ServerResponse,
     timeoutMs: number,
     contentType: string | undefined,
+    { path = request.url!, slots = pending }: { path?: string; slots?: Map<string, Pending> } = {},
   ) {
     const id = randomUUID();
     const receivingDesktop = desktop!;
     const item: Pending = {
       method: request.method!,
-      path: request.url!,
+      path,
       request: body,
       response,
       bodyRead: false,
@@ -656,12 +714,14 @@ export async function startPairedHub(
           requestTimedOut(
             id,
             receivingDesktop,
-            "The Mac did not respond in time. Check the artifact before retrying.",
+            slots === watches
+              ? "Scope desktop did not start the folder watch in time. Retry the command."
+              : "The Mac did not respond in time. Check the artifact before retrying.",
           ),
         timeoutMs,
       ),
     };
-    pending.set(id, item);
+    slots.set(id, item);
     response.on("close", () => {
       if (!response.writableFinished) finish(id);
     });
@@ -670,7 +730,7 @@ export async function startPairedHub(
       type: "request",
       id,
       method: request.method as "GET" | "POST" | "PUT" | "DELETE",
-      path: request.url!,
+      path,
       ...(contentType ? { contentType } : {}),
     });
   }

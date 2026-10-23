@@ -62,7 +62,7 @@ export function FolderView({
   const remotes = useRemotes();
   const remote = data.machineId === "local" ? undefined : data.machineId;
   const machine = remote ? (remotes.get(remote)?.name ?? "The remote") : "This computer";
-  const { listings, failed, status, live, load, retry } = useFolder(tab.id, data, active);
+  const { listings, failed, status, live, retry } = useFolder(tab.id, data, active);
   const filter = useFolderFilter(tab.id, data.filter, data.showIgnored, status.kind === "ok");
   const [mode, setMode] = useState<"files" | "search">("files");
   const [target, setTarget] = useState<{ path: string; line: number } | undefined>();
@@ -98,7 +98,6 @@ export function FolderView({
         ? [...data.expanded.filter((entry) => entry !== path), path]
         : data.expanded.filter((entry) => entry !== path),
     });
-    if (open && !listings.has(path)) void load([path]);
   }
   async function copyPath() {
     try {
