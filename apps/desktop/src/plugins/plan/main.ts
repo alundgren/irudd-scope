@@ -19,11 +19,11 @@ export function registerPlanIpc({ handle, client }: MainPluginContext) {
         name: input.name,
         title: input.title,
         kind: "plan",
-        mediaType: "text/html",
-        fileName: `${input.name}.html`,
+        mediaType: "application/json",
+        fileName: `${input.name}.json`,
         expectedRevision: 0,
       },
-      Buffer.from(input.html),
+      Buffer.from(JSON.stringify({ version: 1, title: input.title, overviewHtml: input.html })),
     );
   });
 }

@@ -14,7 +14,8 @@
     "./retro": "./src/retro.ts",
     "./memory": "./src/memory.ts",
     "./librarian": "./src/librarian.ts",
-    "./prompts": "./src/prompts.ts"
+    "./prompts": "./src/prompts.ts",
+    "./plan": "./src/plan.ts"
   },
   "dependencies": {
     "effect": "catalog:"

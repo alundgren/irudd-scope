@@ -922,3 +922,32 @@ synthetic text at 1366×768, 1440×900 and 1920×1080 in both appearances.
 outside the repository. Existing desktop fixture users explicitly hide the
 startup Prompts tab when their scenario needs an initially empty strip; the
 real built-in tab remains retained and its storage is included in assertions.
+
+## Try structured plans from a local checkout
+
+Build and run matching desktop and CLI code. On macOS, from the checkout root:
+
+```sh
+vp install --frozen-lockfile
+vp run build
+export SCOPE_PLAN_TRIAL_DIR="$(mktemp -d -t scope-plan-trial)"
+export SCOPE_DESKTOP_DATA_DIR="$SCOPE_PLAN_TRIAL_DIR/desktop"
+export SCOPE_DATA_DIR="$SCOPE_PLAN_TRIAL_DIR/artifacts"
+export SCOPE_CONNECTION_FILE="$SCOPE_PLAN_TRIAL_DIR/connection.json"
+export SCOPE_SESSION_CREDENTIALS=1
+export SCOPE_PORT=0
+vp run desktop
+```
+
+In a second terminal at the same checkout, set `SCOPE_CONNECTION_FILE` to the
+same temporary connection path. Keep `SCOPE_ENDPOINT`, `SCOPE_TOKEN` and
+`SCOPE_TOKEN_FILE` unset so local discovery selects this instance. Do not print
+the connection file. Publish either [synthetic plan example](../.agents/skills/irudd-scope/examples/plans/README.md)
+through the freshly built CLI. This leaves the installed app profile and hub alone.
+Quit the trial instance before deleting its temporary directory.
+
+The native Overview and Work items views require this version's desktop. Installed
+older hubs reject JSON plans until their CLI/hub protocol is updated separately.
+Use direct local discovery for the first trial. Same-version hub queues keep the
+normal receipt and revision-conflict behavior. A queued write is not a delivered
+plan. Reads and basis capture require the desktop connected.

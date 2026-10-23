@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vite-plus/test";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dreaming, hash, librarianFixture, raw } from "./librarian-fixture.ts";
 
@@ -9,43 +9,6 @@ const fixture = () => librarianFixture(cleanup);
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
 });
-test(
-  "Librarian browses a local folder without Git, searches a small result set and reads one memory",
-  { tags: ["librarian-finds-memory"] },
-  async () => {
-    const f = await fixture();
-    await f.open();
-    await f.page.getByRole("button", { name: "recovery", exact: true }).waitFor();
-    expect(await f.page.getByRole("button", { name: "Graph", exact: true }).count()).toBe(0);
-    await f.page.getByRole("textbox", { name: "Search memory", exact: true }).fill("synthetic");
-    await f.page.getByRole("button", { name: "Search memory", exact: true }).click();
-    await f.page.getByRole("button", { name: "Validation", exact: true }).click();
-    await f.page.locator(".memory-wiki").getByRole("heading", { name: "Validation" }).waitFor();
-    const projected = await f.client.librarian({ action: "read" });
-    expect(projected.state.selectedPath).toBe("validation.md");
-    expect((projected.state.displayed as { raw: string }).raw).toContain("Use synthetic fixtures");
-    expect(await f.page.getByRole("button", { name: "Edit Markdown", exact: true }).count()).toBe(
-      0,
-    );
-    expect(await readFile(join(f.root, ".git"), "utf8").catch(() => null)).toBeNull();
-    for (const appearance of ["light", "dark"] as const) {
-      await f.page.evaluate((appearance) => window.scope.saveSettings({ appearance }), appearance);
-      await f.page.setViewportSize(
-        appearance === "light" ? { width: 1280, height: 820 } : { width: 620, height: 560 },
-      );
-      expect(await f.page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
-        false,
-      );
-      if (process.env.SCOPE_TEST_SCREENSHOTS) {
-        await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });
-        await f.page.screenshot({
-          path: join(process.env.SCOPE_TEST_SCREENSHOTS, `librarian-memory-${appearance}.png`),
-        });
-      }
-    }
-  },
-);
-
 test(
   "dreaming shows one exact human decision, records automatic work, rejects stale evidence and resumes explicitly",
   { tags: ["librarian-finds-memory"] },

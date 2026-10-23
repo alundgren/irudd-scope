@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "title": "Retry a daily export",
+  "context": "A fictional command-line export of public sample records. No provider or production data is required.",
+  "constraints": ["Use synthetic fixtures and the real application entry points."],
+  "questions": [],
+  "goals": [
+    {
+      "id": "result",
+      "outcome": "A retry produces one complete export without duplicating rows."
+    }
+  ],
+  "visuals": [
+    {
+      "id": "ordinary",
+      "anchor": "ordinary-case",
+      "commitment": "A retry produces one complete export without duplicating rows.",
+      "goalIds": ["result"],
+      "checkIds": ["export", "retry"]
+    },
+    {
+      "id": "recovery",
+      "anchor": "recovery-case",
+      "commitment": "A missing required ID fails the export with a useful error and preserves the previous complete export byte for byte.",
+      "goalIds": ["result"],
+      "checkIds": ["invalid"]
+    }
+  ],
+  "checks": [
+    {
+      "id": "export",
+      "label": "Export every record",
+      "goalIds": ["result"],
+      "expectation": "The daily export contains all 120 synthetic records exactly once, with stable record IDs.",
+      "conditions": "The source fixture contains 120 unique IDs and remains unchanged during the run.",
+      "method": "Run the export command against the synthetic source and inspect the output. Compare the complete ID set and row count with the fixture.",
+      "kind": "agent"
+    },
+    {
+      "id": "retry",
+      "label": "Retry after interruption",
+      "goalIds": ["result"],
+      "expectation": "A retry after interruption produces the same 120 unique records as an uninterrupted export.",
+      "conditions": "Interrupt after row 60 using a controlled fault; keep the same source fixture.",
+      "method": "Run until the injected interruption, retry using the documented command, and compare the complete output to an uninterrupted run. Assert 120 unique IDs and no partial replacement.",
+      "kind": "agent"
+    },
+    {
+      "id": "invalid",
+      "label": "Reject an invalid record",
+      "goalIds": ["result"],
+      "expectation": "A missing required ID fails the export with a useful error and preserves the previous complete export byte for byte.",
+      "conditions": "Start with a complete previous export; insert one source record without an ID.",
+      "method": "Run the export command and check its nonzero exit, error identifying the missing ID, and an exact byte comparison of the prior output.",
+      "kind": "agent"
+    }
+  ],
+  "items": [
+    {
+      "id": "write",
+      "title": "Write a complete export",
+      "outcome": "A retry produces one complete export without duplicating rows.",
+      "goalIds": ["result"],
+      "checkIds": ["export", "retry"],
+      "dependsOn": [],
+      "context": "A fictional command-line export of public sample records. No provider or production data is required."
+    },
+    {
+      "id": "recover",
+      "title": "Preserve unrelated content",
+      "outcome": "A missing required ID fails the export with a useful error and preserves the previous complete export byte for byte.",
+      "goalIds": ["result"],
+      "checkIds": ["invalid"],
+      "dependsOn": ["write"],
+      "context": "Verify the prerequisite before changing recovery behavior."
+    }
+  ]
+}

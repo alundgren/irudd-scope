@@ -4,7 +4,12 @@ import type { TabState } from "../workspace/contract.ts";
 
 export const PublishedTabState = Schema.Struct({
   version: Schema.Literal(1),
-  data: Schema.Struct({ artifactId: ArtifactId }),
+  data: Schema.Struct({
+    artifactId: ArtifactId,
+    // Legacy HTML plans retain these fields when converted to ordinary file tabs.
+    reviewOpen: Schema.optionalKey(Schema.Boolean),
+    revision: Schema.optionalKey(Schema.Int),
+  }),
 });
 export function publishedArtifactId(state: TabState): string {
   return decode(PublishedTabState, state).data.artifactId;

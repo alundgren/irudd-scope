@@ -144,11 +144,26 @@ test(
     ).toMatchObject({
       queued: true,
     });
+    const source = resolve(".agents/skills/irudd-scope/examples/plans/non-ui");
+    expect(
+      await f.cli(
+        "plan",
+        "publish",
+        "queued-plan",
+        join(source, "plan.json"),
+        join(source, "overview.html"),
+      ),
+    ).toMatchObject({ queued: true });
+    await expect(f.cli("plan", "read", "queued-plan")).rejects.toThrow();
     await expect(f.direct.get("offline-report")).rejects.toMatchObject({ status: 404 });
     await f.restart();
-    expect((await f.cli("hub", "queue")).items).toHaveLength(2);
+    expect((await f.cli("hub", "queue")).items).toHaveLength(3);
     await f.reconnect();
-    await expect.poll(async () => (await f.direct.list()).length).toBe(2);
+    await expect.poll(async () => (await f.direct.list()).length).toBe(3);
+    const plan = await f.cli("plan", "read", "queued-plan");
+    expect(plan.artifact.mediaType).toBe("application/json");
+    expect(plan.document.overviewHtml).toBe(await readFile(join(source, "overview.html"), "utf8"));
+    expect((await f.cli("plan", "item", "queued-plan", "recover")).ownedChecks).toHaveLength(1);
     expect(new TextDecoder().decode(await f.direct.content("offline-report"))).toBe(
       "Buffered finding",
     );

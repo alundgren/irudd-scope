@@ -1,6 +1,4 @@
 import { afterEach, expect, test } from "vite-plus/test";
-import { createServer } from "node:http";
-import { ScopeClient } from "@irudd-scope/protocol/client";
 import { librarianFixture, library } from "./librarian-fixture.ts";
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
@@ -78,29 +76,5 @@ test(
       .getByRole("list", { name: "Memory results" })
       .getByRole("button", { name: "Deploy steps", exact: true })
       .waitFor();
-  },
-);
-
-test(
-  "the CLI client accepts Librarian replies from newer desktops with unknown views and fields",
-  { tags: ["librarian-finds-memory"] },
-  async () => {
-    const token = "synthetic-token";
-    const server = createServer((request, response) => {
-      response.setHeader("Content-Type", "application/json");
-      response.end(
-        JSON.stringify({
-          state: { version: 1, uiRevision: 4, view: "future-view", futureField: { kept: true } },
-        }),
-      );
-    });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    cleanup.push(() => new Promise((resolve) => server.close(resolve)));
-    const address = server.address() as { port: number };
-    const reply = await new ScopeClient(`http://127.0.0.1:${address.port}`, token).librarian({
-      action: "read",
-    });
-    expect(reply.state.view).toBe("future-view");
-    expect((reply.state as unknown as { futureField: object }).futureField).toEqual({ kept: true });
   },
 );

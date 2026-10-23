@@ -1,3 +1,4 @@
+import { readPlan, validatePlanUpdate } from "@irudd-scope/protocol/plan";
 import { PromptDraft } from "../plugins/prompts/contract.ts";
 import { PromptStore } from "./prompt-store.ts";
 import { RetroStore, initializeRetroTab } from "./retro-store.ts";
@@ -127,6 +128,7 @@ export class ArtifactStore {
       });
       await store.prompts.initialize();
       await store.removePlanFeedback();
+      await store.convertLegacyPlans();
       await store.pullRequests.recoverInterruptedSync();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
@@ -210,7 +212,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 15) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 16) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");
@@ -356,8 +358,8 @@ export class ArtifactStore {
   }
 
   // Plans used to keep every revision plus feedback comments, screenshots and
-  // agent responses. Plans now hold only their current HTML, so those records
-  // go and reclaim() removes the old revision and screenshot bytes.
+  // agent responses. The HTML-only format removed those tables; keep that
+  // upgrade before converting the remaining legacy artifacts to HTML tabs.
   private async removePlanFeedback(): Promise<void> {
     const sql = this.sql;
     const [{ user_version }] = await this.run(sql<{ user_version: number }>`PRAGMA user_version`);
@@ -372,6 +374,19 @@ export class ArtifactStore {
           yield* sql`DROP TABLE IF EXISTS plan_revisions`;
           yield* sql`DROP TABLE IF EXISTS plan_state`;
           yield* sql`PRAGMA user_version = 15`;
+        }),
+      ),
+    );
+  }
+
+  async convertLegacyPlans(): Promise<void> {
+    const sql = this.sql;
+    await this.run(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`UPDATE artifacts SET document = json_set(document, '$.kind', 'html') WHERE json_extract(document, '$.kind') = 'plan' AND json_extract(document, '$.mediaType') = 'text/html'`;
+          yield* sql`UPDATE live_tabs SET document = json_set(document, '$.type', 'file') WHERE json_extract(document, '$.type') = 'plan' AND artifact_id IN (SELECT id FROM artifacts WHERE json_extract(document, '$.kind') = 'html')`;
+          yield* sql`PRAGMA user_version = 16`;
         }),
       ),
     );
@@ -970,11 +985,48 @@ export class ArtifactStore {
             );
           if (input.kind === "pull-requests" && !(previous?.name ?? input.name))
             return yield* Effect.fail(new ScopeError(400, "Pull request tabs require a name."));
-          if (previous?.kind === "plan" && input.kind !== "plan")
-            return yield* Effect.fail(new ScopeError(409, "A plan's kind cannot change."));
+          if (
+            previous?.kind === "plan" &&
+            (input.kind !== "plan" || input.mediaType !== "application/json")
+          )
+            return yield* Effect.fail(
+              new ScopeError(
+                409,
+                "Structured plans require JSON publication with an explicit revision; HTML cannot replace them.",
+              ),
+            );
           if (input.kind === "plan" && !(previous?.name ?? input.name))
             return yield* Effect.fail(new ScopeError(400, "Plans require a tab name."));
+          if (input.kind === "plan" && input.mediaType === "application/json") {
+            if (previous && previous.kind !== "plan")
+              return yield* Effect.fail(
+                new ScopeError(409, "Create a structured plan under a new name."),
+              );
+            const [planBlob] = yield* sql<{
+              content: Uint8Array;
+            }>`SELECT content FROM blobs WHERE id = ${input.blob}`;
+            const [oldBlob] = previous
+              ? yield* sql<{
+                  content: Uint8Array;
+                }>`SELECT content FROM blobs WHERE id = ${previous.blob}`
+              : [];
+            yield* Effect.try({
+              try: () => {
+                const plan = readPlan(planBlob.content);
+                if (plan.title !== input.title)
+                  throw new ScopeError(400, "Plan and artifact titles must match.");
+                validatePlanUpdate(
+                  plan,
+                  previous?.kind === "plan" && oldBlob ? readPlan(oldBlob.content) : undefined,
+                  previous?.revision ?? 0,
+                );
+              },
+              catch: (error) => error as ScopeError,
+            });
+          }
           const { expectedRevision, tabId, ...metadata } = input;
+          if (metadata.kind === "plan" && metadata.mediaType === "text/html")
+            metadata.kind = "html";
           if (previous?.name && input.name && previous.name !== input.name)
             return yield* Effect.fail(new ScopeError(409, "A tab's name cannot change."));
           const name = previous?.name ?? input.name;
@@ -1004,7 +1056,7 @@ export class ArtifactStore {
           yield* initializeRetroTab(sql, tabId, artifact);
           yield* initializePullRequestsTab(sql, tabId, artifact);
           if (
-            (artifact.kind === "plan" && !previous) ||
+            (input.kind === "plan" && !previous) ||
             (artifact.kind === "retro" && previous?.kind !== "retro") ||
             (artifact.kind === "pull-requests" && previous?.kind !== "pull-requests")
           )
@@ -1035,6 +1087,10 @@ export class ArtifactStore {
           }>`SELECT artifacts.document, tab_id FROM artifacts JOIN live_tabs ON live_tabs.id = artifacts.tab_id WHERE artifacts.id = ${id} AND live_tabs.trashed_at IS NULL`;
           if (!row) return yield* Effect.fail(new ScopeError(404, "This tab is closed."));
           const previous = decode(Artifact, JSON.parse(row.document));
+          if (previous.kind === "plan")
+            return yield* Effect.fail(
+              new ScopeError(409, "Use structured plan publication with an explicit revision."),
+            );
           if (previous.kind === "retro") {
             const [report] = yield* sql<{
               document: string;
