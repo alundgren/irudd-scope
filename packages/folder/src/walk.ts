@@ -1,4 +1,4 @@
-import { readContainedDirectory } from "./contained.ts";
+import { readDirectory } from "./listing.ts";
 import { GIT_DIRECTORY, IgnoreRules } from "./ignore-rules.ts";
 
 export type WalkedDirectory = {
@@ -29,7 +29,8 @@ export async function* directories(
   ];
   while (queue.length && !options.signal?.aborted) {
     const { path, rules, ignoredAbove } = queue.shift()!;
-    const entries = await readContainedDirectory(root, path);
+    // A directory swapped for a link that leaves the folder is skipped.
+    const entries = await readDirectory(root, path).catch(() => undefined);
     if (!entries) continue;
     entries.sort((a, b) => collator.compare(a.name, b.name));
     const directory: WalkedDirectory = {

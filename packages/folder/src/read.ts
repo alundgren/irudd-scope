@@ -1,7 +1,5 @@
-import { constants } from "node:fs";
-import { open, realpath } from "node:fs/promises";
 import { Readable } from "node:stream";
-import { FolderError, resolveInside } from "./paths.ts";
+import { FolderError, openInside } from "./paths.ts";
 
 export type FolderRead = {
   /** The whole file's size, independent of the requested range. */
@@ -14,8 +12,8 @@ export type FolderRead = {
 };
 
 /**
- * Streams a byte range of a file inside a canonical root. The real path is checked before
- * opening, and the opened path is checked again so a swapped symlink cannot widen the read.
+ * Streams a byte range of a file inside a canonical root. Bytes come from the opened handle,
+ * which is checked to be inside the root, so a folder swapped for a symlink cannot widen it.
  */
 export async function readFolderFile(
   root: string,
@@ -24,13 +22,10 @@ export async function readFolderFile(
   end?: number,
 ): Promise<FolderRead> {
   if (!relative) throw new FolderError("not-a-directory", "Choose a file inside the folder.");
-  const real = await resolveInside(root, relative);
-  const handle = await open(real, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const { handle } = await openInside(root, relative);
   try {
     const info = await handle.stat();
     if (!info.isFile()) throw new FolderError("not-a-directory", `${relative} is not a file.`);
-    if ((await realpath(real)) !== real)
-      throw new FolderError("outside-folder", "Use a path inside the folder.");
     const last = Math.min(end ?? info.size, info.size);
     const first = Math.min(start, last);
     const range = { size: info.size, modifiedAt: info.mtimeMs, start: first, end: last };

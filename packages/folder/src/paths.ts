@@ -1,7 +1,11 @@
-import { realpath, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, readlink, realpath, stat, type FileHandle } from "node:fs/promises";
 import { isAbsolute, join, sep } from "node:path";
 import { decode } from "@irudd-scope/protocol";
 import { FolderRelativePath, type FolderErrorCode } from "@irudd-scope/protocol/folder";
+
+/** `.git` is never shown, listed, or watched. */
+export const GIT_DIRECTORY = ".git";
 
 const STATUS: Record<FolderErrorCode, number> = {
   "no-tab": 404,
@@ -65,11 +69,15 @@ export function inside(root: string, real: string): boolean {
 }
 
 export function validRelative(relative: string): string {
+  let path: string;
   try {
-    return decode(FolderRelativePath, relative);
+    path = decode(FolderRelativePath, relative);
   } catch {
     throw new FolderError("outside-folder", "Use a path inside the folder.");
   }
+  if (path.split("/").includes(GIT_DIRECTORY))
+    throw new FolderError("not-found", "Scope does not show .git.");
+  return path;
 }
 
 /** The path inside the root, without following a final symlink. */
@@ -78,20 +86,108 @@ export function joinInside(root: string, relative: string): string {
   return path ? join(root, ...path.split("/")) : root;
 }
 
-/**
- * Resolves a path inside a canonical root and returns its real path. Symlinks are
- * followed only while they stay inside the root.
- */
-export async function resolveInside(root: string, relative: string): Promise<string> {
-  const path = joinInside(root, relative);
+/** Resolves an absolute path below a canonical root to its real path, which must stay inside. */
+async function resolveJoined(root: string, path: string, shown: string): Promise<string> {
   await checkRoot(root);
   let real: string;
   try {
     real = await realpath(path);
   } catch (error) {
-    if (missing(error)) throw new FolderError("not-found", `${relative} does not exist.`);
+    if (missing(error)) throw new FolderError("not-found", `${shown} does not exist.`);
     throw error;
   }
   if (!inside(root, real)) throw new FolderError("outside-folder", "Use a path inside the folder.");
   return real;
+}
+
+/**
+ * Resolves a path inside a canonical root and returns its real path. Symlinks are
+ * followed only while they stay inside the root.
+ */
+export async function resolveInside(root: string, relative: string): Promise<string> {
+  return resolveJoined(root, joinInside(root, relative), relative);
+}
+
+const escaped = () => new FolderError("outside-folder", "Use a path inside the folder.");
+
+/**
+ * Checks that an opened file or directory is the one at `real` inside the root. Linux asks
+ * the kernel for the handle's path. Elsewhere every folder between the root and `real` must
+ * still be a real directory and the entry must be the opened one, so a folder swapped for a
+ * symlink while the handle was opened is rejected.
+ */
+export async function verifyHandle(root: string, real: string, handle: FileHandle): Promise<void> {
+  if (process.platform === "linux") {
+    const actual = await readlink(`/proc/self/fd/${handle.fd}`).catch(() => undefined);
+    if (actual !== undefined) {
+      if (actual !== real || !inside(root, actual)) throw escaped();
+      return;
+    }
+  }
+  const opened = await handle.stat();
+  const parts = real.slice(root.length).split(sep).filter(Boolean);
+  let current = root;
+  for (const part of parts.slice(0, -1)) {
+    current = join(current, part);
+    if (!(await lstat(current)).isDirectory()) throw escaped();
+  }
+  const entry = await lstat(real);
+  if (entry.isSymbolicLink() || entry.ino !== opened.ino || entry.dev !== opened.dev)
+    throw escaped();
+  if ((await realpath(real)) !== real) throw escaped();
+}
+
+/**
+ * Opens a file or directory inside the root without letting a swapped symlink widen it.
+ * `nonBlocking` returns at once for a FIFO instead of waiting for a writer; callers that
+ * walk the folder use it and then check that the handle is a regular file.
+ */
+export async function openInside(
+  root: string,
+  relative: string,
+  options: { directory?: boolean; internal?: boolean; nonBlocking?: boolean } = {},
+): Promise<{ handle: FileHandle; real: string }> {
+  const path = options.internal ? join(root, ...relative.split("/")) : joinInside(root, relative);
+  const real = await resolveJoined(root, path, relative);
+  const flags =
+    constants.O_RDONLY |
+    (constants.O_NOFOLLOW ?? 0) |
+    (options.directory ? (constants.O_DIRECTORY ?? 0) : 0) |
+    (options.nonBlocking ? (constants.O_NONBLOCK ?? 0) : 0);
+  let handle: FileHandle;
+  try {
+    handle = await open(real, flags);
+  } catch (error) {
+    if (missing(error)) throw new FolderError("not-found", `${relative} does not exist.`);
+    if (error instanceof Error && "code" in error && error.code === "ENOTDIR")
+      throw new FolderError("not-a-directory", `${relative} is not a folder.`);
+    throw error;
+  }
+  try {
+    await verifyHandle(root, real, handle);
+    return { handle, real };
+  } catch (error) {
+    await handle.close().catch(() => {});
+    throw error;
+  }
+}
+
+/** Reads a small text file, such as `.gitignore`, only when it is inside the root. */
+export async function readInsideText(
+  root: string,
+  relative: string,
+  limit = 1024 * 1024,
+): Promise<string | undefined> {
+  try {
+    const { handle } = await openInside(root, relative, { internal: true });
+    try {
+      const info = await handle.stat();
+      if (!info.isFile() || info.size > limit) return undefined;
+      return (await handle.readFile()).toString("utf8");
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return undefined;
+  }
 }

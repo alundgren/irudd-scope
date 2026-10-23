@@ -62,7 +62,7 @@ export function FolderView({
   const remotes = useRemotes();
   const remote = data.machineId === "local" ? undefined : data.machineId;
   const machine = remote ? (remotes.get(remote)?.name ?? "The remote") : "This computer";
-  const { listings, status, live, load } = useFolder(tab.id, data, active);
+  const { listings, failed, status, live, load, retry } = useFolder(tab.id, data, active);
   const filter = useFolderFilter(tab.id, data.filter, data.showIgnored, status.kind === "ok");
   const [mode, setMode] = useState<"files" | "search">("files");
   const [target, setTarget] = useState<{ path: string; line: number } | undefined>();
@@ -76,8 +76,8 @@ export function FolderView({
     () =>
       filtering
         ? filteredRows(filter.matches ?? [], collapsed)
-        : folderRows(listings, expanded, data.selectedPath),
-    [filtering, filter.matches, collapsed, listings, expanded, data.selectedPath],
+        : folderRows(listings, expanded, data.selectedPath, failed),
+    [filtering, filter.matches, collapsed, listings, expanded, data.selectedPath, failed],
   );
   const [copied, setCopied] = useState(false);
   const update = (patch: Partial<FolderTabData>) =>
@@ -182,6 +182,7 @@ export function FolderView({
                   setTarget(undefined);
                   update({ selectedPath: path });
                 }}
+                onRetry={retry}
               />
             </div>
             <div className="folder-find" hidden={mode !== "search"}>

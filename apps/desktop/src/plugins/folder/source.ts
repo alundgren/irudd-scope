@@ -164,7 +164,7 @@ export function remoteFolderSource(remotes: Remotes, identity: FolderIdentity): 
     signal: AbortSignal,
     deadlineMs: number,
     idleMs: number,
-    init: Pick<RemoteRequest, "method" | "body" | "contentType"> = {},
+    init: Pick<RemoteRequest, "method" | "body" | "contentType" | "feed"> = {},
   ) => {
     const response = await remotes.request(identity.machineId, path, {
       ...init,
@@ -213,6 +213,7 @@ export function remoteFolderSource(remotes: Remotes, identity: FolderIdentity): 
         signal,
         2_147_483_647,
         35_000,
+        { feed: true },
       );
       await readLines(response, signal, (line) => {
         onEvent(decode(FolderFeedEvent, JSON.parse(line)));

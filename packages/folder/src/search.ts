@@ -6,8 +6,7 @@ import {
   type FolderSearchEvent,
   type FolderSearchRequest,
 } from "@irudd-scope/protocol/folder";
-import { openContainedFile } from "./contained.ts";
-import { checkRoot } from "./paths.ts";
+import { checkRoot, openInside } from "./paths.ts";
 import { directories } from "./walk.ts";
 
 const MAX_LINE_TEXT = 4096;
@@ -30,11 +29,14 @@ async function readText(
   path: string,
   signal: AbortSignal,
 ): Promise<string | undefined> {
-  const handle = await openContainedFile(root, path);
-  if (!handle) return undefined;
+  const opened = await openInside(root, path, { internal: true, nonBlocking: true }).catch(
+    () => undefined,
+  );
+  if (!opened) return undefined;
+  const { handle } = opened;
   try {
     const info = await handle.stat();
-    if (info.size > MAX_FOLDER_SEARCH_FILE_BYTES) return undefined;
+    if (!info.isFile() || info.size > MAX_FOLDER_SEARCH_FILE_BYTES) return undefined;
     const bytes = await handle.readFile({ signal });
     if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) return undefined;
     return bytes.toString("utf8");

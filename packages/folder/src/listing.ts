@@ -6,7 +6,14 @@ import {
   type FolderListing,
 } from "@irudd-scope/protocol/folder";
 import { GIT_DIRECTORY, IgnoreRules } from "./ignore-rules.ts";
-import { FolderError, inside, resolveInside, validRelative } from "./paths.ts";
+import {
+  FolderError,
+  inside,
+  openInside,
+  resolveInside,
+  validRelative,
+  verifyHandle,
+} from "./paths.ts";
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
@@ -74,7 +81,7 @@ export async function listFolder(
     throw new FolderError("outside-folder", "Symlinked folders are shown but not opened.");
   const rules = await IgnoreRules.load(root, path);
   const parentIgnored = options.directoryIgnored ?? (await directoryIgnored(root, path));
-  const dirents = await readdir(real, { withFileTypes: true });
+  const dirents = await readDirectory(root, path);
   const entries: FolderEntry[] = [];
   let truncated = false;
   const candidates = dirents.filter((entry) => entry.name !== GIT_DIRECTORY);
@@ -95,6 +102,25 @@ export async function listFolder(
   }
   entries.sort(compareEntries);
   return { path, entries: entries.slice(0, MAX_FOLDER_LISTING_ENTRIES), truncated };
+}
+
+/**
+ * Reads entry names from an opened directory handle. Linux reads through the handle itself;
+ * elsewhere the handle is checked again after reading, so a swapped folder is rejected.
+ */
+export async function readDirectory(root: string, path: string) {
+  const { handle, real } = await openInside(root, path, { directory: true });
+  try {
+    if (process.platform === "linux")
+      return await readdir(`/proc/self/fd/${handle.fd}`, { withFileTypes: true }).catch(() =>
+        readdir(real, { withFileTypes: true }),
+      );
+    const entries = await readdir(real, { withFileTypes: true });
+    await verifyHandle(root, real, handle);
+    return entries;
+  } finally {
+    await handle.close();
+  }
 }
 
 /** Whether a directory, or any directory above it, is ignored. */

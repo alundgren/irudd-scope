@@ -119,6 +119,10 @@ export async function startPairedHub(
   let desktopFolders = false;
   const folderFiles = new FolderFileRoutes();
   const pending = new Map<string, Pending>();
+  // Folder commands hold a slot while their body is read and their path resolved, so
+  // concurrent commands can never put more than 16 requests on the relay.
+  let reserved = 0;
+  const relayFull = () => pending.size + reserved >= 16;
   function forget(id: string) {
     const item = pending.get(id);
     pending.delete(id);
@@ -158,7 +162,7 @@ export async function startPairedHub(
   }
   const relay: RelayCall = (method, path, body, signal) =>
     new Promise((resolve, reject) => {
-      if (!desktop || pending.size >= 16 || signal.aborted) {
+      if (!desktop || relayFull() || signal.aborted) {
         reject(new ScopeError(503, "The desktop relay is unavailable or busy."));
         return;
       }
@@ -560,7 +564,7 @@ export async function startPairedHub(
       });
       return;
     }
-    if (pending.size >= 16) {
+    if (relayFull()) {
       json(response, 503, { error: "The hub is busy. Retry after the current requests finish." });
       return;
     }
@@ -596,10 +600,25 @@ export async function startPairedHub(
       throw new FolderError("unsupported", "Update Scope on the paired desktop to share folders.");
     if (request.method === "GET" || request.url === FOLDER_COMMAND_ROUTES.watch)
       throw new FolderError("unsupported", "Watching folders is not available yet.");
-    if (pending.size >= 16) {
+    if (relayFull()) {
       json(response, 503, { error: "The hub is busy. Retry after the current requests finish." });
       return;
     }
+    reserved++;
+    let body: Buffer;
+    try {
+      body = await canonicalCommand(request);
+    } finally {
+      reserved--;
+    }
+    if (!desktop || !desktopFolders)
+      throw new FolderError("desktop-offline", "Scope desktop disconnected. Retry the command.");
+    request.setTimeout(30_000);
+    startForward(request, body, response, 30_000, "application/json");
+  }
+
+  /** Reads a folder command and replaces its path with the canonical path on this machine. */
+  async function canonicalCommand(request: IncomingMessage): Promise<Buffer> {
     let input: Record<string, unknown>;
     try {
       const value: unknown = JSON.parse(
@@ -612,12 +631,7 @@ export async function startPairedHub(
     }
     if (typeof input.path !== "string" || input.path.length > 4096)
       throw new FolderError("not-found", "Send a folder command with an absolute path.");
-    // The canonical path is computed on the machine that has the files.
-    const body = Buffer.from(JSON.stringify({ ...input, path: await canonicalFolder(input.path) }));
-    if (!desktop || !desktopFolders)
-      throw new FolderError("desktop-offline", "Scope desktop disconnected. Retry the command.");
-    request.setTimeout(30_000);
-    startForward(request, body, response, 30_000, "application/json");
+    return Buffer.from(JSON.stringify({ ...input, path: await canonicalFolder(input.path) }));
   }
 
   function startForward(
