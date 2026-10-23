@@ -355,6 +355,8 @@ test(
       await item("retry.ts").waitFor();
       // Expand 40 folders of 100 files each, last first, with the keyboard.
       await item("many").click();
+      await item("d00").waitFor();
+      await tree.focus();
       const focused = tree.locator("[data-focused]");
       for (let index = 0; index < 40; index++) {
         await page.keyboard.press("ArrowDown");
