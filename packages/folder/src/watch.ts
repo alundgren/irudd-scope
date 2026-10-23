@@ -135,7 +135,11 @@ class FolderWatcher {
     this.stopWatching();
     this.live = false;
     this.emit({ type: "status", exists: this.exists ?? false, live: false });
-    void this.startPolling(this.generation);
+    const polling = this.generation;
+    // Changes that triggered the switch are already in the polling baseline; readers reload.
+    void this.startPolling(polling).then(() => {
+      if (polling === this.generation) this.emit({ type: "changes", changes: [], overflow: true });
+    });
   }
 
   private watchRecursively() {

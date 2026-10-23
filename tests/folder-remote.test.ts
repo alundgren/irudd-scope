@@ -244,16 +244,29 @@ async function exhaustionChecks(hub: Hub, base: string) {
   const desktop = await pairAsDesktop(hub);
   const root = join(base, "exhausted");
   await mkdir(root, { recursive: true });
+  // A folder that already has files moves in, so its contents exist before polling starts.
+  const staged = join(base, "staged-burst");
+  await mkdir(staged, { recursive: true });
+  await writeFile(join(staged, "early.txt"), "x");
   const events = await feed(hub, desktop, await realpath(root), async () => {
-    await mkdir(join(root, "burst"));
+    await rename(staged, join(root, "burst"));
     await wait(1000);
     await writeFile(join(root, "burst", "later.txt"), "x");
     await wait(4500);
   });
   expect(changed(events)).toContain("created burst/later.txt");
   // Only Linux watches each folder; macOS and Windows watch the whole folder at once.
-  if (process.platform === "linux")
-    expect(events).toContainEqual(expect.objectContaining({ type: "status", live: false }));
+  if (process.platform === "linux") {
+    const polling = events.findIndex((event) => event.type === "status" && event.live === false);
+    expect(polling).toBeGreaterThanOrEqual(0);
+    // Readers are told to reload, so the moved folder and its early file are listed.
+    expect(events.slice(polling).some((event) => event.overflow)).toBe(true);
+  }
+  const listing = await fetch(
+    `${hub.endpoint}/v1/relay/folders/list?${new URLSearchParams({ root: await realpath(root), path: "burst", showIgnored: "0" })}`,
+    { headers: desktop },
+  ).then((response) => response.json() as Promise<{ entries: { name: string }[] }>);
+  expect(listing.entries.map((entry) => entry.name)).toEqual(["early.txt", "later.txt"]);
 }
 
 /** Folder commands waiting for their bodies hold relay slots, so at most 16 reach the desktop. */
