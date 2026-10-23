@@ -92,6 +92,11 @@ export const promises = [
     name: "prompts-keep-originals",
     description: "The prompt library keeps original text and images, and exports only the library.",
   },
+  {
+    name: "folders-stay-inside",
+    description:
+      "An agent's shared folder shows live files from its machine, never reads or writes outside that folder, and Scope keeps no copy of its files.",
+  },
 ] as const;
 
 export type PromiseName = (typeof promises)[number]["name"];

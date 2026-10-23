@@ -1,5 +1,5 @@
 // Only the repository owner raises this limit. Each new test replaces a weaker one.
-export const maxTests = 234;
+export const maxTests = 239;
 
 // Test files written before tests were limited to Scope's public entry points.
 // Each keeps exactly these product imports and test count. Remove imports and
