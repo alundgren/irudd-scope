@@ -3,17 +3,27 @@ import { setTimeout as delay } from "node:timers/promises";
 import { Schema } from "effect";
 import { ScopeError, decode } from "@irudd-scope/protocol";
 import {
-  FOLDER_COMMAND_ROUTES,
+  FolderFindRequest,
   FolderOpenRequest,
   FolderRelativePath,
+  FolderSelectRequest,
+  type FolderFindReceipt,
+  type FolderIdentity,
   type FolderOpenReceipt,
+  type FolderSelectReceipt,
+  type FolderWatchEvent,
   type MachineId,
 } from "@irudd-scope/protocol/folder";
-import { FolderError, canonicalFolder } from "@irudd-scope/folder";
+import { FolderError, canonicalFolder, readFolderFile } from "@irudd-scope/folder";
 import { Uuid } from "../../workspace/contract.ts";
 import { RemoteUnavailableError } from "../../remotes.ts";
 import type { MainPluginContext } from "../main-api.ts";
-import type { FolderListResult, FolderUnavailable, FolderViewEvent } from "./contract.ts";
+import type {
+  FolderListResult,
+  FolderSelection,
+  FolderUnavailable,
+  FolderViewEvent,
+} from "./contract.ts";
 import {
   FolderUpdateNeeded,
   MAX_FOLDER_IPC_READ,
@@ -151,38 +161,160 @@ export function registerFolderIpc({
     await clipboard.writeText((await folder(decode(Uuid, input))).identity.path);
   });
 
-  async function command(
-    name: keyof typeof FOLDER_COMMAND_ROUTES,
+  function commandInput<S extends Schema.ConstraintDecoder<unknown>>(
+    schema: S,
     input: unknown,
-    machineId: MachineId,
-  ): Promise<FolderOpenReceipt> {
-    if (name !== "open")
-      throw new ScopeError(501, `Folder ${name} is not available yet.`, "unsupported");
-    let request: FolderOpenRequest;
+  ): S["Type"] {
     try {
-      request = decode(FolderOpenRequest, input);
+      return decode(schema, input);
     } catch {
-      throw new ScopeError(
-        400,
-        "Send an absolute folder path and a title of at most 160 characters.",
-        "not-found",
-      );
+      const file =
+        input && typeof input === "object" && "file" in input && typeof input.file === "string";
+      throw file
+        ? new FolderError(
+            "outside-folder",
+            "Use a FILE path inside the folder, such as docs/plan.md.",
+          )
+        : new ScopeError(
+            400,
+            "Send an absolute folder path and a title of at most 160 characters.",
+            "not-found",
+          );
     }
-    // Hubs send the canonical path computed on their machine; local paths are resolved here.
-    const path = machineId === "local" ? await canonicalFolder(request.path) : request.path;
+  }
+  // Hubs send the canonical path computed on their machine; local paths are resolved here.
+  async function identity(path: string, machineId: MachineId): Promise<FolderIdentity> {
+    return { machineId, path: machineId === "local" ? await canonicalFolder(path) : path };
+  }
+  async function open(
+    folder: FolderIdentity,
+    request: { title?: string },
+    select?: FolderSelection,
+  ): Promise<FolderOpenReceipt> {
     const opened = await lifecycle.openFolderTab({
-      machineId,
-      path,
+      ...folder,
       ...(request.title ? { title: request.title } : {}),
+      ...(select ? { select } : {}),
     });
     if (!window.isDestroyed()) window.webContents.send("scope:folder-tab-opened", opened);
-    return { tabId: opened.tab.id, machine: machineId, path, created: opened.created };
+    return {
+      tabId: opened.tab.id,
+      machine: folder.machineId,
+      path: folder.path,
+      created: opened.created,
+    };
+  }
+
+  /** Whether ignore rules hide a file, read from its parent's listing on its machine. */
+  async function selectedFileIgnored(folder: FolderIdentity, file: string): Promise<boolean> {
+    const source =
+      folder.machineId === "local"
+        ? localFolderSource(folder.path)
+        : remoteFolderSource(remotes, folder);
+    const parent = file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : "";
+    const listing = await source
+      .list(parent, true, AbortSignal.timeout(30_000))
+      .catch(() => undefined);
+    return listing?.entries.find((entry) => entry.path === file)?.ignored ?? false;
+  }
+
+  async function command(
+    name: "open" | "find" | "select",
+    input: unknown,
+    machineId: MachineId,
+  ): Promise<FolderOpenReceipt | FolderFindReceipt | FolderSelectReceipt> {
+    if (name === "find") {
+      const folder = await identity(commandInput(FolderFindRequest, input).path, machineId);
+      const tab = await artifacts.findFolderTab(folder);
+      return {
+        open: Boolean(tab?.open),
+        ...(tab?.open ? { tabId: tab.tabId } : {}),
+        machine: machineId,
+        path: folder.path,
+      };
+    }
+    if (name === "select") {
+      const request = commandInput(FolderSelectRequest, input);
+      const folder = await identity(request.path, machineId);
+      // A hub checks the file on its machine before forwarding; local files are checked here.
+      if (machineId === "local") await readFolderFile(folder.path, request.file, 0, 0);
+      const ignored = await selectedFileIgnored(folder, request.file);
+      return {
+        ...(await open(folder, request, { file: request.file, ignored })),
+        file: request.file,
+      };
+    }
+    const request = commandInput(FolderOpenRequest, input);
+    return open(await identity(request.path, machineId), request);
+  }
+
+  const watchers = new Map<string, Set<(event: FolderWatchEvent) => void>>();
+  /** Sends an event to every agent watching a Folder tab. */
+  function notifyWatchers(tabId: string, event: FolderWatchEvent) {
+    for (const listener of watchers.get(tabId) ?? []) listener(event);
+  }
+  /**
+   * Ends the watches of tabs that were just trashed, deleted, or closed to the drawer.
+   * Each watch ends at the close itself, even when an agent reopens the tab right after.
+   */
+  function tabsClosed(ids: readonly string[]) {
+    for (const id of ids) notifyWatchers(id, { type: "closed" });
+  }
+
+  /**
+   * Starts an agent's watch on a folder's open tab. Events end with `closed` when the tab
+   * leaves the strip. The HTTP server owns heartbeats and the connection.
+   */
+  async function watch(
+    input: unknown,
+    machineId: MachineId,
+    signal: AbortSignal,
+  ): Promise<AsyncIterable<FolderWatchEvent>> {
+    const folder = await identity(commandInput(FolderFindRequest, input).path, machineId);
+    const tab = await artifacts.findFolderTab(folder);
+    if (!tab?.open)
+      throw new FolderError(
+        "no-tab",
+        "This folder has no open Folder tab. Run irudd-scope folder open first.",
+      );
+    const queue: FolderWatchEvent[] = [];
+    let wake: (() => void) | undefined;
+    const listener = (event: FolderWatchEvent) => {
+      queue.push(event);
+      wake?.();
+    };
+    const listeners = watchers.get(tab.tabId) ?? new Set();
+    listeners.add(listener);
+    watchers.set(tab.tabId, listeners);
+    const stop = () => wake?.();
+    signal.addEventListener("abort", stop, { once: true });
+    return (async function* () {
+      try {
+        while (!signal.aborted) {
+          const event = queue.shift();
+          if (!event) {
+            await new Promise<void>((resolve) => (wake = resolve));
+            wake = undefined;
+            continue;
+          }
+          yield event;
+          if (event.type === "closed") return;
+        }
+      } finally {
+        signal.removeEventListener("abort", stop);
+        listeners.delete(listener);
+        if (!listeners.size && watchers.get(tab.tabId) === listeners) watchers.delete(tab.tabId);
+      }
+    })();
   }
 
   return {
     command,
+    watch,
+    tabsClosed,
     cancelTabs: (ids: readonly string[]) => {
       for (const id of ids) stopFeed(id);
+      tabsClosed(ids);
     },
     dispose: () => {
       for (const id of feeds.keys()) stopFeed(id);

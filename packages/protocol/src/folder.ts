@@ -29,6 +29,11 @@ export const MAX_FOLDER_LISTING_ENTRIES = 50_000;
 export const MAX_FOLDER_CHANGES = 1000;
 /** The events feed writes a heartbeat line at this interval to stay under socket timeouts. */
 export const FOLDER_HEARTBEAT_MS = 10_000;
+/**
+ * Open `folder watch` streams per hub. They have their own count, separate from the 16
+ * publication slots, so idle watches never block publishing.
+ */
+export const MAX_FOLDER_WATCHES = 16;
 
 export const FOLDER_ERROR_CODES = [
   "no-tab",
@@ -296,12 +301,19 @@ export const FolderGuide = {
     "Share an agent's working folder as a Folder tab in Scope. Open a folder only when the person asks.",
   commands: {
     open: "irudd-scope folder open [PATH] [--title TITLE]",
+    find: "irudd-scope folder find [PATH]",
+    select: "irudd-scope folder select PATH FILE [--title TITLE]",
+    watch: "irudd-scope folder watch [PATH]",
   },
-  receipt: "JSON with tabId, machine (local or the remote ID), the canonical path, and created.",
+  receipt:
+    "open and select print JSON with tabId, machine (local or the remote ID), the canonical path, and created; select adds file. find prints open, tabId when open, machine, and path.",
   rules: [
     'Pass a short --title naming the task, such as --title "Login fix". Without it the tab uses the folder name.',
     "Opening the same folder again returns the same tab with created: false, renames it when --title changes, and restores it from Trashcan.",
     "Scope never switches the selected tab for an agent command. The Folder tab is marked unread.",
+    "find reports open: false, and exits 0, when the folder has no tab or its tab is closed or in Trashcan.",
+    "To show the person a file, usually the one you just wrote, run one select command. FILE is relative to PATH. It opens the tab when needed, expands the folders down to the file, and selects it.",
+    'watch prints one JSON line per event and keeps running. It prints {"type":"closed"} and exits 0 when the person closes the tab. It fails when the folder has no open tab or Scope disconnects.',
     "On a paired remote the command goes through the hub. It fails when the desktop is not connected and is never queued.",
     "Scope reads files only inside the folder and keeps no copy of them.",
   ],

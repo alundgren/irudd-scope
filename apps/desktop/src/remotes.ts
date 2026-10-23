@@ -1,4 +1,9 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { hostname } from "node:os";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { setTimeout as delay } from "node:timers/promises";
 import { decode, validateEndpoint } from "@irudd-scope/protocol";
 import {
@@ -11,7 +16,11 @@ import {
   RELAY_CAPABILITIES_HEADER,
   RELAY_WAKE_HEADER,
 } from "@irudd-scope/protocol/remote";
-import { FOLDER_CAPABILITY, folderCommandRequest } from "@irudd-scope/protocol/folder";
+import {
+  FOLDER_CAPABILITY,
+  MAX_FOLDER_WATCHES,
+  folderCommandRequest,
+} from "@irudd-scope/protocol/folder";
 import type { DesktopStore } from "./desktop-store.ts";
 import { RELAY_ORIGIN_HEADER, type Remote, type RemoteStatus } from "./remote-contract.ts";
 import { synchronizeRemote } from "./remote-updates.ts";
@@ -304,6 +313,8 @@ export class Remotes {
       const session = new AbortController();
       const sessionSignal = AbortSignal.any([signal, session.signal]);
       const requests = new Map<string, AbortController>();
+      // Folder watches have their own count so they never take a publication slot.
+      const watches = new Map<string, AbortController>();
       const tasks = new Set<Promise<void>>();
       let heartbeat: ReturnType<typeof setTimeout> | undefined;
       let checkedUpdates = false;
@@ -359,19 +370,24 @@ export class Remotes {
             return;
           }
           if (event.type === "cancel") {
-            requests.get(event.id)?.abort();
+            (requests.get(event.id) ?? watches.get(event.id))?.abort();
             return;
           }
+          const watch = event.method === "GET" && folderCommandRequest(event.method, event.path);
           if (
             !(
               artifactRequest(event.method, event.path) ||
               folderCommandRequest(event.method, event.path)
             ) ||
-            requests.has(event.id)
+            requests.has(event.id) ||
+            watches.has(event.id)
           )
             throw new Error("The hub sent an invalid publication request.");
           // A hub can free a slot a moment before this side does; answer busy, keep the relay.
-          if (requests.size >= 16) {
+          // Watches have their own limit so they never take one of the 16 request slots, with
+          // room for watches the hub already ended that are still stopping here.
+          const slots = watch ? watches : requests;
+          if (slots.size >= (watch ? MAX_FOLDER_WATCHES * 2 : 16)) {
             const busy = this.answerBusy(endpoint, token, event.id, sessionSignal).finally(() =>
               tasks.delete(busy),
             );
@@ -379,7 +395,7 @@ export class Remotes {
             return;
           }
           const controller = new AbortController();
-          requests.set(event.id, controller);
+          slots.set(event.id, controller);
           const task = this.forward(
             endpoint,
             token,
@@ -388,7 +404,7 @@ export class Remotes {
               : event,
             AbortSignal.any([sessionSignal, controller.signal]),
           ).finally(() => {
-            requests.delete(event.id);
+            slots.delete(event.id);
             tasks.delete(task);
           });
           tasks.add(task);
@@ -556,19 +572,14 @@ export class Remotes {
         const value = result.headers.get(name);
         if (value) responseHeaders.set(name, value);
       }
-      const output: RequestInit & { duplex: "half" } = {
-        method: "POST",
-        headers: responseHeaders,
-        body: result.body,
-        duplex: "half",
-        signal,
-        redirect: "error",
-      };
       phase = "response-post";
       const postStarted = performance.now();
       phaseStarted = postStarted;
       report("response-started");
-      const delivered = await fetch(`${base}/response`, output);
+      const delivered = await postResponse(`${base}/response`, responseHeaders, result.body, {
+        signal,
+        streaming: event.method === "GET" && folderCommandRequest(event.method, event.path),
+      });
       report("response-headers", { status: delivered.status });
       if (!delivered.ok) throw new Error(`Response delivery returned HTTP ${delivered.status}.`);
       await readRemoteJson(delivered);
@@ -586,6 +597,49 @@ export class Remotes {
     await this.pending;
     await Promise.all([...this.connections.keys()].map((id) => this.disconnect(id)));
   }
+}
+
+/**
+ * Posts a relay response to the hub. A `streaming` response, such as a folder watch, can
+ * last for hours and uses node:http: fetch keeps a 300-second response-headers deadline
+ * while the request body is still being sent, and the hub answers only after the body ends.
+ */
+function postResponse(
+  url: string,
+  headers: Headers,
+  body: ReadableStream<Uint8Array> | null,
+  { signal, streaming }: { signal: AbortSignal; streaming: boolean },
+): Promise<Response> {
+  if (!streaming) {
+    const init: RequestInit & { duplex: "half" } = {
+      method: "POST",
+      headers,
+      body,
+      duplex: "half",
+      signal,
+      redirect: "error",
+    };
+    return fetch(url, init);
+  }
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const outgoing = (target.protocol === "https:" ? httpsRequest : httpRequest)(
+      target,
+      // A pooled socket can be closed by the hub as idle just as it is reused.
+      { method: "POST", headers: Object.fromEntries(headers), signal, agent: false },
+      (incoming) =>
+        resolve(
+          new Response(Readable.toWeb(incoming) as ReadableStream<Uint8Array>, {
+            status: incoming.statusCode,
+          }),
+        ),
+    );
+    outgoing.on("error", reject);
+    // Node sends headers with the first body bytes, which can be a heartbeat 10 seconds away.
+    outgoing.flushHeaders();
+    if (body) pipeline(Readable.fromWeb(body as NodeReadableStream), outgoing).catch(reject);
+    else outgoing.end();
+  });
 }
 
 function watchIdle(

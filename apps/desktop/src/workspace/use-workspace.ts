@@ -119,14 +119,14 @@ export function useWorkspace(onError: (message: string) => void) {
    * Applies an agent's folder command. Restored and unhidden tabs move to the end without
    * changing selection; only a brand-new tab selects itself, and only when none is selected.
    */
-  function reconcileOpened({ tab, created, restored, unhidden }: FolderTabOpened): void {
+  function reconcileOpened({ tab, created, restored, unhidden, selected }: FolderTabOpened): void {
     const latest = current.current;
     if (latest.selected !== tab.id) setUnreadTabs((previous) => new Set([...previous, tab.id]));
     const existing = latest.tabs.find((entry) => entry.id === tab.id);
     if (existing) {
       const reopened = restored || unhidden;
       if (reopened) hiding.current.delete(tab.id);
-      const { hidden, ...merged } = mergeFolderTab(existing, tab);
+      const { hidden, ...merged } = mergeFolderTab(existing, tab, selected);
       const next = reopened || !hidden ? merged : { ...merged, hidden };
       const others = latest.tabs.filter((entry) => entry.id !== tab.id);
       replace(
@@ -265,7 +265,10 @@ export function useWorkspace(onError: (message: string) => void) {
   }
 
   function revealTab(id: string): void {
-    hiding.current.delete(id);
+    // Reopening also wins over a close that main has not finished.
+    const closing = hiding.current.delete(id);
+    if (closing || current.current.tabs.find((tab) => tab.id === id)?.hidden)
+      void window.scope.setTabHidden(id, false).catch(() => {});
     const previous = current.current;
     replace({
       ...previous,
@@ -299,7 +302,11 @@ export function useWorkspace(onError: (message: string) => void) {
     const next = deferred(current.current);
     if (next === current.current) return next.selected;
     for (const pending of pendingOpens.current) pending.closed.add(id);
-    const hide: Promise<void> = window.scope.saveWorkspace(next).then(() => {
+    // Main closes the stored tab first, so a workspace save it ignores as older cannot undo
+    // the close. Both requests are sent together to keep their order with a quick reopen.
+    const closing = window.scope.setTabHidden(id, true);
+    const saving = window.scope.saveWorkspace(next);
+    const hide: Promise<void> = Promise.all([closing, saving]).then(() => {
       // A reopen while this save was pending wins over the close.
       if (hiding.current.get(id) === hide) replace(deferred(current.current));
     });

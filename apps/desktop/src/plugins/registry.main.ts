@@ -18,12 +18,14 @@ export function registerMainPlugins(context: MainPluginContext) {
   const folders = registerFolderIpc(context);
   return {
     folderCommand: folders.command,
+    watchFolder: folders.watch,
     cancelPullRequests: () => pullRequests.cancelPending(),
     resumePullRequests: () => pullRequests.resume(),
     cancelTabs: (ids: string[]) => {
       pullRequests.cancelTabs(ids);
       folders.cancelTabs(ids);
     },
+    hiddenTabs: (ids: string[]) => folders.tabsClosed(ids),
     dispose: () => {
       folders.dispose();
       retros.dispose();

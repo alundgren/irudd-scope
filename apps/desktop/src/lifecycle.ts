@@ -7,7 +7,7 @@ import type { DesktopStore } from "./desktop-store.ts";
 import { validateTabState } from "./plugins/registry.ts";
 import { LegacyMemoryTabState } from "./plugins/memory/contract.ts";
 import type { FolderIdentity } from "@irudd-scope/protocol/folder";
-import type { FolderTabOpened } from "./plugins/folder/contract.ts";
+import type { FolderSelection, FolderTabOpened } from "./plugins/folder/contract.ts";
 
 export class DesktopLifecycle {
   private pending = Promise.resolve();
@@ -15,6 +15,8 @@ export class DesktopLifecycle {
   onRetentionChanged: (tabs: RetainedTab[]) => void = () => {};
   private visibleIds: readonly string[] = [];
   onClosed: (ids: string[]) => void = () => {};
+  /** Tabs closed to the drawer. Their views stay mounted. */
+  onHidden: (ids: string[]) => void = () => {};
 
   constructor(
     readonly artifacts: ArtifactStore,
@@ -135,6 +137,17 @@ export class DesktopLifecycle {
     });
   }
 
+  /**
+   * Closes a tab to the drawer or reopens it, in order with agent commands such as
+   * `folder open`. Plugins hear about a close before the renderer's request resolves, so
+   * a quick reopen cannot hide it, and a renderer save with an older tab cannot undo it.
+   */
+  setTabHidden(id: string, hidden: boolean): Promise<void> {
+    return this.enqueue(async () => {
+      if ((await this.artifacts.setTabHidden(id, hidden)) && hidden) this.onHidden([id]);
+    });
+  }
+
   reportVisibleTabs(ids: readonly string[], now = Date.now()): Promise<void> {
     return this.enqueue(async () => {
       await this.artifacts.markTabsVisible([...new Set([...this.visibleIds, ...ids])], now);
@@ -151,8 +164,10 @@ export class DesktopLifecycle {
     });
   }
 
-  /** Opens, restores, unhides, or renames the one Folder tab for a folder. */
-  openFolderTab(input: FolderIdentity & { title?: string }): Promise<FolderTabOpened> {
+  /** Opens, restores, unhides, or renames the one Folder tab for a folder, and can select a file in it. */
+  openFolderTab(
+    input: FolderIdentity & { title?: string; select?: FolderSelection },
+  ): Promise<FolderTabOpened> {
     return this.enqueue(async () => {
       const layout = await this.desktop.layout();
       const groupId = layout?.groups[0]?.id;

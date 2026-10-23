@@ -51,12 +51,38 @@ export function folderName(path: string): string {
   return (parts.at(-1) ?? path).slice(0, 160) || "Folder";
 }
 
-/** Sent from main when an agent command creates, restores, unhides, or renames a Folder tab. */
+/** The folders that contain a file, outermost first. */
+export function folderAncestors(file: string): string[] {
+  const parts = file.split("/");
+  return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/"));
+}
+
+/** A file an agent selected with `folder select`, and whether the folder's ignore rules hide it. */
+export type FolderSelection = { file: string; ignored: boolean };
+
+/**
+ * A Folder tab's data after an agent selects a file: every folder down to it is expanded,
+ * and ignored files are shown when the file is one.
+ */
+export function selectFolderFile(data: FolderTabData, selection: FolderSelection): FolderTabData {
+  return {
+    ...data,
+    expanded: [...new Set([...data.expanded, ...folderAncestors(selection.file)])],
+    showIgnored: data.showIgnored || selection.ignored,
+    selectedPath: selection.file,
+  };
+}
+
+/**
+ * Sent from main when an agent command creates, restores, unhides, or renames a Folder
+ * tab, or selects a file in it with `folder select`.
+ */
 export type FolderTabOpened = {
   tab: Tab;
   created: boolean;
   restored: boolean;
   unhidden: boolean;
+  selected?: FolderSelection;
 };
 
 /** Why a folder cannot be shown right now. */
@@ -73,22 +99,24 @@ export type FolderViewEvent = {
 /**
  * Applies a change desktop main made to a Folder tab to the renderer's copy. Main owns
  * the title, the folder, and the revision; the renderer keeps its own expanded folders,
- * filter, ignored-files setting, and selection. Visibility is handled by the workspace.
+ * filter, ignored-files setting, and selection, except that a file an agent selected
+ * replaces the selection and expands its folders. Visibility is handled by the workspace.
  */
-export function mergeFolderTab(current: Tab, incoming: Tab): Tab {
+export function mergeFolderTab(current: Tab, incoming: Tab, selected?: FolderSelection): Tab {
   const mine = decode(FolderTabState, current.state).data;
   const theirs = decode(FolderTabState, incoming.state).data;
+  const merged: FolderTabData = {
+    ...mine,
+    machineId: theirs.machineId,
+    path: theirs.path,
+    revision: Math.max(mine.revision, theirs.revision),
+  };
   return {
     ...current,
     title: incoming.title,
     state: {
       version: 1,
-      data: {
-        ...mine,
-        machineId: theirs.machineId,
-        path: theirs.path,
-        revision: Math.max(mine.revision, theirs.revision),
-      },
+      data: selected === undefined ? merged : selectFolderFile(merged, selected),
     },
   };
 }

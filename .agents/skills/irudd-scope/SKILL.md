@@ -163,6 +163,25 @@ when the desktop is away; it is never queued. `Update Scope on HOST to share
 folders` means that machine's Scope or hub predates folder tabs. Scope reads
 files only inside the folder and stores no copy of them.
 
+To point the person at a file, such as "select the plan file you just made",
+pick the file they mean, usually the one you just wrote, and run one command.
+FILE is relative to the folder:
+
+```bash
+irudd-scope folder select . docs/plans/login.html --title "Login fix"
+```
+
+It opens the tab first when there is none (`created: true`), expands the
+folders down to the file, and selects it. Scope still does not switch tabs; the
+Folder tab is marked unread. A FILE outside the folder or missing fails and
+changes nothing.
+
+`irudd-scope folder find .` prints `open: true` and the `tabId` when the folder
+has a tab in the strip, and `open: false` (exit 0) when it has none or the tab is
+closed or in Trashcan. `irudd-scope folder watch .` keeps running and prints one
+JSON line per event; it prints `{"type":"closed"}` and exits 0 when the person
+closes the tab, and fails when the folder has no open tab or Scope disconnects.
+
 ## Connection and confirmation
 
 With no explicit endpoint or token override, the CLI reads `SCOPE_CONNECTION_FILE`, defaulting to `%LOCALAPPDATA%\irudd-scope\desktop.json` on Windows or `~/.config/irudd-scope/desktop.json` on macOS and Linux. Scope must be open on an awake computer for direct publication. A paired hub always stores CLI publications before attempting delivery, regardless of desktop connection state. An explicit endpoint from `--endpoint` or `SCOPE_ENDPOINT` requires explicit credentials from `--token-file`, `SCOPE_TOKEN_FILE`, or `SCOPE_TOKEN`; the CLI never borrows the token from local discovery. Keep token values private.

@@ -31,9 +31,16 @@ import {
 import { readRemoteJson } from "./remote.ts";
 import {
   FOLDER_COMMAND_ROUTES,
+  FOLDER_HEARTBEAT_MS,
+  FolderFindReceipt,
+  FolderFindRequest,
   FolderOpenReceipt,
   FolderOpenRequest,
+  FolderSelectReceipt,
+  FolderSelectRequest,
+  FolderWatchEvent,
   MAX_FOLDER_COMMAND_BYTES,
+  folderQuery,
 } from "./folder.ts";
 import {
   MemoryConnectRequest,
@@ -125,15 +132,17 @@ export class ScopeClient {
     return response;
   }
 
-  /** Opens or reuses the Folder tab for a folder on the machine that runs this command. */
-  async folderOpen(input: FolderOpenRequest): Promise<FolderOpenReceipt> {
-    const body = JSON.stringify(decode(FolderOpenRequest, input));
+  private async folderCommand<
+    I extends Schema.ConstraintDecoder<unknown>,
+    R extends Schema.ConstraintDecoder<unknown>,
+  >(route: string, request: I, receipt: R, input: I["Type"]): Promise<R["Type"]> {
+    const body = JSON.stringify(decode(request, input));
     if (new TextEncoder().encode(body).byteLength > MAX_FOLDER_COMMAND_BYTES)
       throw new Error("Folder command exceeds 16 KiB.");
     return decode(
-      FolderOpenReceipt,
+      receipt,
       await readRemoteJson(
-        await this.request(FOLDER_COMMAND_ROUTES.open, {
+        await this.request(route, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body,
@@ -141,6 +150,103 @@ export class ScopeClient {
         MAX_FOLDER_COMMAND_BYTES,
       ),
     );
+  }
+
+  /** Opens or reuses the Folder tab for a folder on the machine that runs this command. */
+  folderOpen(input: FolderOpenRequest): Promise<FolderOpenReceipt> {
+    return this.folderCommand(
+      FOLDER_COMMAND_ROUTES.open,
+      FolderOpenRequest,
+      FolderOpenReceipt,
+      input,
+    );
+  }
+
+  /** Reports whether a folder has an open Folder tab. A tab in Trashcan is not open. */
+  folderFind(input: FolderFindRequest): Promise<FolderFindReceipt> {
+    return this.folderCommand(
+      FOLDER_COMMAND_ROUTES.find,
+      FolderFindRequest,
+      FolderFindReceipt,
+      input,
+    );
+  }
+
+  /** Opens the Folder tab when needed and selects a file in its tree. */
+  folderSelect(input: FolderSelectRequest): Promise<FolderSelectReceipt> {
+    return this.folderCommand(
+      FOLDER_COMMAND_ROUTES.select,
+      FolderSelectRequest,
+      FolderSelectReceipt,
+      input,
+    );
+  }
+
+  /**
+   * Streams events for a folder's open tab until the tab closes, which resolves the
+   * promise. `onWatching` runs once Scope accepts the watch. It rejects when the folder
+   * has no open tab, when Scope disconnects, or when no line, heartbeats included,
+   * arrives for three heartbeat intervals.
+   */
+  async folderWatch(
+    path: string,
+    onEvent: (event: FolderWatchEvent) => void,
+    signal: AbortSignal,
+    onWatching?: () => void,
+  ): Promise<void> {
+    const silent = new AbortController();
+    const stopped = AbortSignal.any([signal, silent.signal]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const alive = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => silent.abort(), FOLDER_HEARTBEAT_MS * 3);
+    };
+    alive();
+    const disconnected = () =>
+      new Error(
+        silent.signal.aborted
+          ? "Scope stopped responding before the Folder tab closed."
+          : "Scope disconnected before the Folder tab closed.",
+      );
+    try {
+      const response = await this.request(
+        `${FOLDER_COMMAND_ROUTES.watch}?${folderQuery({ path: decode(FolderFindRequest, { path }).path })}`,
+        { signal: stopped },
+      );
+      if (!response.body) throw new Error("Scope returned no watch stream.");
+      onWatching?.();
+      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+      let pending = "";
+      try {
+        while (true) {
+          const { value, done } = await reader.read().catch((error: unknown) => {
+            if (signal.aborted) throw error;
+            throw disconnected();
+          });
+          if (done) throw disconnected();
+          alive();
+          pending += value;
+          let boundary: number;
+          while ((boundary = pending.indexOf("\n")) !== -1) {
+            const line = pending.slice(0, boundary);
+            pending = pending.slice(boundary + 1);
+            const event = decode(FolderWatchEvent, JSON.parse(line));
+            if (event.type === "heartbeat") continue;
+            onEvent(event);
+            if (event.type === "closed") return;
+          }
+          if (pending.length > MAX_FOLDER_COMMAND_BYTES * 64)
+            throw new Error("Scope sent an oversized watch event.");
+        }
+      } finally {
+        await reader.cancel().catch(() => {});
+      }
+    } catch (error) {
+      if (silent.signal.aborted && !signal.aborted) throw disconnected();
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async importLink(url: string): Promise<TransferImportReceipt> {
