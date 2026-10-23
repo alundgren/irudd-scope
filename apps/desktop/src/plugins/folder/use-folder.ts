@@ -78,7 +78,7 @@ export function useFolder(
           const result = results[index]!;
           if (result.status === "ok") next.set(path, result.listing);
           else
-            for (const key of [...next.keys()])
+            for (const key of next.keys())
               if (key === path || key.startsWith(`${path}/`)) next.delete(key);
         });
         return next;

@@ -159,6 +159,11 @@ const ChangedPath = Schema.Struct({
   type: Schema.Literals(["created", "deleted", "changed"]),
   path: FolderRelativePath,
 });
+/**
+ * A change inside a folder. Renames may arrive as `deleted` and `created`. A `created`
+ * directory can already contain files that have no change of their own, so readers that
+ * track every path list a new directory themselves.
+ */
 export const FolderChange = Schema.Union([
   ChangedPath,
   Schema.Struct({

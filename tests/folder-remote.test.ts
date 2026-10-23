@@ -66,7 +66,7 @@ async function spawnedHub(directory: string) {
 const failure = (task: Promise<unknown>) =>
   task.then(
     () => "succeeded",
-    (error: { stderr?: string }) => error.stderr?.trim() ?? String(error),
+    (error: Error & { stderr?: string }) => error.stderr?.trim() ?? error.message,
   );
 
 test(

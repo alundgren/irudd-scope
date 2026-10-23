@@ -12,6 +12,7 @@ import {
   FolderSearchRequest,
   FolderWriteQuery,
   MAX_FOLDER_COMMAND_BYTES,
+  folderErrorBody,
   readFolderQuery,
   type FolderErrorBody,
 } from "@irudd-scope/protocol/folder";
@@ -38,12 +39,13 @@ function send(response: ServerResponse, status: number, value: unknown) {
 }
 
 export function folderFailure(response: ServerResponse, error: unknown) {
-  const failure =
-    error instanceof FolderError
-      ? error
-      : new FolderError("not-found", "The hub could not complete the folder request.");
-  const body: FolderErrorBody = { error: failure.message, code: failure.code };
-  send(response, failure.status, body);
+  if (error instanceof FolderError)
+    send(response, error.status, folderErrorBody(error, error.code));
+  else
+    send(response, 500, {
+      error: "The hub could not complete the folder request.",
+      code: "unsupported",
+    } satisfies FolderErrorBody);
 }
 
 const FeedQuery = Schema.Struct({ root: FolderPath });

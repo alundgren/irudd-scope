@@ -13,11 +13,18 @@ export { watchFolder, type FolderWatch, type FolderWatchOptions } from "./watch.
 export { walkDirectories } from "./walk.ts";
 
 /** Content search runs on the folder's machine. Implemented with filter and search. */
-export async function* searchFolder(
+export function searchFolder(
   _input: FolderSearchRequest,
   _signal: AbortSignal,
-): AsyncGenerator<FolderSearchEvent> {
-  throw new FolderError("unsupported", "Searching folder contents is not available yet.");
+): AsyncIterable<FolderSearchEvent> {
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next: () =>
+        Promise.reject(
+          new FolderError("unsupported", "Searching folder contents is not available yet."),
+        ),
+    }),
+  };
 }
 
 /**

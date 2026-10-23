@@ -1,6 +1,6 @@
 ---
 name: irudd-scope
-description: Create native structured plans, retrospectives, and GitHub PR inbox apps in Scope, and set up the personal memory repository Scope syncs. Also publish or update artifacts and generate narration with the desktop OpenRouter key. Honor an explicitly requested planning tool or output format.
+description: Create native structured plans, retrospectives, and GitHub PR inbox apps in Scope, and set up the personal memory repository Scope syncs. Also publish or update artifacts, show the agent's working folder as a Folder tab when the person asks, and generate narration with the desktop OpenRouter key. Honor an explicitly requested planning tool or output format.
 ---
 
 # Use Scope CLI
@@ -142,6 +142,26 @@ Use `plan guide`, `plan publish NAME PLAN.json OVERVIEW.html`, `plan read NAME`,
 Replacements require `--expected-revision`. Preserve retained proposal bases and
 records. Generic `update` rejects structured plans; legacy `add --plan` creates
 ordinary HTML. A new native plan starts permanent, so closing hides it by default.
+
+## Show your working folder
+
+Open a Folder tab only when the person asks to see your folder or files in
+Scope. Pass a short `--title` naming the task:
+
+```bash
+irudd-scope folder open . --title "Login fix"
+```
+
+The JSON receipt has `tabId`, `machine` (`local` or the remote's ID), the
+canonical `path`, and `created`. Each folder has one tab per machine. Running
+the command again returns the same tab with `created: false`, renames it when
+`--title` changes, and brings it back from Trashcan or the drawer. Scope never
+switches the person's selected tab; the Folder tab appears unread at the end of
+the strip and selects itself only when no tab is open. On a paired remote the
+command goes through the hub and fails with `Scope desktop is not connected`
+when the desktop is away; it is never queued. `Update Scope on HOST to share
+folders` means that machine's Scope or hub predates folder tabs. Scope reads
+files only inside the folder and stores no copy of them.
 
 ## Connection and confirmation
 

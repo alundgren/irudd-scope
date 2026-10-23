@@ -163,7 +163,7 @@ export function registerFolderIpc({
       for (const id of ids) stopFeed(id);
     },
     dispose: () => {
-      for (const id of [...feeds.keys()]) stopFeed(id);
+      for (const id of feeds.keys()) stopFeed(id);
     },
   };
 }

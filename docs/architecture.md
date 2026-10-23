@@ -30,6 +30,67 @@ server. `packages/protocol/src/voice.ts` owns the public contracts; the CLI owns
 explicit audio and receipt exports. The hub forwards the same routes without
 provider calls or speech storage. Speech results are independent of tabs.
 
+## Folder tabs
+
+A Folder tab shows an agent's working folder, on this computer or on a paired
+remote, as a live tree. Only agent commands open one; Scope has no button,
+menu item, or drop target for it. Files stay on the machine that has them.
+
+```mermaid
+flowchart LR
+    LocalCLI[CLI on this computer] -->|POST /v1/folders/open| Desktop[desktop main]
+    RemoteCLI[CLI on a remote] -->|POST /v1/folders/open| Hub[apps/hub]
+    Hub -->|canonical path, relayed command| Desktop
+    Desktop -->|GET /v1/relay/folders/*| Hub
+    Desktop --> LocalFiles[packages/folder on this computer]
+    Hub --> RemoteFiles[packages/folder on the remote]
+    Desktop --> Record[scope.db: tab record and folder_tabs key]
+```
+
+`packages/folder` owns all file system work for both machines: the canonical
+path, per-directory listings, `.gitignore` rules, containment, byte-range reads,
+and change feeds. It reserves typed content search and staged write functions.
+Desktop main uses it for local folders; the hub uses it for remote folders.
+`packages/protocol/src/folder.ts` defines the routes and wire contracts and
+imports no file system code.
+
+A Folder tab's identity is its machine and canonical path. The machine is
+`local` or the desktop's remote ID and always comes from the connection that
+delivered the command; Scope ignores any machine named in the body. When the
+desktop forwards a relayed folder command to its own listener, it adds a
+`Scope-Relay-Origin` header with a secret that exists only in that process. The
+canonical path comes from `canonicalFolder`, run on the machine that has the
+files: desktop main resolves local paths and a hub resolves its own before
+relaying. `scope.db` enforces one tab per key in the `folder_tabs` table inside
+the same transaction that creates, restores, unhides, or renames the tab.
+
+The Folder plugin is an ordinary tab type: temporary by default, bookmarkable,
+and trashable. Opening a folder whose tab is trashed or hidden restores or
+unhides that same tab at the end of the strip. Main sends the change to the
+renderer as `scope:folder-tab-opened`. The renderer merges the title and folder
+into its copy and keeps its own expanded folders and selection. Brand-new tabs
+select themselves only when no tab is selected; restored and unhidden tabs
+never change selection. A per-tab `revision` in the Folder tab state counts
+main-side changes, and `scope.db` ignores renderer saves with an older revision.
+Folder tabs are unread through a tab ID set in renderer memory until selected.
+
+The plugin's main handlers read the folder through one source contract. Local
+sources call `packages/folder`. Remote sources use `Remotes.request`, a
+session-bound streaming request to the hub's file routes with raw bodies, caller
+cancellation, a deadline per operation, an idle limit, and cleanup when the
+relay session ends. It does not use the 32 MiB publication path. The hub's
+change feed writes a heartbeat every 10 seconds, under its 30-second socket
+timeout. macOS and Windows watch a folder recursively; Linux watches each
+directory that is not ignored and polls every few seconds when it runs out of
+watches. `.git` and ignored folders are never watched.
+
+The desktop advertises folder support with `Scope-Relay-Capabilities: folders`
+when it opens the relay. A hub forwards folder commands only to a desktop that
+advertised it, because an older desktop drops the whole relay on an unknown
+request. Folder commands are never queued. An older hub answers 404 and the CLI
+asks for an update on that machine. Only the desktop connection credential can
+use the hub's `/v1/relay/folders/` routes; the hub's publishing token cannot.
+
 ## Tab transfer
 
 `apps/desktop/src/transfer/` owns desktop pairing, temporary invitations,
@@ -305,6 +366,7 @@ formats are compatibility contracts.
 | Sketchpad        | The built-in Excalidraw canvas the person uses; agents have no access to it.                     | `apps/desktop/src/plugins/sketchpad/view.tsx` owns editing.                                               |
 | Sketchpad draft  | Local Excalidraw serialization and view position, stored only while the canvas is not empty.     | `apps/desktop/src/plugins/sketchpad/contract.ts`; `library/store.ts` stores drafts.                       |
 | Publishing token | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                   | Desktop discovery file; CLI and optional hub use it.                                                      |
+| Folder tab       | A live tree of one folder on one machine, keyed by machine ID and canonical path.                | `packages/folder` reads files; `plugins/folder` shows them; `folder_tabs` in `scope.db` keeps the key.    |
 
 `packages/protocol` owns shared schemas, wire formats, limits, the discovery
 contract, and the HTTP client. It imports no app, filesystem, Electron, or
