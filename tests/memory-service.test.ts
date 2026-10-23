@@ -114,42 +114,51 @@ async function fixture(options: { installLater?: boolean } = {}) {
   };
 }
 
-test("remote configuration updates are serialized and the final off choice wins", async () => {
-  const f = await fixture();
-  await f.service.setEnabled(true);
-  await f.service.connect(MEMORY_REPOSITORY);
-  await f.service.setEnabled(false);
-  let entered = false;
-  const gate = Promise.withResolvers<void>();
-  f.beforePut(async (configuration) => {
-    if (configuration.enabled) {
-      entered = true;
-      await gate.promise;
+test(
+  "remote configuration updates are serialized and the final off choice wins",
+  { tags: ["memory-syncs"] },
+  async () => {
+    const f = await fixture();
+    await f.service.setEnabled(true);
+    await f.service.connect(MEMORY_REPOSITORY);
+    await f.service.setEnabled(false);
+    let entered = false;
+    const gate = Promise.withResolvers<void>();
+    f.beforePut(async (configuration) => {
+      if (configuration.enabled) {
+        entered = true;
+        await gate.promise;
+      }
+    });
+    const enable = f.service.setEnabled(true);
+    try {
+      await expect.poll(() => entered).toBe(true);
+      const disable = f.service.setEnabled(false);
+      await expect.poll(() => f.service.snapshot().configuration.enabled).toBe(false);
+      gate.resolve();
+      await Promise.all([enable, disable]);
+      expect(f.configuration().enabled).toBe(false);
+      expect(f.peak()).toBe(1);
+    } finally {
+      gate.resolve();
     }
-  });
-  const enable = f.service.setEnabled(true);
-  try {
-    await expect.poll(() => entered).toBe(true);
-    const disable = f.service.setEnabled(false);
-    await expect.poll(() => f.service.snapshot().configuration.enabled).toBe(false);
-    gate.resolve();
-    await Promise.all([enable, disable]);
-    expect(f.configuration().enabled).toBe(false);
-    expect(f.peak()).toBe(1);
-  } finally {
-    gate.resolve();
-  }
-});
+  },
+);
 
-test("a failed remote off update is retried without waiting for reconnection", async () => {
-  const f = await fixture();
-  await f.service.setEnabled(true);
-  await f.service.connect(MEMORY_REPOSITORY);
-  let failures = 0;
-  f.beforePut(async (configuration) => {
-    if (!configuration.enabled && failures++ === 0) throw new Error("Temporary connection failure");
-  });
-  await f.service.setEnabled(false);
-  await expect.poll(() => f.configuration().enabled).toBe(false);
-  expect(failures).toBeGreaterThan(1);
-});
+test(
+  "a failed remote off update is retried without waiting for reconnection",
+  { tags: ["memory-syncs"] },
+  async () => {
+    const f = await fixture();
+    await f.service.setEnabled(true);
+    await f.service.connect(MEMORY_REPOSITORY);
+    let failures = 0;
+    f.beforePut(async (configuration) => {
+      if (!configuration.enabled && failures++ === 0)
+        throw new Error("Temporary connection failure");
+    });
+    await f.service.setEnabled(false);
+    await expect.poll(() => f.configuration().enabled).toBe(false);
+    expect(failures).toBeGreaterThan(1);
+  },
+);

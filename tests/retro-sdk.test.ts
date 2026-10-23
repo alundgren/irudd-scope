@@ -45,62 +45,74 @@ function fixture() {
   return { sdk, calls, send, document };
 }
 
-test("RETRO SDK exists before authored scripts and exposes immutable snapshots", () => {
-  const f = fixture();
-  expect(f.document.indexOf("Object.defineProperty")).toBeLessThan(
-    f.document.indexOf("authored()"),
-  );
-  let snapshot: unknown;
-  f.sdk.watch((value) => {
-    snapshot = value;
-  });
-  f.send({ type: "scope-retro-snapshot", value: { version: 2, data: { note: "Saved" } } });
-  expect(Object.isFrozen(snapshot)).toBe(true);
-  expect(Object.isFrozen((snapshot as { data: unknown }).data)).toBe(true);
-  f.send({ type: "scope-retro-snapshot", value: { version: 1, data: { note: "Stale" } } });
-  expect(snapshot).toEqual({ version: 2, data: { note: "Saved" } });
-  expect("finish" in f.sdk).toBe(false);
-  expect("execute" in f.sdk).toBe(false);
-});
-
-test("leaving a report waits for writes made by its save callback", async () => {
-  const f = fixture();
-  f.sdk.beforeClose(async () => {
-    await f.sdk.state.patch({ draft: "Keep my note" }, 0);
-  });
-  f.send({ type: "scope-retro-close", id: "closing" });
-  await expect.poll(() => f.calls.some((call) => call.method === "patchState")).toBe(true);
-  expect(f.calls.some((call) => call.type === "scope-retro-flushed")).toBe(false);
-  const call = f.calls.find((call) => call.method === "patchState")!;
-  f.send({ type: "scope-retro-reply", id: call.id, value: { version: 1 } });
-  await expect
-    .poll(() => f.calls.find((call) => call.type === "scope-retro-flushed"))
-    .toEqual({
-      channel: expect.any(String),
-      tabId: expect.any(String),
-      type: "scope-retro-flushed",
-      id: "closing",
-      error: undefined,
+test(
+  "RETRO SDK exists before authored scripts and exposes immutable snapshots",
+  { tags: ["retro-records-the-review"] },
+  () => {
+    const f = fixture();
+    expect(f.document.indexOf("Object.defineProperty")).toBeLessThan(
+      f.document.indexOf("authored()"),
+    );
+    let snapshot: unknown;
+    f.sdk.watch((value) => {
+      snapshot = value;
     });
-});
+    f.send({ type: "scope-retro-snapshot", value: { version: 2, data: { note: "Saved" } } });
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(Object.isFrozen((snapshot as { data: unknown }).data)).toBe(true);
+    f.send({ type: "scope-retro-snapshot", value: { version: 1, data: { note: "Stale" } } });
+    expect(snapshot).toEqual({ version: 2, data: { note: "Saved" } });
+    expect("finish" in f.sdk).toBe(false);
+    expect("execute" in f.sdk).toBe(false);
+  },
+);
 
-test("a conflicting note rejects saving without changing the caller's draft", async () => {
-  const f = fixture();
-  let draft = "My pending investigation";
-  f.sdk.beforeClose(async () => {
-    await f.sdk.comment("finding", draft, 0);
-    draft = "";
-  });
-  f.send({ type: "scope-retro-close", id: "closing" });
-  await expect.poll(() => f.calls.some((call) => call.method === "comment")).toBe(true);
-  const call = f.calls.find((call) => call.method === "comment")!;
-  f.send({
-    type: "scope-retro-reply",
-    id: call.id,
-    error: { message: "Report changed. Read it and retry.", code: "conflict" },
-  });
-  await expect
-    .poll(() => f.calls.find((call) => call.type === "scope-retro-flushed")?.error)
-    .toContain("Report changed");
-  expect(draft).toBe("My pending investigation");
-});
+test(
+  "leaving a report waits for writes made by its save callback",
+  { tags: ["retro-records-the-review", "no-lost-updates"] },
+  async () => {
+    const f = fixture();
+    f.sdk.beforeClose(async () => {
+      await f.sdk.state.patch({ draft: "Keep my note" }, 0);
+    });
+    f.send({ type: "scope-retro-close", id: "closing" });
+    await expect.poll(() => f.calls.some((call) => call.method === "patchState")).toBe(true);
+    expect(f.calls.some((call) => call.type === "scope-retro-flushed")).toBe(false);
+    const call = f.calls.find((call) => call.method === "patchState")!;
+    f.send({ type: "scope-retro-reply", id: call.id, value: { version: 1 } });
+    await expect
+      .poll(() => f.calls.find((call) => call.type === "scope-retro-flushed"))
+      .toEqual({
+        channel: expect.any(String),
+        tabId: expect.any(String),
+        type: "scope-retro-flushed",
+        id: "closing",
+        error: undefined,
+      });
+  },
+);
+
+test(
+  "a conflicting note rejects saving without changing the caller's draft",
+  { tags: ["retro-records-the-review", "no-lost-updates"] },
+  async () => {
+    const f = fixture();
+    let draft = "My pending investigation";
+    f.sdk.beforeClose(async () => {
+      await f.sdk.comment("finding", draft, 0);
+      draft = "";
+    });
+    f.send({ type: "scope-retro-close", id: "closing" });
+    await expect.poll(() => f.calls.some((call) => call.method === "comment")).toBe(true);
+    const call = f.calls.find((call) => call.method === "comment")!;
+    f.send({
+      type: "scope-retro-reply",
+      id: call.id,
+      error: { message: "Report changed. Read it and retry.", code: "conflict" },
+    });
+    await expect
+      .poll(() => f.calls.find((call) => call.type === "scope-retro-flushed")?.error)
+      .toContain("Report changed");
+    expect(draft).toBe("My pending investigation");
+  },
+);

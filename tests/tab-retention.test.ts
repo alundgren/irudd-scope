@@ -88,155 +88,176 @@ function savedDraft(store: ArtifactStore, tabId: string) {
   }
 }
 
-test("hidden temporary tabs get a day, visible and permanent tabs survive, and trash retains content for seven days", async () => {
-  const f = await fixture();
-  const hidden = await f.publish("hidden");
-  const visible = await f.publish("visible");
-  const permanent = await f.publish("permanent");
-  const store = f.server.store;
-  const now = Date.now();
-  await store.markTabsVisible([hidden.id, visible.id, permanent.id], now);
-  await store.setTabPermanent(permanent.id, true, now);
-  saveDraft(store, hidden.id);
-  const saved = await f.lifecycle.workspace();
-  await f.lifecycle.checkRetention([visible.id], now + DAY - 1);
-  expect((await f.lifecycle.workspace()).tabs).toHaveLength(3);
-  await f.lifecycle.checkRetention([visible.id], now + DAY);
-  expect((await f.lifecycle.workspace()).tabs.map((tab) => tab.id)).toEqual([
-    visible.id,
-    permanent.id,
-  ]);
-  const trash = (await store.retainedTabs()).find((entry) => entry.tab.id === hidden.id)!;
-  expect(trash.trashedAt).toBe(now + DAY);
-  expect(savedDraft(store, hidden.id)).toEqual(draft);
-  expect(Buffer.from(await f.client.content("hidden")).toString()).toBe("Shared content");
-  await f.lifecycle.saveWorkspace(saved);
-  expect(await f.lifecycle.openTab(hidden)).toBeNull();
-  await expect(
-    f.client.publish(
-      "hidden",
-      {
-        title: "Late update",
-        kind: "text",
-        mediaType: "text/plain",
-        fileName: "note.txt",
-        expectedRevision: 1,
-      },
-      Buffer.from("Late"),
-    ),
-  ).rejects.toMatchObject({ status: 409 });
-  await expect(
-    store.replaceContent("hidden", 1, "Late editor", Buffer.from("Late")),
-  ).rejects.toMatchObject({ status: 404 });
-  await f.lifecycle.checkRetention([visible.id], now + DAY + TRASH_RETENTION_MS - 1);
-  expect(await f.client.get("hidden")).toMatchObject({ name: "hidden" });
-  await f.lifecycle.checkRetention([visible.id], now + DAY + TRASH_RETENTION_MS);
-  await expect(f.client.get("hidden")).rejects.toMatchObject({ status: 404 });
-  expect(savedDraft(store, hidden.id)).toBeNull();
-  expect(Buffer.from(await f.client.content("visible")).toString()).toBe("Shared content");
-  const db = new DatabaseSync(store.filename);
-  try {
-    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
-    expect(db.prepare("SELECT count(*) AS n FROM blobs").get()?.n).toBe(1);
-  } finally {
-    db.close();
-  }
-});
+test(
+  "hidden temporary tabs get a day, visible and permanent tabs survive, and trash retains content for seven days",
+  { tags: ["deletion-is-final"] },
+  async () => {
+    const f = await fixture();
+    const hidden = await f.publish("hidden");
+    const visible = await f.publish("visible");
+    const permanent = await f.publish("permanent");
+    const store = f.server.store;
+    const now = Date.now();
+    await store.markTabsVisible([hidden.id, visible.id, permanent.id], now);
+    await store.setTabPermanent(permanent.id, true, now);
+    saveDraft(store, hidden.id);
+    const saved = await f.lifecycle.workspace();
+    await f.lifecycle.checkRetention([visible.id], now + DAY - 1);
+    expect((await f.lifecycle.workspace()).tabs).toHaveLength(3);
+    await f.lifecycle.checkRetention([visible.id], now + DAY);
+    expect((await f.lifecycle.workspace()).tabs.map((tab) => tab.id)).toEqual([
+      visible.id,
+      permanent.id,
+    ]);
+    const trash = (await store.retainedTabs()).find((entry) => entry.tab.id === hidden.id)!;
+    expect(trash.trashedAt).toBe(now + DAY);
+    expect(savedDraft(store, hidden.id)).toEqual(draft);
+    expect(Buffer.from(await f.client.content("hidden")).toString()).toBe("Shared content");
+    await f.lifecycle.saveWorkspace(saved);
+    expect(await f.lifecycle.openTab(hidden)).toBeNull();
+    await expect(
+      f.client.publish(
+        "hidden",
+        {
+          title: "Late update",
+          kind: "text",
+          mediaType: "text/plain",
+          fileName: "note.txt",
+          expectedRevision: 1,
+        },
+        Buffer.from("Late"),
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      store.replaceContent("hidden", 1, "Late editor", Buffer.from("Late")),
+    ).rejects.toMatchObject({ status: 404 });
+    await f.lifecycle.checkRetention([visible.id], now + DAY + TRASH_RETENTION_MS - 1);
+    expect(await f.client.get("hidden")).toMatchObject({ name: "hidden" });
+    await f.lifecycle.checkRetention([visible.id], now + DAY + TRASH_RETENTION_MS);
+    await expect(f.client.get("hidden")).rejects.toMatchObject({ status: 404 });
+    expect(savedDraft(store, hidden.id)).toBeNull();
+    expect(Buffer.from(await f.client.content("visible")).toString()).toBe("Shared content");
+    const db = new DatabaseSync(store.filename);
+    try {
+      expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+      expect(db.prepare("SELECT count(*) AS n FROM blobs").get()?.n).toBe(1);
+    } finally {
+      db.close();
+    }
+  },
+);
 
-test("restore keeps permanence and drafts, resets the day, and stale empty-trash confirmation cannot delete a restored tab", async () => {
-  const f = await fixture();
-  const first = await f.publish("first");
-  const second = await f.publish("second");
-  await f.lifecycle.setTabPermanent(first.id, true);
-  saveDraft(f.server.store, first.id);
-  await f.lifecycle.closeTab(first.id);
-  const entry = (await f.server.store.retainedTabs()).find((entry) => entry.tab.id === first.id)!;
-  const confirmation = [{ id: first.id, trashedAt: entry.trashedAt! }];
-  const restored = await f.lifecycle.restoreTab(first.id);
-  expect(restored.id).toBe(first.id);
-  expect((await f.lifecycle.workspace()).tabs.map((tab) => tab.id)).toEqual([second.id, first.id]);
-  expect((await f.server.store.retainedTabs()).at(-1)).toMatchObject({
-    permanent: true,
-    trashedAt: null,
-  });
-  expect(savedDraft(f.server.store, first.id)).toEqual(draft);
-  await f.lifecycle.emptyTrash(confirmation);
-  expect(await f.client.get("first")).toMatchObject({ name: "first" });
-  await f.server.store.trashTab(first.id, entry.trashedAt! + 1000);
-  await f.lifecycle.emptyTrash(confirmation);
-  expect(await f.client.get("first")).toMatchObject({ name: "first" });
-  await f.lifecycle.emptyTrash([{ id: first.id, trashedAt: entry.trashedAt! + 1000 }]);
-  await expect(f.client.get("first")).rejects.toMatchObject({ status: 404 });
-  await f.lifecycle.closeTab(second.id);
-  const now = Date.now();
-  await f.server.store.restoreTab(second.id, now);
-  await f.lifecycle.checkRetention([], now + DAY - 1);
-  expect((await f.lifecycle.workspace()).tabs).toHaveLength(1);
-  await f.lifecycle.checkRetention([], now + DAY);
-  expect((await f.lifecycle.workspace()).tabs).toEqual([]);
-});
-
-test("a long absence starts a full trash interval when cleanup runs", async () => {
-  const f = await fixture();
-  const tab = await f.publish("away");
-  const now = Date.now();
-  await f.server.store.markTabsVisible([tab.id], now);
-  await f.lifecycle.checkRetention([], now + 30 * DAY);
-  expect((await f.server.store.retainedTabs())[0].trashedAt).toBe(now + 30 * DAY);
-  expect(await f.client.get("away")).toBeDefined();
-});
-
-test("built-in tabs stay permanent, reopen once with saved state, and reject retention and type changes", async () => {
-  const f = await fixture();
-  const workspace = await f.lifecycle.workspace();
-  const first = (await f.lifecycle.openTab({
-    id: crypto.randomUUID(),
-    groupId: workspace.groups[0].id,
-    type: "memory",
-    title: "Personal memory",
-    state: { version: 1, data: {} },
-  }))!;
-  await f.lifecycle.saveWorkspace({
-    ...workspace,
-    tabs: [{ ...first, hidden: true, state: { version: 1, data: { path: "workflow/index.md" } } }],
-    selected: null,
-  });
-  expect((await f.lifecycle.workspace()).selected).toBeNull();
-  expect((await f.lifecycle.workspace()).tabs[0].hidden).toBe(true);
-  await expect(f.lifecycle.setTabPermanent(first.id, false)).rejects.toThrow("always permanent");
-  await expect(f.lifecycle.closeTab(first.id)).rejects.toThrow("cannot move to Trashcan");
-  const rewritten = { ...first, type: "unavailable-plugin" };
-  await expect(f.lifecycle.openTab(rewritten)).rejects.toThrow(
-    "type of a built-in tab cannot change",
-  );
-  await expect(
-    f.lifecycle.saveWorkspace({ ...workspace, tabs: [rewritten], selected: null }),
-  ).rejects.toThrow("type of a built-in tab cannot change");
-  const reopened = await Promise.all(
-    Array.from({ length: 3 }, () => f.lifecycle.openTab({ ...first, id: crypto.randomUUID() })),
-  );
-  expect(reopened.every((tab) => tab?.id === first.id)).toBe(true);
-  expect(reopened[0]).toMatchObject({
-    hidden: false,
-    state: { version: 1, data: { path: "workflow/index.md" } },
-  });
-  await f.lifecycle.checkRetention([], Date.now() + 30 * DAY);
-  expect((await f.lifecycle.workspace()).tabs).toHaveLength(1);
-  expect((await f.server.store.retainedTabs())[0]).toMatchObject({
-    permanent: true,
-    trashedAt: null,
-  });
-  const db = new DatabaseSync(f.server.store.filename);
-  const now = Date.now();
-  try {
-    db.prepare("UPDATE live_tabs SET permanent = 0, last_visible_at = 0 WHERE id = ?").run(
+test(
+  "restore keeps permanence and drafts, resets the day, and stale empty-trash confirmation cannot delete a restored tab",
+  { tags: ["deletion-is-final"] },
+  async () => {
+    const f = await fixture();
+    const first = await f.publish("first");
+    const second = await f.publish("second");
+    await f.lifecycle.setTabPermanent(first.id, true);
+    saveDraft(f.server.store, first.id);
+    await f.lifecycle.closeTab(first.id);
+    const entry = (await f.server.store.retainedTabs()).find((entry) => entry.tab.id === first.id)!;
+    const confirmation = [{ id: first.id, trashedAt: entry.trashedAt! }];
+    const restored = await f.lifecycle.restoreTab(first.id);
+    expect(restored.id).toBe(first.id);
+    expect((await f.lifecycle.workspace()).tabs.map((tab) => tab.id)).toEqual([
+      second.id,
       first.id,
+    ]);
+    expect((await f.server.store.retainedTabs()).at(-1)).toMatchObject({
+      permanent: true,
+      trashedAt: null,
+    });
+    expect(savedDraft(f.server.store, first.id)).toEqual(draft);
+    await f.lifecycle.emptyTrash(confirmation);
+    expect(await f.client.get("first")).toMatchObject({ name: "first" });
+    await f.server.store.trashTab(first.id, entry.trashedAt! + 1000);
+    await f.lifecycle.emptyTrash(confirmation);
+    expect(await f.client.get("first")).toMatchObject({ name: "first" });
+    await f.lifecycle.emptyTrash([{ id: first.id, trashedAt: entry.trashedAt! + 1000 }]);
+    await expect(f.client.get("first")).rejects.toMatchObject({ status: 404 });
+    await f.lifecycle.closeTab(second.id);
+    const now = Date.now();
+    await f.server.store.restoreTab(second.id, now);
+    await f.lifecycle.checkRetention([], now + DAY - 1);
+    expect((await f.lifecycle.workspace()).tabs).toHaveLength(1);
+    await f.lifecycle.checkRetention([], now + DAY);
+    expect((await f.lifecycle.workspace()).tabs).toEqual([]);
+  },
+);
+
+test(
+  "a long absence starts a full trash interval when cleanup runs",
+  { tags: ["deletion-is-final"] },
+  async () => {
+    const f = await fixture();
+    const tab = await f.publish("away");
+    const now = Date.now();
+    await f.server.store.markTabsVisible([tab.id], now);
+    await f.lifecycle.checkRetention([], now + 30 * DAY);
+    expect((await f.server.store.retainedTabs())[0].trashedAt).toBe(now + 30 * DAY);
+    expect(await f.client.get("away")).toBeDefined();
+  },
+);
+
+test(
+  "built-in tabs stay permanent, reopen once with saved state, and reject retention and type changes",
+  { tags: ["deletion-is-final", "survives-restart"] },
+  async () => {
+    const f = await fixture();
+    const workspace = await f.lifecycle.workspace();
+    const first = (await f.lifecycle.openTab({
+      id: crypto.randomUUID(),
+      groupId: workspace.groups[0].id,
+      type: "memory",
+      title: "Personal memory",
+      state: { version: 1, data: {} },
+    }))!;
+    await f.lifecycle.saveWorkspace({
+      ...workspace,
+      tabs: [
+        { ...first, hidden: true, state: { version: 1, data: { path: "workflow/index.md" } } },
+      ],
+      selected: null,
+    });
+    expect((await f.lifecycle.workspace()).selected).toBeNull();
+    expect((await f.lifecycle.workspace()).tabs[0].hidden).toBe(true);
+    await expect(f.lifecycle.setTabPermanent(first.id, false)).rejects.toThrow("always permanent");
+    await expect(f.lifecycle.closeTab(first.id)).rejects.toThrow("cannot move to Trashcan");
+    const rewritten = { ...first, type: "unavailable-plugin" };
+    await expect(f.lifecycle.openTab(rewritten)).rejects.toThrow(
+      "type of a built-in tab cannot change",
     );
-    expect(await f.server.store.expireTemporaryTabs(now + DAY)).toEqual([]);
-    db.prepare("UPDATE live_tabs SET trashed_at = ? WHERE id = ?").run(now, first.id);
-    await f.lifecycle.emptyTrash([{ id: first.id, trashedAt: now }]);
-    expect((await f.server.store.retainedTabs())[0].tab.id).toBe(first.id);
-  } finally {
-    db.close();
-  }
-});
+    await expect(
+      f.lifecycle.saveWorkspace({ ...workspace, tabs: [rewritten], selected: null }),
+    ).rejects.toThrow("type of a built-in tab cannot change");
+    const reopened = await Promise.all(
+      Array.from({ length: 3 }, () => f.lifecycle.openTab({ ...first, id: crypto.randomUUID() })),
+    );
+    expect(reopened.every((tab) => tab?.id === first.id)).toBe(true);
+    expect(reopened[0]).toMatchObject({
+      hidden: false,
+      state: { version: 1, data: { path: "workflow/index.md" } },
+    });
+    await f.lifecycle.checkRetention([], Date.now() + 30 * DAY);
+    expect((await f.lifecycle.workspace()).tabs).toHaveLength(1);
+    expect((await f.server.store.retainedTabs())[0]).toMatchObject({
+      permanent: true,
+      trashedAt: null,
+    });
+    const db = new DatabaseSync(f.server.store.filename);
+    const now = Date.now();
+    try {
+      db.prepare("UPDATE live_tabs SET permanent = 0, last_visible_at = 0 WHERE id = ?").run(
+        first.id,
+      );
+      expect(await f.server.store.expireTemporaryTabs(now + DAY)).toEqual([]);
+      db.prepare("UPDATE live_tabs SET trashed_at = ? WHERE id = ?").run(now, first.id);
+      await f.lifecycle.emptyTrash([{ id: first.id, trashedAt: now }]);
+      expect((await f.server.store.retainedTabs())[0].tab.id).toBe(first.id);
+    } finally {
+      db.close();
+    }
+  },
+);

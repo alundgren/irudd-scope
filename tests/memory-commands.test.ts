@@ -24,35 +24,40 @@ async function fixture() {
   return { directory, bin, executable, env, commands: new MemoryCommands(env) };
 }
 
-test("memory commands find native executables and preserve spaces, Unicode and shell characters", async () => {
-  const f = await fixture();
-  const args = [
-    "two words",
-    "Ångström",
-    "a&b",
-    "a|b",
-    'a"b',
-    "100%",
-    "!value!",
-    "^caret",
-    "",
-    "C:\\folder with spaces\\",
-  ];
-  const result = await f.commands.run("scope-tool", [
-    "-e",
-    "process.stdout.write(JSON.stringify(process.argv.slice(1)))",
-    "--",
-    ...args,
-  ]);
-  expect(result.code).toBe(0);
-  expect(JSON.parse(result.stdout)).toEqual(args);
-  await mkdir(join(f.bin, "directory-only"));
-  expect(await f.commands.resolve("directory-only")).toBeUndefined();
-  expect(await f.commands.run("missing-tool", [])).toMatchObject({ code: 127 });
-});
+test(
+  "memory commands find native executables and preserve spaces, Unicode and shell characters",
+  { tags: ["memory-syncs"] },
+  async () => {
+    const f = await fixture();
+    const args = [
+      "two words",
+      "Ångström",
+      "a&b",
+      "a|b",
+      'a"b',
+      "100%",
+      "!value!",
+      "^caret",
+      "",
+      "C:\\folder with spaces\\",
+    ];
+    const result = await f.commands.run("scope-tool", [
+      "-e",
+      "process.stdout.write(JSON.stringify(process.argv.slice(1)))",
+      "--",
+      ...args,
+    ]);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual(args);
+    await mkdir(join(f.bin, "directory-only"));
+    expect(await f.commands.resolve("directory-only")).toBeUndefined();
+    expect(await f.commands.run("missing-tool", [])).toMatchObject({ code: 127 });
+  },
+);
 
 test.runIf(process.platform === "win32")(
   "memory commands launch package .cmd wrappers without interpreting arguments as commands",
+  { tags: ["memory-syncs"] },
   async () => {
     const f = await fixture();
     const bin = join(f.directory, "node_modules", ".bin");

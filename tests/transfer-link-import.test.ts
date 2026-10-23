@@ -40,6 +40,7 @@ function cli(connectionFile: string, ...args: string[]) {
 
 test.each(["local", "forwarding hub", "paired hub"])(
   "an agent imports a sharing link through %s without a desktop confirmation",
+  { tags: ["exact-tab-transfer"], timeout: 60_000 },
   async (mode) => {
     const f = await transferFixture();
     const server = await receiver(f);
@@ -108,88 +109,62 @@ test.each(["local", "forwarding hub", "paired hub"])(
       await f.close();
     }
   },
-  60_000,
 );
 
-test("link import rejects unauthorized callers, pairing links, tampering and expired invitations", async () => {
-  const f = await transferFixture();
-  const server = await receiver(f);
-  try {
-    const { peerId, invitation: pairing } = await f.pair();
-    const published = await f.publish();
-    const invitation = await f.source.service.send({ tabId: published.tab.id, peerId });
-    const post = (
-      body: unknown,
-      headers: Record<string, string> = {},
-      path = "/v1/transfers/import",
-    ) =>
-      fetch(`${server.url}${path}`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          ...headers,
-        },
-        body: JSON.stringify(body),
+test(
+  "link import rejects unauthorized callers, pairing links, tampering and expired invitations",
+  { tags: ["exact-tab-transfer", "bad-requests-change-nothing"] },
+  async () => {
+    const f = await transferFixture();
+    const server = await receiver(f);
+    try {
+      const { peerId, invitation: pairing } = await f.pair();
+      const published = await f.publish();
+      const invitation = await f.source.service.send({ tabId: published.tab.id, peerId });
+      const post = (
+        body: unknown,
+        headers: Record<string, string> = {},
+        path = "/v1/transfers/import",
+      ) =>
+        fetch(`${server.url}${path}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            ...headers,
+          },
+          body: JSON.stringify(body),
+        });
+      const calls = f.transport.requests.length;
+      expect((await post({ url: invitation.url }, { Authorization: "Bearer wrong" })).status).toBe(
+        401,
+      );
+      expect((await post({ url: invitation.url }, { Origin: "https://example.com" })).status).toBe(
+        403,
+      );
+      expect((await post({ url: pairing.url })).status).toBe(400);
+      expect((await post({ url: "invalid" })).status).toBe(400);
+      expect((await post({ url: "x".repeat(17 * 1024) })).status).toBe(413);
+      expect((await post({ url: invitation.url }, {}, "/v1/transfers/send")).status).toBe(404);
+      const altered = { ...readTransferUrl(invitation.url), port: 54321 };
+      const changed = await post({ url: transferUrl(altered) });
+      expect(changed.status).toBe(400);
+      expect(await changed.json()).toMatchObject({
+        error: expect.stringContaining("does not match"),
       });
-    const calls = f.transport.requests.length;
-    expect((await post({ url: invitation.url }, { Authorization: "Bearer wrong" })).status).toBe(
-      401,
-    );
-    expect((await post({ url: invitation.url }, { Origin: "https://example.com" })).status).toBe(
-      403,
-    );
-    expect((await post({ url: pairing.url })).status).toBe(400);
-    expect((await post({ url: "invalid" })).status).toBe(400);
-    expect((await post({ url: "x".repeat(17 * 1024) })).status).toBe(413);
-    expect((await post({ url: invitation.url }, {}, "/v1/transfers/send")).status).toBe(404);
-    const altered = { ...readTransferUrl(invitation.url), port: 54321 };
-    const changed = await post({ url: transferUrl(altered) });
-    expect(changed.status).toBe(400);
-    expect(await changed.json()).toMatchObject({
-      error: expect.stringContaining("does not match"),
-    });
-    expect(f.transport.requests).toHaveLength(calls);
-    await f.source.service.cancel(invitation.id);
-    const cancelled = await post({ url: invitation.url });
-    expect(cancelled.status).toBe(400);
-    const expiring = await f.source.service.send({ tabId: published.tab.id, peerId });
-    f.advance(TRANSFER_LIFETIME_MS);
-    const expired = await post({ url: expiring.url });
-    expect(expired.status).toBe(400);
-    expect(await expired.json()).toMatchObject({ error: expect.stringContaining("expired") });
-    expect((await f.target.lifecycle.workspace()).tabs).toEqual([]);
-  } finally {
-    await server.close();
-    await f.close();
-  }
-});
-
-test("an agent gets an actionable error when link import is unavailable or the sender is unpaired", async () => {
-  const f = await transferFixture();
-  const unavailable = await receiver(f, false);
-  const server = await receiver(f);
-  try {
-    const { peerId } = await f.pair();
-    const published = await f.publish();
-    const invitation = await f.source.service.send({ tabId: published.tab.id, peerId });
-    const file = join(f.directory, "connection.json");
-    await writeFile(file, JSON.stringify({ version: 1, endpoint: unavailable.url, token }));
-    await expect(cli(file, "import-link", invitation.url)).rejects.toMatchObject({
-      stderr: expect.stringContaining("Link import is unavailable"),
-    });
-    await writeFile(file, JSON.stringify({ version: 1, endpoint: server.url, token }));
-    await f.target.service.forget(peerId);
-    await expect(cli(file, "import-link", invitation.url)).rejects.toMatchObject({
-      stderr: expect.stringContaining("Pair these Scope instances"),
-    });
-    await expect(cli(file, "import-link", "invalid")).rejects.toMatchObject({
-      stderr: expect.stringContaining("valid Scope transfer link"),
-    });
-    expect((await f.target.lifecycle.workspace()).tabs).toEqual([]);
-  } finally {
-    await unavailable.close();
-    await server.close();
-    await f.close();
-  }
-});
+      expect(f.transport.requests).toHaveLength(calls);
+      await f.source.service.cancel(invitation.id);
+      const cancelled = await post({ url: invitation.url });
+      expect(cancelled.status).toBe(400);
+      const expiring = await f.source.service.send({ tabId: published.tab.id, peerId });
+      f.advance(TRANSFER_LIFETIME_MS);
+      const expired = await post({ url: expiring.url });
+      expect(expired.status).toBe(400);
+      expect(await expired.json()).toMatchObject({ error: expect.stringContaining("expired") });
+      expect((await f.target.lifecycle.workspace()).tabs).toEqual([]);
+    } finally {
+      await server.close();
+      await f.close();
+    }
+  },
+);

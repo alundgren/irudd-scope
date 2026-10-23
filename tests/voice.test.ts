@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { decodeLocalConnection } from "@irudd-scope/protocol";
-import { VOICE_LIFETIME_MS, MAX_VOICE_AUDIO_BYTES, VoiceGuide } from "@irudd-scope/protocol/voice";
+import { VOICE_LIFETIME_MS, MAX_VOICE_AUDIO_BYTES } from "@irudd-scope/protocol/voice";
 import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
 import { memoryCredentials } from "../apps/desktop/src/credentials.ts";
 import { VoiceService } from "../apps/desktop/src/voice/service.ts";
@@ -187,276 +187,234 @@ async function finished(client: ScopeClient, id: string) {
   return client.voiceStatus(id);
 }
 
-test("default and blank styles send Aoede/C, with conflicting voice reuse rejected", async () => {
-  const f = await fixture();
-  for (const [requestId, instructions] of [
-    ["default", undefined],
-    ["blank", "  "],
-  ] as const) {
-    await f.client.submitVoice({
-      requestId,
-      text: "Thinking this through.",
-      ...(instructions === undefined ? {} : { instructions }),
-    });
-    expect(await finished(f.client, requestId)).toMatchObject({
-      voice: "Aoede",
-      state: "succeeded",
-    });
-    expect(f.requests.at(-1)).toMatchObject({
-      voice: "Aoede",
-      provider: {
-        options: {
-          "google-ai-studio": { speech_metadata: { style: VoiceGuide.styles.solo.instructions } },
-        },
-      },
-    });
-  }
-  await expect(
-    f.client.submitVoice({ requestId: "default", text: "Thinking this through.", voice: "Kore" }),
-  ).rejects.toMatchObject({ status: 409 });
-  await f.client.submitVoice({
-    requestId: "explicit-kore",
-    text: "An explicit choice.",
-    voice: "Kore",
-    instructions: "Quiet",
-  });
-  await finished(f.client, "explicit-kore");
-  await expect(
-    f.client.submitVoice({
-      requestId: "explicit-kore",
-      text: "An explicit choice.",
-      instructions: "Quiet",
-    }),
-  ).rejects.toMatchObject({ status: 409 });
-  await f.restart();
-  expect(
-    (await f.client.submitVoice({ requestId: "default", text: "Thinking this through." })).voice,
-  ).toBe("Aoede");
-  expect(f.calls).toBe(3);
-});
-
 for (const state of ["succeeded", "generating"] as const) {
-  test(`old Kore ${state} records recover omitted settings after restart without another call`, async () => {
-    const f = await fixture();
-    await f.client.submitVoice({ requestId: "seed", text: "Original narration.", voice: "Kore" });
-    const seed = await finished(f.client, "seed");
-    const receipt = { ...seed, requestId: "legacy", state };
-    const hash = createHash("sha256")
-      .update(
-        JSON.stringify({
-          text: "Original narration.",
-          instructions: "",
+  test(
+    `old Kore ${state} records recover omitted settings after restart without another call`,
+    { tags: ["speech-generation", "survives-restart"] },
+    async () => {
+      const f = await fixture();
+      await f.client.submitVoice({ requestId: "seed", text: "Original narration.", voice: "Kore" });
+      const seed = await finished(f.client, "seed");
+      const receipt = { ...seed, requestId: "legacy", state };
+      const hash = createHash("sha256")
+        .update(
+          JSON.stringify({
+            text: "Original narration.",
+            instructions: "",
+            voice: "Kore",
+            model: seed.requestedModel,
+          }),
+        )
+        .digest("hex");
+      const audio =
+        state === "succeeded" ? Buffer.from(await f.client.voiceResult("seed")) : undefined;
+      await f.store.saveVoice(
+        "legacy",
+        hash,
+        Date.parse(receipt.expiresAt),
+        JSON.stringify(receipt),
+        audio,
+      );
+      await f.restart();
+      for (const voice of [undefined, "Kore"] as const) {
+        expect(
+          await f.client.submitVoice({
+            requestId: "legacy",
+            text: "Original narration.",
+            ...(voice ? { voice } : {}),
+          }),
+        ).toMatchObject({
           voice: "Kore",
-          model: seed.requestedModel,
-        }),
-      )
-      .digest("hex");
-    const audio =
-      state === "succeeded" ? Buffer.from(await f.client.voiceResult("seed")) : undefined;
-    await f.store.saveVoice(
-      "legacy",
-      hash,
-      Date.parse(receipt.expiresAt),
-      JSON.stringify(receipt),
-      audio,
-    );
-    await f.restart();
-    for (const voice of [undefined, "Kore"] as const) {
-      expect(
-        await f.client.submitVoice({
-          requestId: "legacy",
-          text: "Original narration.",
-          ...(voice ? { voice } : {}),
-        }),
-      ).toMatchObject({
-        voice: "Kore",
-        state: state === "generating" ? "interrupted" : "succeeded",
-      });
-    }
-    if (audio) expect(await f.client.voiceResult("legacy")).toEqual(new Uint8Array(audio));
-    await expect(
-      f.client.submitVoice({ requestId: "legacy", text: "Original narration.", voice: "Aoede" }),
-    ).rejects.toMatchObject({ status: 409 });
-    await expect(
-      f.client.submitVoice({ requestId: "legacy", text: "Changed narration." }),
-    ).rejects.toMatchObject({ status: 409 });
-    expect(f.calls).toBe(1);
-  });
+          state: state === "generating" ? "interrupted" : "succeeded",
+        });
+      }
+      if (audio) expect(await f.client.voiceResult("legacy")).toEqual(new Uint8Array(audio));
+      await expect(
+        f.client.submitVoice({ requestId: "legacy", text: "Original narration.", voice: "Aoede" }),
+      ).rejects.toMatchObject({ status: 409 });
+      await expect(
+        f.client.submitVoice({ requestId: "legacy", text: "Changed narration." }),
+      ).rejects.toMatchObject({ status: 409 });
+      expect(f.calls).toBe(1);
+    },
+  );
 }
 
-test("lost submission response, duplicate IDs and canceled requests never make another paid call", async () => {
-  const f = await fixture();
-  const proxy = createServer((request, response) => {
-    const parts: Buffer[] = [];
-    request.on("data", (part) => parts.push(part));
-    request.on("end", async () => {
-      await fetch(`${f.desktop.url}/v1/voice`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${f.token}`, "Content-Type": "application/json" },
-        body: Buffer.concat(parts),
+test(
+  "lost submission response, duplicate IDs and canceled requests never make another paid call",
+  { tags: ["speech-generation"] },
+  async () => {
+    const f = await fixture();
+    const proxy = createServer((request, response) => {
+      const parts: Buffer[] = [];
+      request.on("data", (part) => parts.push(part));
+      request.on("end", async () => {
+        await fetch(`${f.desktop.url}/v1/voice`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${f.token}`, "Content-Type": "application/json" },
+          body: Buffer.concat(parts),
+        });
+        response.destroy();
       });
-      response.destroy();
     });
-  });
-  await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
-  cleanup.push(async () => {
-    proxy.closeAllConnections();
-    await new Promise<void>((resolve) => proxy.close(() => resolve()));
-  });
-  const address = proxy.address();
-  if (!address || typeof address === "string") throw new Error("Missing port.");
-  await expect(
-    new ScopeClient(`http://127.0.0.1:${address.port}`, f.token).submitVoice({
-      requestId: "lost",
-      text: "hold",
-    }),
-  ).rejects.toThrow("Cannot reach");
-  await expect.poll(() => f.calls).toBe(1);
-  const duplicates = await Promise.all(
-    Array.from({ length: 8 }, () =>
-      f.client.submitVoice({ requestId: "lost", text: "hold", voice: "Aoede" }),
-    ),
-  );
-  expect(duplicates.every((receipt) => receipt.state === "generating")).toBe(true);
-  await expect(
-    f.client.submitVoice({ requestId: "lost", text: "different" }),
-  ).rejects.toMatchObject({ status: 409 });
-  await expect(f.client.voiceResult("lost")).rejects.toMatchObject({ status: 409 });
-  expect((await f.client.cancelVoice("lost")).state).toBe("canceled");
-  f.release();
-  expect((await f.client.submitVoice({ requestId: "lost", text: "hold" })).state).toBe("canceled");
-  expect(f.calls).toBe(1);
-});
+    await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+    cleanup.push(async () => {
+      proxy.closeAllConnections();
+      await new Promise<void>((resolve) => proxy.close(() => resolve()));
+    });
+    const address = proxy.address();
+    if (!address || typeof address === "string") throw new Error("Missing port.");
+    await expect(
+      new ScopeClient(`http://127.0.0.1:${address.port}`, f.token).submitVoice({
+        requestId: "lost",
+        text: "hold",
+      }),
+    ).rejects.toThrow("Cannot reach");
+    await expect.poll(() => f.calls).toBe(1);
+    const duplicates = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        f.client.submitVoice({ requestId: "lost", text: "hold", voice: "Aoede" }),
+      ),
+    );
+    expect(duplicates.every((receipt) => receipt.state === "generating")).toBe(true);
+    await expect(
+      f.client.submitVoice({ requestId: "lost", text: "different" }),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(f.client.voiceResult("lost")).rejects.toMatchObject({ status: 409 });
+    expect((await f.client.cancelVoice("lost")).state).toBe("canceled");
+    f.release();
+    expect((await f.client.submitVoice({ requestId: "lost", text: "hold" })).state).toBe(
+      "canceled",
+    );
+    expect(f.calls).toBe(1);
+  },
+);
 
-test("actual cost is retained when provider metadata is null and later refresh supplies its name", async () => {
-  const f = await fixture();
-  f.bill(null);
-  await f.client.submitVoice({ requestId: "metadata", text: "Hello" });
-  await finished(f.client, "metadata");
-  await expect
-    .poll(async () => (await f.client.voiceStatus("metadata")).billingStatus)
-    .toBe("known");
-  expect(await f.client.voiceStatus("metadata")).toMatchObject({
-    costUsd: 0.001234,
-    model: "google/gemini-3.8-flash-tts-20260922",
-    provider: null,
-  });
-  f.bill();
-  vi.useFakeTimers({ toFake: ["Date"] });
-  vi.setSystemTime(Date.now() + 6000);
-  await f.client.refreshVoiceBilling("metadata");
-  await expect
-    .poll(async () => (await f.client.voiceStatus("metadata")).provider)
-    .toBe("Google AI Studio");
-  expect(f.calls).toBe(1);
-});
+test(
+  "cancellation still aborts local provider work if saving its receipt fails",
+  { tags: ["speech-generation"] },
+  async () => {
+    const f = await fixture();
+    await f.client.submitVoice({ requestId: "cancel-save", text: "hold" });
+    await expect.poll(() => f.calls).toBe(1);
+    vi.spyOn(f.store, "saveVoice").mockRejectedValueOnce(new Error("Synthetic database failure"));
+    await expect(f.client.cancelVoice("cancel-save")).rejects.toMatchObject({ status: 500 });
+    await expect
+      .poll(async () => (await f.client.voiceStatus("cancel-save")).elapsedGenerationMs)
+      .not.toBeNull();
+    expect((await f.client.voiceStatus("cancel-save")).state).toBe("canceled");
+    f.release();
+    expect((await f.client.submitVoice({ requestId: "cancel-save", text: "hold" })).state).toBe(
+      "canceled",
+    );
+    expect(f.calls).toBe(1);
+  },
+);
 
-test("cancellation still aborts local provider work if saving its receipt fails", async () => {
-  const f = await fixture();
-  await f.client.submitVoice({ requestId: "cancel-save", text: "hold" });
-  await expect.poll(() => f.calls).toBe(1);
-  vi.spyOn(f.store, "saveVoice").mockRejectedValueOnce(new Error("Synthetic database failure"));
-  await expect(f.client.cancelVoice("cancel-save")).rejects.toMatchObject({ status: 500 });
-  await expect
-    .poll(async () => (await f.client.voiceStatus("cancel-save")).elapsedGenerationMs)
-    .not.toBeNull();
-  expect((await f.client.voiceStatus("cancel-save")).state).toBe("canceled");
-  f.release();
-  expect((await f.client.submitVoice({ requestId: "cancel-save", text: "hold" })).state).toBe(
-    "canceled",
-  );
-  expect(f.calls).toBe(1);
-});
+test(
+  "expiry during generation cannot overwrite a reused request ID or restore expired rows",
+  { tags: ["speech-generation", "no-lost-updates"] },
+  async () => {
+    const f = await fixture();
+    await f.client.submitVoice({ requestId: "reuse", text: "hold" });
+    await expect.poll(() => f.calls).toBe(1);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + VOICE_LIFETIME_MS + 1);
+    await f.client.submitVoice({ requestId: "reuse", text: "New narration" });
+    f.release();
+    expect(await finished(f.client, "reuse")).toMatchObject({
+      state: "succeeded",
+      generationId: "gen-tts-2",
+    });
+    expect((await f.client.voiceResult("reuse")).byteLength).toBe(4844);
+    const rows = await f.store.voiceRows();
+    expect(rows).toHaveLength(1);
+    expect(JSON.parse(rows[0].receipt)).toMatchObject({
+      state: "succeeded",
+      generationId: "gen-tts-2",
+    });
+    await f.restart();
+    expect((await f.client.voiceStatus("reuse")).state).toBe("succeeded");
+    expect((await f.client.submitVoice({ requestId: "reuse", text: "New narration" })).state).toBe(
+      "succeeded",
+    );
+    expect(f.calls).toBe(2);
+  },
+);
 
-test("expiry during generation cannot overwrite a reused request ID or restore expired rows", async () => {
-  const f = await fixture();
-  await f.client.submitVoice({ requestId: "reuse", text: "hold" });
-  await expect.poll(() => f.calls).toBe(1);
-  vi.useFakeTimers({ toFake: ["Date"] });
-  vi.setSystemTime(Date.now() + VOICE_LIFETIME_MS + 1);
-  await f.client.submitVoice({ requestId: "reuse", text: "New narration" });
-  f.release();
-  expect(await finished(f.client, "reuse")).toMatchObject({
-    state: "succeeded",
-    generationId: "gen-tts-2",
-  });
-  expect((await f.client.voiceResult("reuse")).byteLength).toBe(4844);
-  const rows = await f.store.voiceRows();
-  expect(rows).toHaveLength(1);
-  expect(JSON.parse(rows[0].receipt)).toMatchObject({
-    state: "succeeded",
-    generationId: "gen-tts-2",
-  });
-  await f.restart();
-  expect((await f.client.voiceStatus("reuse")).state).toBe("succeeded");
-  expect((await f.client.submitVoice({ requestId: "reuse", text: "New narration" })).state).toBe(
-    "succeeded",
-  );
-  expect(f.calls).toBe(2);
-});
-
-test("paired hub uses short requests and recovers speech after relay disconnection", async () => {
-  const f = await fixture();
-  const state = await HubState.open(join(f.directory, "hub"));
-  cleanup.push(() => state.close());
-  const connectionFile = join(f.directory, "hub-connection.json");
-  await state.configure({ endpoint: "http://127.0.0.1:1", port: 1, connectionFile });
-  const hub = await startPairedHub(state, 0);
-  cleanup.push(hub.close);
-  await state.configure({ endpoint: hub.url, port: Number(new URL(hub.url).port), connectionFile });
-  const local = decodeLocalConnection(JSON.parse(await readFile(connectionFile, "utf8")));
-  const remotes = new Remotes(f.store, { url: f.desktop.url, token: f.token }, () => {});
-  cleanup.push(() => remotes.close());
-  await remotes.start();
-  await remotes.pair(state.pairUrl());
-  await expect.poll(() => remotes.snapshot()[0]?.connection).toBe("connected");
-  const client = new ScopeClient(hub.url, local.token);
-  expect((await client.submitVoice({ requestId: "remote", text: "hold" })).state).toBe(
-    "generating",
-  );
-  await expect.poll(() => f.calls).toBe(1);
-  await remotes.setEnabled(remotes.snapshot()[0].id, false);
-  await expect(client.voiceStatus("remote")).rejects.toMatchObject({ status: 503 });
-  f.release();
-  await finished(f.client, "remote");
-  await remotes.setEnabled(remotes.snapshot()[0].id, true);
-  await expect.poll(() => remotes.snapshot()[0].connection).toBe("connected");
-  const output = join(f.directory, "remote.wav");
-  await f.cli(hub.url, local.token, "result", "remote", "--output", output);
-  expect((await readFile(output)).toString("ascii", 0, 4)).toBe("RIFF");
-  expect((await client.submitVoice({ requestId: "remote", text: "hold" })).state).toBe("succeeded");
-  expect(f.calls).toBe(1);
-  for (const [method, path] of [
-    ["POST", "/v1/voice"],
-    ["GET", "/v1/voice/remote"],
-    ["GET", "/v1/voice/remote/result"],
-    ["POST", "/v1/voice/remote/billing"],
-    ["DELETE", "/v1/voice/remote"],
-  ]) {
-    expect(
-      (await fetch(`${hub.url}${path}`, { method, headers: { Authorization: "Bearer invalid" } }))
-        .status,
-    ).toBe(401);
+test(
+  "paired hub uses short requests and recovers speech after relay disconnection",
+  { tags: ["speech-generation"] },
+  async () => {
+    const f = await fixture();
+    const state = await HubState.open(join(f.directory, "hub"));
+    cleanup.push(() => state.close());
+    const connectionFile = join(f.directory, "hub-connection.json");
+    await state.configure({ endpoint: "http://127.0.0.1:1", port: 1, connectionFile });
+    const hub = await startPairedHub(state, 0);
+    cleanup.push(hub.close);
+    await state.configure({
+      endpoint: hub.url,
+      port: Number(new URL(hub.url).port),
+      connectionFile,
+    });
+    const local = decodeLocalConnection(JSON.parse(await readFile(connectionFile, "utf8")));
+    const remotes = new Remotes(f.store, { url: f.desktop.url, token: f.token }, () => {});
+    cleanup.push(() => remotes.close());
+    await remotes.start();
+    await remotes.pair(state.pairUrl());
+    await expect.poll(() => remotes.snapshot()[0]?.connection).toBe("connected");
+    const client = new ScopeClient(hub.url, local.token);
+    expect((await client.submitVoice({ requestId: "remote", text: "hold" })).state).toBe(
+      "generating",
+    );
+    await expect.poll(() => f.calls).toBe(1);
+    await remotes.setEnabled(remotes.snapshot()[0].id, false);
+    await expect(client.voiceStatus("remote")).rejects.toMatchObject({ status: 503 });
+    f.release();
+    await finished(f.client, "remote");
+    await remotes.setEnabled(remotes.snapshot()[0].id, true);
+    await expect.poll(() => remotes.snapshot()[0].connection).toBe("connected");
+    const output = join(f.directory, "remote.wav");
+    await f.cli(hub.url, local.token, "result", "remote", "--output", output);
+    expect((await readFile(output)).toString("ascii", 0, 4)).toBe("RIFF");
+    expect((await client.submitVoice({ requestId: "remote", text: "hold" })).state).toBe(
+      "succeeded",
+    );
+    expect(f.calls).toBe(1);
+    for (const [method, path] of [
+      ["POST", "/v1/voice"],
+      ["GET", "/v1/voice/remote"],
+      ["GET", "/v1/voice/remote/result"],
+      ["POST", "/v1/voice/remote/billing"],
+      ["DELETE", "/v1/voice/remote"],
+    ]) {
+      expect(
+        (await fetch(`${hub.url}${path}`, { method, headers: { Authorization: "Bearer invalid" } }))
+          .status,
+      ).toBe(401);
+      expect(
+        (
+          await fetch(`${hub.url}${path}`, {
+            method,
+            headers: { Authorization: `Bearer ${local.token}`, Origin: "https://example.invalid" },
+          })
+        ).status,
+      ).toBe(403);
+    }
     expect(
       (
-        await fetch(`${hub.url}${path}`, {
-          method,
-          headers: { Authorization: `Bearer ${local.token}`, Origin: "https://example.invalid" },
+        await fetch(`${hub.url}/v1/voice/remote?anything=1`, {
+          headers: { Authorization: `Bearer ${local.token}` },
         })
       ).status,
-    ).toBe(403);
-  }
-  expect(
-    (
-      await fetch(`${hub.url}/v1/voice/remote?anything=1`, {
-        headers: { Authorization: `Bearer ${local.token}` },
-      })
-    ).status,
-  ).toBe(404);
-});
+    ).toBe(404);
+  },
+);
 
 test.for(["error", "bad-format", "odd", "large"])(
   "provider failure %s retains its ID and never retries",
+  { tags: ["speech-generation"] },
   async (text) => {
     const f = await fixture();
     await f.client.submitVoice({ requestId: text, text });

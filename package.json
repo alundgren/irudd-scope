@@ -6,9 +6,10 @@
   "type": "module",
   "scripts": {
     "ready": "vp run build && vp run check && vp run test",
-    "check": "vp fmt --check && vp exec node tools/lint.ts",
+    "check": "vp fmt --check && vp exec node tools/lint.ts && vp exec node tools/test-rules.ts",
     "test": "vp exec node tools/test.ts --project=standard",
     "test:remote-updates": "vp exec node tools/test.ts --project=remote-updates",
+    "test:report": "vp exec node tools/test-report.ts",
     "build": "vp run -r build",
     "package:desktop": "vp exec node tools/package-desktop.ts",
     "check:credentials": "vp exec node tools/check-credential-helper.ts",

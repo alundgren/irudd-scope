@@ -23,6 +23,18 @@ Use the fixture for isolated profiles, discovery, and ports. Keep live
 provider calls and native Keychain access out of standard tests. Close
 processes and stores and remove temporary files even when assertions fail.
 
-Prefer complete user outcomes, then focused integration and unit cases where
-they add evidence. Expected values must express an intended contract. Do not
-add tests just to preserve current private behavior, prose, or file names.
+Follow the [test rules](../docs/development.md#validation-and-tests) that
+`vp run check` enforces:
+
+- Name the promises each test protects from `promises.ts` in its `tags`
+  option. If none fits, do not add the test. Propose promise changes to the
+  repository owner in the pull request description instead of editing the list.
+- Reach Scope only through the built CLI, the HTTP APIs, the Electron UI, and
+  `@irudd-scope/protocol`. Never import from `apps/` or `packages/`.
+- Keep the suite within `maxTests` in `test-limits.ts`. Delete a weaker test to
+  add one. Never raise the limit or add a `frontDoorExceptions` entry.
+- When a test breaks on a change that keeps behavior the same, delete it.
+  Update a test only when promised behavior changed on purpose.
+
+Expected values must express an intended contract. Do not add tests just to
+preserve current private behavior, prose, or file names.
