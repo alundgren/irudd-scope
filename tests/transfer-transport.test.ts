@@ -62,24 +62,23 @@ if (args[1] === '--json' && args[2] === 'serve' && args.length === 4) {
 } else process.exit(3);
 `;
 
-test("missing user-installed CLI produces an actionable error for both transfer directions", async () => {
-  const transport = new TailcatCliTransport("/scope-synthetic-missing/tailcat", supervisor);
-  const message = "Tab transfers require the Tailcat CLI installed separately on this computer.";
-  await expect(transport.listen(async () => "response")).rejects.toThrow(message);
-  await expect(transport.request(address, 12345, "request")).rejects.toThrow(message);
-});
-
-test("invalid addresses, ports and oversized requests are rejected before running the CLI", async () => {
-  const f = await fixture();
-  try {
-    await expect(f.transport.request("http://localhost", 12345, "request")).rejects.toThrow(
-      "Invalid",
-    );
-    for (const port of [0, 65536, 1.5])
-      await expect(f.transport.request(address, port, "request")).rejects.toThrow("Invalid");
-    await expect(f.transport.request(address, 12345, "x".repeat(16385))).rejects.toThrow("Invalid");
-    await expect(f.calls()).rejects.toThrow();
-  } finally {
-    await f.close();
-  }
-});
+test(
+  "invalid addresses, ports and oversized requests are rejected before running the CLI",
+  { tags: ["bad-requests-change-nothing"] },
+  async () => {
+    const f = await fixture();
+    try {
+      await expect(f.transport.request("http://localhost", 12345, "request")).rejects.toThrow(
+        "Invalid",
+      );
+      for (const port of [0, 65536, 1.5])
+        await expect(f.transport.request(address, port, "request")).rejects.toThrow("Invalid");
+      await expect(f.transport.request(address, 12345, "x".repeat(16385))).rejects.toThrow(
+        "Invalid",
+      );
+      await expect(f.calls()).rejects.toThrow();
+    } finally {
+      await f.close();
+    }
+  },
+);

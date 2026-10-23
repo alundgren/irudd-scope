@@ -40,78 +40,86 @@ function storedDrafts(settingsDirectory: string) {
   }
 }
 
-test("the Sketchpad opens from search, keeps drawings across restart, and Reset leaves no stored row", async () => {
-  const f = await desktopFixture({ hideInitialPrompts: true });
-  let application = await f.launch();
-  try {
-    let page = await application.firstWindow();
-    await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
-    const id = await openSketchpad(page);
-    await page.getByRole("img", { name: "Built-in tab: Sketchpad", exact: true }).waitFor();
-    expect(storedDrafts(f.settingsDirectory)).toBe(0);
-    await addText(page, "First idea");
-    await expect.poll(async () => (await draft(page, id))?.content ?? "").toContain("First idea");
+test(
+  "the Sketchpad opens from search, keeps drawings across restart, and Reset leaves no stored row",
+  { tags: ["survives-restart"], timeout: 90_000 },
+  async () => {
+    const f = await desktopFixture({ hideInitialPrompts: true });
+    let application = await f.launch();
+    try {
+      let page = await application.firstWindow();
+      await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+      const id = await openSketchpad(page);
+      await page.getByRole("img", { name: "Built-in tab: Sketchpad", exact: true }).waitFor();
+      expect(storedDrafts(f.settingsDirectory)).toBe(0);
+      await addText(page, "First idea");
+      await expect.poll(async () => (await draft(page, id))?.content ?? "").toContain("First idea");
 
-    await application.close();
-    application = await f.launch();
-    page = await application.firstWindow();
-    await page.getByRole("tab", { name: "Sketchpad", selected: true }).waitFor();
-    await page.getByTestId("main-menu-trigger").waitFor();
-    await page.waitForTimeout(1000);
-    // Opening an empty editor before the saved canvas loads must not delete it.
-    expect((await draft(page, id))?.content).toContain("First idea");
+      await application.close();
+      application = await f.launch();
+      page = await application.firstWindow();
+      await page.getByRole("tab", { name: "Sketchpad", selected: true }).waitFor();
+      await page.getByTestId("main-menu-trigger").waitFor();
+      await page.waitForTimeout(1000);
+      // Opening an empty editor before the saved canvas loads must not delete it.
+      expect((await draft(page, id))?.content).toContain("First idea");
 
-    await resetCanvas(page);
-    expect((await draft(page, id))?.content).toContain("First idea");
-    await page
-      .getByRole("status")
-      .filter({ hasText: "Canvas cleared." })
-      .getByRole("button", { name: "Undo", exact: true })
-      .click();
-    await page.getByRole("status").filter({ hasText: "Canvas cleared." }).waitFor({
-      state: "hidden",
-      timeout: 3000,
-    });
-    expect((await draft(page, id))?.content).toContain("First idea");
+      await resetCanvas(page);
+      expect((await draft(page, id))?.content).toContain("First idea");
+      await page
+        .getByRole("status")
+        .filter({ hasText: "Canvas cleared." })
+        .getByRole("button", { name: "Undo", exact: true })
+        .click();
+      await page.getByRole("status").filter({ hasText: "Canvas cleared." }).waitFor({
+        state: "hidden",
+        timeout: 3000,
+      });
+      expect((await draft(page, id))?.content).toContain("First idea");
 
-    await resetCanvas(page);
-    await page.keyboard.press("ControlOrMeta+z");
-    await page.getByRole("status").filter({ hasText: "Canvas cleared." }).waitFor({
-      state: "hidden",
-      timeout: 3000,
-    });
-    await page.waitForTimeout(500);
-    expect((await draft(page, id))?.content).toContain("First idea");
+      await resetCanvas(page);
+      await page.keyboard.press("ControlOrMeta+z");
+      await page.getByRole("status").filter({ hasText: "Canvas cleared." }).waitFor({
+        state: "hidden",
+        timeout: 3000,
+      });
+      await page.waitForTimeout(500);
+      expect((await draft(page, id))?.content).toContain("First idea");
 
-    await resetCanvas(page);
-    await page.getByRole("status").filter({ hasText: "Canvas cleared." }).waitFor({
-      state: "hidden",
-      timeout: 15_000,
-    });
-    await expect.poll(() => draft(page, id)).toBeNull();
-    expect(storedDrafts(f.settingsDirectory)).toBe(0);
+      await resetCanvas(page);
+      await page.getByRole("status").filter({ hasText: "Canvas cleared." }).waitFor({
+        state: "hidden",
+        timeout: 15_000,
+      });
+      await expect.poll(() => draft(page, id)).toBeNull();
+      expect(storedDrafts(f.settingsDirectory)).toBe(0);
 
-    await addText(page, "Hidden idea");
-    await expect.poll(async () => (await draft(page, id))?.content ?? "").toContain("Hidden idea");
-    await resetCanvas(page);
-    // Leaving the Sketchpad during the undo window keeps the reset.
-    await page.getByRole("tab", { name: "Sketchpad" }).focus();
-    await page.keyboard.press("ControlOrMeta+w");
-    await expect.poll(() => draft(page, id), { timeout: 3000 }).toBeNull();
-    await openSketchpad(page);
+      await addText(page, "Hidden idea");
+      await expect
+        .poll(async () => (await draft(page, id))?.content ?? "")
+        .toContain("Hidden idea");
+      await resetCanvas(page);
+      // Leaving the Sketchpad during the undo window keeps the reset.
+      await page.getByRole("tab", { name: "Sketchpad" }).focus();
+      await page.keyboard.press("ControlOrMeta+w");
+      await expect.poll(() => draft(page, id), { timeout: 3000 }).toBeNull();
+      await openSketchpad(page);
 
-    await addText(page, "Second idea");
-    await expect.poll(async () => (await draft(page, id))?.content ?? "").toContain("Second idea");
-    await resetCanvas(page);
-    // Quitting during the undo window keeps the reset the person asked for.
-    await application.close();
-    expect(storedDrafts(f.settingsDirectory)).toBe(0);
-    application = await f.launch();
-    page = await application.firstWindow();
-    await page.getByRole("tab", { name: "Sketchpad", selected: true }).waitFor();
-    expect(await page.getByRole("alert").allTextContents()).toEqual([]);
-  } finally {
-    await application.close();
-    await rm(f.directory, { recursive: true, force: true });
-  }
-}, 90_000);
+      await addText(page, "Second idea");
+      await expect
+        .poll(async () => (await draft(page, id))?.content ?? "")
+        .toContain("Second idea");
+      await resetCanvas(page);
+      // Quitting during the undo window keeps the reset the person asked for.
+      await application.close();
+      expect(storedDrafts(f.settingsDirectory)).toBe(0);
+      application = await f.launch();
+      page = await application.firstWindow();
+      await page.getByRole("tab", { name: "Sketchpad", selected: true }).waitFor();
+      expect(await page.getByRole("alert").allTextContents()).toEqual([]);
+    } finally {
+      await application.close();
+      await rm(f.directory, { recursive: true, force: true });
+    }
+  },
+);

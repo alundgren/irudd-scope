@@ -88,52 +88,56 @@ async function fixture() {
   return { ...f, state, hubSync, store, remotes, memory, cli, local, hub };
 }
 
-test("a remote agent connects the memory repository and every paired machine syncs it", async () => {
-  const f = await fixture();
-  await f.remotes.pair(f.state.pairUrl());
-  await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
-  const remoteId = f.remotes.snapshot()[0].id;
+test(
+  "a remote agent connects the memory repository and every paired machine syncs it",
+  { tags: ["memory-syncs"] },
+  async () => {
+    const f = await fixture();
+    await f.remotes.pair(f.state.pairUrl());
+    await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
+    const remoteId = f.remotes.snapshot()[0].id;
 
-  const refused = await f.cli("memory", "connect", MEMORY_REPOSITORY);
-  expect(refused.stderr).toContain("Turn on Memory in Scope Settings on the desktop first.");
+    const refused = await f.cli("memory", "connect", MEMORY_REPOSITORY);
+    expect(refused.stderr).toContain("Turn on Memory in Scope Settings on the desktop first.");
 
-  expect(f.memory.snapshot().okfInstalled).toBe(true);
-  await f.memory.setEnabled(true);
-  const connected = JSON.parse((await f.cli("memory", "connect", MEMORY_REPOSITORY)).stdout);
-  expect(connected.configuration).toEqual({ enabled: true, repository: MEMORY_REPOSITORY });
+    expect(f.memory.snapshot().okfInstalled).toBe(true);
+    await f.memory.setEnabled(true);
+    const connected = JSON.parse((await f.cli("memory", "connect", MEMORY_REPOSITORY)).stdout);
+    expect(connected.configuration).toEqual({ enabled: true, repository: MEMORY_REPOSITORY });
 
-  await expect.poll(() => f.hubSync.status().phase, { timeout: 30_000 }).toBe("synced");
-  expect(f.state.memoryConfiguration()).toEqual({ enabled: true, repository: MEMORY_REPOSITORY });
-  await f.memory.retry();
-  await expect
-    .poll(() => f.memory.snapshot().machines.map((machine) => machine.status?.phase))
-    .toEqual(["synced", "synced"]);
-  expect(f.memory.snapshot().machines[1]).toMatchObject({ id: remoteId, local: false });
+    await expect.poll(() => f.hubSync.status().phase, { timeout: 30_000 }).toBe("synced");
+    expect(f.state.memoryConfiguration()).toEqual({ enabled: true, repository: MEMORY_REPOSITORY });
+    await f.memory.retry();
+    await expect
+      .poll(() => f.memory.snapshot().machines.map((machine) => machine.status?.phase))
+      .toEqual(["synced", "synced"]);
+    expect(f.memory.snapshot().machines[1]).toMatchObject({ id: remoteId, local: false });
 
-  await writeFile(join(f.clone("hub"), "manual-sync.md"), "Synced by the Mac's Sync now.\n");
-  await f.memory.retry();
-  expect(await f.git(f.directory, "--git-dir", f.bare, "show", "main:manual-sync.md")).toBe(
-    "Synced by the Mac's Sync now.\n",
-  );
+    await writeFile(join(f.clone("hub"), "manual-sync.md"), "Synced by the Mac's Sync now.\n");
+    await f.memory.retry();
+    expect(await f.git(f.directory, "--git-dir", f.bare, "show", "main:manual-sync.md")).toBe(
+      "Synced by the Mac's Sync now.\n",
+    );
 
-  const retro = await f.store.retroConfiguration();
-  expect(
-    retro.memory.destinations.map(({ id, type, scope, path }) => ({ id, type, scope, path })),
-  ).toEqual([
-    { id: "okf-personal-local", type: "okf", scope: "operator", path: f.clone("mac") },
-    { id: `okf-personal-${remoteId}`, type: "okf", scope: "operator", path: f.clone("hub") },
-  ]);
+    const retro = await f.store.retroConfiguration();
+    expect(
+      retro.memory.destinations.map(({ id, type, scope, path }) => ({ id, type, scope, path })),
+    ).toEqual([
+      { id: "okf-personal-local", type: "okf", scope: "operator", path: f.clone("mac") },
+      { id: `okf-personal-${remoteId}`, type: "okf", scope: "operator", path: f.clone("hub") },
+    ]);
 
-  await f.remotes.close();
-  await writeFile(join(f.clone("hub"), "offline.md"), "Written while the Mac sleeps.\n");
-  await f.hubSync.sync();
-  const offline = JSON.parse((await f.cli("memory", "status")).stdout);
-  expect(offline).toMatchObject({ macOffline: true, machine: { phase: "synced" } });
-  await f.memory.retry();
-  expect(await readFile(join(f.clone("mac"), "offline.md"), "utf8")).toBe(
-    "Written while the Mac sleeps.\n",
-  );
+    await f.remotes.close();
+    await writeFile(join(f.clone("hub"), "offline.md"), "Written while the Mac sleeps.\n");
+    await f.hubSync.sync();
+    const offline = JSON.parse((await f.cli("memory", "status")).stdout);
+    expect(offline).toMatchObject({ macOffline: true, machine: { phase: "synced" } });
+    await f.memory.retry();
+    expect(await readFile(join(f.clone("mac"), "offline.md"), "utf8")).toBe(
+      "Written while the Mac sleeps.\n",
+    );
 
-  await f.memory.setEnabled(false);
-  expect((await f.store.retroConfiguration()).memory.destinations).toEqual([]);
-});
+    await f.memory.setEnabled(false);
+    expect((await f.store.retroConfiguration()).memory.destinations).toEqual([]);
+  },
+);

@@ -56,6 +56,7 @@ function sdkFixture() {
 
 test.each(["read", "first write"])(
   "a delayed %s cannot return removed PR state",
+  { tags: ["pr-inbox-keeps-local-work"] },
   async (method) => {
     const f = sdkFixture();
     f.snapshot();
@@ -77,22 +78,26 @@ test.each(["read", "first write"])(
   },
 );
 
-test("reconnect replaces cached state after a missed PR removal and reappearance", async () => {
-  const f = sdkFixture();
-  f.snapshot();
-  const updates: State[] = [];
-  const stop = f.sdk.state.forPR("PR_1").watch((update) => updates.push(update));
-  f.reply(f.lastCall(), { version: 3, value: { oldPR: true } });
-  await expect.poll(() => updates.length).toBe(1);
-  // The final inventory still contains the node; its intervening absence was missed.
-  f.snapshot();
-  f.reconnect();
-  f.reply(f.lastCall(), { version: 0, value: {} });
-  await expect
-    .poll(() => updates)
-    .toEqual([
-      { operation: "snapshot", version: 3, value: { oldPR: true } },
-      { operation: "snapshot", version: 0, value: {} },
-    ]);
-  stop();
-});
+test(
+  "reconnect replaces cached state after a missed PR removal and reappearance",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const f = sdkFixture();
+    f.snapshot();
+    const updates: State[] = [];
+    const stop = f.sdk.state.forPR("PR_1").watch((update) => updates.push(update));
+    f.reply(f.lastCall(), { version: 3, value: { oldPR: true } });
+    await expect.poll(() => updates.length).toBe(1);
+    // The final inventory still contains the node; its intervening absence was missed.
+    f.snapshot();
+    f.reconnect();
+    f.reply(f.lastCall(), { version: 0, value: {} });
+    await expect
+      .poll(() => updates)
+      .toEqual([
+        { operation: "snapshot", version: 3, value: { oldPR: true } },
+        { operation: "snapshot", version: 0, value: {} },
+      ]);
+    stop();
+  },
+);

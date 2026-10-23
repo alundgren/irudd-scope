@@ -35,25 +35,29 @@ async function fixture() {
   };
 }
 
-test("built plan CLI publishes a plan, updates it, and saves only the current HTML", async () => {
-  const f = await fixture();
-  try {
-    const first = await f.cli("add", f.html, "--plan", "--name", "cli-plan");
-    expect(first).toMatchObject({ name: "cli-plan", kind: "plan", mediaType: "text/html" });
-    expect((await f.server.store.tabs())[0].permanent).toBe(1);
-    await writeFile(f.html, "<h1 id='goal'>Build the revised feature</h1>");
-    const second = await f.cli("update", "cli-plan", f.html);
-    expect(second).toMatchObject({ id: first.id, name: "cli-plan", kind: "plan" });
-    const output = join(f.directory, "current.html");
-    expect(await f.cli("plan", "content", "cli-plan", "--output", output)).toEqual({
-      name: "cli-plan",
-      title: first.title,
-      output,
-    });
-    expect(await readFile(output, "utf8")).toBe("<h1 id='goal'>Build the revised feature</h1>");
-    await expect(f.cli("plan", "content", "cli-plan", "--output", output)).rejects.toThrow();
-    expect(await readFile(output, "utf8")).toBe("<h1 id='goal'>Build the revised feature</h1>");
-  } finally {
-    await f.close();
-  }
-});
+test(
+  "built plan CLI publishes a plan, updates it, and saves only the current HTML",
+  { tags: ["publish"] },
+  async () => {
+    const f = await fixture();
+    try {
+      const first = await f.cli("add", f.html, "--plan", "--name", "cli-plan");
+      expect(first).toMatchObject({ name: "cli-plan", kind: "plan", mediaType: "text/html" });
+      expect((await f.server.store.tabs())[0].permanent).toBe(1);
+      await writeFile(f.html, "<h1 id='goal'>Build the revised feature</h1>");
+      const second = await f.cli("update", "cli-plan", f.html);
+      expect(second).toMatchObject({ id: first.id, name: "cli-plan", kind: "plan" });
+      const output = join(f.directory, "current.html");
+      expect(await f.cli("plan", "content", "cli-plan", "--output", output)).toEqual({
+        name: "cli-plan",
+        title: first.title,
+        output,
+      });
+      expect(await readFile(output, "utf8")).toBe("<h1 id='goal'>Build the revised feature</h1>");
+      await expect(f.cli("plan", "content", "cli-plan", "--output", output)).rejects.toThrow();
+      expect(await readFile(output, "utf8")).toBe("<h1 id='goal'>Build the revised feature</h1>");
+    } finally {
+      await f.close();
+    }
+  },
+);

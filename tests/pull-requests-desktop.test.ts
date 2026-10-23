@@ -218,166 +218,170 @@ async function installCommands(application: ElectronApplication, snapshot: PullR
   }, snapshot);
 }
 
-test("live reviews preserve captured code and drafts, and closing the pane stops its subscription", async () => {
-  const fixture = await offlineFixture();
-  const app = await fixture.launch();
-  try {
-    const { artifact, tabId } = await createStarterInbox(app, fixture);
-    await installCommands(app, {
-      ...snapshot(artifact, tabId),
-      prs: [pr(1)],
-      sync: {
-        state: "idle",
-        updatedAt: at,
-        lastSuccessAt: at,
-        error: null,
-        intervalMs: 300_000,
-        nextAttemptAt: null,
-        reason: "Adaptive account budget",
-      },
-    });
-    await sendChange(app, "reconnect");
-    const page = await app.firstWindow();
-    const frame = page.frameLocator(".pull-requests-document");
-    await frame
-      .getByRole("button", { name: "Keep the current review stable 1", exact: true })
-      .click();
-    await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
-    await expect
-      .poll(() =>
-        app.evaluate(
-          () =>
-            (
-              globalThis as unknown as {
-                prInboxTest: { interests: { details: { nodeId: string }[] }[] };
-              }
-            ).prInboxTest.interests.at(-1)?.details[0]?.nodeId,
-        ),
-      )
-      .toBe("PR_1");
-    await page.getByRole("status").filter({ hasText: "Refresh target 5 minutes" }).waitFor();
-    await frame.getByRole("button", { name: "Discussion", exact: true }).click();
-    await frame.getByLabel("Your notes").fill("Keep my unfinished note");
-    const update = {
-      tabId,
-      nodeId: "PR_1",
-      headOid: head,
-      baseOid: base,
-      body: "Updated description",
-      fetchedAt: "2026-10-02T12:00:00.000Z",
-      error: null,
-      reviews: [
-        {
-          id: "review-2",
-          author: "reviewer",
-          state: "APPROVED",
-          body: "Live review arrived",
-          submittedAt: at,
-          headOid: head,
+test(
+  "live reviews preserve captured code and drafts, and closing the pane stops its subscription",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const fixture = await offlineFixture();
+    const app = await fixture.launch();
+    try {
+      const { artifact, tabId } = await createStarterInbox(app, fixture);
+      await installCommands(app, {
+        ...snapshot(artifact, tabId),
+        prs: [pr(1)],
+        sync: {
+          state: "idle",
+          updatedAt: at,
+          lastSuccessAt: at,
+          error: null,
+          intervalMs: 300_000,
+          nextAttemptAt: null,
+          reason: "Adaptive account budget",
         },
-      ],
-    };
-    await app.evaluate(({ BrowserWindow }, value) => {
-      BrowserWindow.getAllWindows()[0]!.webContents.send(
-        "scope:pull-requests-detail-update",
-        value,
+      });
+      await sendChange(app, "reconnect");
+      const page = await app.firstWindow();
+      const frame = page.frameLocator(".pull-requests-document");
+      await frame
+        .getByRole("button", { name: "Keep the current review stable 1", exact: true })
+        .click();
+      await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
+      await expect
+        .poll(() =>
+          app.evaluate(
+            () =>
+              (
+                globalThis as unknown as {
+                  prInboxTest: { interests: { details: { nodeId: string }[] }[] };
+                }
+              ).prInboxTest.interests.at(-1)?.details[0]?.nodeId,
+          ),
+        )
+        .toBe("PR_1");
+      await page.getByRole("status").filter({ hasText: "Refresh target 5 minutes" }).waitFor();
+      await frame.getByRole("button", { name: "Discussion", exact: true }).click();
+      await frame.getByLabel("Your notes").fill("Keep my unfinished note");
+      const update = {
+        tabId,
+        nodeId: "PR_1",
+        headOid: head,
+        baseOid: base,
+        body: "Updated description",
+        fetchedAt: "2026-10-02T12:00:00.000Z",
+        error: null,
+        reviews: [
+          {
+            id: "review-2",
+            author: "reviewer",
+            state: "APPROVED",
+            body: "Live review arrived",
+            submittedAt: at,
+            headOid: head,
+          },
+        ],
+      };
+      await app.evaluate(({ BrowserWindow }, value) => {
+        BrowserWindow.getAllWindows()[0]!.webContents.send(
+          "scope:pull-requests-detail-update",
+          value,
+        );
+      }, update);
+      await frame.getByText("reviewer · APPROVED\nLive review arrived", { exact: true }).waitFor();
+      expect(await frame.getByLabel("Your notes").inputValue()).toBe("Keep my unfinished note");
+      await frame.getByRole("button", { name: "Diff", exact: true }).click();
+      const diffWindow = page.frameLocator(".scope-content-document");
+      await diffWindow.getByText("const commit = " + head + ";").waitFor();
+      await sendChange(app, "new-head");
+      await frame
+        .getByRole("button", { name: "New commit available · Load latest commit" })
+        .waitFor();
+      expect(await frame.locator("#head").textContent()).toBe(head.slice(0, 12));
+      await diffWindow.getByText("const commit = " + head + ";").waitFor();
+      await diffWindow.getByRole("button", { name: "Load latest comparison" }).waitFor();
+      await app.evaluate(
+        ({ BrowserWindow }, value) => {
+          BrowserWindow.getAllWindows()[0]!.webContents.send(
+            "scope:pull-requests-detail-update",
+            value,
+          );
+        },
+        {
+          ...update,
+          headOid: newerHead,
+          body: "Wrong captured commit",
+          fetchedAt: "2026-10-02T12:01:00.000Z",
+        },
       );
-    }, update);
-    await frame.getByText("reviewer · APPROVED\nLive review arrived", { exact: true }).waitFor();
-    expect(await frame.getByLabel("Your notes").inputValue()).toBe("Keep my unfinished note");
-    await frame.getByRole("button", { name: "Diff", exact: true }).click();
-    const diffWindow = page.frameLocator(".scope-content-document");
-    await diffWindow.getByText("const commit = " + head + ";").waitFor();
-    await sendChange(app, "new-head");
-    await frame
-      .getByRole("button", { name: "New commit available · Load latest commit" })
-      .waitFor();
-    expect(await frame.locator("#head").textContent()).toBe(head.slice(0, 12));
-    await diffWindow.getByText("const commit = " + head + ";").waitFor();
-    await diffWindow.getByRole("button", { name: "Load latest comparison" }).waitFor();
-    await app.evaluate(
-      ({ BrowserWindow }, value) => {
-        BrowserWindow.getAllWindows()[0]!.webContents.send(
-          "scope:pull-requests-detail-update",
-          value,
-        );
-      },
-      {
-        ...update,
-        headOid: newerHead,
-        body: "Wrong captured commit",
-        fetchedAt: "2026-10-02T12:01:00.000Z",
-      },
-    );
-    await page
-      .getByRole("dialog", { name: "Changes in #1" })
-      .getByRole("button", { name: "Close content window" })
-      .click();
-    await frame.getByRole("button", { name: "Body", exact: true }).click();
-    await expect.poll(() => frame.locator("#content").textContent()).toBe("Updated description");
-    await frame.getByRole("button", { name: "Back to inbox" }).click();
-    await expect
-      .poll(() =>
-        app.evaluate(
-          () =>
-            (
-              globalThis as unknown as { prInboxTest: { interests: { details: unknown[] }[] } }
-            ).prInboxTest.interests.at(-1)?.details,
-        ),
-      )
-      .toEqual([]);
-    await app.evaluate(
-      ({ BrowserWindow }, value) => {
-        BrowserWindow.getAllWindows()[0]!.webContents.send(
-          "scope:pull-requests-detail-update",
-          value,
-        );
-      },
-      { ...update, body: "After unsubscribe", fetchedAt: "2026-10-02T12:02:00.000Z" },
-    );
-    await expect.poll(() => frame.locator("#content").textContent()).toBe("Updated description");
-    await mkdir("/tmp/scope-adaptive-live-sync", { recursive: true });
-    await page.screenshot({ path: "/tmp/scope-adaptive-live-sync/inbox-light.png" });
-    await page.setViewportSize({ width: 680, height: 720 });
-    await page.getByRole("button", { name: "Search and controls" }).click();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await page.getByRole("button", { name: "Appearance", exact: true }).click();
-    await page.getByLabel("Appearance", { exact: true }).selectOption("dark");
-    await page
-      .getByRole("dialog", { name: "Settings", exact: true })
-      .getByRole("button", { name: "Close", exact: true })
-      .click();
-    await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe("dark");
-    await expect
-      .poll(() => page.getByRole("dialog", { name: "Settings", exact: true }).count())
-      .toBe(0);
-    await page.screenshot({ path: "/tmp/scope-adaptive-live-sync/inbox-dark-narrow.png" });
-    await app.evaluate(({ BrowserWindow }) => {
-      const state = (
-        globalThis as unknown as {
-          prInboxTest: {
-            snapshot: {
-              sync: { state: string; error: string | null; nextAttemptAt: string | null };
+      await page
+        .getByRole("dialog", { name: "Changes in #1" })
+        .getByRole("button", { name: "Close content window" })
+        .click();
+      await frame.getByRole("button", { name: "Body", exact: true }).click();
+      await expect.poll(() => frame.locator("#content").textContent()).toBe("Updated description");
+      await frame.getByRole("button", { name: "Back to inbox" }).click();
+      await expect
+        .poll(() =>
+          app.evaluate(
+            () =>
+              (
+                globalThis as unknown as { prInboxTest: { interests: { details: unknown[] }[] } }
+              ).prInboxTest.interests.at(-1)?.details,
+          ),
+        )
+        .toEqual([]);
+      await app.evaluate(
+        ({ BrowserWindow }, value) => {
+          BrowserWindow.getAllWindows()[0]!.webContents.send(
+            "scope:pull-requests-detail-update",
+            value,
+          );
+        },
+        { ...update, body: "After unsubscribe", fetchedAt: "2026-10-02T12:02:00.000Z" },
+      );
+      await expect.poll(() => frame.locator("#content").textContent()).toBe("Updated description");
+      await mkdir("/tmp/scope-adaptive-live-sync", { recursive: true });
+      await page.screenshot({ path: "/tmp/scope-adaptive-live-sync/inbox-light.png" });
+      await page.setViewportSize({ width: 680, height: 720 });
+      await page.getByRole("button", { name: "Search and controls" }).click();
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Appearance", exact: true }).click();
+      await page.getByLabel("Appearance", { exact: true }).selectOption("dark");
+      await page
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe("dark");
+      await expect
+        .poll(() => page.getByRole("dialog", { name: "Settings", exact: true }).count())
+        .toBe(0);
+      await page.screenshot({ path: "/tmp/scope-adaptive-live-sync/inbox-dark-narrow.png" });
+      await app.evaluate(({ BrowserWindow }) => {
+        const state = (
+          globalThis as unknown as {
+            prInboxTest: {
+              snapshot: {
+                sync: { state: string; error: string | null; nextAttemptAt: string | null };
+              };
             };
-          };
-        }
-      ).prInboxTest;
-      state.snapshot.sync.state = "error";
-      state.snapshot.sync.error = "GitHub temporarily unavailable";
-      state.snapshot.sync.nextAttemptAt = "2026-10-02T12:05:00.000Z";
-      BrowserWindow.getAllWindows()[0]!.webContents.send("scope:pull-requests-reconnected");
-    });
-    const failedStatus = page
-      .getByRole("status")
-      .filter({ hasText: "GitHub temporarily unavailable" });
-    await expect.poll(() => failedStatus.textContent()).toContain("Updated ");
-    await expect.poll(() => failedStatus.textContent()).toContain("Retrying at ");
-  } finally {
-    await app.close();
-    await rm(fixture.directory, { recursive: true, force: true });
-    await rm(fixture.ghDirectory, { recursive: true, force: true });
-  }
-});
+          }
+        ).prInboxTest;
+        state.snapshot.sync.state = "error";
+        state.snapshot.sync.error = "GitHub temporarily unavailable";
+        state.snapshot.sync.nextAttemptAt = "2026-10-02T12:05:00.000Z";
+        BrowserWindow.getAllWindows()[0]!.webContents.send("scope:pull-requests-reconnected");
+      });
+      const failedStatus = page
+        .getByRole("status")
+        .filter({ hasText: "GitHub temporarily unavailable" });
+      await expect.poll(() => failedStatus.textContent()).toContain("Updated ");
+      await expect.poll(() => failedStatus.textContent()).toContain("Retrying at ");
+    } finally {
+      await app.close();
+      await rm(fixture.directory, { recursive: true, force: true });
+      await rm(fixture.ghDirectory, { recursive: true, force: true });
+    }
+  },
+);
 
 async function sendChange(
   application: ElectronApplication,
@@ -481,195 +485,203 @@ function snapshot(artifact: Artifact, tabId: string): PullRequestsSnapshot {
   };
 }
 
-test("the default inbox keeps a captured review queue, note edits, snooze undo, and current commit baselines", async () => {
-  const fixture = await offlineFixture();
-  const app = await fixture.launch();
-  const evidence = "/tmp/scope-pr-inbox-build/ui-evidence";
-  try {
-    await mkdir(evidence, { recursive: true });
-    const { artifact, tabId } = await createStarterInbox(app, fixture);
-    const initial = {
-      ...snapshot(artifact, tabId),
-      prs: [pr(1), { ...pr(2), hasUnresolvedConversations: null }],
-    };
-    await installCommands(app, initial);
-    await sendChange(app, "reconnect");
-    const page = await app.firstWindow(),
-      frame = page.frameLocator(".pull-requests-document");
-    await frame
-      .getByRole("button", { name: "Keep the current review stable 1", exact: true })
-      .waitFor();
-    expect(
-      await frame.getByText("CI unknown · Merge unknown · Author's turn", { exact: true }).count(),
-    ).toBe(1);
-    expect(
+test(
+  "the default inbox keeps a captured review queue, note edits, snooze undo, and current commit baselines",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const fixture = await offlineFixture();
+    const app = await fixture.launch();
+    const evidence = "/tmp/scope-pr-inbox-build/ui-evidence";
+    try {
+      await mkdir(evidence, { recursive: true });
+      const { artifact, tabId } = await createStarterInbox(app, fixture);
+      const initial = {
+        ...snapshot(artifact, tabId),
+        prs: [pr(1), { ...pr(2), hasUnresolvedConversations: null }],
+      };
+      await installCommands(app, initial);
+      await sendChange(app, "reconnect");
+      const page = await app.firstWindow(),
+        frame = page.frameLocator(".pull-requests-document");
       await frame
-        .getByText("CI unknown · Merge unknown · Conversations unknown", { exact: true })
-        .count(),
-    ).toBe(1);
-    await page.screenshot({ path: join(evidence, "inbox-light.png") });
-    await frame
-      .getByRole("button", { name: "Keep the current review stable 1", exact: true })
-      .click();
-    await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
-    await frame.getByRole("button", { name: "Diff", exact: true }).click();
-    const diffWindow = page.frameLocator(".scope-content-document");
-    await diffWindow.getByText("const commit = " + head + ";").waitFor();
-    await page
-      .getByRole("dialog", { name: "Changes in #1" })
-      .getByRole("button", { name: "Close content window" })
-      .click();
-    await sendChange(app, "note-error");
-    await frame.getByLabel("Your notes").fill("Keep this note after a failure");
-    await page.getByRole("button", { name: "Search and controls" }).click();
-    await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
-    const presentationMode = page.getByRole("combobox", { name: "Fullscreen HTML mode" });
-    await presentationMode.selectOption("present");
-    await frame.getByLabel("Your notes").hover();
-    await expect
-      .poll(() =>
-        page.locator(".presentation-pointer").evaluate((element) => element.style.opacity),
-      )
-      .toBe("1");
-    expect(await frame.getByLabel("Your notes").inputValue()).toBe(
-      "Keep this note after a failure",
-    );
-    await presentationMode.selectOption("tabs");
-    expect(await frame.locator("#head").textContent()).toBe(head.slice(0, 12));
-    await frame.getByRole("button", { name: "Save note", exact: true }).click();
-    await frame.getByText(/Your edits are kept here/).waitFor();
-    await sendChange(app, "new-head");
-    await frame
-      .getByRole("button", { name: "New commit available · Load latest commit" })
-      .waitFor();
-    expect(
+        .getByRole("button", { name: "Keep the current review stable 1", exact: true })
+        .waitFor();
+      expect(
+        await frame
+          .getByText("CI unknown · Merge unknown · Author's turn", { exact: true })
+          .count(),
+      ).toBe(1);
+      expect(
+        await frame
+          .getByText("CI unknown · Merge unknown · Conversations unknown", { exact: true })
+          .count(),
+      ).toBe(1);
+      await page.screenshot({ path: join(evidence, "inbox-light.png") });
       await frame
-        .getByRole("heading", { name: "Keep the current review stable 1", exact: true })
-        .count(),
-    ).toBe(1);
-    expect(await frame.locator("#head").textContent()).toBe(head.slice(0, 12));
-    expect(await frame.locator("#content").textContent()).toBe(
-      "A synthetic pull request description.",
-    );
-    expect(await frame.getByLabel("Your notes").inputValue()).toBe(
-      "Keep this note after a failure",
-    );
-    await frame.getByRole("button", { name: "Mark this commit reviewed" }).click();
-    await frame.getByText("This commit is marked reviewed.").waitFor();
-    expect(
-      await app.evaluate(
-        () =>
-          (globalThis as unknown as { prInboxTest: { snapshot: PullRequestsSnapshot } }).prInboxTest
-            .snapshot.prs[0].local.reviewed?.headOid,
-      ),
-    ).toBe(head);
-    await sendChange(app, "note-ok");
-    await frame.getByRole("button", { name: "Save note", exact: true }).click();
-    await frame.getByText("Saved", { exact: true }).waitFor();
-    await frame.getByRole("button", { name: "New commit available · Load latest commit" }).click();
-    await frame.getByRole("heading", { name: "New head while inspecting" }).waitFor();
-    await frame.getByText("Changed since your review of " + head.slice(0, 12)).waitFor();
-    expect(await frame.locator("#head").textContent()).toBe(newerHead.slice(0, 12));
-    await expect
-      .poll(() => frame.locator("#content").textContent())
-      .toBe("A synthetic pull request description.");
-    await frame.getByRole("button", { name: "Mark this commit reviewed" }).click();
-    await frame.getByText("This commit is marked reviewed.").waitFor();
-    expect(
-      await app.evaluate(
-        () =>
-          (globalThis as unknown as { prInboxTest: { snapshot: PullRequestsSnapshot } }).prInboxTest
-            .snapshot.prs[0].local.reviewed?.headOid,
-      ),
-    ).toBe(newerHead);
-    await frame.getByRole("button", { name: "Snooze pull request", exact: true }).click();
-    await frame.getByRole("button", { name: "2 hours", exact: true }).click();
-    await frame.getByRole("button", { name: "Next pull request" }).click();
-    await frame.getByRole("heading", { name: "Keep the current review stable 2" }).waitFor();
-    await frame.getByRole("button", { name: "Previous pull request" }).click();
-    await frame.getByRole("heading", { name: "New head while inspecting" }).waitFor();
-    await frame.getByRole("button", { name: "Snooze pull request", exact: true }).focus();
-    await page.keyboard.press("Tab");
-    const undo = frame
-      .getByRole("dialog", { name: "Inspect pull request" })
-      .getByRole("button", { name: "Undo", exact: true });
-    expect(await undo.evaluate((element) => element === document.activeElement)).toBe(true);
-    await page.keyboard.press("Enter");
-    await frame.getByText("In your inbox", { exact: true }).waitFor();
-    await page.screenshot({ path: join(evidence, "review-light.png") });
-    await frame.getByRole("button", { name: "Back to inbox" }).click();
-    await sendChange(app, "sync-error");
-    await frame.getByRole("button", { name: "Sync pull requests" }).click();
-    await expect
-      .poll(() =>
-        frame.getByRole("button", { name: "Sync pull requests" }).getAttribute("data-failed"),
-      )
-      .toBe("true");
-    // The intentional note failure can also make background retention's workspace flush fail.
-    expect(
+        .getByRole("button", { name: "Keep the current review stable 1", exact: true })
+        .click();
+      await frame.getByText("A synthetic pull request description.", { exact: true }).waitFor();
+      await frame.getByRole("button", { name: "Diff", exact: true }).click();
+      const diffWindow = page.frameLocator(".scope-content-document");
+      await diffWindow.getByText("const commit = " + head + ";").waitFor();
       await page
-        .getByRole("alert")
-        .filter({ hasNotText: "Tab cleanup could not finish. Scope will retry in a minute." })
-        .count(),
-    ).toBe(0);
-    await page.setViewportSize({ width: 560, height: 620 });
-    await page.getByRole("button", { name: "Search and controls" }).click();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await page.getByRole("button", { name: "Appearance", exact: true }).click();
-    await page.getByLabel("Appearance", { exact: true }).selectOption("dark");
-    await page
-      .getByRole("dialog", { name: "Settings", exact: true })
-      .getByRole("button", { name: "Close", exact: true })
-      .click();
-    await frame.getByRole("button", { name: "New head while inspecting", exact: true }).click();
-    await page.screenshot({ path: join(evidence, "review-narrow-dark.png") });
-    const width = await page
-      .frames()
-      .find((f) => f.url() === "about:srcdoc")!
-      .evaluate(() => ({
-        width: document.documentElement.clientWidth,
-        content: document.documentElement.scrollWidth,
-        theme: document.documentElement.dataset.theme,
-      }));
-    expect(width.content).toBe(width.width);
-    expect(width.theme).toBe("dark");
-    const styles = await page
-      .frames()
-      .find((f) => f.url() === "about:srcdoc")!
-      .evaluate(() => ({
-        background: getComputedStyle(document.body).backgroundColor,
-        font: getComputedStyle(document.body).fontFamily,
-      }));
-    expect(styles.background).toBe("rgb(18, 18, 18)");
-    expect(styles.font).toContain("system-ui");
-    await frame.getByLabel("Your notes").fill("Flush this note before closing");
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0]!.webContents.send("scope:before-close"),
-    );
-    await expect
-      .poll(async () =>
-        app.evaluate(
+        .getByRole("dialog", { name: "Changes in #1" })
+        .getByRole("button", { name: "Close content window" })
+        .click();
+      await sendChange(app, "note-error");
+      await frame.getByLabel("Your notes").fill("Keep this note after a failure");
+      await page.getByRole("button", { name: "Search and controls" }).click();
+      await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
+      const presentationMode = page.getByRole("combobox", { name: "Fullscreen HTML mode" });
+      await presentationMode.selectOption("present");
+      await frame.getByLabel("Your notes").hover();
+      await expect
+        .poll(() =>
+          page.locator(".presentation-pointer").evaluate((element) => element.style.opacity),
+        )
+        .toBe("1");
+      expect(await frame.getByLabel("Your notes").inputValue()).toBe(
+        "Keep this note after a failure",
+      );
+      await presentationMode.selectOption("tabs");
+      expect(await frame.locator("#head").textContent()).toBe(head.slice(0, 12));
+      await frame.getByRole("button", { name: "Save note", exact: true }).click();
+      await frame.getByText(/Your edits are kept here/).waitFor();
+      await sendChange(app, "new-head");
+      await frame
+        .getByRole("button", { name: "New commit available · Load latest commit" })
+        .waitFor();
+      expect(
+        await frame
+          .getByRole("heading", { name: "Keep the current review stable 1", exact: true })
+          .count(),
+      ).toBe(1);
+      expect(await frame.locator("#head").textContent()).toBe(head.slice(0, 12));
+      expect(await frame.locator("#content").textContent()).toBe(
+        "A synthetic pull request description.",
+      );
+      expect(await frame.getByLabel("Your notes").inputValue()).toBe(
+        "Keep this note after a failure",
+      );
+      await frame.getByRole("button", { name: "Mark this commit reviewed" }).click();
+      await frame.getByText("This commit is marked reviewed.").waitFor();
+      expect(
+        await app.evaluate(
           () =>
             (globalThis as unknown as { prInboxTest: { snapshot: PullRequestsSnapshot } })
-              .prInboxTest.snapshot.prs[0].local.note,
+              .prInboxTest.snapshot.prs[0].local.reviewed?.headOid,
         ),
-      )
-      .toBe("Flush this note before closing");
-    await app.evaluate(({ BrowserWindow }) => {
-      const state = (
-        globalThis as unknown as { prInboxTest: { snapshot: Mutable<PullRequestsSnapshot> } }
-      ).prInboxTest;
-      state.snapshot.prs = state.snapshot.prs.filter((p) => p.nodeId !== "PR_1");
-      state.snapshot.generation++;
-      BrowserWindow.getAllWindows()[0]!.webContents.send("scope:pull-requests-reconnected");
-    });
-    await frame.getByRole("heading", { name: "This pull request is no longer open" }).waitFor();
-    expect(await frame.locator("#load-latest").isVisible()).toBe(false);
-    await frame.getByRole("button", { name: "Next pull request" }).click();
-    await frame.getByRole("heading", { name: "Keep the current review stable 2" }).waitFor();
-  } finally {
-    await app.close();
-    await rm(fixture.directory, { recursive: true, force: true });
-    await rm(fixture.ghDirectory, { recursive: true, force: true });
-  }
-});
+      ).toBe(head);
+      await sendChange(app, "note-ok");
+      await frame.getByRole("button", { name: "Save note", exact: true }).click();
+      await frame.getByText("Saved", { exact: true }).waitFor();
+      await frame
+        .getByRole("button", { name: "New commit available · Load latest commit" })
+        .click();
+      await frame.getByRole("heading", { name: "New head while inspecting" }).waitFor();
+      await frame.getByText("Changed since your review of " + head.slice(0, 12)).waitFor();
+      expect(await frame.locator("#head").textContent()).toBe(newerHead.slice(0, 12));
+      await expect
+        .poll(() => frame.locator("#content").textContent())
+        .toBe("A synthetic pull request description.");
+      await frame.getByRole("button", { name: "Mark this commit reviewed" }).click();
+      await frame.getByText("This commit is marked reviewed.").waitFor();
+      expect(
+        await app.evaluate(
+          () =>
+            (globalThis as unknown as { prInboxTest: { snapshot: PullRequestsSnapshot } })
+              .prInboxTest.snapshot.prs[0].local.reviewed?.headOid,
+        ),
+      ).toBe(newerHead);
+      await frame.getByRole("button", { name: "Snooze pull request", exact: true }).click();
+      await frame.getByRole("button", { name: "2 hours", exact: true }).click();
+      await frame.getByRole("button", { name: "Next pull request" }).click();
+      await frame.getByRole("heading", { name: "Keep the current review stable 2" }).waitFor();
+      await frame.getByRole("button", { name: "Previous pull request" }).click();
+      await frame.getByRole("heading", { name: "New head while inspecting" }).waitFor();
+      await frame.getByRole("button", { name: "Snooze pull request", exact: true }).focus();
+      await page.keyboard.press("Tab");
+      const undo = frame
+        .getByRole("dialog", { name: "Inspect pull request" })
+        .getByRole("button", { name: "Undo", exact: true });
+      expect(await undo.evaluate((element) => element === document.activeElement)).toBe(true);
+      await page.keyboard.press("Enter");
+      await frame.getByText("In your inbox", { exact: true }).waitFor();
+      await page.screenshot({ path: join(evidence, "review-light.png") });
+      await frame.getByRole("button", { name: "Back to inbox" }).click();
+      await sendChange(app, "sync-error");
+      await frame.getByRole("button", { name: "Sync pull requests" }).click();
+      await expect
+        .poll(() =>
+          frame.getByRole("button", { name: "Sync pull requests" }).getAttribute("data-failed"),
+        )
+        .toBe("true");
+      // The intentional note failure can also make background retention's workspace flush fail.
+      expect(
+        await page
+          .getByRole("alert")
+          .filter({ hasNotText: "Tab cleanup could not finish. Scope will retry in a minute." })
+          .count(),
+      ).toBe(0);
+      await page.setViewportSize({ width: 560, height: 620 });
+      await page.getByRole("button", { name: "Search and controls" }).click();
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Appearance", exact: true }).click();
+      await page.getByLabel("Appearance", { exact: true }).selectOption("dark");
+      await page
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      await frame.getByRole("button", { name: "New head while inspecting", exact: true }).click();
+      await page.screenshot({ path: join(evidence, "review-narrow-dark.png") });
+      const width = await page
+        .frames()
+        .find((f) => f.url() === "about:srcdoc")!
+        .evaluate(() => ({
+          width: document.documentElement.clientWidth,
+          content: document.documentElement.scrollWidth,
+          theme: document.documentElement.dataset.theme,
+        }));
+      expect(width.content).toBe(width.width);
+      expect(width.theme).toBe("dark");
+      const styles = await page
+        .frames()
+        .find((f) => f.url() === "about:srcdoc")!
+        .evaluate(() => ({
+          background: getComputedStyle(document.body).backgroundColor,
+          font: getComputedStyle(document.body).fontFamily,
+        }));
+      expect(styles.background).toBe("rgb(18, 18, 18)");
+      expect(styles.font).toContain("system-ui");
+      await frame.getByLabel("Your notes").fill("Flush this note before closing");
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0]!.webContents.send("scope:before-close"),
+      );
+      await expect
+        .poll(async () =>
+          app.evaluate(
+            () =>
+              (globalThis as unknown as { prInboxTest: { snapshot: PullRequestsSnapshot } })
+                .prInboxTest.snapshot.prs[0].local.note,
+          ),
+        )
+        .toBe("Flush this note before closing");
+      await app.evaluate(({ BrowserWindow }) => {
+        const state = (
+          globalThis as unknown as { prInboxTest: { snapshot: Mutable<PullRequestsSnapshot> } }
+        ).prInboxTest;
+        state.snapshot.prs = state.snapshot.prs.filter((p) => p.nodeId !== "PR_1");
+        state.snapshot.generation++;
+        BrowserWindow.getAllWindows()[0]!.webContents.send("scope:pull-requests-reconnected");
+      });
+      await frame.getByRole("heading", { name: "This pull request is no longer open" }).waitFor();
+      expect(await frame.locator("#load-latest").isVisible()).toBe(false);
+      await frame.getByRole("button", { name: "Next pull request" }).click();
+      await frame.getByRole("heading", { name: "Keep the current review stable 2" }).waitFor();
+    } finally {
+      await app.close();
+      await rm(fixture.directory, { recursive: true, force: true });
+      await rm(fixture.ghDirectory, { recursive: true, force: true });
+    }
+  },
+);

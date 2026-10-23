@@ -123,43 +123,52 @@ async function fixture() {
   };
 }
 
-test("offline CLI publications survive hub restart and arrive automatically with original bytes", async () => {
-  const f = await fixture();
-  await f.offline();
-  const receipt = await f.cli("text", "Buffered finding", "--id", "offline-report");
-  expect(receipt).toEqual({
-    id: "offline-report",
-    queued: true,
-    expiresAt: new Date(f.clock.now + BUFFERED_TAB_TTL_MS).toISOString(),
-  });
-  expect(receipt).not.toHaveProperty("revision");
-  const file = join(f.directory, "report.bin");
-  const bytes = Buffer.alloc(2 * 1024 * 1024, 73);
-  await writeFile(file, bytes);
-  expect(await f.cli("add", file, "--id", "offline-file", "--name", "offline-file")).toMatchObject({
-    queued: true,
-  });
-  await expect(f.direct.get("offline-report")).rejects.toMatchObject({ status: 404 });
-  await f.restart();
-  expect((await f.cli("hub", "queue")).items).toHaveLength(2);
-  await f.reconnect();
-  await expect.poll(async () => (await f.direct.list()).length).toBe(2);
-  expect(new TextDecoder().decode(await f.direct.content("offline-report"))).toBe(
-    "Buffered finding",
-  );
-  expect(Buffer.from(await f.direct.content("offline-file")).equals(bytes)).toBe(true);
-  expect((await f.direct.named("offline-file")).id).toBe("offline-file");
-  await expect.poll(async () => (await f.queue()).items.length).toBe(0);
-  expect(await f.cli("text", "Connected finding", "--id", "online-report")).toMatchObject({
-    id: "online-report",
-    queued: true,
-  });
-  await expect.poll(async () => (await f.direct.get("online-report")).revision).toBe(1);
-  expect(Buffer.from(await f.direct.content("online-report")).toString()).toBe("Connected finding");
-});
+test(
+  "offline CLI publications survive hub restart and arrive automatically with original bytes",
+  { tags: ["hub-delivers-later"] },
+  async () => {
+    const f = await fixture();
+    await f.offline();
+    const receipt = await f.cli("text", "Buffered finding", "--id", "offline-report");
+    expect(receipt).toEqual({
+      id: "offline-report",
+      queued: true,
+      expiresAt: new Date(f.clock.now + BUFFERED_TAB_TTL_MS).toISOString(),
+    });
+    expect(receipt).not.toHaveProperty("revision");
+    const file = join(f.directory, "report.bin");
+    const bytes = Buffer.alloc(2 * 1024 * 1024, 73);
+    await writeFile(file, bytes);
+    expect(
+      await f.cli("add", file, "--id", "offline-file", "--name", "offline-file"),
+    ).toMatchObject({
+      queued: true,
+    });
+    await expect(f.direct.get("offline-report")).rejects.toMatchObject({ status: 404 });
+    await f.restart();
+    expect((await f.cli("hub", "queue")).items).toHaveLength(2);
+    await f.reconnect();
+    await expect.poll(async () => (await f.direct.list()).length).toBe(2);
+    expect(new TextDecoder().decode(await f.direct.content("offline-report"))).toBe(
+      "Buffered finding",
+    );
+    expect(Buffer.from(await f.direct.content("offline-file")).equals(bytes)).toBe(true);
+    expect((await f.direct.named("offline-file")).id).toBe("offline-file");
+    await expect.poll(async () => (await f.queue()).items.length).toBe(0);
+    expect(await f.cli("text", "Connected finding", "--id", "online-report")).toMatchObject({
+      id: "online-report",
+      queued: true,
+    });
+    await expect.poll(async () => (await f.direct.get("online-report")).revision).toBe(1);
+    expect(Buffer.from(await f.direct.content("online-report")).toString()).toBe(
+      "Connected finding",
+    );
+  },
+);
 
 test.each(["artifact-id", "plan-tab-design"])(
   "offline CLI updates by %s preserve tab metadata and survive hub restart",
+  { tags: ["hub-delivers-later"] },
   async (key) => {
     const f = await fixture();
     await f.offline();
@@ -195,235 +204,275 @@ test.each(["artifact-id", "plan-tab-design"])(
   },
 );
 
-test("an offline CLI update uses the last observed revision and blocks instead of replacing newer content", async () => {
-  const f = await fixture();
-  await f.offline();
-  await f.reconnect();
-  const original = await f.direct.publish(
-    "read-tab",
-    { ...metadata, name: "named-read-tab" },
-    Buffer.from("original"),
-  );
-  expect(await f.client.named("named-read-tab")).toEqual(original);
-  await f.offline();
-  await f.direct.publish(
-    original.id,
-    { ...metadata, name: original.name, expectedRevision: original.revision },
-    Buffer.from("newer desktop content"),
-  );
-  const file = join(f.directory, "stale.txt");
-  await writeFile(file, "offline edit");
-  expect(await f.cli("update", "named-read-tab", file)).toMatchObject({ queued: true });
-  await f.reconnect();
-  await expect
-    .poll(async () => (await f.queue()).items)
-    .toEqual([
-      expect.objectContaining({
-        id: original.id,
-        status: "blocked",
-        error: expect.stringContaining("changed"),
-      }),
-    ]);
-  expect(Buffer.from(await f.direct.content(original.id)).toString()).toBe("newer desktop content");
-});
+test(
+  "an offline CLI update uses the last observed revision and blocks instead of replacing newer content",
+  { tags: ["hub-delivers-later", "no-lost-updates"] },
+  async () => {
+    const f = await fixture();
+    await f.offline();
+    await f.reconnect();
+    const original = await f.direct.publish(
+      "read-tab",
+      { ...metadata, name: "named-read-tab" },
+      Buffer.from("original"),
+    );
+    expect(await f.client.named("named-read-tab")).toEqual(original);
+    await f.offline();
+    await f.direct.publish(
+      original.id,
+      { ...metadata, name: original.name, expectedRevision: original.revision },
+      Buffer.from("newer desktop content"),
+    );
+    const file = join(f.directory, "stale.txt");
+    await writeFile(file, "offline edit");
+    expect(await f.cli("update", "named-read-tab", file)).toMatchObject({ queued: true });
+    await f.reconnect();
+    await expect
+      .poll(async () => (await f.queue()).items)
+      .toEqual([
+        expect.objectContaining({
+          id: original.id,
+          status: "blocked",
+          error: expect.stringContaining("changed"),
+        }),
+      ]);
+    expect(Buffer.from(await f.direct.content(original.id)).toString()).toBe(
+      "newer desktop content",
+    );
+  },
+);
 
-test("offline updates need a saved revision and expired metadata cannot supply one", async () => {
-  const f = await fixture();
-  await f.offline();
-  const file = join(f.directory, "update.txt");
-  await writeFile(file, "replacement");
-  await expect(f.cli("update", "unknown", file)).rejects.toMatchObject({
-    stderr: expect.stringContaining("no saved revision"),
-  });
-  await f.reconnect();
-  await f.client.publish("expiring-base", metadata, Buffer.from("original"));
-  await f.offline();
-  f.clock.now += BUFFERED_TAB_TTL_MS;
-  await expect(f.cli("update", "expiring-base", file)).rejects.toMatchObject({
-    stderr: expect.stringContaining("no saved revision"),
-  });
-  expect((await f.queue()).items).toEqual([]);
-});
+test(
+  "offline updates need a saved revision and expired metadata cannot supply one",
+  { tags: ["hub-delivers-later", "no-lost-updates"] },
+  async () => {
+    const f = await fixture();
+    await f.offline();
+    const file = join(f.directory, "update.txt");
+    await writeFile(file, "replacement");
+    await expect(f.cli("update", "unknown", file)).rejects.toMatchObject({
+      stderr: expect.stringContaining("no saved revision"),
+    });
+    await f.reconnect();
+    await f.client.publish("expiring-base", metadata, Buffer.from("original"));
+    await f.offline();
+    f.clock.now += BUFFERED_TAB_TTL_MS;
+    await expect(f.cli("update", "expiring-base", file)).rejects.toMatchObject({
+      stderr: expect.stringContaining("no saved revision"),
+    });
+    expect((await f.queue()).items).toEqual([]);
+  },
+);
 
-test("deletion and unpairing discard saved update revisions", async () => {
-  const f = await fixture();
-  await f.offline();
-  await f.reconnect();
-  await f.client.publish("deleted-base", metadata, Buffer.from("original"));
-  await f.client.delete("deleted-base");
-  const saved = await f.client.publish("unpaired-base", metadata, Buffer.from("original"));
-  await f.offline();
-  await expect(f.client.updateBase("deleted-base")).rejects.toMatchObject({ status: 503 });
-  expect((await f.client.updateBase("unpaired-base")).revision).toBe(saved.revision);
-  expect(
-    (
-      await f.request("/v1/artifacts/unpaired-base", {
-        headers: { "Scope-Update-Base": "1", Authorization: "Bearer invalid" },
-      })
-    ).status,
-  ).toBe(401);
-  expect(
-    (
-      await f.request("/v1/artifacts/unpaired-base", {
-        headers: { "Scope-Update-Base": "1", Origin: "https://example.invalid" },
-      })
-    ).status,
-  ).toBe(403);
-  await f.request("/v1/hub/unpair", { method: "POST" });
-  await expect(f.client.updateBase("unpaired-base")).rejects.toMatchObject({ status: 503 });
-});
+test(
+  "deletion and unpairing discard saved update revisions",
+  { tags: ["hub-delivers-later", "deletion-is-final"] },
+  async () => {
+    const f = await fixture();
+    await f.offline();
+    await f.reconnect();
+    await f.client.publish("deleted-base", metadata, Buffer.from("original"));
+    await f.client.delete("deleted-base");
+    const saved = await f.client.publish("unpaired-base", metadata, Buffer.from("original"));
+    await f.offline();
+    await expect(f.client.updateBase("deleted-base")).rejects.toMatchObject({ status: 503 });
+    expect((await f.client.updateBase("unpaired-base")).revision).toBe(saved.revision);
+    expect(
+      (
+        await f.request("/v1/artifacts/unpaired-base", {
+          headers: { "Scope-Update-Base": "1", Authorization: "Bearer invalid" },
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await f.request("/v1/artifacts/unpaired-base", {
+          headers: { "Scope-Update-Base": "1", Origin: "https://example.invalid" },
+        })
+      ).status,
+    ).toBe(403);
+    await f.request("/v1/hub/unpair", { method: "POST" });
+    await expect(f.client.updateBase("unpaired-base")).rejects.toMatchObject({ status: 503 });
+  },
+);
 
-test("a desktop revision conflict is reported in the queue while other buffered tabs still deliver", async () => {
-  const f = await fixture();
-  const artifact = await f.direct.publish("existing", metadata, Buffer.from("original"));
-  await f.offline();
-  await f.client.publishOrQueue(
-    "existing",
-    { ...metadata, expectedRevision: artifact.revision },
-    Buffer.from("stale offline update"),
-  );
-  await f.client.publishOrQueue("other", metadata, Buffer.from("other"));
-  await f.direct.publish(
-    "existing",
-    { ...metadata, expectedRevision: artifact.revision },
-    Buffer.from("new desktop update"),
-  );
-  await f.reconnect();
-  await expect
-    .poll(async () => (await f.queue()).items)
-    .toEqual([
-      expect.objectContaining({
-        id: "existing",
-        status: "blocked",
-        error: expect.stringContaining("changed"),
-      }),
-    ]);
-  expect(new TextDecoder().decode(await f.direct.content("existing"))).toBe("new desktop update");
-  expect(new TextDecoder().decode(await f.direct.content("other"))).toBe("other");
-});
+test(
+  "a desktop revision conflict is reported in the queue while other buffered tabs still deliver",
+  { tags: ["hub-delivers-later", "no-lost-updates"] },
+  async () => {
+    const f = await fixture();
+    const artifact = await f.direct.publish("existing", metadata, Buffer.from("original"));
+    await f.offline();
+    await f.client.publishOrQueue(
+      "existing",
+      { ...metadata, expectedRevision: artifact.revision },
+      Buffer.from("stale offline update"),
+    );
+    await f.client.publishOrQueue("other", metadata, Buffer.from("other"));
+    await f.direct.publish(
+      "existing",
+      { ...metadata, expectedRevision: artifact.revision },
+      Buffer.from("new desktop update"),
+    );
+    await f.reconnect();
+    await expect
+      .poll(async () => (await f.queue()).items)
+      .toEqual([
+        expect.objectContaining({
+          id: "existing",
+          status: "blocked",
+          error: expect.stringContaining("changed"),
+        }),
+      ]);
+    expect(new TextDecoder().decode(await f.direct.content("existing"))).toBe("new desktop update");
+    expect(new TextDecoder().decode(await f.direct.content("other"))).toBe("other");
+  },
+);
 
-test("a lost delivery acknowledgement is recovered after reconnect without duplicating a revision", async () => {
-  const f = await fixture();
-  await f.offline();
-  await f.client.publishOrQueue("uncertain", metadata, Buffer.from("accepted bytes"));
-  const original = globalThis.fetch;
-  let interrupted = false;
-  let disconnecting: Promise<void> | undefined;
-  const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    const url = input instanceof Request ? input.url : input.toString();
-    const response = await original(input, init);
-    if (!interrupted && url.endsWith("/v1/artifacts/uncertain") && init?.method === "PUT") {
-      interrupted = true;
-      disconnecting = f.remotes.setEnabled(f.remotes.snapshot()[0].id, false);
-      throw new Error("Synthetic lost acknowledgement after desktop commit.");
-    }
-    return response;
-  });
-  cleanup.push(() => fetcher.mockRestore());
-  await f.reconnect().catch(() => {});
-  await expect.poll(() => interrupted).toBe(true);
-  await disconnecting;
-  expect((await f.direct.get("uncertain")).revision).toBe(1);
-  expect((await f.queue()).items).toHaveLength(1);
-  fetcher.mockRestore();
-  await f.restart();
-  await f.reconnect();
-  await expect.poll(async () => (await f.queue()).items.length).toBe(0);
-  expect((await f.direct.get("uncertain")).revision).toBe(1);
-});
+test(
+  "a lost delivery acknowledgement is recovered after reconnect without duplicating a revision",
+  { tags: ["hub-delivers-later"] },
+  async () => {
+    const f = await fixture();
+    await f.offline();
+    await f.client.publishOrQueue("uncertain", metadata, Buffer.from("accepted bytes"));
+    const original = globalThis.fetch;
+    let interrupted = false;
+    let disconnecting: Promise<void> | undefined;
+    const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      const response = await original(input, init);
+      if (!interrupted && url.endsWith("/v1/artifacts/uncertain") && init?.method === "PUT") {
+        interrupted = true;
+        disconnecting = f.remotes.setEnabled(f.remotes.snapshot()[0].id, false);
+        throw new Error("Synthetic lost acknowledgement after desktop commit.");
+      }
+      return response;
+    });
+    cleanup.push(() => fetcher.mockRestore());
+    await f.reconnect().catch(() => {});
+    await expect.poll(() => interrupted).toBe(true);
+    await disconnecting;
+    expect((await f.direct.get("uncertain")).revision).toBe(1);
+    expect((await f.queue()).items).toHaveLength(1);
+    fetcher.mockRestore();
+    await f.restart();
+    await f.reconnect();
+    await expect.poll(async () => (await f.queue()).items.length).toBe(0);
+    expect((await f.direct.get("uncertain")).revision).toBe(1);
+  },
+);
 
-test("buffering requires pairing and opt-in, preserves authentication and rejects oversized input", async () => {
-  const f = await fixture();
-  await expect(
-    f.client.publishOrQueue("unpaired", metadata, Buffer.from("test")),
-  ).rejects.toMatchObject({ status: 503, message: expect.stringContaining("Pair") });
-  await f.offline();
-  await expect(
-    f.client.publish("synchronous", metadata, Buffer.from("test")),
-  ).rejects.toMatchObject({ status: 503 });
-  expect(
-    (await f.request("/v1/hub/queue", { headers: { Authorization: "Bearer invalid" } })).status,
-  ).toBe(401);
-  expect(
-    (await f.request("/v1/hub/queue", { headers: { Origin: "https://example.invalid" } })).status,
-  ).toBe(403);
-  const reserved = await (
-    await f.request("/v1/artifacts/large/tab", {
-      method: "POST",
-      headers: { "Scope-Buffer-Publication": "1" },
-      body: JSON.stringify({ expectedRevision: 0 }),
-    })
-  ).json();
-  expect(
-    (
-      await f.request(`/v1/tabs/${reserved.tabId}/blobs`, {
+test(
+  "buffering requires pairing and opt-in, preserves authentication and rejects oversized input",
+  { tags: ["hub-delivers-later", "bad-requests-change-nothing"] },
+  async () => {
+    const f = await fixture();
+    await expect(
+      f.client.publishOrQueue("unpaired", metadata, Buffer.from("test")),
+    ).rejects.toMatchObject({ status: 503, message: expect.stringContaining("Pair") });
+    await f.offline();
+    await expect(
+      f.client.publish("synchronous", metadata, Buffer.from("test")),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(
+      (await f.request("/v1/hub/queue", { headers: { Authorization: "Bearer invalid" } })).status,
+    ).toBe(401);
+    expect(
+      (await f.request("/v1/hub/queue", { headers: { Origin: "https://example.invalid" } })).status,
+    ).toBe(403);
+    const reserved = await (
+      await f.request("/v1/artifacts/large/tab", {
         method: "POST",
-        body: Buffer.alloc(MAX_CONTENT_BYTES + 1),
+        headers: { "Scope-Buffer-Publication": "1" },
+        body: JSON.stringify({ expectedRevision: 0 }),
       })
-    ).status,
-  ).toBe(413);
-  await expect(
-    f.client.publishOrQueue(
-      "invalid-media",
-      { ...metadata, mediaType: "text/html" },
-      Buffer.from("test"),
-    ),
-  ).rejects.toMatchObject({ status: 400 });
-  await expect(f.client.publishOrQueue("empty", metadata, Buffer.alloc(0))).resolves.toMatchObject({
-    queued: true,
-  });
-  await f.reconnect();
-  await expect.poll(async () => (await f.direct.get("empty")).size).toBe(0);
-  await expect(f.direct.get("large")).rejects.toMatchObject({ status: 404 });
-});
+    ).json();
+    expect(
+      (
+        await f.request(`/v1/tabs/${reserved.tabId}/blobs`, {
+          method: "POST",
+          body: Buffer.alloc(MAX_CONTENT_BYTES + 1),
+        })
+      ).status,
+    ).toBe(413);
+    await expect(
+      f.client.publishOrQueue(
+        "invalid-media",
+        { ...metadata, mediaType: "text/html" },
+        Buffer.from("test"),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      f.client.publishOrQueue("empty", metadata, Buffer.alloc(0)),
+    ).resolves.toMatchObject({
+      queued: true,
+    });
+    await f.reconnect();
+    await expect.poll(async () => (await f.direct.get("empty")).size).toBe(0);
+    await expect(f.direct.get("large")).rejects.toMatchObject({ status: 404 });
+  },
+);
 
-test("unpairing deletes buffered content before another Mac can pair", async () => {
-  const f = await fixture();
-  await f.offline();
-  await f.client.publishOrQueue("private", metadata, Buffer.from("synthetic private report"));
-  expect((await f.request("/v1/hub/unpair", { method: "POST" })).status).toBe(200);
-  expect((await f.queue()).items).toEqual([]);
-  await expect(
-    f.client.publishOrQueue("after-unpair", metadata, Buffer.from("test")),
-  ).rejects.toMatchObject({ status: 503 });
-});
+test(
+  "unpairing deletes buffered content before another Mac can pair",
+  { tags: ["pairing-is-explicit"] },
+  async () => {
+    const f = await fixture();
+    await f.offline();
+    await f.client.publishOrQueue("private", metadata, Buffer.from("synthetic private report"));
+    expect((await f.request("/v1/hub/unpair", { method: "POST" })).status).toBe(200);
+    expect((await f.queue()).items).toEqual([]);
+    await expect(
+      f.client.publishOrQueue("after-unpair", metadata, Buffer.from("test")),
+    ).rejects.toMatchObject({ status: 503 });
+  },
+);
 
-test("a complete buffered publication rejects competing writes under the same ID", async () => {
-  const f = await fixture();
-  await f.offline();
-  await f.client.publishOrQueue("same-id", metadata, Buffer.from("first writer"));
-  await expect(
-    f.client.publishOrQueue("same-id", metadata, Buffer.from("second writer")),
-  ).rejects.toMatchObject({ status: 409 });
-  await expect(
-    f.client.publish("same-id", metadata, Buffer.from("synchronous writer")),
-  ).rejects.toMatchObject({ status: 409 });
-  expect((await f.queue()).items).toHaveLength(1);
-  await f.reconnect();
-  await expect.poll(async () => (await f.queue()).items.length).toBe(0);
-  expect(new TextDecoder().decode(await f.direct.content("same-id"))).toBe("first writer");
-});
+test(
+  "a complete buffered publication rejects competing writes under the same ID",
+  { tags: ["no-lost-updates"] },
+  async () => {
+    const f = await fixture();
+    await f.offline();
+    await f.client.publishOrQueue("same-id", metadata, Buffer.from("first writer"));
+    await expect(
+      f.client.publishOrQueue("same-id", metadata, Buffer.from("second writer")),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      f.client.publish("same-id", metadata, Buffer.from("synchronous writer")),
+    ).rejects.toMatchObject({ status: 409 });
+    expect((await f.queue()).items).toHaveLength(1);
+    await f.reconnect();
+    await expect.poll(async () => (await f.queue()).items.length).toBe(0);
+    expect(new TextDecoder().decode(await f.direct.content("same-id"))).toBe("first writer");
+  },
+);
 
-test("a reservation made offline can complete after the Mac reconnects", async () => {
-  const f = await fixture();
-  await f.offline();
-  const { tabId } = await (
-    await f.request("/v1/artifacts/transition/tab", {
-      method: "POST",
-      headers: { "Scope-Buffer-Publication": "1" },
-      body: JSON.stringify({ expectedRevision: 0 }),
-    })
-  ).json();
-  await f.reconnect();
-  const { blob } = await (
-    await f.request(`/v1/tabs/${tabId}/blobs`, { method: "POST", body: "transition bytes" })
-  ).json();
-  const result = await f.request("/v1/artifacts/transition", {
-    method: "PUT",
-    body: JSON.stringify({ ...metadata, tabId, blob }),
-  });
-  expect(result.status).toBe(202);
-  expect(await result.json()).toMatchObject({ id: "transition", queued: true });
-  await expect.poll(async () => (await f.queue()).items.length).toBe(0);
-  expect(new TextDecoder().decode(await f.direct.content("transition"))).toBe("transition bytes");
-});
+test(
+  "a reservation made offline can complete after the Mac reconnects",
+  { tags: ["hub-delivers-later"] },
+  async () => {
+    const f = await fixture();
+    await f.offline();
+    const { tabId } = await (
+      await f.request("/v1/artifacts/transition/tab", {
+        method: "POST",
+        headers: { "Scope-Buffer-Publication": "1" },
+        body: JSON.stringify({ expectedRevision: 0 }),
+      })
+    ).json();
+    await f.reconnect();
+    const { blob } = await (
+      await f.request(`/v1/tabs/${tabId}/blobs`, { method: "POST", body: "transition bytes" })
+    ).json();
+    const result = await f.request("/v1/artifacts/transition", {
+      method: "PUT",
+      body: JSON.stringify({ ...metadata, tabId, blob }),
+    });
+    expect(result.status).toBe(202);
+    expect(await result.json()).toMatchObject({ id: "transition", queued: true });
+    await expect.poll(async () => (await f.queue()).items.length).toBe(0);
+    expect(new TextDecoder().decode(await f.direct.content("transition"))).toBe("transition bytes");
+  },
+);

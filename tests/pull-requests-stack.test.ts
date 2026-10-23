@@ -162,6 +162,7 @@ else emit({data:{repository:{pullRequest:{id:'PR_'+number,state:'OPEN',headRefOi
 
 test.each(["CHANGES_REQUESTED", "DISMISSED", "COMMENTED", "PENDING"])(
   "a current %s opinion does not count as an active approval",
+  { tags: ["pr-inbox-keeps-local-work"] },
   async (state) => {
     const f = await fakeGh([sourcePr(1, { opinions: [opinion(state)] })]);
     expect((await f.read()).prs[0].review?.hasApproval).toBe(false);
@@ -170,6 +171,7 @@ test.each(["CHANGES_REQUESTED", "DISMISSED", "COMMENTED", "PENDING"])(
 
 test.each(["missing member", "duplicate member", "changed head", "missing inventory member"])(
   "rejects %s rather than asserting complete stack readiness",
+  { tags: ["pr-inbox-keeps-local-work"] },
   async (failure) => {
     const first = sourcePr(1, { stack: header }),
       second = sourcePr(2, { stack: header });
@@ -185,19 +187,26 @@ test.each(["missing member", "duplicate member", "changed head", "missing invent
   },
 );
 
-test("a moved head cannot retain a claimed current approval", async () => {
-  const f = await fakeGh([sourcePr(1, { opinions: [opinion("APPROVED")], decision: "APPROVED" })]);
-  f.payload.threadHead = base;
-  await f.update();
-  expect((await f.read()).prs[0].review).toMatchObject({
-    headOid: head,
-    hasApproval: null,
-    decision: null,
-  });
-});
+test(
+  "a moved head cannot retain a claimed current approval",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const f = await fakeGh([
+      sourcePr(1, { opinions: [opinion("APPROVED")], decision: "APPROVED" }),
+    ]);
+    f.payload.threadHead = base;
+    await f.update();
+    expect((await f.read()).prs[0].review).toMatchObject({
+      headOid: head,
+      hasApproval: null,
+      decision: null,
+    });
+  },
+);
 
 test.each(["duplicate reviewer", "moved head", "changed count", "repeated cursor"])(
   "a %s during review pagination cannot produce a saved approval",
+  { tags: ["pr-inbox-keeps-local-work"] },
   async (failure) => {
     const first = sourcePr(1, { opinions: [opinion("APPROVED")] });
     first.latestOpinionatedReviews.totalCount = 2;

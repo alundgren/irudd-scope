@@ -12,6 +12,7 @@ afterEach(async () => {
 
 test.runIf(!!process.env.SCOPE_TEST_OKF_BINARY)(
   "Librarian uses the native OKF CLI for local init, all memory kinds and scopes, decisions and recall",
+  { tags: ["librarian-finds-memory"] },
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "scope-native-librarian-"));
     cleanup.push(() => rm(directory, { recursive: true, force: true }));
@@ -152,6 +153,7 @@ test.runIf(!!process.env.SCOPE_TEST_OKF_BINARY)(
 
 test.runIf(!!process.env.SCOPE_TEST_OKF_BINARY)(
   "a default dreaming run over human-accepted native memories leaves only the procedure rewrite for the person",
+  { tags: ["librarian-finds-memory"] },
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "scope-native-pile-"));
     cleanup.push(() => rm(directory, { recursive: true, force: true }));
