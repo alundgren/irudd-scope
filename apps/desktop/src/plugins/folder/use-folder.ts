@@ -20,7 +20,10 @@ export function visibleExpanded(expanded: readonly string[]): string[] {
 
 const MAX_LISTINGS = 6;
 const RETRY_MS = 2000;
-const MAX_RETRIES = 10;
+const MAX_RETRIES = 5;
+
+/** A folder that could not be listed: retried automatically a few times, then by request. */
+export type FolderFailure = "retrying" | "failed";
 
 /** Runs listings a few at a time, so expanding many folders never exceeds request limits. */
 async function listAll<T>(paths: readonly string[], list: (path: string) => Promise<T>) {
@@ -56,8 +59,10 @@ export function useFolder(
   const [listings, setListings] = useState<ReadonlyMap<string, FolderListing>>(new Map());
   // Folders whose listing failed for a reason other than being gone. They are retried and
   // never shown as empty.
-  const [failed, setFailed] = useState<ReadonlySet<string>>(new Set());
+  const [failed, setFailed] = useState<ReadonlyMap<string, FolderFailure>>(new Map());
   const retries = useRef(new Map<string, number>());
+  // Every folder waiting for its next try; one timer retries them all together.
+  const waiting = useRef(new Set<string>());
   const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [status, setStatus] = useState<FolderStatus>({ kind: "loading" });
   const [live, setLive] = useState(true);
@@ -104,36 +109,56 @@ export function useFolder(
         });
         return next;
       });
-      const retry = requested.filter((path, index) => {
+      const outcome = new Map<string, FolderFailure | undefined>();
+      requested.forEach((path, index) => {
         const result = results[index]!;
-        if (result.status === "ok" || result.status === "missing") retries.current.delete(path);
-        return result.status !== "ok" && result.status !== "missing";
-      });
-      setFailed((previous) => {
-        const next = new Set(previous);
-        for (const path of requested) next.delete(path);
-        for (const path of retry) next.add(path);
-        return next;
-      });
-      const again = retry.filter((path) => {
+        if (result.status === "ok" || result.status === "missing") {
+          retries.current.delete(path);
+          outcome.set(path, undefined);
+          return;
+        }
         const count = (retries.current.get(path) ?? 0) + 1;
         retries.current.set(path, count);
-        return count <= MAX_RETRIES;
+        outcome.set(path, count <= MAX_RETRIES ? "retrying" : "failed");
+        if (count <= MAX_RETRIES) waiting.current.add(path);
       });
-      if (again.length) {
-        clearTimeout(retryTimer.current);
+      setFailed((previous) => {
+        const next = new Map(previous);
+        for (const [path, state] of outcome)
+          if (state) next.set(path, state);
+          else next.delete(path);
+        return next;
+      });
+      if (waiting.current.size && !retryTimer.current)
         retryTimer.current = setTimeout(() => {
-          if (run === generation.current) void load(again);
+          retryTimer.current = undefined;
+          const paths = [...waiting.current];
+          waiting.current.clear();
+          void load(paths);
         }, RETRY_MS);
-      }
       if (root?.status === "ok") setStatus({ kind: "ok" });
     },
     [tabId],
   );
 
+  /** Tries a folder again after automatic retries gave up. */
+  const retry = useCallback(
+    (path: string) => {
+      retries.current.delete(path);
+      setFailed((previous) => {
+        const next = new Map(previous);
+        next.set(path, "retrying");
+        return next;
+      });
+      void load([path]);
+    },
+    [load],
+  );
+
   const reloadAll = useCallback(() => {
     generation.current++;
     retries.current.clear();
+    waiting.current.clear();
     return load(["", ...visibleExpanded(current.current.expanded)]);
   }, [load]);
 
@@ -178,6 +203,7 @@ export function useFolder(
       stop();
       clearTimeout(timer.current);
       clearTimeout(retryTimer.current);
+      retryTimer.current = undefined;
       void window.scope.unwatchFolder(tabId).catch(() => {});
     };
   }, [started, tabId, reloadAll, reload]);
@@ -189,5 +215,5 @@ export function useFolder(
     if (started) void reloadAll();
   }, [view.showIgnored, started, reloadAll]);
 
-  return { listings, failed, status, live, load };
+  return { listings, failed, status, live, load, retry };
 }

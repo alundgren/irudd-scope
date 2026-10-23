@@ -1,5 +1,6 @@
 import { expect, test } from "vite-plus/test";
 import {
+  chmod,
   mkdir,
   readFile,
   readdir,
@@ -175,6 +176,32 @@ test(
         readLink: "rejected",
         range: { text: source.subarray(22, 42).toString(), size: source.length },
       });
+
+      // Unreadable folders are retried together, then offered for a manual retry.
+      const locked = (name: string) => join(app, name);
+      for (const name of ["locked-a", "locked-b", "locked-c"]) {
+        await mkdir(locked(name));
+        await writeFile(join(locked(name), `${name}.txt`), "x");
+        await chmod(locked(name), 0);
+      }
+      const retrying = tree.getByRole("treeitem", {
+        name: "Could not read this folder. Retrying…",
+        exact: true,
+      });
+      for (const name of ["locked-a", "locked-b"]) await item(name).click();
+      await expect.poll(() => retrying.count()).toBe(2);
+      for (const name of ["locked-a", "locked-b"]) await chmod(locked(name), 0o755);
+      await item("locked-a.txt").waitFor();
+      await item("locked-b.txt").waitFor();
+      await item("locked-c").click();
+      const failed = tree.getByRole("treeitem", {
+        name: "Could not read this folder. Select to retry.",
+        exact: true,
+      });
+      await failed.waitFor({ timeout: 20_000 });
+      await chmod(locked("locked-c"), 0o755);
+      await failed.click();
+      await item("locked-c.txt").waitFor();
 
       // Changes appear by themselves; a deleted selected file stays shown as deleted.
       await writeFile(join(app, "src", "new.ts"), "export {};\n");

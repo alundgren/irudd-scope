@@ -91,6 +91,13 @@ request. Folder commands are never queued. An older hub answers 404 and the CLI
 asks for an update on that machine. Only the desktop connection credential can
 use the hub's `/v1/relay/folders/` routes; the hub's publishing token cannot.
 
+Reads and listings go through handles checked to be inside the folder. Linux checks
+the kernel path of the opened handle. macOS and Windows compare the handle with a
+fresh walk from the root, which is a series of checks rather than one atomic one, so
+a folder swapped for a link and back between two checks could pass. Change feeds have
+their own per-remote budget of 64, separate from the 32 streamed listings, reads, and
+writes; desktop main queues listings and reads 8 at a time per machine.
+
 ## Tab transfer
 
 `apps/desktop/src/transfer/` owns desktop pairing, temporary invitations,

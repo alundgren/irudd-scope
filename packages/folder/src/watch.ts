@@ -250,7 +250,12 @@ class FolderWatcher {
         if (result.change.type === "deleted") this.unwatch(path);
         else if (result.directory) await this.watchSubtree(path, generation);
       }
-    if (overflow && linux) await this.reconcileWatches(generation).catch(() => {});
+    if (overflow && linux)
+      await this.reconcileWatches(generation).catch((error: unknown) => {
+        // Out of watches while catching up: check by polling and say so, as on startup.
+        if (exhausted(error)) this.fallBack(generation);
+        else console.error("Scope could not update a folder's watches.");
+      });
     if (generation !== this.generation) return;
     // Removing the folder itself is reported by the root check, not as a change inside it.
     if (

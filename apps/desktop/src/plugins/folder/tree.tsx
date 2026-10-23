@@ -8,7 +8,7 @@ const OVERSCAN = 12;
 export type FolderRow = {
   entry: FolderEntry;
   /** A row standing for an expanded folder whose contents are not loaded yet. */
-  placeholder?: "loading" | "failed";
+  placeholder?: "loading" | "retrying" | "failed";
   depth: number;
   expanded: boolean;
   /** The selected file was deleted; it stays shown until another file is selected. */
@@ -27,7 +27,7 @@ export function folderRows(
   listings: ReadonlyMap<string, FolderListing>,
   expanded: ReadonlySet<string>,
   selected: string | null,
-  failed: ReadonlySet<string> = new Set(),
+  failed: ReadonlyMap<string, "retrying" | "failed"> = new Map(),
 ): FolderRow[] {
   const rows: FolderRow[] = [];
   const visit = (directory: string, depth: number) => {
@@ -36,7 +36,7 @@ export function folderRows(
       if (directory)
         rows.push({
           entry: { name: "", path: `${directory}/`, kind: "other", ignored: false },
-          placeholder: failed.has(directory) ? "failed" : "loading",
+          placeholder: failed.get(directory) ?? "loading",
           depth,
           expanded: false,
           deleted: false,
@@ -90,7 +90,8 @@ function RowIcon({ row }: { row: FolderRow }) {
 
 function rowLabel(row: FolderRow) {
   if (row.placeholder === "loading") return "Loading…";
-  if (row.placeholder === "failed") return "Could not read this folder. Retrying…";
+  if (row.placeholder === "retrying") return "Could not read this folder. Retrying…";
+  if (row.placeholder === "failed") return "Could not read this folder. Select to retry.";
   if (row.deleted) return `${row.entry.name}, deleted`;
   if (row.entry.kind === "symlink")
     return `${row.entry.name}, ${row.entry.link === "outside" ? "link outside this folder" : "link"}`;
@@ -103,12 +104,14 @@ export function FolderTree({
   selected,
   onToggle,
   onSelect,
+  onRetry,
 }: {
   tabId: string;
   rows: readonly FolderRow[];
   selected: string | null;
   onToggle: (path: string, open: boolean) => void;
   onSelect: (path: string) => void;
+  onRetry: (directory: string) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ top: 0, height: 600 });
@@ -141,6 +144,7 @@ export function FolderTree({
       element.scrollTop = top + ROW_HEIGHT - element.clientHeight;
   }
   function activate(row: FolderRow) {
+    if (row.placeholder === "failed") onRetry(row.entry.path.slice(0, -1));
     if (row.placeholder) return;
     setFocused(row.entry.path);
     if (row.entry.kind === "directory") onToggle(row.entry.path, !row.expanded);
