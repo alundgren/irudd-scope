@@ -3,54 +3,73 @@ import { useEffect, useRef, type RefObject } from "react";
 export function useDocumentScroll(
   iframe: RefObject<HTMLIFrameElement | null>,
   active: boolean,
-  revision?: number,
+  documentKey: string,
+  savedY: number,
+  save: (y: number) => void,
 ) {
-  const position = useRef({ x: 0, y: 0 });
-  const previous = useRef({ active, revision });
-  const recording = useRef(active);
+  const latest = useRef({ active, savedY, save });
+  latest.current = { active, savedY, save };
+  const previous = useRef({ active, documentKey });
+  const recording = useRef(false);
   const remove = useRef<() => void>(() => {});
-  if (previous.current.active !== active) recording.current = false;
-  if (previous.current.revision !== revision) position.current = { x: 0, y: 0 };
-  previous.current = { active, revision };
+  const generation = useRef(0);
+  if (previous.current.active !== active || previous.current.documentKey !== documentKey)
+    recording.current = false;
+  previous.current = { active, documentKey };
+
+  function restore() {
+    const current = ++generation.current;
+    recording.current = false;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (current !== generation.current || !latest.current.active) return;
+        try {
+          iframe.current?.contentWindow?.scrollTo(0, latest.current.savedY);
+        } catch {
+          /* An authored link can navigate to another origin. */
+        }
+        recording.current = true;
+      }),
+    );
+  }
   useEffect(() => {
-    let cancelled = false;
-    if (active)
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          if (cancelled) return;
-          try {
-            iframe.current?.contentWindow?.scrollTo(position.current.x, position.current.y);
-          } catch {
-            /* A plan can navigate outside its initial origin. */
-          }
-          recording.current = true;
-        }),
-      );
+    if (active) restore();
     return () => {
-      cancelled = true;
+      generation.current++;
+      recording.current = false;
     };
-  }, [active, revision]);
+  }, [active, documentKey]);
   useEffect(() => () => remove.current(), []);
-  function observeDocument() {
+
+  return function observe() {
     remove.current();
     try {
-      const documentWindow = iframe.current?.contentWindow;
-      if (!documentWindow) return;
+      const win = iframe.current?.contentWindow;
+      if (!win) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const record = () => {
-        if (recording.current)
-          position.current = { x: documentWindow.scrollX, y: documentWindow.scrollY };
-      };
-      documentWindow.addEventListener("scroll", record);
-      remove.current = () => {
         try {
-          documentWindow.removeEventListener("scroll", record);
+          if (recording.current && latest.current.active) latest.current.save(win.scrollY);
         } catch {
-          /* Navigation may have changed the document's origin. */
+          /* Navigation may have changed the document origin. */
         }
       };
+      const scroll = () => {
+        clearTimeout(timer);
+        timer = setTimeout(record, 100);
+      };
+      win.addEventListener("scroll", scroll);
+      remove.current = () => {
+        clearTimeout(timer);
+        try {
+          win.removeEventListener("scroll", scroll);
+        } catch {
+          /* The navigated window may no longer be accessible. */
+        }
+      };
+      restore();
     } catch {
-      /* Cross-origin navigation keeps its native browser state. */
+      /* Cross-origin documents keep their own browser reading state. */
     }
-  }
-  return observeDocument;
+  };
 }

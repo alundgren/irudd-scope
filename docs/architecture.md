@@ -91,27 +91,28 @@ Only ordinary file tabs transfer. Plans, PR inboxes, and retros are excluded;
 PR inboxes and retros keep additional records that are not in the portable
 manifest.
 
-## HTML plans
+## Structured plans
 
-A plan is a named `plan` artifact with `text/html` content. The library
-enforces immutable names and kinds, and sets a new plan's tab permanent only at
-initial publication. A plan keeps only its current HTML, like other artifacts:
-`update` replaces it and the previous bytes become unreferenced. Plans have no
-version history, comments or agent listener. People read the plan in Scope and
-talk to their agent in the coding session. The `plan` kind stays separate from
-ordinary HTML so plan-specific reading can be added later.
+A named `plan` artifact stores one versioned JSON document in existing SQLite
+artifact bytes. The document contains authored overview HTML, goals, visuals,
+checks, work items, exact retained proposal bases, agreement and evidence.
+`packages/protocol/src/plan.ts` owns schemas, reference and dependency validation,
+update preservation rules and the pure selected-item projection. The library
+validates uploaded bytes and revision/basis rules inside the publication transaction.
 
-`plugins/plan/view.tsx` shows the trusted HTML in an iframe. Hidden plan tabs
-stay rendered, so the page's own state and scroll position survive tab
-switches; `document-scroll.ts` restores the scroll position when the tab is
-shown again. `plugins/plan/main.ts` keeps the `scope:create-plan` IPC used to
-create a plan from the desktop.
+`plugins/plan` renders Overview and Work items. Overview receives validated proposal
+data before authored scripts run. Inspecting a retained basis uses its original
+HTML and records. Reading state persists with the workspace in SQLite. Native
+controls use Scope tokens; authored content keeps its presentation.
 
-The CLI's `plan.ts` prints `plan guide` and writes the current HTML to a new
-file with `plan content NAME --output FILE`. It resolves the name through
-`/v1/names` and reads `/v1/artifacts/ID/content`, which paired hubs already
-forward. Reading needs the desktop online. Publications and updates use the
-ordinary hub publication queue.
+The CLI assembles JSON and HTML and uses ordinary artifact reads and revision-checked
+publication. The paired hub transports the same bytes and queues writes without
+new routes or a plan service. Reads and basis capture need the desktop online.
+Scope neither orchestrates agents nor infers agreement or verification.
+
+Legacy HTML plans convert to ordinary HTML artifacts and file tabs, preserving
+bytes and lifecycle state. Late legacy publication follows the same conversion;
+HTML cannot replace an existing structured plan.
 
 ## Pull request inboxes
 

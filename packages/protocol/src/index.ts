@@ -205,7 +205,7 @@ export function validateArtifactContent(artifact: Pick<Artifact, "kind" | "media
     text: ["text/plain"],
     markdown: ["text/markdown"],
     html: ["text/html"],
-    plan: ["text/html"],
+    plan: ["text/html", "application/json"],
     retro: ["text/html"],
     "pull-requests": ["text/html"],
     image: ["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"],

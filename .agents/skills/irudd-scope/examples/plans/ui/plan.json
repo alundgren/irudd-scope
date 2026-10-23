@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "title": "Save a reading list",
+  "context": "A fictional reading app. Examples propose behavior, not a final screen design.",
+  "constraints": ["Use synthetic fixtures and the real application entry points."],
+  "questions": [],
+  "goals": [
+    {
+      "id": "result",
+      "outcome": "Articles stay in your reading list after restart."
+    }
+  ],
+  "visuals": [
+    {
+      "id": "ordinary",
+      "anchor": "ordinary-case",
+      "commitment": "Articles stay in your reading list after restart.",
+      "goalIds": ["result"],
+      "checkIds": ["save", "repeat"]
+    },
+    {
+      "id": "recovery",
+      "anchor": "recovery-case",
+      "commitment": "Removing Field notes removes only that article; River walk stays saved after restart.",
+      "goalIds": ["result"],
+      "checkIds": ["remove"]
+    }
+  ],
+  "checks": [
+    {
+      "id": "save",
+      "label": "Save an article",
+      "goalIds": ["result"],
+      "expectation": "A reader saves Field notes once. It appears exactly once in the reading list after restarting the app.",
+      "conditions": "The reader is signed in and Field notes is not saved.",
+      "method": "Open Field notes, select Save, restart the app, and inspect the reading list and stored article IDs. Assert exactly one entry for Field notes.",
+      "kind": "agent"
+    },
+    {
+      "id": "repeat",
+      "label": "Repeated saves stay single",
+      "goalIds": ["result"],
+      "expectation": "Repeating Save for the same article keeps exactly one saved entry, including simultaneous requests.",
+      "conditions": "Use the same reader and article ID; start from an empty reading list.",
+      "method": "Send two concurrent Save requests with the same reader/article pair through the real API. Restart the app. Assert one stored entry and one visible row.",
+      "kind": "agent"
+    },
+    {
+      "id": "remove",
+      "label": "Remove a saved article",
+      "goalIds": ["result"],
+      "expectation": "Removing Field notes removes only that article; River walk stays saved after restart.",
+      "conditions": "Both articles are saved for the same reader.",
+      "method": "Remove Field notes in the UI, restart, then inspect the list and storage. Assert River walk remains and Field notes is absent.",
+      "kind": "agent"
+    }
+  ],
+  "items": [
+    {
+      "id": "persist",
+      "title": "Persist the reading list",
+      "outcome": "Articles stay in your reading list after restart.",
+      "goalIds": ["result"],
+      "checkIds": ["save", "repeat"],
+      "dependsOn": [],
+      "context": "A fictional reading app. Examples propose behavior, not a final screen design."
+    },
+    {
+      "id": "recover",
+      "title": "Preserve unrelated content",
+      "outcome": "Removing Field notes removes only that article; River walk stays saved after restart.",
+      "goalIds": ["result"],
+      "checkIds": ["remove"],
+      "dependsOn": ["persist"],
+      "context": "Verify the prerequisite before changing recovery behavior."
+    }
+  ]
+}

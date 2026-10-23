@@ -35,15 +35,15 @@ async function fixture() {
   };
 }
 
-test("built plan CLI publishes a plan, updates it, and saves only the current HTML", async () => {
+test("legacy plan CLI publishes ordinary HTML, updates it, and exports exact content", async () => {
   const f = await fixture();
   try {
     const first = await f.cli("add", f.html, "--plan", "--name", "cli-plan");
-    expect(first).toMatchObject({ name: "cli-plan", kind: "plan", mediaType: "text/html" });
+    expect(first).toMatchObject({ name: "cli-plan", kind: "html", mediaType: "text/html" });
     expect((await f.server.store.tabs())[0].permanent).toBe(1);
     await writeFile(f.html, "<h1 id='goal'>Build the revised feature</h1>");
     const second = await f.cli("update", "cli-plan", f.html);
-    expect(second).toMatchObject({ id: first.id, name: "cli-plan", kind: "plan" });
+    expect(second).toMatchObject({ id: first.id, name: "cli-plan", kind: "html" });
     const output = join(f.directory, "current.html");
     expect(await f.cli("plan", "content", "cli-plan", "--output", output)).toEqual({
       name: "cli-plan",

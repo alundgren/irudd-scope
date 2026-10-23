@@ -39,6 +39,7 @@ export class DesktopLifecycle {
     await this.checkpoint("after-tab-import");
     await this.desktop.finishTabImport();
     await this.artifacts.removeDiagramTabs();
+    await this.artifacts.convertLegacyPlans();
     const savedTabs = (await this.artifacts.tabs()).flatMap((row) =>
       row.document ? [decode(Tab, JSON.parse(row.document))] : [],
     );
