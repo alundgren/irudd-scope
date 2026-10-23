@@ -9,7 +9,8 @@ out of this package.
   canonical root. Symlinks that leave the root are listed but never followed.
 - Scope never edits, renames, or deletes files in a shared folder. The only
   write will copy dropped files in through a staged file and rename.
-- Never watch or list through `.git`. Ignored folders are not watched.
+- Never watch, list, or search through `.git`. Ignored folders are not watched,
+  and search reads them only when ignored files are shown.
 - Open files and folders with `openInside`. On Linux it checks the opened handle's
   kernel path in `/proc/self/fd`, which is exact. macOS and Windows have no Node API
   for a handle's path, so it checks successive observations instead: every folder

@@ -2,7 +2,9 @@
 
 Each plugin directory owns its views, state contracts, and optional main-process
 handlers. Add entries to `registry.ts`, `registry.renderer.ts`, and, when needed,
-`registry.main.ts`. Keep the existing file viewers together in `file/`.
+`registry.main.ts`. The image, Markdown, HTML, and text viewers live in
+`../renderer/file-views.tsx` so published files and Folder tab previews share
+them; plugins pass bytes, a kind, a media type, and a title.
 
 - Import shared contracts, library operations, and renderer controls directly.
   Plugins must not import another plugin's implementation. Only registries

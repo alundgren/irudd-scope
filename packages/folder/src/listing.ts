@@ -81,7 +81,7 @@ export async function listFolder(
     throw new FolderError("outside-folder", "Symlinked folders are shown but not opened.");
   const rules = await IgnoreRules.load(root, path);
   const parentIgnored = options.directoryIgnored ?? (await directoryIgnored(root, path));
-  const dirents = await readDirectory(root, path, real);
+  const dirents = await readDirectory(root, path);
   const entries: FolderEntry[] = [];
   let truncated = false;
   const candidates = dirents.filter((entry) => entry.name !== GIT_DIRECTORY);
@@ -108,8 +108,8 @@ export async function listFolder(
  * Reads entry names from an opened directory handle. Linux reads through the handle itself;
  * elsewhere the handle is checked again after reading, so a swapped folder is rejected.
  */
-async function readDirectory(root: string, path: string, real: string) {
-  const { handle } = await openInside(root, path, { directory: true });
+export async function readDirectory(root: string, path: string, noSymlinks = false) {
+  const { handle, real } = await openInside(root, path, { directory: true, noSymlinks });
   try {
     if (process.platform === "linux")
       return await readdir(`/proc/self/fd/${handle.fd}`, { withFileTypes: true }).catch(() =>

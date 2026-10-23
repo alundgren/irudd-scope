@@ -242,13 +242,21 @@ its 16 publication slots.
 The hub serves the paired desktop's file requests on routes that accept only
 the desktop connection credential, never the publishing token:
 
-| Request                                                          | Result                                                                  |
-| ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `GET /v1/relay/folders/list?root=&path=&showIgnored=0\|1`        | `FolderListing` of one directory, at most 50,000 entries                |
-| `GET /v1/relay/folders/read?root=&path=&start=&end=`             | Raw bytes `start` to `end` (exclusive) and `Scope-Folder-File-Size`     |
-| `GET /v1/relay/folders/events?root=`                             | NDJSON `FolderFeedEvent` lines with a heartbeat every 10 seconds        |
-| `POST /v1/relay/folders/search`, `FolderSearchRequest`           | NDJSON `FolderSearchEvent` lines. Not available yet: 501 `unsupported`. |
-| `PUT /v1/relay/folders/write?root=&path=&replace=0\|1`, raw body | `FolderWriteReceipt`. Not available yet: 501 `unsupported`.             |
+| Request                                                          | Result                                                                                             |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `GET /v1/relay/folders/list?root=&path=&showIgnored=0\|1`        | `FolderListing` of one directory, at most 50,000 entries                                           |
+| `GET /v1/relay/folders/read?root=&path=&start=&end=`             | Raw bytes `start` to `end` (exclusive), `Scope-Folder-File-Size`, and `Scope-Folder-File-Modified` |
+| `GET /v1/relay/folders/events?root=`                             | NDJSON `FolderFeedEvent` lines with a heartbeat every 10 seconds                                   |
+| `POST /v1/relay/folders/search`, `FolderSearchRequest`           | NDJSON `FolderSearchEvent` lines ending with `done`                                                |
+| `PUT /v1/relay/folders/write?root=&path=&replace=0\|1`, raw body | `FolderWriteReceipt`. Not available yet: 501 `unsupported`.                                        |
+
+Search matches `query` as plain text in any letter case and honours
+`showIgnored`. A content search reads only regular files inside `root`, skips
+binary files and files over 1 MiB, and
+sends `match` lines with the path, line number, and line text, stopping at 1,000
+with `done` and `truncated: true`. With `names: true` it matches file paths
+instead and sends `file` lines, stopping at 10,000. Long searches send a
+heartbeat at least every 10 seconds. Closing the request stops the search.
 
 Every file route resolves real paths and rejects paths that leave `root`,
 including through symlinks, with 403 `outside-folder`. A desktop sends

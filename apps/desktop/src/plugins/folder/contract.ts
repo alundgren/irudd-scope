@@ -90,10 +90,28 @@ export type FolderUnavailable = "offline" | "update" | "gone" | "missing" | "out
 export type FolderListResult =
   | { status: "ok"; listing: FolderListing }
   | { status: FolderUnavailable; message: string };
+/** A file whose path matches the filter text. */
+export type FolderNameMatch = { path: string; ignored: boolean };
+/**
+ * Where the filter's matches come from: the path list while it is built or once it is
+ * ready, or the folder's machine when the folder has too many paths to list.
+ */
+export type FolderPathsState = "scanning" | "ready" | "machine" | "failed";
+export type FolderFilterResult =
+  | { status: "ok"; state: FolderPathsState; matches: FolderNameMatch[]; truncated: boolean }
+  | { status: FolderUnavailable; message: string };
+export type FolderSearchMatch = { path: string; line: number; text: string };
+export type FolderSearchResult =
+  | { status: "ok"; matches: FolderSearchMatch[]; truncated: boolean; cancelled: boolean }
+  | { status: FolderUnavailable; message: string };
 /** Change feed events main sends to the open Folder tab. */
 export type FolderViewEvent = {
   tabId: string;
-  event: FolderFeedEvent | { type: "unavailable"; reason: FolderUnavailable; message: string };
+  event:
+    | FolderFeedEvent
+    | { type: "unavailable"; reason: FolderUnavailable; message: string }
+    /** The tab's path list changed; an open filter asks again. */
+    | { type: "paths"; state: FolderPathsState };
 };
 
 /**
