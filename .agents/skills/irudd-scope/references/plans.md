@@ -4,6 +4,41 @@ A plan pairs an authored visual overview with structured goals, checks and work
 items. Scope stores the proposal, actual agreement and verification evidence.
 Conversation and agent execution stay in the coding session.
 
+## Check feasibility before presenting and building
+
+While drafting the first proposal, send a scout to do a quick technical
+feasibility check against the current code. Give it the proposed outcome and
+the main technical assumptions. Ask it to find the relevant implementation,
+existing limits and anything that could prevent the proposal from working.
+Keep this bounded to feasibility, without implementing the feature. The scout
+reports what it finds; the drafting agent checks the findings and decides how
+to address them before showing or publishing the first proposal to the person.
+
+After the person agrees on the plan, prepare the work item breakdown and send
+it to an independent technical reviewer before implementation starts. Give the
+reviewer the agreed proposal, the work items and the earlier scout findings.
+The reviewer must use its own scout to inspect the code and check that the
+items can be built together. Check dependencies, shared contracts, integration
+ownership and whether the completion checks can run through real entry points.
+The reviewer makes the assessment; its scout helps with code lookups.
+
+Fix problems within the agreed plan and have the reviewer recheck the affected
+items. If a fix would change an agreed outcome, constraint or acceptance
+criterion, pause affected work and return to the person. Explain the problem,
+its practical consequence and the smallest proposed change in plain words.
+Discuss and revise together until the person agrees, then review the revised
+breakdown before starting that work. Never weaken the agreed plan just to pass
+review, or treat reviewer approval as the person's agreement.
+
+Keep technical lookup details in agent context and item context or constraints.
+The person's presentation stays in plain words, without file names, line
+numbers or review reports. These checks add no required plan fields or views.
+
+Use the coding session's delegation tools and follow its scout and reviewer
+launch rules. When available, use `model-settings` for model selection and
+launches. If delegation is unavailable, report the missing check instead of
+silently skipping it. Scope stores the plan; it does not launch these agents.
+
 ## Explain the outcome
 
 Start with an ordinary concrete scenario. Use a sequence for communication, a

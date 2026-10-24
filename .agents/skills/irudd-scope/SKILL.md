@@ -136,6 +136,12 @@ visual overview with structured goals, checks and independently usable work item
 Honor an explicitly requested planning tool or format. A planning request does not
 authorize implementation. Keep discussion in chat and record only actual agreement.
 
+Before presenting the first proposal, use a scout for a quick feasibility check
+against the code. After agreement, have an independent technical reviewer with
+its own scout check the work item breakdown before implementation. Fix issues
+within the agreed plan; discuss changes with the person when a fix cannot keep
+that agreement. Follow the review and revision steps in the native plans reference.
+
 Use `plan guide`, `plan publish NAME PLAN.json OVERVIEW.html`, `plan read NAME`,
 `plan item NAME ITEM_ID`, `plan content NAME --output FILE.html`, and
 `plan capture-basis NAME BASIS_ID --expected-revision REVISION`.
