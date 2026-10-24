@@ -17,6 +17,10 @@ const STATUS: Record<FolderErrorCode, number> = {
   "desktop-offline": 503,
   exists: 409,
   failed: 500,
+  conflict: 409,
+  "request-mismatch": 409,
+  expired: 410,
+  busy: 503,
 };
 
 /** A folder operation failure with the wire error code and its HTTP status. */

@@ -1,7 +1,9 @@
+import { Readable } from "node:stream";
+import { folderCommand, folderOperationChecks } from "./folder-operation-checks.ts";
 import { afterEach, expect, test, vi } from "vite-plus/test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ScopeClient } from "@irudd-scope/protocol/client";
@@ -124,10 +126,29 @@ async function fixture() {
 }
 
 test(
-  "offline CLI publications survive hub restart and arrive automatically with original bytes",
-  { tags: ["hub-delivers-later"] },
+  "offline publications and folder operation outcomes survive hub restart with original bytes",
+  { tags: ["hub-delivers-later", "folders-stay-inside", "survives-restart"], timeout: 60_000 },
   async () => {
     const f = await fixture();
+    await folderOperationChecks(join(f.directory, "folder-host"));
+    await f.remotes.pair(f.state().pairUrl());
+    await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
+    const bytesForRemote = Buffer.from("remote owner upload");
+    const operation = folderCommand("through-remotes.txt", bytesForRemote);
+    const response = await f.remotes.request(
+      f.remotes.snapshot()[0].id,
+      `/v1/relay/folders/operations?${new URLSearchParams({ root: await realpath(f.directory), caller: "guest-adapter" })}`,
+      {
+        method: "PUT",
+        body: Readable.from([bytesForRemote]),
+        contentType: "application/octet-stream",
+        folderOperation: Buffer.from(JSON.stringify(operation)).toString("base64url"),
+        deadlineMs: 10_000,
+        idleMs: 5000,
+      },
+    );
+    expect(await response.json()).toMatchObject({ state: "completed" });
+    expect((await readFile(join(f.directory, operation.path))).equals(bytesForRemote)).toBe(true);
     await f.offline();
     const receipt = await f.cli("text", "Buffered finding", "--id", "offline-report");
     expect(receipt).toEqual({
