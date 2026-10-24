@@ -347,7 +347,12 @@ export class GuestCatalogs {
           sources: new Set(catalog.sources.map((source) => source.sourceTabId)),
           access,
         });
-        this.owners.set(ownerDeviceId, { deviceId: ownerDeviceId, name, state: "connected" });
+        this.owners.set(ownerDeviceId, {
+          deviceId: ownerDeviceId,
+          name,
+          state: "connected",
+          mutations: this.connections.supports(peerId, "mutations-v1"),
+        });
         await this.publish();
       }
     } catch (error) {

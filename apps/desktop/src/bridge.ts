@@ -1,3 +1,12 @@
+import type {
+  GuestChange,
+  GuestOperation,
+  GuestOperationIdentity,
+  GuestOutcome,
+  GuestTarget,
+} from "@irudd-scope/protocol/guest-operation";
+import type { GuestSource } from "@irudd-scope/protocol/guest";
+import type { GuestInput, GuestRecovery } from "./guest/recovery-contract.ts";
 import type { GuestCatalogView, GuestStatus } from "./guest/contract.ts";
 import type { PromptEvent } from "@irudd-scope/protocol";
 import type { PromptReply, PromptImage } from "@irudd-scope/protocol/prompts";
@@ -62,6 +71,20 @@ import type {
 } from "@irudd-scope/protocol/pull-requests";
 
 export type ScopeBridge = {
+  guestPrepare: (change: GuestChange) => Promise<GuestOperation>;
+  guestExecute: (target: GuestTarget, identity: GuestOperationIdentity) => Promise<GuestOutcome>;
+  guestOperationStatus: (
+    target: GuestTarget,
+    identity: GuestOperationIdentity,
+  ) => Promise<GuestOutcome>;
+  guestReconcile: (
+    target: GuestTarget,
+    identity: GuestOperationIdentity,
+  ) => Promise<{ outcome: GuestOutcome; source: GuestSource | null }>;
+  onGuestRecoveryChanged: (listener: (id: string) => void) => () => void;
+  guestRecovery: (id: string) => Promise<GuestRecovery>;
+  saveGuestInput: (input: GuestInput) => Promise<void>;
+  discardGuestInput: (id: string, kind: "html" | "action", revision: number) => Promise<void>;
   guestCatalog: () => Promise<GuestCatalogView>;
   onGuestCatalogChanged: (listener: (view: GuestCatalogView) => void) => () => void;
   guestContent: (id: string, revision: number) => Promise<ArtifactContent>;

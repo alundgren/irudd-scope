@@ -1,3 +1,5 @@
+import type { GuestMutations } from "./guest/mutations.ts";
+import { GuestInput } from "./guest/recovery-contract.ts";
 import type { GuestCatalogs } from "./guest/catalog.ts";
 import { clipboard, dialog, ipcMain, nativeTheme, type BrowserWindow } from "electron";
 import { writeFile } from "node:fs/promises";
@@ -40,6 +42,7 @@ export function registerDesktopIpc({
   transfers,
   guests,
   guestCatalogs,
+  guestMutations,
   onRestartToUpdate,
   setSketchpadMenu,
 }: {
@@ -57,6 +60,7 @@ export function registerDesktopIpc({
   transfers: TabTransfers;
   guests: GuestConnections;
   guestCatalogs: GuestCatalogs;
+  guestMutations: GuestMutations;
   onRestartToUpdate: () => Promise<void>;
   setSketchpadMenu: (state: SketchpadMenuState) => void;
 }) {
@@ -241,6 +245,19 @@ export function registerDesktopIpc({
     const id = decode(TransferId, input);
     await guests.forget(id);
     await transfers.forget(id);
+  });
+  handle("scope:guest-prepare", (input) => guestMutations.command("prepare", input));
+  handle("scope:guest-execute", (input) => guestMutations.command("execute", input));
+  handle("scope:guest-operation-status", (input) => guestMutations.command("status", input));
+  handle("scope:guest-reconcile", (input) => guestMutations.command("reconcile", input));
+  handle("scope:guest-recovery", (input) => store.guestRecovery.read(decode(Uuid, input)));
+  handle("scope:save-guest-input", (input) => store.guestRecovery.save(decode(GuestInput, input)));
+  handle("scope:discard-guest-input", (input) => {
+    const { id, kind, revision } = decode(
+      Schema.Struct({ id: Uuid, kind: Schema.Literals(["html", "action"]), revision: Revision }),
+      input,
+    );
+    return store.guestRecovery.discard(id, kind, revision);
   });
   const guestRead = Schema.Struct({ id: Uuid, revision: Revision });
   handle("scope:guest-catalog", () => guestCatalogs.snapshot());

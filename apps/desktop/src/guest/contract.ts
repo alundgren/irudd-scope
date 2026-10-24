@@ -40,6 +40,7 @@ export type GuestCatalogView = {
   owners: readonly {
     deviceId: string;
     name: string;
+    mutations?: boolean;
     state: GuestPeerStatus["state"] | "forgotten";
     message?: string;
   }[];

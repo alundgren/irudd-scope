@@ -1,4 +1,5 @@
-import { GUEST_CATALOG_LIMIT, type GuestSource } from "@irudd-scope/protocol/guest";
+import { guestSources } from "./guest-source.ts";
+import { GuestOperations } from "./guest-operations.ts";
 import { readPlan, validatePlanUpdate } from "@irudd-scope/protocol/plan";
 import { PromptDraft } from "../plugins/prompts/contract.ts";
 import { PromptStore } from "./prompt-store.ts";
@@ -21,7 +22,7 @@ import {
   decode,
   validateArtifactContent,
 } from "@irudd-scope/protocol";
-import { guestSourceKind, isBuiltinTab } from "../plugins/registry.ts";
+import { isBuiltinTab } from "../plugins/registry.ts";
 import { Tab, Uuid, tabArtifactId } from "../workspace/contract.ts";
 import {
   TEMPORARY_RETENTION_MS,
@@ -74,6 +75,7 @@ export type LiveTab = {
 
 export class ArtifactStore {
   maintenance!: DatabaseMaintenance;
+  guestOperations!: GuestOperations;
   prompts!: PromptStore;
   retros!: RetroStore;
   pullRequests!: PullRequestStore;
@@ -140,6 +142,15 @@ export class ArtifactStore {
       await store.removePlanFeedback();
       await store.convertLegacyPlans();
       await store.pullRequests.recoverInterruptedSync();
+      store.guestOperations = new GuestOperations({
+        sql,
+        run: (effect) => store.run(effect),
+        mutate: (effect, events) => store.mutate(effect, events),
+        changed: () => {
+          for (const listener of store.listeners) listener();
+        },
+      });
+      await store.guestOperations.initialize();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -222,7 +233,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 16) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 17) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");
@@ -396,7 +407,8 @@ export class ArtifactStore {
         Effect.gen(function* () {
           yield* sql`UPDATE artifacts SET document = json_set(document, '$.kind', 'html') WHERE json_extract(document, '$.kind') = 'plan' AND json_extract(document, '$.mediaType') = 'text/html'`;
           yield* sql`UPDATE live_tabs SET document = json_set(document, '$.type', 'file') WHERE json_extract(document, '$.type') = 'plan' AND artifact_id IN (SELECT id FROM artifacts WHERE json_extract(document, '$.kind') = 'html')`;
-          yield* sql`PRAGMA user_version = 16`;
+          const [{ user_version }] = yield* sql<{ user_version: number }>`PRAGMA user_version`;
+          if (user_version < 16) yield* sql`PRAGMA user_version = 16`;
         }),
       ),
     );
@@ -614,40 +626,8 @@ export class ArtifactStore {
     return removed.map((row) => row.id);
   }
 
-  /** One SQLite statement keeps lifecycle, publication and content completeness consistent. */
-  async guestSources(): Promise<GuestSource[]> {
-    const rows = await this.run(this.sql<{
-      id: string;
-      document: string | null;
-      artifact: string | null;
-      folder: string | null;
-    }>`SELECT t.id, t.document, a.document AS artifact, f.tab_id AS folder
-      FROM live_tabs t
-      LEFT JOIN artifacts a ON a.tab_id = t.id AND a.id = t.artifact_id
-      LEFT JOIN tab_blobs r ON r.tab_id = t.id AND r.blob_id = a.blob_id
-      LEFT JOIN blobs b ON b.id = r.blob_id
-      LEFT JOIN folder_tabs f ON f.tab_id = t.id
-      WHERE t.trashed_at IS NULL AND ((a.id IS NOT NULL AND b.id IS NOT NULL) OR
-        (t.opened = 1 AND f.tab_id IS NOT NULL)) ORDER BY t.id`);
-    const sources: GuestSource[] = [];
-    for (const row of rows) {
-      const tab = row.document ? decode(Tab, JSON.parse(row.document)) : undefined;
-      const artifact = row.artifact ? decode(Artifact, JSON.parse(row.artifact)) : undefined;
-      const kind = guestSourceKind(tab, artifact);
-      if (!kind || (kind === "folder" && !row.folder)) continue;
-      // Source provenance can contain filesystem paths; guests need only display/content metadata.
-      const { source: _source, ...metadata } = artifact ?? {};
-      sources.push({
-        sourceTabId: row.id,
-        title: artifact?.title ?? tab!.title,
-        kind,
-        version: 1,
-        ...(artifact ? { artifact: metadata as Artifact } : {}),
-      });
-    }
-    if (sources.length > GUEST_CATALOG_LIMIT)
-      throw new Error("Too many shared tabs. The catalog could not be refreshed.");
-    return sources;
+  guestSources() {
+    return this.run(guestSources(this.sql));
   }
 
   async tabs(): Promise<readonly LiveTab[]> {

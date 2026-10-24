@@ -586,3 +586,48 @@ These fields contain only receiver preferences, never owner bytes or source
 edits. Older builds ignore the optional fields and may lose those preferences
 when saving; no database schema version changes. Hidden guest UUIDs remain
 reopenable after restart, and owner restore reuses the same reference.
+
+## Guest changes and recoverable input
+
+Artifact schema 17 adds `live_tabs.guest_version` and source-version triggers.
+The additive `guest_operations` table in `scope.db` stores caller-bound prepared
+identities, payload digests, expiry and outcomes. A terminal outcome and its source
+mutation commit in the same transaction. Receipt records survive source deletion.
+The `guest_clock` lifecycle counter retains the maximum observed owner time.
+Receipts expire after 48 hours; a 4096-receipt limit rejects preparation rather
+than evicting live outcomes. An older desktop cannot open artifact schema 17.
+
+Receiver `desktop.db` adds `guest_recovery`. Action drafts and HTML field input
+are qualified by guest UUID, owner device, source UUID and publication revision;
+HTML also records the blob identity. These are not imported artifacts or an
+HTML cache. Each input record allows 64 fields, 8192 characters per value and
+64 KiB encoded JSON. The combined draft budget is 16 MiB and 4096 records.
+Failures remain visible and participate in the existing close/quit save barrier.
+Scope does not truncate or automatically evict input. Explicit discard removes it.
+
+Pending operations have a separate budget: at most four receiver operations,
+each up to 34 MiB encoded JSON, preserving the existing 32 MiB plan content
+limit independently of the form budget. The receiver saves its submitted input,
+owner target, expected versions, operation identity and outcome before dispatch.
+These records persist through restart and block further changes to the same guest
+until status and the current owner source are reconciled. They are recovery input,
+not an offline write queue; reconnect never dispatches them automatically.
+
+HTML recovery covers edited ordinary input, textarea and select controls with a
+unique ID, name or accessible label. Password, file, hidden, email, telephone,
+autocomplete credential/payment/identity fields, sensitive identifiers,
+`data-scope-recovery="off"`, contenteditable, script state, ambiguous identifiers
+and cross-origin documents are excluded. Restore is explicit and requires the
+same owner, source, revision and blob; it assigns values without submitting forms
+or firing authored input handlers. Changed revisions retain old values for copy
+or discard. Arbitrary HTML runtime state and DOM bytes are never serialized.
+Interactive HTML remains trusted and can make network requests independently.
+
+Form recovery remains accessible when the owner replaces HTML with another
+revision or content type. Unsaved working values stay in the guest's current
+window, including values exceeding storage limits. They are labelled unsaved
+and can be copied or explicitly discarded; they are not restart-durable until
+the bounded recovery write succeeds. Discard waits for earlier writes and
+prevents queued snapshots from restoring discarded input. Retention and source
+Trashcan changes preserve unsubmitted title drafts. A completed matching rename
+or explicit title discard clears that title draft.

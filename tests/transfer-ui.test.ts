@@ -1,3 +1,4 @@
+import { guestMutationChecks } from "./guest-mutation-checks.ts";
 import { guestConnectionChecks } from "./guest-connection-fixture.ts";
 import { expect, test } from "vite-plus/test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -150,7 +151,7 @@ test(
       "no-lost-updates",
       "deletion-is-final",
     ],
-    timeout: 180_000,
+    timeout: 420_000,
   },
   async () => {
     const f = await desktopFixture({ hideInitialPrompts: true });
@@ -247,6 +248,7 @@ test(
       await rm(f.directory, { recursive: true, force: true });
     }
     await guestConnectionChecks();
+    await guestMutationChecks();
   },
 );
 

@@ -54,6 +54,8 @@ export const GuestSource = Schema.Struct({
   kind: Schema.Literals(["file", "plan", "folder"]),
   version: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 1000 })),
   artifact: Schema.optionalKey(Artifact),
+  sourceVersion: Schema.optionalKey(Revision),
+  permanent: Schema.optionalKey(Schema.Boolean),
 });
 export type GuestSource = typeof GuestSource.Type;
 export const GuestCatalog = Schema.Struct({

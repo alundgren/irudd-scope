@@ -18,7 +18,8 @@
     "./plan": "./src/plan.ts",
     "./folder": "./src/folder.ts",
     "./guest": "./src/guest.ts",
-    "./folder-operation": "./src/folder-operation.ts"
+    "./folder-operation": "./src/folder-operation.ts",
+    "./guest-operation": "./src/guest-operation.ts"
   },
   "dependencies": {
     "effect": "catalog:"

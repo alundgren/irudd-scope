@@ -17,8 +17,11 @@ their guest view. Unavailable sources show a status message and hide the documen
 from interaction. Offline, disabled, unpaired and incompatible connections have
 distinct recovery advice. An absent source may have expired, moved to Trashcan,
 or become ineligible; checking the source belongs on its owner.
-Close hides a guest locally; guests have no local
-bookmark, Send tab or Trashcan action.
+Close hides a guest locally; guests have no local bookmark, Send tab or Trashcan action.
+Source actions name the owner and separately offer source title changes, retention
+and moving the source to the owner’s Trashcan. Stale changes retain entered input
+and show the current owner revision. Uncertain operations block further source
+changes until status and current source are reviewed; reconnect does not resend writes.
 Failed guest content reads offer Retry content in the tab. Retrying does not
 require closing the tab or changing the source revision. Successfully loaded
 views retain their interactive state when hidden and reopened. Mixed local/guest
@@ -29,9 +32,12 @@ selection from the current tab. Guest visibility does not extend owner retention
 During temporary unavailability, loaded HTML stays mounted but hidden and inert.
 A current accepted catalog for the same owner, source, revision and blob is required
 before showing it again. A changed revision loads current owner bytes. Hidden HTML
-is still trusted executable content; hiding does not suspend scripts. Form and
-runtime input is preserved in memory for the same document, not across application
-restart or source replacement. Scope stores no persistent guest HTML snapshot.
+is still trusted executable content; hiding does not suspend scripts. Runtime state remains in memory only. Supported edited form fields have separate
+bounded receiver recovery records and survive restart. Restore saved fields is
+explicit and requires the same owner, source, revision and blob. Changed documents
+keep old input available for copy or discard. Passwords, files, sensitive fields,
+ambiguous identifiers and arbitrary script state are excluded; unsupported fields
+never promise persistence. Scope stores no persistent guest HTML snapshot.
 
 Other Scopes explains that transfers require Tailcat installed separately on
 each device. Scope has no installer or installation action; a missing CLI produces

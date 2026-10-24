@@ -157,6 +157,15 @@ export class DesktopLifecycle {
     });
   }
 
+  async guestSourceChanged(id: string): Promise<void> {
+    const tab = (await this.artifacts.tabs()).find((row) => row.id === id);
+    if (!tab || tab.trashed_at !== null) {
+      this.onRemoved([id]);
+      this.onClosed([id]);
+    }
+    await this.notifyRetention();
+  }
+
   private async notifyRetention(): Promise<void> {
     this.onRetentionChanged(await this.artifacts.retainedTabs());
   }

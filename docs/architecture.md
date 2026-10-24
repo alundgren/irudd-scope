@@ -983,3 +983,15 @@ content reads and catalog acceptance are tied to the authenticated session;
 revocation invalidates late replies. Rendering also checks owner, source, revision
 and blob before presenting retained content. Visibility reports only affect local
 source retention, never the other desktop's records.
+
+Guest mutation routes live in `guest/mutations.ts`. They validate explicit owner
+targets and named actions, bind operation identity to the authenticated caller,
+and save receiver dispatch/input records before network execution. The owner
+`library/guest-operations.ts` commits each SQLite-owned source change and terminal
+receipt in one `scope.db` transaction. Source versions observe publication and
+lifecycle writes, including local API writes, without observing reading state.
+`guest/recovery.ts` owns separately bounded receiver recovery records in
+`desktop.db`; `guest/actions.tsx` and `guest/html-recovery.tsx` use the existing
+workspace flush barrier. Recovery notifications update mounted controls without
+marking an entire workspace saved after a partial write. Filesystem mutation
+receipts remain owned by the actual folder host.

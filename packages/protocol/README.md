@@ -1016,3 +1016,53 @@ checks byte count and SHA-256 against the requested metadata. Plan content
 retains the original structured document; the current guest UI shows an update
 requirement until its native view is available. Unknown catalog versions or
 kinds also require an update and never fall back to ordinary HTML.
+
+### Guest source operations
+
+Guest peers negotiate `mutations-v1`. The catalog's optional `sourceVersion`
+tracks source publication, title, permanence and trash/restore changes; ordinary
+reading, selection, hiding and scrolling do not advance it. Older catalogs remain
+readable and require an update for source actions. Targets always include
+`ownerDeviceId` and `sourceTabId`; names and artifact IDs alone cannot select a
+remote owner.
+
+`@irudd-scope/protocol/guest-operation` defines file/plan actions: `rename`, `retention`,
+`trash`, `replace-plan` and `capture-basis` actions. Changes include the expected
+source version and publication revision (zero for a source without an artifact).
+Plan replacement and basis capture use the owner's current document and the same
+validation and immutable-record rules as ordinary plan publication.
+
+The local authenticated desktop API accepts POST JSON at:
+
+- `/v1/guests/source`: `GuestTarget`, returning the current `GuestSource` or null.
+  This provides the expected source version and publication revision for a new change.
+- `/v1/guests/read`: `GuestRead`, returning `{ artifact, content }` from the owner.
+- `/v1/guests/prepare`: `GuestChange`, returning `GuestOperation` after the owner
+  allocates an identity and the receiver durably saves the input and identity.
+- `/v1/guests/execute`: `{ target, operationId, digest }`. The receiver persists
+  dispatch before sending the immutable operation. A second dispatch is rejected.
+- `/v1/guests/status`: `{ target, operationId, digest }`, returning `GuestOutcome`.
+  **Status settles a still-prepared operation as rejected.** That settlement and
+  execution serialize in the owner database; a delayed execute cannot follow a
+  definitive no-write outcome. Status is valid for a previously committed source
+  Trashcan action even when the source is no longer shared.
+- `/v1/guests/reconcile`: the same identity, returning `{ outcome, source }` after
+  settling status and reading the current authoritative source (or null when no
+  longer shared). It releases the receiver's dependent-write block. Starting any
+  new change remains an explicit caller action.
+
+The peer routes are `mutation-prepare`, `mutation-execute`, `mutation-status`
+and `mutation-source` under `/guest/`; they require mutual consent and negotiated
+capability. There is no arbitrary IPC, plugin callback, path or publishing-token
+forwarding. Authentication supplies the caller identity, never the request body.
+Source eligibility is checked inside execution. Receipt lookup requires current
+peer authorization but does not require the source to survive.
+
+The owner retains at most 4096 receipts for 48 hours. Live receipts are never
+evicted; preparation fails at capacity and reclaims expired rows. A persisted maximum wall-clock value
+prevents clock rollback from extending receipts; forward clock changes may expire
+them. Execution never inserts a missing receipt, so unknown, expired and deleted
+IDs cannot execute again. A lost reply requires same-ID status, never a fresh ID
+or blind replay. Unknown outcomes retain receiver input until explicit current
+source reconciliation. These transactions cover SQLite-owned data only; folder
+filesystem writes use the separate host operation protocol.

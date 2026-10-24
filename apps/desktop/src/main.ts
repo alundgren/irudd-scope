@@ -1,3 +1,4 @@
+import { GuestMutations } from "./guest/mutations.ts";
 import { GuestCatalogs } from "./guest/catalog.ts";
 import { initializeBuiltinPlugins } from "./plugins/registry.main.ts";
 import { VoiceService } from "./voice/service.ts";
@@ -82,6 +83,7 @@ async function main() {
   let transfers: TabTransfers | undefined;
   let memory: MemoryService | undefined;
   let librarian: LibrarianService | undefined;
+  let guestMutations: GuestMutations | undefined;
   let folderCommand: ReturnType<typeof registerDesktopIpc>["folderCommand"] | undefined;
   let watchFolder: ReturnType<typeof registerDesktopIpc>["watchFolder"] | undefined;
   const startedMemory = () => {
@@ -92,6 +94,10 @@ async function main() {
     librarian: (command) => {
       if (!librarian) throw new ScopeError(503, "Scope is still starting. Retry shortly.");
       return librarian.command(command);
+    },
+    guestCommand: (route, input) => {
+      if (!guestMutations) throw new Error("Guest operations are not ready.");
+      return guestMutations.command(route, input);
     },
     importLink: (url) => {
       if (!transfers)
@@ -164,12 +170,16 @@ async function main() {
       relaunchCommand: `"${join(installation.root, "Scope.exe")}"`,
       relaunchDisplayName: "Scope",
     });
+  store.guestRecovery.onChanged = (id) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:guest-recovery-changed", id);
+  };
   transferLinks.attach(window);
   transfers = new TabTransfers(store, lifecycle!, new TailcatCliTransport());
   const guests = new GuestConnections(store);
   const guestCatalogs = new GuestCatalogs(guests, store, artifacts.store, (view) => {
     if (!window.isDestroyed()) window.webContents.send("scope:guest-catalog-changed", view);
   });
+  guestMutations = new GuestMutations(guests, store, artifacts.store, guestCatalogs, lifecycle!);
   await guests.start();
   await guestCatalogs.start();
   if (process.platform === "darwin") window.setWindowButtonVisibility(false);
@@ -229,6 +239,7 @@ async function main() {
     transfers,
     guests,
     guestCatalogs,
+    guestMutations,
     setSketchpadMenu,
     onRestartToUpdate: async () => {
       if (updates.snapshot().phase !== "ready") throw new Error("No update is ready.");
@@ -296,6 +307,7 @@ async function main() {
     desktopIpc.dispose();
     externalLinks.dispose();
     library.close();
+    await guestMutations?.close();
     await guestCatalogs.close();
     await guests.close();
     await transfers?.close();

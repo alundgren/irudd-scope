@@ -1,3 +1,5 @@
+import { GuestActions } from "../guest/actions.tsx";
+import { GuestHtmlRecovery } from "../guest/html-recovery.tsx";
 import type { GuestCatalogView, GuestRecord } from "../guest/contract.ts";
 import { Component, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
@@ -93,19 +95,32 @@ export function TabHost({
       : undefined;
   if (["file", "retro", "sketchpad", "folder", "guest"].includes(tab.type) && !active && !visited)
     return null;
+  const withRecovery = (view: ReactNode) =>
+    tab.type === "guest" && guest ? (
+      <>
+        {guest.source.kind !== "folder" && (
+          <GuestActions record={guest} owner={guestOwner} available={guestAvailable === true} />
+        )}
+        <GuestHtmlRecovery record={guest} available={guestAvailable === true}>
+          {view}
+        </GuestHtmlRecovery>
+      </>
+    ) : (
+      view
+    );
   if (!plugin)
-    return (
+    return withRecovery(
       <p role="status" className="empty-state">
         {notice ?? "This tab type is unavailable. Its saved data is still available."}
-      </p>
+      </p>,
     );
   try {
     validateTabState(tab);
   } catch {
-    return (
+    return withRecovery(
       <p role="alert" className="empty-state">
         This tab's saved state cannot be opened by this version of Scope.
-      </p>
+      </p>,
     );
   }
   const View = plugin.View;
@@ -147,7 +162,7 @@ export function TabHost({
     </TabErrorBoundary>
   );
   if (tab.type !== "guest") return view;
-  return (
+  const guestView = (
     <>
       {notice && (
         <p role="status" className="empty-state">
@@ -159,4 +174,5 @@ export function TabHost({
       </div>
     </>
   );
+  return withRecovery(guestView);
 }
