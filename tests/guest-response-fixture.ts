@@ -12,6 +12,8 @@ export async function guestResponseFixture() {
   let waiting: (() => void) | undefined;
   let catalogRequests = 0;
   let heldReads = 0;
+  let contentReads = 0;
+  let failContent = false;
   const server = createServer((request, response) => {
     if (request.url === "/resource.js") {
       response.writeHead(200, { "Content-Type": "text/javascript" });
@@ -29,6 +31,15 @@ export async function guestResponseFixture() {
       (incoming) => {
         const catalog = request.url === "/guest/catalog" && incoming.statusCode === 200;
         const content = request.url === "/guest/artifact-content" && incoming.statusCode === 200;
+        if (content) {
+          contentReads++;
+          if (failContent) {
+            failContent = false;
+            incoming.resume();
+            response.destroy();
+            return;
+          }
+        }
         if (!catalog && !(content && holdContent)) {
           response.writeHead(incoming.statusCode!, incoming.headers);
           incoming.pipe(response);
@@ -107,6 +118,12 @@ export async function guestResponseFixture() {
     },
     requests() {
       return catalogRequests;
+    },
+    failNextContent() {
+      failContent = true;
+    },
+    reads() {
+      return contentReads;
     },
     release() {
       holdContent = false;

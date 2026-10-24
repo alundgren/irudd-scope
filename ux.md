@@ -16,6 +16,9 @@ folders preserve their kind and show an update requirement in builds without
 their guest view. Unavailable sources show a status message without retaining
 an interactive old document. Close hides a guest locally; guests have no local
 bookmark, Send tab or Trashcan action.
+Failed guest content reads offer Retry content in the tab. Retrying does not
+require closing the tab or changing the source revision. Successfully loaded
+views retain their interactive state when hidden and reopened.
 
 Other Scopes explains that transfers require Tailcat installed separately on
 each device. Scope has no installer or installation action; a missing CLI produces

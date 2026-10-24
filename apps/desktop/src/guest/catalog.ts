@@ -365,10 +365,7 @@ export class GuestCatalogs {
       })
       .catch((error) => {
         throw new Error(
-          guestFailure(
-            error,
-            "Could not read current content from the owner. Reconnect or reopen this tab.",
-          ),
+          guestFailure(error, "Could not read current content from the owner. Try again."),
         );
       });
     try {
@@ -386,10 +383,7 @@ export class GuestCatalogs {
       return { artifact, bytes: content };
     } catch (error) {
       throw new Error(
-        guestFailure(
-          error,
-          "Could not read current content from the owner. Reconnect or reopen this tab.",
-        ),
+        guestFailure(error, "Could not read current content from the owner. Try again."),
       );
     } finally {
       response.body.destroy();

@@ -192,9 +192,27 @@ export async function guestCatalogChecks({
             .then((workspace) => workspace?.tabs.some((tab) => tab.id === guestId)),
         )
         .toBe(true);
+      responses.failNextContent();
+      const contentReads = responses.reads();
       await select(guestId);
       const pane = pageB.locator(".artifact-pane:not([hidden])");
       await pane.getByText("Shared by", { exact: false }).waitFor();
+      await pane.getByRole("alert").waitFor();
+      expect(responses.reads()).toBe(contentReads + 1);
+      const catalogRequests = responses.requests();
+      // The content retry must work while catalog polls succeed at the unchanged source revision.
+      await expect
+        .poll(() => responses.requests(), { timeout: 25000 })
+        .toBeGreaterThan(catalogRequests);
+      const afterFailure = await source();
+      expect(afterFailure.available).toContain(guestId);
+      expect(
+        afterFailure.records.find((entry) => entry.tab.id === guestId)?.source.artifact?.revision,
+      ).toBe(current.revision);
+      await capture("guest-content-retry.png");
+      await pane
+        .getByRole("button", { name: "Retry content", exact: true })
+        .click({ timeout: 3000 });
       const frame = pane.locator("iframe").contentFrame();
       await frame.getByRole("button", { name: "Try guest" }).click();
       await frame.getByRole("button", { name: "Clicked" }).waitFor();
@@ -202,6 +220,17 @@ export async function guestCatalogChecks({
         .poll(() => frame.locator("body").getAttribute("data-external-resource"))
         .toBe("loaded");
       await frame.getByLabel("Local draft").fill("Receiver navigation remains local");
+      expect(responses.reads()).toBe(contentReads + 2);
+      await pageB
+        .locator(".artifact-tab.selected")
+        .getByRole("button", { name: "Close Same title", exact: true })
+        .click();
+      await select(guestId);
+      expect(await frame.getByLabel("Local draft").inputValue()).toBe(
+        "Receiver navigation remains local",
+      );
+      await frame.getByRole("button", { name: "Clicked" }).waitFor();
+      expect(responses.reads()).toBe(contentReads + 2);
       await capture("guest-html-light.png");
       await pageB.getByRole("button", { name: "Search and controls" }).click();
       await pageB.getByRole("button", { name: "Settings", exact: true }).click();

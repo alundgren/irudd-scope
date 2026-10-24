@@ -2,6 +2,7 @@ import type { OwnerContent } from "../plugins/api.ts";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { ArtifactContent } from "../bridge.ts";
+import { Button } from "../renderer/components/ui/button.tsx";
 
 export function PublishedContent({
   artifact,
@@ -14,6 +15,7 @@ export function PublishedContent({
 }) {
   const [item, setItem] = useState<ArtifactContent>();
   const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     if (!artifact) return;
     let active = true;
@@ -36,12 +38,17 @@ export function PublishedContent({
     return () => {
       active = false;
     };
-  }, [artifact?.id, artifact?.revision, content]);
+  }, [artifact?.id, artifact?.revision, content, retry]);
   if (error && !item)
     return (
-      <p className="empty-state" role="alert">
-        {error}
-      </p>
+      <div className="empty-state" role="alert">
+        <p>{error}</p>
+        {content && (
+          <Button variant="secondary" size="sm" onClick={() => setRetry((value) => value + 1)}>
+            Retry content
+          </Button>
+        )}
+      </div>
     );
   if (!item)
     return (
