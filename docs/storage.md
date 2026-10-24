@@ -631,3 +631,33 @@ the bounded recovery write succeeds. Discard waits for earlier writes and
 prevents queued snapshots from restoring discarded input. Retention and source
 Trashcan changes preserve unsubmitted title drafts. A completed matching rename
 or explicit title discard clears that title draft.
+
+Folder guest navigation is saved under the guest tab's `state.data.folder` in
+`desktop.db`, containing expanded directories, filter, ignored-file preference,
+selection and preview line selection. It contains no owner root or file contents.
+
+The `folder` kind in `guest_recovery` retains at most 32 pending folder operations,
+each limited to 32 KiB. It records the guest target, source version, exact host
+operation request, original upload path and device/inode identity, and the last
+observed host outcome. The original file remains on its filesystem. This budget
+is separate from form input and artifact operations; either pending operation
+blocks further writes to its guest. Input is saved before dispatch and survives
+restart. Reconnection does not resend it. A changed or missing original file must
+be selected again. Explicit status and fresh listings precede clearing recovery;
+an unknown outcome requires inspecting the destination and an explicit decision.
+Receiver execution and recovery release share a per-tab exclusion through
+execution cleanup or release's status/list/delete sequence. Active requests cannot
+lose their recovery record through release. The desktop release IPC names the
+exact operation and, for an uncertain outcome, the outcome the person inspected.
+If fresh status becomes uncertain or changes from that acknowledgement, recovery
+remains until a new explicit inspection decision. Execution activity is transient
+and is not stored in the recovery document.
+
+The additive `guest_folder_routes` table records owner routing bindings for at
+most 4096 operations during the host's 48-hour retention window. A binding fixes
+the authenticated caller, source target, command and original local or remote
+FolderIdentity before execution. It contains no credentials or file bytes and
+is not an operation receipt. Status requires current peer authorization and
+queries that original host even when the source tab has been trashed. Missing
+bindings return unknown without executing anything. Existing database schema
+versions and artifact/form recovery formats remain unchanged.

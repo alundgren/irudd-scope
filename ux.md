@@ -431,6 +431,26 @@ until dismissed. If a dropped file's path leads to a different file by the time 
 it, for example because it was replaced while Scope asked, it is not copied and
 the row says to drop it again. Edits to the same file are copied.
 
+Guest folders use the same tree, filter, search, previews, replacement questions,
+save dialog and progress controls through their owner. Their header identifies
+the owning Scope and its remote, without showing the owner's root as a local
+path. Copy path on a guest file copies its relative path. New folder creates a
+relative directory through the owner. Reading and selection stay local to the
+receiver and survive restart independently of the owner's navigation.
+
+A pending or interrupted guest write retains its original file reference and
+shows Check upload status. It never retries automatically. Conflicts preserve
+the original input. A recorded outcome can be cleared after refreshing the
+folder; an unknown outcome requires checking the destination and an explicit
+acknowledgement. Recovery remains visible while the owner is unavailable.
+Status can be checked while an upload or directory request runs, but its recovery
+cannot be cleared until the request and cleanup stop. If a recorded result has
+expired or becomes unknown when clearing, Scope keeps recovery and requires the
+new destination-inspection action; the previous normal clear action does not
+authorize that decision.
+Updating an older peer or hub is required for unsupported operations. A hub-only
+outage does not make other folders or owner artifacts unavailable.
+
 ## Sketchpad
 
 The Sketchpad is one built-in Excalidraw canvas for the person's own ideas.

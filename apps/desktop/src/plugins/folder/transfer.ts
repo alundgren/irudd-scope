@@ -1,8 +1,11 @@
-import { randomUUID } from "node:crypto";
+import type { GuestTarget } from "@irudd-scope/protocol/guest-operation";
+import type { FolderOperationRequest } from "@irudd-scope/protocol/folder-operation";
+import type { GuestRecoveryStore } from "../../guest/recovery.ts";
+import { createHash, randomUUID } from "node:crypto";
 import { constants, createWriteStream } from "node:fs";
 import { lstat, open, readdir, realpath, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { Transform, pipeline as pipe } from "node:stream";
+import { Readable, Transform, pipeline as pipe } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { app, clipboard, dialog, Menu, shell, type BrowserWindow } from "electron";
 import { Schema } from "effect";
@@ -62,6 +65,7 @@ type DropItem = {
   path: string;
   size: number;
   file?: Identity;
+  version?: string;
 };
 type Plan = {
   tabId: string;
@@ -70,8 +74,14 @@ type Plan = {
   pending: Set<string>;
   written: string[];
   timer: ReturnType<typeof setTimeout>;
+  sourceVersion?: number;
 };
-type Folder = { identity: FolderIdentity; source: FolderSource };
+type Folder = {
+  identity: FolderIdentity;
+  source: FolderSource;
+  guest?: GuestTarget;
+  sourceVersion?: number;
+};
 
 const message = (error: unknown) =>
   error instanceof Error ? error.message : "The transfer did not finish.";
@@ -241,9 +251,11 @@ export function registerFolderTransfers({
   window,
   folder,
   notifyWatchers,
+  recovery,
 }: {
   handle: (channel: string, action: (input: unknown) => unknown) => void;
   window: BrowserWindow;
+  recovery: GuestRecoveryStore;
   folder: (tabId: string) => Promise<Folder>;
   notifyWatchers: (tabId: string, event: FolderWatchEvent) => void;
 }) {
@@ -319,13 +331,24 @@ export function registerFolderTransfers({
   handle("scope:folder-drop-prepare", async (input): Promise<FolderDropPlan> => {
     const request = decode(DropRequest, input);
     try {
-      const { source } = await folder(request.tabId);
+      const current = await folder(request.tabId);
+      const { source } = current;
+      if (
+        current.guest &&
+        ((await recovery.folderRead(request.tabId)) || (await recovery.read(request.tabId)).pending)
+      )
+        throw new Error("Check the saved folder operation before uploading again.");
       const items = await dropItems(request.paths, request.target);
       const found = await existing(
         source,
         items.map((item) => item.path),
         AbortSignal.timeout(60_000),
       );
+      if (current.guest)
+        for (const item of items)
+          item.version = item.file
+            ? await source.operations.version(item.path, AbortSignal.timeout(60_000))
+            : "missing";
       // A second dropped file with the same name as an earlier one clashes with it too.
       const seen = new Set<string>();
       const clashes: FolderDropClash[] = [];
@@ -337,6 +360,7 @@ export function registerFolderTransfers({
       const planId = randomUUID();
       plans.set(planId, {
         tabId: request.tabId,
+        sourceVersion: current.sourceVersion,
         items,
         pending: new Set(items.map((item) => item.id)),
         written: [],
@@ -377,64 +401,172 @@ export function registerFolderTransfers({
     }
   }
 
+  async function guestCopy(
+    current: Folder,
+    tabId: string,
+    item: DropItem,
+    path: string,
+    replace: boolean,
+    progress: (bytes: number) => void,
+    signal: AbortSignal,
+  ) {
+    if ((await recovery.folderRead(tabId)) || (await recovery.read(tabId)).pending)
+      throw new Error("Check the saved folder operation before uploading again.");
+    const handle = item.file ? await openDropped(item) : undefined;
+    let body: Readable | undefined;
+    try {
+      const digest = createHash("sha256");
+      let size = 0;
+      if (handle) {
+        const chunk = Buffer.allocUnsafe(64 * 1024);
+        for (;;) {
+          signal.throwIfAborted();
+          const { bytesRead } = await handle.read(chunk, 0, chunk.length, size);
+          if (!bytesRead) break;
+          digest.update(chunk.subarray(0, bytesRead));
+          size += bytesRead;
+        }
+      }
+      signal.throwIfAborted();
+      const operation: FolderOperationRequest = {
+        version: 1,
+        requestId: `${Date.now()}:${randomUUID()}`,
+        path,
+        kind: item.file ? "file" : "directory",
+        expectedVersion: replace ? item.version! : "missing",
+        replace,
+        payload: { size, sha256: digest.digest("hex") },
+      };
+      const pending = {
+        guestId: tabId,
+        write: { target: current.guest!, sourceVersion: current.sourceVersion!, operation },
+        ...(item.file ? { original: { path: item.source, ...item.file } } : {}),
+      };
+      await recovery.folderSave(pending);
+      body = handle
+        ? pipe(handle.createReadStream({ start: 0 }), counted(progress), () => {})
+        : Readable.from([]);
+      const outcome = await current.source.operations.execute("", operation, body, signal);
+      if (outcome.requestId !== operation.requestId)
+        throw new Error("The host returned a different operation identity.");
+      await recovery.folderSave({ ...pending, outcome });
+      if (outcome.state !== "completed")
+        throw new Error(
+          outcome.error?.code === "conflict"
+            ? "This file changed after replacement was offered. Your original file is saved in recovery. Check status and refresh before trying again."
+            : `The folder operation is ${outcome.state}. Check its saved status before trying again.`,
+        );
+      const refreshed = await folder(tabId);
+      await refreshed.source.list(
+        path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "",
+        true,
+        signal,
+      );
+      await recovery.folderClear(tabId, operation.requestId);
+      return path;
+    } finally {
+      body?.destroy();
+      await handle?.close().catch(() => {});
+    }
+  }
+
+  const starting = new Set<string>();
+  // Release and execution reserve synchronously, before either can await saved input.
+  async function exclusive<T>(tabId: string, run: () => Promise<T>): Promise<T> {
+    if (starting.has(tabId))
+      throw new Error(
+        "This folder request is still running. Wait until it stops before clearing recovery or starting another write.",
+      );
+    starting.add(tabId);
+    try {
+      return await run();
+    } finally {
+      starting.delete(tabId);
+      recovery.onChanged(tabId);
+    }
+  }
+  handle("scope:folder-create-directory", async (input) => {
+    const request = decode(FileRequest, input);
+    return exclusive(request.tabId, async () => {
+      const current = await folder(request.tabId);
+      if (!current.guest) throw new Error("Directory creation is available through guest folders.");
+      return await guestCopy(
+        current,
+        request.tabId,
+        { id: "0", source: "", path: request.path, size: 0, version: "missing" },
+        request.path,
+        false,
+        () => {},
+        AbortSignal.timeout(60_000),
+      );
+    });
+  });
   handle("scope:folder-drop-start", async (input): Promise<FolderDropResult> => {
     const request = decode(StartRequest, input);
     const plan = plans.get(request.planId);
     if (!plan) throw new Error("This drop is no longer available. Drop the files again.");
-    const { source } = await folder(plan.tabId);
-    const items = plan.items.filter((item) => plan.pending.has(item.id));
-    const written: string[] = [];
-    const directories: string[] = [];
-    const clashes: FolderDropClash[] = [];
-    const run = await track(
-      {
-        tabId: plan.tabId,
-        kind: "drop",
-        name:
-          items.length === 1
-            ? basename(items[0]!.path)
-            : `${items.filter((item) => item.file).length} files`,
-        total: items.reduce((total, item) => total + item.size, 0),
-      },
-      async (progress, signal) => {
-        for (const item of items) {
-          signal.throwIfAborted();
-          const choice = request.choices[item.id];
-          try {
-            const target =
-              choice === "keep" ? await freeName(source, item.path, signal) : item.path;
-            const path = await copyItem(
-              source,
-              item,
-              target,
-              choice === "replace",
-              progress,
-              signal,
-            );
-            written.push(path);
-            if (!item.file) directories.push(path);
-          } catch (error) {
-            // The name exists, for example because it appeared during the copy: ask again.
-            if (error instanceof FolderError && error.code === "exists") {
-              clashes.push({ id: item.id, path: item.path });
-              continue;
+    return exclusive(plan.tabId, async () => {
+      const current = await folder(plan.tabId);
+      const { source } = current;
+      if (current.guest && current.sourceVersion !== plan.sourceVersion)
+        throw new Error("The source changed. Drop the files again after refreshing.");
+      const items = plan.items.filter((item) => plan.pending.has(item.id));
+      const written: string[] = [];
+      const directories: string[] = [];
+      const clashes: FolderDropClash[] = [];
+      const run = await track(
+        {
+          tabId: plan.tabId,
+          kind: "drop",
+          name:
+            items.length === 1
+              ? basename(items[0]!.path)
+              : `${items.filter((item) => item.file).length} files`,
+          total: items.reduce((total, item) => total + item.size, 0),
+        },
+        async (progress, signal) => {
+          for (const item of items) {
+            signal.throwIfAborted();
+            const choice = request.choices[item.id];
+            try {
+              const target =
+                choice === "keep" ? await freeName(source, item.path, signal) : item.path;
+              const path = current.guest
+                ? await guestCopy(
+                    current,
+                    plan.tabId,
+                    item,
+                    target,
+                    choice === "replace",
+                    progress,
+                    signal,
+                  )
+                : await copyItem(source, item, target, choice === "replace", progress, signal);
+              written.push(path);
+              if (!item.file) directories.push(path);
+            } catch (error) {
+              // The name exists, for example because it appeared during the copy: ask again.
+              if (error instanceof FolderError && error.code === "exists") {
+                clashes.push({ id: item.id, path: item.path });
+                continue;
+              }
+              throw error;
             }
-            throw error;
+            plan.pending.delete(item.id);
           }
-          plan.pending.delete(item.id);
-        }
-      },
-    );
-    plan.written.push(...written);
-    const result: FolderDropResult = {
-      written,
-      directories,
-      clashes,
-      cancelled: run.state === "cancelled",
-      ...(run.message ? { failed: run.message } : {}),
-    };
-    if (!clashes.length || run.state !== "done") finish(request.planId);
-    return result;
+        },
+      );
+      plan.written.push(...written);
+      const result: FolderDropResult = {
+        written,
+        directories,
+        clashes,
+        cancelled: run.state === "cancelled",
+        ...(run.message ? { failed: run.message } : {}),
+      };
+      if (!clashes.length || run.state !== "done") finish(request.planId);
+      return result;
+    });
   });
   handle("scope:folder-drop-discard", (input) => finish(decode(Uuid, input)));
 
@@ -492,8 +624,9 @@ export function registerFolderTransfers({
   }
   handle("scope:folder-file-menu", async (input) => {
     const request = decode(MenuRequest, input);
-    const { identity } = await folder(request.tabId);
-    const local = identity.machineId === "local";
+    const current = await folder(request.tabId);
+    const { identity } = current;
+    const local = !current.guest && identity.machineId === "local";
     const failed = (error: unknown) =>
       report({
         id: randomUUID(),
@@ -514,7 +647,11 @@ export function registerFolderTransfers({
               click: () => void save(request.tabId, request.path).catch(failed),
             },
           ]),
-      { label: "Copy path", click: () => clipboard.writeText(absolute(identity, request.path)) },
+      {
+        label: "Copy path",
+        click: () =>
+          clipboard.writeText(current.guest ? request.path : absolute(identity, request.path)),
+      },
       ...(local
         ? [
             {
@@ -530,6 +667,8 @@ export function registerFolderTransfers({
   });
 
   return {
+    recoveryActive: (tabId: string) => starting.has(tabId),
+    releaseRecovery: exclusive,
     /** Cancels the transfers and forgets the drops of tabs that closed. */
     cancelTabs(ids: readonly string[]) {
       for (const { transfer, controller } of running.values())

@@ -13,6 +13,7 @@ import type { Theme } from "../renderer/appearance.ts";
 import type { TabEvents } from "./events.ts";
 
 export type OwnerContent = {
+  ownerName?: string;
   ownerDeviceId: string;
   sourceTabId: string;
   available: boolean;

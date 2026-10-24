@@ -1,4 +1,8 @@
 import type {
+  GuestFolderRecoveryView,
+  GuestFolderRelease,
+} from "./guest/folder-recovery-contract.ts";
+import type {
   GuestChange,
   GuestOperation,
   GuestOperationIdentity,
@@ -89,6 +93,12 @@ export type ScopeBridge = {
   onGuestCatalogChanged: (listener: (view: GuestCatalogView) => void) => () => void;
   guestContent: (id: string, revision: number) => Promise<ArtifactContent>;
   guestDownload: (id: string, revision: number) => Promise<boolean>;
+  guestFolderInfo: (id: string) => Promise<{ machine: string }>;
+  guestFolderRecovery: (id: string) => Promise<GuestFolderRecoveryView | undefined>;
+  guestFolderStatus: (id: string) => Promise<GuestFolderRecoveryView | undefined>;
+  guestFolderRelease: (input: GuestFolderRelease) => Promise<void>;
+  guestFolderCopyOriginal: (id: string) => Promise<void>;
+  createFolderDirectory: (input: { tabId: string; path: string }) => Promise<string>;
   folderList: (input: {
     tabId: string;
     path: string;
