@@ -166,7 +166,11 @@ export async function guestCloseFailureChecks(page: Page, settingsDirectory: str
       .get(),
   });
   const tab = page.locator(`#tab-${id}`);
-  const close = () => tab.getByRole("button", { name: /^Close / }).click();
+  const close = () =>
+    page
+      .locator(".artifact-tab.selected")
+      .getByRole("button", { name: /^Close / })
+      .click();
   const reject = () =>
     database.exec(`CREATE TRIGGER reject_guest_close BEFORE UPDATE ON preferences
     WHEN NEW.name = 'workspace_layout'
@@ -223,7 +227,8 @@ export async function guestCloseFailureChecks(page: Page, settingsDirectory: str
       )
       .toBe(false);
     await tab.focus();
-    for (let i = 0; i < 3; i++) await page.keyboard.press("Alt+ArrowLeft");
+    const tabCount = (await page.evaluate(() => window.scope.workspace()))!.tabs.length;
+    for (let i = 0; i < tabCount; i++) await page.keyboard.press("Alt+ArrowLeft");
     await expect
       .poll(
         async () =>
