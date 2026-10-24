@@ -50,6 +50,18 @@ export function GuestActions({
   );
   useEffect(() => {
     let live = true;
+    const remove = window.scope.onGuestRecoveryChanged((id) => {
+      if (id === record.tab.id)
+        void window.scope
+          .guestRecovery(id)
+          .then((recovery) => {
+            if (live) {
+              setPending(recovery.pending);
+              setDraft(recovery.inputs.filter((input) => input.kind === "action").at(-1));
+            }
+          })
+          .catch(() => setError("Could not refresh saved recovery data."));
+    });
     void window.scope
       .guestRecovery(record.tab.id)
       .then((recovery) => {
@@ -70,6 +82,7 @@ export function GuestActions({
       });
     return () => {
       live = false;
+      remove();
     };
   }, [record.tab.id]);
   useEffect(() => {
@@ -179,7 +192,7 @@ export function GuestActions({
           <Input
             aria-label="Source title"
             value={title}
-            disabled={!loaded || busy || !!pending}
+            disabled={!available || !loaded || busy || !!pending}
             onChange={(event) => {
               changed.current = true;
               setTitle(event.target.value);

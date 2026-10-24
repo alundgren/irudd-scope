@@ -97,9 +97,14 @@ export function TabHost({
     return null;
   if (!plugin)
     return (
-      <p role="status" className="empty-state">
-        {notice ?? "This tab type is unavailable. Its saved data is still available."}
-      </p>
+      <>
+        {guest && (
+          <GuestActions record={guest} owner={guestOwner} available={guestAvailable === true} />
+        )}
+        <p role="status" className="empty-state">
+          {notice ?? "This tab type is unavailable. Its saved data is still available."}
+        </p>
+      </>
     );
   try {
     validateTabState(tab);

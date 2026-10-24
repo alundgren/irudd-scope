@@ -218,9 +218,10 @@ export class GuestOperations {
 function resolve(
   row: Row | undefined,
   caller: string,
-  identity: GuestOperationIdentity,
+  input: GuestOperationIdentity,
   now: number,
 ): GuestOutcome {
+  const identity = { operationId: input.operationId, digest: input.digest };
   if (!row)
     return {
       ...identity,

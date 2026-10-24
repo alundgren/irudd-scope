@@ -44,11 +44,24 @@ function subscribe<T>(channel: string, listener: (value: T) => void) {
 const bridge: ScopeBridge = {
   guestPrepare: (change) => ipcRenderer.invoke("scope:guest-prepare", change),
   guestExecute: (target, identity) =>
-    ipcRenderer.invoke("scope:guest-execute", { target, ...identity }),
+    ipcRenderer.invoke("scope:guest-execute", {
+      target,
+      operationId: identity.operationId,
+      digest: identity.digest,
+    }),
   guestOperationStatus: (target, identity) =>
-    ipcRenderer.invoke("scope:guest-operation-status", { target, ...identity }),
+    ipcRenderer.invoke("scope:guest-operation-status", {
+      target,
+      operationId: identity.operationId,
+      digest: identity.digest,
+    }),
   guestReconcile: (target, identity) =>
-    ipcRenderer.invoke("scope:guest-reconcile", { target, ...identity }),
+    ipcRenderer.invoke("scope:guest-reconcile", {
+      target,
+      operationId: identity.operationId,
+      digest: identity.digest,
+    }),
+  onGuestRecoveryChanged: (listener) => subscribe("scope:guest-recovery-changed", listener),
   guestRecovery: (id) => ipcRenderer.invoke("scope:guest-recovery", id),
   saveGuestInput: (input) => ipcRenderer.invoke("scope:save-guest-input", input),
   discardGuestInput: (id, kind, revision) =>

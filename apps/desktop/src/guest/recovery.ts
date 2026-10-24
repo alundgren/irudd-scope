@@ -9,6 +9,7 @@ type Storage = {
   enqueue: <A>(action: () => Promise<A>) => Promise<A>;
 };
 export class GuestRecoveryStore {
+  onChanged: (id: string) => void = () => {};
   constructor(private readonly storage: Storage) {}
   async initialize() {
     await this.storage.run(this.storage.sql`CREATE TABLE IF NOT EXISTS guest_recovery (
@@ -33,7 +34,7 @@ export class GuestRecoveryStore {
       };
     });
   }
-  save(input: GuestInput) {
+  async save(input: GuestInput) {
     const value = decode(GuestInput, input);
     if (new Set(value.fields.map((field) => field.key)).size !== value.fields.length)
       throw new Error("Ambiguous recovery fields cannot be saved.");
@@ -43,7 +44,7 @@ export class GuestRecoveryStore {
     if (Buffer.byteLength(document) > 64 * 1024)
       throw new Error("Recovery input exceeds 64 KiB. Keep Scope open and copy your input.");
     const { sql } = this.storage;
-    return this.storage.enqueue(() =>
+    await this.storage.enqueue(() =>
       this.storage.run(
         sql.withTransaction(
           Effect.gen(function* () {
@@ -68,8 +69,9 @@ export class GuestRecoveryStore {
         ),
       ),
     );
+    this.onChanged(value.guestId);
   }
-  pending(input: GuestPending) {
+  async pending(input: GuestPending) {
     const value = decode(GuestPending, input);
     if (
       value.operation.operationId !== value.outcome.operationId ||
@@ -80,7 +82,7 @@ export class GuestRecoveryStore {
     if (Buffer.byteLength(document) > 34 * 1024 * 1024)
       throw new Error("Pending operation exceeds the plan input limit.");
     const { sql } = this.storage;
-    return this.storage.enqueue(() =>
+    await this.storage.enqueue(() =>
       this.storage.run(
         sql.withTransaction(
           Effect.gen(function* () {
@@ -107,13 +109,15 @@ export class GuestRecoveryStore {
         ),
       ),
     );
+    this.onChanged(value.guestId);
   }
-  discard(id: string, kind: "html" | "action" | "operation", revision: number) {
-    return this.storage.enqueue(() =>
+  async discard(id: string, kind: "html" | "action" | "operation", revision: number) {
+    await this.storage.enqueue(() =>
       this.storage.run(
         this.storage
           .sql`DELETE FROM guest_recovery WHERE guest_id = ${id} AND kind = ${kind} AND revision = ${revision}`,
       ),
     );
+    this.onChanged(id);
   }
 }

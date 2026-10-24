@@ -1,5 +1,5 @@
 import { expect } from "vite-plus/test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -148,7 +148,19 @@ export async function guestMutationChecks() {
     let pane = pageB.locator(`#pane-${guestId}`);
     let frame = pane.locator("iframe").contentFrame();
     await frame.getByRole("heading", { name: "Guest mutation example" }).waitFor();
+    const recoveryDb = new DatabaseSync(join(b.settingsDirectory, "desktop.db"));
+    recoveryDb.exec(
+      "CREATE TRIGGER reject_recovery BEFORE INSERT ON guest_recovery BEGIN SELECT RAISE(ABORT, 'Synthetic recovery failure'); END",
+    );
     await frame.locator("#notes").fill("Recover this note after restart");
+    await pane.getByText("Could not save form input. Keep Scope open and retry.").waitFor();
+    await pageB.getByRole("button", { name: "Close Mutation source", exact: true }).click();
+    await pageB.getByText("Could not save this tab. Try again.", { exact: true }).waitFor();
+    expect(await frame.locator("#notes").inputValue()).toBe("Recover this note after restart");
+    recoveryDb.exec("DROP TRIGGER reject_recovery");
+    recoveryDb.close();
+    await pane.getByRole("button", { name: "Retry form save" }).click();
+    await pageB.getByRole("button", { name: "Dismiss error", exact: true }).click();
     await frame.locator("#choice").selectOption("b");
     await frame.locator("#agreed").check();
     await frame.locator("#password").fill("not-persisted-password");
@@ -183,7 +195,14 @@ export async function guestMutationChecks() {
     await pane.getByLabel("Source title", { exact: true }).fill("Retained competing title");
     artifact = await ca.publish(
       artifact.id,
-      { ...artifact, expectedRevision: artifact.revision, title: "Owner competing change" },
+      {
+        name: artifact.name,
+        kind: artifact.kind,
+        mediaType: artifact.mediaType,
+        fileName: artifact.fileName,
+        expectedRevision: artifact.revision,
+        title: "Owner competing change",
+      },
       Buffer.from(html),
     );
     await fresh();
@@ -262,10 +281,17 @@ export async function guestMutationChecks() {
     const prepareRaw = async (input: GuestChange): Promise<GuestOperation> => {
       const reply = await responses.peer("mutation-prepare", input);
       expect(reply.status).toBe(200);
-      return { ...reply.body, change: input };
+      return { operationId: reply.body.operationId, digest: reply.body.digest, change: input };
     };
     const cancelled = await prepareRaw(await change({ kind: "rename", title: "Cancelled write" }));
-    expect((await responses.peer("mutation-status", cancelled)).body.state).toBe("rejected");
+    expect(
+      (
+        await responses.peer("mutation-status", {
+          operationId: cancelled.operationId,
+          digest: cancelled.digest,
+        })
+      ).body.state,
+    ).toBe("rejected");
     expect((await responses.peer("mutation-execute", cancelled)).body.state).toBe("rejected");
     expect((await ca.get(artifact.id)).title).toBe("Retained competing title");
     const mismatched = await prepareRaw(await change({ kind: "rename", title: "Bound body" }));
@@ -294,6 +320,22 @@ export async function guestMutationChecks() {
     );
     expect(outcomes.map((reply) => reply.body.state).sort()).toEqual(["completed", "conflict"]);
     await fresh();
+    const rejectedAction = await responses.peer("mutation-prepare", {
+      ...(await change({ kind: "trash" })),
+      action: { kind: "callback", path: "/private/forged", channel: "scope:publish" },
+    });
+    expect(rejectedAction.status).not.toBe(200);
+    const builtin = (await pageA.evaluate(() => window.scope.workspace()))!.tabs.find(
+      (tab) => tab.type === "prompts",
+    )!;
+    expect(
+      (
+        await responses.peer("mutation-prepare", {
+          ...(await change({ kind: "trash" })),
+          target: { ...target, sourceTabId: builtin.id },
+        })
+      ).status,
+    ).not.toBe(200);
     const lateTrash = await prepareRaw(
       await change({ kind: "rename", title: "Too late after trash" }),
     );
@@ -331,6 +373,44 @@ export async function guestMutationChecks() {
       ),
     );
     expect((await responses.peer("mutation-execute", replace)).body.state).toBe("completed");
+    await fresh("mutation-plan");
+    const connection = JSON.parse(await readFile(b.connectionFile, "utf8"));
+    const local = async (route: string, input: unknown) => {
+      const response = await fetch(`${connection.endpoint}/v1/guests/${route}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${connection.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(input),
+      });
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    const largeChange = await change(
+      {
+        kind: "replace-plan",
+        document: {
+          ...captured,
+          overviewHtml: "<p>" + "Synthetic proposal. ".repeat(7000) + "</p>",
+        },
+      },
+      "mutation-plan",
+    );
+    const large = await local("prepare", largeChange);
+    const largeIdentity = {
+      target: largeChange.target,
+      operationId: large.operationId,
+      digest: large.digest,
+    };
+    expect((await local("execute", largeIdentity)).state).toBe("completed");
+    await local("reconcile", largeIdentity);
+    const largeArtifact = await fresh("mutation-plan");
+    const read = await local("read", {
+      target: largeChange.target,
+      revision: largeArtifact.revision,
+    });
+    expect(JSON.parse(read.content).overviewHtml.length).toBeGreaterThan(64 * 1024);
     // An interrupted reply retains the exact dispatch identity across both app restarts.
     const lost = await pageB.evaluate(
       (change) => window.scope.guestPrepare(change),
@@ -395,6 +475,33 @@ export async function guestMutationChecks() {
     expect((await ca.get(artifact.id)).title).not.toBe("Late revoked change");
     await select(guestId);
     await capture("mutations-offline-recovery-dark-narrow.png");
+    await pageA.evaluate((id) => window.scope.setGuestAccess(id, true), peerId);
+    await pageB.evaluate((id) => window.scope.retryGuest(id), peerId);
+    await expect
+      .poll(
+        () =>
+          pageB.evaluate(() => window.scope.guestCatalog()).then((view) => view.available.length),
+        { timeout: 25000 },
+      )
+      .toBe(2);
+    const aged = await prepareRaw(await change({ kind: "rename", title: "Expired write" }));
+    ownerDb((db) =>
+      db
+        .prepare("UPDATE lifecycle SET value = ? WHERE name = 'guest_clock'")
+        .run(Date.now() + 49 * 60 * 60_000),
+    );
+    expect(
+      (
+        await responses.peer("mutation-status", {
+          operationId: aged.operationId,
+          digest: aged.digest,
+        })
+      ).body.state,
+    ).toBe("expired");
+    expect((await responses.peer("mutation-execute", aged)).body.state).toBe("expired");
+    await prepareRaw(await change({ kind: "rename", title: "New after clock advance" }));
+    expect((await responses.peer("mutation-execute", aged)).body.state).toBe("unknown");
+    expect((await ca.get(artifact.id)).title).not.toBe("Expired write");
     // Receiver drafts are ordinary recovery records, never owner artifacts or persistent HTML.
     const db = new DatabaseSync(join(b.settingsDirectory, "artifacts", "scope.db"));
     try {

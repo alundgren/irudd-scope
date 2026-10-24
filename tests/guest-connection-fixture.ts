@@ -163,6 +163,15 @@ export async function guestConnectionChecks() {
       body: "{}",
     });
     expect(unsupported.status).toBe(404);
+    expect(
+      (
+        await fetch(`http://127.0.0.1:${endpoint.port}/guest/mutation-prepare`, {
+          method: "POST",
+          headers: { Authorization: "Bearer " + session, "Content-Type": "application/json" },
+          body: "{}",
+        })
+      ).status,
+    ).toBe(404);
     expect(await unsupported.json()).toEqual({ error: "Unsupported guest operation." });
     await pageA.evaluate((id) => window.scope.setGuestAccess(id, false), id);
     expect(await stateA()).toBe("disabled");

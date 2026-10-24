@@ -81,6 +81,7 @@ export type ScopeBridge = {
     target: GuestTarget,
     identity: GuestOperationIdentity,
   ) => Promise<{ outcome: GuestOutcome; source: GuestSource | null }>;
+  onGuestRecoveryChanged: (listener: (id: string) => void) => () => void;
   guestRecovery: (id: string) => Promise<GuestRecovery>;
   saveGuestInput: (input: GuestInput) => Promise<void>;
   discardGuestInput: (id: string, kind: "html" | "action", revision: number) => Promise<void>;

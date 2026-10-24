@@ -4,6 +4,19 @@ import type { GuestField, GuestInput } from "./recovery-contract.ts";
 import { captureField, recoverableFields, restoreFields } from "./html-fields.ts";
 import { useAutosave } from "../workspace/persistence.ts";
 import { Button } from "../renderer/components/ui/button.tsx";
+import { Textarea } from "../renderer/components/ui/textarea.tsx";
+function fieldText(field: GuestField) {
+  return field.checked !== undefined
+    ? field.checked
+      ? "Checked"
+      : "Unchecked"
+    : (field.selected?.join(", ") ?? field.value);
+}
+function inputText(input: GuestInput) {
+  return input.fields
+    .map((field) => `${field.key.slice(field.key.indexOf(":") + 1)}: ${fieldText(field)}`)
+    .join("\n");
+}
 
 /** Field drafts are receiver data. The authored document remains untouched and trusted. */
 export function GuestHtmlRecovery({
@@ -154,9 +167,9 @@ export function GuestHtmlRecovery({
         </summary>
         <div className="guest-actions-body">
           <p>
-            Edited ordinary fields with unique IDs, names or labels can be saved here. Passwords,
-            files, sensitive fields, ambiguous identifiers and script state are excluded. HTML
-            scripts and network requests remain active.
+            Scope saves supported fields with unique names or labels. Passwords, files, sensitive
+            fields and script state are excluded. HTML can still run scripts and make network
+            requests.
           </p>
           {!available && (
             <p>The owner is unavailable. Saved input stays here; no source writes are queued.</p>
@@ -202,7 +215,7 @@ export function GuestHtmlRecovery({
                     variant="secondary"
                     onClick={() =>
                       void navigator.clipboard
-                        .writeText(JSON.stringify(input.fields, null, 2))
+                        .writeText(inputText(input))
                         .catch(() =>
                           setError("Could not copy. Select and copy the retained values below."),
                         )
@@ -214,13 +227,15 @@ export function GuestHtmlRecovery({
                     Discard saved input
                   </Button>
                 </div>
-                <textarea
-                  aria-label={`Saved input revision ${input.revision}`}
-                  readOnly
-                  value={JSON.stringify(input.fields, null, 2)}
-                  className="w-full"
-                  rows={3}
-                />
+                <details>
+                  <summary>View saved values</summary>
+                  {input.fields.map((field) => (
+                    <label key={field.key}>
+                      {field.key.slice(field.key.indexOf(":") + 1)}
+                      <Textarea readOnly value={fieldText(field)} rows={2} />
+                    </label>
+                  ))}
+                </details>
               </div>
             );
           })}

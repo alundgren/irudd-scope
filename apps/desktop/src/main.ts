@@ -170,6 +170,9 @@ async function main() {
       relaunchCommand: `"${join(installation.root, "Scope.exe")}"`,
       relaunchDisplayName: "Scope",
     });
+  store.guestRecovery.onChanged = (id) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:guest-recovery-changed", id);
+  };
   transferLinks.attach(window);
   transfers = new TabTransfers(store, lifecycle!, new TailcatCliTransport());
   const guests = new GuestConnections(store);
