@@ -162,15 +162,16 @@ test(
       await writeFile(html, await readFile(join(example, "overview.html"), "utf8"));
       await cli("plan", "publish", "reading-plan", json, html, "--expected-revision", "3");
       await frame.getByRole("heading", { name: "Keep existing work safe" }).waitFor();
-      await frame.locator("html").evaluate(() => window.scrollTo(0, 600));
+      // The heading can appear before the iframe finishes restoring its saved position.
       await expect
-        .poll(() =>
-          page.evaluate(
+        .poll(async () => {
+          await frame.locator("html").evaluate(() => window.scrollTo(0, 600));
+          return page.evaluate(
             async () =>
               (await window.scope.workspace())?.tabs.find((x) => x.type === "plan")?.state.data
                 .scrollY,
-          ),
-        )
+          );
+        })
         .toBeGreaterThan(400);
       await cli("text", "Other content", "--title", "Other artifact");
       await page.getByRole("tab", { name: "Other artifact", exact: true }).click();

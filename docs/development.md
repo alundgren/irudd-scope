@@ -74,7 +74,8 @@ vp run test:remote-updates
 ```
 
 Standard validation runs at most two test files concurrently to keep Electron
-interaction responsive.
+interaction responsive. macOS runs one file at a time because native fullscreen
+windows share the same display and compete for focus.
 Use `vp run test --maxWorkers=N` to override the file-worker count.
 
 Keep successful tests quiet. The minimal reporter prints totals without listing
@@ -224,7 +225,10 @@ Keep validation results and screenshots
 in review evidence, outside durable documentation.
 
 Electron tests keep Mac windows and Dock icons hidden by default. Hidden windows
-disable background throttling so UI timers continue running. Linux test windows
+disable background throttling so UI timers continue running. Native fullscreen
+and HTML presentation tests request visible Mac windows for native transitions
+and pointer interaction. Run GUI tests in an isolated graphical session; a hidden
+window or a separate macOS Space does not isolate the desktop. Linux test windows
 remain visible because Chromium stalls CSS animations in hidden windows, which
 prevents dialogs from closing and restoring focus. Each automated Linux Electron
 session uses its own Xvfb display so parallel windows cannot steal pointer capture

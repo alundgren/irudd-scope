@@ -280,7 +280,7 @@ export const lintExceptions: readonly LintException[] = [
   },
   {
     file: "tests/tab-types.test.ts",
-    at: "async () => {\nconst { directory, launch, cli, connect } = await desktopFixture({ hideInitialPrompts: true });",
+    at: "async () => {\n// Native macOS fullscreen needs a visible window.\nconst { directory, launch, cli, connect } = await desktopFixture({",
     limits: { complexity: 15 },
     reason:
       "The viewer matrix covers all artifact kinds in both appearances, focus mode, restart, and permanent close. Branches select kind-specific observable checks while reusing the real desktop session.",

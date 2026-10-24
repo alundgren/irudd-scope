@@ -17,7 +17,11 @@ test(
     await once(server, "listening");
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Missing page server port.");
-    const fixture = await desktopFixture({ hideInitialPrompts: true });
+    // Native fullscreen and presentation pointer movement need a visible Mac window.
+    const fixture = await desktopFixture({
+      hideInitialPrompts: true,
+      showWindow: process.platform === "darwin",
+    });
     let application: Awaited<ReturnType<typeof fixture.launch>> | undefined;
     try {
       application = await fixture.launch();
