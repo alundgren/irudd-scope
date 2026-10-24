@@ -110,8 +110,12 @@ async function readDroppedFolder(source: string, expected: Identity) {
   const handle = await open(
     source,
     constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0),
-  ).catch(() => undefined);
-  if (!handle) throw changedSinceDrop(source);
+  ).catch((error: unknown) => {
+    // A link, a file, or nothing at the path now; other errors, such as EACCES, stay as they are.
+    const code = error instanceof Error && "code" in error ? String(error.code) : "";
+    if (["ENOENT", "ENOTDIR", "ELOOP", "EMLINK"].includes(code)) throw changedSinceDrop(source);
+    throw error;
+  });
   try {
     const opened = await handle.stat();
     if (!opened.isDirectory() || !same(opened, expected)) throw changedSinceDrop(source);

@@ -50,13 +50,16 @@ function rulesDirectory(path: string): string | undefined {
   return path === ".gitignore" || path.endsWith("/.gitignore") ? parent(path) : undefined;
 }
 
-/** The fewest directories that cover every given one: `a` covers `a/b`. */
+/**
+ * The fewest directories that cover every given one: `a` covers `a/b`. More than a batch
+ * can list become the whole folder.
+ */
 function outermost(directories: Iterable<string>): string[] {
   const sorted = [...new Set(directories)].sort();
   const kept: string[] = [];
   for (const directory of sorted)
     if (!kept.some((above) => within(directory, above))) kept.push(directory);
-  return kept;
+  return kept.length > MAX_FOLDER_CHANGES ? [""] : kept;
 }
 
 const EXCLUDE = `${GIT_DIRECTORY}/info/exclude`;
