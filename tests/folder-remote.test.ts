@@ -292,6 +292,7 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
     await wait(1200);
     // Moving .git out of the folder drops its exclude rules; moving it back restores them.
     await writeFile(join(root, "logs", "before.txt"), "x");
+    await wait(1000);
     await rename(join(root, ".git"), join(base, "routes-git-parked"));
     await wait(1000);
     await writeFile(join(root, "logs", "git-moved-out.txt"), "x");
