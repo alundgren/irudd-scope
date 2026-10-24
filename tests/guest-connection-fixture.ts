@@ -1,3 +1,4 @@
+import { guestCatalogChecks } from "./guest-catalog-checks.ts";
 import { createHmac } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -86,6 +87,7 @@ export async function guestConnectionChecks() {
     right = await b.launch();
     const pageA = await left.firstWindow();
     const pageB = await right.firstWindow();
+    const catalog = await guestCatalogChecks({ a, b, left, right, pageA, pageB });
     const invitation = await pageA.evaluate(() => window.scope.createPairing("Source Scope"));
     await pageA.evaluate((id) => window.scope.copyPairingSecret(id), invitation.id);
     const pairingSecret = await left.evaluate(({ clipboard }) => clipboard.readText());
@@ -144,6 +146,7 @@ export async function guestConnectionChecks() {
     await expect
       .poll(async () => (await readFile(events, "utf8")).includes('"/guest/identity"'))
       .toBe(true);
+    await catalog.connected();
     const servers = rows.filter((row) => row.kind === "serve");
     const endpoint = JSON.parse(Buffer.from(link.split("#")[1]!, "base64url").toString())
       .endpoint as { port: number; address: string };
@@ -168,10 +171,12 @@ export async function guestConnectionChecks() {
     expect(
       JSON.parse(Buffer.from(restarted.split("#")[1]!, "base64url").toString()).endpoint,
     ).toEqual(endpoint);
+    await catalog.reconnected();
     await pageA.evaluate((id) => window.scope.setGuestAccess(id, false), id);
     expect(await stateA()).toBe("disabled");
     await pageB.evaluate((id) => window.scope.retryGuest(id), id);
     await expect.poll(stateB, { timeout: 20000 }).toBe("offline");
+    await catalog.revoked();
     expect((await pageA.evaluate(() => window.scope.transferDevices())).peers).toHaveLength(1);
     await pageA.evaluate((id) => window.scope.forgetScope(id), id);
     expect((await pageA.evaluate(() => window.scope.transferDevices())).peers).toHaveLength(0);

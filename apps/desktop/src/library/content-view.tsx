@@ -1,12 +1,15 @@
+import type { OwnerContent } from "../plugins/api.ts";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { ArtifactContent } from "../bridge.ts";
 
 export function PublishedContent({
   artifact,
+  content,
   children,
 }: {
   artifact?: Artifact;
+  content?: OwnerContent;
   children: (item: ArtifactContent) => ReactNode;
 }) {
   const [item, setItem] = useState<ArtifactContent>();
@@ -14,10 +17,11 @@ export function PublishedContent({
   useEffect(() => {
     if (!artifact) return;
     let active = true;
-    setItem((previous) => (previous?.artifact.id === artifact.id ? previous : undefined));
+    setItem((previous) =>
+      !content && previous?.artifact.id === artifact.id ? previous : undefined,
+    );
     setError("");
-    void window.scope
-      .content(artifact.id, artifact.revision)
+    void (content ? content.read(artifact) : window.scope.content(artifact.id, artifact.revision))
       .then((content) => {
         if (active) setItem(content);
       })
@@ -28,7 +32,7 @@ export function PublishedContent({
     return () => {
       active = false;
     };
-  }, [artifact?.id, artifact?.revision]);
+  }, [artifact?.id, artifact?.revision, content]);
   if (error && !item)
     return (
       <p className="empty-state" role="alert">

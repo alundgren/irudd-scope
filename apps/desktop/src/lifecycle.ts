@@ -93,6 +93,7 @@ export class DesktopLifecycle {
         ? [decode(Tab, JSON.parse(tab.document))]
         : [],
     );
+    tabs.push(...(await this.desktop.guestRecords()).map((record) => record.tab));
     const groups = [...layout.groups];
     for (const tab of tabs)
       if (!groups.some((group) => group.id === tab.groupId))
@@ -111,7 +112,11 @@ export class DesktopLifecycle {
     const workspace = decodeWorkspace(value);
     for (const tab of workspace.tabs) validateTabState(tab, true);
     return this.enqueue(async () => {
-      await this.artifacts.saveTabs(workspace.tabs);
+      const guests = new Set((await this.desktop.guestRecords()).map((record) => record.tab.id));
+      if (workspace.tabs.some((tab) => (tab.type === "guest") !== guests.has(tab.id)))
+        throw new Error("Guest and local tab identities cannot be exchanged.");
+      await this.artifacts.saveTabs(workspace.tabs.filter((tab) => !guests.has(tab.id)));
+      await this.desktop.saveGuestTabs(workspace.tabs.filter((tab) => guests.has(tab.id)));
       await this.desktop.saveLayout({ groups: workspace.groups, selected: workspace.selected });
     });
   }
@@ -120,6 +125,12 @@ export class DesktopLifecycle {
     const tab = decode(Tab, value);
     validateTabState(tab, true);
     return this.enqueue(async () => {
+      const guest = (await this.desktop.guestRecords()).find((record) => record.tab.id === tab.id);
+      if (guest || tab.type === "guest") {
+        if (!guest || tab.type !== "guest") throw new Error("This guest reference is unavailable.");
+        await this.desktop.setGuestHidden(tab.id, false);
+        return { ...guest.tab, hidden: false };
+      }
       const opened = await this.artifacts.openTab(tab, artifactRevision);
       if (opened) await this.notifyRetention();
       return opened;
@@ -132,6 +143,8 @@ export class DesktopLifecycle {
 
   setTabPermanent(id: string, permanent: boolean): Promise<void> {
     return this.enqueue(async () => {
+      if ((await this.desktop.guestRecords()).some((record) => record.tab.id === id))
+        throw new Error("Only the owner controls source retention.");
       await this.artifacts.setTabPermanent(id, permanent);
       await this.notifyRetention();
     });
@@ -144,6 +157,7 @@ export class DesktopLifecycle {
    */
   setTabHidden(id: string, hidden: boolean): Promise<void> {
     return this.enqueue(async () => {
+      if (await this.desktop.setGuestHidden(id, hidden)) return;
       if ((await this.artifacts.setTabHidden(id, hidden)) && hidden) this.onHidden([id]);
     });
   }
@@ -157,6 +171,7 @@ export class DesktopLifecycle {
 
   closeTab(id: string): Promise<void> {
     return this.enqueue(async () => {
+      if (await this.desktop.setGuestHidden(id, true)) return;
       const ids = await this.artifacts.trashTab(id);
       this.onRemoved(ids);
       await this.notifyRetention();

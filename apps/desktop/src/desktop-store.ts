@@ -1,3 +1,4 @@
+import { GuestCatalog, type GuestSource } from "@irudd-scope/protocol/guest";
 import { FolderOperations } from "@irudd-scope/folder";
 import {
   RetroConfiguration,
@@ -5,7 +6,7 @@ import {
   type RetroCommand,
 } from "@irudd-scope/protocol/retro";
 import { ScopeError } from "@irudd-scope/protocol";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { DatabaseMaintenance } from "@irudd-scope/sqlite";
 import { chmod, mkdir, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -21,6 +22,7 @@ import {
   type SettingsView,
 } from "./settings.ts";
 import {
+  Tab,
   Uuid,
   TabGroup,
   importWorkspace,
@@ -31,7 +33,7 @@ import { Remote, Remotes } from "./remote-contract.ts";
 import { RemoteToken } from "@irudd-scope/protocol/remote";
 import { TransferName, TransferSecret } from "@irudd-scope/protocol/transfer";
 import { GuestEndpoint } from "@irudd-scope/protocol/guest";
-import { GuestSettings } from "./guest/contract.ts";
+import { GuestRecord, GuestSettings } from "./guest/contract.ts";
 import { ScopeDevice, ScopePeer, ScopePeers } from "./transfer/contract.ts";
 import { machineRetroConfiguration } from "./retro-configuration.ts";
 import type { MemoryConfiguration } from "@irudd-scope/protocol/memory";
@@ -140,6 +142,15 @@ export class DesktopStore {
       const sql = (this.sql = await this.runtime.runPromise(SqliteClient.SqliteClient));
       await chmod(filename, 0o600);
       await this.run(sql`PRAGMA busy_timeout = 50`);
+      await this.run(sql`CREATE TABLE IF NOT EXISTS guest_tabs (
+        id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, source_id TEXT NOT NULL,
+        source TEXT NOT NULL CHECK(json_valid(source)), tab TEXT NOT NULL CHECK(json_valid(tab)),
+        position INTEGER NOT NULL, UNIQUE(owner_id, source_id)
+      ) STRICT`);
+      await this.run(sql`CREATE TABLE IF NOT EXISTS guest_catalogs (
+        owner_id TEXT PRIMARY KEY, revision INTEGER NOT NULL
+      ) STRICT`);
+
       const [{ user_version: version }] = await this.run(
         sql<{ user_version: number }>`PRAGMA user_version`,
       );
@@ -723,6 +734,138 @@ export class DesktopStore {
         this
           .sql!`UPDATE preferences SET document = ${JSON.stringify(peers.filter((peer) => peer.id !== id))} WHERE name = 'scope-peers'`,
       );
+    });
+  }
+
+  async guestRecords(): Promise<GuestRecord[]> {
+    await this.pending;
+    const rows = await this.run(
+      this.sql!<{
+        owner_id: string;
+        source: string;
+        tab: string;
+      }>`SELECT owner_id, source, tab FROM guest_tabs ORDER BY position, rowid`,
+    );
+    return rows.map((row) =>
+      decode(GuestRecord, {
+        ownerDeviceId: row.owner_id,
+        source: JSON.parse(row.source),
+        tab: JSON.parse(row.tab),
+      }),
+    );
+  }
+
+  /** Revision and fingerprint describe the same complete source projection. */
+  guestCatalogRevision(sources: readonly GuestSource[]): Promise<number> {
+    const fingerprint = createHash("sha256").update(JSON.stringify(sources)).digest("hex");
+    return this.enqueue(async () => {
+      const sql = this.sql!;
+      return this.run(
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const [row] = yield* sql<{
+              document: string;
+            }>`SELECT document FROM preferences WHERE name = 'guest-catalog-version'`;
+            const prior = row
+              ? decode(
+                  Schema.Struct({ revision: Schema.Int, fingerprint: Schema.String }),
+                  JSON.parse(row.document),
+                )
+              : { revision: 0, fingerprint: "" };
+            const revision = prior.revision + Number(prior.fingerprint !== fingerprint);
+            if (!Number.isSafeInteger(revision))
+              throw new Error("Guest catalog revision limit reached.");
+            yield* sql`INSERT INTO preferences(name, document) VALUES ('guest-catalog-version', ${JSON.stringify({ revision, fingerprint })}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`;
+            return revision;
+          }),
+        ),
+      );
+    });
+  }
+
+  applyGuestCatalog(value: GuestCatalog): Promise<boolean> {
+    const catalog = decode(GuestCatalog, value);
+    if (
+      new Set(catalog.sources.map((source) => source.sourceTabId)).size !== catalog.sources.length
+    )
+      throw new Error("Invalid duplicate guest source identity.");
+    return this.enqueue(async () => {
+      const sql = this.sql!;
+      return this.run(
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const [previous] = yield* sql<{
+              revision: number;
+            }>`SELECT revision FROM guest_catalogs WHERE owner_id = ${catalog.ownerDeviceId}`;
+            if (previous && catalog.revision < previous.revision) return false;
+            const [layout] = yield* sql<{
+              document: string;
+            }>`SELECT document FROM preferences WHERE name = 'workspace_layout'`;
+            const groupId = layout ? JSON.parse(layout.document).groups[0]?.id : undefined;
+            if (!groupId) throw new Error("Scope is still starting. Retry shortly.");
+            for (const source of catalog.sources) {
+              const [existing] = yield* sql<{
+                id: string;
+                tab: string;
+              }>`SELECT id, tab FROM guest_tabs WHERE owner_id = ${catalog.ownerDeviceId} AND source_id = ${source.sourceTabId}`;
+              if (existing) {
+                const tab = decode(Tab, JSON.parse(existing.tab));
+                yield* sql`UPDATE guest_tabs SET source = ${JSON.stringify(source)}, tab = ${JSON.stringify({ ...tab, title: source.title })} WHERE id = ${existing.id}`;
+              } else {
+                let id = randomUUID();
+                while (id === source.sourceTabId) id = randomUUID();
+                const tab = decode(Tab, {
+                  id,
+                  groupId,
+                  title: source.title,
+                  type: "guest",
+                  state: { version: 1, data: {} },
+                });
+                yield* sql`INSERT INTO guest_tabs(id, owner_id, source_id, source, tab, position) VALUES (${id}, ${catalog.ownerDeviceId}, ${source.sourceTabId}, ${JSON.stringify(source)}, ${JSON.stringify(tab)}, (SELECT coalesce(max(position), -1) + 1 FROM guest_tabs))`;
+              }
+            }
+            yield* sql`INSERT INTO guest_catalogs VALUES (${catalog.ownerDeviceId}, ${catalog.revision}) ON CONFLICT(owner_id) DO UPDATE SET revision = excluded.revision`;
+            return true;
+          }),
+        ),
+      );
+    });
+  }
+
+  saveGuestTabs(tabs: readonly Tab[]): Promise<void> {
+    return this.enqueue(async () => {
+      const sql = this.sql!;
+      await this.run(
+        sql.withTransaction(
+          Effect.gen(function* () {
+            for (const [position, tab] of tabs.entries()) {
+              const [row] = yield* sql<{
+                tab: string;
+              }>`SELECT tab FROM guest_tabs WHERE id = ${tab.id}`;
+              if (!row) continue;
+              if (tab.type !== "guest")
+                throw new Error("A guest reference cannot become a local tab.");
+              const saved = decode(Tab, JSON.parse(row.tab));
+              yield* sql`UPDATE guest_tabs SET tab = ${JSON.stringify({ ...tab, title: saved.title })}, position = ${position} WHERE id = ${tab.id}`;
+            }
+          }),
+        ),
+      );
+    });
+  }
+
+  setGuestHidden(id: string, hidden: boolean): Promise<boolean> {
+    return this.enqueue(async () => {
+      const sql = this.sql!;
+      const [row] = await this.run(
+        sql<{ tab: string }>`SELECT tab FROM guest_tabs WHERE id = ${id}`,
+      );
+      if (!row) return false;
+      const tab = decode(Tab, JSON.parse(row.tab));
+      await this.run(
+        sql`UPDATE guest_tabs SET tab = ${JSON.stringify({ ...tab, hidden })} WHERE id = ${id}`,
+      );
+      return true;
     });
   }
 

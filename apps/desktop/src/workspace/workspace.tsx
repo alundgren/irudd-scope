@@ -130,6 +130,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   );
   const {
     workspace,
+    guests,
     unreadTabs,
     ready: workspaceReady,
     save: workspaceSave,
@@ -189,7 +190,10 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const modeSelect = useRef<HTMLSelectElement>(null);
   const artifacts = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const active = workspace.tabs.find((tab) => tab.id === workspace.selected);
-  const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
+  const activeGuest = guests.records.find((record) => record.tab.id === active?.id);
+  const activeArtifact =
+    activeGuest?.source.artifact ??
+    (active ? artifacts.get(tabArtifactId(active) ?? "") : undefined);
   const html = ["html", "plan", "pull-requests"].includes(activeArtifact?.kind ?? "");
   const hasModes = active?.type === "sketchpad" || html;
   const returnFocus = focus && hasModes ? modeSelect : controlsButton;
@@ -212,7 +216,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     if (focus) retention.reportVisible(workspace.selected ? [workspace.selected] : []);
   }, [focus, workspace.selected, retention.reportVisible]);
   useEffect(() => {
-    if (activeArtifact) markRead(activeArtifact.id);
+    if (activeArtifact && !activeGuest) markRead(activeArtifact.id);
   }, [activeArtifact?.id, activeArtifact?.revision]);
   const [events] = useState(
     () => new TabEventRouter(() => setError("A tab could not handle an event.")),
@@ -367,7 +371,9 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     const tab = workspace.tabs.find((entry) => entry.id === id);
     if (
       tab &&
-      (isBuiltinTab(tab) || retention.tabs.find((entry) => entry.tab.id === id)?.permanent)
+      (tab.type === "guest" ||
+        isBuiltinTab(tab) ||
+        retention.tabs.find((entry) => entry.tab.id === id)?.permanent)
     ) {
       try {
         await flushWorkspace("save", id);
@@ -384,7 +390,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   }
   async function trash(id: string) {
     const tab = workspace.tabs.find((entry) => entry.id === id);
-    if (tab && isBuiltinTab(tab)) {
+    if (tab && (tab.type === "guest" || isBuiltinTab(tab))) {
       await close(id);
       return;
     }
@@ -432,7 +438,9 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     if (!activeArtifact) return;
     setSearch(false);
     try {
-      await window.scope.download(activeArtifact.id, activeArtifact.revision);
+      if (activeGuest)
+        await window.scope.guestDownload(activeGuest.tab.id, activeArtifact.revision);
+      else await window.scope.download(activeArtifact.id, activeArtifact.revision);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Download failed.");
     }
@@ -587,10 +595,27 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
               key={id}
               hidden={id !== workspace.selected}
             >
+              {tab.type === "guest" && (
+                <p className="content-notice">
+                  Shared by{" "}
+                  {guests.owners.find(
+                    (owner) =>
+                      owner.deviceId ===
+                      guests.records.find((record) => record.tab.id === tab.id)?.ownerDeviceId,
+                  )?.name ?? "another Scope"}
+                </p>
+              )}
               <TabHost
                 tab={tab}
                 active={id === workspace.selected}
                 artifact={artifact}
+                guest={guests.records.find((record) => record.tab.id === tab.id)}
+                guestOwner={guests.owners.find(
+                  (owner) =>
+                    owner.deviceId ===
+                    guests.records.find((record) => record.tab.id === tab.id)?.ownerDeviceId,
+                )}
+                guestAvailable={guests.available.includes(tab.id)}
                 router={events}
                 updateState={updateState}
                 updateOverlayPosition={updateOverlayPosition}
@@ -737,7 +762,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                         },
                       ]
                     : []),
-                  ...(!activeBuiltin
+                  ...(!activeBuiltin && !activeGuest
                     ? [
                         {
                           id: "permanent",
@@ -751,9 +776,12 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                     : []),
                   {
                     id: "close",
-                    title: activeBuiltin ? "Close tab" : "Move to Trashcan",
-                    keywords: activeBuiltin ? "close hide built-in" : "close trash delete remove",
-                    icon: activeBuiltin ? X : Trash2,
+                    title: activeBuiltin || activeGuest ? "Close tab" : "Move to Trashcan",
+                    keywords:
+                      activeBuiltin || activeGuest
+                        ? "close hide built-in"
+                        : "close trash delete remove",
+                    icon: activeBuiltin || activeGuest ? X : Trash2,
                     shortcut: activeBuiltin || !activePermanent ? primaryShortcut("W") : undefined,
                     onSelect: () => {
                       setSearch(false);

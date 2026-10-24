@@ -1,3 +1,4 @@
+import type { GuestCatalogView } from "../guest/contract.ts";
 import { useEffect, useRef, useState } from "react";
 import {
   decodeWorkspace,
@@ -32,6 +33,11 @@ export function useWorkspace(onError: (message: string) => void) {
   const current = useRef(workspace);
   const [ready, setReady] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [guests, setGuests] = useState<GuestCatalogView>({
+    records: [],
+    owners: [],
+    available: [],
+  });
   const opening = useRef(Promise.resolve());
   const pendingOpens = useRef(new Set<{ closed: Set<string> }>());
   const hiding = useRef(new Map<string, Promise<void>>());
@@ -145,6 +151,47 @@ export function useWorkspace(onError: (message: string) => void) {
     }
     replace(decodeWorkspace({ ...latest, tabs: [...latest.tabs, tab] }));
   }
+
+  useEffect(() => {
+    if (!loaded) return;
+    let live = true;
+    let received = false;
+    const accept = (view: GuestCatalogView) => {
+      if (!live) return;
+      setGuests(view);
+      const previous = current.current;
+      const known = new Set(previous.tabs.map((tab) => tab.id));
+      const sources = new Map(view.records.map((record) => [record.tab.id, record.tab]));
+      const tabs = previous.tabs.map((tab) =>
+        tab.type === "guest" && sources.has(tab.id)
+          ? { ...tab, title: sources.get(tab.id)!.title }
+          : tab,
+      );
+      tabs.push(
+        ...view.records.filter((record) => !known.has(record.tab.id)).map((record) => record.tab),
+      );
+      const groups = [...previous.groups];
+      for (const tab of tabs)
+        if (!groups.some((group) => group.id === tab.groupId))
+          groups.push({ id: tab.groupId, owner: { kind: "workspace", id: tab.groupId } });
+      if (JSON.stringify(tabs) !== JSON.stringify(previous.tabs))
+        replace(decodeWorkspace({ ...previous, tabs, groups }));
+    };
+    const remove = window.scope.onGuestCatalogChanged((view) => {
+      received = true;
+      accept(view);
+    });
+    void window.scope
+      .guestCatalog()
+      .then((view) => {
+        if (!received) accept(view);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+      remove();
+    };
+  }, [loaded]);
 
   function createGroup(owner: TabGroup["owner"], id = crypto.randomUUID()): TabGroup {
     const previous = current.current;
@@ -363,6 +410,7 @@ export function useWorkspace(onError: (message: string) => void) {
   const updateState = (id: string, state: TabState) => updateTab(id, { state });
   return {
     workspace,
+    guests,
     unreadTabs,
     ready,
     save,

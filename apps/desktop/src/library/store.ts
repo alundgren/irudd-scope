@@ -1,3 +1,4 @@
+import { GUEST_CATALOG_LIMIT, type GuestSource } from "@irudd-scope/protocol/guest";
 import { readPlan, validatePlanUpdate } from "@irudd-scope/protocol/plan";
 import { PromptDraft } from "../plugins/prompts/contract.ts";
 import { PromptStore } from "./prompt-store.ts";
@@ -20,7 +21,7 @@ import {
   decode,
   validateArtifactContent,
 } from "@irudd-scope/protocol";
-import { isBuiltinTab } from "../plugins/registry.ts";
+import { guestSourceKind, isBuiltinTab } from "../plugins/registry.ts";
 import { Tab, Uuid, tabArtifactId } from "../workspace/contract.ts";
 import {
   TEMPORARY_RETENTION_MS,
@@ -488,6 +489,7 @@ export class ArtifactStore {
         }),
       ),
     );
+    for (const listener of this.listeners) listener();
   }
 
   /**
@@ -497,7 +499,7 @@ export class ArtifactStore {
    */
   async setTabHidden(id: string, hidden: boolean): Promise<boolean> {
     const sql = this.sql;
-    return await this.run(
+    const result = await this.run(
       sql.withTransaction(
         Effect.gen(function* () {
           const [row] = yield* sql<{
@@ -514,6 +516,8 @@ export class ArtifactStore {
         }),
       ),
     );
+    for (const listener of this.listeners) listener();
+    return result;
   }
 
   async trashTab(id: string, now = Date.now()): Promise<string[]> {
@@ -551,7 +555,7 @@ export class ArtifactStore {
 
   async expireTemporaryTabs(now = Date.now()): Promise<string[]> {
     const sql = this.sql;
-    return this.run(
+    const result = await this.run(
       sql.withTransaction(
         Effect.gen(function* () {
           const candidates = yield* sql<{
@@ -569,6 +573,8 @@ export class ArtifactStore {
         }),
       ),
     );
+    for (const listener of this.listeners) listener();
+    return result;
   }
 
   async expiredTrash(now = Date.now()): Promise<readonly TrashEntry[]> {
@@ -608,6 +614,42 @@ export class ArtifactStore {
     return removed.map((row) => row.id);
   }
 
+  /** One SQLite statement keeps lifecycle, publication and content completeness consistent. */
+  async guestSources(): Promise<GuestSource[]> {
+    const rows = await this.run(this.sql<{
+      id: string;
+      document: string | null;
+      artifact: string | null;
+      folder: string | null;
+    }>`SELECT t.id, t.document, a.document AS artifact, f.tab_id AS folder
+      FROM live_tabs t
+      LEFT JOIN artifacts a ON a.tab_id = t.id AND a.id = t.artifact_id
+      LEFT JOIN tab_blobs r ON r.tab_id = t.id AND r.blob_id = a.blob_id
+      LEFT JOIN blobs b ON b.id = r.blob_id
+      LEFT JOIN folder_tabs f ON f.tab_id = t.id
+      WHERE t.trashed_at IS NULL AND ((a.id IS NOT NULL AND b.id IS NOT NULL) OR
+        (t.opened = 1 AND f.tab_id IS NOT NULL)) ORDER BY t.id`);
+    const sources: GuestSource[] = [];
+    for (const row of rows) {
+      const tab = row.document ? decode(Tab, JSON.parse(row.document)) : undefined;
+      const artifact = row.artifact ? decode(Artifact, JSON.parse(row.artifact)) : undefined;
+      const kind = guestSourceKind(tab, artifact);
+      if (!kind || (kind === "folder" && !row.folder)) continue;
+      // Source provenance can contain filesystem paths; guests need only display/content metadata.
+      const { source: _source, ...metadata } = artifact ?? {};
+      sources.push({
+        sourceTabId: row.id,
+        title: artifact?.title ?? tab!.title,
+        kind,
+        version: 1,
+        ...(artifact ? { artifact: metadata as Artifact } : {}),
+      });
+    }
+    if (sources.length > GUEST_CATALOG_LIMIT)
+      throw new Error("Too many shared tabs. The catalog could not be refreshed.");
+    return sources;
+  }
+
   async tabs(): Promise<readonly LiveTab[]> {
     return this.run(this.sql<LiveTab>`SELECT * FROM live_tabs ORDER BY position, rowid`);
   }
@@ -625,6 +667,8 @@ export class ArtifactStore {
           for (const id of closed)
             if (!openArtifacts.has(id)) yield* sql`DELETE FROM live_tabs WHERE artifact_id = ${id}`;
           for (const [position, tab] of tabs.entries()) {
+            if (tab.type === "guest")
+              throw new Error("Guest references belong to desktop preferences.");
             const artifactId = tabArtifactId(tab);
             const [artifact] = artifactId
               ? yield* sql<{
@@ -687,10 +731,11 @@ export class ArtifactStore {
 
   async openTab(value: Tab, artifactRevision?: number): Promise<Tab | null> {
     const tab = decode(Tab, value);
+    if (tab.type === "guest") throw new Error("Guest references belong to desktop preferences.");
     if (artifactRevision !== undefined) decode(Revision, artifactRevision);
     const artifactId = tabArtifactId(tab);
     const sql = this.sql;
-    return this.run(
+    const result = await this.run(
       sql.withTransaction(
         Effect.gen(function* () {
           let id = tab.id;
@@ -750,6 +795,8 @@ export class ArtifactStore {
         }),
       ),
     );
+    for (const listener of this.listeners) listener();
+    return result;
   }
 
   async saveTabs(tabs: readonly Tab[]): Promise<void> {
@@ -758,6 +805,8 @@ export class ArtifactStore {
       sql.withTransaction(
         Effect.gen(function* () {
           for (const [position, tab] of tabs.entries()) {
+            if (tab.type === "guest")
+              throw new Error("Guest references belong to desktop preferences.");
             const [saved] = yield* sql<{
               document: string | null;
             }>`SELECT document FROM live_tabs WHERE id = ${tab.id}`;
@@ -771,6 +820,7 @@ export class ArtifactStore {
         }),
       ),
     );
+    for (const listener of this.listeners) listener();
   }
 
   async openFolderTab(

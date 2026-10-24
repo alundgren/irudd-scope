@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { Artifact, PublicationTabId, Revision } from "./index.ts";
 import { TransferId, TransferName, TransferSecret, TailcatAddress } from "./transfer.ts";
 
 export const GUEST_VERSION = 1;
@@ -43,3 +44,27 @@ export const GuestLink = Schema.Struct({
 });
 
 export const GuestChallenge = Schema.Struct({ epoch: TransferId, challenge: TransferSecret });
+
+// Full snapshots also serve as bounded change events. A reconnect always omits after.
+export const GUEST_CATALOG_LIMIT = 4096;
+export const GUEST_CATALOG_BYTES = 8 * 1024 * 1024;
+export const GuestSource = Schema.Struct({
+  sourceTabId: PublicationTabId,
+  title: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(160)),
+  kind: Schema.Literals(["file", "plan", "folder"]),
+  version: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 1000 })),
+  artifact: Schema.optionalKey(Artifact),
+});
+export type GuestSource = typeof GuestSource.Type;
+export const GuestCatalog = Schema.Struct({
+  version: Schema.Literal(1),
+  ownerDeviceId: TransferId,
+  revision: Revision,
+  sources: Schema.Array(GuestSource).check(Schema.isMaxLength(GUEST_CATALOG_LIMIT)),
+});
+export type GuestCatalog = typeof GuestCatalog.Type;
+export const GuestCatalogRequest = Schema.Struct({ after: Schema.optionalKey(Revision) });
+export const GuestContentRequest = Schema.Struct({
+  sourceTabId: PublicationTabId,
+  revision: Revision,
+});
