@@ -110,10 +110,13 @@ export function useFolder(
   const pending = useRef(new Set<string>());
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const generation = useRef(0);
-  // The newest listing request for each folder. An older answer, or one for a folder that
-  // was replaced since, would show entries that are no longer there.
-  const requests = useRef(new Map<string, number>());
+  // Listing requests are numbered. An answer older than the one shown, or asked before its
+  // folder was replaced, would show entries that are no longer there. Answers are not
+  // required to be the newest, so a busy folder still updates.
   const requestCount = useRef(0);
+  const shownRequest = useRef(new Map<string, number>());
+  const replacedAt = useRef(new Map<string, number>());
+  const inFlight = useRef(0);
 
   useEffect(() => {
     if (active) setStarted(true);
@@ -124,22 +127,28 @@ export function useFolder(
       const requested = [...new Set(paths)];
       const run = generation.current;
       const showIgnored = current.current.showIgnored;
-      const tokens = requested.map((path) => {
-        const token = ++requestCount.current;
-        requests.current.set(path, token);
-        return token;
-      });
+      const tokens = requested.map(() => ++requestCount.current);
+      inFlight.current++;
       const results = await listAll(requested, (path) =>
         window.scope
           .folderList({ tabId, path, showIgnored })
           .catch(() => ({ status: "error" as const, message: "Could not read this folder." })),
-      );
+      ).finally(() => inFlight.current--);
       if (run !== generation.current) return;
+      const outdated = (path: string, token: number) => {
+        if (token < (shownRequest.current.get(path) ?? 0)) return true;
+        for (let above = path; ; above = parent(above)) {
+          if ((replacedAt.current.get(above) ?? 0) >= token) return true;
+          if (!above) return false;
+        }
+      };
       const fresh = requested.flatMap((path, index) => {
-        if (requests.current.get(path) !== tokens[index]) return [];
-        requests.current.delete(path);
+        const token = tokens[index]!;
+        if (outdated(path, token)) return [];
+        shownRequest.current.set(path, token);
         return [{ path, result: results[index]! }];
       });
+      if (!inFlight.current) replacedAt.current.clear();
       const root = fresh.find(({ path }) => path === "")?.result;
       if (root && root.status !== "ok" && root.status !== "missing") {
         setListings(new Map());
@@ -210,7 +219,8 @@ export function useFolder(
     generation.current++;
     retries.current.clear();
     waiting.current.clear();
-    requests.current.clear();
+    shownRequest.current.clear();
+    replacedAt.current.clear();
     const shown = shownWithin("");
     const kept = new Set(shown);
     // Collapsed folders' listings may be out of date; they are read again when opened.
@@ -242,7 +252,7 @@ export function useFolder(
    */
   const forget = useCallback((path: string, shown: ReadonlySet<string>) => {
     const below = (key: string) => within(key, path);
-    for (const key of requests.current.keys()) if (below(key)) requests.current.delete(key);
+    replacedAt.current.set(path, requestCount.current);
     for (const key of pending.current) if (below(key)) pending.current.delete(key);
     for (const key of retries.current.keys()) if (below(key)) retries.current.delete(key);
     for (const key of waiting.current) if (below(key)) waiting.current.delete(key);
