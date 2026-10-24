@@ -374,8 +374,13 @@ async function writeRaces(base: string) {
     await rename(join(folder, "docs"), join(folder, "docs-moved"));
     await symlink(outside, join(folder, "docs"));
     swapped.finish();
-    expect((await swapped.answer).status).toBe(403);
+    // The copy is refused, or lands in the moved folder, which is still inside; never outside.
+    const answer = await swapped.answer;
     expect(await readdir(outside)).toEqual([]);
+    expect(await readdir(join(folder, "docs-moved"))).toEqual(
+      answer.status === 200 ? ["race.bin"] : [],
+    );
+    expect([200, 403]).toContain(answer.status);
 
     await rm(join(folder, "docs"));
     await rename(join(folder, "docs-moved"), join(folder, "docs"));
