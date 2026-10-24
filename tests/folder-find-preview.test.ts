@@ -75,6 +75,16 @@ async function spawnedHub(directory: string) {
   return { endpoint, token, pairUrl, cli, stop };
 }
 
+/** Writes what the page's script can reach of the window that shows it. */
+const REACH_PAGE = `<!doctype html><h1>Synthetic page</h1><p id="reach"></p><script>
+const reach = (read) => { try { return String(read()); } catch { return "blocked"; } };
+document.getElementById("reach").textContent = [
+  reach(() => typeof parent.scope),
+  reach(() => typeof top.scope),
+  reach(() => typeof parent.scope.workspace),
+].join(" ");
+</script>`;
+
 /** README.md in 12 folders, 40 notes with TODO, binary and large files, and an ignored folder. */
 async function syntheticFolder(folder: string) {
   for (let index = 1; index <= 12; index++) {
@@ -96,7 +106,7 @@ async function syntheticFolder(folder: string) {
     ),
   );
   await writeFile(join(folder, "page.md"), "# Release notes\n\nShipped.\n");
-  await writeFile(join(folder, "page.html"), "<!doctype html><h1>Synthetic page</h1>");
+  await writeFile(join(folder, "page.html"), REACH_PAGE);
   await writeFile(join(folder, "image.png"), Buffer.concat([PNG, Buffer.from("TODO")]));
   await writeFile(join(folder, "archive.zip"), Buffer.from([0x50, 0x4b, 3, 4, 0, 0, 0, 0]));
   await mkdir(join(folder, "logs"));
@@ -190,8 +200,11 @@ async function useFolderTab(page: Page, label: string, folder: string) {
   await preview("page.md").getByRole("heading", { name: "Release notes" }).waitFor();
   await item("image.png").click();
   await preview("image.png").getByRole("img", { name: "image.png" }).waitFor();
+  // A folder's HTML runs its scripts but cannot reach Scope; published HTML can.
   await item("page.html").click();
-  await preview("page.html").locator("iframe").waitFor();
+  await expect
+    .poll(() => preview("page.html").frameLocator("iframe").locator("#reach").textContent())
+    .toBe("blocked blocked blocked");
   await item("archive.zip").click();
   await preview("archive.zip").getByText("Scope cannot preview this file.").waitFor();
   expect(await preview("archive.zip").locator("dd").first().textContent()).toBe("archive.zip");
@@ -287,7 +300,15 @@ async function filterOnTheMachine(page: Page, label: string, folder: string, mac
 
 test(
   "Folder tabs filter by name, search contents on the folder's machine, and preview files",
-  { tags: ["folders-stay-inside", "survives-restart", "secrets-stay-secret"], timeout: 240_000 },
+  {
+    tags: [
+      "folders-stay-inside",
+      "survives-restart",
+      "secrets-stay-secret",
+      "html-runs-like-a-page",
+    ],
+    timeout: 240_000,
+  },
   async () => {
     const f = await desktopFixture({ hideInitialPrompts: true });
     const folder = join(f.directory, "work", "find");
@@ -322,6 +343,21 @@ test(
       const published = '[role="tabpanel"][aria-label="Long notes"] .text-document';
       await page.locator(published).waitFor();
       await copiesExactly(page.locator(published), notes);
+      await client.publish(
+        "reach-page",
+        {
+          title: "Reach page",
+          kind: "html",
+          mediaType: "text/html",
+          fileName: "reach.html",
+          expectedRevision: 0,
+        },
+        Buffer.from(REACH_PAGE),
+      );
+      await page.getByRole("tab", { name: "Reach page", exact: true }).click();
+      await expect
+        .poll(() => page.frameLocator('iframe[title="Reach page"]').locator("#reach").textContent())
+        .toBe("object object function");
 
       // The filter text survives a restart.
       await page.getByRole("tab", { name: "Find", exact: true }).click();

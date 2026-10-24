@@ -237,6 +237,7 @@ export function FolderPreview({
                 : loaded.content
             }
             line={line}
+            isolateHtml
             fallback={null}
           />
         )}
