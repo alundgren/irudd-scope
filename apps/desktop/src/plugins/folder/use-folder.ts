@@ -44,7 +44,8 @@ function within(path: string, directory: string) {
   return !directory || path === directory || path.startsWith(`${directory}/`);
 }
 
-const isIgnoreFile = (path: string) => path === ".gitignore" || path.endsWith("/.gitignore");
+// For feeds without `ignoreRulesChanged`. Any letter case counts, as on macOS and Windows.
+const isIgnoreFile = (path: string) => /(^|\/)\.gitignore$/i.test(path);
 
 /**
  * The directories a change event says have new ignore rules, `""` for the whole folder

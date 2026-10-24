@@ -119,9 +119,13 @@ replaced, adds its directory (`""` for exclude and `.git`) to the batch's
 `ignoreRulesChanged`; readers reload every listing at or below it, and
 Linux adds and removes directory watches below it to match the new rules. Scope
 reads an ignore file only when it and every folder above it inside the root are
-real, not links, as Git does, and skips one that is a FIFO without waiting. Each
-part of the path is checked with `lstat`, because macOS and Windows resolve
-`.gitignore` to a file stored as `.GITIGNORE`.
+real, not links, as Git does, and skips one that is a FIFO without waiting. A
+case-insensitive volume resolves `.gitignore` to a file stored as `.GITIGNORE`, so
+a real path that differs only in letter case is accepted when `lstat` finds no
+link on any part of the path; the platform alone does not say how a volume treats
+case. On macOS and Windows, changes to `.GITIGNORE` or `.git/info/EXCLUDE` count
+as ignore-rule changes too, which on a case-sensitive volume only means one extra
+reload.
 
 The filter uses a path list that desktop main keeps in memory for each watched
 tab. A background walk builds it, locally with `packages/folder` and remotely by

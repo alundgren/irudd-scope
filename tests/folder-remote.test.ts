@@ -94,33 +94,36 @@ async function lines(response: Response, into: string[]) {
 }
 
 /** Reads a folder's change feed from a hub while `during` runs, and returns its events. */
+type FeedEvent = {
+  type: string;
+  overflow?: boolean;
+  live?: boolean;
+  changes?: { type: string; path: string }[];
+  ignoreRulesChanged?: string[];
+};
+
+/** Runs `during` once the hub watches the folder; `during` can read the events so far. */
 async function feed(
   hub: Hub,
   desktop: Record<string, string>,
   root: string,
-  during: () => Promise<void>,
+  during: (received: () => FeedEvent[]) => Promise<void>,
 ) {
   const controller = new AbortController();
   const received: string[] = [];
+  const parsed = () => received.map((line) => JSON.parse(line) as FeedEvent);
   const response = await fetch(
     `${hub.endpoint}/v1/relay/folders/events?${new URLSearchParams({ root })}`,
     { headers: desktop, signal: controller.signal },
   );
   const reading = lines(response, received).catch(() => {});
-  await wait(500);
-  await during();
+  // The first status line comes once the hub watches the folder.
+  await expect.poll(() => parsed().some((event) => event.type === "status")).toBe(true);
+  await wait(300);
+  await during(parsed);
   controller.abort();
   await reading;
-  return received.map(
-    (line) =>
-      JSON.parse(line) as {
-        type: string;
-        overflow?: boolean;
-        live?: boolean;
-        changes?: { type: string; path: string }[];
-        ignoreRulesChanged?: string[];
-      },
-  );
+  return parsed();
 }
 
 const changed = (events: Awaited<ReturnType<typeof feed>>) =>
@@ -273,7 +276,9 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
 
   // Changed ignore rules, including .git/info/exclude, are reported so readers reload below
   // them, and a folder that is no longer ignored is watched from then on.
-  const rules = await feed(hub, desktop, real, async () => {
+  const excludeSignals = (events: FeedEvent[]) =>
+    events.filter((event) => event.ignoreRulesChanged?.includes("")).length;
+  const rules = await feed(hub, desktop, real, async (received) => {
     await writeFile(join(root, ".git", "info", "exclude"), "*.log\nlogs/\n");
     await wait(600);
     await writeFile(join(root, "sub", ".gitignore"), "*.tmp\n");
@@ -293,12 +298,18 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
     // Moving .git out of the folder drops its exclude rules; moving it back restores them.
     await writeFile(join(root, "logs", "before.txt"), "x");
     await wait(1000);
+    const beforeMove = excludeSignals(received());
     await rename(join(root, ".git"), join(base, "routes-git-parked"));
-    await wait(1000);
+    await expect
+      .poll(() => excludeSignals(received()), { timeout: 5000 })
+      .toBeGreaterThan(beforeMove);
     await writeFile(join(root, "logs", "git-moved-out.txt"), "x");
     await wait(1000);
+    const movedOut = excludeSignals(received());
     await rename(join(base, "routes-git-parked"), join(root, ".git"));
-    await wait(1000);
+    await expect
+      .poll(() => excludeSignals(received()), { timeout: 5000 })
+      .toBeGreaterThan(movedOut);
     await writeFile(join(root, "logs", "git-back.txt"), "x");
     await wait(1200);
   });
@@ -312,30 +323,48 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
     "created routes",
     "deleted routes",
   ]);
-  const deletedNamesake = rules.findIndex((event) =>
-    event.changes?.some((change) => change.type === "deleted" && change.path === "routes"),
-  );
-  expect(
-    rules.slice(deletedNamesake + 1).filter((event) => event.ignoreRulesChanged?.includes(""))
-      .length,
-  ).toBeGreaterThanOrEqual(2);
   expect(changed(rules).filter((change) => change.startsWith("created logs/"))).toEqual([
     "created logs/git-moved-out.txt",
   ]);
 
-  // Ignore files whose stored letter case differs still apply where names ignore case.
+  // Ignore files whose stored letter case differs still apply where names ignore case, and
+  // editing them reports changed rules.
   const cased = join(base, "cased");
   await mkdir(join(cased, ".GIT", "info"), { recursive: true });
-  await writeFile(join(cased, ".GIT", "info", "exclude"), "excluded.txt\n");
+  await mkdir(join(cased, "docs"));
+  await writeFile(join(cased, ".GIT", "info", "EXCLUDE"), "excluded.txt\n");
   await writeFile(join(cased, ".GITIGNORE"), "ignored.txt\n");
+  await writeFile(join(cased, "docs", ".GITIGNORE"), "");
   for (const name of ["excluded.txt", "ignored.txt", "kept.txt"])
     await writeFile(join(cased, name), "x");
   if (existsSync(join(cased, ".gitignore"))) {
+    const casedRoot = await realpath(cased);
     const casedListing = await fetch(
+      `${hub.endpoint}/v1/relay/folders/list?${new URLSearchParams({ root: casedRoot, path: "", showIgnored: "0" })}`,
+      { headers: desktop },
+    ).then((response) => response.json() as Promise<{ entries: { name: string }[] }>);
+    expect(casedListing.entries.map((entry) => entry.name)).toEqual([
+      "docs",
+      ".GITIGNORE",
+      "kept.txt",
+    ]);
+    const casedEvents = await feed(hub, desktop, casedRoot, async () => {
+      await writeFile(join(cased, ".GIT", "info", "EXCLUDE"), "kept.txt\n");
+      await wait(800);
+      await writeFile(join(cased, "docs", ".GITIGNORE"), "*.md\n");
+      await wait(1200);
+    });
+    const casedRules = casedEvents.flatMap((event) => event.ignoreRulesChanged ?? []);
+    expect(casedRules).toEqual(expect.arrayContaining(["", "docs"]));
+  } else {
+    // Where letter case matters, a link that differs from its target only in case is still
+    // a link, and supplies no rules.
+    await symlink(join(cased, ".GITIGNORE"), join(cased, ".gitignore"));
+    const linked = await fetch(
       `${hub.endpoint}/v1/relay/folders/list?${new URLSearchParams({ root: await realpath(cased), path: "", showIgnored: "0" })}`,
       { headers: desktop },
     ).then((response) => response.json() as Promise<{ entries: { name: string }[] }>);
-    expect(casedListing.entries.map((entry) => entry.name)).toEqual([".GITIGNORE", "kept.txt"]);
+    expect(linked.entries.map((entry) => entry.name)).toContain("ignored.txt");
   }
 }
 

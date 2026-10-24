@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { lstat, open, readlink, realpath, stat, type FileHandle } from "node:fs/promises";
-import { isAbsolute, join, sep } from "node:path";
+import { dirname, isAbsolute, join, sep } from "node:path";
 import { decode } from "@irudd-scope/protocol";
 import { FolderRelativePath, type FolderErrorCode } from "@irudd-scope/protocol/folder";
 
@@ -54,8 +54,13 @@ export async function canonicalFolder(path: string): Promise<string> {
   }
   // `.git` itself, a folder inside it, or a link to either is never opened as a folder.
   if (gitPath(real)) throw new FolderError("not-found", GIT_REFUSED);
-  if (!(await stat(real)).isDirectory())
-    throw new FolderError("not-a-directory", `${path} is not a folder.`);
+  const info = await stat(real);
+  if (!info.isDirectory()) throw new FolderError("not-a-directory", `${path} is not a folder.`);
+  // The native real path already gives Windows aliases such as `GIT~1` or `.git.` their own
+  // name; the identity check also covers any other name for the parent's `.git`.
+  const git = await lstat(join(dirname(real), GIT_DIRECTORY)).catch(() => undefined);
+  if (dirname(real) !== real && git?.dev === info.dev && git.ino === info.ino)
+    throw new FolderError("not-found", GIT_REFUSED);
   return real;
 }
 
@@ -92,6 +97,17 @@ export function validRelative(relative: string): string {
 
 export function gitName(name: string): boolean {
   return name.toLowerCase() === GIT_DIRECTORY;
+}
+
+/**
+ * Whether two names or paths reach the same entry by letter case: macOS and Windows volumes
+ * usually ignore it, Linux volumes do not. Use it where a name must match what the file
+ * system resolves, such as `.GITIGNORE` read as `.gitignore`.
+ */
+export function sameSpelling(a: string, b: string): boolean {
+  return process.platform === "darwin" || process.platform === "win32"
+    ? a.toLowerCase() === b.toLowerCase()
+    : a === b;
 }
 
 /** A copy in progress has this name until it is committed. */
@@ -167,11 +183,13 @@ export async function verifyHandle(root: string, real: string, handle: FileHandl
 }
 
 /**
- * Whether a part of `path` below the root is a link or missing. macOS and Windows can
- * resolve a path to a real path that differs only in letter case, as `.gitignore` reaches a
- * file stored as `.GITIGNORE`, so each part is checked itself rather than compared.
+ * Whether reaching `real` through `path` involves a link. A case-insensitive volume resolves
+ * `.gitignore` to a file stored as `.GITIGNORE`, so a real path that differs only in letter
+ * case is accepted when every part of `path` is itself a real entry. The platform does not
+ * say whether a volume ignores case, so each part is checked rather than assumed.
  */
-async function linkOnPath(root: string, path: string): Promise<boolean> {
+async function linkOnPath(root: string, path: string, real: string): Promise<boolean> {
+  if (real.toLowerCase() !== path.toLowerCase()) return true;
   let current = root;
   for (const part of path.slice(root.length).split(sep).filter(Boolean)) {
     current = join(current, part);
@@ -200,7 +218,7 @@ export async function openInside(
 ): Promise<{ handle: FileHandle; real: string }> {
   const path = options.internal ? join(root, ...relative.split("/")) : joinInside(root, relative);
   const real = await resolveJoined(root, path, relative);
-  if (options.noSymlinks && real !== path && (await linkOnPath(root, path))) throw escaped();
+  if (options.noSymlinks && real !== path && (await linkOnPath(root, path, real))) throw escaped();
   // A link inside the folder, such as docs/config -> ../.git/config, does not reach `.git`.
   if (!options.internal && insideGit(root, real)) throw new FolderError("not-found", GIT_REFUSED);
   const flags =

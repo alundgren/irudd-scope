@@ -7,7 +7,7 @@ import {
   type FolderFeedEvent,
 } from "@irudd-scope/protocol/folder";
 import { IgnoreFilter } from "./ignore-rules.ts";
-import { GIT_DIRECTORY, checkRoot, gitName, hiddenName } from "./paths.ts";
+import { GIT_DIRECTORY, checkRoot, gitName, hiddenName, sameSpelling } from "./paths.ts";
 import { walkDirectories } from "./walk.ts";
 
 export type FolderWatch = { close: () => void };
@@ -47,7 +47,9 @@ function parent(path: string) {
 
 /** The directory whose ignore rules a changed path sets, when the path is a `.gitignore`. */
 function rulesDirectory(path: string): string | undefined {
-  return path === ".gitignore" || path.endsWith("/.gitignore") ? parent(path) : undefined;
+  return sameSpelling(path.slice(path.lastIndexOf("/") + 1), ".gitignore")
+    ? parent(path)
+    : undefined;
 }
 
 /**
@@ -337,7 +339,7 @@ class FolderWatcher {
     if (gitName(parts[0]!)) {
       const inGit = parts.slice(1).join("/");
       // macOS and Windows see inside `.git` through the recursive watch.
-      if (inGit === "info" || inGit === "info/exclude") this.excludeChanged();
+      if (sameSpelling(inGit, "info") || sameSpelling(inGit, "info/exclude")) this.excludeChanged();
       else if (!inGit) void this.checkGit().catch(() => {});
       return;
     }
