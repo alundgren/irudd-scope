@@ -94,33 +94,34 @@ async function lines(response: Response, into: string[]) {
 }
 
 /** Reads a folder's change feed from a hub while `during` runs, and returns its events. */
+type FeedEvent = {
+  type: string;
+  overflow?: boolean;
+  live?: boolean;
+  changes?: { type: string; path: string }[];
+  ignoreRulesChanged?: string[];
+};
+
+/** `during` can read the events received so far. */
 async function feed(
   hub: Hub,
   desktop: Record<string, string>,
   root: string,
-  during: () => Promise<void>,
+  during: (received: () => FeedEvent[]) => Promise<void>,
 ) {
   const controller = new AbortController();
   const received: string[] = [];
+  const parsed = () => received.map((line) => JSON.parse(line) as FeedEvent);
   const response = await fetch(
     `${hub.endpoint}/v1/relay/folders/events?${new URLSearchParams({ root })}`,
     { headers: desktop, signal: controller.signal },
   );
   const reading = lines(response, received).catch(() => {});
   await wait(500);
-  await during();
+  await during(parsed);
   controller.abort();
   await reading;
-  return received.map(
-    (line) =>
-      JSON.parse(line) as {
-        type: string;
-        overflow?: boolean;
-        live?: boolean;
-        changes?: { type: string; path: string }[];
-        ignoreRulesChanged?: string[];
-      },
-  );
+  return parsed();
 }
 
 const changed = (events: Awaited<ReturnType<typeof feed>>) =>
@@ -273,7 +274,9 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
 
   // Changed ignore rules, including .git/info/exclude, are reported so readers reload below
   // them, and a folder that is no longer ignored is watched from then on.
-  const rules = await feed(hub, desktop, real, async () => {
+  const excludeSignals = (events: FeedEvent[]) =>
+    events.filter((event) => event.ignoreRulesChanged?.includes("")).length;
+  const rules = await feed(hub, desktop, real, async (received) => {
     await writeFile(join(root, ".git", "info", "exclude"), "*.log\nlogs/\n");
     await wait(600);
     await writeFile(join(root, "sub", ".gitignore"), "*.tmp\n");
@@ -293,12 +296,18 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
     // Moving .git out of the folder drops its exclude rules; moving it back restores them.
     await writeFile(join(root, "logs", "before.txt"), "x");
     await wait(1000);
+    const beforeMove = excludeSignals(received());
     await rename(join(root, ".git"), join(base, "routes-git-parked"));
-    await wait(1000);
+    await expect
+      .poll(() => excludeSignals(received()), { timeout: 5000 })
+      .toBeGreaterThan(beforeMove);
     await writeFile(join(root, "logs", "git-moved-out.txt"), "x");
     await wait(1000);
+    const movedOut = excludeSignals(received());
     await rename(join(base, "routes-git-parked"), join(root, ".git"));
-    await wait(1000);
+    await expect
+      .poll(() => excludeSignals(received()), { timeout: 5000 })
+      .toBeGreaterThan(movedOut);
     await writeFile(join(root, "logs", "git-back.txt"), "x");
     await wait(1200);
   });
@@ -312,17 +321,6 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
     "created routes",
     "deleted routes",
   ]);
-  // Under load one batch can hold several steps, so each window includes its edges.
-  const deletedNamesake = rules.findIndex((event) =>
-    event.changes?.some((change) => change.type === "deleted" && change.path === "routes"),
-  );
-  const movedOut = rules.findIndex((event) =>
-    event.changes?.some((change) => change.path === "logs/git-moved-out.txt"),
-  );
-  const excludeChanged = (event: (typeof rules)[number]) =>
-    event.ignoreRulesChanged?.includes("") ?? false;
-  expect(rules.slice(deletedNamesake, movedOut + 1).some(excludeChanged)).toBe(true);
-  expect(rules.slice(Math.max(movedOut, 0)).some(excludeChanged)).toBe(true);
   expect(changed(rules).filter((change) => change.startsWith("created logs/"))).toEqual([
     "created logs/git-moved-out.txt",
   ]);
@@ -356,6 +354,15 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
     });
     const casedRules = casedEvents.flatMap((event) => event.ignoreRulesChanged ?? []);
     expect(casedRules).toEqual(expect.arrayContaining(["", "docs"]));
+  } else {
+    // Where letter case matters, a link that differs from its target only in case is still
+    // a link, and supplies no rules.
+    await symlink(join(cased, ".GITIGNORE"), join(cased, ".gitignore"));
+    const linked = await fetch(
+      `${hub.endpoint}/v1/relay/folders/list?${new URLSearchParams({ root: await realpath(cased), path: "", showIgnored: "0" })}`,
+      { headers: desktop },
+    ).then((response) => response.json() as Promise<{ entries: { name: string }[] }>);
+    expect(linked.entries.map((entry) => entry.name)).toContain("ignored.txt");
   }
 }
 

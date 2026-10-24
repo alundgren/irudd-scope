@@ -183,6 +183,23 @@ export async function verifyHandle(root: string, real: string, handle: FileHandl
 }
 
 /**
+ * Whether reaching `real` through `path` involves a link. A case-insensitive volume resolves
+ * `.gitignore` to a file stored as `.GITIGNORE`, so a real path that differs only in letter
+ * case is accepted when every part of `path` is itself a real entry. The platform does not
+ * say whether a volume ignores case, so each part is checked rather than assumed.
+ */
+async function linkOnPath(root: string, path: string, real: string): Promise<boolean> {
+  if (real.toLowerCase() !== path.toLowerCase()) return true;
+  let current = root;
+  for (const part of path.slice(root.length).split(sep).filter(Boolean)) {
+    current = join(current, part);
+    const info = await lstat(current).catch(() => undefined);
+    if (!info || info.isSymbolicLink()) return true;
+  }
+  return false;
+}
+
+/**
  * Opens a file or directory inside the root without letting a swapped symlink widen it.
  * `nonBlocking` returns at once for a FIFO instead of waiting for a writer; callers that
  * walk the folder use it and then check that the handle is a regular file. `noSymlinks`
@@ -201,9 +218,7 @@ export async function openInside(
 ): Promise<{ handle: FileHandle; real: string }> {
   const path = options.internal ? join(root, ...relative.split("/")) : joinInside(root, relative);
   const real = await resolveJoined(root, path, relative);
-  // macOS and Windows resolve `.gitignore` to a file stored as `.GITIGNORE`; a real path that
-  // differs only in letter case has no link on the way, since a link to itself is a loop.
-  if (options.noSymlinks && !sameSpelling(real, path)) throw escaped();
+  if (options.noSymlinks && real !== path && (await linkOnPath(root, path, real))) throw escaped();
   // A link inside the folder, such as docs/config -> ../.git/config, does not reach `.git`.
   if (!options.internal && insideGit(root, real)) throw new FolderError("not-found", GIT_REFUSED);
   const flags =
