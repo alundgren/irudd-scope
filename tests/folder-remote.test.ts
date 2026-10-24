@@ -348,14 +348,20 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
       ".GITIGNORE",
       "kept.txt",
     ]);
-    const casedEvents = await feed(hub, desktop, casedRoot, async () => {
+    // `""` covers the whole folder, so a batch that also holds a late exclude event reports
+    // only `""` for the nested change.
+    const rulesFor = (events: FeedEvent[], ...directories: string[]) =>
+      events.some((event) => directories.some((path) => event.ignoreRulesChanged?.includes(path)));
+    await feed(hub, desktop, casedRoot, async (received) => {
       await writeFile(join(cased, ".GIT", "info", "EXCLUDE"), "kept.txt\n");
-      await wait(800);
+      await expect.poll(() => rulesFor(received(), ""), { timeout: 5000 }).toBe(true);
+      await wait(1000);
+      const settled = received().length;
       await writeFile(join(cased, "docs", ".GITIGNORE"), "*.md\n");
-      await wait(1200);
+      await expect
+        .poll(() => rulesFor(received().slice(settled), "docs", ""), { timeout: 5000 })
+        .toBe(true);
     });
-    const casedRules = casedEvents.flatMap((event) => event.ignoreRulesChanged ?? []);
-    expect(casedRules).toEqual(expect.arrayContaining(["", "docs"]));
   } else {
     // Where letter case matters, a link that differs from its target only in case is still
     // a link, and supplies no rules.

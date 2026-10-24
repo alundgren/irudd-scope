@@ -189,21 +189,31 @@ async function useFolderTab(page: Page, label: string, folder: string) {
   await expect.poll(() => tree.getByRole("treeitem", { name: "README.md" }).count()).toBe(13);
   await rm(join(folder, "late"), { recursive: true });
   await expect.poll(() => tree.getByRole("treeitem", { name: "README.md" }).count()).toBe(12);
-  // A folder replaced by another of the same name shows the new folder's files, not the old.
+  // A folder replaced by another of the same name shows the new folder's files, not the old,
+  // and later files follow the new folder's ignore rules, not the old folder's.
   const shown = (name: string) => tree.getByRole("treeitem", { name }).count();
   await mkdir(join(folder, "swapped", "sub"), { recursive: true });
   await writeFile(join(folder, "swapped", "sub", "a1-swapcheck.txt"), "old\n");
+  await writeFile(join(folder, "swapped", "sub", ".gitignore"), "late-*\n");
   await mkdir(join(folder, "..", "staged-swapped", "sub"), { recursive: true });
   await writeFile(join(folder, "..", "staged-swapped", "sub", "b2-swapcheck.txt"), "new\n");
+  await writeFile(join(folder, "..", "staged-swapped", "sub", ".gitignore"), "");
   await filter.fill("swapcheck");
   await expect.poll(() => shown("a1-swapcheck.txt")).toBe(1);
+  // An ignored file makes the folder's watcher read and keep the old folder's rules.
+  await writeFile(join(folder, "swapped", "sub", "late-old-swapcheck.txt"), "x\n");
+  await new Promise((done) => setTimeout(done, 1000));
+  expect(await shown("late-old-swapcheck.txt")).toBe(0);
   await rename(join(folder, "swapped"), join(folder, "..", "parked-swapped"));
   await rename(join(folder, "..", "staged-swapped"), join(folder, "swapped"));
   await expect.poll(() => shown("b2-swapcheck.txt"), { timeout: 10_000 }).toBe(1);
   expect(await shown("a1-swapcheck.txt")).toBe(0);
+  await writeFile(join(folder, "swapped", "sub", "late-new-swapcheck.txt"), "x\n");
+  await expect.poll(() => shown("late-new-swapcheck.txt"), { timeout: 10_000 }).toBe(1);
   await rm(join(folder, "swapped"), { recursive: true });
   await rm(join(folder, "..", "parked-swapped"), { recursive: true });
   await expect.poll(() => shown("b2-swapcheck.txt")).toBe(0);
+  expect(await shown("late-new-swapcheck.txt")).toBe(0);
   await filter.fill("");
   await item("code.ts").waitFor();
   expect(await item("src").getAttribute("aria-expanded")).toBe("true");

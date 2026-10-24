@@ -394,6 +394,10 @@ class FolderWatcher {
     this.overflow = false;
     const changes: FolderChange[] = [];
     const linux = process.platform === "linux" && this.live;
+    // A folder created, removed, or moved in or out brings its own ignore files, which have
+    // no events of their own, so cached rules at and below it are read again.
+    if (overflow) this.filter.clear();
+    else this.filter.forget(paths.filter(([, type]) => type === "rename").map(([path]) => path));
     if (!overflow)
       for (const [path, type] of paths) {
         const result = await this.classify(path, type);
