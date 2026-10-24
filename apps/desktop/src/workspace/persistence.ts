@@ -80,12 +80,13 @@ export function useAutosave<T>(
     );
   }, []);
   const commit = useCallback(
-    (value: () => T, write: (value: T) => Promise<void>, apply: () => void) => {
+    (value: () => T, write: (value: T) => Promise<T | undefined>, apply: () => void) => {
       const task = pending.current.then(async () => {
         try {
           const next = value();
-          await write(next);
-          saved.current = JSON.stringify(next);
+          const persisted = await write(next);
+          // Partial writes cannot acknowledge the full autosave snapshot.
+          saved.current = persisted === undefined ? undefined : JSON.stringify(persisted);
           apply();
         } finally {
           committed.current++;

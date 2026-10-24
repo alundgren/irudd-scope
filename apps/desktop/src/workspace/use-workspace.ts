@@ -272,7 +272,10 @@ export function useWorkspace(onError: (message: string) => void) {
             if (current.current.tabs.some((entry) => entry.id === opened.id))
               await save.commit(
                 () => current.current,
-                (value) => window.scope.saveWorkspace(value),
+                async (value) => {
+                  await window.scope.saveWorkspace(value);
+                  return value;
+                },
                 () => {},
               );
           }
@@ -379,10 +382,14 @@ export function useWorkspace(onError: (message: string) => void) {
     const hide: Promise<void> = guest
       ? save.commit(
           () => (hiding.current.get(id) === hide ? deferred(current.current) : current.current),
-          (value) =>
-            value.tabs.find((tab) => tab.id === id)?.hidden
-              ? window.scope.deferGuestTab(id, value)
-              : window.scope.saveWorkspace(value),
+          async (value) => {
+            if (value.tabs.find((tab) => tab.id === id)?.hidden) {
+              await window.scope.deferGuestTab(id, value);
+              return undefined;
+            }
+            await window.scope.saveWorkspace(value);
+            return value;
+          },
           apply,
         )
       : Promise.all([window.scope.setTabHidden(id, true), window.scope.saveWorkspace(next)]).then(
