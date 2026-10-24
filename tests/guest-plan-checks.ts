@@ -1,3 +1,5 @@
+import { guestPlanDeadlines } from "./guest-plan-deadlines.ts";
+import { decodeLocalConnection } from "@irudd-scope/protocol";
 import { guestPlanNetwork, lostPreparation } from "./guest-plan-network.ts";
 import { expect } from "vite-plus/test";
 import { execFile } from "node:child_process";
@@ -196,6 +198,11 @@ export async function guestPlanChecks() {
     const exportPath = join(directory, "overview.html");
     await cli("plan", "content", "shared-id", ...flags, "--output", exportPath);
     expect(await readFile(exportPath, "utf8")).toBe(proposal.overviewHtml);
+    await guestPlanDeadlines(
+      decodeLocalConnection(JSON.parse(await readFile(b.connectionFile, "utf8"))),
+      { endpoint: hub.endpoint, token: hub.token },
+      target,
+    );
     const preparation = await lostPreparation(hub.endpoint);
     try {
       await expect(

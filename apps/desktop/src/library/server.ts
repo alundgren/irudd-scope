@@ -1,7 +1,10 @@
 import {
   GUEST_PLANS_CAPABILITY,
+  GUEST_COMMAND_TIMEOUT_MS,
+  guestCommandRequest,
   MAX_GUEST_OPERATION_BYTES,
 } from "@irudd-scope/protocol/guest-operation";
+import { httpInputDeadline } from "@irudd-scope/protocol/http-input";
 import { handlePromptHttp } from "./prompt-http.ts";
 import { RetroCommand, RetroReply, MAX_RETRO_REQUEST_BYTES } from "@irudd-scope/protocol/retro";
 import type { RetroConfiguration } from "@irudd-scope/protocol/retro";
@@ -120,7 +123,7 @@ export async function startArtifactServer(options: {
   };
 
   const server = createServer(
-    { requestTimeout: 30_000, headersTimeout: 10_000, maxHeaderSize: 16 * 1024 },
+    { requestTimeout: GUEST_COMMAND_TIMEOUT_MS, headersTimeout: 10_000, maxHeaderSize: 16 * 1024 },
     (request, response) => {
       const task = handle(request, response)
         .catch((error: unknown) => {
@@ -141,6 +144,7 @@ export async function startArtifactServer(options: {
   );
 
   async function handle(request: IncomingMessage, response: ServerResponse) {
+    const inputDeadline = httpInputDeadline(request, response);
     const url = new URL(request.url ?? "/", "http://localhost");
     const route = `${request.method} ${url.pathname}`;
     if (route === "GET /health") {
@@ -148,6 +152,8 @@ export async function startArtifactServer(options: {
       return;
     }
     authenticate(request, options.token);
+    if (options.guestCommand && guestCommandRequest(request.method ?? "", request.url ?? ""))
+      inputDeadline(GUEST_COMMAND_TIMEOUT_MS);
     if (route === "GET /v1/guests/capabilities" && !url.search) {
       json(response, 200, { capabilities: options.guestCommand ? [GUEST_PLANS_CAPABILITY] : [] });
       return;

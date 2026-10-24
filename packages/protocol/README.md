@@ -1145,4 +1145,8 @@ returns original UTF-8 content inside a JSON string, so its reply allows twice
 The actual plan still cannot exceed 32 MiB, including retained bases and records.
 Hub admission and streamed relay transfers enforce these separate limits. Commands
 have a bounded 120-second client/relay deadline; peer operations retain their
-60-second deadline. These limits do not change ordinary artifact publication.
+60-second deadline. Desktop and stateless-hub HTTP body receipt has its own elapsed
+120-second deadline for authenticated exact guest routes; ordinary routes retain
+30-second body receipt and headers retain a separate 10-second limit. Progress does
+not reset these deadlines. Incomplete timed-out input closes its connection before
+preparation. These limits do not change ordinary artifact publication.

@@ -2,6 +2,7 @@ import {
   guestCommandRequest,
   GUEST_COMMAND_TIMEOUT_MS,
 } from "@irudd-scope/protocol/guest-operation";
+import { httpInputDeadline } from "@irudd-scope/protocol/http-input";
 import { createServer, request as httpRequest, type ClientRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { timingSafeEqual } from "node:crypto";
@@ -20,8 +21,9 @@ export async function startHub(options: { endpoint: string; token: string; port?
   const expected = Buffer.from(`Bearer ${options.token}`);
   const active = new Set<ClientRequest>();
   const server = createServer(
-    { requestTimeout: 30_000, headersTimeout: 10_000, maxHeaderSize: 16 * 1024 },
+    { requestTimeout: GUEST_COMMAND_TIMEOUT_MS, headersTimeout: 10_000, maxHeaderSize: 16 * 1024 },
     (request, response) => {
+      const inputDeadline = httpInputDeadline(request, response);
       const json = (status: number, error: string) => {
         if (response.destroyed) return;
         if (response.headersSent) {
@@ -43,6 +45,8 @@ export async function startHub(options: { endpoint: string; token: string; port?
         json(403, "Browser-origin requests are not supported.");
         return;
       }
+      if (guestCommandRequest(request.method ?? "", request.url ?? ""))
+        inputDeadline(GUEST_COMMAND_TIMEOUT_MS);
       let url: URL;
       try {
         url = new URL(request.url ?? "/", "http://localhost");
