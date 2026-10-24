@@ -153,6 +153,9 @@ test(
     await mkdir(other);
     await writeFile(join(app, "docs", "plans", "login.html"), "<h1>Login fix</h1>\n");
     await writeFile(join(app, "docs", "notes.md"), "# Notes\n");
+    await mkdir(join(app, "long"));
+    for (let index = 0; index < 180; index++)
+      await writeFile(join(app, "long", `z${String(index).padStart(3, "0")}.txt`), "");
     // Agents often write plans into ignored folders.
     await writeFile(join(app, ".gitignore"), "plans/\n");
     await writeFile(join(work, "secret.txt"), "outside the folder\n");
@@ -292,6 +295,13 @@ test(
       await page.getByText("1 file", { exact: true }).waitFor();
       await filter.fill("");
       await item("notes.md").waitFor();
+      // Selecting the same file again scrolls the tree back to it.
+      await folder("select", app, "long/z179.txt");
+      await item("z179.txt").waitFor();
+      await tree.evaluate((element) => element.scrollTo({ top: 0 }));
+      await item("z179.txt").waitFor({ state: "detached" });
+      await folder("select", app, "long/z179.txt");
+      await item("z179.txt").waitFor();
 
       // A local watch ends with `closed` when the person closes the tab, here a bookmark,
       // even while the window still shows an older copy of the tab: main's notice of the

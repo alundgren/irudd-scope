@@ -177,6 +177,7 @@ export function FolderTree({
   tabId,
   rows,
   selected,
+  revealCount,
   onToggle,
   onSelect,
   onRetry,
@@ -185,6 +186,8 @@ export function FolderTree({
   tabId: string;
   rows: readonly FolderRow[];
   selected: string | null;
+  /** Counts requests to show the selected file, which can repeat for the same file. */
+  revealCount: number;
   onToggle: (path: string, open: boolean) => void;
   onSelect: (path: string) => void;
   onRetry: (directory: string) => void;
@@ -223,11 +226,11 @@ export function FolderTree({
       element.scrollTop = top + ROW_HEIGHT - element.clientHeight;
   }
   // Scroll to a file selected outside the tree, such as by an agent's `folder select`,
-  // once its row is loaded and the tree is visible.
+  // once its row is loaded and the tree is visible. A repeated request scrolls again.
   const unrevealed = useRef(selected);
   useEffect(() => {
     unrevealed.current = selected;
-  }, [selected]);
+  }, [selected, revealCount]);
   useEffect(() => {
     const index = rows.findIndex((row) => row.entry.path === unrevealed.current);
     if (index < 0 || !container.current?.clientHeight) return;

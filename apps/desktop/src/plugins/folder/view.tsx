@@ -78,6 +78,7 @@ export function FolderView({
   // have made while the tab was not shown.
   const [reveal, setReveal] = useState(data.selectedPath);
   const [paused, setPaused] = useState(false);
+  const [revealCount, setRevealCount] = useState(0);
   const filterInput = useRef<HTMLInputElement>(null);
   if (reveal !== null && data.filter === "") setReveal(null);
   else if (reveal !== null && filter.text === data.filter && filter.matches !== undefined) {
@@ -86,6 +87,7 @@ export function FolderView({
   }
   const revealFile = useCallback((path: string) => {
     setReveal(path);
+    setRevealCount((count) => count + 1);
     const above = folderAncestors(path);
     setCollapsed((current) =>
       above.some((folder) => current.has(folder))
@@ -261,6 +263,7 @@ export function FolderView({
                 tabId={tab.id}
                 rows={rows}
                 selected={data.selectedPath}
+                revealCount={revealCount}
                 onToggle={toggle}
                 onSelect={(path) => {
                   setTarget(undefined);
