@@ -12,6 +12,18 @@ import {
 } from "@irudd-scope/protocol/plan";
 
 export const PlanGuide = {
+  planning: {
+    beforePresentation:
+      "Before showing or publishing the first proposal, send a scout for a quick technical feasibility check against the current code. Check the proposed outcome, main technical assumptions and existing limits without implementing the feature. The drafting agent checks the findings and addresses problems before presenting.",
+    afterAgreement:
+      "After the person agrees on the plan, have an independent technical reviewer use its own scout to check the work item breakdown against the code before implementation. Check that the items work together, including dependencies, shared contracts, integration ownership and completion checks through real entry points. The reviewer makes the assessment.",
+    revisions:
+      "Fix issues within the agreed plan and have the reviewer recheck affected items. If a fix changes an agreed outcome, constraint or acceptance criterion, pause affected work and discuss the problem and proposed change with the person. Revise together until agreed, then review the revised breakdown before starting that work. Reviewer approval is not the person's agreement.",
+    presentation:
+      "Keep the existing plan format. Keep technical lookup details in agent context and item context or constraints. Explain problems and choices to the person in plain words without file names, line numbers or review reports.",
+    delegation:
+      "Use the coding session's delegation tools and scout/reviewer launch rules, including model-settings when available. Report unavailable delegation instead of silently skipping a check. Scope does not launch agents.",
+  },
   publish:
     "plan publish NAME PLAN.json OVERVIEW.html creates a named permanent JSON plan. To replace, first read it, preserve bases and records, then pass --expected-revision REVISION. Zero means create only. Publication is not agreement.",
   read: "plan read NAME returns artifact metadata and the exact document. plan item NAME ITEM_ID returns owned checks, prerequisites, related context and retained evidence separately. plan content NAME --output NEW_FILE.html exports authored HTML without modification.",
