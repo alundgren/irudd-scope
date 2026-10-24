@@ -279,14 +279,20 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
   const excludeSignals = (events: FeedEvent[]) =>
     events.filter((event) => event.ignoreRulesChanged?.includes("")).length;
   const rules = await feed(hub, desktop, real, async (received) => {
+    // Each step waits for its signal, so a slow event cannot arrive after the next step.
+    const signals = (directory: string) =>
+      received().filter((event) => event.ignoreRulesChanged?.includes(directory)).length;
     await writeFile(join(root, ".git", "info", "exclude"), "*.log\nlogs/\n");
-    await wait(600);
+    await expect.poll(() => signals(""), { timeout: 15_000 }).toBeGreaterThan(0);
     await writeFile(join(root, "sub", ".gitignore"), "*.tmp\n");
-    await wait(600);
+    await expect.poll(() => signals("sub"), { timeout: 15_000 }).toBeGreaterThan(0);
+    const beforeRoot = signals("");
     await writeFile(join(root, ".gitignore"), "");
-    await wait(800);
+    await expect.poll(() => signals(""), { timeout: 15_000 }).toBeGreaterThan(beforeRoot);
     await writeFile(join(root, "node_modules", "unignored.js"), "x");
-    await wait(1200);
+    await expect
+      .poll(() => changed(received()), { timeout: 15_000 })
+      .toContain("created node_modules/unignored.js");
     // Watches name events on a watched folder itself by its own name, as if it were a child.
     await chmod(root, 0o700);
     await chmod(join(root, "sub"), 0o700);
@@ -301,14 +307,14 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
     const beforeMove = excludeSignals(received());
     await rename(join(root, ".git"), join(base, "routes-git-parked"));
     await expect
-      .poll(() => excludeSignals(received()), { timeout: 5000 })
+      .poll(() => excludeSignals(received()), { timeout: 15_000 })
       .toBeGreaterThan(beforeMove);
     await writeFile(join(root, "logs", "git-moved-out.txt"), "x");
     await wait(1000);
     const movedOut = excludeSignals(received());
     await rename(join(base, "routes-git-parked"), join(root, ".git"));
     await expect
-      .poll(() => excludeSignals(received()), { timeout: 5000 })
+      .poll(() => excludeSignals(received()), { timeout: 15_000 })
       .toBeGreaterThan(movedOut);
     await writeFile(join(root, "logs", "git-back.txt"), "x");
     await wait(1200);
@@ -354,12 +360,12 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
       events.some((event) => directories.some((path) => event.ignoreRulesChanged?.includes(path)));
     await feed(hub, desktop, casedRoot, async (received) => {
       await writeFile(join(cased, ".GIT", "info", "EXCLUDE"), "kept.txt\n");
-      await expect.poll(() => rulesFor(received(), ""), { timeout: 5000 }).toBe(true);
+      await expect.poll(() => rulesFor(received(), ""), { timeout: 15_000 }).toBe(true);
       await wait(1000);
       const settled = received().length;
       await writeFile(join(cased, "docs", ".GITIGNORE"), "*.md\n");
       await expect
-        .poll(() => rulesFor(received().slice(settled), "docs", ""), { timeout: 5000 })
+        .poll(() => rulesFor(received().slice(settled), "docs", ""), { timeout: 15_000 })
         .toBe(true);
     });
   } else {
