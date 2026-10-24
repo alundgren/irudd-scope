@@ -65,7 +65,10 @@ canonical path comes from `canonicalFolder`, run on the machine that has the
 files: desktop main resolves local paths and a hub resolves its own before
 relaying. A canonical path with a `.git` part in any letter case, including
 through a link, fails with `not-found` "Scope does not show .git." and opens no
-tab; desktop main also refuses such a path from a hub. `scope.db` enforces one tab per key in the `folder_tabs` table inside
+tab; desktop main also refuses such a path from a hub. `canonicalFolder` also
+compares the folder and each folder above it with its parent's `.git` by device
+and inode, so another name for `.git`, such as a Windows short name, is refused
+too; inode 0, which some network drives report for everything, counts as unknown. `scope.db` enforces one tab per key in the `folder_tabs` table inside
 the same transaction that creates, restores, unhides, or renames the tab.
 
 The Folder plugin is an ordinary tab type: temporary by default, bookmarkable,
@@ -117,7 +120,10 @@ watches. `.git` and ignored folders are never watched, except that Linux watches
 `.gitignore` or to `.git/info/exclude`, or `.git` itself appearing, moving, or being
 replaced, adds its directory (`""` for exclude and `.git`) to the batch's
 `ignoreRulesChanged`; readers reload every listing at or below it, and
-Linux adds and removes directory watches below it to match the new rules. Scope
+Linux adds and removes directory watches below it to match the new rules. A folder
+created, removed, or moved in or out brings ignore files that have no events of
+their own, so the watcher also reads the rules at and below it again; readers
+already reload such a folder. Scope
 reads an ignore file only when it and every folder above it inside the root are
 real, not links, as Git does, and skips one that is a FIFO without waiting. A
 case-insensitive volume resolves `.gitignore` to a file stored as `.GITIGNORE`, so

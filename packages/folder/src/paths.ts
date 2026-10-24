@@ -39,11 +39,8 @@ function missing(error: unknown) {
   );
 }
 
-/**
- * The one canonical form of a folder path: the real path with symlinks resolved
- * and the letter case stored on disk. Run it on the machine that has the files.
- */
-export async function canonicalFolder(path: string): Promise<string> {
+/** The real path of an existing folder that does not pass through `.git` by name. */
+async function realFolder(path: string): Promise<string> {
   if (!isAbsolute(path)) throw new FolderError("not-found", "Use an absolute folder path.");
   let real: string;
   try {
@@ -54,13 +51,29 @@ export async function canonicalFolder(path: string): Promise<string> {
   }
   // `.git` itself, a folder inside it, or a link to either is never opened as a folder.
   if (gitPath(real)) throw new FolderError("not-found", GIT_REFUSED);
-  const info = await stat(real);
-  if (!info.isDirectory()) throw new FolderError("not-a-directory", `${path} is not a folder.`);
-  // The native real path already gives Windows aliases such as `GIT~1` or `.git.` their own
-  // name; the identity check also covers any other name for the parent's `.git`.
-  const git = await lstat(join(dirname(real), GIT_DIRECTORY)).catch(() => undefined);
-  if (dirname(real) !== real && git?.dev === info.dev && git.ino === info.ino)
-    throw new FolderError("not-found", GIT_REFUSED);
+  if (!(await stat(real)).isDirectory())
+    throw new FolderError("not-a-directory", `${path} is not a folder.`);
+  return real;
+}
+
+/**
+ * The one canonical form of a folder path: the real path with symlinks resolved
+ * and the letter case stored on disk. Run it on the machine that has the files.
+ *
+ * The native real path already gives Windows aliases such as `GIT~1` or `.git.` their own
+ * name. Each folder from the root up is also compared with its parent's `.git` by device and
+ * inode, which refuses any other name for `.git` or a folder inside it. Some network drives
+ * report inode 0 for everything; 0 is treated as unknown.
+ */
+export async function canonicalFolder(path: string): Promise<string> {
+  const real = await realFolder(path);
+  for (let current = real; dirname(current) !== current; current = dirname(current)) {
+    const info = await stat(current).catch(() => undefined);
+    if (!info?.ino) continue;
+    const git = await lstat(join(dirname(current), GIT_DIRECTORY)).catch(() => undefined);
+    if (git?.dev === info.dev && git.ino === info.ino)
+      throw new FolderError("not-found", GIT_REFUSED);
+  }
   return real;
 }
 
@@ -71,7 +84,9 @@ export function gitPath(path: string): boolean {
 
 /** Checks that a canonical root still exists at the same real path. */
 export async function checkRoot(root: string): Promise<void> {
-  const current = await canonicalFolder(root).catch((error: unknown) => {
+  // A root already passed canonicalFolder; this check runs before every read, so it skips
+  // the walk up to compare each folder with `.git`.
+  const current = await realFolder(root).catch((error: unknown) => {
     if (error instanceof FolderError)
       throw new FolderError("not-found", "This folder no longer exists.");
     throw error;

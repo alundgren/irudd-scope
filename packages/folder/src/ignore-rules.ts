@@ -76,6 +76,18 @@ export class IgnoreFilter {
     this.ignoredDirectories.clear();
   }
 
+  /** Drops cached rules and decisions for these paths and everything below them. */
+  forget(paths: readonly string[]) {
+    if (!paths.length) return;
+    const gone = new Set(paths);
+    const below = (key: string) => {
+      for (let path = key; path; path = parent(path)) if (gone.has(path)) return true;
+      return false;
+    };
+    for (const cache of [this.rules, this.ignoredDirectories])
+      for (const key of cache.keys()) if (below(key)) cache.delete(key);
+  }
+
   private rulesFor(directory: string): Promise<IgnoreRules> {
     let rules = this.rules.get(directory);
     if (!rules) {
