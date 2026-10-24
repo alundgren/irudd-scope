@@ -72,5 +72,5 @@ the relevant empty, pending, error, and conflict states. Check position and
 drafts across affected navigation paths. For visual changes, inspect desktop
 screenshots and keep the evidence outside tracked guidance.
 
-Run `vp run ready` before completion. Update `ux.md` when a product decision
+Run the affected tests while working and `vp run ready` once when the change is complete. Update `ux.md` when a product decision
 changes; keep token values in their CSS owner and validation receipts out of docs.

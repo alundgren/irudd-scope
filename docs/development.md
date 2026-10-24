@@ -47,10 +47,14 @@ request, but imports are never queued. The command defaults to a bounded
 
 `vp run ready` builds the CLI, hub, and desktop, runs `vp run check`, then runs
 the standard test suite. The check script verifies formatting, lint, types, and the test rules below,
-with compact lint diagnostics. Run it locally; CI has no test or validation jobs. It must pass
-on the finished changes before completion and every push, including the first
-push and documentation changes. Further edits require another successful run
-before completion or pushing.
+with compact lint diagnostics. Run it locally; CI has no test or validation jobs.
+
+During development, run `vp run check` and the test files that cover the code
+you change, for example `vp run test tests/folder-local.test.ts`. Run
+`vp run ready` once when you consider the change complete. Run the full suite
+again only after it fails. Edits made after a passing full run need only
+`vp run check` and the tests that cover them. Documentation-only changes need
+`vp run check`.
 Validation does not rewrite source or the lockfile. Do not install validation hooks.
 
 `vp run test` selects the `standard` Vitest project, which excludes the
@@ -90,7 +94,7 @@ built-in plugin directories. Plugins use shared APIs and event contracts;
 only the registries compose their implementations. Non-semantic style choices
 belong to these tools.
 Apply corrections explicitly with `vp check --fix`, inspect the diff, then
-run `vp run ready` again. Naming, ownership, and documentation accuracy remain
+run `vp run check` again. Naming, ownership, and documentation accuracy remain
 review responsibilities.
 
 Oxlint warns when cyclomatic complexity exceeds 10, a JavaScript or TypeScript
