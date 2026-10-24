@@ -464,11 +464,14 @@ export async function guestMutationChecks() {
         kind: "replace-plan",
         document: {
           ...captured,
-          overviewHtml: "<p>" + "Synthetic proposal. ".repeat(1_600_000) + "</p>",
+          overviewHtml: "<h1>Near-limit proposal</h1><!--" + "x".repeat(32_000_000) + "-->",
         },
       },
       "mutation-plan",
     );
+    const authoritative = await local("source", largeChange.target);
+    expect(authoritative.sourceVersion).toBe(largeChange.expectedSourceVersion);
+    expect(authoritative.artifact.revision).toBe(largeChange.expectedRevision);
     const large = await local("prepare", largeChange);
     const largeIdentity = {
       target: largeChange.target,
@@ -496,10 +499,12 @@ export async function guestMutationChecks() {
       }),
     ).rejects.toThrow("uncertain");
     await expect
-      .poll(() =>
-        pageA
-          .evaluate(() => window.scope.retainedTabs())
-          .then((tabs) => tabs.find((entry) => entry.tab.id === sourceId)?.trashedAt !== null),
+      .poll(
+        () =>
+          pageA
+            .evaluate(() => window.scope.retainedTabs())
+            .then((tabs) => tabs.find((entry) => entry.tab.id === sourceId)?.trashedAt !== null),
+        { timeout: 15000 },
       )
       .toBe(true);
     await openActions();
@@ -626,12 +631,18 @@ export async function guestMutationChecks() {
       db.close();
     }
   } finally {
-    await Promise.allSettled([left.close(), right.close()]);
+    const cleanup = await Promise.allSettled([left.close(), right.close()]);
     await responses.close();
     await Promise.all(
       [a.directory, b.directory, directory].map((path) =>
         rm(path, { recursive: true, force: true }),
       ),
     );
+    const failures = cleanup.filter((result) => result.status === "rejected");
+    if (failures.length)
+      throw new AggregateError(
+        failures.map((result) => result.reason),
+        "Guest test cleanup failed.",
+      );
   }
 }

@@ -1034,6 +1034,8 @@ validation and immutable-record rules as ordinary plan publication.
 
 The local authenticated desktop API accepts POST JSON at:
 
+- `/v1/guests/source`: `GuestTarget`, returning the current `GuestSource` or null.
+  This provides the expected source version and publication revision for a new change.
 - `/v1/guests/read`: `GuestRead`, returning `{ artifact, content }` from the owner.
 - `/v1/guests/prepare`: `GuestChange`, returning `GuestOperation` after the owner
   allocates an identity and the receiver durably saves the input and identity.
@@ -1057,7 +1059,7 @@ Source eligibility is checked inside execution. Receipt lookup requires current
 peer authorization but does not require the source to survive.
 
 The owner retains at most 4096 receipts for 48 hours. Live receipts are never
-evicted; preparation fails at capacity. A persisted maximum wall-clock value
+evicted; preparation fails at capacity and reclaims expired rows. A persisted maximum wall-clock value
 prevents clock rollback from extending receipts; forward clock changes may expire
 them. Execution never inserts a missing receipt, so unknown, expired and deleted
 IDs cannot execute again. A lost reply requires same-ID status, never a fresh ID

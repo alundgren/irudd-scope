@@ -145,7 +145,9 @@ export async function startArtifactServer(options: {
       return;
     }
     authenticate(request, options.token);
-    const guestRoute = /^\/v1\/guests\/(prepare|execute|status|reconcile|read)$/.exec(url.pathname);
+    const guestRoute = /^\/v1\/guests\/(prepare|execute|status|reconcile|read|source)$/.exec(
+      url.pathname,
+    );
     if (guestRoute && request.method === "POST" && !url.search) {
       if (!options.guestCommand)
         throw new ScopeError(503, "Guest operations require an open desktop.");

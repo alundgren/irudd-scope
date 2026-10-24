@@ -27,6 +27,7 @@ export function recoverableFields(document: Document) {
       counts.get(key) !== 1 ||
       sensitiveField.test(`${key} ${field.getAttribute("name") ?? ""} ${field.id}`) ||
       field.closest('[data-scope-recovery="off"]') ||
+      field.form?.closest('[data-scope-recovery="off"]') ||
       (autocomplete && !["off", "on"].includes(autocomplete)) ||
       (field.tagName === "INPUT" && !recoveryInputTypes.includes(field.type))
     )

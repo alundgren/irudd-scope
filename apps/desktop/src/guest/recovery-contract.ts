@@ -27,7 +27,7 @@ export const recoveryInputTypes = [
   "radio",
 ];
 export const sensitiveField =
-  /password|passwd|secret|token|credential|credit|card|cvc|cvv|ssn|social.?security|one.?time|otp|email|phone|telephone/i;
+  /password|passwd|passcode|secret|token|credential|api.?key|authorization|bearer|user.?name|login|credit|card|cvc|cvv|ssn|social.?security|one.?time|otp|email|phone|telephone|(?:^|[^a-z])pin(?:$|[^a-z])/i;
 export const GuestField = Schema.Struct({
   key: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
   tag: Schema.Literals(["input", "textarea", "select"]),
