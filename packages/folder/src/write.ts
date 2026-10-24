@@ -174,8 +174,14 @@ function refuseShortAlias(base: string, name: string, shown: string) {
   let real: string;
   try {
     real = realpathSync.native(`${base}/${name}`);
-  } catch {
-    return;
+  } catch (error) {
+    // Nothing has that name yet; libuv reports Windows' file and path not found as ENOENT.
+    if (["ENOENT", "ENOTDIR"].includes(errorCode(error))) return;
+    // Any other failure leaves the name unchecked, so it is not used.
+    throw new FolderError(
+      "outside-folder",
+      `Scope could not check whether ${shown} is another name for an existing entry (${errorCode(error) || "unknown error"}). Rename it and try again.`,
+    );
   }
   if (basename(real).toLowerCase() !== name.toLowerCase())
     throw new FolderError(
