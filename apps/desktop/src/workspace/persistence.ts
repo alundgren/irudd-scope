@@ -55,16 +55,17 @@ export function useAutosave<T>(
     if (discarded.current) return pending.current;
     const value = current.current.getValue();
     if (value === undefined) return pending.current;
+    const document = JSON.stringify(value);
     const generation = committed.current;
     const write = current.current.save;
     const task = pending.current.then(async () => {
       // An explicit commit may have changed navigation while this snapshot was queued.
       const latest = generation === committed.current ? value : current.current.getValue();
       if (discarded.current || latest === undefined) return;
-      const document = JSON.stringify(latest);
-      if (document === saved.current) return;
+      const latestDocument = generation === committed.current ? document : JSON.stringify(latest);
+      if (latestDocument === saved.current) return;
       await write(latest);
-      saved.current = document;
+      saved.current = latestDocument;
     });
     pending.current = task.catch(() => {});
     return task.then(
