@@ -323,19 +323,35 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
     "created logs/git-moved-out.txt",
   ]);
 
-  // Ignore files whose stored letter case differs still apply where names ignore case.
+  // Ignore files whose stored letter case differs still apply where names ignore case, and
+  // editing them reports changed rules.
   const cased = join(base, "cased");
   await mkdir(join(cased, ".GIT", "info"), { recursive: true });
-  await writeFile(join(cased, ".GIT", "info", "exclude"), "excluded.txt\n");
+  await mkdir(join(cased, "docs"));
+  await writeFile(join(cased, ".GIT", "info", "EXCLUDE"), "excluded.txt\n");
   await writeFile(join(cased, ".GITIGNORE"), "ignored.txt\n");
+  await writeFile(join(cased, "docs", ".GITIGNORE"), "");
   for (const name of ["excluded.txt", "ignored.txt", "kept.txt"])
     await writeFile(join(cased, name), "x");
   if (existsSync(join(cased, ".gitignore"))) {
+    const casedRoot = await realpath(cased);
     const casedListing = await fetch(
-      `${hub.endpoint}/v1/relay/folders/list?${new URLSearchParams({ root: await realpath(cased), path: "", showIgnored: "0" })}`,
+      `${hub.endpoint}/v1/relay/folders/list?${new URLSearchParams({ root: casedRoot, path: "", showIgnored: "0" })}`,
       { headers: desktop },
     ).then((response) => response.json() as Promise<{ entries: { name: string }[] }>);
-    expect(casedListing.entries.map((entry) => entry.name)).toEqual([".GITIGNORE", "kept.txt"]);
+    expect(casedListing.entries.map((entry) => entry.name)).toEqual([
+      "docs",
+      ".GITIGNORE",
+      "kept.txt",
+    ]);
+    const casedEvents = await feed(hub, desktop, casedRoot, async () => {
+      await writeFile(join(cased, ".GIT", "info", "EXCLUDE"), "kept.txt\n");
+      await wait(800);
+      await writeFile(join(cased, "docs", ".GITIGNORE"), "*.md\n");
+      await wait(1200);
+    });
+    const casedRules = casedEvents.flatMap((event) => event.ignoreRulesChanged ?? []);
+    expect(casedRules).toEqual(expect.arrayContaining(["", "docs"]));
   }
 }
 

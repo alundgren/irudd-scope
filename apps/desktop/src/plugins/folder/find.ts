@@ -163,13 +163,19 @@ class FolderPaths {
     if (event.type !== "changes") return true;
     if (event.overflow || event.ignoreRulesChanged?.length || event.changes.some(ignoreFileChanged))
       return false;
+    // A created path may replace a directory of the same name, so its old entries go and
+    // refreshing its parent lists and walks it again.
     const directories = new Set<string>();
     for (const change of event.changes) {
       if (change.type === "deleted") this.remove(change.path);
       else if (change.type === "renamed") {
         this.remove(change.from);
+        this.remove(change.to);
         directories.add(parent(change.to));
-      } else if (change.type === "created") directories.add(parent(change.path));
+      } else if (change.type === "created") {
+        this.remove(change.path);
+        directories.add(parent(change.path));
+      }
     }
     if (directories.size)
       this.updates = this.updates.then(() => this.refresh(directories)).then(() => this.onUpdate());
@@ -213,9 +219,13 @@ class FolderPaths {
   }
 }
 
+/**
+ * For feeds without `ignoreRulesChanged`. Any letter case counts, as on macOS and Windows;
+ * on Linux a `.GITIGNORE` only causes one extra rebuild.
+ */
 function ignoreFileChanged(change: FolderChange) {
   const paths = change.type === "renamed" ? [change.from, change.to] : [change.path];
-  return paths.some((path) => path === ".gitignore" || path.endsWith("/.gitignore"));
+  return paths.some((path) => /(^|\/)\.gitignore$/i.test(path));
 }
 
 /**
