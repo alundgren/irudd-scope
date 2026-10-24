@@ -230,7 +230,7 @@ export async function guestConnectionChecks() {
     expect((await pageA.evaluate(() => window.scope.transferDevices())).peers).toHaveLength(0);
     await right.close();
     right = await b.launch();
-    await catalog.restarted(await right.firstWindow());
+    await catalog.restarted(await right.firstWindow(), right);
   } finally {
     await right?.close();
     await responses.close();

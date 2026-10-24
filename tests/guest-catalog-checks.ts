@@ -283,7 +283,10 @@ export async function guestCatalogChecks({
       current = await ca.publish(
         "same-id",
         { ...metadata, expectedRevision: current.revision },
-        Buffer.from("<h1>Current owner revision</h1>"),
+        Buffer.from(
+          "<h1>Current owner revision</h1>" +
+            "<p>Current owner content keeps its receiver reading position.</p>".repeat(100),
+        ),
       );
       await expect
         .poll(
@@ -640,7 +643,7 @@ export async function guestCatalogChecks({
       );
       expect(text).toContain("Current owner revision");
     },
-    async restarted(page: Page) {
+    async restarted(page: Page, restartedApp: ElectronApplication) {
       await expect
         .poll(() =>
           page
@@ -682,6 +685,34 @@ export async function guestCatalogChecks({
         sourceTab.id,
       );
       expect((await (await b.connect()).list()).map((item) => item.id)).toEqual(["same-id"]);
+      // Linux credentials are session-only. Pair again explicitly, then restore the saved reader.
+      const invitation = await pageA.evaluate(() => window.scope.createPairing("Source Scope"));
+      await pageA.evaluate((id) => window.scope.copyPairingSecret(id), invitation.id);
+      const secret = await left.evaluate(({ clipboard }) => clipboard.readText());
+      await page.evaluate((input) => window.scope.pairScope(input), {
+        url: invitation.url,
+        secret,
+        name: "Guest Scope",
+      });
+      const peer = (await page.evaluate(() => window.scope.transferDevices())).peers[0]!.id;
+      await pageA.evaluate((id) => window.scope.setGuestAccess(id, true), peer);
+      await page.evaluate((id) => window.scope.setGuestAccess(id, true), peer);
+      await pageA.evaluate((id) => window.scope.copyGuestLink(id), peer);
+      const link = await left.evaluate(({ clipboard }) => clipboard.readText());
+      await restartedApp.evaluate(({ clipboard }, link) => clipboard.writeText(link), link);
+      await page.evaluate((id) => window.scope.connectGuestLink(id), peer);
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.scope.guestCatalog())).available.includes(guestId),
+          { timeout: 25000 },
+        )
+        .toBe(true);
+      const frame = page.locator(`#pane-${guestId} iframe`).contentFrame();
+      await frame.getByRole("heading", { name: "Current owner revision" }).waitFor();
+      await expect.poll(() => frame.locator("body").evaluate(() => window.scrollY)).toBe(480);
+      expect((await page.evaluate(() => window.scope.workspace()))?.selected).toBe(guestId);
+      await capture("workspace-reopened-reader-dark-laptop.png", page);
     },
     async revoked() {
       await expect(
