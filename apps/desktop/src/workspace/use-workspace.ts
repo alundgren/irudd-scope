@@ -193,6 +193,22 @@ export function useWorkspace(onError: (message: string) => void) {
     };
   }, [loaded]);
 
+  useEffect(() => {
+    const selected = current.current.selected;
+    if (!selected || !guests.available.includes(selected)) return;
+    const record = guests.records.find((record) => record.tab.id === selected);
+    const tab = current.current.tabs.find((tab) => tab.id === selected);
+    if (!record || !tab) return;
+    const revision = record.source.artifact?.revision ?? 0;
+    if (tab.guestReadRevision === revision) return;
+    replace({
+      ...current.current,
+      tabs: current.current.tabs.map((tab) =>
+        tab.id === selected ? { ...tab, guestReadRevision: revision } : tab,
+      ),
+    });
+  }, [guests, workspace.selected]);
+
   function createGroup(owner: TabGroup["owner"], id = crypto.randomUUID()): TabGroup {
     const previous = current.current;
     const existing = previous.groups.find((group) => group.id === id);
@@ -254,7 +270,14 @@ export function useWorkspace(onError: (message: string) => void) {
             await hiding.current.get(opened.id)?.catch(() => {});
             // An ignored open may have cleared a built-in tab's saved hidden state.
             if (current.current.tabs.some((entry) => entry.id === opened.id))
-              await window.scope.saveWorkspace(current.current);
+              await save.commit(
+                () => current.current,
+                async (value) => {
+                  await window.scope.saveWorkspace(value);
+                  return value;
+                },
+                () => {},
+              );
           }
           if (opened && !closed.has(opened.id)) {
             const tabs = latest.tabs.some((entry) => entry.id === opened.id)
@@ -314,7 +337,8 @@ export function useWorkspace(onError: (message: string) => void) {
   function revealTab(id: string): void {
     // Reopening also wins over a close that main has not finished.
     const closing = hiding.current.delete(id);
-    if (closing || current.current.tabs.find((tab) => tab.id === id)?.hidden)
+    const tab = current.current.tabs.find((tab) => tab.id === id);
+    if (tab?.type !== "guest" && (closing || tab?.hidden))
       void window.scope.setTabHidden(id, false).catch(() => {});
     const previous = current.current;
     replace({
@@ -322,6 +346,7 @@ export function useWorkspace(onError: (message: string) => void) {
       tabs: previous.tabs.map((tab) => (tab.id === id ? { ...tab, hidden: false } : tab)),
       selected: id,
     });
+    if (tab?.type === "guest") void save.flush().catch(() => {});
   }
 
   async function deferTab(id: string): Promise<string | null> {
@@ -349,14 +374,27 @@ export function useWorkspace(onError: (message: string) => void) {
     const next = deferred(current.current);
     if (next === current.current) return next.selected;
     for (const pending of pendingOpens.current) pending.closed.add(id);
-    // Main closes the stored tab first, so a workspace save it ignores as older cannot undo
-    // the close. Both requests are sent together to keep their order with a quick reopen.
-    const closing = window.scope.setTabHidden(id, true);
-    const saving = window.scope.saveWorkspace(next);
-    const hide: Promise<void> = Promise.all([closing, saving]).then(() => {
-      // A reopen while this save was pending wins over the close.
+    const apply = () => {
+      // A reopen while persistence was pending wins over this UI close.
       if (hiding.current.get(id) === hide) replace(deferred(current.current));
-    });
+    };
+    const guest = current.current.tabs.find((tab) => tab.id === id)?.type === "guest";
+    const hide: Promise<void> = guest
+      ? save.commit(
+          () => (hiding.current.get(id) === hide ? deferred(current.current) : current.current),
+          async (value) => {
+            if (value.tabs.find((tab) => tab.id === id)?.hidden) {
+              await window.scope.deferGuestTab(id, value);
+              return undefined;
+            }
+            await window.scope.saveWorkspace(value);
+            return value;
+          },
+          apply,
+        )
+      : Promise.all([window.scope.setTabHidden(id, true), window.scope.saveWorkspace(next)]).then(
+          apply,
+        );
     hiding.current.set(id, hide);
     try {
       await hide;
@@ -411,7 +449,15 @@ export function useWorkspace(onError: (message: string) => void) {
   return {
     workspace,
     guests,
-    unreadTabs,
+    unreadTabs: new Set([
+      ...unreadTabs,
+      ...guests.records
+        .filter((record) => {
+          const tab = workspace.tabs.find((tab) => tab.id === record.tab.id);
+          return tab && tab.guestReadRevision !== (record.source.artifact?.revision ?? 0);
+        })
+        .map((record) => record.tab.id),
+    ]),
     ready,
     save,
     openTab,

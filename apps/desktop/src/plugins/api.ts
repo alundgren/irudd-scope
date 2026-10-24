@@ -15,6 +15,7 @@ import type { TabEvents } from "./events.ts";
 export type OwnerContent = {
   ownerDeviceId: string;
   sourceTabId: string;
+  available: boolean;
   read: (artifact: Artifact) => Promise<ArtifactContent>;
 };
 export type TabContext = {

@@ -839,13 +839,13 @@ export class DesktopStore {
     });
   }
 
-  saveGuestTabs(tabs: readonly Tab[]): Promise<void> {
+  saveGuestWorkspace(workspace: Workspace): Promise<void> {
     return this.enqueue(async () => {
       const sql = this.sql!;
       await this.run(
         sql.withTransaction(
           Effect.gen(function* () {
-            for (const [position, tab] of tabs.entries()) {
+            for (const [position, tab] of workspace.tabs.entries()) {
               const [row] = yield* sql<{
                 tab: string;
               }>`SELECT tab FROM guest_tabs WHERE id = ${tab.id}`;
@@ -855,6 +855,12 @@ export class DesktopStore {
               const saved = decode(Tab, JSON.parse(row.tab));
               yield* sql`UPDATE guest_tabs SET tab = ${JSON.stringify({ ...tab, title: saved.title })}, position = ${position} WHERE id = ${tab.id}`;
             }
+            const layout = {
+              groups: workspace.groups,
+              selected: workspace.selected,
+              order: workspace.tabs.map((tab) => tab.id),
+            };
+            yield* sql`INSERT INTO preferences(name, document) VALUES ('workspace_layout', ${JSON.stringify(layout)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`;
           }),
         ),
       );
@@ -864,15 +870,18 @@ export class DesktopStore {
   setGuestHidden(id: string, hidden: boolean): Promise<boolean> {
     return this.enqueue(async () => {
       const sql = this.sql!;
-      const [row] = await this.run(
-        sql<{ tab: string }>`SELECT tab FROM guest_tabs WHERE id = ${id}`,
+      return this.run(
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const [row] = yield* sql<{ tab: string }>`SELECT tab FROM guest_tabs WHERE id = ${id}`;
+            if (!row) return false;
+            const tab = decode(Tab, JSON.parse(row.tab));
+            yield* sql`UPDATE guest_tabs SET tab = ${JSON.stringify({ ...tab, hidden })} WHERE id = ${id}`;
+            if (hidden) yield* moveLayoutTabToEnd(sql, id);
+            return true;
+          }),
+        ),
       );
-      if (!row) return false;
-      const tab = decode(Tab, JSON.parse(row.tab));
-      await this.run(
-        sql`UPDATE guest_tabs SET tab = ${JSON.stringify({ ...tab, hidden })} WHERE id = ${id}`,
-      );
-      return true;
     });
   }
 
@@ -1006,7 +1015,9 @@ export class DesktopStore {
     return row ? importedClosedArtifacts(JSON.parse(row.document)) : [];
   }
 
-  async layout(): Promise<Pick<Workspace, "groups" | "selected"> | null> {
+  async layout(): Promise<
+    (Pick<Workspace, "groups" | "selected"> & { order?: readonly string[] }) | null
+  > {
     await this.pending;
     const [row] = await this.run(
       this.sql!<{
@@ -1015,10 +1026,20 @@ export class DesktopStore {
     );
     return row
       ? decode(
-          Schema.Struct({ groups: Schema.Array(TabGroup), selected: Schema.NullOr(Uuid) }),
+          Schema.Struct({
+            groups: Schema.Array(TabGroup),
+            selected: Schema.NullOr(Uuid),
+            order: Schema.optionalKey(Schema.Array(Uuid)),
+          }),
           JSON.parse(row.document),
         )
       : null;
+  }
+
+  moveLayoutTabToEnd(id: string): Promise<void> {
+    return this.enqueue(async () => {
+      await this.run(moveLayoutTabToEnd(this.sql!, id));
+    });
   }
 
   saveLayout(layout: Pick<Workspace, "groups" | "selected">): Promise<void> {
@@ -1048,4 +1069,17 @@ export class DesktopStore {
     await this.pending;
     await this.runtime?.dispose();
   }
+}
+
+function moveLayoutTabToEnd(sql: SqliteClient.SqliteClient, id: string) {
+  return Effect.gen(function* () {
+    const [row] = yield* sql<{
+      document: string;
+    }>`SELECT document FROM preferences WHERE name = 'workspace_layout'`;
+    if (!row) return;
+    const layout = JSON.parse(row.document);
+    if (!Array.isArray(layout.order)) return;
+    const order = [...decode(Schema.Array(Uuid), layout.order).filter((entry) => entry !== id), id];
+    yield* sql`UPDATE preferences SET document = ${JSON.stringify({ ...layout, order })} WHERE name = 'workspace_layout'`;
+  });
 }

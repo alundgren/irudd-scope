@@ -247,6 +247,7 @@ const bridge: ScopeBridge = {
   setTabPermanent: (id, permanent) =>
     ipcRenderer.invoke("scope:set-tab-permanent", { id, permanent }),
   setTabHidden: (id, hidden) => ipcRenderer.invoke("scope:set-tab-hidden", { id, hidden }),
+  deferGuestTab: (id, workspace) => ipcRenderer.invoke("scope:defer-guest-tab", { id, workspace }),
   restoreTab: (id) => ipcRenderer.invoke("scope:restore-tab", id),
   emptyTrash: (entries) => ipcRenderer.invoke("scope:empty-trash", entries),
   reportVisibleTabs: (ids) => ipcRenderer.invoke("scope:visible-tabs", ids),

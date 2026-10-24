@@ -572,3 +572,17 @@ retention records or transfer receipts. There is no persistent guest content
 cache. Published bytes remain in the owner's `scope.db`; folder files remain on
 their existing filesystem. Credential storage remains separate from these
 metadata records. Exported guest downloads are ordinary user-selected files.
+
+Receiver workspace layout includes an optional ordered UUID list interleaving local
+and guest tabs. Existing layouts without it restore their previous local order,
+then guest order; the next workspace save records the combined order. New tabs
+append after saved entries. Guest navigation and layout save together in a
+`desktop.db` transaction. A failed write remains in the workspace flush/quit
+recovery flow.
+
+Guest tab documents also accept an optional `guestReadRevision` marker, separate
+from plugin state. File guests keep scroll coordinates in `state.data.fileScroll`.
+These fields contain only receiver preferences, never owner bytes or source
+edits. Older builds ignore the optional fields and may lose those preferences
+when saving; no database schema version changes. Hidden guest UUIDs remain
+reopenable after restart, and owner restore reuses the same reference.

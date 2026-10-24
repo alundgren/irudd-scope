@@ -45,6 +45,7 @@ export function useAutosave<T>(
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = useRef(Promise.resolve());
   const saved = useRef<string | undefined>(undefined);
+  const committed = useRef(0);
   const mounted = useRef(true);
   const discarded = useRef(false);
   const [error, setError] = useState(false);
@@ -55,11 +56,16 @@ export function useAutosave<T>(
     const value = current.current.getValue();
     if (value === undefined) return pending.current;
     const document = JSON.stringify(value);
+    const generation = committed.current;
     const write = current.current.save;
     const task = pending.current.then(async () => {
-      if (discarded.current || document === saved.current) return;
-      await write(value);
-      saved.current = document;
+      // An explicit commit may have changed navigation while this snapshot was queued.
+      const latest = generation === committed.current ? value : current.current.getValue();
+      if (discarded.current || latest === undefined) return;
+      const latestDocument = generation === committed.current ? document : JSON.stringify(latest);
+      if (latestDocument === saved.current) return;
+      await write(latest);
+      saved.current = latestDocument;
     });
     pending.current = task.catch(() => {});
     return task.then(
@@ -73,6 +79,24 @@ export function useAutosave<T>(
       },
     );
   }, []);
+  const commit = useCallback(
+    (value: () => T, write: (value: T) => Promise<T | undefined>, apply: () => void) => {
+      const task = pending.current.then(async () => {
+        try {
+          const next = value();
+          const persisted = await write(next);
+          // Partial writes cannot acknowledge the full autosave snapshot.
+          saved.current = persisted === undefined ? undefined : JSON.stringify(persisted);
+          apply();
+        } finally {
+          committed.current++;
+        }
+      });
+      pending.current = task.catch(() => {});
+      return task;
+    },
+    [],
+  );
   const schedule = useCallback(() => {
     if (timer.current === undefined)
       timer.current = setTimeout(() => {
@@ -107,5 +131,5 @@ export function useAutosave<T>(
       );
     };
   }, [flush, tabId]);
-  return { schedule, flush, error };
+  return { schedule, flush, commit, error };
 }

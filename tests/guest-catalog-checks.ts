@@ -1,3 +1,5 @@
+import { guestCloseLocalState } from "./guest-close-local-state.ts";
+import { guestCloseFailureChecks, guestWorkspaceChecks } from "./guest-workspace-checks.ts";
 import { spawnedHub } from "./hub-fixture.ts";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import type { guestResponseFixture } from "./guest-response-fixture.ts";
@@ -41,7 +43,7 @@ export async function guestCatalogChecks({
     "same-id",
     metadata,
     Buffer.from(
-      `<button onclick="this.textContent='Clicked'">Try guest</button><input aria-label="Local draft"><script src="http://127.0.0.1:${responses.port}/resource.js"></script>`,
+      `<button onclick="this.textContent='Clicked'">Try guest</button><input aria-label="Local draft"><div style="height:2400px">Reading position</div><script src="http://127.0.0.1:${responses.port}/resource.js"></script>`,
     ),
   );
   await cb.publish("same-id", metadata, Buffer.from("<h1>Receiver local</h1>"));
@@ -86,6 +88,8 @@ export async function guestCatalogChecks({
   } finally {
     database.close();
   }
+  await pageB.reload();
+  await pageB.locator(`#tab-${sourceTab.id}`).waitFor();
   await pageA.evaluate((id) => window.scope.setTabPermanent(id, true), sourceTab.id);
   await pageA.getByRole("button", { name: "Close Same title", exact: true }).click();
   await ca.folderOpen({ path: a.directory, title: "Owner folder" });
@@ -136,6 +140,8 @@ export async function guestCatalogChecks({
   const source = () => pageB.evaluate(() => window.scope.guestCatalog());
   const own = () => pageA.evaluate(() => window.scope.guestCatalog());
   let guestId = "";
+  let restartWorkspace = "";
+  let localStateId = "";
 
   async function select(id: string) {
     const tab = pageB.locator(`#tab-${id}`);
@@ -147,10 +153,10 @@ export async function guestCatalogChecks({
     const record = (await source()).records.find((record) => record.tab.id === id)!;
     await pageB.getByRole("button", { name: record.tab.title + " guest", exact: true }).click();
   }
-  async function capture(name: string) {
+  async function capture(name: string, page = pageB) {
     if (!process.env.SCOPE_REVIEW_DIR) return;
     await mkdir(process.env.SCOPE_REVIEW_DIR, { recursive: true });
-    await pageB.screenshot({
+    await page.screenshot({
       animations: "disabled",
       path: join(process.env.SCOPE_REVIEW_DIR, name),
     });
@@ -231,6 +237,16 @@ export async function guestCatalogChecks({
       );
       await frame.getByRole("button", { name: "Clicked" }).waitFor();
       expect(responses.reads()).toBe(contentReads + 2);
+      await guestWorkspaceChecks({
+        pageA,
+        pageB,
+        right,
+        settingsDirectory: b.settingsDirectory,
+        guestId,
+        responses,
+        capture,
+      });
+      await frame.locator("body").evaluate(() => window.scrollTo(0, 0));
       await capture("guest-html-light.png");
       await pageB.getByRole("button", { name: "Search and controls" }).click();
       await pageB.getByRole("button", { name: "Settings", exact: true }).click();
@@ -244,6 +260,15 @@ export async function guestCatalogChecks({
         BrowserWindow.getAllWindows()[0]!.setSize(640, 820),
       );
       await capture("guest-html-dark-narrow.png");
+      await frame.locator("body").evaluate(() => window.scrollTo(0, 480));
+      await expect
+        .poll(
+          async () =>
+            (await pageB.evaluate(() => window.scope.workspace()))?.tabs.find(
+              (tab) => tab.id === guestId,
+            )?.state.data.fileScroll,
+        )
+        .toEqual({ x: 0, y: 480 });
       const destination = join(b.directory, "download.html");
       await right.evaluate(({ dialog }, path) => {
         dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
@@ -255,21 +280,15 @@ export async function guestCatalogChecks({
         ),
       ).toBe(true);
       expect(await readFile(destination, "utf8")).toContain("Try guest");
-      await pageB.evaluate(async (id) => {
-        const workspace = (await window.scope.workspace())!;
-        await window.scope.saveWorkspace({
-          ...workspace,
-          tabs: workspace.tabs.map((tab) =>
-            tab.id === id
-              ? { ...tab, state: { version: 1, data: { selected: "local-only" } } }
-              : tab,
-          ),
-        });
-      }, guestId);
+      responses.hold();
+      const replacingRead = responses.held();
       current = await ca.publish(
         "same-id",
         { ...metadata, expectedRevision: current.revision },
-        Buffer.from("<h1>Current owner revision</h1>"),
+        Buffer.from(
+          "<h1>Current owner revision</h1>" +
+            "<p>Current owner content keeps its receiver reading position.</p>".repeat(100),
+        ),
       );
       await expect
         .poll(
@@ -280,8 +299,11 @@ export async function guestCatalogChecks({
         .toBe(current.revision);
       view = await source();
       expect(
-        view.records.find((record) => record.tab.id === guestId)?.tab.state.data.selected,
-      ).toBe("local-only");
+        view.records.find((record) => record.tab.id === guestId)?.tab.state.data.fileScroll,
+      ).toEqual({ x: 0, y: 480 });
+      await expect.poll(() => responses.held()).toBe(replacingRead + 1);
+      expect(await pane.locator("iframe").count()).toBe(0);
+      responses.release();
       await frame.getByRole("heading", { name: "Current owner revision" }).waitFor();
       const future = await ca.publish(
         "future",
@@ -295,6 +317,9 @@ export async function guestCatalogChecks({
         Buffer.from("future content"),
       );
       await expect.poll(async () => (await source()).available.length).toBe(4);
+      expect(await pageB.getByRole("tab", { selected: true }).getAttribute("id")).toBe(
+        `tab-${guestId}`,
+      );
       const futureGuest = (await source()).records.find(
         (record) => record.source.artifact?.id === future.id,
       )!;
@@ -319,6 +344,8 @@ export async function guestCatalogChecks({
       const futureSource = (await pageA.evaluate(() => window.scope.workspace()))!.tabs.find(
         (tab) => tab.state.data.artifactId === future.id,
       )!;
+      expect(futureGuest.tab.guestReadRevision).toBeUndefined();
+      await select(futureGuest.tab.id);
       await pageA.evaluate((id) => window.scope.closeTab(id), futureSource.id);
       await expect(
         pageB.evaluate(({ id, revision }) => window.scope.guestContent(id, revision), {
@@ -327,6 +354,41 @@ export async function guestCatalogChecks({
         }),
       ).rejects.toThrow();
       await expect.poll(async () => (await source()).available.length).toBe(3);
+      await pane.getByText(/may have expired, moved to Trashcan, or become ineligible/).waitFor();
+      expect(await pane.locator(".guest-view").isVisible()).toBe(false);
+      await capture("workspace-source-unavailable-dark-narrow.png");
+      await pageA.evaluate((id) => window.scope.restoreTab(id), futureSource.id);
+      await expect
+        .poll(async () => (await source()).available.includes(futureGuest.tab.id))
+        .toBe(true);
+      expect(
+        (await source()).records
+          .filter((record) => record.source.sourceTabId === futureSource.id)
+          .map((record) => record.tab.id),
+      ).toEqual([futureGuest.tab.id]);
+      await pane.getByText("future content", { exact: true }).waitFor();
+      // Expiry belongs to the owner even while the receiver is viewing this tab.
+      await pageA.evaluate((id) => window.scope.setTabHidden(id, true), futureSource.id);
+      const expiry = new DatabaseSync(join(a.settingsDirectory, "artifacts", "scope.db"));
+      try {
+        expiry
+          .prepare("UPDATE live_tabs SET last_visible_at = ? WHERE id = ?")
+          .run(Date.now() - 2 * 86400000, futureSource.id);
+        const before = expiry
+          .prepare("SELECT last_visible_at FROM live_tabs WHERE id = ?")
+          .get(futureSource.id);
+        await pageB.evaluate((id) => window.scope.reportVisibleTabs([id]), futureGuest.tab.id);
+        expect(
+          expiry.prepare("SELECT last_visible_at FROM live_tabs WHERE id = ?").get(futureSource.id),
+        ).toEqual(before);
+        await pageA.evaluate(() => window.scope.checkTabRetention([]));
+      } finally {
+        expiry.close();
+      }
+      await expect
+        .poll(async () => (await source()).available.includes(futureGuest.tab.id))
+        .toBe(false);
+      await pane.getByText(/may have expired, moved to Trashcan, or become ineligible/).waitFor();
       await ca.delete(future.id);
       await expect
         .poll(async () => (await source()).available.includes(futureGuest.tab.id))
@@ -583,7 +645,7 @@ export async function guestCatalogChecks({
       );
       expect(text).toContain("Current owner revision");
     },
-    async restarted(page: Page) {
+    async restarted(page: Page, restartedApp: ElectronApplication) {
       await expect
         .poll(() =>
           page
@@ -591,12 +653,74 @@ export async function guestCatalogChecks({
             .then((view) => view.records.some((record) => record.tab.id === guestId)),
         )
         .toBe(true);
+      const saved = await page.evaluate(() => window.scope.workspace());
+      expect(saved!.tabs.find((tab) => tab.id === localStateId)?.state.data.divider).toBe(0.85);
+      expect(JSON.stringify(saved)).toBe(restartWorkspace);
+      const database = new DatabaseSync(join(b.settingsDirectory, "desktop.db"));
+      database.exec("DROP TRIGGER reject_guest_close");
+      database.close();
+      expect(saved!.tabs.find((tab) => tab.id === saved!.selected)?.hidden).toBe(false);
+      await page.locator(`#tab-${saved!.selected}`).waitFor({ state: "visible" });
+      const hidden = saved!.tabs.find((tab) => tab.id === guestId)!;
+      expect(hidden.hidden).toBe(true);
+      expect(
+        saved!.tabs.find((tab) => tab.title === "Hub publication")?.guestReadRevision,
+      ).toBeUndefined();
+      await page
+        .getByRole("button", { name: /^Tabs and Trashcan,/ })
+        .getByRole("img", { name: "Updated artifact" })
+        .waitFor();
+      await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
+      await page.getByLabel("Search tabs", { exact: true }).fill(hidden.title);
+      await page.getByRole("button", { name: hidden.title + " guest", exact: true }).click();
+      await expect
+        .poll(async () => (await page.evaluate(() => window.scope.workspace()))?.selected)
+        .toBe(guestId);
+      expect(await page.locator(`#pane-${guestId} iframe`).count()).toBe(0);
+      await page
+        .locator(`#pane-${guestId}`)
+        .getByText(/This owner is no longer paired/)
+        .waitFor();
+      await capture("workspace-forgotten-dark-laptop.png", page);
+      expect(
+        (await page.evaluate(() => window.scope.workspace()))?.tabs.find(
+          (tab) => tab.id === guestId,
+        )?.id,
+      ).toBe(guestId);
       const view = await page.evaluate(() => window.scope.guestCatalog());
       expect(view.available).toHaveLength(0);
       expect(view.records.find((record) => record.tab.id === guestId)?.source.sourceTabId).toBe(
         sourceTab.id,
       );
       expect((await (await b.connect()).list()).map((item) => item.id)).toEqual(["same-id"]);
+      // Linux credentials are session-only. Pair again explicitly, then restore the saved reader.
+      const invitation = await pageA.evaluate(() => window.scope.createPairing("Source Scope"));
+      await pageA.evaluate((id) => window.scope.copyPairingSecret(id), invitation.id);
+      const secret = await left.evaluate(({ clipboard }) => clipboard.readText());
+      await page.evaluate((input) => window.scope.pairScope(input), {
+        url: invitation.url,
+        secret,
+        name: "Guest Scope",
+      });
+      const peer = (await page.evaluate(() => window.scope.transferDevices())).peers[0]!.id;
+      await pageA.evaluate((id) => window.scope.setGuestAccess(id, true), peer);
+      await page.evaluate((id) => window.scope.setGuestAccess(id, true), peer);
+      await pageA.evaluate((id) => window.scope.copyGuestLink(id), peer);
+      const link = await left.evaluate(({ clipboard }) => clipboard.readText());
+      await restartedApp.evaluate(({ clipboard }, link) => clipboard.writeText(link), link);
+      await page.evaluate((id) => window.scope.connectGuestLink(id), peer);
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.scope.guestCatalog())).available.includes(guestId),
+          { timeout: 25000 },
+        )
+        .toBe(true);
+      const frame = page.locator(`#pane-${guestId} iframe`).contentFrame();
+      await frame.getByRole("heading", { name: "Current owner revision" }).waitFor();
+      await expect.poll(() => frame.locator("body").evaluate(() => window.scrollY)).toBe(480);
+      expect((await page.evaluate(() => window.scope.workspace()))?.selected).toBe(guestId);
+      await capture("workspace-reopened-reader-dark-laptop.png", page);
     },
     async revoked() {
       await expect(
@@ -609,9 +733,75 @@ export async function guestCatalogChecks({
       expect((await source()).records.some((record) => record.tab.id === guestId)).toBe(true);
       await pageB
         .locator(".artifact-pane:not([hidden])")
-        .getByText(/Source Scope is unavailable. Reconnect to read current content./)
+        .getByText(/Source Scope (is unavailable|rejected guest access)/)
         .waitFor();
       await capture("guest-owner-unavailable.png");
+      await select(guestId);
+      const peer = (await pageB.evaluate(() => window.scope.transferDevices())).peers[0]!.id;
+      await pageB.evaluate((id) => window.scope.setGuestAccess(id, false), peer);
+      await pageB
+        .locator(`#pane-${guestId}`)
+        .getByText(/Guest sharing with Source Scope is off on this Scope/)
+        .waitFor();
+      await capture("workspace-disabled-dark-narrow.png");
+      await pageB.evaluate((id) => window.scope.forgetScope(id), peer);
+      await pageB
+        .locator(`#pane-${guestId}`)
+        .getByText(/This owner is no longer paired/)
+        .waitFor();
+      await pageB
+        .locator(".artifact-tab.selected")
+        .getByRole("button", { name: "Close Same title", exact: true })
+        .click();
+      const planId = (await source()).records.find((record) => record.source.kind === "plan")!.tab
+        .id;
+      await select(planId);
+      await pageB.locator(`#tab-${planId}`).focus();
+      for (let i = 0; i < 3; i++) await pageB.keyboard.press("Alt+ArrowLeft");
+      await expect
+        .poll(
+          async () =>
+            (await pageB.evaluate(() => window.scope.workspace()))?.tabs.find(
+              (tab) => tab.id === guestId,
+            )?.hidden,
+        )
+        .toBe(true);
+      await expect
+        .poll(async () => (await pageB.evaluate(() => window.scope.workspace()))?.selected)
+        .toBe(planId);
+      await expect
+        .poll(
+          async () =>
+            (await pageB.evaluate(() => window.scope.workspace()))?.tabs.filter(
+              (tab) => !tab.hidden,
+            )[0]?.id,
+        )
+        .toBe(planId);
+      await guestCloseFailureChecks(pageB, b.settingsDirectory, planId, right);
+      const workspace = (await pageB.evaluate(() => window.scope.workspace()))!;
+      const local = workspace.tabs.findIndex((tab) => tab.type === "file");
+      expect(workspace.tabs.slice(0, local).some((tab) => tab.type === "guest")).toBe(true);
+      expect(workspace.tabs.slice(local + 1).some((tab) => tab.type === "guest")).toBe(true);
+      const database = new DatabaseSync(join(b.settingsDirectory, "desktop.db"));
+      database.exec("DROP TRIGGER reject_guest_close");
+      database.close();
+      const folderId = (await source()).records.find((record) => record.source.kind === "folder")!
+        .tab.id;
+      localStateId = await guestCloseLocalState(pageB, right, folderId);
+      const afterClose = (await pageB.evaluate(() => window.scope.workspace()))!;
+      restartWorkspace = JSON.stringify({
+        ...afterClose,
+        tabs: afterClose.tabs.map((tab) =>
+          tab.id === localStateId
+            ? { ...tab, state: { ...tab.state, data: { ...tab.state.data, divider: 0.85 } } }
+            : tab,
+        ),
+      });
+      const fault = new DatabaseSync(join(b.settingsDirectory, "desktop.db"));
+      fault.exec(`CREATE TRIGGER reject_guest_close BEFORE UPDATE ON preferences
+        WHEN NEW.name = 'workspace_layout' AND json_extract(NEW.document, '$.selected') IS NOT json_extract(OLD.document, '$.selected')
+        BEGIN SELECT RAISE(ABORT, 'Synthetic selection write failure'); END`);
+      fault.close();
     },
   };
 }

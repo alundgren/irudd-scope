@@ -214,6 +214,10 @@ export function registerDesktopIpc({
     const { id, hidden } = decode(Schema.Struct({ id: Uuid, hidden: Schema.Boolean }), input);
     return lifecycle.setTabHidden(id, hidden);
   });
+  handle("scope:defer-guest-tab", (input) => {
+    const { id, workspace } = decode(Schema.Struct({ id: Uuid, workspace: Schema.Unknown }), input);
+    return lifecycle.deferGuestTab(id, workspace);
+  });
   handle("scope:restore-tab", (input) => lifecycle.restoreTab(decode(Uuid, input)));
   handle("scope:empty-trash", (input) =>
     lifecycle.emptyTrash(decode(Schema.Array(TrashEntry), input)),

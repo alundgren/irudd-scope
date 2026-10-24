@@ -1,5 +1,5 @@
 import type { OwnerContent } from "../plugins/api.ts";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { ArtifactContent } from "../bridge.ts";
 import { Button } from "../renderer/components/ui/button.tsx";
@@ -16,8 +16,19 @@ export function PublishedContent({
   const [item, setItem] = useState<ArtifactContent>();
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
+  const loaded = useRef<ArtifactContent | undefined>(undefined);
+  const owner = content ? `${content.ownerDeviceId}/${content.sourceTabId}` : undefined;
+  const loadedOwner = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!artifact) return;
+    if (!artifact || content?.available === false) return;
+    if (
+      content &&
+      loadedOwner.current === owner &&
+      loaded.current?.artifact.id === artifact.id &&
+      loaded.current.artifact.revision === artifact.revision &&
+      loaded.current.artifact.blob === artifact.blob
+    )
+      return;
     let active = true;
     setItem((previous) =>
       !content && previous?.artifact.id === artifact.id ? previous : undefined,
@@ -25,7 +36,11 @@ export function PublishedContent({
     setError("");
     void (content ? content.read(artifact) : window.scope.content(artifact.id, artifact.revision))
       .then((content) => {
-        if (active) setItem(content);
+        if (active) {
+          loaded.current = content;
+          loadedOwner.current = owner;
+          setItem(content);
+        }
       })
       .catch((failure: unknown) => {
         if (active)
@@ -38,7 +53,20 @@ export function PublishedContent({
     return () => {
       active = false;
     };
-  }, [artifact?.id, artifact?.revision, content, retry]);
+  }, [artifact?.id, artifact?.revision, artifact?.blob, content, owner, retry]);
+  // Reject an old document during render, before the replacement effect runs.
+  const current =
+    !content ||
+    (loadedOwner.current === owner &&
+      item?.artifact.id === artifact?.id &&
+      item?.artifact.revision === artifact?.revision &&
+      item?.artifact.blob === artifact?.blob);
+  if (!current && item)
+    return (
+      <p className="empty-state" role="status">
+        Loading current artifact…
+      </p>
+    );
   if (error && !item)
     return (
       <div className="empty-state" role="alert">

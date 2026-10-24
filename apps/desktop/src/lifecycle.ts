@@ -87,13 +87,17 @@ export class DesktopLifecycle {
   }
 
   async workspace(): Promise<Workspace> {
-    const layout = (await this.desktop.layout()) ?? emptyWorkspace();
+    const layout = (await this.desktop.layout()) ?? { ...emptyWorkspace(), order: undefined };
     const tabs = (await this.artifacts.tabs()).flatMap((tab) =>
       tab.opened && tab.document && tab.trashed_at === null
         ? [decode(Tab, JSON.parse(tab.document))]
         : [],
     );
     tabs.push(...(await this.desktop.guestRecords()).map((record) => record.tab));
+    if (layout.order) {
+      const positions = new Map(layout.order.map((id, index) => [id, index]));
+      tabs.sort((a, b) => (positions.get(a.id) ?? Infinity) - (positions.get(b.id) ?? Infinity));
+    }
     const groups = [...layout.groups];
     for (const tab of tabs)
       if (!groups.some((group) => group.id === tab.groupId))
@@ -116,8 +120,24 @@ export class DesktopLifecycle {
       if (workspace.tabs.some((tab) => (tab.type === "guest") !== guests.has(tab.id)))
         throw new Error("Guest and local tab identities cannot be exchanged.");
       await this.artifacts.saveTabs(workspace.tabs.filter((tab) => !guests.has(tab.id)));
-      await this.desktop.saveGuestTabs(workspace.tabs.filter((tab) => guests.has(tab.id)));
-      await this.desktop.saveLayout({ groups: workspace.groups, selected: workspace.selected });
+      await this.desktop.saveGuestWorkspace(workspace);
+    });
+  }
+
+  deferGuestTab(id: string, value: unknown): Promise<void> {
+    const workspace = decodeWorkspace(value);
+    for (const tab of workspace.tabs) validateTabState(tab, true);
+    return this.enqueue(async () => {
+      const guests = new Set((await this.desktop.guestRecords()).map((record) => record.tab.id));
+      if (
+        !guests.has(id) ||
+        !workspace.tabs.find((tab) => tab.id === id)?.hidden ||
+        workspace.selected === id
+      )
+        throw new Error("This guest reference cannot be closed.");
+      if (workspace.tabs.some((tab) => (tab.type === "guest") !== guests.has(tab.id)))
+        throw new Error("Guest and local tab identities cannot be exchanged.");
+      await this.desktop.saveGuestWorkspace(workspace);
     });
   }
 
@@ -158,14 +178,27 @@ export class DesktopLifecycle {
   setTabHidden(id: string, hidden: boolean): Promise<void> {
     return this.enqueue(async () => {
       if (await this.desktop.setGuestHidden(id, hidden)) return;
-      if ((await this.artifacts.setTabHidden(id, hidden)) && hidden) this.onHidden([id]);
+      if ((await this.artifacts.setTabHidden(id, hidden)) && hidden) {
+        await this.moveLocalTabToEnd(id);
+        this.onHidden([id]);
+      }
+    });
+  }
+
+  private async moveLocalTabToEnd(id: string): Promise<void> {
+    // Local visibility already committed in scope.db. A preferences failure must not
+    // suppress its notification or reject that completed operation. Renderer saves retry layout.
+    await this.desktop.moveLayoutTabToEnd(id).catch((error: unknown) => {
+      console.error("Could not update local tab order:", error);
     });
   }
 
   reportVisibleTabs(ids: readonly string[], now = Date.now()): Promise<void> {
     return this.enqueue(async () => {
-      await this.artifacts.markTabsVisible([...new Set([...this.visibleIds, ...ids])], now);
-      this.visibleIds = ids;
+      const guests = new Set((await this.desktop.guestRecords()).map((record) => record.tab.id));
+      const local = ids.filter((id) => !guests.has(id));
+      await this.artifacts.markTabsVisible([...new Set([...this.visibleIds, ...local])], now);
+      this.visibleIds = local;
     });
   }
 
@@ -188,7 +221,10 @@ export class DesktopLifecycle {
       const groupId = layout?.groups[0]?.id;
       if (!groupId) throw new Error("Scope is still starting. Retry shortly.");
       const opened = await this.artifacts.openFolderTab({ ...input, groupId });
-      if (opened.created || opened.restored || opened.unhidden) await this.notifyRetention();
+      if (opened.created || opened.restored || opened.unhidden) {
+        await this.moveLocalTabToEnd(opened.tab.id);
+        await this.notifyRetention();
+      }
       return opened;
     });
   }
@@ -196,6 +232,7 @@ export class DesktopLifecycle {
   restoreTab(id: string): Promise<Tab> {
     return this.enqueue(async () => {
       const tab = await this.artifacts.restoreTab(id);
+      await this.moveLocalTabToEnd(id);
       await this.notifyRetention();
       return tab;
     });
@@ -212,7 +249,11 @@ export class DesktopLifecycle {
 
   checkRetention(visibleIds: readonly string[], now = Date.now()): Promise<void> {
     return this.enqueue(async () => {
-      await this.artifacts.markTabsVisible(visibleIds, now);
+      const guests = new Set((await this.desktop.guestRecords()).map((record) => record.tab.id));
+      await this.artifacts.markTabsVisible(
+        visibleIds.filter((id) => !guests.has(id)),
+        now,
+      );
       const trashed = await this.artifacts.expireTemporaryTabs(now);
       if (trashed.length) this.onRemoved(trashed);
       const deleted = await this.artifacts.emptyTrash(await this.artifacts.expiredTrash(now));

@@ -338,6 +338,14 @@ svg.lucide {
   min-height: 0;
   overflow: auto;
 }
+.guest-view,
+.guest-file-reading {
+  height: 100%;
+  min-height: 0;
+}
+.guest-file-reading {
+  overflow: auto;
+}
 .focus-controls {
   position: absolute;
   width: max-content;

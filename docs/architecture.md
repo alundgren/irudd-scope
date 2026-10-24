@@ -974,3 +974,12 @@ exports. HTML keeps its interactive trusted-content behavior. Plan and folder
 references retain their native kind and currently display an update requirement;
 they do not use ordinary file rendering. Closing a guest hides the receiver
 reference and never changes source retention or enters the local Trashcan.
+
+Receiver workspace layout orders local and guest UUIDs together. Guest navigation,
+file reading positions and last-read revisions persist in `desktop.db`; source
+metadata refresh never replaces that navigation. The host keeps unavailable HTML
+hidden and inert, retaining in-memory input only for an unchanged document. Owner
+content reads and catalog acceptance are tied to the authenticated session;
+revocation invalidates late replies. Rendering also checks owner, source, revision
+and blob before presenting retained content. Visibility reports only affect local
+source retention, never the other desktop's records.

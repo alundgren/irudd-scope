@@ -218,6 +218,7 @@ export type ScopeBridge = {
   setTabPermanent: (id: string, permanent: boolean) => Promise<void>;
   /** Closes an open tab to the drawer, or reopens it, without saving the whole workspace. */
   setTabHidden: (id: string, hidden: boolean) => Promise<void>;
+  deferGuestTab: (id: string, workspace: Workspace) => Promise<void>;
   restoreTab: (id: string) => Promise<Tab>;
   emptyTrash: (entries: readonly TrashEntry[]) => Promise<void>;
   reportVisibleTabs: (ids: readonly string[]) => Promise<void>;
