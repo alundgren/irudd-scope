@@ -1,3 +1,20 @@
+import { GuestSource } from "./guest.ts";
+import {
+  GuestTarget,
+  GuestRead,
+  GuestReadReply,
+  GuestChange,
+  GuestOperation,
+  GuestOperationIdentity,
+  GuestOutcome,
+  GuestPendingReply,
+  GuestReconciled,
+  GuestCapabilities,
+  GUEST_PLANS_CAPABILITY,
+  GUEST_COMMAND_TIMEOUT_MS,
+  MAX_GUEST_OPERATION_BYTES,
+  MAX_GUEST_READ_BYTES,
+} from "./guest-operation.ts";
 import {
   PromptCommand,
   PromptReply,
@@ -130,6 +147,85 @@ export class ScopeClient {
       throw new ScopeError(response.status, message, code);
     }
     return response;
+  }
+
+  async guestCapabilities() {
+    try {
+      const reply = decode(
+        GuestCapabilities,
+        await readRemoteJson(await this.request("/v1/guests/capabilities")),
+      );
+      if (!reply.capabilities.includes(GUEST_PLANS_CAPABILITY))
+        throw new ScopeError(501, "Guest plans unavailable.");
+    } catch (error) {
+      if (error instanceof ScopeError && [404, 501].includes(error.status))
+        throw new Error("Update Scope and the paired hub to use owner-targeted plans.");
+      throw error;
+    }
+  }
+  private async guestCommand<R extends Schema.ConstraintDecoder<unknown>>(
+    route: string,
+    input: unknown,
+    reply: R,
+    limit = MAX_GUEST_OPERATION_BYTES,
+  ): Promise<R["Type"]> {
+    const body = JSON.stringify(input);
+    if (new TextEncoder().encode(body).byteLength > MAX_GUEST_OPERATION_BYTES)
+      throw new Error("Guest operation exceeds its input limit.");
+    return decode(
+      reply,
+      await readRemoteJson(
+        await this.request(`/v1/guests/${route}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          signal: AbortSignal.timeout(GUEST_COMMAND_TIMEOUT_MS),
+        }),
+        limit,
+      ),
+    );
+  }
+  guestSource(target: GuestTarget) {
+    return this.guestCommand("source", decode(GuestTarget, target), Schema.NullOr(GuestSource));
+  }
+  guestRead(input: GuestRead) {
+    return this.guestCommand(
+      "read",
+      decode(GuestRead, input),
+      GuestReadReply,
+      MAX_GUEST_READ_BYTES,
+    );
+  }
+  guestPending(target: GuestTarget) {
+    return this.guestCommand(
+      "pending",
+      decode(GuestTarget, target),
+      Schema.NullOr(GuestPendingReply),
+    );
+  }
+  guestPrepare(change: GuestChange) {
+    return this.guestCommand("prepare", decode(GuestChange, change), GuestOperation);
+  }
+  guestExecute(target: GuestTarget, identity: GuestOperationIdentity) {
+    return this.guestCommand(
+      "execute",
+      { target: decode(GuestTarget, target), ...decode(GuestOperationIdentity, identity) },
+      GuestOutcome,
+    );
+  }
+  guestStatus(target: GuestTarget, identity: GuestOperationIdentity) {
+    return this.guestCommand(
+      "status",
+      { target: decode(GuestTarget, target), ...decode(GuestOperationIdentity, identity) },
+      GuestOutcome,
+    );
+  }
+  guestReconcile(target: GuestTarget, identity: GuestOperationIdentity) {
+    return this.guestCommand(
+      "reconcile",
+      { target: decode(GuestTarget, target), ...decode(GuestOperationIdentity, identity) },
+      GuestReconciled,
+    );
   }
 
   private async folderCommand<

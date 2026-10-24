@@ -1,3 +1,4 @@
+import { guestCommandRequest } from "./guest-operation.ts";
 import { Schema } from "effect";
 import { decode, validateEndpoint } from "./index.ts";
 
@@ -75,6 +76,7 @@ export function maintenanceRequest(path: string): boolean {
 
 export function artifactRequest(method: string, path: string): boolean {
   if (path.length > 2048 || !path.startsWith("/v1/") || /[\r\n#]/.test(path)) return false;
+  if (guestCommandRequest(method, path)) return true;
   const url = new URL(path, "http://127.0.0.1");
   if (method === "GET" && ["/v1/events", "/v1/artifacts"].includes(url.pathname)) return true;
   if (method === "POST" && path === "/v1/voice") return true;

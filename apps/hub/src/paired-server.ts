@@ -1,3 +1,10 @@
+import {
+  guestCommandRequest,
+  GUEST_PLANS_CAPABILITY,
+  GUEST_COMMAND_TIMEOUT_MS,
+  MAX_GUEST_OPERATION_BYTES,
+  MAX_GUEST_READ_BYTES,
+} from "@irudd-scope/protocol/guest-operation";
 import { MAX_PROMPT_REQUEST_BYTES } from "@irudd-scope/protocol/prompts";
 import { MAX_PULL_REQUESTS_REQUEST_BYTES } from "@irudd-scope/protocol/pull-requests";
 import { MAX_VOICE_REQUEST_BYTES } from "@irudd-scope/protocol/voice";
@@ -120,6 +127,7 @@ export async function startPairedHub(
   // An older desktop drops the whole relay on an unknown request, so folder commands
   // go only to a desktop that advertised folder support when it connected.
   let desktopFolders = false;
+  let desktopGuestPlans = false;
   const folderFiles = new FolderFileRoutes(state);
   const pending = new Map<string, Pending>();
   // Folder commands hold a slot while their body is read and their path resolved, so
@@ -153,6 +161,7 @@ export async function startPairedHub(
     const previous = desktop;
     desktop = undefined;
     desktopFolders = false;
+    desktopGuestPlans = false;
     previous?.destroy();
     folderFiles.closeAll();
     for (const id of [...pending.keys(), ...watches.keys()])
@@ -403,6 +412,9 @@ export async function startPairedHub(
         return;
       }
       desktop = response;
+      desktopGuestPlans = String(request.headers[RELAY_CAPABILITIES_HEADER.toLowerCase()] ?? "")
+        .split(",")
+        .some((value) => value.trim() === GUEST_PLANS_CAPABILITY);
       desktopFolders = String(request.headers[RELAY_CAPABILITIES_HEADER.toLowerCase()] ?? "")
         .split(",")
         .some((value) => value.trim() === FOLDER_CAPABILITY);
@@ -440,15 +452,17 @@ export async function startPairedHub(
       await pipeline(
         item.request,
         bounded(
-          item.path === "/v1/prompts"
-            ? MAX_PROMPT_REQUEST_BYTES
-            : item.path === "/v1/pull-requests"
-              ? MAX_PULL_REQUESTS_REQUEST_BYTES
-              : item.path === "/v1/voice"
-                ? MAX_VOICE_REQUEST_BYTES
-                : item.path.endsWith("/blobs")
-                  ? MAX_CONTENT_BYTES
-                  : MAX_METADATA_BYTES,
+          guestCommandRequest(item.method, item.path)
+            ? MAX_GUEST_OPERATION_BYTES
+            : item.path === "/v1/prompts"
+              ? MAX_PROMPT_REQUEST_BYTES
+              : item.path === "/v1/pull-requests"
+                ? MAX_PULL_REQUESTS_REQUEST_BYTES
+                : item.path === "/v1/voice"
+                  ? MAX_VOICE_REQUEST_BYTES
+                  : item.path.endsWith("/blobs")
+                    ? MAX_CONTENT_BYTES
+                    : MAX_METADATA_BYTES,
         ),
         response,
         { signal: item.controller.signal },
@@ -517,7 +531,18 @@ export async function startPairedHub(
         return;
       }
       item.response.writeHead(status, headers);
-      await pipeline(request, item.response, { signal: item.controller.signal }).then(
+      await pipeline(
+        request,
+        ...(guestCommandRequest(item.method, item.path)
+          ? [
+              bounded(
+                item.path === "/v1/guests/read" ? MAX_GUEST_READ_BYTES : MAX_GUEST_OPERATION_BYTES,
+              ),
+            ]
+          : []),
+        item.response,
+        { signal: item.controller.signal },
+      ).then(
         () => {
           forget(match[1]);
           json(response, 200, { delivered: true });
@@ -572,12 +597,19 @@ export async function startPairedHub(
       });
       return;
     }
+    if (guestCommandRequest(request.method ?? "", request.url ?? "") && !desktopGuestPlans) {
+      json(response, 501, {
+        error: "Update Scope on the paired desktop to use owner-targeted plans.",
+      });
+      return;
+    }
     if (relayFull()) {
       json(response, 503, { error: "The hub is busy. Retry after the current requests finish." });
       return;
     }
-    const limit =
-      request.url === "/v1/transfers/import"
+    const limit = guestCommandRequest(request.method ?? "", request.url ?? "")
+      ? MAX_GUEST_OPERATION_BYTES
+      : request.url === "/v1/transfers/import"
         ? MAX_TRANSFER_IMPORT_REQUEST_BYTES
         : request.url === "/v1/prompts"
           ? MAX_PROMPT_REQUEST_BYTES
@@ -588,11 +620,13 @@ export async function startPairedHub(
       json(response, 413, { error: `Request exceeds the ${limit / (1024 * 1024)} MiB limit.` });
       return;
     }
-    const timeoutMs = maintenanceRequest(request.url ?? "")
-      ? MAX_MAINTENANCE_TIMEOUT_MS + 5000
-      : request.url === "/v1/transfers/import"
-        ? TRANSFER_IMPORT_TIMEOUT_MS
-        : 30_000;
+    const timeoutMs = guestCommandRequest(request.method ?? "", request.url ?? "")
+      ? GUEST_COMMAND_TIMEOUT_MS
+      : maintenanceRequest(request.url ?? "")
+        ? MAX_MAINTENANCE_TIMEOUT_MS + 5000
+        : request.url === "/v1/transfers/import"
+          ? TRANSFER_IMPORT_TIMEOUT_MS
+          : 30_000;
     request.setTimeout(timeoutMs);
     startForward(request, request, response, timeoutMs, request.headers["content-type"]);
   }

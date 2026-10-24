@@ -12,6 +12,9 @@ export const PlanTabState = Schema.Struct({
     scrollY: Schema.optionalKey(
       Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0)),
     ),
+    basisScrollY: Schema.optionalKey(
+      Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0)),
+    ),
     workScrollY: Schema.optionalKey(
       Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0)),
     ),

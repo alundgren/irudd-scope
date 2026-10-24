@@ -1,6 +1,14 @@
 import { Schema } from "effect";
-import { Artifact, PublicationTabId, Revision } from "./index.ts";
+import {
+  Artifact,
+  ArtifactId,
+  MAX_CONTENT_BYTES,
+  MAX_METADATA_BYTES,
+  PublicationTabId,
+  Revision,
+} from "./index.ts";
 import { TransferId } from "./transfer.ts";
+import { GuestSource } from "./guest.ts";
 import { PlanDocument } from "./plan.ts";
 
 export const GUEST_OPERATION_CAPABILITY = "mutations-v1";
@@ -55,3 +63,27 @@ export const GuestOutcome = Schema.Struct({
 export type GuestOutcome = typeof GuestOutcome.Type;
 export const GuestRead = Schema.Struct({ target: GuestTarget, revision: Revision });
 export type GuestRead = typeof GuestRead.Type;
+
+/** JSON escaping of the original UTF-8 content can double a valid plan's bytes. */
+export const MAX_GUEST_READ_BYTES = 2 * MAX_CONTENT_BYTES + MAX_METADATA_BYTES;
+export const GUEST_PLANS_CAPABILITY = "guest-plans-v1";
+export const GUEST_COMMAND_TIMEOUT_MS = 120_000;
+export const GuestCapabilities = Schema.Struct({ capabilities: Schema.Array(Schema.String) });
+export const GuestReadReply = Schema.Struct({ artifact: Artifact, content: Schema.String });
+export const GuestPendingReply = Schema.Struct({
+  artifactId: Schema.optionalKey(ArtifactId),
+  operation: GuestOperation,
+  outcome: GuestOutcome,
+  dispatched: Schema.Boolean,
+});
+export const GuestReconciled = Schema.Struct({
+  outcome: GuestOutcome,
+  source: Schema.NullOr(GuestSource),
+});
+export function guestCommandRequest(method: string, path: string): boolean {
+  return (
+    (method === "GET" && path === "/v1/guests/capabilities") ||
+    (method === "POST" &&
+      /^\/v1\/guests\/(source|read|pending|prepare|execute|status|reconcile)$/.test(path))
+  );
+}

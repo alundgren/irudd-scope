@@ -1,3 +1,7 @@
+import {
+  guestCommandRequest,
+  GUEST_COMMAND_TIMEOUT_MS,
+} from "@irudd-scope/protocol/guest-operation";
 import { createServer, request as httpRequest, type ClientRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { timingSafeEqual } from "node:crypto";
@@ -77,11 +81,13 @@ export async function startHub(options: { endpoint: string; token: string; port?
       upstream.on("close", () => active.delete(upstream));
       upstream.on("error", unavailable);
       upstream.setTimeout(
-        maintenanceRequest(request.url ?? "")
-          ? MAX_MAINTENANCE_TIMEOUT_MS + 5000
-          : request.url === "/v1/transfers/import"
-            ? TRANSFER_IMPORT_TIMEOUT_MS
-            : 30_000,
+        guestCommandRequest(request.method ?? "", request.url ?? "")
+          ? GUEST_COMMAND_TIMEOUT_MS
+          : maintenanceRequest(request.url ?? "")
+            ? MAX_MAINTENANCE_TIMEOUT_MS + 5000
+            : request.url === "/v1/transfers/import"
+              ? TRANSFER_IMPORT_TIMEOUT_MS
+              : 30_000,
         () => upstream.destroy(new Error("Desktop request timed out.")),
       );
       response.on("close", () => upstream.destroy());

@@ -1,4 +1,7 @@
-import { MAX_GUEST_OPERATION_BYTES } from "@irudd-scope/protocol/guest-operation";
+import {
+  GUEST_PLANS_CAPABILITY,
+  MAX_GUEST_OPERATION_BYTES,
+} from "@irudd-scope/protocol/guest-operation";
 import { handlePromptHttp } from "./prompt-http.ts";
 import { RetroCommand, RetroReply, MAX_RETRO_REQUEST_BYTES } from "@irudd-scope/protocol/retro";
 import type { RetroConfiguration } from "@irudd-scope/protocol/retro";
@@ -145,9 +148,12 @@ export async function startArtifactServer(options: {
       return;
     }
     authenticate(request, options.token);
-    const guestRoute = /^\/v1\/guests\/(prepare|execute|status|reconcile|read|source)$/.exec(
-      url.pathname,
-    );
+    if (route === "GET /v1/guests/capabilities" && !url.search) {
+      json(response, 200, { capabilities: options.guestCommand ? [GUEST_PLANS_CAPABILITY] : [] });
+      return;
+    }
+    const guestRoute =
+      /^\/v1\/guests\/(prepare|execute|status|reconcile|read|source|pending)$/.exec(url.pathname);
     if (guestRoute && request.method === "POST" && !url.search) {
       if (!options.guestCommand)
         throw new ScopeError(503, "Guest operations require an open desktop.");

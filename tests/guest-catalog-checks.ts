@@ -616,12 +616,15 @@ export async function guestCatalogChecks({
           .poll(async () => (await source()).available.length, { timeout: 30000 })
           .toBe(3);
       }
-      // Plans retain their compatibility view; folders use their native presentation.
+      // Plans and folders use their registered native presentations.
       const planRecord = view.records.find((record) => record.source.kind === "plan")!;
       await select(planRecord.tab.id);
-      await pageB.getByText(/Update Scope to open shared plans/).waitFor();
+      await pageB
+        .frameLocator('iframe[title="Owner plan"]')
+        .getByRole("heading", { name: "Native plan" })
+        .waitFor();
       expect(planRecord.source.artifact!.kind).toBe("plan");
-      await capture("guest-plan-placeholder.png");
+      await capture("guest-plan-native.png");
       await select(view.records.find((record) => record.source.kind === "folder")!.tab.id);
       await pageB.getByRole("region", { name: "Owner folder folder" }).getByRole("tree").waitFor();
       await capture("guest-folder-native.png");

@@ -1,3 +1,4 @@
+import { guestPlanChecks } from "./guest-plan-checks.ts";
 import { guestMutationChecks } from "./guest-mutation-checks.ts";
 import { guestConnectionChecks } from "./guest-connection-fixture.ts";
 import { expect, test } from "vite-plus/test";
@@ -151,7 +152,7 @@ test(
       "no-lost-updates",
       "deletion-is-final",
     ],
-    timeout: 420_000,
+    timeout: 600_000,
   },
   async () => {
     const f = await desktopFixture({ hideInitialPrompts: true });
@@ -249,6 +250,7 @@ test(
     }
     await guestConnectionChecks();
     await guestMutationChecks();
+    await guestPlanChecks();
   },
 );
 

@@ -54,7 +54,7 @@ irudd-scope prompts image REQUEST.json IMAGE_FILE
 irudd-scope prompts export --output NEW_FILE.zip
 irudd-scope plan guide
 irudd-scope plan publish NAME PLAN.json OVERVIEW.html [--expected-revision REVISION]
-irudd-scope plan read NAME
+irudd-scope plan read NAME [--owner-device UUID --source-tab UUID]
 irudd-scope plan item NAME ITEM_ID
 irudd-scope plan capture-basis NAME BASIS_ID --expected-revision REVISION
 irudd-scope plan content NAME --output NEW_FILE.html
@@ -191,6 +191,9 @@ function parseOptions() {
       "codex-url": { type: "string" },
       output: { type: "string" },
       "expected-revision": { type: "string" },
+      "expected-source-version": { type: "string" },
+      "owner-device": { type: "string" },
+      "source-tab": { type: "string" },
       receipt: { type: "string" },
       "request-id": { type: "string" },
       instructions: { type: "string" },

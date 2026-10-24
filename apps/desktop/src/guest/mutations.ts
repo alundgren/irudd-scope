@@ -216,6 +216,18 @@ export class GuestMutations {
   async command(route: string, input: unknown): Promise<unknown> {
     if (route === "prepare") return this.prepare(decode(GuestChange, input));
     if (route === "read") return this.read(decode(GuestRead, input));
+    if (route === "pending") {
+      const record = await this.record(decode(GuestTarget, input));
+      const pending = (await this.desktop.guestRecovery.read(record.tab.id)).pending;
+      return pending
+        ? {
+            artifactId: record.source.artifact?.id,
+            operation: pending.operation,
+            outcome: pending.outcome,
+            dispatched: pending.dispatched,
+          }
+        : null;
+    }
     if (route === "source") {
       const target = decode(GuestTarget, input);
       await this.record(target);
