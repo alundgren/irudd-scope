@@ -8,6 +8,7 @@ import {
   FolderOperationId,
   FOLDER_OPERATION_RETENTION_MS,
   MAX_FOLDER_OPERATIONS,
+  FOLDER_UPLOAD_IDLE_MS,
 } from "@irudd-scope/protocol/folder-operation";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { pipeline } from "node:stream/promises";
@@ -234,6 +235,9 @@ export class FolderFileRoutes {
       throw new FolderError("request-mismatch", "Use a valid versioned folder operation.");
     }
     this.operations++;
+    // A valid upload has its own idle limit; the journal service also bounds total time.
+    const previousTimeout = request.socket.timeout ?? 0;
+    request.setTimeout(FOLDER_UPLOAD_IDLE_MS);
     const controller = new AbortController();
     const body = new PassThrough();
     request.on("aborted", () => controller.abort());
@@ -254,6 +258,7 @@ export class FolderFileRoutes {
       send(response, 200, status);
     } finally {
       this.operations--;
+      request.setTimeout(previousTimeout);
       request.unpipe(body);
       // Early duplicate/expired answers close this connection instead of buffering the upload.
       if (!request.complete) {

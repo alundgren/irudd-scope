@@ -1,6 +1,7 @@
 import { expect } from "vite-plus/test";
 import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
 import { createServer, request } from "node:http";
 import { mkdir, readFile, writeFile, realpath, symlink, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -112,6 +113,7 @@ export async function folderOperationChecks(base: string) {
       headers: hub.headers,
     }).then((r) => r.json());
     expect(capabilities.capabilities).toContain(FOLDER_OPERATION_CAPABILITY);
+    await uploadIdleChecks(hub);
     expect((await fetch(`${hub.endpoint}/v1/relay/folders/capabilities`)).status).toBe(401);
     expect(await (await hub.write(command, bytes)).json()).toMatchObject({
       state: "completed",
@@ -297,4 +299,66 @@ async function queuedOperations(hub: Awaited<ReturnType<typeof operationHub>>) {
   expect(await second.answer).toBe(200);
   await expect.poll(async () => (await hub.status(cancelled.requestId)).state).not.toBe("pending");
   await expect(readFile(join(hub.root, cancelled.path))).rejects.toThrow();
+}
+
+async function uploadIdleChecks(hub: Awaited<ReturnType<typeof operationHub>>) {
+  const bytes = Buffer.from("slow upload");
+  const command = folderCommand("slow.txt", bytes);
+  const outgoing = request(
+    `${hub.endpoint}/v1/relay/folders/operations?${new URLSearchParams({ root: hub.root, caller: "peer-a" })}`,
+    {
+      method: "PUT",
+      headers: {
+        ...hub.headers,
+        "Scope-Folder-Operation": Buffer.from(JSON.stringify(command)).toString("base64url"),
+      },
+    },
+  );
+  const reply = new Promise<unknown>((resolve) => {
+    outgoing.on("response", (incoming) => {
+      const chunks: Buffer[] = [];
+      incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
+      incoming.on("end", () =>
+        resolve({
+          status: incoming.statusCode,
+          body: JSON.parse(Buffer.concat(chunks).toString()),
+        }),
+      );
+      incoming.on("error", () => resolve({ error: "response closed" }));
+    });
+    outgoing.on("error", () => resolve({ error: "upload closed" }));
+  });
+  // Ordinary endpoints still use the hub's shorter socket deadline.
+  const ordinary = request(`${hub.endpoint}/v1/relay/folders/search`, {
+    method: "POST",
+    headers: hub.headers,
+  });
+  const ordinaryClosed = new Promise<string>((resolve) => {
+    ordinary.on("error", () => resolve("closed"));
+    ordinary.on("response", (incoming) => {
+      incoming.resume();
+      resolve("answered");
+    });
+  });
+  try {
+    outgoing.write(bytes.subarray(0, 1));
+    ordinary.write('{"root":');
+    await expect.poll(async () => (await hub.status(command.requestId)).state).toBe("pending");
+    // A pause above the ordinary 30-second socket deadline must remain a valid upload.
+    await delay(35_000);
+    outgoing.end(bytes.subarray(1));
+    expect(await reply).toMatchObject({
+      status: 200,
+      body: { state: "completed", receipt: { size: bytes.length } },
+    });
+    expect(await Promise.race([ordinaryClosed, delay(1000, "still open")])).toBe("closed");
+    expect((await readFile(join(hub.root, command.path))).equals(bytes)).toBe(true);
+    expect(await hub.status(command.requestId)).toMatchObject({ state: "completed" });
+    expect((await readdir(hub.root)).filter((name) => name.startsWith(".scope-partial-"))).toEqual(
+      [],
+    );
+  } finally {
+    outgoing.destroy();
+    ordinary.destroy();
+  }
 }
