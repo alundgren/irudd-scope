@@ -12,7 +12,9 @@ out of this package.
   `.scope-partial-*`, checked again, and committed by rename or hard link.
   Create, rename, and link only inside an opened folder, never through a
   path below the root, and check the folder is still inside the root before
-  and after. Never fall back to checking a name and then renaming over it.
+  and after. Never change the working directory of Electron main or the hub:
+  on macOS and Windows those steps run in the folder writer process
+  (`writer.ts`), which apps ship as `folder-writer.mjs` beside their bundle. Never fall back to checking a name and then renaming over it.
   Staged names and `.git` in any letter case are never listed, searched, or
   reported.
 - Never watch, list, or search through `.git`. Ignored folders are not watched,

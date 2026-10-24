@@ -147,9 +147,11 @@ async function dropItems(paths: readonly string[], target: string) {
 }
 
 /**
- * Opens a dropped file for reading only if it is still the file that was dropped. A source
- * replaced by a link or another file since, including through a folder above it, has a
- * different identity and is refused; a FIFO swapped in neither blocks nor is read.
+ * Opens a dropped file for reading only if its path still leads to the same file, by device
+ * and inode, as when it was dropped. A path that now leads to a different file, through a
+ * link or a folder above it, is refused; a link or hard link to the same file is the same
+ * file and is read. Its bytes are not frozen: edits made since are copied. A FIFO swapped
+ * in neither blocks nor is read.
  */
 async function openDropped(item: DropItem) {
   const handle = await open(item.source, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0)).catch(

@@ -48,19 +48,31 @@ function entry(path: string, follow = false) {
   }
 }
 
-const procFolders = process.platform === "linux" && existsSync("/proc/self/fd");
+/** Linux names an open folder as `/proc/self/fd/N`, so writes run in the calling process. */
+export const procFolders = process.platform === "linux" && existsSync("/proc/self/fd");
+/**
+ * Set only in the folder writer process. Changing the working directory affects every
+ * thread of a process, including file operations already queued by unrelated code, so
+ * Electron main and the hub never do it.
+ */
+let ownWorkingDirectory = false;
+export function allowWorkingDirectoryChanges() {
+  ownWorkingDirectory = true;
+}
 
 /**
  * Runs `step` with names that resolve inside the opened folder itself, never through its
  * path, so a folder on the way swapped for a link cannot redirect it. Linux names the open
- * folder as `/proc/self/fd/N`. Node has no directory-relative calls elsewhere, so the step
- * runs synchronously with the process's working directory set to the folder, checked to be
- * the opened one; nothing else runs on this thread meanwhile, and Scope uses absolute paths.
- * Windows resolves relative names from the directory's path, so there the checks before and
- * after each step are what keep writes inside.
+ * folder as `/proc/self/fd/N`. Node has no directory-relative calls elsewhere, so there the
+ * step runs in the folder writer process (see writer.ts), synchronously, with that
+ * process's working directory set to the folder and checked to be the opened one. Its other
+ * file work uses absolute paths and descriptors only. Windows resolves relative names from
+ * the directory's path, so there the checks before and after each step keep writes inside.
  */
 function inFolder<T>(folder: Folder, step: (base: string) => T): T {
   if (procFolders) return step(`/proc/self/fd/${folder.fd}`);
+  if (!ownWorkingDirectory)
+    throw new Error("Folder writes run in the folder writer process on this platform.");
   const previous = process.cwd();
   try {
     process.chdir(folder.real);
@@ -190,7 +202,7 @@ function openDestination(root: string, top: Folder, parts: readonly string[], la
  * With `exclusive` an existing entry fails with `exists`; otherwise an existing folder is
  * accepted.
  */
-export async function createFolderDirectory(
+export async function createDirectoryInProcess(
   root: string,
   relative: string,
   options: { exclusive?: boolean } = {},
@@ -243,7 +255,7 @@ function commit(source: string, target: string, path: string, replace: boolean) 
  * one created during the copy; a file system without hard links fails with `unsupported`
  * rather than checking and then renaming. Missing folders on the way are created.
  */
-export async function writeFolderFile(
+export async function writeInProcess(
   root: string,
   relative: string,
   body: Readable,

@@ -494,12 +494,46 @@ test(
         .getByRole("region", { name: "Preview of plan.md" })
         .getByRole("heading", { name: "Agent plan" })
         .waitFor();
+      // Electron main's working directory stays put while drops are written: relative-path
+      // file work queued by any other code keeps resolving where it did.
+      await application.evaluate(() => {
+        const fs = process.getBuiltinModule("node:fs");
+        const home = fs.statSync(".").ino;
+        const seen = { reads: 0, moved: 0, chdir: 0 };
+        const chdir = process.chdir.bind(process);
+        process.chdir = (directory: string) => {
+          seen.chdir++;
+          chdir(directory);
+        };
+        const timer = setInterval(() => {
+          for (let index = 0; index < 32; index++)
+            void fs.promises.stat(".").then((info) => {
+              seen.reads++;
+              if (info.ino !== home) seen.moved++;
+            });
+        }, 1);
+        Object.assign(globalThis, { workingDirectory: { seen, stop: () => clearInterval(timer) } });
+      });
       await transferJourney(application, page, {
         label: "App",
         folder: local,
         desk,
         env: localEnv,
       });
+      const seen = await application.evaluate(() => {
+        const watch = (
+          globalThis as unknown as {
+            workingDirectory: {
+              seen: { reads: number; moved: number; chdir: number };
+              stop(): void;
+            };
+          }
+        ).workingDirectory;
+        watch.stop();
+        return watch.seen;
+      });
+      expect(seen.reads).toBeGreaterThan(1000);
+      expect([seen.moved, seen.chdir]).toEqual([0, 0]);
 
       await page.evaluate((url) => window.scope.pairRemote(url), devbox.pairUrl);
       await expect

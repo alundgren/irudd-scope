@@ -369,8 +369,9 @@ folders offer the last two. Save opens the normal save dialog in Downloads with
 the file's name. Files Scope cannot preview also show a Save to computer…
 button. Saves and drops show a progress row with Cancel above the tree. A
 cancelled or failed transfer leaves no partial file, and a failure stays shown
-until dismissed. A dropped file that became another file or a link while Scope
-asked is not copied; the row says to drop it again.
+until dismissed. If a dropped file's path leads to a different file by the time Scope copies
+it, for example because it was replaced while Scope asked, it is not copied and
+the row says to drop it again. Edits to the same file are copied.
 
 ## Sketchpad
 
