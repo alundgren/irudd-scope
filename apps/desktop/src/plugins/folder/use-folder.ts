@@ -39,12 +39,46 @@ async function listAll<T>(paths: readonly string[], list: (path: string) => Prom
   return results;
 }
 
-function changedDirectories(changes: readonly FolderChange[]) {
-  const directories = new Set<string>();
-  for (const change of changes)
-    for (const path of change.type === "renamed" ? [change.from, change.to] : [change.path])
-      directories.add(parent(path));
-  return directories;
+/** Whether `path` is `directory` or inside it; the folder itself is `""`. */
+function within(path: string, directory: string) {
+  return !directory || path === directory || path.startsWith(`${directory}/`);
+}
+
+const isIgnoreFile = (path: string) => path === ".gitignore" || path.endsWith("/.gitignore");
+
+/**
+ * The directories a change event says have new ignore rules, `""` for the whole folder
+ * after `.git/info/exclude` changes. Read by name so older feeds without it still work.
+ */
+function ignoreRulesChanged(event: object): string[] {
+  const value: unknown = (event as { ignoreRulesChanged?: unknown }).ignoreRulesChanged;
+  return Array.isArray(value) ? value.filter((path) => typeof path === "string") : [];
+}
+
+/**
+ * What a change batch means for the cached listings: `parents` list the changed entries,
+ * `replaced` paths were deleted, created, or renamed, so any listing at or below them
+ * describes another directory, and ignore rules changed for everything below `rules`.
+ */
+function affected(changes: readonly FolderChange[], ignoreRules: readonly string[]) {
+  const parents = new Set<string>();
+  const replaced: { path: string; exists: boolean }[] = [];
+  const rules = new Set(ignoreRules);
+  for (const change of changes) {
+    const paths =
+      change.type === "renamed"
+        ? [
+            { path: change.from, exists: false },
+            { path: change.to, exists: true },
+          ]
+        : [{ path: change.path, exists: change.type !== "deleted" }];
+    for (const { path, exists } of paths) {
+      parents.add(parent(path));
+      if (change.type !== "changed") replaced.push({ path, exists });
+      if (isIgnoreFile(path)) rules.add(parent(path));
+    }
+  }
+  return { parents, replaced, rules };
 }
 
 /**
@@ -76,6 +110,10 @@ export function useFolder(
   const pending = useRef(new Set<string>());
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const generation = useRef(0);
+  // The newest listing request for each folder. An older answer, or one for a folder that
+  // was replaced since, would show entries that are no longer there.
+  const requests = useRef(new Map<string, number>());
+  const requestCount = useRef(0);
 
   useEffect(() => {
     if (active) setStarted(true);
@@ -86,13 +124,23 @@ export function useFolder(
       const requested = [...new Set(paths)];
       const run = generation.current;
       const showIgnored = current.current.showIgnored;
+      const tokens = requested.map((path) => {
+        const token = ++requestCount.current;
+        requests.current.set(path, token);
+        return token;
+      });
       const results = await listAll(requested, (path) =>
         window.scope
           .folderList({ tabId, path, showIgnored })
           .catch(() => ({ status: "error" as const, message: "Could not read this folder." })),
       );
       if (run !== generation.current) return;
-      const root = results[requested.indexOf("")];
+      const fresh = requested.flatMap((path, index) => {
+        if (requests.current.get(path) !== tokens[index]) return [];
+        requests.current.delete(path);
+        return [{ path, result: results[index]! }];
+      });
+      const root = fresh.find(({ path }) => path === "")?.result;
       if (root && root.status !== "ok" && root.status !== "missing") {
         setListings(new Map());
         setStatus({ kind: root.status, message: root.message });
@@ -100,28 +148,24 @@ export function useFolder(
       }
       setListings((previous) => {
         const next = new Map(previous);
-        requested.forEach((path, index) => {
-          const result = results[index]!;
+        for (const { path, result } of fresh)
           if (result.status === "ok") next.set(path, result.listing);
           else if (result.status === "missing")
-            for (const key of next.keys())
-              if (key === path || key.startsWith(`${path}/`)) next.delete(key);
-        });
+            for (const key of next.keys()) if (within(key, path)) next.delete(key);
         return next;
       });
       const outcome = new Map<string, FolderFailure | undefined>();
-      requested.forEach((path, index) => {
-        const result = results[index]!;
+      for (const { path, result } of fresh) {
         if (result.status === "ok" || result.status === "missing") {
           retries.current.delete(path);
           outcome.set(path, undefined);
-          return;
+          continue;
         }
         const count = (retries.current.get(path) ?? 0) + 1;
         retries.current.set(path, count);
         outcome.set(path, count <= MAX_RETRIES ? "retrying" : "failed");
         if (count <= MAX_RETRIES) waiting.current.add(path);
-      });
+      }
       setFailed((previous) => {
         const next = new Map(previous);
         for (const [path, state] of outcome)
@@ -155,17 +199,31 @@ export function useFolder(
     [load],
   );
 
+  /** The folders at or below `directory` whose rows the tree can show now. */
+  const shownWithin = useCallback(
+    (directory: string) =>
+      ["", ...visibleExpanded(current.current.expanded)].filter((path) => within(path, directory)),
+    [],
+  );
+
   const reloadAll = useCallback(() => {
     generation.current++;
     retries.current.clear();
     waiting.current.clear();
-    return load(["", ...visibleExpanded(current.current.expanded)]);
-  }, [load]);
+    requests.current.clear();
+    const shown = shownWithin("");
+    const kept = new Set(shown);
+    // Collapsed folders' listings may be out of date; they are read again when opened.
+    setListings((previous) => {
+      const next = new Map([...previous].filter(([path]) => kept.has(path)));
+      return next.size === previous.size ? previous : next;
+    });
+    return load(shown);
+  }, [load, shownWithin]);
 
   const reload = useCallback(
     (directories: Iterable<string>) => {
-      for (const directory of directories)
-        if (loaded.current.has(directory)) pending.current.add(directory);
+      for (const directory of directories) pending.current.add(directory);
       if (!pending.current.size || timer.current) return;
       timer.current = setTimeout(() => {
         timer.current = undefined;
@@ -175,6 +233,47 @@ export function useFolder(
       }, 50);
     },
     [load],
+  );
+
+  /**
+   * Forgets the listings at or below `path`, because the folder there was deleted or
+   * replaced, and drops answers still on their way for them. Listings in `shown` stay on
+   * screen until they are read again.
+   */
+  const forget = useCallback((path: string, shown: ReadonlySet<string>) => {
+    const below = (key: string) => within(key, path);
+    for (const key of requests.current.keys()) if (below(key)) requests.current.delete(key);
+    for (const key of pending.current) if (below(key)) pending.current.delete(key);
+    for (const key of retries.current.keys()) if (below(key)) retries.current.delete(key);
+    for (const key of waiting.current) if (below(key)) waiting.current.delete(key);
+    const without = <T>(previous: ReadonlyMap<string, T>) => {
+      const next = new Map([...previous].filter(([key]) => !below(key) || shown.has(key)));
+      return next.size === previous.size ? previous : next;
+    };
+    loaded.current = without(loaded.current);
+    setListings(without);
+    setFailed(without);
+  }, []);
+
+  const applyChanges = useCallback(
+    (changes: readonly FolderChange[], ignoreRules: readonly string[]) => {
+      const { parents, replaced, rules } = affected(changes, ignoreRules);
+      const reads = new Set([...parents].filter((path) => loaded.current.has(path)));
+      // A created or renamed folder may arrive with files that have no events of their own,
+      // so its open folders are read again.
+      for (const { path, exists } of replaced) {
+        const shown = exists ? shownWithin(path) : [];
+        forget(path, new Set(shown));
+        for (const directory of shown) reads.add(directory);
+      }
+      // Ignore rules apply to every folder below a changed `.gitignore`.
+      for (const directory of rules) {
+        for (const path of loaded.current.keys()) if (within(path, directory)) reads.add(path);
+        for (const path of shownWithin(directory)) reads.add(path);
+      }
+      reload(reads);
+    },
+    [forget, reload, shownWithin],
   );
 
   useEffect(() => {
@@ -191,7 +290,7 @@ export function useFolder(
         } else if (statusRef.current.kind !== "ok") void reloadAll();
       } else if (event.type === "changes") {
         if (event.overflow) void reloadAll();
-        else reload(changedDirectories(event.changes));
+        else applyChanges(event.changes, ignoreRulesChanged(event));
       } else if (event.type === "unavailable") {
         generation.current++;
         setListings(new Map());
@@ -206,7 +305,7 @@ export function useFolder(
       retryTimer.current = undefined;
       void window.scope.unwatchFolder(tabId).catch(() => {});
     };
-  }, [started, tabId, reloadAll, reload]);
+  }, [started, tabId, reloadAll, applyChanges]);
 
   // Expanding a folder, in the tree or by an agent's `folder select`, reads the folders
   // this view has not read yet, also once the first listing finishes. Folders that failed

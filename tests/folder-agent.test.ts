@@ -246,10 +246,14 @@ test(
       expect(await item("plans, ignored").getAttribute("aria-expanded")).toBe("true");
       expect(await page.getByLabel("Show ignored files").isChecked()).toBe(true);
 
-      // Case 2: an existing tab with docs collapsed is reused and expanded again.
+      // Case 2: an existing tab with docs collapsed is reused and expanded again, and a
+      // filter that would hide the file is paused, keeping its text.
       await item("docs").click();
       await item("login.html, ignored").waitFor({ state: "hidden" });
       await item("notes.md").waitFor({ state: "hidden" });
+      const filter = page.getByLabel("Filter by file name");
+      await filter.fill("login");
+      await item("login.html, ignored").waitFor();
       await page.getByRole("tab", { name: "Notes", exact: true }).click();
       expect(await folder("select", app, "./docs/notes.md")).toMatchObject({
         tabId: selected.tabId,
@@ -263,6 +267,13 @@ test(
       await item("notes.md").waitFor();
       expect(await item("notes.md").getAttribute("aria-selected")).toBe("true");
       expect(await item("docs").getAttribute("aria-expanded")).toBe("true");
+      expect(await filter.inputValue()).toBe("login");
+      await page.getByText("Showing all files so notes.md is visible.").waitFor();
+      await page.getByRole("button", { name: "Filter again", exact: true }).click();
+      await item("notes.md").waitFor({ state: "hidden" });
+      await item("login.html, ignored").waitFor();
+      await filter.fill("");
+      await item("notes.md").waitFor();
 
       // A local watch ends with `closed` when the person closes the tab, here a bookmark,
       // even while the window still shows an older copy of the tab: main's notice of the
