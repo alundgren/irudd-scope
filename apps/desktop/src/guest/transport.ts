@@ -127,53 +127,71 @@ export class GuestTransport {
     path: string,
     options: PeerRequest,
   ): Promise<PeerResponse> {
-    if (!this.socksPort) throw failure();
-    const signal = AbortSignal.any([options.signal, AbortSignal.timeout(options.deadlineMs)]);
-    const socket = await socksConnect(this.socksPort, endpoint, signal);
-    // agent:false creates Node's default Agent and discards createConnection.
-    // This Agent can use only the already authenticated transport socket.
-    const agent = new Agent({ keepAlive: false });
-    agent.createConnection = () => socket;
-    socket.once("close", () => agent.destroy());
-    return new Promise<PeerResponse>((resolve, reject) => {
-      const request = httpRequest(
-        {
-          method: options.method ?? "GET",
-          path,
-          host: "scope-peer.invalid",
-          port: endpoint.port,
-          agent,
-          signal,
-          maxHeaderSize: 16384,
-          headers: { ...options.headers, Connection: "close" },
-        },
-        (response) => {
-          response.setTimeout(options.idleMs, () => response.destroy(failure()));
-          resolve({
-            status: response.statusCode ?? 502,
-            headers: response.headers,
-            body: response,
-          });
-        },
-      );
-      // SOCKS pauses reads while handing the socket over; resume after HTTP
-      // has attached its parser so no response bytes are lost.
-      request.once("socket", (connected) => connected.resume());
-      request.setTimeout(options.idleMs, () => request.destroy(failure()));
-      request.once("error", (error) => {
-        socket.destroy();
-        reject(error);
+    const body = options.body && "pipe" in options.body ? options.body : undefined;
+    const bodyFailed = new AbortController();
+    const bodyError = () => bodyFailed.abort();
+    // Own the upload before any setup can fail. Keep its error listener until
+    // close because destroy() may report an asynchronous file/stream error.
+    if (body && !body.closed) {
+      body.once("error", bodyError);
+      body.once("close", () => {
+        body.removeListener("error", bodyError);
+        if (!body.readableEnded) bodyFailed.abort();
       });
-      if (options.body && "pipe" in options.body) {
-        const body = options.body;
-        body.once("error", () => request.destroy(failure()));
-        request.once("close", () => body.destroy());
-        body.pipe(request);
-      } else request.end(options.body);
-    }).catch((error: unknown) => {
-      socket.destroy();
+    }
+    let socket: Socket | undefined;
+    let request: ReturnType<typeof httpRequest> | undefined;
+    try {
+      if (!this.socksPort || body?.destroyed) throw failure();
+      const signal = AbortSignal.any([
+        options.signal,
+        bodyFailed.signal,
+        AbortSignal.timeout(options.deadlineMs),
+      ]);
+      const connected = await socksConnect(this.socksPort, endpoint, signal);
+      socket = connected;
+      // agent:false creates Node's default Agent and discards createConnection.
+      // This Agent can use only the already authenticated transport socket.
+      const agent = new Agent({ keepAlive: false });
+      agent.createConnection = () => connected;
+      connected.once("close", () => agent.destroy());
+      return await new Promise<PeerResponse>((resolve, reject) => {
+        const pending = httpRequest(
+          {
+            method: options.method ?? "GET",
+            path,
+            host: "scope-peer.invalid",
+            port: endpoint.port,
+            agent,
+            signal,
+            maxHeaderSize: 16384,
+            headers: { ...options.headers, Connection: "close" },
+          },
+          (response) => {
+            response.setTimeout(options.idleMs, () => response.destroy(failure()));
+            resolve({
+              status: response.statusCode ?? 502,
+              headers: response.headers,
+              body: response,
+            });
+          },
+        );
+        request = pending;
+        pending.once("error", reject);
+        // A successful return transfers the response stream to the caller;
+        // upload ownership lasts until the HTTP exchange closes, not headers.
+        pending.once("close", () => body?.destroy());
+        pending.once("socket", (assigned) => assigned.resume());
+        pending.setTimeout(options.idleMs, () => pending.destroy(failure()));
+        if (body) body.pipe(pending);
+        else pending.end(options.body);
+      });
+    } catch (error) {
+      body?.destroy();
+      request?.destroy();
+      socket?.destroy();
       throw error;
-    });
+    }
   }
 }
 function socksConnect(port: number, endpoint: GuestEndpoint, signal: AbortSignal): Promise<Socket> {

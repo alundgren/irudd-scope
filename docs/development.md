@@ -976,3 +976,9 @@ plaintext fallback. Standard connection tests use a synthetic local CLI and
 observe HTTP requests inside its SOCKS tunnel. Windows builds the fixture as a
 native executable using Node's built-in single-executable builder; setup fails
 if that build fails, without selecting an installed Tailcat instead.
+
+`vp exec node tools/check-guest-request.ts` is a bounded offline adapter probe.
+It uses opened synthetic files and local SOCKS/HTTP fixtures to check upload
+ownership before connection setup, cancellation, negotiation and send failures,
+and successful response streaming. It needs no installed Tailcat or GUI and
+closes every fixture socket, file, and worker before returning.
