@@ -1,0 +1,133 @@
+import { expect } from "vite-plus/test";
+import type { ElectronApplication, Page } from "@playwright/test";
+import { DatabaseSync } from "node:sqlite";
+import { join } from "node:path";
+import type { guestResponseFixture } from "./guest-response-fixture.ts";
+
+export async function guestWorkspaceChecks({
+  pageA,
+  pageB,
+  right,
+  settingsDirectory,
+  guestId,
+  responses,
+  capture,
+}: {
+  pageA: Page;
+  pageB: Page;
+  right: ElectronApplication;
+  settingsDirectory: string;
+  guestId: string;
+  responses: Awaited<ReturnType<typeof guestResponseFixture>>;
+  capture: (name: string) => Promise<void>;
+}) {
+  const ownerWorkspace = await pageA.evaluate(() => window.scope.workspace());
+  const ownerRetention = await pageA.evaluate(() => window.scope.retainedTabs());
+  const pane = pageB.locator(`#pane-${guestId}`);
+  const frame = pane.locator("iframe").contentFrame();
+  const tab = pageB.locator(`#tab-${guestId}`);
+  // A guest can sit before a local tab, and later catalog updates must leave it there.
+  await tab.focus();
+  for (let i = 0; i < 3; i++) await pageB.keyboard.press("Alt+ArrowLeft");
+  await expect
+    .poll(async () => {
+      const workspace = (await pageB.evaluate(() => window.scope.workspace()))!;
+      return workspace.tabs.filter((tab) => !tab.hidden)[0]?.id;
+    })
+    .toBe(guestId);
+  await frame.locator("body").evaluate(() => window.scrollTo(0, 480));
+  await expect
+    .poll(
+      async () =>
+        (await pageB.evaluate(() => window.scope.workspace()))?.tabs.find(
+          (tab) => tab.id === guestId,
+        )?.state.data.fileScroll,
+    )
+    .toEqual({ x: 0, y: 480 });
+  await expect
+    .poll(
+      async () =>
+        (await pageB.evaluate(() => window.scope.workspace()))?.tabs.find(
+          (tab) => tab.id === guestId,
+        )?.guestReadRevision,
+    )
+    .toBe(1);
+
+  responses.offline(true);
+  await expect
+    .poll(async () => (await pageB.evaluate(() => window.scope.guestCatalog())).available.length, {
+      timeout: 20000,
+    })
+    .toBe(0);
+  await pane.getByText(/Source Scope is unavailable/).waitFor();
+  expect(await pane.locator(".guest-view").isVisible()).toBe(false);
+  expect(await pane.locator(".guest-view").getAttribute("inert")).not.toBeNull();
+  await capture("workspace-offline-light.png");
+  responses.offline(false);
+  const peer = (await pageB.evaluate(() => window.scope.transferDevices())).peers[0]!.id;
+  await pageB.evaluate((id) => window.scope.retryGuest(id), peer);
+  await expect
+    .poll(
+      async () =>
+        (await pageB.evaluate(() => window.scope.guestCatalog())).available.includes(guestId),
+      { timeout: 30000 },
+    )
+    .toBe(true);
+  expect(await frame.getByLabel("Local draft").inputValue()).toBe(
+    "Receiver navigation remains local",
+  );
+  await frame.getByRole("button", { name: "Clicked" }).waitFor();
+  await expect.poll(() => frame.locator("body").evaluate(() => window.scrollY)).toBe(480);
+
+  // Reject real SQLite layout writes, then exercise both tab-close and quit recovery.
+  const database = new DatabaseSync(join(settingsDirectory, "desktop.db"));
+  try {
+    database.exec(
+      "CREATE TRIGGER reject_guest_workspace BEFORE UPDATE ON preferences WHEN NEW.name = 'workspace_layout' BEGIN SELECT RAISE(ABORT, 'Synthetic blocked workspace write'); END",
+    );
+    await tab.focus();
+    await pageB.keyboard.press("Alt+ArrowRight");
+    await pageB.getByText("Could not save open tabs.", { exact: false }).waitFor();
+    await pageB
+      .locator(".artifact-tab.selected")
+      .getByRole("button", { name: "Close Same title", exact: true })
+      .click();
+    await pageB.getByText("Could not save this tab. Try again.", { exact: true }).waitFor();
+    expect(await tab.isVisible()).toBe(true);
+    await right.evaluate(({ app, dialog }) => {
+      const state = globalThis as unknown as { guestQuitButtons?: string[] };
+      dialog.showMessageBox = async (windowOrOptions, options?: Electron.MessageBoxOptions) => {
+        state.guestQuitButtons = (
+          options ?? (windowOrOptions as Electron.MessageBoxOptions)
+        ).buttons;
+        return { response: 0, checkboxChecked: false };
+      };
+      app.quit();
+    });
+    await expect
+      .poll(() =>
+        right.evaluate(
+          () => (globalThis as unknown as { guestQuitButtons?: string[] }).guestQuitButtons,
+        ),
+      )
+      .toEqual(["Keep open", "Quit without saving"]);
+    expect(await tab.isVisible()).toBe(true);
+  } finally {
+    database.exec("DROP TRIGGER IF EXISTS reject_guest_workspace");
+    database.close();
+  }
+  await pageB
+    .getByRole("alert")
+    .filter({ hasText: "Could not save open tabs." })
+    .getByRole("button", { name: "Retry", exact: true })
+    .click();
+  await pageB.getByText("Could not save open tabs.", { exact: false }).waitFor({ state: "hidden" });
+  // Restore the interleaved order after the failed save; the real quit will flush it.
+  await tab.focus();
+  await pageB.keyboard.press("Alt+ArrowLeft");
+  expect(await pageA.evaluate(() => window.scope.workspace())).toEqual(ownerWorkspace);
+  const after = await pageA.evaluate(() => window.scope.retainedTabs());
+  expect(after.map(({ tab, permanent, trashedAt }) => ({ tab, permanent, trashedAt }))).toEqual(
+    ownerRetention.map(({ tab, permanent, trashedAt }) => ({ tab, permanent, trashedAt })),
+  );
+}

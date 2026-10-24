@@ -50,7 +50,7 @@ export class GuestCatalogs {
   private ownerQueue = Promise.resolve();
   private polls = new Map<string, Promise<void>>();
   private view: GuestCatalogView = { records: [], owners: [], available: [] };
-  private available = new Map<string, Set<string>>();
+  private available = new Map<string, { sources: Set<string>; access: AbortSignal }>();
   private owners = new Map<string, GuestCatalogView["owners"][number]>();
   private remove: (() => void)[] = [];
   private timer?: ReturnType<typeof setTimeout>;
@@ -111,13 +111,24 @@ export class GuestCatalogs {
   private async publish() {
     const generation = ++this.viewGeneration;
     const records = await this.desktop.guestRecords();
+    const peers = await this.desktop.scopePeers();
+    for (const owner of this.available.keys()) {
+      const peer = peers.find((peer) => peer.deviceId === owner);
+      try {
+        if (!peer) throw new Error("Owner forgotten.");
+        const access = this.connections.access(peer.id);
+        if (this.available.get(owner)?.access !== access) this.available.delete(owner);
+      } catch {
+        this.available.delete(owner);
+      }
+    }
     if (this.closed.signal.aborted || generation !== this.viewGeneration) return;
     const view: GuestCatalogView = {
       records,
       owners: [...this.owners.values()],
       available: records
         .filter((record) =>
-          this.available.get(record.ownerDeviceId)?.has(record.source.sourceTabId),
+          this.available.get(record.ownerDeviceId)?.sources.has(record.source.sourceTabId),
         )
         .map((record) => record.tab.id),
     };
@@ -249,18 +260,29 @@ export class GuestCatalogs {
           this.owners.set(peer.deviceId, {
             deviceId: peer.deviceId,
             name: peer.name,
-            state: state?.state === "update-required" ? "update-required" : "offline",
+            state: state?.state ?? "offline",
             message:
-              state?.state === "update-required"
-                ? state.message
-                : `${peer.name} is unavailable. Reconnect to read current content.`,
+              state?.state === "disabled"
+                ? `Guest sharing with ${peer.name} is off on this Scope. Enable it in Other Scopes to reconnect.`
+                : state?.state === "setup"
+                  ? `Connect a guest connection link for ${peer.name} in Other Scopes.`
+                  : state?.state === "update-required" || state?.state === "access-denied"
+                    ? state.message
+                    : `${peer.name} is unavailable. Open that Scope and check its connection. Scope will reconnect automatically; you can also retry in Other Scopes.`,
           });
         }
       }
-      for (const id of this.owners.keys())
-        if (!peers.some((peer) => peer.deviceId === id)) {
+      for (const record of await this.desktop.guestRecords())
+        if (!peers.some((peer) => peer.deviceId === record.ownerDeviceId)) {
+          const id = record.ownerDeviceId;
           this.available.delete(id);
-          this.owners.delete(id);
+          this.owners.set(id, {
+            deviceId: id,
+            name: this.owners.get(id)?.name ?? "The owner",
+            state: "forgotten",
+            message:
+              "This owner is no longer paired. Pair it again and enable guest sharing in Other Scopes. Your local tab position is saved.",
+          });
         }
       await this.publish();
     } catch {
@@ -278,6 +300,7 @@ export class GuestCatalogs {
     let after: number | undefined;
     try {
       while (!this.closed.signal.aborted) {
+        const access = this.connections.access(peerId);
         const response = await this.connections.request(peerId, "catalog", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -314,14 +337,16 @@ export class GuestCatalogs {
           )
             throw new Error("Update Scope to open this owner's shared tab types.");
         }
+        access.throwIfAborted();
         if (!(await this.desktop.applyGuestCatalog(catalog)))
           throw new Error("The owner returned an older catalog. Retry the connection.");
         this.closed.signal.throwIfAborted();
+        access.throwIfAborted();
         after = catalog.revision;
-        this.available.set(
-          ownerDeviceId,
-          new Set(catalog.sources.map((source) => source.sourceTabId)),
-        );
+        this.available.set(ownerDeviceId, {
+          sources: new Set(catalog.sources.map((source) => source.sourceTabId)),
+          access,
+        });
         this.owners.set(ownerDeviceId, { deviceId: ownerDeviceId, name, state: "connected" });
         await this.publish();
       }
@@ -354,6 +379,9 @@ export class GuestCatalogs {
       (peer) => peer.deviceId === record.ownerDeviceId,
     );
     if (!peer) throw new Error("The owner is no longer paired.");
+    const access = this.connections.access(peer.id);
+    if (this.available.get(record.ownerDeviceId)?.access !== access)
+      throw new Error("The owner catalog is refreshing. Try again shortly.");
     const response = await this.connections
       .request(peer.id, record.source.kind === "plan" ? "plan-content" : "artifact-content", {
         method: "POST",
@@ -377,6 +405,7 @@ export class GuestCatalogs {
         createHash("sha256").update(content).digest("hex") !== artifact.blob
       )
         throw new Error("The owner content did not match the requested revision.");
+      access.throwIfAborted();
       const latest = this.view.records.find((record) => record.tab.id === id);
       if (!this.view.available.includes(id) || latest?.source.artifact?.revision !== revision)
         throw new Error("This source changed while reading. Refresh the guest tab.");

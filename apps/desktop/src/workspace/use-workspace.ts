@@ -193,6 +193,22 @@ export function useWorkspace(onError: (message: string) => void) {
     };
   }, [loaded]);
 
+  useEffect(() => {
+    const selected = current.current.selected;
+    if (!selected || !guests.available.includes(selected)) return;
+    const record = guests.records.find((record) => record.tab.id === selected);
+    const tab = current.current.tabs.find((tab) => tab.id === selected);
+    if (!record || !tab) return;
+    const revision = record.source.artifact?.revision ?? 0;
+    if (tab.guestReadRevision === revision) return;
+    replace({
+      ...current.current,
+      tabs: current.current.tabs.map((tab) =>
+        tab.id === selected ? { ...tab, guestReadRevision: revision } : tab,
+      ),
+    });
+  }, [guests, workspace.selected]);
+
   function createGroup(owner: TabGroup["owner"], id = crypto.randomUUID()): TabGroup {
     const previous = current.current;
     const existing = previous.groups.find((group) => group.id === id);
@@ -411,7 +427,15 @@ export function useWorkspace(onError: (message: string) => void) {
   return {
     workspace,
     guests,
-    unreadTabs,
+    unreadTabs: new Set([
+      ...unreadTabs,
+      ...guests.records
+        .filter((record) => {
+          const tab = workspace.tabs.find((tab) => tab.id === record.tab.id);
+          return tab && tab.guestReadRevision !== (record.source.artifact?.revision ?? 0);
+        })
+        .map((record) => record.tab.id),
+    ]),
     ready,
     save,
     openTab,

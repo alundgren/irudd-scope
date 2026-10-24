@@ -1,3 +1,4 @@
+import { guestWorkspaceChecks } from "./guest-workspace-checks.ts";
 import { spawnedHub } from "./hub-fixture.ts";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import type { guestResponseFixture } from "./guest-response-fixture.ts";
@@ -41,7 +42,7 @@ export async function guestCatalogChecks({
     "same-id",
     metadata,
     Buffer.from(
-      `<button onclick="this.textContent='Clicked'">Try guest</button><input aria-label="Local draft"><script src="http://127.0.0.1:${responses.port}/resource.js"></script>`,
+      `<button onclick="this.textContent='Clicked'">Try guest</button><input aria-label="Local draft"><div style="height:2400px">Reading position</div><script src="http://127.0.0.1:${responses.port}/resource.js"></script>`,
     ),
   );
   await cb.publish("same-id", metadata, Buffer.from("<h1>Receiver local</h1>"));
@@ -136,6 +137,7 @@ export async function guestCatalogChecks({
   const source = () => pageB.evaluate(() => window.scope.guestCatalog());
   const own = () => pageA.evaluate(() => window.scope.guestCatalog());
   let guestId = "";
+  let restartWorkspace = "";
 
   async function select(id: string) {
     const tab = pageB.locator(`#tab-${id}`);
@@ -231,6 +233,15 @@ export async function guestCatalogChecks({
       );
       await frame.getByRole("button", { name: "Clicked" }).waitFor();
       expect(responses.reads()).toBe(contentReads + 2);
+      await guestWorkspaceChecks({
+        pageA,
+        pageB,
+        right,
+        settingsDirectory: b.settingsDirectory,
+        guestId,
+        responses,
+        capture,
+      });
       await capture("guest-html-light.png");
       await pageB.getByRole("button", { name: "Search and controls" }).click();
       await pageB.getByRole("button", { name: "Settings", exact: true }).click();
@@ -255,17 +266,6 @@ export async function guestCatalogChecks({
         ),
       ).toBe(true);
       expect(await readFile(destination, "utf8")).toContain("Try guest");
-      await pageB.evaluate(async (id) => {
-        const workspace = (await window.scope.workspace())!;
-        await window.scope.saveWorkspace({
-          ...workspace,
-          tabs: workspace.tabs.map((tab) =>
-            tab.id === id
-              ? { ...tab, state: { version: 1, data: { selected: "local-only" } } }
-              : tab,
-          ),
-        });
-      }, guestId);
       current = await ca.publish(
         "same-id",
         { ...metadata, expectedRevision: current.revision },
@@ -280,8 +280,8 @@ export async function guestCatalogChecks({
         .toBe(current.revision);
       view = await source();
       expect(
-        view.records.find((record) => record.tab.id === guestId)?.tab.state.data.selected,
-      ).toBe("local-only");
+        view.records.find((record) => record.tab.id === guestId)?.tab.state.data.fileScroll,
+      ).toEqual({ x: 0, y: 480 });
       await frame.getByRole("heading", { name: "Current owner revision" }).waitFor();
       const future = await ca.publish(
         "future",
@@ -295,6 +295,9 @@ export async function guestCatalogChecks({
         Buffer.from("future content"),
       );
       await expect.poll(async () => (await source()).available.length).toBe(4);
+      expect(await pageB.getByRole("tab", { selected: true }).getAttribute("id")).toBe(
+        `tab-${guestId}`,
+      );
       const futureGuest = (await source()).records.find(
         (record) => record.source.artifact?.id === future.id,
       )!;
@@ -319,6 +322,8 @@ export async function guestCatalogChecks({
       const futureSource = (await pageA.evaluate(() => window.scope.workspace()))!.tabs.find(
         (tab) => tab.state.data.artifactId === future.id,
       )!;
+      expect(futureGuest.tab.guestReadRevision).toBeUndefined();
+      await select(futureGuest.tab.id);
       await pageA.evaluate((id) => window.scope.closeTab(id), futureSource.id);
       await expect(
         pageB.evaluate(({ id, revision }) => window.scope.guestContent(id, revision), {
@@ -327,6 +332,19 @@ export async function guestCatalogChecks({
         }),
       ).rejects.toThrow();
       await expect.poll(async () => (await source()).available.length).toBe(3);
+      await pane.getByText(/may have expired, moved to Trashcan, or become ineligible/).waitFor();
+      expect(await pane.locator(".guest-view").isVisible()).toBe(false);
+      await capture("workspace-source-unavailable-dark-narrow.png");
+      await pageA.evaluate((id) => window.scope.restoreTab(id), futureSource.id);
+      await expect
+        .poll(async () => (await source()).available.includes(futureGuest.tab.id))
+        .toBe(true);
+      expect(
+        (await source()).records
+          .filter((record) => record.source.sourceTabId === futureSource.id)
+          .map((record) => record.tab.id),
+      ).toEqual([futureGuest.tab.id]);
+      await pane.getByText("future content", { exact: true }).waitFor();
       await ca.delete(future.id);
       await expect
         .poll(async () => (await source()).available.includes(futureGuest.tab.id))
@@ -591,6 +609,27 @@ export async function guestCatalogChecks({
             .then((view) => view.records.some((record) => record.tab.id === guestId)),
         )
         .toBe(true);
+      const saved = await page.evaluate(() => window.scope.workspace());
+      expect(JSON.stringify(saved)).toBe(restartWorkspace);
+      const hidden = saved!.tabs.find((tab) => tab.id === guestId)!;
+      expect(hidden.hidden).toBe(true);
+      await page.getByRole("button", { name: "Search and controls" }).click();
+      await page.getByLabel("Search artifacts", { exact: true }).fill(hidden.title);
+      await page.getByRole("button", { name: hidden.title + " guest", exact: true }).click();
+      await expect
+        .poll(async () => (await page.evaluate(() => window.scope.workspace()))?.selected)
+        .toBe(guestId);
+      expect(await page.locator(`#pane-${guestId} iframe`).count()).toBe(0);
+      const peer = (await page.evaluate(() => window.scope.transferDevices())).peers[0]!.id;
+      await page.evaluate((id) => window.scope.setGuestAccess(id, false), peer);
+      await page.getByText(/Guest sharing with Source Scope is off on this Scope/).waitFor();
+      await page.evaluate((id) => window.scope.forgetScope(id), peer);
+      await page.getByText(/This owner is no longer paired/).waitFor();
+      expect(
+        (await page.evaluate(() => window.scope.workspace()))?.tabs.find(
+          (tab) => tab.id === guestId,
+        )?.id,
+      ).toBe(guestId);
       const view = await page.evaluate(() => window.scope.guestCatalog());
       expect(view.available).toHaveLength(0);
       expect(view.records.find((record) => record.tab.id === guestId)?.source.sourceTabId).toBe(
@@ -609,9 +648,31 @@ export async function guestCatalogChecks({
       expect((await source()).records.some((record) => record.tab.id === guestId)).toBe(true);
       await pageB
         .locator(".artifact-pane:not([hidden])")
-        .getByText(/Source Scope is unavailable. Reconnect to read current content./)
+        .getByText(/Source Scope (is unavailable|rejected guest access)/)
         .waitFor();
       await capture("guest-owner-unavailable.png");
+      await select(guestId);
+      await pageB
+        .locator(".artifact-tab.selected")
+        .getByRole("button", { name: "Close Same title", exact: true })
+        .click();
+      const planId = (await source()).records.find((record) => record.source.kind === "plan")!.tab
+        .id;
+      await select(planId);
+      await pageB.locator(`#tab-${planId}`).focus();
+      for (let i = 0; i < 3; i++) await pageB.keyboard.press("Alt+ArrowLeft");
+      await expect
+        .poll(
+          async () =>
+            (await pageB.evaluate(() => window.scope.workspace()))?.tabs.find(
+              (tab) => tab.id === guestId,
+            )?.hidden,
+        )
+        .toBe(true);
+      await expect
+        .poll(async () => (await pageB.evaluate(() => window.scope.workspace()))?.selected)
+        .toBe(planId);
+      restartWorkspace = JSON.stringify(await pageB.evaluate(() => window.scope.workspace()));
     },
   };
 }

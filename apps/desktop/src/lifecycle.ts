@@ -87,13 +87,17 @@ export class DesktopLifecycle {
   }
 
   async workspace(): Promise<Workspace> {
-    const layout = (await this.desktop.layout()) ?? emptyWorkspace();
+    const layout = (await this.desktop.layout()) ?? { ...emptyWorkspace(), order: undefined };
     const tabs = (await this.artifacts.tabs()).flatMap((tab) =>
       tab.opened && tab.document && tab.trashed_at === null
         ? [decode(Tab, JSON.parse(tab.document))]
         : [],
     );
     tabs.push(...(await this.desktop.guestRecords()).map((record) => record.tab));
+    if (layout.order) {
+      const positions = new Map(layout.order.map((id, index) => [id, index]));
+      tabs.sort((a, b) => (positions.get(a.id) ?? Infinity) - (positions.get(b.id) ?? Infinity));
+    }
     const groups = [...layout.groups];
     for (const tab of tabs)
       if (!groups.some((group) => group.id === tab.groupId))
@@ -116,8 +120,7 @@ export class DesktopLifecycle {
       if (workspace.tabs.some((tab) => (tab.type === "guest") !== guests.has(tab.id)))
         throw new Error("Guest and local tab identities cannot be exchanged.");
       await this.artifacts.saveTabs(workspace.tabs.filter((tab) => !guests.has(tab.id)));
-      await this.desktop.saveGuestTabs(workspace.tabs.filter((tab) => guests.has(tab.id)));
-      await this.desktop.saveLayout({ groups: workspace.groups, selected: workspace.selected });
+      await this.desktop.saveGuestWorkspace(workspace);
     });
   }
 
@@ -164,8 +167,10 @@ export class DesktopLifecycle {
 
   reportVisibleTabs(ids: readonly string[], now = Date.now()): Promise<void> {
     return this.enqueue(async () => {
-      await this.artifacts.markTabsVisible([...new Set([...this.visibleIds, ...ids])], now);
-      this.visibleIds = ids;
+      const guests = new Set((await this.desktop.guestRecords()).map((record) => record.tab.id));
+      const local = ids.filter((id) => !guests.has(id));
+      await this.artifacts.markTabsVisible([...new Set([...this.visibleIds, ...local])], now);
+      this.visibleIds = local;
     });
   }
 
@@ -212,7 +217,11 @@ export class DesktopLifecycle {
 
   checkRetention(visibleIds: readonly string[], now = Date.now()): Promise<void> {
     return this.enqueue(async () => {
-      await this.artifacts.markTabsVisible(visibleIds, now);
+      const guests = new Set((await this.desktop.guestRecords()).map((record) => record.tab.id));
+      await this.artifacts.markTabsVisible(
+        visibleIds.filter((id) => !guests.has(id)),
+        now,
+      );
       const trashed = await this.artifacts.expireTemporaryTabs(now);
       if (trashed.length) this.onRemoved(trashed);
       const deleted = await this.artifacts.emptyTrash(await this.artifacts.expiredTrash(now));

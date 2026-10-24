@@ -13,12 +13,25 @@ Eligible owner tabs appear automatically after guest sharing connects, including
 hidden bookmarked files, plans and folders. A guest names its owner above the
 content. File guests use the existing viewers and Download action. Plans and
 folders preserve their kind and show an update requirement in builds without
-their guest view. Unavailable sources show a status message without retaining
-an interactive old document. Close hides a guest locally; guests have no local
+their guest view. Unavailable sources show a status message and hide the document
+from interaction. Offline, disabled, unpaired and incompatible connections have
+distinct recovery advice. An absent source may have expired, moved to Trashcan,
+or become ineligible; checking the source belongs on its owner.
+Close hides a guest locally; guests have no local
 bookmark, Send tab or Trashcan action.
 Failed guest content reads offer Retry content in the tab. Retrying does not
 require closing the tab or changing the source revision. Successfully loaded
-views retain their interactive state when hidden and reopened.
+views retain their interactive state when hidden and reopened. Mixed local/guest
+order, selection, hidden state, unread revisions and file reading position survive
+restart in receiver SQLite. Catalog refreshes preserve navigation and never take
+selection from the current tab. Guest visibility does not extend owner retention.
+
+During temporary unavailability, loaded HTML stays mounted but hidden and inert.
+A current accepted catalog for the same owner, source, revision and blob is required
+before showing it again. A changed revision loads current owner bytes. Hidden HTML
+is still trusted executable content; hiding does not suspend scripts. Form and
+runtime input is preserved in memory for the same document, not across application
+restart or source replacement. Scope stores no persistent guest HTML snapshot.
 
 Other Scopes explains that transfers require Tailcat installed separately on
 each device. Scope has no installer or installation action; a missing CLI produces

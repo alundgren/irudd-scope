@@ -7,7 +7,14 @@ export const GuestAccess = Schema.Struct({ peerId: TransferId, enabled: Schema.B
 export type GuestPeerStatus = {
   peerId: string;
   enabled: boolean;
-  state: "disabled" | "setup" | "connecting" | "connected" | "offline" | "update-required";
+  state:
+    | "disabled"
+    | "setup"
+    | "connecting"
+    | "connected"
+    | "offline"
+    | "access-denied"
+    | "update-required";
   message?: string;
 };
 export type GuestStatus = {
@@ -33,7 +40,7 @@ export type GuestCatalogView = {
   owners: readonly {
     deviceId: string;
     name: string;
-    state: "connected" | "offline" | "update-required";
+    state: GuestPeerStatus["state"] | "forgotten";
     message?: string;
   }[];
   available: readonly string[];

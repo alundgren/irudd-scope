@@ -14,10 +14,15 @@ export async function guestResponseFixture() {
   let heldReads = 0;
   let contentReads = 0;
   let failContent = false;
+  let offline = false;
   const server = createServer((request, response) => {
     if (request.url === "/resource.js") {
       response.writeHead(200, { "Content-Type": "text/javascript" });
       response.end("document.body.dataset.externalResource = 'loaded';");
+      return;
+    }
+    if (offline) {
+      response.destroy();
       return;
     }
     const upstream = httpRequest(
@@ -100,6 +105,10 @@ export async function guestResponseFixture() {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   return {
     port: (server.address() as { port: number }).port,
+    offline(value: boolean) {
+      offline = value;
+      if (value) server.closeAllConnections();
+    },
     target(port: number) {
       ownerPort = port;
     },

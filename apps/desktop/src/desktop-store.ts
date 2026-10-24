@@ -839,13 +839,13 @@ export class DesktopStore {
     });
   }
 
-  saveGuestTabs(tabs: readonly Tab[]): Promise<void> {
+  saveGuestWorkspace(workspace: Workspace): Promise<void> {
     return this.enqueue(async () => {
       const sql = this.sql!;
       await this.run(
         sql.withTransaction(
           Effect.gen(function* () {
-            for (const [position, tab] of tabs.entries()) {
+            for (const [position, tab] of workspace.tabs.entries()) {
               const [row] = yield* sql<{
                 tab: string;
               }>`SELECT tab FROM guest_tabs WHERE id = ${tab.id}`;
@@ -855,6 +855,12 @@ export class DesktopStore {
               const saved = decode(Tab, JSON.parse(row.tab));
               yield* sql`UPDATE guest_tabs SET tab = ${JSON.stringify({ ...tab, title: saved.title })}, position = ${position} WHERE id = ${tab.id}`;
             }
+            const layout = {
+              groups: workspace.groups,
+              selected: workspace.selected,
+              order: workspace.tabs.map((tab) => tab.id),
+            };
+            yield* sql`INSERT INTO preferences(name, document) VALUES ('workspace_layout', ${JSON.stringify(layout)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`;
           }),
         ),
       );
@@ -1006,7 +1012,9 @@ export class DesktopStore {
     return row ? importedClosedArtifacts(JSON.parse(row.document)) : [];
   }
 
-  async layout(): Promise<Pick<Workspace, "groups" | "selected"> | null> {
+  async layout(): Promise<
+    (Pick<Workspace, "groups" | "selected"> & { order?: readonly string[] }) | null
+  > {
     await this.pending;
     const [row] = await this.run(
       this.sql!<{
@@ -1015,7 +1023,11 @@ export class DesktopStore {
     );
     return row
       ? decode(
-          Schema.Struct({ groups: Schema.Array(TabGroup), selected: Schema.NullOr(Uuid) }),
+          Schema.Struct({
+            groups: Schema.Array(TabGroup),
+            selected: Schema.NullOr(Uuid),
+            order: Schema.optionalKey(Schema.Array(Uuid)),
+          }),
           JSON.parse(row.document),
         )
       : null;

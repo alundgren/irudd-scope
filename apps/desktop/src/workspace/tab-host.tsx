@@ -72,35 +72,31 @@ export function TabHost({
     () =>
       guest
         ? {
+            available: guestAvailable === true,
             ownerDeviceId: guest.ownerDeviceId,
             sourceTabId: guest.source.sourceTabId,
             read: (artifact: Artifact) => window.scope.guestContent(tab.id, artifact.revision),
           }
         : undefined,
-    [tab.id, guest?.ownerDeviceId, guest?.source.sourceTabId],
+    [tab.id, guest?.ownerDeviceId, guest?.source.sourceTabId, guestAvailable],
   );
   const plugin =
     tab.type === "guest" ? guestPlugin(guest?.source.kind ?? "") : findPlugin(tab.type);
-  if (tab.type === "guest" && (!guestAvailable || !guest))
-    return (
-      <p role="status" className="empty-state">
-        {guestOwner?.message ??
-          `${guestOwner?.name ?? "The owner"} or this source tab is unavailable. Reconnect to read current content.`}
-      </p>
-    );
-  if (tab.type === "guest" && (!plugin || guest?.source.version !== 1))
-    return (
-      <p role="status" className="empty-state">
-        Update Scope to open shared {guest?.source.kind === "plan" ? "plans" : "folders"} from{" "}
-        {guestOwner?.name ?? "the owner"}.
-      </p>
-    );
+  const unavailable = tab.type === "guest" && (!guestAvailable || !guest);
+  const notice = unavailable
+    ? guestOwner?.state === "connected"
+      ? `This source is no longer shared by ${guestOwner.name}. It may have expired, moved to Trashcan, or become ineligible. Restore or check the source on that Scope. Viewing here does not extend its retention.`
+      : (guestOwner?.message ??
+        "Checking the owner's current catalog. Your local tab position is saved.")
+    : tab.type === "guest" && (!plugin || guest?.source.version !== 1)
+      ? `Update Scope to open shared ${guest?.source.kind === "plan" ? "plans" : "folders"} from ${guestOwner?.name ?? "the owner"}.`
+      : undefined;
   if (["file", "retro", "sketchpad", "folder", "guest"].includes(tab.type) && !active && !visited)
     return null;
   if (!plugin)
     return (
       <p role="status" className="empty-state">
-        This tab type is unavailable. Its saved data is still available.
+        {notice ?? "This tab type is unavailable. Its saved data is still available."}
       </p>
     );
   try {
@@ -113,7 +109,7 @@ export function TabHost({
     );
   }
   const View = plugin.View;
-  return (
+  const view = (
     <TabErrorBoundary key={tab.type}>
       <Suspense
         fallback={
@@ -124,8 +120,9 @@ export function TabHost({
       >
         <View
           tab={tab}
-          active={active}
+          active={active && !unavailable}
           {...display}
+          viewing={display.viewing && !unavailable}
           artifact={guest?.source.artifact ?? display.artifact}
           context={{
             content,
@@ -148,5 +145,18 @@ export function TabHost({
         />
       </Suspense>
     </TabErrorBoundary>
+  );
+  if (tab.type !== "guest") return view;
+  return (
+    <>
+      {notice && (
+        <p role="status" className="empty-state">
+          {notice}
+        </p>
+      )}
+      <div className="guest-view" hidden={Boolean(notice)} inert={Boolean(notice)}>
+        {view}
+      </div>
+    </>
   );
 }

@@ -318,7 +318,7 @@ export class GuestConnections {
               Math.min(60000, 1000 * 2 ** Math.min(failures, 6)) +
               Math.random() * 1000,
           });
-          if (this.states.get(peer.id)?.state !== "update-required")
+          if (!["update-required", "access-denied"].includes(this.states.get(peer.id)?.state ?? ""))
             this.state(
               peer.id,
               "offline",
@@ -378,7 +378,16 @@ export class GuestConnections {
         deadlineMs: 15000,
         idleMs: 10000,
       });
-      const challenge = decode(GuestChallenge, await json(challengeResponse.body));
+      const challengeData = await json(challengeResponse.body);
+      if (challengeResponse.status === 403) {
+        this.state(
+          peerId,
+          "access-denied",
+          `${peer.name} rejected guest access. Check sharing and pairing on that Scope, then retry in Other Scopes.`,
+        );
+        throw new Error("Guest access rejected.");
+      }
+      const challenge = decode(GuestChallenge, challengeData);
       if (challengeResponse.status !== 200)
         throw new Error("Guest protocol unavailable. Update the other Scope.");
       const hello = await this.hello(peer, challenge);
@@ -390,7 +399,16 @@ export class GuestConnections {
         deadlineMs: 15000,
         idleMs: 10000,
       });
-      const result = decode(GuestReply, await json(response.body));
+      const replyData = await json(response.body);
+      if (response.status === 403) {
+        this.state(
+          peerId,
+          "access-denied",
+          `${peer.name} rejected guest access. Check sharing and pairing on that Scope, then retry in Other Scopes.`,
+        );
+        throw new Error("Guest access rejected.");
+      }
+      const result = decode(GuestReply, replyData);
       const { mac, ...unsigned } = result;
       verify(key, "reply", unsigned, mac);
       const local = await this.store.transferDevice();
@@ -441,7 +459,7 @@ export class GuestConnections {
     } catch {
       controller.abort();
       throw new Error(
-        this.states.get(peerId)?.state === "update-required"
+        ["update-required", "access-denied"].includes(this.states.get(peerId)?.state ?? "")
           ? this.states.get(peerId)!.message
           : "Could not authenticate the guest connection. Confirm sharing is enabled on both Scopes, update incompatible apps, then retry.",
       );
@@ -498,6 +516,14 @@ export class GuestConnections {
     await this.connectPeer(peerId, link.endpoint);
     this.retry.delete(peerId);
   }
+  access(peerId: string): AbortSignal {
+    this.allowed(peerId);
+    const session = this.outgoing.get(peerId);
+    if (!session) throw new Error("The other Scope is offline.");
+    session.controller.signal.throwIfAborted();
+    return session.controller.signal;
+  }
+
   async request(peerId: string, route: string, options: PeerRequest): Promise<PeerResponse> {
     this.allowed(peerId);
     const session = this.outgoing.get(peerId);
