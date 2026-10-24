@@ -40,14 +40,21 @@ function send(response: ServerResponse, status: number, value: unknown) {
   response.end(JSON.stringify(value));
 }
 
+/**
+ * Answers a failed folder request. Errors Scope did not expect, such as EACCES or EMFILE,
+ * are 500 `failed` with the system error code, never `unsupported`, which the desktop shows
+ * as a request to update Scope.
+ */
 export function folderFailure(response: ServerResponse, error: unknown) {
   if (error instanceof FolderError)
     send(response, error.status, folderErrorBody(error, error.code));
-  else
+  else {
+    const code = error instanceof Error && "code" in error ? ` (${String(error.code)})` : "";
     send(response, 500, {
-      error: "The hub could not complete the folder request.",
-      code: "unsupported",
+      error: `The hub could not complete the folder request${code}.`,
+      code: "failed",
     } satisfies FolderErrorBody);
+  }
 }
 
 const FeedQuery = Schema.Struct({ root: FolderPath });
@@ -121,7 +128,7 @@ export class FolderFileRoutes {
   private async events(request: IncomingMessage, response: ServerResponse, url: URL) {
     const { root } = query(url, FeedQuery, { root: "string" });
     if (this.feeds.size >= MAX_FEEDS)
-      throw new FolderError("unsupported", "The hub is watching too many folders.");
+      throw new FolderError("failed", "The hub is watching too many folders.");
     response.writeHead(200, {
       "Content-Type": "application/x-ndjson",
       "Cache-Control": "no-store",

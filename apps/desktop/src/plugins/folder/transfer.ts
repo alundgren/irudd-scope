@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants, createWriteStream } from "node:fs";
-import { lstat, open, readdir, rename, stat, unlink } from "node:fs/promises";
+import { lstat, open, readdir, realpath, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { Transform, pipeline as pipe } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -55,12 +55,13 @@ const MenuRequest = Schema.Struct({ ...FileRequest.fields, directory: Schema.Boo
  * files that would land on the same name. `file` is the identity of the file the person
  * dropped; the copy reads only that file.
  */
+type Identity = { dev: number; ino: number };
 type DropItem = {
   id: string;
   source: string;
   path: string;
   size: number;
-  file?: { dev: number; ino: number };
+  file?: Identity;
 };
 type Plan = {
   tabId: string;
@@ -94,10 +95,55 @@ export function keptName(path: string, count: number) {
   return `${path.slice(0, slash + 1)}${kept}`;
 }
 
+const identity = ({ dev, ino }: Identity): Identity => ({ dev, ino });
+const same = (a: Identity, b: Identity) => a.dev === b.dev && a.ino === b.ino;
+const changedSinceDrop = (source: string) =>
+  new Error(`${basename(source)} changed after it was dropped. Drop it again.`);
+
+/**
+ * Reads the entries of a folder inside a drop, each with its own `lstat`, only while the
+ * folder's path still leads to the folder first seen there, by device and inode, and not
+ * through a link. Linux reads through the opened folder itself. Elsewhere the path is
+ * checked again after reading, so a folder swapped for a link to another folder is refused.
+ */
+async function readDroppedFolder(source: string, expected: Identity) {
+  const handle = await open(
+    source,
+    constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0),
+  ).catch((error: unknown) => {
+    // A link, a file, or nothing at the path now; other errors, such as EACCES, stay as they are.
+    const code = error instanceof Error && "code" in error ? String(error.code) : "";
+    if (["ENOENT", "ENOTDIR", "ELOOP", "EMLINK"].includes(code)) throw changedSinceDrop(source);
+    throw error;
+  });
+  try {
+    const opened = await handle.stat();
+    if (!opened.isDirectory() || !same(opened, expected)) throw changedSinceDrop(source);
+    const linux = process.platform === "linux";
+    const base = linux ? `/proc/self/fd/${handle.fd}` : source;
+    // A dropped repository keeps its history out of the shared folder.
+    const names = (await readdir(base)).filter((name) => name.toLowerCase() !== ".git");
+    const entries = await Promise.all(
+      names.map(async (name) => ({
+        name,
+        info: await lstat(join(base, name)).catch(() => undefined),
+      })),
+    );
+    if (!linux) {
+      const current = await lstat(source).catch(() => undefined);
+      if (!current?.isDirectory() || !same(current, expected)) throw changedSinceDrop(source);
+    }
+    return entries;
+  } finally {
+    await handle.close();
+  }
+}
+
 /**
  * Lists what was dropped: each file, and every file and empty folder inside a dropped
  * folder. Links, special files, and `.git` inside dropped folders are skipped, so a drop
- * never copies something the person did not see.
+ * never copies something the person did not see. Each folder is read only while it is
+ * still the one first seen at its path.
  */
 async function dropItems(paths: readonly string[], target: string) {
   const items: DropItem[] = [];
@@ -111,25 +157,15 @@ async function dropItems(paths: readonly string[], target: string) {
     }
     items.push({ ...item, id: String(items.length) });
   };
-  async function visit(source: string, path: string) {
-    const entries = await readdir(source, { withFileTypes: true });
+  async function visit(source: string, path: string, expected: Identity) {
+    const entries = await readDroppedFolder(source, expected);
     if (!entries.length) add({ source, path, size: 0 });
-    for (const entry of entries) {
-      // A dropped repository keeps its history out of the shared folder.
-      if (entry.name.toLowerCase() === ".git") continue;
-      const child = join(source, entry.name);
-      const nested = `${path}/${entry.name}`;
-      if (entry.isDirectory()) await visit(child, nested);
-      else if (entry.isFile()) {
-        const info = await lstat(child);
-        if (info.isFile())
-          add({
-            source: child,
-            path: nested,
-            size: info.size,
-            file: { dev: info.dev, ino: info.ino },
-          });
-      }
+    for (const { name, info } of entries) {
+      const child = join(source, name);
+      const nested = `${path}/${name}`;
+      if (info?.isDirectory()) await visit(child, nested, identity(info));
+      else if (info?.isFile())
+        add({ source: child, path: nested, size: info.size, file: identity(info) });
     }
   }
   for (const source of paths) {
@@ -138,9 +174,8 @@ async function dropItems(paths: readonly string[], target: string) {
     // The person chose this item, so a link they dropped is followed once, here.
     const info = await stat(source);
     const path = childPath(target, basename(source));
-    if (info.isDirectory()) await visit(source, path);
-    else if (info.isFile())
-      add({ source, path, size: info.size, file: { dev: info.dev, ino: info.ino } });
+    if (info.isDirectory()) await visit(await realpath(source), path, identity(info));
+    else if (info.isFile()) add({ source, path, size: info.size, file: identity(info) });
     else throw new Error(`${basename(source)} is not a file or folder.`);
   }
   return items;

@@ -1,7 +1,8 @@
 import { expect, test } from "vite-plus/test";
 import { spawn } from "node:child_process";
 import { createServer, request } from "node:http";
-import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -159,6 +160,18 @@ test(
     // Agents often write plans into ignored folders.
     await writeFile(join(app, ".gitignore"), "plans/\n");
     await writeFile(join(work, "secret.txt"), "outside the folder\n");
+    await mkdir(join(app, ".git", "info"), { recursive: true });
+    await writeFile(join(app, ".git", "info", "exclude"), "\n");
+    await symlink(join(app, ".git"), join(work, "git-link"));
+    // `.git` itself, a folder inside it, a link to it, and another letter case never open.
+    const gitFolders = [join(app, ".git"), join(app, ".git", "info"), join(work, "git-link")];
+    if (existsSync(join(app, ".GIT"))) gitFolders.push(join(app, ".GIT"));
+    const gitCommands = (path: string) => [
+      ["open", path],
+      ["find", path],
+      ["select", path, "info/exclude"],
+      ["watch", path],
+    ];
     const root = await realpath(app);
     const localEnv = {
       ...process.env,
@@ -237,6 +250,11 @@ test(
         "missing.md does not exist.",
       );
       expect(await folder("find", other)).toMatchObject({ open: false });
+      for (const path of gitFolders)
+        for (const args of gitCommands(path))
+          expect(await failure(f.cli("folder", ...args)), args.join(" ")).toBe(
+            "Scope does not show .git.",
+          );
       expect(await tabs()).toEqual(["Notes", "Login fix"]);
 
       // Opening the tab shows every folder down to the file expanded and the file selected,
@@ -390,6 +408,13 @@ test(
       expect(JSON.parse(await devbox.cli("folder", "find", other))).toMatchObject({
         open: false,
       });
+      const beforeGit = await tabs();
+      for (const path of gitFolders)
+        for (const args of gitCommands(path))
+          expect(await failure(devbox.cli("folder", ...args)), args.join(" ")).toBe(
+            "Scope does not show .git.",
+          );
+      expect(await tabs()).toEqual(beforeGit);
 
       // A file selected while the tab is still reading the folder for the first time
       // appears once that first listing arrives.

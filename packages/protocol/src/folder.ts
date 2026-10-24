@@ -45,6 +45,7 @@ export const FOLDER_ERROR_CODES = [
   "unsupported",
   "desktop-offline",
   "exists",
+  "failed",
 ] as const;
 export const FolderErrorCode = Schema.Literals(FOLDER_ERROR_CODES);
 export type FolderErrorCode = typeof FolderErrorCode.Type;
@@ -191,6 +192,14 @@ export const FolderFeedEvent = Schema.Union([
     changes: Schema.Array(FolderChange).check(Schema.isMaxLength(MAX_FOLDER_CHANGES)),
     /** Too many changes to list: reload every open directory. */
     overflow: Schema.Boolean,
+    /**
+     * Directories whose ignore rules changed, `""` for the whole folder after a change to
+     * its `.git/info/exclude` or to `.git` itself. Entries at any depth below each one may have become ignored
+     * or shown, so readers reload every listing at or below it.
+     */
+    ignoreRulesChanged: Schema.optionalKey(
+      Schema.Array(FolderRelativePath).check(Schema.isMaxLength(MAX_FOLDER_CHANGES)),
+    ),
   }),
   Schema.Struct({ type: Schema.Literal("heartbeat") }),
 ]);
@@ -342,5 +351,6 @@ export const FolderGuide = {
     'watch prints one JSON line per event and keeps running. When the person drops files into the tab it prints {"type":"dropped","paths":["docs/spec.pdf"]} with the folder-relative paths written, once per drop. It prints {"type":"closed"} and exits 0 when the person closes the tab. It fails when the folder has no open tab or Scope disconnects.',
     "On a paired remote the command goes through the hub. It fails when the desktop is not connected and is never queued.",
     "Scope reads files only inside the folder and keeps no copy of them.",
+    "Scope never shows .git. Every command on .git or a folder inside it fails with: Scope does not show .git.",
   ],
 } as const;

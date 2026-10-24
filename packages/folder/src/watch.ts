@@ -1,13 +1,13 @@
-import { watch, type FSWatcher } from "node:fs";
+import { watch, type FSWatcher, type Stats } from "node:fs";
 import { lstat } from "node:fs/promises";
-import { join, sep } from "node:path";
+import { basename, join, sep } from "node:path";
 import {
   MAX_FOLDER_CHANGES,
   type FolderChange,
   type FolderFeedEvent,
 } from "@irudd-scope/protocol/folder";
 import { IgnoreFilter } from "./ignore-rules.ts";
-import { checkRoot, gitName, hiddenName } from "./paths.ts";
+import { GIT_DIRECTORY, checkRoot, gitName, hiddenName } from "./paths.ts";
 import { walkDirectories } from "./walk.ts";
 
 export type FolderWatch = { close: () => void };
@@ -40,11 +40,39 @@ function within(path: string, directory: string) {
   return !directory || path === directory || path.startsWith(`${directory}/`);
 }
 
+function parent(path: string) {
+  const index = path.lastIndexOf("/");
+  return index < 0 ? "" : path.slice(0, index);
+}
+
+/** The directory whose ignore rules a changed path sets, when the path is a `.gitignore`. */
+function rulesDirectory(path: string): string | undefined {
+  return path === ".gitignore" || path.endsWith("/.gitignore") ? parent(path) : undefined;
+}
+
+/**
+ * The fewest directories that cover every given one: `a` covers `a/b`. More than a batch
+ * can list become the whole folder.
+ */
+function outermost(directories: Iterable<string>): string[] {
+  const sorted = [...new Set(directories)].sort();
+  const kept: string[] = [];
+  for (const directory of sorted)
+    if (!kept.some((above) => within(directory, above))) kept.push(directory);
+  return kept.length > MAX_FOLDER_CHANGES ? [""] : kept;
+}
+
+const EXCLUDE = `${GIT_DIRECTORY}/info/exclude`;
+
 /**
  * Reports changes in a folder as grouped batches. macOS and Windows use one recursive
  * native watch. Linux watches each directory that is not ignored. When watches run out,
  * the folder is polled and `status.live` becomes false. Ignored paths are dropped before
  * a batch is counted, so activity in ignored folders never causes an overflow.
+ *
+ * A changed `.gitignore` or `.git/info/exclude` is reported in `ignoreRulesChanged`, so
+ * readers reload what they show below it; on Linux the directory watches below it are
+ * matched to the new rules. Nothing else inside `.git` is reported.
  */
 export function watchFolder(
   root: string,
@@ -59,7 +87,19 @@ class FolderWatcher {
   private exists: boolean | undefined;
   private live: boolean;
   private readonly watchers = new Map<string, Watched>();
+  /** Linux watches on `.git` and `.git/info`, used only to notice `.git/info/exclude` changing. */
+  private readonly excludeWatchers = new Map<string, Watched>();
   private readonly pending = new Map<string, "rename" | "change">();
+  private readonly rulesChanged = new Set<string>();
+  /**
+   * Native watches name an event on a watched folder itself, such as a change to its
+   * permissions, by the folder's own name, as if it were a child: `app` for the folder
+   * `/work/app`, `docs/docs` for `docs` on Linux. Keyed by that path, whether an entry with
+   * that name really exists, so only a real one is reported as deleted.
+   */
+  private readonly namesakes = new Map<string, boolean>();
+  /** The top-level `.git` folder and its exclude file as last seen, by identity, size, and time. */
+  private gitSeen: string | undefined;
   private overflow = false;
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
   private flushing: Promise<void> = Promise.resolve();
@@ -112,8 +152,11 @@ class FolderWatcher {
 
   private stopWatching() {
     this.generation++;
-    for (const { watcher } of this.watchers.values()) watcher.close();
+    for (const { watcher } of [...this.watchers.values(), ...this.excludeWatchers.values()])
+      watcher.close();
     this.watchers.clear();
+    this.excludeWatchers.clear();
+    this.namesakes.clear();
     clearTimeout(this.pollTimer);
     this.snapshot.clear();
   }
@@ -121,9 +164,15 @@ class FolderWatcher {
   private async startWatching() {
     const generation = this.generation;
     if (!this.live) return this.startPolling(generation);
+    this.gitSeen = await this.gitState();
     try {
-      if (process.platform === "linux") await this.watchDirectories("", generation);
-      else this.watchRecursively();
+      if (process.platform === "linux") {
+        await this.watchDirectories("", generation);
+        await this.watchExclude(generation);
+      } else {
+        this.watchRecursively();
+        await this.noteNamesake("");
+      }
     } catch (error) {
       if (!exhausted(error)) console.error("Scope could not watch a folder; checking it instead.");
       this.fallBack(generation);
@@ -172,12 +221,85 @@ class FolderWatcher {
       if (exhausted(error)) this.fallBack(generation);
     });
     this.watchers.set(path, { watcher, ino: info.ino });
+    await this.noteNamesake(path);
+  }
+
+  private async noteNamesake(directory: string) {
+    const name = directory ? directory.slice(directory.lastIndexOf("/") + 1) : basename(this.root);
+    if (!name) return;
+    const path = directory ? `${directory}/${name}` : name;
+    const info = await lstat(join(this.root, ...path.split("/"))).catch(() => undefined);
+    this.namesakes.set(path, Boolean(info));
   }
 
   private async watchDirectories(start: string, generation: number) {
     await walkDirectories(this.root, ({ path }) => this.watchDirectory(path, generation), {
       start,
     });
+  }
+
+  /**
+   * Linux watches no directory inside `.git`, so `.git` and `.git/info` get watches of their
+   * own that only notice `info` and `exclude` changing. Neither reports anything else.
+   */
+  private async watchExclude(generation: number) {
+    await this.watchGitDirectory(GIT_DIRECTORY, "info", generation);
+    await this.watchGitDirectory(`${GIT_DIRECTORY}/info`, "exclude", generation);
+  }
+
+  private async watchGitDirectory(path: string, name: string, generation: number) {
+    // Each folder on the way must be a real directory, so a link never adds a watch elsewhere.
+    let info: Stats | undefined;
+    let current = this.root;
+    for (const part of path.split("/")) {
+      current = join(current, part);
+      info = await lstat(current).catch(() => undefined);
+      if (!info?.isDirectory()) break;
+    }
+    const existing = this.excludeWatchers.get(path);
+    if (generation !== this.generation || this.closed) return;
+    if (!info?.isDirectory()) {
+      existing?.watcher.close();
+      this.excludeWatchers.delete(path);
+      return;
+    }
+    if (existing?.ino === info.ino) return;
+    existing?.watcher.close();
+    const watcher = watch(current, (_type, changed) => {
+      if (changed !== null && String(changed) !== name) return;
+      if (name === "info")
+        void this.watchGitDirectory(`${GIT_DIRECTORY}/info`, "exclude", generation).catch(() => {});
+      this.excludeChanged();
+    });
+    watcher.on("error", () => {
+      watcher.close();
+      if (this.excludeWatchers.get(path)?.watcher === watcher) this.excludeWatchers.delete(path);
+    });
+    this.excludeWatchers.set(path, { watcher, ino: info.ino });
+  }
+
+  private async gitState() {
+    const git = await lstat(join(this.root, GIT_DIRECTORY)).catch(() => undefined);
+    return `${git?.isDirectory() ? git.ino : ""}:${await this.excludeSignature()}`;
+  }
+
+  /**
+   * `.git` itself was created, removed, moved, or replaced, which can bring other exclude
+   * rules or none. Linux moves its `.git` watches to the folder now there.
+   */
+  private async checkGit() {
+    const generation = this.generation;
+    const state = await this.gitState();
+    if (generation !== this.generation || state === this.gitSeen) return;
+    this.gitSeen = state;
+    if (process.platform === "linux" && this.live) await this.watchExclude(generation);
+    this.excludeChanged();
+  }
+
+  private excludeChanged() {
+    this.filter.clear();
+    this.rulesChanged.add("");
+    this.schedule();
   }
 
   /** Stops watching a directory that was removed or replaced, and everything below it. */
@@ -187,35 +309,50 @@ class FolderWatcher {
         watcher.close();
         this.watchers.delete(path);
       }
+    for (const path of this.namesakes.keys())
+      if (parent(path) && within(parent(path), directory)) this.namesakes.delete(path);
   }
 
   /**
-   * Makes Linux watches match the folder after more changes than can be listed: removed or
-   * replaced directories lose their watches and new directories gain one.
+   * Makes Linux watches at and below `start` match the folder, after more changes than can
+   * be listed or after ignore rules changed: removed, replaced, and newly ignored directories
+   * lose their watches, and new or newly shown directories gain one.
    */
-  private async reconcileWatches(generation: number) {
+  private async reconcileWatches(generation: number, start = "") {
     const found = new Set<string>();
-    await walkDirectories(this.root, async ({ path }) => {
-      found.add(path);
-      await this.watchDirectory(path, generation);
-    });
-    for (const path of this.watchers.keys()) if (!found.has(path)) this.unwatch(path);
+    await walkDirectories(
+      this.root,
+      async ({ path }) => {
+        found.add(path);
+        await this.watchDirectory(path, generation);
+      },
+      { start },
+    );
+    for (const path of this.watchers.keys())
+      if (within(path, start) && !found.has(path)) this.unwatch(path);
   }
 
   private record(path: string, type: "rename" | "change") {
     const parts = path.split("/");
     if (gitName(parts[0]!)) {
-      if (parts.slice(1).join("/") === "info/exclude") this.filter.clear();
+      const inGit = parts.slice(1).join("/");
+      // macOS and Windows see inside `.git` through the recursive watch.
+      if (inGit === "info" || inGit === "info/exclude") this.excludeChanged();
+      else if (!inGit) void this.checkGit().catch(() => {});
       return;
     }
     if (parts.some(hiddenName)) return;
-    if (path.endsWith(".gitignore")) this.filter.clear();
+    const rules = rulesDirectory(path);
+    if (rules !== undefined) {
+      this.filter.clear();
+      this.rulesChanged.add(rules);
+    }
     if (this.pending.size >= MAX_CLASSIFIED) this.overflow = true;
     else this.pending.set(path, this.pending.get(path) === "rename" ? "rename" : type);
   }
 
   private schedule() {
-    if (!this.pending.size && !this.overflow) return;
+    if (!this.pending.size && !this.overflow && !this.rulesChanged.size) return;
     const now = Date.now();
     if (this.flushTimer === undefined) this.firstPending = now;
     clearTimeout(this.flushTimer);
@@ -228,6 +365,12 @@ class FolderWatcher {
 
   private async classify(path: string, type: "rename" | "change") {
     const info = await lstat(join(this.root, ...path.split("/"))).catch(() => undefined);
+    const existed = this.namesakes.get(path);
+    if (existed !== undefined) {
+      this.namesakes.set(path, Boolean(info));
+      // An event on the watched folder itself, not a child that was there.
+      if (!info && !existed) return undefined;
+    }
     const ignored = info
       ? await this.filter.ignores(path, info.isDirectory())
       : (await this.filter.ignores(path, false)) || (await this.filter.ignores(path, true));
@@ -243,6 +386,8 @@ class FolderWatcher {
     const generation = this.generation;
     const paths = [...this.pending];
     this.pending.clear();
+    const rulesChanged = outermost(this.rulesChanged);
+    this.rulesChanged.clear();
     let overflow = this.overflow;
     this.overflow = false;
     const changes: FolderChange[] = [];
@@ -256,12 +401,15 @@ class FolderWatcher {
         if (result.change.type === "deleted") this.unwatch(path);
         else if (result.directory) await this.watchSubtree(path, generation);
       }
-    if (overflow && linux)
-      await this.reconcileWatches(generation).catch((error: unknown) => {
-        // Out of watches while catching up: check by polling and say so, as on startup.
-        if (exhausted(error)) this.fallBack(generation);
-        else console.error("Scope could not update a folder's watches.");
-      });
+    if (linux)
+      for (const start of overflow ? [""] : rulesChanged) {
+        if (generation !== this.generation) break;
+        await this.reconcileWatches(generation, start).catch((error: unknown) => {
+          // Out of watches while catching up: check by polling and say so, as on startup.
+          if (exhausted(error)) this.fallBack(generation);
+          else console.error("Scope could not update a folder's watches.");
+        });
+      }
     if (generation !== this.generation) return;
     // Removing the folder itself is reported by the root check, not as a change inside it.
     if (
@@ -272,8 +420,13 @@ class FolderWatcher {
     )
       return;
     if (changes.length > MAX_FOLDER_CHANGES) overflow = true;
-    if (overflow || changes.length)
-      this.emit({ type: "changes", changes: overflow ? [] : changes, overflow });
+    if (overflow || changes.length || rulesChanged.length)
+      this.emit({
+        type: "changes",
+        changes: overflow ? [] : changes,
+        overflow,
+        ...(rulesChanged.length ? { ignoreRulesChanged: rulesChanged } : {}),
+      });
   }
 
   /** Watches a new or replaced directory and the directories inside it. */
@@ -286,20 +439,36 @@ class FolderWatcher {
     });
   }
 
+  /** Changes to `.git/info/exclude` when polling; its contents are never read here. */
+  private async excludeSignature() {
+    const info = await lstat(join(this.root, ...EXCLUDE.split("/"))).catch(() => undefined);
+    return info ? `${info.ino}:${info.size}:${info.mtimeMs}` : "";
+  }
+
   private async startPolling(generation: number) {
     this.snapshot = await this.scan();
+    let exclude = await this.excludeSignature();
     const poll = async () => {
       if (generation !== this.generation || this.closed) return;
       const next = await this.scan();
+      const nextExclude = await this.excludeSignature();
       if (generation !== this.generation || this.closed) return;
       const changes = diffSnapshots(this.snapshot, next);
       this.snapshot = next;
-      if (changes.length)
-        this.emit(
-          changes.length > MAX_FOLDER_CHANGES
-            ? { type: "changes", changes: [], overflow: true }
-            : { type: "changes", changes, overflow: false },
-        );
+      const rules = changes.flatMap((change) =>
+        change.type === "renamed" ? [] : (rulesDirectory(change.path) ?? []),
+      );
+      if (nextExclude !== exclude) rules.push("");
+      exclude = nextExclude;
+      const rulesChanged = outermost(rules);
+      if (changes.length || rulesChanged.length)
+        this.emit({
+          type: "changes",
+          ...(changes.length > MAX_FOLDER_CHANGES
+            ? { changes: [], overflow: true }
+            : { changes, overflow: false }),
+          ...(rulesChanged.length ? { ignoreRulesChanged: rulesChanged } : {}),
+        });
       this.pollTimer = setTimeout(() => void poll(), this.options.pollMs ?? 3000);
     };
     this.pollTimer = setTimeout(() => void poll(), this.options.pollMs ?? 3000);

@@ -10,6 +10,7 @@ import {
   FolderError,
   hiddenName,
   inside,
+  insideGit,
   openInside,
   resolveInside,
   validRelative,
@@ -23,11 +24,21 @@ export function compareEntries(a: FolderEntry, b: FolderEntry): number {
   return folders || collator.compare(a.name, b.name) || (a.name < b.name ? -1 : 1);
 }
 
-async function linkTarget(root: string, path: string): Promise<FolderEntry["link"]> {
+/**
+ * Where a link leads. A link into `.git` counts as outside: Scope never shows what is there,
+ * not even its size. `real` is set only for a link inside the folder.
+ */
+async function linkTarget(
+  root: string,
+  path: string,
+): Promise<{ link: NonNullable<FolderEntry["link"]>; real?: string }> {
   try {
-    return inside(root, await realpath(path)) ? "inside" : "outside";
+    const real = await realpath(path);
+    return inside(root, real) && !insideGit(root, real)
+      ? { link: "inside", real }
+      : { link: "outside" };
   } catch {
-    return "broken";
+    return { link: "broken" };
   }
 }
 
@@ -42,8 +53,9 @@ async function describe(
   const info = await lstat(absolute).catch(() => undefined);
   if (!info) return undefined;
   if (info.isSymbolicLink()) {
-    const link = await linkTarget(root, absolute);
-    const target = link === "inside" ? await stat(absolute).catch(() => undefined) : undefined;
+    const { link, real } = await linkTarget(root, absolute);
+    // The resolved path, not the link again, which could have been pointed elsewhere since.
+    const target = real ? await lstat(real).catch(() => undefined) : undefined;
     return {
       name,
       path,

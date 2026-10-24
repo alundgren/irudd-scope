@@ -2,6 +2,7 @@ export {
   canonicalFolder,
   checkRoot,
   FolderError,
+  gitPath,
   openInside,
   readInsideText,
   resolveInside,

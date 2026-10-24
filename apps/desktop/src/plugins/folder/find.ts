@@ -161,7 +161,8 @@ class FolderPaths {
     }
     if (event.type === "status") return event.exists && this.state !== "failed";
     if (event.type !== "changes") return true;
-    if (event.overflow || event.changes.some(ignoreFileChanged)) return false;
+    if (event.overflow || event.ignoreRulesChanged?.length || event.changes.some(ignoreFileChanged))
+      return false;
     const directories = new Set<string>();
     for (const change of event.changes) {
       if (change.type === "deleted") this.remove(change.path);

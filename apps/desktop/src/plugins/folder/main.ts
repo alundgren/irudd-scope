@@ -14,7 +14,7 @@ import {
   type FolderWatchEvent,
   type MachineId,
 } from "@irudd-scope/protocol/folder";
-import { FolderError, canonicalFolder, readFolderFile } from "@irudd-scope/folder";
+import { FolderError, canonicalFolder, gitPath, readFolderFile } from "@irudd-scope/folder";
 import { Uuid } from "../../workspace/contract.ts";
 import { RemoteUnavailableError } from "../../remotes.ts";
 import type { MainPluginContext } from "../main-api.ts";
@@ -55,6 +55,7 @@ function unavailable(
   if (error instanceof FolderError) {
     if (error.code === "not-found") return { status: root ? "gone" : "missing", message };
     if (error.code === "outside-folder") return { status: "outside", message };
+    // Remote answers are `unsupported` only for a genuine 501; see source.ts.
     if (error.code === "unsupported") return { status: "update", message };
   }
   if (error instanceof TypeError) return { status: "offline", message };
@@ -189,7 +190,10 @@ export function registerFolderIpc({
     }
   }
   // Hubs send the canonical path computed on their machine; local paths are resolved here.
+  // Hubs refuse `.git` themselves; the check here also covers a hub that does not.
   async function identity(path: string, machineId: MachineId): Promise<FolderIdentity> {
+    if (machineId !== "local" && gitPath(path))
+      throw new FolderError("not-found", "Scope does not show .git.");
     return { machineId, path: machineId === "local" ? await canonicalFolder(path) : path };
   }
   async function open(

@@ -49,8 +49,9 @@ flowchart LR
 
 `packages/folder` owns all file system work for both machines: the canonical
 path, per-directory listings, `.gitignore` rules, containment, byte-range reads,
-change feeds, and content and file name search. It reserves a typed staged write
-function.
+change feeds, content and file name search, and `writeFolderFile`, which copies
+dropped files in through a staged file and is Scope's only write to a shared
+folder.
 Desktop main uses it for local folders; the hub uses it for remote folders.
 `packages/protocol/src/folder.ts` defines the routes and wire contracts and
 imports no file system code.
@@ -62,7 +63,9 @@ desktop forwards a relayed folder command to its own listener, it adds a
 `Scope-Relay-Origin` header with a secret that exists only in that process. The
 canonical path comes from `canonicalFolder`, run on the machine that has the
 files: desktop main resolves local paths and a hub resolves its own before
-relaying. `scope.db` enforces one tab per key in the `folder_tabs` table inside
+relaying. A canonical path with a `.git` part in any letter case, including
+through a link, fails with `not-found` "Scope does not show .git." and opens no
+tab; desktop main also refuses such a path from a hub. `scope.db` enforces one tab per key in the `folder_tabs` table inside
 the same transaction that creates, restores, unhides, or renames the tab.
 
 The Folder plugin is an ordinary tab type: temporary by default, bookmarkable,
@@ -109,13 +112,22 @@ relay session ends. It does not use the 32 MiB publication path. The hub's
 change feed writes a heartbeat every 10 seconds, under its 30-second socket
 timeout. macOS and Windows watch a folder recursively; Linux watches each
 directory that is not ignored and polls every few seconds when it runs out of
-watches. `.git` and ignored folders are never watched.
+watches. `.git` and ignored folders are never watched, except that Linux watches
+`.git` and `.git/info` only to notice `.git/info/exclude` changing. A change to a
+`.gitignore` or to `.git/info/exclude`, or `.git` itself appearing, moving, or being
+replaced, adds its directory (`""` for exclude and `.git`) to the batch's
+`ignoreRulesChanged`; readers reload every listing at or below it, and
+Linux adds and removes directory watches below it to match the new rules. Scope
+reads an ignore file only when it and every folder above it inside the root are
+real, not links, as Git does, and skips one that is a FIFO without waiting. Each
+part of the path is checked with `lstat`, because macOS and Windows resolve
+`.gitignore` to a file stored as `.GITIGNORE`.
 
 The filter uses a path list that desktop main keeps in memory for each watched
 tab. A background walk builds it, locally with `packages/folder` and remotely by
 listing directories through the hub, four at a time. Change feed events keep it
 current. A created directory is walked, because its files may have no events of
-their own, and a changed `.gitignore` or an overflow rebuilds the list. Above
+their own, and changed ignore rules or an overflow rebuild the list. Above
 200,000 paths, or when a remote directory has more entries than one listing
 returns, the list is dropped and each filter text becomes a `names` search on the
 folder's machine; changes then ask an open filter again about once a second. Content search always runs on the folder's machine with
@@ -145,7 +157,12 @@ request. Folder commands are never queued. An older hub answers 404 and the CLI
 asks for an update on that machine. Only the desktop connection credential can
 use the hub's `/v1/relay/folders/` routes; the hub's publishing token cannot.
 
-Reads and listings go through handles checked to be inside the folder. Linux checks
+Reads and listings go through handles checked to be inside the folder. Files are
+opened without waiting, so a FIFO fails at once with `not-a-directory` instead of
+holding a file system thread. A link that resolves into `.git` is listed as
+leading outside, without a size. The hub answers unexpected errors, such as
+`EACCES` or `EMFILE`, with 500 `failed`; the tab asks for an update only for a 404
+without a folder code or a 501 `unsupported`. Linux checks
 the kernel path of the opened handle. macOS and Windows compare the handle with a
 fresh walk from the root, which is a series of checks rather than one atomic one, so
 a folder swapped for a link and back between two checks could pass. Change feeds have
@@ -157,7 +174,8 @@ shared folder. The preload turns dropped `File` objects into paths with
 `webUtils.getPathForFile` and sends them straight to main, so a page can pass
 dropped files but never a path of its choice. Main lists the dropped files and the
 files and empty folders inside dropped folders (skipping links, special files, and
-`.git`), records each file's device and inode, reads each target folder to find
+`.git`), records each file's and folder's device and inode, reads a dropped folder
+only through a handle opened without following links that still matches them, reads each target folder to find
 names that exist, and returns a plan. Each item has its own ID, so two dropped files
 with the same name are asked about separately. Nothing is written until the
 renderer answers Replace, Keep both, or Cancel for each existing name. Main then
@@ -189,7 +207,11 @@ and uses only absolute paths and descriptors otherwise. Cancelling, or the app
 disconnecting, aborts its writes and removes what they staged. "Inside the root"
 means that each parent reached through `..` is the folder opened on the way down.
 Windows resolves relative names from the directory's path, so there only those
-checks keep writes inside. A cancelled,
+checks keep writes inside. Windows also reaches an entry through aliases, so
+writes there refuse names that end in a dot or space or contain `:`, and a name
+like `GIT~1` when it is the short name of an entry with a different name (a file
+really named `notes~1.txt` is fine), and every platform refuses to open a folder on the
+way whose device and inode are those of the root's `.git`. A cancelled,
 failed, or disconnected copy, including a hub request that closes after its body
 arrived, removes the staged file and commits nothing. Listings, walks, search, and
 change feeds hide staged names and `.git` in any letter case. When a drop finishes,

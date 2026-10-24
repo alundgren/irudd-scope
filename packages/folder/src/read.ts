@@ -14,6 +14,8 @@ export type FolderRead = {
 /**
  * Streams a byte range of a file inside a canonical root. Bytes come from the opened handle,
  * which is checked to be inside the root, so a folder swapped for a symlink cannot widen it.
+ * The file is opened without waiting, so a FIFO is refused at once instead of holding one of
+ * Node's file system threads until something writes to it.
  */
 export async function readFolderFile(
   root: string,
@@ -22,7 +24,7 @@ export async function readFolderFile(
   end?: number,
 ): Promise<FolderRead> {
   if (!relative) throw new FolderError("not-a-directory", "Choose a file inside the folder.");
-  const { handle } = await openInside(root, relative);
+  const { handle } = await openInside(root, relative, { nonBlocking: true });
   try {
     const info = await handle.stat();
     if (!info.isFile()) throw new FolderError("not-a-directory", `${relative} is not a file.`);

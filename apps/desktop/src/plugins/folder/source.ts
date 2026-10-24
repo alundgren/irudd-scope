@@ -178,6 +178,9 @@ async function failure(response: Response): Promise<Error> {
   const body = await readRemoteJson(response, 8192).catch(() => undefined);
   try {
     const error = decode(FolderErrorBody, body);
+    // Only a 501 `unsupported` means the remote's Scope lacks the feature.
+    if (error.code === "unsupported" && response.status !== 501)
+      return new FolderError("failed", error.error);
     return new FolderError(error.code, error.error);
   } catch {
     if (response.status === 404) return new FolderUpdateNeeded();

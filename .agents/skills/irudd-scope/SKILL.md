@@ -161,7 +161,9 @@ the strip and selects itself only when no tab is open. On a paired remote the
 command goes through the hub and fails with `Scope desktop is not connected`
 when the desktop is away; it is never queued. `Update Scope on HOST to share
 folders` means that machine's Scope or hub predates folder tabs. Scope reads
-files only inside the folder and stores no copy of them.
+files only inside the folder and stores no copy of them. It never shows `.git`:
+opening, finding, selecting in, or watching `.git` or a folder inside it fails
+with `Scope does not show .git.`, so open the repository folder instead.
 
 To point the person at a file, such as "select the plan file you just made",
 pick the file they mean, usually the one you just wrote, and run one command.
