@@ -46,6 +46,10 @@ export const FOLDER_ERROR_CODES = [
   "desktop-offline",
   "exists",
   "failed",
+  "conflict",
+  "request-mismatch",
+  "expired",
+  "busy",
 ] as const;
 export const FolderErrorCode = Schema.Literals(FOLDER_ERROR_CODES);
 export type FolderErrorCode = typeof FolderErrorCode.Type;

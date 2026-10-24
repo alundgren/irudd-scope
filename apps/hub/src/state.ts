@@ -1,3 +1,4 @@
+import { FolderOperations } from "@irudd-scope/folder";
 import { DatabaseMaintenance } from "@irudd-scope/sqlite";
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
@@ -23,6 +24,7 @@ const hash = (value: string) => createHash("sha256").update(value).digest("hex")
 const secret = () => randomBytes(32).toString("base64url");
 
 export class HubState {
+  readonly folderOperations: FolderOperations;
   readonly queue: PublicationQueue;
   readonly artifacts: ArtifactMetadata;
   private constructor(
@@ -30,6 +32,13 @@ export class HubState {
     readonly maintenance: DatabaseMaintenance,
     now: () => number,
   ) {
+    this.folderOperations = new FolderOperations({
+      read: async () => {
+        const value = this.get("folder-operations-v1");
+        return value ? JSON.parse(value) : undefined;
+      },
+      write: async (document) => this.set("folder-operations-v1", JSON.stringify(document)),
+    });
     this.queue = new PublicationQueue(database, now);
     this.artifacts = new ArtifactMetadata(database, now);
   }
@@ -133,6 +142,12 @@ export class HubState {
     const expected = this.get(kind);
     if (!expected || token.length > 128) return false;
     return timingSafeEqual(Buffer.from(hash(token)), Buffer.from(expected));
+  }
+  /** Authenticated principal for receipts, including across a desktop reconnect. */
+  folderCaller(caller: string) {
+    const principal = this.get("desktop");
+    if (!principal) throw new Error("The hub has no paired desktop.");
+    return hash(JSON.stringify([principal, caller]));
   }
   pairUrl() {
     if (this.get("desktop"))

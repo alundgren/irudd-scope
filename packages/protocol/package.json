@@ -16,7 +16,8 @@
     "./librarian": "./src/librarian.ts",
     "./prompts": "./src/prompts.ts",
     "./plan": "./src/plan.ts",
-    "./folder": "./src/folder.ts"
+    "./folder": "./src/folder.ts",
+    "./folder-operation": "./src/folder-operation.ts"
   },
   "dependencies": {
     "effect": "catalog:"

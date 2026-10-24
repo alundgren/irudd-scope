@@ -9,13 +9,24 @@ import {
   createDirectoryInProcess,
   procFolders,
   writeInProcess,
+  type FolderWriteOptions,
 } from "./write.ts";
+
+import { serializeFolderWrites } from "./write-queue.ts";
 
 /** Chunks sent to the writer process that it has not taken yet; bounds memory per write. */
 const WINDOW = 16;
 
 type Request =
-  | { type: "write"; id: number; root: string; path: string; replace: boolean }
+  | {
+      type: "write";
+      id: number;
+      root: string;
+      path: string;
+      replace: boolean;
+      expectedVersion?: string;
+      payload?: FolderWriteOptions["payload"];
+    }
   | { type: "chunk"; id: number; data: Uint8Array }
   | { type: "end"; id: number }
   | { type: "abort"; id: number }
@@ -124,10 +135,10 @@ function request<T>(
     });
     idle(current);
     send(current, start);
-    feed?.(current, () => done).catch((error: unknown) => {
+    feed?.(current, () => done).catch(() => {
       // The body failed: the writer removes what it staged and replies.
       send(current, { type: "abort", id });
-      if (!(error instanceof Error && error.name === "AbortError")) settle(error as Error);
+      // Wait for the writer to finish cancellation before releasing the host write queue.
     });
   });
 }
@@ -136,7 +147,7 @@ async function writeThroughWriter(
   root: string,
   path: string,
   body: Readable,
-  options: { replace: boolean; signal: AbortSignal },
+  options: FolderWriteOptions,
 ): Promise<FolderWriteReceipt> {
   options.signal.throwIfAborted();
   const id = nextId++;
@@ -148,7 +159,15 @@ async function writeThroughWriter(
   options.signal.addEventListener("abort", abort, { once: true });
   try {
     return await request<FolderWriteReceipt>(
-      { type: "write", id, root, path, replace: options.replace },
+      {
+        type: "write",
+        id,
+        root,
+        path,
+        replace: options.replace,
+        expectedVersion: options.expectedVersion,
+        payload: options.payload,
+      },
       (reply, settle) => {
         if (reply.type === "taken") {
           taken++;
@@ -168,6 +187,7 @@ async function writeThroughWriter(
       },
     );
   } finally {
+    wake?.();
     options.signal.removeEventListener("abort", abort);
   }
 }
@@ -176,18 +196,18 @@ async function writeThroughWriter(
  * Copies bytes into the folder. On Linux this runs here; elsewhere in the folder writer
  * process, with the bytes streamed to it. See `writeInProcess` for the guarantees.
  */
-export function writeFolderFile(
+export function writeFolderFileUnlocked(
   root: string,
   relative: string,
   body: Readable,
-  options: { replace: boolean; signal: AbortSignal },
+  options: FolderWriteOptions,
 ): Promise<FolderWriteReceipt> {
   if (procFolders) return writeInProcess(root, relative, body, options);
   return writeThroughWriter(root, relative, body, options);
 }
 
 /** Creates a folder inside the root; see `createDirectoryInProcess`. */
-export function createFolderDirectory(
+export function createFolderDirectoryUnlocked(
   root: string,
   relative: string,
   options: { exclusive?: boolean } = {},
@@ -205,6 +225,26 @@ export function createFolderDirectory(
       if (reply.type === "done") settle();
     },
   );
+}
+
+/** Legacy writes use the same queue as durable operations. */
+export function writeFolderFile(
+  root: string,
+  path: string,
+  body: Readable,
+  options: FolderWriteOptions,
+) {
+  // Attach cancellation before waiting, without making the readable flow.
+  addAbortSignal(options.signal, body);
+  body.on("error", () => {});
+  return serializeFolderWrites(() => writeFolderFileUnlocked(root, path, body, options));
+}
+export function createFolderDirectory(
+  root: string,
+  path: string,
+  options: { exclusive?: boolean } = {},
+) {
+  return serializeFolderWrites(() => createFolderDirectoryUnlocked(root, path, options));
 }
 
 /**
@@ -268,6 +308,8 @@ export function runFolderWriterProcess() {
         message.id,
         writeInProcess(message.root, message.path, Readable.from(chunks(message.id, created)), {
           replace: message.replace,
+          expectedVersion: message.expectedVersion,
+          payload: message.payload,
           signal: created.controller.signal,
         }).then((receipt) => ({ type: "done", id: message.id, receipt })),
       );

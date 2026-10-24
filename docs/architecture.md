@@ -56,6 +56,15 @@ Desktop main uses it for local folders; the hub uses it for remote folders.
 `packages/protocol/src/folder.ts` defines the routes and wire contracts and
 imports no file system code.
 
+Versioned folder operations use `FolderSource.operations` and shared contracts
+in `packages/protocol/src/folder-operation.ts`. `packages/folder` owns the
+contained write, payload and version checks, host write queue, and journal
+execution. It accepts persistence callbacks without importing SQLite. The
+local `DesktopStore` and remote `HubState` retain the journal in their own
+existing database. Hub operation routes authenticate the desktop and bind
+caller identity there. Legacy folder writes share the host queue; guest
+transport does not own filesystem commits or receipts.
+
 A Folder tab's identity is its machine and canonical path. The machine is
 `local` or the desktop's remote ID and always comes from the connection that
 delivered the command; Scope ignores any machine named in the body. When the

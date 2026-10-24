@@ -45,6 +45,8 @@ export type RemoteRequest = {
   /** A Node stream is an upload, such as a dropped file; see `upload`. */
   body?: BodyInit | Readable;
   contentType?: string;
+  /** Base64url versioned folder command accompanying a raw upload. */
+  folderOperation?: string;
   signal?: AbortSignal;
   /** Total time allowed for the request, including the response body. */
   deadlineMs: number;
@@ -120,7 +122,11 @@ export class Remotes {
       if (options.body instanceof Readable) {
         const response = await upload(
           `${session.endpoint}${path}`,
-          { Authorization: `Bearer ${session.token}`, "Content-Type": options.contentType },
+          {
+            Authorization: `Bearer ${session.token}`,
+            "Content-Type": options.contentType,
+            "Scope-Folder-Operation": options.folderOperation,
+          },
           options.body,
           signal,
           options.idleMs,
