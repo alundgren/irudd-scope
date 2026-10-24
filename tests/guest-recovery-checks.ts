@@ -182,7 +182,11 @@ export async function guestRecoveryChecks({
   await pane.getByText(/This field exceeds recovery limits/).waitFor();
   await publish("html");
   await pane.getByRole("button", { name: "Copy unsaved input", exact: true }).click();
-  expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toContain(overLimit);
+  await expect
+    .poll(async () =>
+      (await app.evaluate(({ clipboard }) => clipboard.readText())).includes(overLimit),
+    )
+    .toBe(true);
   expect(await notes().inputValue()).toBe("");
   await capture("mutations-r1-unsaved-light-laptop.png");
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));
@@ -222,9 +226,13 @@ export async function guestRecoveryChecks({
       .waitFor();
     await publish("text");
     await pane.getByRole("button", { name: "Copy unsaved input", exact: true }).click();
-    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toContain(
-      "Latest working input across HTML to text",
-    );
+    await expect
+      .poll(async () =>
+        (await app.evaluate(({ clipboard }) => clipboard.readText())).includes(
+          "Latest working input across HTML to text",
+        ),
+      )
+      .toBe(true);
     db.exec("DROP TRIGGER reject_revision_recovery");
     await pane.getByRole("button", { name: "Retry form save", exact: true }).click();
     await expect.poll(delayedWrite.entered).toBe(true);

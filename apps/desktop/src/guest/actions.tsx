@@ -29,6 +29,9 @@ export function GuestActions({
   const [open, setOpen] = useState(false);
   const changed = useRef(false);
   const editGeneration = useRef(0);
+  const recoveryRead = useRef(0);
+  const recoveryLoaded = useRef(false);
+  const loadRecovery = useRef<() => Promise<void>>(async () => {});
   const expected = useRef({
     sourceVersion: record.source.sourceVersion,
     revision: record.source.artifact?.revision ?? 0,
@@ -51,36 +54,34 @@ export function GuestActions({
   );
   useEffect(() => {
     let live = true;
-    const remove = window.scope.onGuestRecoveryChanged((id) => {
-      if (id === record.tab.id)
-        void window.scope
-          .guestRecovery(id)
-          .then((recovery) => {
-            if (live) {
-              setPending(recovery.pending);
-              setDraft(recovery.inputs.filter((input) => input.kind === "action").at(-1));
-            }
-          })
-          .catch(() => setError("Could not refresh saved recovery data."));
-    });
-    void window.scope
-      .guestRecovery(record.tab.id)
-      .then((recovery) => {
-        if (!live) return;
-        const action = recovery.inputs.filter((input) => input.kind === "action").at(-1);
-        setPending(recovery.pending);
-        setDraft(action);
+    const read = async () => {
+      const sequence = ++recoveryRead.current;
+      const recovery = await window.scope.guestRecovery(record.tab.id);
+      if (!live || sequence !== recoveryRead.current) return;
+      const action = recovery.inputs.filter((input) => input.kind === "action").at(-1);
+      setPending(recovery.pending);
+      setDraft(action);
+      if (!recoveryLoaded.current) {
         if (action?.title !== undefined && !changed.current) {
           setTitle(action.title);
           expected.current.revision = action.revision;
           expected.current.sourceVersion = action.sourceVersion;
         }
+        recoveryLoaded.current = true;
         setLoaded(true);
         if (action || recovery.pending) setOpen(true);
-      })
-      .catch((error) => {
-        if (live) setError(message(error));
-      });
+      }
+    };
+    loadRecovery.current = read;
+    const remove = window.scope.onGuestRecoveryChanged((id) => {
+      if (id === record.tab.id)
+        void read().catch(() => {
+          if (live) setError("Could not refresh saved recovery data.");
+        });
+    });
+    void read().catch((error) => {
+      if (live) setError(message(error));
+    });
     return () => {
       live = false;
       remove();
@@ -96,8 +97,7 @@ export function GuestActions({
     }
   }, [record.source, draft, pending]);
   async function refresh() {
-    const recovery = await window.scope.guestRecovery(record.tab.id);
-    setPending(recovery.pending);
+    await loadRecovery.current();
   }
   async function run(action: GuestAction) {
     if (!record.source.sourceVersion) return;
@@ -136,6 +136,7 @@ export function GuestActions({
             },
             () => {
               if (editGeneration.current === submitted.generation) {
+                recoveryRead.current++;
                 changed.current = false;
                 setDraft(undefined);
               }
