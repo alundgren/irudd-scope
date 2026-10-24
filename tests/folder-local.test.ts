@@ -228,6 +228,23 @@ test(
       await item("new.ts").waitFor();
       await rm(join(app, "src", "app.ts"));
       await item("app.ts, deleted").waitFor();
+      // An open folder replaced by another shows the new one's files, which have no events
+      // of their own, and an ignore rule at the top hides files in open folders.
+      await mkdir(join(app, "docs"));
+      await writeFile(join(app, "docs", "old.txt"), "old\n");
+      await item("docs").click();
+      await item("old.txt").waitFor();
+      const replacement = join(f.directory, "replacement");
+      await mkdir(replacement);
+      await writeFile(join(replacement, "new.txt"), "new\n");
+      await rename(join(app, "docs"), join(f.directory, "docs-old"));
+      await rename(replacement, join(app, "docs"));
+      await item("new.txt").waitFor();
+      await item("old.txt").waitFor({ state: "hidden" });
+      await writeFile(join(app, ".gitignore"), "node_modules/\ndocs/new.txt\n");
+      await item("new.txt").waitFor({ state: "hidden" });
+      await writeFile(join(app, ".gitignore"), "node_modules/\n");
+      await item("new.txt").waitFor();
 
       // The tab explains a missing folder and recovers when the folder returns.
       await rename(app, `${app}-moved`);

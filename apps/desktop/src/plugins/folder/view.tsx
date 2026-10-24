@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Copy } from "lucide-react";
 import { decode } from "@irudd-scope/protocol";
 import { Button } from "../../renderer/components/ui/button.tsx";
@@ -63,7 +63,7 @@ export function FolderView({
   const remotes = useRemotes();
   const remote = data.machineId === "local" ? undefined : data.machineId;
   const machine = remote ? (remotes.get(remote)?.name ?? "The remote") : "This computer";
-  const { listings, failed, status, live, retry } = useFolder(tab.id, data, active);
+  const { listings, failed, status, live, load, retry } = useFolder(tab.id, data, active);
   const filter = useFolderFilter(tab.id, data.filter, data.showIgnored, status.kind === "ok");
   const [mode, setMode] = useState<"files" | "search">("files");
   const [target, setTarget] = useState<{ path: string; line: number } | undefined>();
@@ -71,8 +71,47 @@ export function FolderView({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => setCollapsed(new Set()), [data.filter]);
   const expanded = useMemo(() => new Set(data.expanded), [data.expanded]);
+  // A file selected by an agent, a drop, or a search match, rather than in the tree, is
+  // revealed: its folders open in the tree shown, and if the filter would hide it the tree
+  // shows every file until the person edits the filter or chooses Filter again. The filter
+  // text stays. A tab opened after restart reveals its saved selection, which an agent may
+  // have made while the tab was not shown.
+  const [reveal, setReveal] = useState(data.selectedPath);
+  const [paused, setPaused] = useState(false);
+  const [revealCount, setRevealCount] = useState(0);
+  const filterInput = useRef<HTMLInputElement>(null);
+  if (reveal !== null && data.filter === "") setReveal(null);
+  else if (reveal !== null && filter.text === data.filter && filter.matches !== undefined) {
+    setReveal(null);
+    if (!filter.matches.some((match) => match.path === reveal)) setPaused(true);
+  }
+  const revealFile = useCallback((path: string) => {
+    setReveal(path);
+    setRevealCount((count) => count + 1);
+    const above = folderAncestors(path);
+    setCollapsed((current) =>
+      above.some((folder) => current.has(folder))
+        ? new Set([...current].filter((folder) => !above.includes(folder)))
+        : current,
+    );
+  }, []);
+  // The workspace applies the agent's selection to the tab state; a repeated selection of
+  // the same file changes nothing there but is still revealed.
+  useEffect(
+    () =>
+      window.scope.onFolderTabOpened(({ tab: opened, selected }) => {
+        if (opened.id === tab.id && selected) revealFile(selected.file);
+      }),
+    [tab.id, revealFile],
+  );
+  const resumeFilter = (focus: boolean) => {
+    setReveal(null);
+    setPaused(false);
+    if (focus) filterInput.current?.focus();
+  };
   // While a new filter text is answered, the previous matches stay shown.
-  const filtering = data.filter !== "" && filter.matches !== undefined;
+  const filtering = data.filter !== "" && filter.matches !== undefined && !paused;
+  const selectedName = data.selectedPath?.slice(data.selectedPath.lastIndexOf("/") + 1);
   const rows = useMemo(
     () =>
       filtering
@@ -83,20 +122,27 @@ export function FolderView({
   const [copied, setCopied] = useState(false);
   const update = (patch: Partial<FolderTabData>) =>
     context.updateState({ version: 1, data: { ...data, ...patch } });
-  const latest = useRef(data);
-  latest.current = data;
-  // The tree shows dropped files and selects the first one, opening its folders.
-  const dropping = useFolderDrop(tab.id, (paths) => {
-    const first = paths[0]!;
-    const current = latest.current;
+  /** Selects a file from outside the tree, opening its folders, and reveals it. */
+  const selectAndReveal = (path: string, current: FolderTabData) => {
     context.updateState({
       version: 1,
       data: {
         ...current,
-        expanded: [...new Set([...current.expanded, ...folderAncestors(first)])],
-        selectedPath: first,
+        expanded: [...new Set([...current.expanded, ...folderAncestors(path)])],
+        selectedPath: path,
       },
     });
+    revealFile(path);
+  };
+  const latest = useRef(data);
+  latest.current = data;
+  // The tree shows dropped files and selects the first one, opening its folders. Their
+  // folders are read now, as the change feed reports the files only after its next batch.
+  const dropping = useFolderDrop(tab.id, (paths) => {
+    const first = paths[0]!;
+    const current = latest.current;
+    void load(new Set(paths.map((path) => path.slice(0, Math.max(0, path.lastIndexOf("/"))))));
+    selectAndReveal(first, current);
   });
 
   function toggle(path: string, open: boolean) {
@@ -183,21 +229,41 @@ export function FolderView({
                 type="search"
                 aria-label="Filter by file name"
                 placeholder="Filter by file name"
+                ref={filterInput}
                 value={data.filter}
-                onChange={(event) => update({ filter: event.target.value.slice(0, 1024) })}
+                onChange={(event) => {
+                  resumeFilter(false);
+                  update({ filter: event.target.value.slice(0, 1024) });
+                }}
                 onKeyDown={(event) => {
-                  if (event.key === "Escape") update({ filter: "" });
+                  if (event.key !== "Escape") return;
+                  resumeFilter(false);
+                  update({ filter: "" });
                 }}
               />
               {data.filter && (
                 <div className="folder-find-status" role="status">
-                  {filterStatus(filter, remote ? machine : "this computer")}
+                  {paused ? (
+                    <>
+                      <span>
+                        {selectedName
+                          ? `Showing all files so ${selectedName} is visible.`
+                          : "Showing all files."}
+                      </span>
+                      <Button variant="ghost" size="sm" onClick={() => resumeFilter(true)}>
+                        Filter again
+                      </Button>
+                    </>
+                  ) : (
+                    filterStatus(filter, remote ? machine : "this computer")
+                  )}
                 </div>
               )}
               <FolderTree
                 tabId={tab.id}
                 rows={rows}
                 selected={data.selectedPath}
+                revealCount={revealCount}
                 onToggle={toggle}
                 onSelect={(path) => {
                   setTarget(undefined);
@@ -214,7 +280,7 @@ export function FolderView({
                 selected={target}
                 onOpen={(path, line) => {
                   setTarget({ path, line });
-                  update({ selectedPath: path });
+                  selectAndReveal(path, data);
                 }}
               />
             </div>

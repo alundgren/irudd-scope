@@ -138,7 +138,17 @@ folder, never follows a final symlink, and skips FIFOs and other special files
 without waiting on them. Neither the path
 list nor search results are stored. Previews read byte ranges through the same
 source and show them with the published-file viewers in
-`renderer/file-views.tsx`, which take bytes, a kind, a media type, and a title.
+`renderer/file-views.tsx`, which take bytes, a kind, a media type, and a title;
+Folder previews ask them to isolate HTML.
+
+The tree keeps each expanded folder's listing in renderer memory and reads the
+parents of changed paths again, and the folders of dropped files as soon as the
+drop finishes. A deleted, created, or renamed path drops the
+listings at or below it and any listing answer still on its way. Open folders
+there stay shown and are read again, because a replaced folder's files may have
+no events of their own. A changed `.gitignore` reads every listing below its folder
+again. A full reload after an overflow or a Show ignored files change drops the
+listings of collapsed folders, which are read again when opened.
 
 The desktop advertises folder support with `Scope-Relay-Capabilities: folders`
 when it opens the relay. A hub forwards folder commands only to a desktop that
@@ -595,6 +605,7 @@ undo window, and its draft contract. A plugin can render
 content without referencing a library item. Publication support is an optional
 registration. These are trusted modules in one renderer.
 Published HTML is trusted agent output and runs in an iframe without added restrictions.
+Folder tab files are not published output, so their HTML previews are the exception below.
 
 `plugins/registry.ts` registers process-independent saved-state validators.
 `registry.renderer.ts` registers views; `registry.main.ts` registers
@@ -769,7 +780,11 @@ HTML runs unchanged in an iframe with scripts, forms, popups, nested frames,
 and external resources enabled. Scope adds no iframe sandbox, content security
 policy, network filter, or permission denial. The document shares the workspace
 origin and can access its parent. Chromium's normal web rules, including CORS,
-still apply. Desktop main's `external-links.ts` redirects HTTP(S) document
+still apply. HTML files previewed from a Folder tab were not published by an
+agent and may come from anywhere, so they run with the iframe sandbox
+`allow-scripts allow-forms allow-popups`. Without `allow-same-origin` the page
+has an opaque origin: its scripts, forms, and popups work, but it cannot reach
+the parent document or `window.scope`. Desktop main's `external-links.ts` redirects HTTP(S) document
 navigation and popups to the default browser, preserving the artifact in Scope.
 It leaves embedded frame loading, embedded form results, downloads, and in-page
 anchors in the document. PR inbox handlers run first to retain their validated

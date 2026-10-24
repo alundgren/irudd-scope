@@ -321,7 +321,8 @@ Show ignored files checkbox, and Copy path. The tree lists folders before
 files, each sorted by name, and renders only visible rows. `.git` is always
 hidden. Ignored files are hidden by default and dimmed when shown. Links that
 point outside the folder show a link icon and do not open. Changes on disk
-appear without losing scroll position, expanded folders, or the selected file.
+appear without losing scroll position, expanded folders, or the selected file,
+also when a folder is replaced or ignore rules change.
 A deleted selected file stays in the tree, struck through and marked Deleted.
 When a Linux machine runs out of file watches, the tab says live updates are
 slower. A missing folder shows `This folder no longer exists`, its path, and
@@ -338,7 +339,15 @@ saved expanded folders, so clearing the filter restores the previous tree. The
 filter text survives restart. While Scope still lists the folder, the filter
 says `Still scanning…`; for folders with more than 200,000 paths it says that
 it asks the folder's machine instead, and asks again when files change. It
-shows at most 10,000 files and says so.
+shows at most 10,000 files and says so. An agent's `folder select`, a drop, or a
+search match reveals its file each time, even when it is already selected: the
+folders down to it open in the tree shown, including folders closed while
+filtering. When the filter would hide the file, the tree shows all files and says
+`Showing all files so NAME is visible.`, naming the selected file, with Filter
+again. Selecting other files keeps all files shown. The filter text stays in the
+box; editing it or Filter again filters the tree again, and Filter again returns
+focus to the box. A tab first shown after restart reveals its saved selection,
+because an agent may have selected it meanwhile.
 
 Search looks through file contents on the folder's machine and lists each match
 as path, line number, and the line with the match marked. It skips binary files
@@ -349,7 +358,9 @@ and scrolls its preview to that line.
 
 Selecting a file shows a read-only preview beside the tree, below it in narrow
 windows, using the published-file viewers. Text has line numbers; Markdown and
-HTML have a Source button, which a search match turns on. Files Scope cannot
+HTML have a Source button, which a search match turns on. HTML previews run
+their scripts, forms, and popups but cannot reach Scope itself. A folder's files
+were not published by an agent, unlike published HTML, which runs unrestricted. Files Scope cannot
 display show name, size, and modified time. Text over 2 MiB shows its first
 2 MiB with a note. A file that changes reloads; a file that is deleted, or whose
 folder is renamed or deleted, says `This file was deleted.` Published text files

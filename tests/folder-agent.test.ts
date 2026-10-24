@@ -154,6 +154,9 @@ test(
     await mkdir(other);
     await writeFile(join(app, "docs", "plans", "login.html"), "<h1>Login fix</h1>\n");
     await writeFile(join(app, "docs", "notes.md"), "# Notes\n");
+    await mkdir(join(app, "long"));
+    for (let index = 0; index < 180; index++)
+      await writeFile(join(app, "long", `z${String(index).padStart(3, "0")}.txt`), "");
     // Agents often write plans into ignored folders.
     await writeFile(join(app, ".gitignore"), "plans/\n");
     await writeFile(join(work, "secret.txt"), "outside the folder\n");
@@ -264,10 +267,14 @@ test(
       expect(await item("plans, ignored").getAttribute("aria-expanded")).toBe("true");
       expect(await page.getByLabel("Show ignored files").isChecked()).toBe(true);
 
-      // Case 2: an existing tab with docs collapsed is reused and expanded again.
+      // Case 2: an existing tab with docs collapsed is reused and expanded again, and a
+      // filter that would hide the file is paused, keeping its text.
       await item("docs").click();
       await item("login.html, ignored").waitFor({ state: "hidden" });
       await item("notes.md").waitFor({ state: "hidden" });
+      const filter = page.getByLabel("Filter by file name");
+      await filter.fill("login");
+      await item("login.html, ignored").waitFor();
       await page.getByRole("tab", { name: "Notes", exact: true }).click();
       expect(await folder("select", app, "./docs/notes.md")).toMatchObject({
         tabId: selected.tabId,
@@ -281,6 +288,38 @@ test(
       await item("notes.md").waitFor();
       expect(await item("notes.md").getAttribute("aria-selected")).toBe("true");
       expect(await item("docs").getAttribute("aria-expanded")).toBe("true");
+      expect(await filter.inputValue()).toBe("login");
+      await page.getByText("Showing all files so notes.md is visible.").waitFor();
+      const filterAgain = page.getByRole("button", { name: "Filter again", exact: true });
+      await filterAgain.click();
+      await item("notes.md").waitFor({ state: "hidden" });
+      await item("login.html, ignored").waitFor();
+      // Selecting the same file again pauses the filter again. Choosing another file in the
+      // paused tree keeps it paused; Filter again from the keyboard returns to the box.
+      await folder("select", app, "docs/notes.md");
+      await item("notes.md").waitFor();
+      await item("login.html, ignored").click();
+      await page.getByText("Showing all files so login.html is visible.").waitFor();
+      expect(await item("notes.md").isVisible()).toBe(true);
+      await filterAgain.focus();
+      await page.keyboard.press("Enter");
+      await item("notes.md").waitFor({ state: "hidden" });
+      expect(await filter.evaluate((input) => input === document.activeElement)).toBe(true);
+      // A matching file in a folder closed while filtering opens that folder again.
+      await item("plans").click();
+      await item("login.html, ignored").waitFor({ state: "hidden" });
+      await folder("select", app, "docs/plans/login.html");
+      await item("login.html, ignored").waitFor();
+      await page.getByText("1 file", { exact: true }).waitFor();
+      await filter.fill("");
+      await item("notes.md").waitFor();
+      // Selecting the same file again scrolls the tree back to it.
+      await folder("select", app, "long/z179.txt");
+      await item("z179.txt").waitFor();
+      await tree.evaluate((element) => element.scrollTo({ top: 0 }));
+      await item("z179.txt").waitFor({ state: "detached" });
+      await folder("select", app, "long/z179.txt");
+      await item("z179.txt").waitFor();
 
       // A local watch ends with `closed` when the person closes the tab, here a bookmark,
       // even while the window still shows an older copy of the tab: main's notice of the

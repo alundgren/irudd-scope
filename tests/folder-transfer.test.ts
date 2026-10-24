@@ -121,7 +121,11 @@ async function transferJourney(
   const watch = await startWatch(options.env, folder);
   const dialog = page.getByRole("dialog");
   try {
-    // Two files dropped on docs/: one is new, one has a name that already exists.
+    // Two files dropped on docs/: one is new, one has a name that already exists. A
+    // filter that would hide the first new file is paused so the tree can select it.
+    const filter = tab.getByLabel("Filter by file name");
+    await filter.fill("notes");
+    await expect.poll(() => tree.getByRole("treeitem").count()).toBe(2);
     await writeFile(join(desk, "spec.pdf"), randomBytes(200_000));
     await writeFile(join(desk, "notes.md"), `# Dropped notes\n\n${MARKER}\n`);
     await dropFiles(page, region, "docs", [join(desk, "spec.pdf"), join(desk, "notes.md")]);
@@ -136,6 +140,12 @@ async function transferJourney(
     // The tree shows the copies and selects the first one.
     await expect.poll(() => item("spec.pdf").getAttribute("aria-selected")).toBe("true");
     await item("notes 2.md").waitFor();
+    expect(await filter.inputValue()).toBe("notes");
+    await tab.getByRole("button", { name: "Filter again", exact: true }).click();
+    await item("spec.pdf").waitFor({ state: "hidden" });
+    await item("notes 2.md").waitFor();
+    await filter.fill("");
+    await item("spec.pdf").waitFor();
 
     // Cancel writes nothing; Replace writes the dropped bytes only after it is chosen.
     await writeFile(join(desk, "notes.md"), "# Replacement\n");
