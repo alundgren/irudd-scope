@@ -1066,3 +1066,38 @@ IDs cannot execute again. A lost reply requires same-ID status, never a fresh ID
 or blind replay. Unknown outcomes retain receiver input until explicit current
 source reconciliation. These transactions cover SQLite-owned data only; folder
 filesystem writes use the separate host operation protocol.
+
+### Guest folders
+
+`@irudd-scope/protocol/guest-folder` defines explicit peer routes under
+`/guest/folder-`. `list`, `read`, `events`, `search` and `info` negotiate
+`folder-read-v1`; `version`, `upload`, `directory` and `status` negotiate
+`folder-version-v1`, `folder-write-v1`, `folder-directory-v1` and
+`folder-status-v1` respectively. Upload uses PUT; the other routes use POST.
+A bounded base64url `Scope-Guest-Folder` header carries validated metadata.
+Uploads carry raw streamed bytes without the artifact body limit.
+
+Every access names `{ target: { ownerDeviceId, sourceTabId }, sourceVersion }`,
+except status, which names `{ target, requestId }`. Listings add relative `path`
+and `showIgnored`; reads add relative `path`, `start` and optional `end`, with
+at most 8 MiB per preview and no end for a whole-file download. Searches add
+`query`, `showIgnored` and optional `names`. Upload and directory requests include
+the unchanged version 1 FolderOperationRequest. Caller identity comes from the
+peer session; the owner obtains the root and hub from its own source tab.
+
+The owner forwards the exact operation identity to FolderSource.operations at the
+filesystem host. Actual remote adapters require `folder-operations-v1`; an old
+hub returns an update requirement and never receives a legacy write instead.
+Caller-bound owner bindings preserve status routing after an uncertain commit or
+source removal. Status still requires peer authorization, never bypasses revoked
+sharing, and returns the host's outcome rather than a desktop receipt. Unknown
+or unresolved status never authorizes automatic retry.
+
+Reads, uploads and downloads have a 60-second idle limit and a 12-hour total
+limit. Other bounded requests use 20-second idle and 60-second total limits.
+Search uses 35-second idle and 30-minute total limits; feeds send heartbeats every
+10 seconds with a 35-second idle limit. Each peer has separate limits of 16 feeds
+and 16 other folder requests. Event buffering is bounded to 256 events and 1 MiB;
+an overflow disconnects the feed so the receiver re-lists. Source changes and
+revocation cancel both hops. Existing handshake/header limits and ordinary
+local/remote client write semantics remain unchanged.

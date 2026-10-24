@@ -181,7 +181,7 @@ export function localFolderSource(root: string, operations: FolderOperations): F
 }
 
 /** Reads NDJSON lines from a response body until it ends or the signal aborts. */
-async function readLines(
+export async function readLines(
   response: Response,
   signal: AbortSignal,
   onLine: (line: string) => boolean | void,

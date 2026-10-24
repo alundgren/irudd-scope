@@ -616,15 +616,15 @@ export async function guestCatalogChecks({
           .poll(async () => (await source()).available.length, { timeout: 30000 })
           .toBe(3);
       }
-      // Plans and folders retain their types and show a deliberate compatibility view.
+      // Plans retain their compatibility view; folders use their native presentation.
       const planRecord = view.records.find((record) => record.source.kind === "plan")!;
       await select(planRecord.tab.id);
       await pageB.getByText(/Update Scope to open shared plans/).waitFor();
       expect(planRecord.source.artifact!.kind).toBe("plan");
       await capture("guest-plan-placeholder.png");
       await select(view.records.find((record) => record.source.kind === "folder")!.tab.id);
-      await pageB.getByText(/Update Scope to open shared folders/).waitFor();
-      await capture("guest-folder-placeholder.png");
+      await pageB.getByRole("region", { name: "Owner folder folder" }).getByRole("tree").waitFor();
+      await capture("guest-folder-native.png");
     },
     async reconnected() {
       await expect.poll(async () => (await source()).available.length, { timeout: 25000 }).toBe(3);

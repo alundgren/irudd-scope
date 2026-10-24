@@ -1,3 +1,4 @@
+import { GuestFolders } from "./guest.ts";
 import { clipboard } from "electron";
 import { setTimeout as delay } from "node:timers/promises";
 import { Schema } from "effect";
@@ -83,19 +84,16 @@ function machineLimiter() {
   };
 }
 
-export function registerFolderIpc({
-  handle,
-  window,
-  artifacts,
-  lifecycle,
-  remotes,
-  store,
-}: MainPluginContext) {
+export function registerFolderIpc(context: MainPluginContext) {
+  const { handle, window, artifacts, lifecycle, remotes, store } = context;
+  const guests = new GuestFolders(context, (id, path) =>
+    notifyWatchers(id, { type: "dropped", paths: [path] }),
+  );
   const feeds = new Map<string, AbortController>();
   const limited = machineLimiter();
   async function folder(tabId: string) {
     const identity = await artifacts.folderIdentity(tabId);
-    if (!identity) throw new FolderError("no-tab", "This Folder tab no longer exists.");
+    if (!identity) return guests.source(tabId);
     return {
       identity,
       source:
@@ -104,8 +102,33 @@ export function registerFolderIpc({
           : remoteFolderSource(remotes, identity),
     };
   }
+  handle("scope:guest-folder-copy-original", async (input) => {
+    const saved = await store.guestRecovery.folderRead(decode(Uuid, input));
+    if (saved?.original) await clipboard.writeText(saved.original.path);
+  });
+  handle("scope:guest-folder-info", (input) => guests.info(decode(Uuid, input)));
+  handle("scope:guest-folder-recovery", (input) =>
+    store.guestRecovery.folderRead(decode(Uuid, input)),
+  );
+  handle("scope:guest-folder-status", (input) => guests.status(decode(Uuid, input)));
+  handle("scope:guest-folder-release", async (input) => {
+    const id = decode(Uuid, input);
+    const pending = await guests.status(id);
+    if (!pending) return;
+    if (pending.outcome?.state === "pending")
+      throw new Error("The host is still processing this operation. Check again shortly.");
+    const current = await folder(id);
+    await current.source.list("", true, AbortSignal.timeout(60_000));
+    await store.guestRecovery.folderClear(id, pending.write.operation.requestId);
+  });
   const find = registerFolderFind({ handle, window }, folder, unavailable);
-  const transfers = registerFolderTransfers({ handle, window, folder, notifyWatchers });
+  const transfers = registerFolderTransfers({
+    handle,
+    window,
+    folder,
+    notifyWatchers,
+    recovery: store.guestRecovery,
+  });
   function send(tabId: string, event: FolderViewEvent["event"]) {
     find.apply(tabId, event);
     if (!window.isDestroyed()) window.webContents.send("scope:folder-event", { tabId, event });
@@ -166,7 +189,8 @@ export function registerFolderIpc({
   });
   handle("scope:folder-unwatch", (input) => stopFeed(decode(Uuid, input)));
   handle("scope:folder-copy-path", async (input) => {
-    await clipboard.writeText((await folder(decode(Uuid, input))).identity.path);
+    const result = await folder(decode(Uuid, input));
+    await clipboard.writeText("guest" in result ? "." : result.identity.path);
   });
 
   function commandInput<S extends Schema.ConstraintDecoder<unknown>>(
@@ -331,6 +355,7 @@ export function registerFolderIpc({
       tabsClosed(ids);
     },
     dispose: () => {
+      guests.close();
       for (const id of feeds.keys()) stopFeed(id);
       transfers.dispose();
     },

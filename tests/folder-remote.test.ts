@@ -1,3 +1,4 @@
+import { guestFolderChecks } from "./guest-folder-checks.ts";
 import { expect, test } from "vite-plus/test";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createServer, request as httpRequest } from "node:http";
@@ -475,7 +476,7 @@ test(
   "a remote agent opens its folder through the hub, and only the paired desktop reads its files",
   {
     tags: ["folders-stay-inside", "secrets-stay-secret", "bad-requests-change-nothing"],
-    timeout: 180_000,
+    timeout: 600_000,
   },
   async () => {
     const f = await desktopFixture({ hideInitialPrompts: true });
@@ -717,5 +718,6 @@ test(
       await exhausted.stop();
       await rm(f.directory, { recursive: true, force: true });
     }
+    await guestFolderChecks();
   },
 );

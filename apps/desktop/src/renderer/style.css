@@ -1628,6 +1628,8 @@ h2 {
 }
 .folder-transfers {
   display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
   border-bottom: 1px solid var(--scope-line);
 }
 .folder-transfer {
@@ -1891,4 +1893,23 @@ h2 {
   flex: 1;
   height: auto;
   min-height: 240px;
+}
+
+.guest-folder-recovery {
+  flex: none;
+  gap: var(--scope-space-1);
+  padding: var(--scope-space-2) var(--scope-space-3);
+  font-size: var(--scope-text-detail);
+  overflow-wrap: anywhere;
+}
+.guest-folder-recovery .folder-bar {
+  flex-wrap: wrap;
+  padding: 0;
+  border: 0;
+}
+.folder-tab[data-guest] .folder-machine {
+  max-width: 40%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }

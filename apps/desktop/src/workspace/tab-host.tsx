@@ -1,3 +1,4 @@
+import { GuestFolderRecovery } from "../guest/folder-recovery.tsx";
 import { GuestActions } from "../guest/actions.tsx";
 import { GuestHtmlRecovery } from "../guest/html-recovery.tsx";
 import type { GuestCatalogView, GuestRecord } from "../guest/contract.ts";
@@ -74,13 +75,14 @@ export function TabHost({
     () =>
       guest
         ? {
+            ownerName: guestOwner?.name,
             available: guestAvailable === true,
             ownerDeviceId: guest.ownerDeviceId,
             sourceTabId: guest.source.sourceTabId,
             read: (artifact: Artifact) => window.scope.guestContent(tab.id, artifact.revision),
           }
         : undefined,
-    [tab.id, guest?.ownerDeviceId, guest?.source.sourceTabId, guestAvailable],
+    [tab.id, guest?.ownerDeviceId, guest?.source.sourceTabId, guestAvailable, guestOwner?.name],
   );
   const plugin =
     tab.type === "guest" ? guestPlugin(guest?.source.kind ?? "") : findPlugin(tab.type);
@@ -98,6 +100,7 @@ export function TabHost({
   const withRecovery = (view: ReactNode) =>
     tab.type === "guest" && guest ? (
       <>
+        {guest.source.kind === "folder" && <GuestFolderRecovery tabId={tab.id} />}
         {guest.source.kind !== "folder" && (
           <GuestActions record={guest} owner={guestOwner} available={guestAvailable === true} />
         )}

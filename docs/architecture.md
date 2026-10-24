@@ -970,9 +970,9 @@ read resolves the source tab again and checks its lifecycle and revision.
 The receiver stores source metadata and local guest navigation in desktop.db.
 The workspace host selects the registered file view and supplies an explicit
 owner content reader. Bytes remain in memory only and downloads are explicit
-exports. HTML keeps its interactive trusted-content behavior. Plan and folder
-references retain their native kind and currently display an update requirement;
-they do not use ordinary file rendering. Closing a guest hides the receiver
+exports. HTML keeps its interactive trusted-content behavior. Folder references use the registered Folder presentation and an owner-qualified
+FolderSource. Plan references retain their native kind and currently display an
+update requirement; they do not use ordinary file rendering. Closing a guest hides the receiver
 reference and never changes source retention or enters the local Trashcan.
 
 Receiver workspace layout orders local and guest UUIDs together. Guest navigation,
@@ -995,3 +995,19 @@ lifecycle writes, including local API writes, without observing reading state.
 workspace flush barrier. Recovery notifications update mounted controls without
 marking an entire workspace saved after a partial write. Filesystem mutation
 receipts remain owned by the actual folder host.
+
+Guest folders register named read, search, watch, version, upload, directory and
+status routes in the Folder plugin. The owner resolves the source tab's current
+eligibility and version before accessing its local or paired-hub FolderSource.
+Guest requests never select a root or hub. Source changes and revoked sessions
+cancel active requests; interrupted feeds cause fresh listings. Streams retain
+backpressure across both connections and use the folder transfer limits rather
+than artifact body limits. A disconnected hub affects its folders independently
+of other owner content.
+
+Receiver upload recovery uses GuestRecoveryStore in desktop.db. It stores the
+original local file reference and exact operation input before dispatch, not file
+bytes. Owner routing bindings in that same database retain the authenticated
+caller and original filesystem host for status after source removal or restart.
+Only FolderOperations at that host records filesystem outcomes. No desktop
+binding claims to commit a remote write atomically. Status never replays a write.

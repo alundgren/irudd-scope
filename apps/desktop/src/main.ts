@@ -180,8 +180,6 @@ async function main() {
     if (!window.isDestroyed()) window.webContents.send("scope:guest-catalog-changed", view);
   });
   guestMutations = new GuestMutations(guests, store, artifacts.store, guestCatalogs, lifecycle!);
-  await guests.start();
-  await guestCatalogs.start();
   if (process.platform === "darwin") window.setWindowButtonVisibility(false);
   const client = new ScopeClient(artifacts.url, artifacts.token);
   const setSketchpadMenu = createApplicationMenu(window);
@@ -247,6 +245,8 @@ async function main() {
       await close(true);
     },
   });
+  await guests.start();
+  await guestCatalogs.start();
   folderCommand = desktopIpc.folderCommand;
   watchFolder = desktopIpc.watchFolder;
   const externalLinks = registerExternalLinks(window);

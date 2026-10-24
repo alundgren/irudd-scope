@@ -136,7 +136,10 @@ export class GuestMutations {
     const change = decode(GuestChange, input);
     const record = await this.record(change.target);
     return this.serial(record.tab.id, async () => {
-      if ((await this.desktop.guestRecovery.read(record.tab.id)).pending)
+      if (
+        (await this.desktop.guestRecovery.read(record.tab.id)).pending ||
+        (await this.desktop.guestRecovery.folderRead(record.tab.id))
+      )
         throw new Error("Resolve the previous operation before making another source change.");
       const outcome = decode(GuestOutcome, await this.call(change.target, "prepare", change));
       if (outcome.state !== "prepared") throw new Error("Owner did not prepare the operation.");

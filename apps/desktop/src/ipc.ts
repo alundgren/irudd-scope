@@ -97,6 +97,8 @@ export function registerDesktopIpc({
   window.on("leave-full-screen", leftFullscreen);
 
   const plugins = registerMainPlugins({
+    guests,
+    guestCatalogs,
     window,
     handle,
     store,
