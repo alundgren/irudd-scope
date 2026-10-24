@@ -645,6 +645,13 @@ blocks further writes to its guest. Input is saved before dispatch and survives
 restart. Reconnection does not resend it. A changed or missing original file must
 be selected again. Explicit status and fresh listings precede clearing recovery;
 an unknown outcome requires inspecting the destination and an explicit decision.
+Receiver execution and recovery release share a per-tab exclusion through
+execution cleanup or release's status/list/delete sequence. Active requests cannot
+lose their recovery record through release. The desktop release IPC names the
+exact operation and, for an uncertain outcome, the outcome the person inspected.
+If fresh status becomes uncertain or changes from that acknowledgement, recovery
+remains until a new explicit inspection decision. Execution activity is transient
+and is not stored in the recovery document.
 
 The additive `guest_folder_routes` table records owner routing bindings for at
 most 4096 operations during the host's 48-hour retention window. A binding fixes

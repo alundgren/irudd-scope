@@ -1,3 +1,4 @@
+import { guestFolderRecoveryChecks } from "./guest-folder-recovery-checks.ts";
 import { createHash } from "node:crypto";
 import { folderNetwork } from "./guest-folder-network.ts";
 import { folderCommand } from "./folder-operation-checks.ts";
@@ -243,6 +244,31 @@ export async function guestFolderChecks() {
       );
       expect(await page.evaluate((id) => window.scope.guestFolderRecovery(id), id)).toBeUndefined();
     }
+    const recoveryGuest = await guest(pageB, "Owner remote folder with a long project title");
+    await select(pageB, recoveryGuest.tab.id);
+    await guestFolderRecoveryChecks({
+      page: pageB,
+      tabId: recoveryGuest.tab.id,
+      root: rootA,
+      directory,
+      proxy: hubProxy,
+      prepare,
+      restart: async () => {
+        await right.close();
+        right = await b.launch();
+        pageB = await right.firstWindow();
+        await select(pageB, recoveryGuest.tab.id);
+        return pageB;
+      },
+      reconnect: pair,
+      capture,
+      resize: async (width) => {
+        await right.evaluate(
+          ({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0]!.setSize(width, 768),
+          width,
+        );
+      },
+    });
     const record = await guest(pageB, "Owner remote folder with a long project title");
     const id = record.tab.id;
     await select(pageB, id);
@@ -303,7 +329,13 @@ export async function guestFolderChecks() {
     await capture("guest-folder-recovery-offline.png");
     // Linux test credentials are session-only, so explicit pairing reestablishes permission.
     await pair();
-    await pageB.evaluate((id) => window.scope.guestFolderRelease(id), id);
+    await pageB.evaluate(async (tabId) => {
+      const pending = await window.scope.guestFolderRecovery(tabId);
+      await window.scope.guestFolderRelease({
+        tabId,
+        requestId: pending!.write.operation.requestId,
+      });
+    }, id);
     const replacement = await prepare(pageB, id, [original]);
     if (replacement.status !== "ok") throw new Error(replacement.message);
     const success = await pageB.evaluate(
@@ -386,7 +418,13 @@ export async function guestFolderChecks() {
     const recovered = await pageB.evaluate((id) => window.scope.guestFolderStatus(id), id);
     expect(recovered?.write.operation.requestId).toBe(saved?.write.operation.requestId);
     expect(recovered?.outcome?.state).toBe("completed");
-    await pageB.evaluate((id) => window.scope.guestFolderRelease(id), id);
+    await pageB.evaluate(async (tabId) => {
+      const pending = await window.scope.guestFolderRecovery(tabId);
+      await window.scope.guestFolderRelease({
+        tabId,
+        requestId: pending!.write.operation.requestId,
+      });
+    }, id);
     await ha.stop();
     await expect
       .poll(() =>

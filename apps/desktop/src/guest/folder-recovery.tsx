@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { transferError } from "../renderer/transfer-invitation.tsx";
 import { Button } from "../renderer/components/ui/button.tsx";
-import type { GuestFolderPending } from "./folder-recovery-contract.ts";
+import type { GuestFolderRecoveryView } from "./folder-recovery-contract.ts";
 
 export function GuestFolderRecovery({ tabId }: { tabId: string }) {
-  const [pending, setPending] = useState<GuestFolderPending>();
+  const [pending, setPending] = useState<GuestFolderRecoveryView>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const refresh = useCallback(async () => {
@@ -71,12 +71,20 @@ export function GuestFolderRecovery({ tabId }: { tabId: string }) {
             >
               {busy ? "Checking…" : "Check upload status"}
             </Button>
-            {state && state !== "pending" && (
+            {!pending.active && state && state !== "pending" && (
               <Button
                 variant="ghost"
                 size="sm"
                 disabled={busy}
-                onClick={() => void run(() => window.scope.guestFolderRelease(tabId))}
+                onClick={() =>
+                  void run(() =>
+                    window.scope.guestFolderRelease({
+                      tabId,
+                      requestId: pending.write.operation.requestId,
+                      ...(uncertain ? { acknowledgedOutcome: pending.outcome } : {}),
+                    }),
+                  )
+                }
               >
                 {uncertain
                   ? "I checked the destination; clear recovery"
@@ -84,6 +92,9 @@ export function GuestFolderRecovery({ tabId }: { tabId: string }) {
               </Button>
             )}
           </div>
+          {pending.active && (
+            <p>This request is still running. Recovery can be cleared after it stops.</p>
+          )}
           {uncertain && (
             <p>
               Inspect the destination before clearing recovery. The original file stays on this

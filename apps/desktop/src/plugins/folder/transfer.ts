@@ -471,11 +471,23 @@ export function registerFolderTransfers({
   }
 
   const starting = new Set<string>();
+  // Release and execution reserve synchronously, before either can await saved input.
+  async function exclusive<T>(tabId: string, run: () => Promise<T>): Promise<T> {
+    if (starting.has(tabId))
+      throw new Error(
+        "This folder request is still running. Wait until it stops before clearing recovery or starting another write.",
+      );
+    starting.add(tabId);
+    try {
+      return await run();
+    } finally {
+      starting.delete(tabId);
+      recovery.onChanged(tabId);
+    }
+  }
   handle("scope:folder-create-directory", async (input) => {
     const request = decode(FileRequest, input);
-    if (starting.has(request.tabId)) throw new Error("A folder upload is already running.");
-    starting.add(request.tabId);
-    try {
+    return exclusive(request.tabId, async () => {
       const current = await folder(request.tabId);
       if (!current.guest) throw new Error("Directory creation is available through guest folders.");
       return await guestCopy(
@@ -487,77 +499,74 @@ export function registerFolderTransfers({
         () => {},
         AbortSignal.timeout(60_000),
       );
-    } finally {
-      starting.delete(request.tabId);
-    }
+    });
   });
   handle("scope:folder-drop-start", async (input): Promise<FolderDropResult> => {
     const request = decode(StartRequest, input);
     const plan = plans.get(request.planId);
     if (!plan) throw new Error("This drop is no longer available. Drop the files again.");
-    const current = await folder(plan.tabId);
-    const { source } = current;
-    if (current.guest && current.sourceVersion !== plan.sourceVersion)
-      throw new Error("The source changed. Drop the files again after refreshing.");
-    if (starting.has(plan.tabId)) throw new Error("A folder upload is already running.");
-    starting.add(plan.tabId);
-    const items = plan.items.filter((item) => plan.pending.has(item.id));
-    const written: string[] = [];
-    const directories: string[] = [];
-    const clashes: FolderDropClash[] = [];
-    const run = await track(
-      {
-        tabId: plan.tabId,
-        kind: "drop",
-        name:
-          items.length === 1
-            ? basename(items[0]!.path)
-            : `${items.filter((item) => item.file).length} files`,
-        total: items.reduce((total, item) => total + item.size, 0),
-      },
-      async (progress, signal) => {
-        for (const item of items) {
-          signal.throwIfAborted();
-          const choice = request.choices[item.id];
-          try {
-            const target =
-              choice === "keep" ? await freeName(source, item.path, signal) : item.path;
-            const path = current.guest
-              ? await guestCopy(
-                  current,
-                  plan.tabId,
-                  item,
-                  target,
-                  choice === "replace",
-                  progress,
-                  signal,
-                )
-              : await copyItem(source, item, target, choice === "replace", progress, signal);
-            written.push(path);
-            if (!item.file) directories.push(path);
-          } catch (error) {
-            // The name exists, for example because it appeared during the copy: ask again.
-            if (error instanceof FolderError && error.code === "exists") {
-              clashes.push({ id: item.id, path: item.path });
-              continue;
+    return exclusive(plan.tabId, async () => {
+      const current = await folder(plan.tabId);
+      const { source } = current;
+      if (current.guest && current.sourceVersion !== plan.sourceVersion)
+        throw new Error("The source changed. Drop the files again after refreshing.");
+      const items = plan.items.filter((item) => plan.pending.has(item.id));
+      const written: string[] = [];
+      const directories: string[] = [];
+      const clashes: FolderDropClash[] = [];
+      const run = await track(
+        {
+          tabId: plan.tabId,
+          kind: "drop",
+          name:
+            items.length === 1
+              ? basename(items[0]!.path)
+              : `${items.filter((item) => item.file).length} files`,
+          total: items.reduce((total, item) => total + item.size, 0),
+        },
+        async (progress, signal) => {
+          for (const item of items) {
+            signal.throwIfAborted();
+            const choice = request.choices[item.id];
+            try {
+              const target =
+                choice === "keep" ? await freeName(source, item.path, signal) : item.path;
+              const path = current.guest
+                ? await guestCopy(
+                    current,
+                    plan.tabId,
+                    item,
+                    target,
+                    choice === "replace",
+                    progress,
+                    signal,
+                  )
+                : await copyItem(source, item, target, choice === "replace", progress, signal);
+              written.push(path);
+              if (!item.file) directories.push(path);
+            } catch (error) {
+              // The name exists, for example because it appeared during the copy: ask again.
+              if (error instanceof FolderError && error.code === "exists") {
+                clashes.push({ id: item.id, path: item.path });
+                continue;
+              }
+              throw error;
             }
-            throw error;
+            plan.pending.delete(item.id);
           }
-          plan.pending.delete(item.id);
-        }
-      },
-    );
-    starting.delete(plan.tabId);
-    plan.written.push(...written);
-    const result: FolderDropResult = {
-      written,
-      directories,
-      clashes,
-      cancelled: run.state === "cancelled",
-      ...(run.message ? { failed: run.message } : {}),
-    };
-    if (!clashes.length || run.state !== "done") finish(request.planId);
-    return result;
+        },
+      );
+      plan.written.push(...written);
+      const result: FolderDropResult = {
+        written,
+        directories,
+        clashes,
+        cancelled: run.state === "cancelled",
+        ...(run.message ? { failed: run.message } : {}),
+      };
+      if (!clashes.length || run.state !== "done") finish(request.planId);
+      return result;
+    });
   });
   handle("scope:folder-drop-discard", (input) => finish(decode(Uuid, input)));
 
@@ -658,6 +667,8 @@ export function registerFolderTransfers({
   });
 
   return {
+    recoveryActive: (tabId: string) => starting.has(tabId),
+    releaseRecovery: exclusive,
     /** Cancels the transfers and forgets the drops of tabs that closed. */
     cancelTabs(ids: readonly string[]) {
       for (const { transfer, controller } of running.values())

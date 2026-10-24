@@ -10,7 +10,35 @@ export async function folderNetwork() {
     drop = false;
   let largestBuffer = 0;
   let pauseUpload = 0;
-  const server = createServer((request, response) => {
+  let versionGate: { entered: () => void; wait: Promise<void> } | undefined;
+  let listGate: { entered: () => void; wait: Promise<void> } | undefined;
+  let expiredStatus = false;
+  const server = createServer(async (request, response) => {
+    if (listGate && request.url?.startsWith("/v1/relay/folders/list?")) {
+      const gate = listGate;
+      listGate = undefined;
+      gate.entered();
+      await gate.wait;
+      if (response.destroyed) return;
+    }
+    if (expiredStatus && request.url?.startsWith("/v1/relay/folders/operation-status?")) {
+      const requestId = new URL(request.url, "http://fixture").searchParams.get("requestId")!;
+      response.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          requestId,
+          state: "expired",
+          expiresAt: Number(requestId.split(":")[0]) + 48 * 60 * 60_000,
+        }),
+      );
+      return;
+    }
+    if (versionGate && request.url?.startsWith("/v1/relay/folders/version?")) {
+      const gate = versionGate;
+      versionGate = undefined;
+      gate.entered();
+      await gate.wait;
+      if (response.destroyed) return;
+    }
     if (request.url?.startsWith("/v1/relay/folders/capabilities") && old) {
       response.writeHead(404).end();
       return;
@@ -84,6 +112,21 @@ export async function folderNetwork() {
     largestBuffer: () => largestBuffer,
     pauseNextUpload(ms: number) {
       pauseUpload = ms;
+    },
+    expireStatus(value: boolean) {
+      expiredStatus = value;
+    },
+    delayNextVersion() {
+      const entered = Promise.withResolvers<void>();
+      const finished = Promise.withResolvers<void>();
+      versionGate = { entered: entered.resolve, wait: finished.promise };
+      return { entered: entered.promise, release: finished.resolve };
+    },
+    delayNextList() {
+      const entered = Promise.withResolvers<void>();
+      const finished = Promise.withResolvers<void>();
+      listGate = { entered: entered.resolve, wait: finished.promise };
+      return { entered: entered.promise, release: finished.resolve };
     },
     pairUrl(value: string) {
       const url = new URL(value);

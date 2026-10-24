@@ -443,6 +443,11 @@ shows Check upload status. It never retries automatically. Conflicts preserve
 the original input. A recorded outcome can be cleared after refreshing the
 folder; an unknown outcome requires checking the destination and an explicit
 acknowledgement. Recovery remains visible while the owner is unavailable.
+Status can be checked while an upload or directory request runs, but its recovery
+cannot be cleared until the request and cleanup stop. If a recorded result has
+expired or becomes unknown when clearing, Scope keeps recovery and requires the
+new destination-inspection action; the previous normal clear action does not
+authorize that decision.
 Updating an older peer or hub is required for unsupported operations. A hub-only
 outage does not make other folders or owner artifacts unavailable.
 

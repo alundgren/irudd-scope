@@ -1,4 +1,5 @@
 import { GuestFolders } from "./guest.ts";
+import { GuestFolderRelease } from "../../guest/folder-recovery-contract.ts";
 import { clipboard } from "electron";
 import { setTimeout as delay } from "node:timers/promises";
 import { Schema } from "effect";
@@ -107,19 +108,42 @@ export function registerFolderIpc(context: MainPluginContext) {
     if (saved?.original) await clipboard.writeText(saved.original.path);
   });
   handle("scope:guest-folder-info", (input) => guests.info(decode(Uuid, input)));
-  handle("scope:guest-folder-recovery", (input) =>
-    store.guestRecovery.folderRead(decode(Uuid, input)),
-  );
-  handle("scope:guest-folder-status", (input) => guests.status(decode(Uuid, input)));
-  handle("scope:guest-folder-release", async (input) => {
+  handle("scope:guest-folder-recovery", async (input) => {
+    const id = decode(Uuid, input);
+    const pending = await store.guestRecovery.folderRead(id);
+    return pending && { ...pending, active: transfers.recoveryActive(id) };
+  });
+  handle("scope:guest-folder-status", async (input) => {
     const id = decode(Uuid, input);
     const pending = await guests.status(id);
-    if (!pending) return;
-    if (pending.outcome?.state === "pending")
-      throw new Error("The host is still processing this operation. Check again shortly.");
-    const current = await folder(id);
-    await current.source.list("", true, AbortSignal.timeout(60_000));
-    await store.guestRecovery.folderClear(id, pending.write.operation.requestId);
+    return pending && { ...pending, active: transfers.recoveryActive(id) };
+  });
+  handle("scope:guest-folder-release", (input) => {
+    const request = decode(GuestFolderRelease, input);
+    const id = request.tabId;
+    return transfers.releaseRecovery(id, async () => {
+      const saved = await store.guestRecovery.folderRead(id);
+      if (!saved) return;
+      if (saved.write.operation.requestId !== request.requestId)
+        throw new Error(
+          "This is a different folder operation. Check its status before clearing recovery.",
+        );
+      const pending = await guests.status(id);
+      if (!pending) return;
+      const outcome = pending.outcome!;
+      if (outcome.state === "pending")
+        throw new Error("The host is still processing this operation. Check again shortly.");
+      if (
+        ["unknown", "unresolved", "expired"].includes(outcome.state) &&
+        JSON.stringify(request.acknowledgedOutcome) !== JSON.stringify(outcome)
+      )
+        throw new Error(
+          "The outcome changed or is unknown. Inspect the destination, then confirm clearing recovery.",
+        );
+      const current = await folder(id);
+      await current.source.list("", true, AbortSignal.timeout(60_000));
+      await store.guestRecovery.folderClear(id, request.requestId);
+    });
   });
   const find = registerFolderFind({ handle, window }, folder, unavailable);
   const transfers = registerFolderTransfers({
