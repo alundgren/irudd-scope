@@ -213,12 +213,12 @@ paired remote's ID. Paths inside a folder use `/` and have no `.` or `..` parts.
 
 Agent commands use the normal publishing token, locally or through a hub:
 
-| Request                                             | Result                                                                          |
-| --------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `POST /v1/folders/open`, `{ path, title? }`         | `{ tabId, machine, path, created }`                                             |
-| `POST /v1/folders/find`, `{ path }`                 | `{ open, tabId?, machine, path }`; a tab in Trashcan or the drawer is not open. |
-| `POST /v1/folders/select`, `{ path, file, title? }` | `FolderOpenReceipt` plus `file`                                                 |
-| `GET /v1/folders/watch?path=`                       | NDJSON `FolderWatchEvent` lines: `dropped`, `closed`, `heartbeat`               |
+| Request                                                     | Result                                                                          |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `POST /v1/folders/open`, `{ path, title? }`                 | `{ tabId, machine, path, created }`                                             |
+| `POST /v1/folders/find`, `{ path }`                         | `{ open, tabId?, machine, path }`; a tab in Trashcan or the drawer is not open. |
+| `POST /v1/folders/select`, `{ path, file, lines?, title? }` | `FolderOpenReceipt` plus `file` and `lines` when given                          |
+| `GET /v1/folders/watch?path=`                               | NDJSON `FolderWatchEvent` lines: `dropped`, `closed`, `heartbeat`               |
 
 `path` is absolute on the machine that runs the command. Scope resolves it to
 the canonical real path on that machine; hubs resolve it before relaying. Any

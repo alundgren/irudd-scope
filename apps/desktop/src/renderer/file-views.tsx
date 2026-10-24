@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
+import { colorBlocks, languageFor, MAX_COLORED_BYTES, type ColoredText } from "./code-colors.ts";
 
 /** What the file viewers need: bytes, the kind of content, and a title. */
 export type FileContent = {
@@ -17,10 +18,14 @@ export type FileContent = {
   kind: string;
   mediaType: string;
   title: string;
+  /** The file's name, which picks the colours for code. */
+  fileName: string;
   /** Changes when the bytes change, such as a blob hash or a file's modification time. */
   version: string;
 };
-type ViewerProps = { content: FileContent; line?: number };
+/** Lines to scroll to and mark, numbered from 1, both ends included. */
+export type MarkedLines = { start: number; end: number };
+type ViewerProps = { content: FileContent; lines?: MarkedLines };
 
 const decodeText = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
@@ -33,15 +38,18 @@ const decodeText = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
  */
 const TEXT_BLOCK_LINES = 500;
 
-function TextBlock({
+const TextBlock = memo(function TextBlock({
   lines,
+  colored,
   first,
-  line,
+  marked,
   shown,
 }: {
   lines: readonly string[];
+  /** The block's lines split into coloured runs, once colouring reaches this block. */
+  colored: ColoredText[][] | undefined;
   first: number;
-  line: number | undefined;
+  marked: MarkedLines | undefined;
   shown: boolean;
 }) {
   if (!shown)
@@ -57,20 +65,42 @@ function TextBlock({
           key={index}
           className="text-line"
           data-line={first + index}
-          aria-current={first + index === line || undefined}
+          data-marked={
+            (marked && first + index >= marked.start && first + index <= marked.end) || undefined
+          }
+          aria-current={first + index === marked?.start || undefined}
         >
-          {text || <br />}
+          {!text ? (
+            <br />
+          ) : colored?.[index] ? (
+            colored[index].map((part, run) => (
+              <span key={run} style={part.style}>
+                {part.text}
+              </span>
+            ))
+          ) : (
+            text
+          )}
         </div>
       ))}
     </div>
   );
+});
+
+/** The visible height of the nearest scrolling ancestor, or of the window. */
+function scrollHeight(element: HTMLElement): number {
+  for (let parent = element.parentElement; parent; parent = parent.parentElement)
+    if (/auto|scroll/.test(getComputedStyle(parent).overflowY)) return parent.clientHeight;
+  return window.innerHeight;
 }
 
 /**
- * Text with line numbers. `line` scrolls to and marks that line. Long files number only
+ * Text with line numbers. `lines` scrolls to and marks those lines. Long files number only
  * the blocks near the view, so a 2 MiB log with 300,000 short lines stays responsive.
  */
-function TextView({ content, line }: ViewerProps) {
+function TextView({ content, lines }: ViewerProps) {
+  const start = lines?.start;
+  const end = lines?.end ?? start;
   const blocks = useMemo(() => {
     const all = decodeText(content.bytes).split("\n");
     const result: { first: number; lines: string[] }[] = [];
@@ -81,11 +111,36 @@ function TextView({ content, line }: ViewerProps) {
       });
     return result;
   }, [content.bytes]);
+  // Code is coloured in the background, block by block; until then it shows plain.
+  const [colors, setColors] = useState<ReadonlyMap<number, ColoredText[][]>>(new Map());
+  useEffect(() => {
+    setColors(new Map());
+    if (content.bytes.byteLength > MAX_COLORED_BYTES) return;
+    const controller = new AbortController();
+    const lines = blocks.flatMap((block) => block.lines);
+    void languageFor(content.fileName)
+      .then(async (language) => {
+        if (language)
+          await colorBlocks(
+            lines,
+            TEXT_BLOCK_LINES,
+            language,
+            controller.signal,
+            (index, colored) => setColors((current) => new Map(current).set(index, colored)),
+          );
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [blocks, content.bytes, content.fileName]);
   const lineCount = blocks.length ? blocks.at(-1)!.first + blocks.at(-1)!.lines.length - 1 : 0;
-  const target = line ? Math.floor((line - 1) / TEXT_BLOCK_LINES) : 0;
-  const [shown, setShown] = useState<ReadonlySet<number>>(() => new Set([0, target]));
+  const target = start ? Math.floor((start - 1) / TEXT_BLOCK_LINES) : 0;
+  const last = end ? Math.min(Math.floor((end - 1) / TEXT_BLOCK_LINES), target + 1) : 0;
+  const [shown, setShown] = useState<ReadonlySet<number>>(() => new Set([0, target, last]));
   const container = useRef<HTMLPreElement>(null);
-  useEffect(() => setShown((current) => new Set([...current, target])), [target, blocks]);
+  useEffect(
+    () => setShown((current) => new Set([...current, target, last])),
+    [target, last, blocks],
+  );
   useEffect(() => {
     const element = container.current;
     if (!element || blocks.length < 2) return;
@@ -105,18 +160,29 @@ function TextView({ content, line }: ViewerProps) {
     for (const block of element.children) observer.observe(block);
     return () => observer.disconnect();
   }, [blocks]);
-  // Scrolls once per requested line, after its block has rendered.
-  const scrolled = useRef<{ line: number | undefined; blocks: unknown }>({
-    line: undefined,
+  // Scrolls once per requested range, after its first block has rendered: a range that
+  // fits is centred, a taller one starts at the top.
+  const scrolled = useRef<{ range: string | undefined; blocks: unknown }>({
+    range: undefined,
     blocks: undefined,
   });
   useLayoutEffect(() => {
-    if (!line || (scrolled.current.line === line && scrolled.current.blocks === blocks)) return;
-    const element = container.current?.querySelector(`[data-line="${line}"]`);
-    if (!element) return;
-    scrolled.current = { line, blocks };
-    element.scrollIntoView({ block: "center", behavior: "instant" });
-  }, [line, blocks, shown]);
+    const range = start ? `${start}-${end}` : undefined;
+    if (!range || (scrolled.current.range === range && scrolled.current.blocks === blocks)) return;
+    const first = container.current?.querySelector(`[data-line="${start}"]`);
+    if (!first) return;
+    scrolled.current = { range, blocks };
+    const final = container.current?.querySelector(`[data-line="${end}"]`);
+    const height = final
+      ? final.getBoundingClientRect().bottom - first.getBoundingClientRect().top
+      : Infinity;
+    const fits = height <= scrollHeight(container.current!) * 0.8;
+    const middle = fits && final ? Math.round((start! + end!) / 2) : start;
+    (container.current?.querySelector(`[data-line="${middle}"]`) ?? first).scrollIntoView({
+      block: fits ? "center" : "start",
+      behavior: "instant",
+    });
+  }, [start, end, blocks, shown]);
   return (
     <pre
       ref={container}
@@ -127,8 +193,9 @@ function TextView({ content, line }: ViewerProps) {
         <TextBlock
           key={block.first}
           lines={block.lines}
+          colored={colors.get(index)}
           first={block.first}
-          line={line}
+          marked={start ? { start, end: end ?? start } : undefined}
           shown={shown.has(index)}
         />
       ))}
@@ -183,12 +250,12 @@ const viewers = { text: TextView, markdown: MarkdownView, html: HtmlView, image:
  */
 export const FileViews = memo(function FileViews({
   content,
-  line,
+  lines,
   fallback,
 }: ViewerProps & { fallback: ReactNode }) {
   const Viewer = Object.hasOwn(viewers, content.kind)
     ? viewers[content.kind as keyof typeof viewers]
     : undefined;
   if (!Viewer) return fallback;
-  return <Viewer content={content} {...(line ? { line } : {})} />;
+  return <Viewer content={content} {...(lines ? { lines } : {})} />;
 });

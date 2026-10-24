@@ -304,13 +304,17 @@ strip without changing selection, even when nothing is selected.
 
 When the person asks to see a file, the agent runs `folder select`. Scope
 opens the folder's tab if needed, expands every folder down to the file, and
-selects it in the tree, scrolled into view when the tab is shown. The tab is
+selects it in the tree, scrolled into view when the tab is shown. With
+`--lines`, the preview shows the file's text with those lines highlighted:
+centred when they fit, otherwise starting at the first. Choosing another file
+clears the highlight. The tab is
 marked unread and the selected tab does not change. A file outside the folder
 or missing fails in the agent's shell and changes nothing in Scope.
 
-A local Folder tab shows only its title, like any tab. A remote Folder tab shows
-the machine name first in the muted color, then `·` and the title; only the
-title is shortened with an ellipsis. Folder tabs have no icon. The tooltip
+Every Folder tab starts with a folder icon, so a shared folder is easy to tell
+apart from a published file. A local Folder tab then shows its title. A remote
+Folder tab shows the machine name in the accent color, then `·` and the title;
+only the title is shortened with an ellipsis. The tooltip
 lists the full title, the machine (This Mac, This PC, or the remote's name),
 and the full path. The drawer's second line is the folder name, with the
 machine first for remotes, and drawer search matches the title, machine, and
@@ -357,8 +361,10 @@ Switching between Files and Search keeps both. Clicking a match selects the file
 and scrolls its preview to that line.
 
 Selecting a file shows a read-only preview beside the tree, below it in narrow
-windows, using the published-file viewers. Text has line numbers; Markdown and
-HTML have a Source button, which a search match turns on. HTML previews are
+windows, using the published-file viewers. Text has line numbers, and code is
+coloured by its file name in both appearances; files over 2 MiB and lines over
+2,000 characters stay plain. Markdown and HTML have a Source button, which a
+search match or an agent's marked lines turn on. HTML previews are
 trusted and run like published HTML, with scripts, forms, popups, and external
 resources enabled and no iframe sandbox. Files Scope cannot
 display show name, size, and modified time. Text over 2 MiB shows its first

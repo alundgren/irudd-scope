@@ -258,6 +258,7 @@ async function useFolderTab(page: Page, label: string, folder: string) {
   await results.getByRole("button", { name: /^src\/code\.ts:250/ }).click();
   const current = preview("code.ts").locator(".text-line[aria-current]");
   expect(await current.getAttribute("data-line")).toBe("250");
+  await expect.poll(() => current.locator("span[style*='color']").count()).toBeGreaterThan(0);
   expect(
     await current.evaluate((line) => {
       const body = line.closest(".folder-preview-body")!.getBoundingClientRect();

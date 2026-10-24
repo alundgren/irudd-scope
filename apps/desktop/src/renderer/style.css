@@ -1049,7 +1049,7 @@ h2 {
 .text-block[data-plain] {
   padding-left: calc(var(--line-digits) * 1ch + var(--scope-space-4));
 }
-.text-line[aria-current] {
+.text-line[data-marked] {
   background: var(--scope-selected);
 }
 .markdown-document {
@@ -1492,11 +1492,21 @@ h2 {
   text-align: left;
 }
 
-.tab-title:has(.tab-machine) {
+.tab-title:has(.tab-machine, .tab-icon) {
   display: flex;
   align-items: center;
 }
-.tab-machine,
+.tab-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-right: var(--scope-space-2);
+}
+.tab-machine {
+  flex: none;
+  color: var(--scope-accent);
+  white-space: pre;
+}
 .tab-machine-separator {
   flex: none;
   color: var(--scope-muted);

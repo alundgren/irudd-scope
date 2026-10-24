@@ -119,9 +119,22 @@ export const FolderFindReceipt = Schema.Struct({
 });
 export type FolderFindReceipt = typeof FolderFindReceipt.Type;
 
+const LineNumber = Schema.Int.check(
+  Schema.isGreaterThanOrEqualTo(1),
+  Schema.isLessThanOrEqualTo(10_000_000),
+);
+/** Lines an agent marks in a selected file, numbered from 1, both ends included. */
+export const FolderLines = Schema.Struct({ start: LineNumber, end: LineNumber }).check(
+  Schema.makeFilter((lines) => lines.start <= lines.end, {
+    expected: "a start line at or before the end line",
+  }),
+);
+export type FolderLines = typeof FolderLines.Type;
+
 export const FolderSelectRequest = Schema.Struct({
   path: FolderPath,
   file: FolderRelativePath.check(Schema.isMinLength(1)),
+  lines: Schema.optionalKey(FolderLines),
   title: Schema.optionalKey(FolderTitle),
   machine: IgnoredMachine,
 });
@@ -129,6 +142,7 @@ export type FolderSelectRequest = typeof FolderSelectRequest.Type;
 export const FolderSelectReceipt = Schema.Struct({
   ...FolderOpenReceipt.fields,
   file: FolderRelativePath,
+  lines: Schema.optionalKey(FolderLines),
 });
 export type FolderSelectReceipt = typeof FolderSelectReceipt.Type;
 
@@ -337,17 +351,18 @@ export const FolderGuide = {
   commands: {
     open: "irudd-scope folder open [PATH] [--title TITLE]",
     find: "irudd-scope folder find [PATH]",
-    select: "irudd-scope folder select PATH FILE [--title TITLE]",
+    select: "irudd-scope folder select PATH FILE [--lines START[-END]] [--title TITLE]",
     watch: "irudd-scope folder watch [PATH]",
   },
   receipt:
-    "open and select print JSON with tabId, machine (local or the remote ID), the canonical path, and created; select adds file. find prints open, tabId when open, machine, and path.",
+    "open and select print JSON with tabId, machine (local or the remote ID), the canonical path, and created; select adds file, and lines when given. find prints open, tabId when open, machine, and path.",
   rules: [
     'Pass a short --title naming the task, such as --title "Login fix". Without it the tab uses the folder name.',
     "Opening the same folder again returns the same tab with created: false, renames it when --title changes, and restores it from Trashcan.",
     "Scope never switches the selected tab for an agent command. The Folder tab is marked unread.",
     "find reports open: false, and exits 0, when the folder has no tab or its tab is closed or in Trashcan.",
     "To show the person a file, usually the one you just wrote, run one select command. FILE is relative to PATH. It opens the tab when needed, expands the folders down to the file, and selects it.",
+    "To point at part of a file, add --lines 40-58 (or --lines 40 for one line). The preview shows the file's text, scrolls to those lines, and highlights them until the person selects another file.",
     'watch prints one JSON line per event and keeps running. When the person drops files into the tab it prints {"type":"dropped","paths":["docs/spec.pdf"]} with the folder-relative paths written, once per drop. It prints {"type":"closed"} and exits 0 when the person closes the tab. It fails when the folder has no open tab or Scope disconnects.',
     "On a paired remote the command goes through the hub. It fails when the desktop is not connected and is never queued.",
     "Scope reads files only inside the folder and keeps no copy of them.",

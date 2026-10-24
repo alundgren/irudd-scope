@@ -100,7 +100,9 @@ export function FolderView({
   useEffect(
     () =>
       window.scope.onFolderTabOpened(({ tab: opened, selected }) => {
-        if (opened.id === tab.id && selected) revealFile(selected.file);
+        if (opened.id !== tab.id || !selected) return;
+        setTarget(undefined);
+        revealFile(selected.file);
       }),
     [tab.id, revealFile],
   );
@@ -130,6 +132,7 @@ export function FolderView({
         ...current,
         expanded: [...new Set([...current.expanded, ...folderAncestors(path)])],
         selectedPath: path,
+        selectedLines: null,
       },
     });
     revealFile(path);
@@ -267,7 +270,7 @@ export function FolderView({
                 onToggle={toggle}
                 onSelect={(path) => {
                   setTarget(undefined);
-                  update({ selectedPath: path });
+                  update({ selectedPath: path, selectedLines: null });
                 }}
                 onRetry={retry}
                 onDropFiles={(folder, files) => void dropping.drop(folder, files)}
@@ -290,7 +293,11 @@ export function FolderView({
               key={data.selectedPath}
               tabId={tab.id}
               path={data.selectedPath}
-              line={target?.path === data.selectedPath ? target.line : undefined}
+              lines={
+                target?.path === data.selectedPath
+                  ? { start: target.line, end: target.line }
+                  : (data.selectedLines ?? undefined)
+              }
             />
           ) : (
             <p className="folder-preview folder-state">Select a file to preview it.</p>

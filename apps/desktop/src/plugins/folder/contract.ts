@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { decode } from "@irudd-scope/protocol";
 import {
+  FolderLines,
   FolderPath,
   FolderRelativePath,
   MachineId,
@@ -24,6 +25,8 @@ export const FolderTabData = Schema.Struct({
   filter: Schema.String.check(Schema.isMaxLength(1024)),
   showIgnored: Schema.Boolean,
   selectedPath: Schema.NullOr(FolderRelativePath),
+  /** Lines an agent marked in the selected file. Selecting another file clears them. */
+  selectedLines: Schema.optionalKey(Schema.NullOr(FolderLines)),
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
 });
 export type FolderTabData = typeof FolderTabData.Type;
@@ -57,8 +60,11 @@ export function folderAncestors(file: string): string[] {
   return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/"));
 }
 
-/** A file an agent selected with `folder select`, and whether the folder's ignore rules hide it. */
-export type FolderSelection = { file: string; ignored: boolean };
+/**
+ * A file an agent selected with `folder select`, whether the folder's ignore rules hide
+ * it, and the lines the agent marked in it.
+ */
+export type FolderSelection = { file: string; ignored: boolean; lines?: FolderLines };
 
 /**
  * A Folder tab's data after an agent selects a file: every folder down to it is expanded,
@@ -70,6 +76,7 @@ export function selectFolderFile(data: FolderTabData, selection: FolderSelection
     expanded: [...new Set([...data.expanded, ...folderAncestors(selection.file)])],
     showIgnored: data.showIgnored || selection.ignored,
     selectedPath: selection.file,
+    selectedLines: selection.lines ?? null,
   };
 }
 

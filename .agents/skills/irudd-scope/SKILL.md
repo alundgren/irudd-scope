@@ -178,6 +178,15 @@ folders down to the file, and selects it. Scope still does not switch tabs; the
 Folder tab is marked unread. A FILE outside the folder or missing fails and
 changes nothing.
 
+To point at part of a file, such as the function you just changed, add
+`--lines START-END` (or `--lines START` for one line). The preview shows the
+file's text, scrolls to those lines, and highlights them until the person
+selects another file:
+
+```bash
+irudd-scope folder select . src/server.ts --lines 40-58
+```
+
 `irudd-scope folder find .` prints `open: true` and the `tabId` when the folder
 has a tab in the strip, and `open: false` (exit 0) when it has none or the tab is
 closed or in Trashcan. `irudd-scope folder watch .` keeps running and prints one

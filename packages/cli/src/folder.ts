@@ -10,7 +10,7 @@ import type {
 } from "@irudd-scope/protocol/folder";
 
 const USAGE =
-  "Use irudd-scope folder open [PATH] [--title TITLE], folder find [PATH], folder select PATH FILE [--title TITLE], or folder watch [PATH].";
+  "Use irudd-scope folder open [PATH] [--title TITLE], folder find [PATH], folder select PATH FILE [--lines START[-END]] [--title TITLE], or folder watch [PATH].";
 
 // Hubs and desktops without folder support answer 404 without a folder error code.
 function updateNeeded(error: unknown): never {
@@ -27,11 +27,21 @@ function folderFile(file: string): string {
   return parts.join("/");
 }
 
+/** `40` or `40-58`: lines numbered from 1, both ends included. */
+function folderLines(value: string): { start: number; end: number } {
+  const match = /^(\d{1,8})(?:-(\d{1,8}))?$/.exec(value.trim());
+  const start = Number(match?.[1]);
+  const end = Number(match?.[2] ?? match?.[1]);
+  if (!match || start < 1 || end < start)
+    throw new Error("Use --lines START or --lines START-END, such as --lines 40-58.");
+  return { start, end };
+}
+
 /** Runs a folder command. The folder is resolved on this machine, where the files are. */
 export async function folderCommand(
   connect: () => Promise<ScopeClient>,
   positionals: string[],
-  values: { title?: string },
+  values: { title?: string; lines?: string },
 ): Promise<FolderOpenReceipt | FolderFindReceipt | FolderSelectReceipt> {
   const [, action, path, ...extra] = positionals;
   const file = action === "select" ? extra.shift() : undefined;
@@ -39,7 +49,8 @@ export async function folderCommand(
     !["open", "find", "select"].includes(action ?? "") ||
     extra.length ||
     (action === "select" && (!path || !file)) ||
-    (action === "find" && values.title !== undefined)
+    (action === "find" && values.title !== undefined) ||
+    (action !== "select" && values.lines !== undefined)
   )
     throw new Error(USAGE);
   if (values.title !== undefined && (!values.title.trim() || values.title.length > 160))
@@ -47,11 +58,12 @@ export async function folderCommand(
   const title = values.title ? { title: values.title } : {};
   const folder = resolve(path ?? ".");
   const selected = file === undefined ? undefined : folderFile(file);
+  const lines = values.lines === undefined ? {} : { lines: folderLines(values.lines) };
   const client = await connect();
   try {
     if (action === "find") return await client.folderFind({ path: folder });
     if (selected !== undefined)
-      return await client.folderSelect({ path: folder, file: selected, ...title });
+      return await client.folderSelect({ path: folder, file: selected, ...lines, ...title });
     return await client.folderOpen({ path: folder, ...title });
   } catch (error) {
     return updateNeeded(error);
