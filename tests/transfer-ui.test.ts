@@ -1,3 +1,4 @@
+import { guestConnectionChecks } from "./guest-connection-fixture.ts";
 import { expect, test } from "vite-plus/test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -139,8 +140,8 @@ async function screenshot(page: Page, name: string) {
 }
 
 test(
-  "Other Scopes creates a public invitation, copies the secret through main, pairs, and forgets",
-  { tags: ["pairing-is-explicit"], timeout: 60_000 },
+  "Other Scopes pairs explicitly, protects guest sessions, reconnects and forgets",
+  { tags: ["pairing-is-explicit", "secrets-stay-secret", "survives-restart"], timeout: 180_000 },
   async () => {
     const f = await desktopFixture({ hideInitialPrompts: true });
     const app = await f.launch();
@@ -235,6 +236,7 @@ test(
       await app.close();
       await rm(f.directory, { recursive: true, force: true });
     }
+    await guestConnectionChecks();
   },
 );
 

@@ -517,3 +517,12 @@ records, structure definitions and referenced images exclude the current
 workspace and all other Scope content. Separately authored example-scene
 metadata belongs to its library item. Export refuses an existing output path
 and libraries above the 128 MiB export bound. There is no ZIP import.
+
+Guest connection consent and the reserved listener port use the `guest-settings`
+preference in `desktop.db`. Missing consent means disabled, including for existing
+transfer pairings. `guestKey` and `guestEndpoints` extend the existing credential
+document: Keychain on macOS, DPAPI-encrypted storage on Windows, and process memory
+on Linux development profiles. Peer endpoints contain a WireGuard preshared key
+and never appear in ordinary preferences. Forget removes that peer's endpoint;
+the local transport key remains available for other pairings. Session tokens and
+server challenges are memory-only and invalid after restart.

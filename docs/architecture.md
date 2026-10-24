@@ -906,3 +906,33 @@ retain the latest local document separately from an uncertain dispatched write.
 The plugin registry creates the singleton at startup while preserving existing
 selection and stored hidden state. Library event and reconnect subscriptions
 invalidate clean editor state and visible picker reads without navigation.
+
+## Guest peer connections
+
+`apps/desktop/src/guest/` owns explicit guest consent, authenticated peer sessions,
+reconnection and a dedicated peer HTTP listener. Transfer pairing remains in
+`transfer/`; enabling guests does not import tabs or grant access through the
+publishing API. `packages/protocol/src/guest.ts` defines validated handshakes and
+connection setup links. Named desktop IPC exposes status, consent, retry, and
+main-process clipboard setup operations.
+
+Each desktop retains a Tailcat key in its existing credential store and reserves
+one loopback port on first guest setup. Later starts reuse that port; a conflict
+reports an error instead of silently changing the saved endpoint. The transport
+supervisor uses transient private FIFOs on Unix and a protected named pipe made
+by Windows PowerShell on Windows. Keys never become regular files. The Windows
+pipe has a protected logon-session ACL, denies network access, and has a bounded
+lifetime tied to its supervisor. Tailcat's destination-free loopback SOCKS proxy
+receives peer addresses through SOCKS bytes, preserving the WireGuard PSK without
+placing it in process arguments. Scope still uses the separately installed CLI.
+
+A one-time signed setup link exchanges endpoints for an existing pairing. Both
+users explicitly enable guest sharing before the session can start. A fresh
+server challenge, paired secret, device IDs and runtime epochs authenticate the
+handshake. Session tokens stay in main-process memory. Disabling or forgetting
+revokes active requests and blocks new ones; reconnect negotiates a new session.
+Saved peer endpoints containing PSKs are credentials, not workspace metadata.
+
+Owner operations register explicit method/capability handlers. The connection
+API carries byte streams with backpressure, caller cancellation, deadlines and
+idle timeouts. It does not forward arbitrary publishing routes or desktop IPC.

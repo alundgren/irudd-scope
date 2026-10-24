@@ -1,5 +1,14 @@
 # UI decisions
 
+Other Scopes enables guest sharing separately for each paired desktop. Existing
+pairs remain transfer-only until both sides consent. Setup uses a fifteen-minute
+guest connection link copied and read by main, so endpoint credentials do not
+appear in renderer state. After the initial exchange, saved connections retry
+automatically on startup, wake and outages. Status distinguishes setup, offline,
+connected and incompatible versions. Disable revokes guests while preserving
+transfer pairing; Forget removes the pairing too. A saved listener port conflict
+asks the user to close the conflicting app and retry.
+
 Other Scopes explains that transfers require Tailcat installed separately on
 each device. Scope has no installer or installation action; a missing CLI produces
 an inline error when pairing or transfer starts.

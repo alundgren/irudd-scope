@@ -29,6 +29,8 @@ import {
 import { Remote, Remotes } from "./remote-contract.ts";
 import { RemoteToken } from "@irudd-scope/protocol/remote";
 import { TransferName, TransferSecret } from "@irudd-scope/protocol/transfer";
+import { GuestEndpoint } from "@irudd-scope/protocol/guest";
+import { GuestSettings } from "./guest/contract.ts";
 import { ScopeDevice, ScopePeer, ScopePeers } from "./transfer/contract.ts";
 import { machineRetroConfiguration } from "./retro-configuration.ts";
 import type { MemoryConfiguration } from "@irudd-scope/protocol/memory";
@@ -691,11 +693,79 @@ export class DesktopStore {
       const secrets = await this.credentials.read();
       const transferKeys = { ...secrets.transferKeys };
       delete transferKeys[id];
-      await this.credentials.write({ ...secrets, transferKeys });
+      const guestEndpoints = { ...secrets.guestEndpoints };
+      delete guestEndpoints[id];
+      await this.credentials.write({
+        ...secrets,
+        transferKeys,
+        ...(secrets.guestEndpoints ? { guestEndpoints } : {}),
+      });
       await this.run(
         this
           .sql!`UPDATE preferences SET document = ${JSON.stringify(peers.filter((peer) => peer.id !== id))} WHERE name = 'scope-peers'`,
       );
+    });
+  }
+
+  async guestSettings(): Promise<GuestSettings> {
+    await this.pending;
+    const [row] = await this.run(
+      this.sql!<{
+        document: string;
+      }>`SELECT document FROM preferences WHERE name = 'guest-settings'`,
+    );
+    return row ? decode(GuestSettings, JSON.parse(row.document)) : { enabled: {} };
+  }
+
+  updateGuestSettings(
+    update: { peerId: string; enabled: boolean } | { port: number },
+  ): Promise<void> {
+    return this.enqueue(async () => {
+      const [row] = await this.run(
+        this.sql!<{
+          document: string;
+        }>`SELECT document FROM preferences WHERE name = 'guest-settings'`,
+      );
+      const current = row ? decode(GuestSettings, JSON.parse(row.document)) : { enabled: {} };
+      const next = decode(
+        GuestSettings,
+        "port" in update
+          ? { ...current, port: update.port }
+          : { ...current, enabled: { ...current.enabled, [update.peerId]: update.enabled } },
+      );
+      await this.run(
+        this
+          .sql!`INSERT INTO preferences(name, document) VALUES ('guest-settings', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+      );
+    });
+  }
+
+  async guestKey(): Promise<string | undefined> {
+    await this.pending;
+    return (await this.credentials.read()).guestKey;
+  }
+
+  saveGuestKey(key: string): Promise<void> {
+    if (!key || key.length > 16384) throw new Error("Invalid guest transport key.");
+    return this.enqueue(async () => {
+      await this.credentials.write({ ...(await this.credentials.read()), guestKey: key });
+    });
+  }
+
+  async guestEndpoint(id: string): Promise<GuestEndpoint | undefined> {
+    await this.pending;
+    return (await this.credentials.read()).guestEndpoints?.[id];
+  }
+
+  saveGuestEndpoint(id: string, endpoint: GuestEndpoint): Promise<void> {
+    const validated = decode(GuestEndpoint, endpoint);
+    return this.enqueue(async () => {
+      const secrets = await this.credentials.read();
+      if (!secrets.transferKeys?.[id]) throw new Error("This Scope is no longer paired.");
+      await this.credentials.write({
+        ...secrets,
+        guestEndpoints: { ...secrets.guestEndpoints, [id]: validated },
+      });
     });
   }
 

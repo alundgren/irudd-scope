@@ -959,3 +959,17 @@ older hubs reject JSON plans until their CLI/hub protocol is updated separately.
 Use direct local discovery for the first trial. Same-version hub queues keep the
 normal receipt and revision-conflict behavior. A queued write is not a delivered
 plan. Reads and basis capture require the desktop connected.
+
+### Native guest connection transport check
+
+After building the desktop, `vp exec node tools/check-guest-transport.ts` runs an
+optional CLI-only check with the installed Tailcat, synthetic in-memory private
+keys, and a temporary authenticated HTTP listener. It generates and restores the
+key through the platform's protected pipe, restarts the transport worker, checks
+the same address, and sends authenticated and rejected requests through the
+PSK-preserving SOCKS path. It prints only outcomes and stops its child processes.
+This uses live relays and is outside the standard suite. Run it separately on
+macOS and Windows; a Linux result does not establish native pipe or credential
+behavior. Windows requires built-in Windows PowerShell and its .NET Framework
+named-pipe security APIs. Protected pipe failures stop guest setup without a
+plaintext fallback. Standard connection tests use a synthetic local CLI.
