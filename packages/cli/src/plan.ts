@@ -2,6 +2,7 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import type { ScopeClient } from "@irudd-scope/protocol/client";
 import { ArtifactName, decode, MAX_CONTENT_BYTES } from "@irudd-scope/protocol";
+import { guestPlanCommand, type GuestPlanOptions } from "./plan-owner.ts";
 import {
   capturePlanBasis,
   decodePlan,
@@ -26,6 +27,8 @@ export const PlanGuide = {
   },
   publish:
     "plan publish NAME PLAN.json OVERVIEW.html creates a named permanent JSON plan. To replace, first read it, preserve bases and records, then pass --expected-revision REVISION. Zero means create only. Publication is not agreement.",
+  owner:
+    "Add --owner-device UUID --source-tab UUID to read/item/content/publish/capture-basis to target an existing guest plan. The positional NAME becomes the exact artifact ID. Read returns sourceVersion and artifact.revision; writes require both --expected-source-version and --expected-revision. No local fallback or offline queue. Writes retain original input and operation identity on the receiver. Use plan status ARTIFACT_ID with the same owner flags after uncertain replies, then plan reconcile with those flags before another write. Status settles an unexecuted preparation without dispatching. Reconcile reads status and fresh owner source, then clears the dependent-write block. Inspect the returned original input and source before deciding on a new write. Neither command retries execution. Upgrade older peers, receiver desktops and hubs.",
   read: "plan read NAME returns artifact metadata and the exact document. plan item NAME ITEM_ID returns owned checks, prerequisites, related context and retained evidence separately. plan content NAME --output NEW_FILE.html exports authored HTML without modification.",
   basis:
     "plan capture-basis NAME BASIS_ID --expected-revision REVISION captures the exact current proposal and publishes it with a revision guard. It records no agreement. Read again, add agreement/evidence referencing that basisId and publish with the new expected revision. Basis IDs are immutable and retained. Records are immutable; explicit removedRecordIds removes a record before a correction with a new ID.",
@@ -119,11 +122,15 @@ function expectedRevision(value?: string): number {
 export async function planCommand(
   client: ScopeClient,
   positionals: string[],
-  options: { output?: string; "expected-revision"?: string },
+  options: GuestPlanOptions,
   signal: AbortSignal,
 ) {
   const [, action, argument, extra, overview] = positionals;
   if (!argument) throw new Error("Provide a plan name. Use plan guide.");
+  if (options["owner-device"] !== undefined || options["source-tab"] !== undefined)
+    return guestPlanCommand(client, positionals, options, signal);
+  if (options["expected-source-version"] !== undefined)
+    throw new Error("--expected-source-version requires --owner-device and --source-tab.");
   const name = decode(ArtifactName, argument);
   if (action === "publish") {
     if (!extra || !overview) throw new Error("Use plan publish NAME PLAN.json OVERVIEW.html.");

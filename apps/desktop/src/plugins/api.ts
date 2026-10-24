@@ -16,6 +16,7 @@ export type OwnerContent = {
   ownerName?: string;
   ownerDeviceId: string;
   sourceTabId: string;
+  sourceVersion?: number;
   available: boolean;
   read: (artifact: Artifact) => Promise<ArtifactContent>;
 };

@@ -12,8 +12,8 @@ asks the user to close the conflicting app and retry.
 Eligible owner tabs appear automatically after guest sharing connects, including
 hidden bookmarked files, plans and folders. A guest names its owner above the
 content. File guests use the existing viewers and Download action. Plans and
-folders preserve their kind and show an update requirement in builds without
-their guest view. Unavailable sources show a status message and hide the document
+folders use their registered native views and preserve their kind. Older builds
+without the required capability show an update requirement. Unavailable sources show a status message and hide the document
 from interaction. Offline, disabled, unpaired and incompatible connections have
 distinct recovery advice. An absent source may have expired, moved to Trashcan,
 or become ineligible; checking the source belongs on its owner.
@@ -498,6 +498,12 @@ whole-scenario boundaries and visual checks where useful. Native controls follow
 Scope appearance. Each full check procedure remains accessible. Tab switching and
 hiding retain the document; current overview position and selected work view/item
 survive restart. Updates retain the current reading position where content permits.
+A plan guest uses this same native presentation. Its selected work item, retained
+proposal and reading positions belong to the receiving desktop and survive restart.
+Copy work item and the displayed retrieval command identify the owner device,
+source tab and artifact, even when another desktop has the same plan name or ID.
+These controls only navigate, inspect and copy. Owner writes remain agent CLI
+commands in the existing conversation.
 Legacy HTML plans become ordinary HTML tabs with their content and lifecycle intact.
 
 ## Pull request inboxes

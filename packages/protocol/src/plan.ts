@@ -1,3 +1,4 @@
+import type { GuestTarget } from "./guest-operation.ts";
 import { Schema } from "effect";
 import { decode, MAX_CONTENT_BYTES, Revision, ScopeError } from "./index.ts";
 
@@ -243,6 +244,7 @@ export function planItemPacket(
   plan: PlanDocument,
   itemId: string,
   artifact: { name?: string; id: string; revision: number },
+  owner?: GuestTarget & { sourceVersion?: number },
 ) {
   const item = plan.items?.find((x) => x.id === itemId);
   if (!item) throw new ScopeError(404, "Work item not found.");
@@ -302,6 +304,7 @@ export function planItemPacket(
   return {
     version: 1,
     artifact,
+    ...(owner ? { owner } : {}),
     item,
     ownedChecks,
     prerequisites: prerequisiteItems,
@@ -324,8 +327,17 @@ export function planItemPacket(
     },
     overviewHtml: plan.overviewHtml,
     retrieval: {
-      read: `irudd-scope plan read ${artifact.name ?? artifact.id}`,
-      content: `irudd-scope plan content ${artifact.name ?? artifact.id} --output overview.html`,
+      item: `${planRetrieval("item", artifact, owner)} ${item.id}`,
+      read: planRetrieval("read", artifact, owner),
+      content: `${planRetrieval("content", artifact, owner)} --output overview.html`,
     },
   };
+}
+
+export function planRetrieval(
+  action: string,
+  artifact: { id: string; name?: string },
+  owner?: GuestTarget,
+) {
+  return `irudd-scope plan ${action} ${owner ? artifact.id : (artifact.name ?? artifact.id)}${owner ? ` --owner-device ${owner.ownerDeviceId} --source-tab ${owner.sourceTabId}` : ""}`;
 }

@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { createServer, request as httpRequest } from "node:http";
 
 /** Changes only synthetic peer responses; real app authentication and storage still execute. */
@@ -5,6 +6,7 @@ export async function guestResponseFixture() {
   let ownerPort = 0;
   let authorization = "";
   let dropMutation = false;
+  let omitted: { secret: string; capabilities: string[] } | undefined;
   let mode: "normal" | "unsupported" | "partial" | "stale" | "same-revision" | "unknown-kind" =
     "normal";
   let savedCatalog = "";
@@ -52,6 +54,23 @@ export async function guestResponseFixture() {
           dropMutation = false;
           incoming.resume();
           incoming.on("end", () => response.destroy());
+          return;
+        }
+        if (request.url === "/guest/hello" && omitted && incoming.statusCode === 200) {
+          const parts: Buffer[] = [];
+          incoming.on("data", (part) => parts.push(part));
+          incoming.on("end", () => {
+            const { mac: _mac, ...reply } = JSON.parse(Buffer.concat(parts).toString());
+            reply.hello.capabilities = reply.hello.capabilities.filter(
+              (capability: string) => !omitted!.capabilities.includes(capability),
+            );
+            const mac = createHmac("sha256", Buffer.from(omitted!.secret, "base64url"))
+              .update("scope-guest:reply:" + JSON.stringify(reply))
+              .digest("base64url");
+            response.writeHead(200, { "Content-Type": "application/json" });
+            response.end(JSON.stringify({ ...reply, mac }));
+          });
+          incoming.on("error", () => response.destroy());
           return;
         }
         const catalog = request.url === "/guest/catalog" && incoming.statusCode === 200;
@@ -125,6 +144,9 @@ export async function guestResponseFixture() {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   return {
     port: (server.address() as { port: number }).port,
+    omitCapabilities(secret: string, capabilities: string[]) {
+      omitted = capabilities.length ? { secret, capabilities } : undefined;
+    },
     dropNextMutationReply() {
       dropMutation = true;
     },

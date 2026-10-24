@@ -43,5 +43,11 @@ export function tabArtifactId(tab: Tab): string | undefined {
 
 /** Owner-aware view support is explicit; unsupported native kinds never use the file fallback. */
 export function guestPlugin(kind: string) {
-  return kind === "file" ? filePlugin : kind === "folder" ? folderPlugin : undefined;
+  return kind === "file"
+    ? filePlugin
+    : kind === "folder"
+      ? folderPlugin
+      : kind === "plan"
+        ? planPlugin
+        : undefined;
 }

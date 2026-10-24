@@ -79,10 +79,18 @@ export function TabHost({
             available: guestAvailable === true,
             ownerDeviceId: guest.ownerDeviceId,
             sourceTabId: guest.source.sourceTabId,
+            sourceVersion: guest.source.sourceVersion,
             read: (artifact: Artifact) => window.scope.guestContent(tab.id, artifact.revision),
           }
         : undefined,
-    [tab.id, guest?.ownerDeviceId, guest?.source.sourceTabId, guestAvailable, guestOwner?.name],
+    [
+      tab.id,
+      guest?.ownerDeviceId,
+      guest?.source.sourceTabId,
+      guest?.source.sourceVersion,
+      guestAvailable,
+      guestOwner?.name,
+    ],
   );
   const plugin =
     tab.type === "guest" ? guestPlugin(guest?.source.kind ?? "") : findPlugin(tab.type);

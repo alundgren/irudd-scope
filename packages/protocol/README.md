@@ -1013,8 +1013,8 @@ eligibility before and after loading bytes and cancels an affected read on
 source change or session revocation. Content uses a raw response, at most
 32 MiB, with a 15-second idle limit and 60-second total deadline. The receiver
 checks byte count and SHA-256 against the requested metadata. Plan content
-retains the original structured document; the current guest UI shows an update
-requirement until its native view is available. Unknown catalog versions or
+retains the original structured document and renders through the registered native
+plan view. Peers without `plan-read-v1` require an update. Unknown catalog versions or
 kinds also require an update and never fall back to ordinary HTML.
 
 ### Guest source operations
@@ -1101,3 +1101,52 @@ and 16 other folder requests. Event buffering is bounded to 256 events and 1 MiB
 an overflow disconnects the feed so the receiver re-lists. Source changes and
 revocation cancel both hops. Existing handshake/header limits and ordinary
 local/remote client write semantics remain unchanged.
+
+### Owner-targeted plan commands
+
+Existing `plan read`, `item`, `content`, `capture-basis` and `publish` commands
+accept `--owner-device UUID --source-tab UUID` together. With these flags the
+positional identifier must be the exact artifact ID, not its name. Reads return
+`{artifact, document, owner}` with `owner` containing both target IDs and the
+current `sourceVersion`. Packets include that owner and retrieval commands with
+all three identity fields. No credential is included. Missing, offline, revoked
+or mismatched owners fail without a local fallback.
+
+Guest publication replaces an existing plan only. Both `--expected-revision N`
+and `--expected-source-version N` are required, from an owner read. The CLI checks
+the document and immutable history, then prepares and executes the existing owner
+operation once. The owner validates again in its source/receipt transaction.
+Writes return the exact operation identity, outcome and recovery commands.
+Normal local commands retain their existing behavior.
+
+`plan status ARTIFACT_ID` and `plan reconcile ARTIFACT_ID` use the same owner flags
+and the receiver's saved operation. Status settles a still-prepared operation as
+rejected, never executes it, and returns original input plus the current outcome.
+Reconcile additionally reads current source state and releases the dependent-write
+block. Inspect that result before deciding on another write. Keep the original
+input after failures. Neither command allocates another identity or retries a write.
+
+Authenticated `GET /v1/guests/capabilities` returns
+`{capabilities:["guest-plans-v1"]}` when the receiver supports this workflow.
+Paired hubs forward these routes only when the connected desktop advertises
+`guest-plans-v1` in `Scope-Relay-Capabilities`; older hubs fail capability discovery
+and require an update. Peer reads still require `plan-read-v1`; source lookup and
+writes require `mutations-v1`. Guest routes are never queued or served from hub
+metadata. The desktop and owner must be online.
+
+`POST /v1/guests/pending` accepts `GuestTarget` and returns null or
+`{artifactId?, operation, outcome, dispatched}` from receiver recovery. It makes no
+owner request and changes no state. It can recover the saved identity after a lost
+prepare acknowledgement. The other routes retain their existing contracts above.
+
+Guest command requests and operation replies allow 34 MiB. `/v1/guests/read`
+returns original UTF-8 content inside a JSON string, so its reply allows twice
+`MAX_CONTENT_BYTES` plus `MAX_METADATA_BYTES` for JSON escaping and metadata.
+The actual plan still cannot exceed 32 MiB, including retained bases and records.
+Hub admission and streamed relay transfers enforce these separate limits. Commands
+have a bounded 120-second client/relay deadline; peer operations retain their
+60-second deadline. Desktop and stateless-hub HTTP body receipt has its own elapsed
+120-second deadline for authenticated exact guest routes; ordinary routes retain
+30-second body receipt and headers retain a separate 10-second limit. Progress does
+not reset these deadlines. Incomplete timed-out input closes its connection before
+preparation. These limits do not change ordinary artifact publication.

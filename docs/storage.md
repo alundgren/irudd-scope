@@ -661,3 +661,17 @@ is not an operation receipt. Status requires current peer authorization and
 queries that original host even when the source tab has been trashed. Missing
 bindings return unknown without executing anything. Existing database schema
 versions and artifact/form recovery formats remain unchanged.
+
+Plan guests keep view choice, selected work item, retained basis, current overview
+scroll, work-item scroll and selected-basis scroll under `state.data.plan` in the
+receiver's guest tab document. The optional `basisScrollY` reading field also
+applies to local plan tabs. It defaults to zero. Existing guest and local records
+remain readable; older builds can discard this new preference on save. No schema
+version changes, owner plan bytes or authoritative plan copies are added to the
+receiver. Owner updates preserve compatible reading fields.
+
+Authenticated guest pending reads return the existing receiver operation input,
+identity, dispatch marker and last outcome. They do not dispatch, settle or delete
+the operation. CLI status settles the same identity; explicit reconciliation reads
+status and current source before releasing the dependent-write block. A lost reply
+never authorizes another preparation or execution with a new identity.

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { decode } from "@irudd-scope/protocol";
 import { planItemPacket, readPlan, type PlanDocument } from "@irudd-scope/protocol/plan";
 import type { ArtifactContent } from "../../bridge.ts";
@@ -86,7 +86,16 @@ function Records({ plan, inspect }: { plan: PlanDocument; inspect: (id: string) 
 
 function PlanContent({ content, ...props }: TabProps & { content: ArtifactContent }) {
   const plan = useMemo(() => readPlan(content.bytes), [content.bytes]);
-  const state = decode(PlanTabState, props.tab.state).data;
+  const owner = props.context.content;
+  const state = decode(
+    PlanTabState,
+    owner
+      ? {
+          version: 1,
+          data: { ...(props.tab.state.data.plan as object), artifactId: content.artifact.id },
+        }
+      : props.tab.state,
+  ).data;
   const stateRef = useRef(state);
   stateRef.current = state;
   const iframe = useRef<HTMLIFrameElement>(null);
@@ -97,30 +106,48 @@ function PlanContent({ content, ...props }: TabProps & { content: ArtifactConten
   const html = useMemo(() => planHtml(basis?.proposal ?? plan), [plan, basis]);
   const item = plan.items?.find((x) => x.id === state.itemId) ?? plan.items?.[0];
   const packet = useMemo(
-    () => (item ? planItemPacket(plan, item.id, content.artifact) : undefined),
-    [plan, item, content.artifact],
+    () =>
+      item
+        ? planItemPacket(
+            plan,
+            item.id,
+            content.artifact,
+            owner
+              ? {
+                  ownerDeviceId: owner.ownerDeviceId,
+                  sourceTabId: owner.sourceTabId,
+                  sourceVersion: owner.sourceVersion,
+                }
+              : undefined,
+          )
+        : undefined,
+    [plan, item, content.artifact, owner],
   );
   const update = (patch: Partial<typeof state>) => {
     const data = Object.fromEntries(
       Object.entries({ ...stateRef.current, ...patch }).filter(([, value]) => value !== undefined),
     );
     stateRef.current = decode(PlanTabState, { version: 1, data }).data;
-    props.context.updateState({ version: 1, data });
+    if (owner) {
+      const { artifactId: _artifact, ...reading } = data;
+      props.context.updateState({ version: 1, data: { ...props.tab.state.data, plan: reading } });
+    } else props.context.updateState({ version: 1, data });
   };
   const observe = useDocumentScroll(
     iframe,
     props.active && view === "overview",
     `${content.artifact.revision}:${basis?.id ?? "current"}`,
-    basis ? 0 : (state.scrollY ?? 0),
+    basis ? (state.basisScrollY ?? 0) : (state.scrollY ?? 0),
     (y) => {
-      if (!basis) update({ scrollY: y });
+      update(basis ? { basisScrollY: y } : { scrollY: y });
     },
   );
-  useEffect(() => {
-    if (work.current) work.current.scrollTop = stateRef.current.workScrollY ?? 0;
-  }, []);
+  useLayoutEffect(() => {
+    if (props.active && view === "work" && work.current)
+      work.current.scrollTop = stateRef.current.workScrollY ?? 0;
+  }, [props.active, view, content.artifact.revision]);
   function inspect(id: string) {
-    update({ basisId: id, view: "overview" });
+    update({ basisId: id, basisScrollY: 0, view: "overview" });
   }
   async function copy() {
     try {
@@ -196,9 +223,7 @@ function PlanContent({ content, ...props }: TabProps & { content: ArtifactConten
               Copy work item
             </Button>
             <p role="status">{message}</p>
-            <code className="plan-command">
-              irudd-scope plan item {content.artifact.name} {item.id}
-            </code>
+            <code className="plan-command">{packet.retrieval.item}</code>
             {item.context && <p>{item.context}</p>}
             {plan.context && <p>{plan.context}</p>}
             {!![...(plan.constraints ?? []), ...(item.constraints ?? [])].length && (
@@ -276,7 +301,7 @@ function PlanContent({ content, ...props }: TabProps & { content: ArtifactConten
 }
 export function PlanView(props: TabProps) {
   return (
-    <PublishedContent artifact={props.artifact}>
+    <PublishedContent artifact={props.artifact} content={props.context.content}>
       {(content) => <PlanContent {...props} content={content} />}
     </PublishedContent>
   );

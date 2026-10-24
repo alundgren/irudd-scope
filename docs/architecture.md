@@ -320,8 +320,10 @@ HTML and records. Reading state persists with the workspace in SQLite. Native
 controls use Scope tokens; authored content keeps its presentation.
 
 The CLI assembles JSON and HTML and uses ordinary artifact reads and revision-checked
-publication. The paired hub transports the same bytes and queues writes without
-new routes or a plan service. Reads and basis capture need the desktop online.
+publication for local plans. The paired hub can queue opted-in local plan publication
+through the artifact protocol. Reads and basis capture need the desktop online.
+Explicit owner commands use the receiver guest API and existing peer mutation
+receipts. These commands require a live connection and are never queued by the hub.
 Scope neither orchestrates agents nor infers agreement or verification.
 
 Legacy HTML plans convert to ordinary HTML artifacts and file tabs, preserving
@@ -971,8 +973,8 @@ The receiver stores source metadata and local guest navigation in desktop.db.
 The workspace host selects the registered file view and supplies an explicit
 owner content reader. Bytes remain in memory only and downloads are explicit
 exports. HTML keeps its interactive trusted-content behavior. Folder references use the registered Folder presentation and an owner-qualified
-FolderSource. Plan references retain their native kind and currently display an
-update requirement; they do not use ordinary file rendering. Closing a guest hides the receiver
+FolderSource. Plan references use the registered PlanView with the owner content
+reader and receiver-local reading state. Closing a guest hides the receiver
 reference and never changes source retention or enters the local Trashcan.
 
 Receiver workspace layout orders local and guest UUIDs together. Guest navigation,
@@ -1011,3 +1013,16 @@ bytes. Owner routing bindings in that same database retain the authenticated
 caller and original filesystem host for status after source removal or restart.
 Only FolderOperations at that host records filesystem outcomes. No desktop
 binding claims to commit a remote write atomically. Status never replays a write.
+
+Guest plan CLI requests use explicit owner device, source tab and artifact identity.
+The protocol client reads owner content through the receiver's authenticated API;
+the CLI never obtains peer credentials. Existing-plan writes use owner source
+versions and artifact revisions, immutable history validation and durable mutation
+receipts. A receiver pending read exposes saved operation input without dispatching
+or clearing it. Status and reconciliation never resend a write.
+
+Paired hubs forward guest commands only to desktops advertising `guest-plans-v1`.
+Authenticated capability discovery reports an update requirement for an older hub
+or desktop. Guest commands are live-only and bypass publication buffering. The
+32 MiB content bound remains independent of the 34 MiB operation budget and the
+larger JSON-escaped content reply allowance.
