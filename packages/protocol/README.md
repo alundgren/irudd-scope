@@ -983,3 +983,36 @@ fresh server challenges, paired device proofs, and session capability replies.
 Endpoint addresses include transport credentials and stay in protected desktop
 storage. The peer listener exposes only registered owner operations; these
 contracts do not grant publishing or arbitrary desktop IPC access.
+
+## Guest catalogs
+
+Paired desktop guest sessions negotiate `catalog-v1`, `artifact-read-v1` and
+`plan-read-v1` independently of transfer-copy support. These routes use the peer
+session credential in desktop main, never the publishing token or renderer
+credentials. They are not general publication or plugin forwarding routes.
+
+`POST /guest/catalog` accepts `{}` for a complete refresh or `{ "after": N }`
+for a bounded change wait. `GuestCatalog` contains version 1, owner device ID,
+increasing revision and source entries. An entry identifies the source tab
+UUID, display title, `file`, `plan` or `folder` kind, supported content version,
+and artifact metadata where applicable. Source filesystem paths, plugin state
+and publication provenance are omitted. Built-ins, trash, incomplete sources,
+unsupported kinds and guest references are excluded.
+
+A reply is a complete snapshot, limited to 4096 sources and 8 MiB. Exceeding a
+limit fails the refresh; it never truncates the source list. Waits return after
+at most 20 seconds, with a 25-second idle limit and 30-second total deadline.
+Reconnects request a complete snapshot. Receivers validate the complete reply,
+authenticated owner identity, unique source UUIDs, kind/version support and
+monotonic revision before applying it. A failed refresh preserves saved
+references and makes content unavailable until a successful refresh.
+
+`POST /guest/artifact-content` and `POST /guest/plan-content` accept a source
+tab UUID and expected artifact revision. The owner resolves current active
+eligibility before and after loading bytes and cancels an affected read on
+source change or session revocation. Content uses a raw response, at most
+32 MiB, with a 15-second idle limit and 60-second total deadline. The receiver
+checks byte count and SHA-256 against the requested metadata. Plan content
+retains the original structured document; the current guest UI shows an update
+requirement until its native view is available. Unknown catalog versions or
+kinds also require an update and never fall back to ordinary HTML.

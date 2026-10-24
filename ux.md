@@ -9,6 +9,14 @@ connected and incompatible versions. Disable revokes guests while preserving
 transfer pairing; Forget removes the pairing too. A saved listener port conflict
 asks the user to close the conflicting app and retry.
 
+Eligible owner tabs appear automatically after guest sharing connects, including
+hidden bookmarked files, plans and folders. A guest names its owner above the
+content. File guests use the existing viewers and Download action. Plans and
+folders preserve their kind and show an update requirement in builds without
+their guest view. Unavailable sources show a status message without retaining
+an interactive old document. Close hides a guest locally; guests have no local
+bookmark, Send tab or Trashcan action.
+
 Other Scopes explains that transfers require Tailcat installed separately on
 each device. Scope has no installer or installation action; a missing CLI produces
 an inline error when pairing or transfer starts.

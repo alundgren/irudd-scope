@@ -95,7 +95,7 @@ export function TabHost({
         {guestOwner?.name ?? "the owner"}.
       </p>
     );
-  if (["file", "retro", "sketchpad", "folder"].includes(tab.type) && !active && !visited)
+  if (["file", "retro", "sketchpad", "folder", "guest"].includes(tab.type) && !active && !visited)
     return null;
   if (!plugin)
     return (

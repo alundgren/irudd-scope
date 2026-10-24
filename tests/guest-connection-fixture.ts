@@ -1,5 +1,6 @@
+import { guestResponseFixture } from "./guest-response-fixture.ts";
 import { guestCatalogChecks } from "./guest-catalog-checks.ts";
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -81,13 +82,14 @@ export async function guestConnectionChecks() {
   const trap = createServer((_request, response) => response.writeHead(403).end());
   await new Promise<void>((resolve) => trap.listen(0, "127.0.0.1", resolve));
   const trapPort = (trap.address() as { port: number }).port;
+  const responses = await guestResponseFixture();
   const left = await a.launch();
   let right: typeof left | undefined;
   try {
     right = await b.launch();
     const pageA = await left.firstWindow();
     const pageB = await right.firstWindow();
-    const catalog = await guestCatalogChecks({ a, b, left, right, pageA, pageB });
+    const catalog = await guestCatalogChecks({ a, b, left, right, pageA, pageB, responses });
     const invitation = await pageA.evaluate(() => window.scope.createPairing("Source Scope"));
     await pageA.evaluate((id) => window.scope.copyPairingSecret(id), invitation.id);
     const pairingSecret = await left.evaluate(({ clipboard }) => clipboard.readText());
@@ -106,7 +108,11 @@ export async function guestConnectionChecks() {
     const link = await left.evaluate(({ clipboard }) => clipboard.readText());
     const decoded = JSON.parse(Buffer.from(link.split("#")[1]!, "base64url").toString());
     const { mac: _mac, ...routed } = decoded;
-    await writeFile(routes, JSON.stringify({ [trapPort]: decoded.endpoint.port }));
+    responses.target(decoded.endpoint.port);
+    await writeFile(
+      routes,
+      JSON.stringify({ [trapPort]: responses.port, [decoded.endpoint.port]: responses.port }),
+    );
     routed.endpoint = { ...routed.endpoint, port: trapPort };
     const mac = createHmac("sha256", Buffer.from(pairingSecret, "base64url"))
       .update("scope-guest:link:" + JSON.stringify(routed))
@@ -172,6 +178,48 @@ export async function guestConnectionChecks() {
       JSON.parse(Buffer.from(restarted.split("#")[1]!, "base64url").toString()).endpoint,
     ).toEqual(endpoint);
     await catalog.reconnected();
+    // A session-only older client cannot call a capability it did not negotiate.
+    await pageB.evaluate((id) => window.scope.copyGuestLink(id), id);
+    const receiverLink = await right.evaluate(({ clipboard }) => clipboard.readText());
+    const receiverEndpoint = JSON.parse(
+      Buffer.from(receiverLink.split("#")[1]!, "base64url").toString(),
+    ).endpoint;
+    const challenge = await fetch(`http://127.0.0.1:${endpoint.port}/guest/challenge`).then(
+      (response) => response.json(),
+    );
+    const devices = await pageB.evaluate(() => window.scope.transferDevices());
+    const hello = {
+      version: 1,
+      pairId: id,
+      deviceId: devices.deviceId,
+      targetId: devices.peers[0]!.deviceId,
+      name: "Older synthetic Scope",
+      nonce: randomBytes(32).toString("base64url"),
+      epoch: randomUUID(),
+      targetEpoch: challenge.epoch,
+      challenge: challenge.challenge,
+      enabled: true,
+      capabilities: ["session"],
+      endpoint: receiverEndpoint,
+      timestamp: Date.now(),
+    };
+    const proof = createHmac("sha256", Buffer.from(pairingSecret, "base64url"))
+      .update("scope-guest:hello:" + JSON.stringify(hello))
+      .digest("base64url");
+    const authenticated = await fetch(`http://127.0.0.1:${endpoint.port}/guest/hello`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hello, mac: proof }),
+    });
+    expect(authenticated.status).toBe(200);
+    const session = (await authenticated.json()).session;
+    const unsupported = await fetch(`http://127.0.0.1:${endpoint.port}/guest/catalog`, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + session, "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(unsupported.status).toBe(404);
+    expect(await unsupported.json()).toEqual({ error: "Unsupported guest operation." });
     await pageA.evaluate((id) => window.scope.setGuestAccess(id, false), id);
     expect(await stateA()).toBe("disabled");
     await pageB.evaluate((id) => window.scope.retryGuest(id), id);
@@ -180,8 +228,12 @@ export async function guestConnectionChecks() {
     expect((await pageA.evaluate(() => window.scope.transferDevices())).peers).toHaveLength(1);
     await pageA.evaluate((id) => window.scope.forgetScope(id), id);
     expect((await pageA.evaluate(() => window.scope.transferDevices())).peers).toHaveLength(0);
+    await right.close();
+    right = await b.launch();
+    await catalog.restarted(await right.firstWindow());
   } finally {
     await right?.close();
+    await responses.close();
     trap.closeAllConnections();
     await new Promise<void>((resolve) => trap.close(() => resolve()));
     await left.close();

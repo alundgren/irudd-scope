@@ -587,7 +587,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           const artifact = artifacts.get(tabArtifactId(tab) ?? "");
           return (
             <div
-              className="artifact-pane"
+              className={tab.type === "guest" ? "artifact-pane guest-pane" : "artifact-pane"}
               role="tabpanel"
               id={`pane-${id}`}
               aria-labelledby={focus ? undefined : `tab-${id}`}
@@ -605,25 +605,27 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                   )?.name ?? "another Scope"}
                 </p>
               )}
-              <TabHost
-                tab={tab}
-                active={id === workspace.selected}
-                artifact={artifact}
-                guest={guests.records.find((record) => record.tab.id === tab.id)}
-                guestOwner={guests.owners.find(
-                  (owner) =>
-                    owner.deviceId ===
-                    guests.records.find((record) => record.tab.id === tab.id)?.ownerDeviceId,
-                )}
-                guestAvailable={guests.available.includes(tab.id)}
-                router={events}
-                updateState={updateState}
-                updateOverlayPosition={updateOverlayPosition}
-                onClose={(id) => void close(id)}
-                theme={theme}
-                focus={focus && id === workspace.selected}
-                viewing={viewing && id === workspace.selected}
-              />
+              <div className={tab.type === "guest" ? "guest-content" : "contents"}>
+                <TabHost
+                  tab={tab}
+                  active={id === workspace.selected}
+                  artifact={artifact}
+                  guest={guests.records.find((record) => record.tab.id === tab.id)}
+                  guestOwner={guests.owners.find(
+                    (owner) =>
+                      owner.deviceId ===
+                      guests.records.find((record) => record.tab.id === tab.id)?.ownerDeviceId,
+                  )}
+                  guestAvailable={guests.available.includes(tab.id)}
+                  router={events}
+                  updateState={updateState}
+                  updateOverlayPosition={updateOverlayPosition}
+                  onClose={(id) => void close(id)}
+                  theme={theme}
+                  focus={focus && id === workspace.selected}
+                  viewing={viewing && id === workspace.selected}
+                />
+              </div>
             </div>
           );
         })}

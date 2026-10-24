@@ -148,7 +148,7 @@ export class DesktopStore {
         position INTEGER NOT NULL, UNIQUE(owner_id, source_id)
       ) STRICT`);
       await this.run(sql`CREATE TABLE IF NOT EXISTS guest_catalogs (
-        owner_id TEXT PRIMARY KEY, revision INTEGER NOT NULL
+        owner_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, fingerprint TEXT NOT NULL
       ) STRICT`);
 
       const [{ user_version: version }] = await this.run(
@@ -789,6 +789,7 @@ export class DesktopStore {
       new Set(catalog.sources.map((source) => source.sourceTabId)).size !== catalog.sources.length
     )
       throw new Error("Invalid duplicate guest source identity.");
+    const fingerprint = createHash("sha256").update(JSON.stringify(catalog.sources)).digest("hex");
     return this.enqueue(async () => {
       const sql = this.sql!;
       return this.run(
@@ -796,8 +797,14 @@ export class DesktopStore {
           Effect.gen(function* () {
             const [previous] = yield* sql<{
               revision: number;
-            }>`SELECT revision FROM guest_catalogs WHERE owner_id = ${catalog.ownerDeviceId}`;
+              fingerprint: string;
+            }>`SELECT revision, fingerprint FROM guest_catalogs WHERE owner_id = ${catalog.ownerDeviceId}`;
             if (previous && catalog.revision < previous.revision) return false;
+            if (previous && catalog.revision === previous.revision) {
+              if (previous.fingerprint !== fingerprint)
+                throw new Error("The owner changed a catalog without a new revision.");
+              return true;
+            }
             const [layout] = yield* sql<{
               document: string;
             }>`SELECT document FROM preferences WHERE name = 'workspace_layout'`;
@@ -824,7 +831,7 @@ export class DesktopStore {
                 yield* sql`INSERT INTO guest_tabs(id, owner_id, source_id, source, tab, position) VALUES (${id}, ${catalog.ownerDeviceId}, ${source.sourceTabId}, ${JSON.stringify(source)}, ${JSON.stringify(tab)}, (SELECT coalesce(max(position), -1) + 1 FROM guest_tabs))`;
               }
             }
-            yield* sql`INSERT INTO guest_catalogs VALUES (${catalog.ownerDeviceId}, ${catalog.revision}) ON CONFLICT(owner_id) DO UPDATE SET revision = excluded.revision`;
+            yield* sql`INSERT INTO guest_catalogs VALUES (${catalog.ownerDeviceId}, ${catalog.revision}, ${fingerprint}) ON CONFLICT(owner_id) DO UPDATE SET revision = excluded.revision, fingerprint = excluded.fingerprint`;
             return true;
           }),
         ),

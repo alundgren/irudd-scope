@@ -950,3 +950,27 @@ the idle limit. Expiry, disconnect, revocation and shutdown abort the handler's
 signal and close its streams. Handlers must observe that signal and release
 resources on cancellation. The connection API carries byte streams with
 backpressure and caller cancellation. It does not forward arbitrary publishing routes or desktop IPC.
+
+Guest catalogs and artifact reads are named routes on those sessions.
+`guest/catalog.ts` obtains an authoritative projection from `library/store.ts`,
+joining active tab lifecycle with complete publications or folder identities.
+The process-independent plugin registry explicitly allows ordinary files,
+structured plans and folders. Hidden bookmarked sources remain eligible.
+Built-ins, unsupported kinds, incomplete publications and trash do not appear.
+Guest references have their own desktop preferences records and cannot become
+local artifacts or transfer sources.
+
+Catalog replies are complete snapshots with increasing persisted revisions.
+A bounded long poll returns the next snapshot or the current snapshot after
+20 seconds. Reconnect requests a full snapshot. Limits reject the entire
+refresh; partial catalogs never remove entries. Source changes wake waiting
+catalog readers and invalidate affected in-flight artifact reads. Every owner
+read resolves the source tab again and checks its lifecycle and revision.
+
+The receiver stores source metadata and local guest navigation in desktop.db.
+The workspace host selects the registered file view and supplies an explicit
+owner content reader. Bytes remain in memory only and downloads are explicit
+exports. HTML keeps its interactive trusted-content behavior. Plan and folder
+references retain their native kind and currently display an update requirement;
+they do not use ordinary file rendering. Closing a guest hides the receiver
+reference and never changes source retention or enters the local Trashcan.

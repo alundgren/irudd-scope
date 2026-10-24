@@ -27,7 +27,11 @@ export function PublishedContent({
       })
       .catch((failure: unknown) => {
         if (active)
-          setError(failure instanceof Error ? failure.message : "Could not load the artifact.");
+          setError(
+            failure instanceof Error
+              ? failure.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "")
+              : "Could not load the artifact.",
+          );
       });
     return () => {
       active = false;

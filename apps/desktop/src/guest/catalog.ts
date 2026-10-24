@@ -46,6 +46,7 @@ export class GuestCatalogs {
   private remove: (() => void)[] = [];
   private timer?: ReturnType<typeof setTimeout>;
   private ticking = false;
+  private viewGeneration = 0;
 
   constructor(
     private readonly connections: GuestConnections,
@@ -99,9 +100,10 @@ export class GuestCatalogs {
     return this.view;
   }
   private async publish() {
+    const generation = ++this.viewGeneration;
     const records = await this.desktop.guestRecords();
-    if (this.closed.signal.aborted) return;
-    this.view = {
+    if (this.closed.signal.aborted || generation !== this.viewGeneration) return;
+    const view: GuestCatalogView = {
       records,
       owners: [...this.owners.values()],
       available: records
@@ -110,6 +112,8 @@ export class GuestCatalogs {
         )
         .map((record) => record.tab.id),
     };
+    if (JSON.stringify(view) === JSON.stringify(this.view)) return;
+    this.view = view;
     this.changed(this.view);
   }
 
@@ -167,7 +171,7 @@ export class GuestCatalogs {
   }
   private waiting = new Set<string>();
 
-  /** Future owner operations resolve here instead of accepting a supplied artifact ID or root. */
+  /** Owner operations resolve here instead of accepting a supplied artifact ID or root. */
   async resolveSource(sourceTabId: string): Promise<GuestSource> {
     const source = (await this.artifacts.guestSources()).find(
       (source) => source.sourceTabId === sourceTabId,
@@ -247,6 +251,8 @@ export class GuestCatalogs {
           this.owners.delete(id);
         }
       await this.publish();
+    } catch {
+      console.error("Could not refresh guest catalog status.");
     } finally {
       this.ticking = false;
       if (!this.closed.signal.aborted)
@@ -288,7 +294,9 @@ export class GuestCatalogs {
             source.version !== 1 ||
             (source.kind === "file" &&
               (!source.artifact ||
-                !["html", "markdown", "text", "image", "file"].includes(source.artifact.kind))) ||
+                !["html", "markdown", "text", "image", "file", "excalidraw"].includes(
+                  source.artifact.kind,
+                ))) ||
             (source.kind === "plan" && source.artifact?.kind !== "plan") ||
             (source.kind === "folder" && source.artifact)
           )

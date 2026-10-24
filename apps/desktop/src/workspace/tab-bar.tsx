@@ -166,9 +166,11 @@ export function TabBar({
                   title={label?.tooltip ?? title}
                   aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight Delete"
                   aria-description={
-                    builtin
-                      ? "Drag or Alt and arrow keys to reorder. Delete closes this built-in tab."
-                      : "Drag to reorder. Hold over Tabs and Trashcan to open the drawer and drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
+                    tab.type === "guest"
+                      ? "Drag or Alt and arrow keys to reorder. Delete closes this guest locally."
+                      : builtin
+                        ? "Drag or Alt and arrow keys to reorder. Delete closes this built-in tab."
+                        : "Drag to reorder. Hold over Tabs and Trashcan to open the drawer and drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
                   }
                   onKeyDown={(event) =>
                     drag.keyboard(
@@ -215,7 +217,11 @@ export function TabBar({
                   className="tab-close"
                   data-tab-drag-ignore
                   aria-label={`Close ${title}`}
-                  title={permanent ? "Close tab · Reopen from drawer" : "Move to Trashcan"}
+                  title={
+                    permanent || tab.type === "guest"
+                      ? "Close tab · Reopen from drawer"
+                      : "Move to Trashcan"
+                  }
                   onClick={() => onClose(id)}
                 >
                   <X />

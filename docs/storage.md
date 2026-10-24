@@ -549,3 +549,26 @@ on Linux development profiles. Peer endpoints contain a WireGuard preshared key
 and never appear in ordinary preferences. Forget removes that peer's endpoint;
 the local transport key remains available for other pairings. Session tokens and
 server challenges are memory-only and invalid after restart.
+
+## Guest references
+
+`desktop.db` adds `guest_tabs`, keyed by a receiver UUID and a unique owner
+device ID/source tab UUID pair. Each row stores projected source metadata and
+the receiver's own tab navigation. `guest_catalogs` retains the last accepted
+revision and source fingerprint per owner. Equal revisions must carry identical
+source metadata. These additive tables do not change existing local tab
+records. Source metadata refresh preserves the receiver UUID and navigation.
+Missing sources remain references but are unavailable for content reads.
+
+The `guest-catalog-version` preference stores the owner catalog's revision and
+metadata fingerprint together. Revisions increase when that complete projection
+changes and survive normal restart. A receiver rejects older revisions and
+keeps its last valid records after failed or incomplete refreshes. Restoring an
+older owner database can roll back its revision and requires resolving that
+mismatch before the receiver accepts it.
+
+Guest records and content never enter the receiver's `scope.db`, blob tables,
+retention records or transfer receipts. There is no persistent guest content
+cache. Published bytes remain in the owner's `scope.db`; folder files remain on
+their existing filesystem. Credential storage remains separate from these
+metadata records. Exported guest downloads are ordinary user-selected files.

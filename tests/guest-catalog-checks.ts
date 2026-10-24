@@ -1,3 +1,6 @@
+import { spawnedHub } from "./hub-fixture.ts";
+import { ScopeClient } from "@irudd-scope/protocol/client";
+import type { guestResponseFixture } from "./guest-response-fixture.ts";
 import { expect } from "vite-plus/test";
 import type { ElectronApplication, Page } from "@playwright/test";
 import { DatabaseSync } from "node:sqlite";
@@ -14,6 +17,7 @@ export async function guestCatalogChecks({
   right,
   pageA,
   pageB,
+  responses,
 }: {
   a: Fixture;
   b: Fixture;
@@ -21,6 +25,7 @@ export async function guestCatalogChecks({
   right: ElectronApplication;
   pageA: Page;
   pageB: Page;
+  responses: Awaited<ReturnType<typeof guestResponseFixture>>;
 }) {
   const ca = await a.connect();
   const cb = await b.connect();
@@ -36,7 +41,7 @@ export async function guestCatalogChecks({
     "same-id",
     metadata,
     Buffer.from(
-      '<button onclick="this.textContent=\'Clicked\'">Try guest</button><input aria-label="Local draft">',
+      `<button onclick="this.textContent='Clicked'">Try guest</button><input aria-label="Local draft"><script src="http://127.0.0.1:${responses.port}/resource.js"></script>`,
     ),
   );
   await cb.publish("same-id", metadata, Buffer.from("<h1>Receiver local</h1>"));
@@ -103,6 +108,7 @@ export async function guestCatalogChecks({
     "owner-plan",
     {
       title: "Owner plan",
+      name: "owner-plan",
       kind: "plan",
       fileName: "plan.json",
       mediaType: "application/json",
@@ -157,6 +163,11 @@ export async function guestCatalogChecks({
       const record = view.records.find((record) => record.source.artifact?.id === "same-id")!;
       guestId = record.tab.id;
       expect(record.source.sourceTabId).toBe(sourceTab.id);
+      const retainedSource = (await pageA.evaluate(() => window.scope.retainedTabs())).find(
+        (entry) => entry.tab.id === sourceTab.id,
+      )!;
+      expect(retainedSource.permanent).toBe(true);
+      expect(retainedSource.tab.hidden).toBe(true);
       expect(guestId).not.toBe(sourceTab.id);
       expect((await own()).records[0]!.source.sourceTabId).toBe(sourceTab.id);
       expect((await own()).records[0]!.ownerDeviceId).not.toBe(record.ownerDeviceId);
@@ -187,9 +198,19 @@ export async function guestCatalogChecks({
       const frame = pane.locator("iframe").contentFrame();
       await frame.getByRole("button", { name: "Try guest" }).click();
       await frame.getByRole("button", { name: "Clicked" }).waitFor();
+      await expect
+        .poll(() => frame.locator("body").getAttribute("data-external-resource"))
+        .toBe("loaded");
       await frame.getByLabel("Local draft").fill("Receiver navigation remains local");
       await capture("guest-html-light.png");
-      await pageB.evaluate(() => window.scope.saveSettings({ appearance: "dark" }));
+      await pageB.getByRole("button", { name: "Search and controls" }).click();
+      await pageB.getByRole("button", { name: "Settings", exact: true }).click();
+      await pageB.getByLabel("Search settings").fill("appearance");
+      await pageB.getByLabel("Appearance", { exact: true }).selectOption("dark");
+      await pageB
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
       await right.evaluate(({ BrowserWindow }) =>
         BrowserWindow.getAllWindows()[0]!.setSize(640, 820),
       );
@@ -298,6 +319,206 @@ export async function guestCatalogChecks({
       } finally {
         receiver.close();
       }
+      for (const example of [
+        {
+          id: "markdown",
+          kind: "markdown",
+          mediaType: "text/markdown",
+          fileName: "readme.md",
+          content: Buffer.from("# Shared Markdown"),
+        },
+        {
+          id: "text",
+          kind: "text",
+          mediaType: "text/plain",
+          fileName: "note.txt",
+          content: Buffer.from("Shared plain text"),
+        },
+        {
+          id: "image",
+          kind: "image",
+          mediaType: "image/png",
+          fileName: "image.png",
+          content: Buffer.from(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aK5kAAAAASUVORK5CYII=",
+            "base64",
+          ),
+        },
+      ]) {
+        const artifact = await ca.publish(
+          example.id,
+          {
+            title: "Shared " + example.id,
+            kind: example.kind,
+            mediaType: example.mediaType,
+            fileName: example.fileName,
+            expectedRevision: 0,
+          },
+          example.content,
+        );
+        await expect.poll(async () => (await source()).available.length).toBe(4);
+        const record = (await source()).records.find(
+          (record) => record.source.artifact?.id === example.id,
+        )!;
+        await select(record.tab.id);
+        if (example.kind === "markdown")
+          await pane.getByRole("heading", { name: "Shared Markdown" }).waitFor();
+        if (example.kind === "text")
+          await pane.getByText("Shared plain text", { exact: true }).waitFor();
+        if (example.kind === "image") await pane.getByRole("img").waitFor();
+        const content = await pageB.evaluate(
+          ({ id, revision }) =>
+            window.scope.guestContent(id, revision).then((item) => Array.from(item.bytes)),
+          { id: record.tab.id, revision: artifact.revision },
+        );
+        expect(content).toEqual([...example.content]);
+        await ca.delete(example.id);
+        await expect.poll(async () => (await source()).available.length).toBe(3);
+      }
+      const hub = await spawnedHub(join(a.directory, "hub"));
+      try {
+        await pageA.evaluate((url) => window.scope.pairRemote(url), hub.pairUrl);
+        await expect
+          .poll(() =>
+            pageA.evaluate(() => window.scope.remotes()).then((remotes) => remotes[0]?.connection),
+          )
+          .toBe("connected");
+        const remoteClient = new ScopeClient(hub.endpoint, hub.token);
+        const published = await remoteClient.publish(
+          "hub-owned",
+          {
+            title: "Hub publication",
+            kind: "text",
+            fileName: "hub.txt",
+            mediaType: "text/plain",
+            expectedRevision: 0,
+            source: { host: "synthetic-hub", cwd: a.directory },
+          },
+          Buffer.from("hub publication content"),
+        );
+        await expect.poll(async () => (await source()).available.length).toBe(4);
+        const guest = (await source()).records.find(
+          (record) => record.source.artifact?.id === published.id,
+        )!;
+        expect(guest.source.artifact?.source).toBeUndefined();
+        expect(
+          await pageB.evaluate(
+            ({ id, revision }) =>
+              window.scope
+                .guestContent(id, revision)
+                .then((item) => new TextDecoder().decode(item.bytes)),
+            { id: guest.tab.id, revision: published.revision },
+          ),
+        ).toBe("hub publication content");
+        expect(await pageB.evaluate(() => window.scope.remotes())).toHaveLength(0);
+        await ca.delete(published.id);
+        await expect.poll(async () => (await source()).available.length).toBe(3);
+      } finally {
+        await hub.stop();
+      }
+      // A reply already in transit cannot revive content after source removal.
+      let large = await ca.publish(
+        "large",
+        {
+          title: "Large download",
+          kind: "file",
+          fileName: "large.bin",
+          mediaType: "application/octet-stream",
+          expectedRevision: 0,
+        },
+        Buffer.alloc(32 * 1024 * 1024, 7),
+      );
+      await expect.poll(async () => (await source()).available.length).toBe(4);
+      const largeGuest = (await source()).records.find(
+        (record) => record.source.artifact?.id === large.id,
+      )!;
+      expect(
+        await pageB.evaluate(
+          ({ id, revision }) =>
+            window.scope.guestContent(id, revision).then((item) => item.bytes.length),
+          { id: largeGuest.tab.id, revision: large.revision },
+        ),
+      ).toBe(32 * 1024 * 1024);
+      await select(largeGuest.tab.id);
+      await pane.getByText("Use Download to save this file.").waitFor();
+      responses.hold();
+      const held = responses.held();
+      const late = pageB.evaluate(
+        ({ id, revision }) =>
+          window.scope.guestContent(id, revision).then(
+            () => "accepted",
+            () => "rejected",
+          ),
+        { id: largeGuest.tab.id, revision: large.revision },
+      );
+      await expect.poll(() => responses.held(), { timeout: 15000 }).toBe(held + 1);
+      large = await ca.publish(
+        large.id,
+        {
+          title: "Large download",
+          kind: "file",
+          fileName: "large.bin",
+          mediaType: "application/octet-stream",
+          expectedRevision: large.revision,
+        },
+        Buffer.alloc(32 * 1024 * 1024, 8),
+      );
+      await expect
+        .poll(
+          async () =>
+            (await source()).records.find((record) => record.tab.id === largeGuest.tab.id)?.source
+              .artifact?.revision,
+        )
+        .toBe(large.revision);
+      responses.release();
+      expect(await late).toBe("rejected");
+      responses.pause();
+      const heldBeforeTrash = responses.held();
+      const duringTrash = pageB.evaluate(
+        ({ id, revision }) =>
+          window.scope.guestContent(id, revision).then(
+            () => "accepted",
+            () => "rejected",
+          ),
+        { id: largeGuest.tab.id, revision: large.revision },
+      );
+      await expect.poll(() => responses.held()).toBe(heldBeforeTrash + 1);
+      const largeSource = (await pageA.evaluate(() => window.scope.workspace()))!.tabs.find(
+        (tab) => tab.state.data.artifactId === large.id,
+      )!;
+      await pageA.evaluate((id) => window.scope.closeTab(id), largeSource.id);
+      await expect
+        .poll(async () => (await source()).available.includes(largeGuest.tab.id))
+        .toBe(false);
+      responses.release();
+      expect(await duringTrash).toBe("rejected");
+      await ca.delete(large.id);
+      // A failed or unsupported full refresh retains references without pretending they are current.
+      const retained = (await source()).records.map((record) => record.tab.id).sort();
+      for (const mode of ["unsupported", "partial", "stale", "same-revision"] as const) {
+        responses.mode(mode);
+        await ca.publish(
+          "wake",
+          {
+            title: "Wake catalog",
+            kind: "text",
+            fileName: "wake.txt",
+            mediaType: "text/plain",
+            expectedRevision: 0,
+          },
+          Buffer.from("wake"),
+        );
+        await expect
+          .poll(async () => (await source()).available.length, { timeout: 30000 })
+          .toBe(0);
+        expect((await source()).records.map((record) => record.tab.id).sort()).toEqual(retained);
+        if (mode === "unsupported") expect((await source()).owners[0]?.message).toMatch(/update/i);
+        await ca.delete("wake");
+        responses.mode("normal");
+        await expect
+          .poll(async () => (await source()).available.length, { timeout: 30000 })
+          .toBe(3);
+      }
       // Plans and folders retain their types and show a deliberate compatibility view.
       const planRecord = view.records.find((record) => record.source.kind === "plan")!;
       await select(planRecord.tab.id);
@@ -326,6 +547,21 @@ export async function guestCatalogChecks({
         { id: guestId, revision: current.revision },
       );
       expect(text).toContain("Current owner revision");
+    },
+    async restarted(page: Page) {
+      await expect
+        .poll(() =>
+          page
+            .evaluate(() => window.scope.guestCatalog())
+            .then((view) => view.records.some((record) => record.tab.id === guestId)),
+        )
+        .toBe(true);
+      const view = await page.evaluate(() => window.scope.guestCatalog());
+      expect(view.available).toHaveLength(0);
+      expect(view.records.find((record) => record.tab.id === guestId)?.source.sourceTabId).toBe(
+        sourceTab.id,
+      );
+      expect((await (await b.connect()).list()).map((item) => item.id)).toEqual(["same-id"]);
     },
     async revoked() {
       await expect(

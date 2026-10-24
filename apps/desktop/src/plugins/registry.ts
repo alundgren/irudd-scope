@@ -52,7 +52,8 @@ export function guestSourceKind(
   }
   if (type === "folder") return !artifact && tab ? "folder" : undefined;
   if (type === "plan") return artifact?.kind === "plan" ? "plan" : undefined;
-  return artifact && ["html", "markdown", "text", "image", "file"].includes(artifact.kind)
+  return artifact &&
+    ["html", "markdown", "text", "image", "file", "excalidraw"].includes(artifact.kind)
     ? "file"
     : undefined;
 }
