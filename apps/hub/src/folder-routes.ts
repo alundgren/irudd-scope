@@ -171,18 +171,16 @@ export class FolderFileRoutes {
       directory: "boolean",
     });
     if (input.directory) {
-      await createFolderDirectory(input.root, input.path);
+      await createFolderDirectory(input.root, input.path, { exclusive: !input.replace });
       send(response, 200, { path: input.path, size: 0 });
       return;
     }
-    // A desktop that cancels or disconnects ends the request before its body is complete;
-    // the staged file is then removed.
+    // A desktop that cancels or disconnects before the answer is sent, even after the whole
+    // body arrived, cancels the write: nothing is committed and the staged file is removed.
     const controller = new AbortController();
-    const stop = () => {
-      if (!request.complete) controller.abort();
-    };
-    request.on("close", stop);
-    response.on("close", stop);
+    response.on("close", () => {
+      if (!response.writableEnded) controller.abort();
+    });
     send(
       response,
       200,

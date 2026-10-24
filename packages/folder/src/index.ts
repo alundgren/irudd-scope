@@ -12,3 +12,4 @@ export { watchFolder, type FolderWatch, type FolderWatchOptions } from "./watch.
 export { searchFolder } from "./search.ts";
 export { walkDirectories, type WalkedDirectory } from "./walk.ts";
 export { createFolderDirectory, writeFolderFile, STAGED_PREFIX } from "./write.ts";
+export { hiddenName } from "./paths.ts";

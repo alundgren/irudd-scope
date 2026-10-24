@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
-import { lstat, readdir, rename, stat, unlink } from "node:fs/promises";
+import { constants, createWriteStream } from "node:fs";
+import { lstat, open, readdir, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { Transform, pipeline as pipe } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -16,6 +16,7 @@ import { FolderError, STAGED_PREFIX, resolveInside } from "@irudd-scope/folder";
 import { Uuid } from "../../workspace/contract.ts";
 import type {
   FolderDropChoice,
+  FolderDropClash,
   FolderDropPlan,
   FolderDropResult,
   FolderTransfer,
@@ -39,7 +40,7 @@ const DropRequest = Schema.Struct({
 const StartRequest = Schema.Struct({
   planId: Uuid,
   choices: Schema.Record(
-    FolderRelativePath,
+    Schema.String.check(Schema.isPattern(/^\d{1,5}$/)),
     Schema.Literals(["replace", "keep"] satisfies FolderDropChoice[]),
   ),
 });
@@ -49,11 +50,22 @@ const FileRequest = Schema.Struct({
 });
 const MenuRequest = Schema.Struct({ ...FileRequest.fields, directory: Schema.Boolean });
 
-type DropItem = { source?: string; path: string; size: number };
+/**
+ * One dropped file, or one empty folder inside a dropped folder. `id` tells apart dropped
+ * files that would land on the same name. `file` is the identity of the file the person
+ * dropped; the copy reads only that file.
+ */
+type DropItem = {
+  id: string;
+  source: string;
+  path: string;
+  size: number;
+  file?: { dev: number; ino: number };
+};
 type Plan = {
   tabId: string;
   items: DropItem[];
-  /** Items not written yet, by target path. */
+  /** IDs of items not written yet. */
   pending: Set<string>;
   written: string[];
   timer: ReturnType<typeof setTimeout>;
@@ -84,12 +96,12 @@ export function keptName(path: string, count: number) {
 
 /**
  * Lists what was dropped: each file, and every file and empty folder inside a dropped
- * folder. Links and special files inside dropped folders are skipped, so a drop never
- * copies something the person did not see.
+ * folder. Links, special files, and `.git` inside dropped folders are skipped, so a drop
+ * never copies something the person did not see.
  */
 async function dropItems(paths: readonly string[], target: string) {
   const items: DropItem[] = [];
-  const add = (item: DropItem) => {
+  const add = (item: Omit<DropItem, "id">) => {
     if (items.length >= MAX_DROP_FILES)
       throw new Error(`Drop at most ${MAX_DROP_FILES.toLocaleString("en-US")} files at once.`);
     try {
@@ -97,30 +109,58 @@ async function dropItems(paths: readonly string[], target: string) {
     } catch {
       throw new Error(`Scope cannot copy ${item.path} because of the characters in its name.`);
     }
-    items.push(item);
+    items.push({ ...item, id: String(items.length) });
   };
   async function visit(source: string, path: string) {
     const entries = await readdir(source, { withFileTypes: true });
-    if (!entries.length) add({ path, size: 0 });
+    if (!entries.length) add({ source, path, size: 0 });
     for (const entry of entries) {
       // A dropped repository keeps its history out of the shared folder.
       if (entry.name.toLowerCase() === ".git") continue;
       const child = join(source, entry.name);
       const nested = `${path}/${entry.name}`;
       if (entry.isDirectory()) await visit(child, nested);
-      else if (entry.isFile()) add({ source: child, path: nested, size: (await stat(child)).size });
+      else if (entry.isFile()) {
+        const info = await lstat(child);
+        if (info.isFile())
+          add({
+            source: child,
+            path: nested,
+            size: info.size,
+            file: { dev: info.dev, ino: info.ino },
+          });
+      }
     }
   }
   for (const source of paths) {
     if (!source || !isAbsolute(source))
       throw new Error("Scope can copy only files and folders from this computer.");
+    // The person chose this item, so a link they dropped is followed once, here.
     const info = await stat(source);
     const path = childPath(target, basename(source));
     if (info.isDirectory()) await visit(source, path);
-    else if (info.isFile()) add({ source, path, size: info.size });
+    else if (info.isFile())
+      add({ source, path, size: info.size, file: { dev: info.dev, ino: info.ino } });
     else throw new Error(`${basename(source)} is not a file or folder.`);
   }
   return items;
+}
+
+/**
+ * Opens a dropped file for reading only if it is still the file that was dropped. A source
+ * replaced by a link or another file since, including through a folder above it, has a
+ * different identity and is refused; a FIFO swapped in neither blocks nor is read.
+ */
+async function openDropped(item: DropItem) {
+  const handle = await open(item.source, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0)).catch(
+    () => undefined,
+  );
+  const info = await handle?.stat();
+  if (!handle || !info?.isFile() || info.dev !== item.file!.dev || info.ino !== item.file!.ino) {
+    await handle?.close();
+    throw new Error(`${basename(item.source)} changed after it was dropped. Drop it again.`);
+  }
+  return handle;
 }
 
 /** Target paths that already exist, read from each target folder's listing. */
@@ -140,6 +180,18 @@ async function existing(source: FolderSource, paths: readonly string[], signal: 
     for (const path of wanted) if (names.has(path)) found.add(path);
   }
   return found;
+}
+
+/** The first free `name N` for an item that keeps both. */
+async function freeName(source: FolderSource, path: string, signal: AbortSignal) {
+  const taken = await existing(
+    source,
+    Array.from({ length: 99 }, (_, index) => keptName(path, index + 2)),
+    signal,
+  );
+  let count = 2;
+  while (taken.has(keptName(path, count))) count++;
+  return keptName(path, count);
 }
 
 /**
@@ -232,39 +284,71 @@ export function registerFolderTransfers({
     try {
       const { source } = await folder(request.tabId);
       const items = await dropItems(request.paths, request.target);
-      const clashes = await existing(
+      const found = await existing(
         source,
         items.map((item) => item.path),
         AbortSignal.timeout(60_000),
       );
+      // A second dropped file with the same name as an earlier one clashes with it too.
+      const seen = new Set<string>();
+      const clashes: FolderDropClash[] = [];
+      for (const item of items) {
+        if (found.has(item.path) || seen.has(item.path))
+          clashes.push({ id: item.id, path: item.path });
+        seen.add(item.path);
+      }
       const planId = randomUUID();
       plans.set(planId, {
         tabId: request.tabId,
         items,
-        pending: new Set(items.map((item) => item.path)),
+        pending: new Set(items.map((item) => item.id)),
         written: [],
         timer: setTimeout(() => finish(planId), PLAN_LIFETIME_MS).unref(),
       });
       return {
         status: "ok",
         planId,
-        files: items.filter((item) => item.source).length,
+        files: items.filter((item) => item.file).length,
         bytes: items.reduce((total, item) => total + item.size, 0),
-        clashes: items.map((item) => item.path).filter((path) => clashes.has(path)),
+        clashes,
       };
     } catch (error) {
       return { status: "failed", message: message(error) };
     }
   });
 
+  /** Copies one item to `path`; without `replace` an existing name fails with `exists`. */
+  async function copyItem(
+    source: FolderSource,
+    item: DropItem,
+    path: string,
+    replace: boolean,
+    progress: (bytes: number) => void,
+    signal: AbortSignal,
+  ) {
+    if (!item.file) {
+      await source.createDirectory(path, replace, signal);
+      return path;
+    }
+    const handle = await openDropped(item);
+    const body = pipe(handle.createReadStream(), counted(progress), () => {});
+    try {
+      return (await source.write(path, body, replace, signal)).path;
+    } finally {
+      // Destroying the body ends the read stream, which closes the file.
+      body.destroy();
+    }
+  }
+
   handle("scope:folder-drop-start", async (input): Promise<FolderDropResult> => {
     const request = decode(StartRequest, input);
     const plan = plans.get(request.planId);
     if (!plan) throw new Error("This drop is no longer available. Drop the files again.");
     const { source } = await folder(plan.tabId);
-    const items = plan.items.filter((item) => plan.pending.has(item.path));
+    const items = plan.items.filter((item) => plan.pending.has(item.id));
     const written: string[] = [];
-    const clashes: string[] = [];
+    const directories: string[] = [];
+    const clashes: FolderDropClash[] = [];
     const run = await track(
       {
         tabId: plan.tabId,
@@ -272,52 +356,42 @@ export function registerFolderTransfers({
         name:
           items.length === 1
             ? basename(items[0]!.path)
-            : `${items.filter((item) => item.source).length} files`,
+            : `${items.filter((item) => item.file).length} files`,
         total: items.reduce((total, item) => total + item.size, 0),
       },
       async (progress, signal) => {
         for (const item of items) {
           signal.throwIfAborted();
-          const choice = request.choices[item.path];
-          if (!item.source) await source.createDirectory(item.path, signal);
-          else {
-            const copy = async (path: string) => {
-              const body = pipe(createReadStream(item.source!), counted(progress), () => {});
-              try {
-                return await source.write(path, body, choice === "replace", signal);
-              } finally {
-                body.destroy();
-              }
-            };
-            try {
-              let target = item.path;
-              if (choice === "keep") {
-                const taken = await existing(
-                  source,
-                  Array.from({ length: 99 }, (_, index) => keptName(item.path, index + 2)),
-                  signal,
-                );
-                let count = 2;
-                while (taken.has(keptName(item.path, count))) count++;
-                target = keptName(item.path, count);
-              }
-              written.push((await copy(target)).path);
-            } catch (error) {
-              // Someone created the name while the bytes were copied: ask again.
-              if (error instanceof FolderError && error.code === "exists") {
-                clashes.push(item.path);
-                continue;
-              }
-              throw error;
+          const choice = request.choices[item.id];
+          try {
+            const target =
+              choice === "keep" ? await freeName(source, item.path, signal) : item.path;
+            const path = await copyItem(
+              source,
+              item,
+              target,
+              choice === "replace",
+              progress,
+              signal,
+            );
+            written.push(path);
+            if (!item.file) directories.push(path);
+          } catch (error) {
+            // The name exists, for example because it appeared during the copy: ask again.
+            if (error instanceof FolderError && error.code === "exists") {
+              clashes.push({ id: item.id, path: item.path });
+              continue;
             }
+            throw error;
           }
-          plan.pending.delete(item.path);
+          plan.pending.delete(item.id);
         }
       },
     );
     plan.written.push(...written);
     const result: FolderDropResult = {
       written,
+      directories,
       clashes,
       cancelled: run.state === "cancelled",
       ...(run.message ? { failed: run.message } : {}),

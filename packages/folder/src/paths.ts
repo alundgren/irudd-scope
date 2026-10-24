@@ -86,6 +86,14 @@ export function gitName(name: string): boolean {
   return name.toLowerCase() === GIT_DIRECTORY;
 }
 
+/** A copy in progress has this name until it is committed. */
+export const STAGED_PREFIX = ".scope-partial-";
+
+/** Names never shown, listed, searched, or reported as changes: `.git` and staged copies. */
+export function hiddenName(name: string): boolean {
+  return gitName(name) || name.startsWith(STAGED_PREFIX);
+}
+
 /** Whether a real path inside the root passes through `.git`, for example through a link. */
 export function insideGit(root: string, real: string): boolean {
   return real.slice(root.length).split(sep).some(gitName);

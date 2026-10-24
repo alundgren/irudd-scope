@@ -1,132 +1,247 @@
 import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
-import { link, lstat, mkdir, open, readlink, realpath, rename, unlink } from "node:fs/promises";
-import { type FileHandle } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import {
+  close,
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  fsync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  renameSync,
+  rmdirSync,
+  statSync,
+  unlinkSync,
+  write,
+  type Stats,
+} from "node:fs";
+import { sep } from "node:path";
 import { addAbortSignal, type Readable } from "node:stream";
+import { promisify } from "node:util";
 import type { FolderWriteReceipt } from "@irudd-scope/protocol/folder";
-import { FolderError, gitName, openInside, validRelative, verifyHandle } from "./paths.ts";
+import { FolderError, STAGED_PREFIX, openInside, validRelative } from "./paths.ts";
 
-/** A copy in progress has this name until it is committed. */
-export const STAGED_PREFIX = ".scope-partial-";
+export { STAGED_PREFIX };
+
+const writeChunk = promisify(write);
+const syncFile = promisify(fsync);
+const closeFile = promisify(close);
 
 const escaped = () => new FolderError("outside-folder", "Use a path inside the folder.");
 const errorCode = (error: unknown) =>
   error instanceof Error && "code" in error ? String(error.code) : "";
 
-/** An opened folder inside the root, and the path that addresses its children. */
-type Directory = { handle: FileHandle; real: string; base: string };
+type Identity = { dev: number; ino: number };
+/** An opened folder inside the root and the identity of every folder from the root down to it. */
+type Folder = { fd: number; real: string; chain: Identity[] };
+
+const identity = (info: Stats): Identity => ({ dev: info.dev, ino: info.ino });
+const same = (info: Stats | Identity, expected: Identity) =>
+  info.dev === expected.dev && info.ino === expected.ino;
+function entry(path: string, follow = false) {
+  try {
+    return follow ? statSync(path) : lstatSync(path);
+  } catch {
+    return undefined;
+  }
+}
+
+const procFolders = process.platform === "linux" && existsSync("/proc/self/fd");
 
 /**
- * On Linux `/proc/self/fd/N` names the opened folder itself, so files are created and
- * renamed in that folder even if its path is swapped for a link. Elsewhere the verified
- * real path is used and checked again around each step.
+ * Runs `step` with names that resolve inside the opened folder itself, never through its
+ * path, so a folder on the way swapped for a link cannot redirect it. Linux names the open
+ * folder as `/proc/self/fd/N`. Node has no directory-relative calls elsewhere, so the step
+ * runs synchronously with the process's working directory set to the folder, checked to be
+ * the opened one; nothing else runs on this thread meanwhile, and Scope uses absolute paths.
+ * Windows resolves relative names from the directory's path, so there the checks before and
+ * after each step are what keep writes inside.
  */
-function directory(handle: FileHandle, real: string): Directory {
-  return {
-    handle,
-    real,
-    base: process.platform === "linux" ? `/proc/self/fd/${handle.fd}` : real,
-  };
-}
-
-async function actualPath(handle: FileHandle, path: string) {
-  if (process.platform === "linux") {
-    const actual = await readlink(`/proc/self/fd/${handle.fd}`).catch(() => undefined);
-    if (actual !== undefined) return actual;
-  }
-  return realpath(path);
-}
-
-async function openChild(root: string, parent: Directory, part: string, shown: string) {
-  const path = join(parent.base, part);
-  await mkdir(path).catch((error: unknown) => {
-    if (errorCode(error) !== "EEXIST") throw error;
-  });
-  let child: FileHandle;
+function inFolder<T>(folder: Folder, step: (base: string) => T): T {
+  if (procFolders) return step(`/proc/self/fd/${folder.fd}`);
+  const previous = process.cwd();
   try {
-    child = await open(
-      path,
-      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_DIRECTORY ?? 0),
-    );
-  } catch (error) {
-    const code = errorCode(error);
-    if (code === "ENOENT") throw new FolderError("not-found", `${shown} does not exist.`);
-    if (["ENOTDIR", "ELOOP", "EMLINK"].includes(code)) {
-      // macOS reports a link opened as a folder without following it as ENOTDIR.
-      const link = await lstat(path).then(
-        (entry) => entry.isSymbolicLink(),
-        () => false,
-      );
-      throw link || code !== "ENOTDIR"
-        ? new FolderError("outside-folder", `${shown} is a link. Scope does not copy into links.`)
-        : new FolderError("not-a-directory", `${shown} is a file, not a folder.`);
+    process.chdir(folder.real);
+  } catch {
+    // The folder's path no longer leads to a folder, as when it was swapped for a link.
+    throw escaped();
+  }
+  try {
+    if (!same(statSync("."), folder.chain.at(-1)!)) throw escaped();
+    return step(".");
+  } finally {
+    process.chdir(previous);
+  }
+}
+
+/**
+ * The folder is still inside the root right now: each parent reached through `..`, which
+ * follows where the folder really is rather than its path, is the one opened on the way down,
+ * and the root is still a real folder at its path.
+ */
+function stillInside(root: string, folder: Folder, base: string) {
+  let path = base;
+  for (let index = folder.chain.length - 1; index >= 0; index--) {
+    const info = entry(path, true);
+    if (!info || !same(info, folder.chain[index]!)) return false;
+    path = `${path}/..`;
+  }
+  const top = entry(root);
+  return Boolean(top?.isDirectory() && same(top, folder.chain[0]!));
+}
+
+function checkInside(root: string, folder: Folder, base: string) {
+  if (!stillInside(root, folder, base)) throw escaped();
+}
+
+async function openRoot(root: string): Promise<Folder> {
+  const { handle, real } = await openInside(root, "", { directory: true });
+  try {
+    const info = await handle.stat();
+    const fd = openSync(real, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0));
+    if (!same(fstatSync(fd), identity(info))) {
+      closeSync(fd);
+      throw new FolderError("not-found", "This folder no longer exists.");
     }
-    throw error;
-  }
-  try {
-    const real = await actualPath(child, path);
-    if (dirname(real) !== parent.real || gitName(real.slice(parent.real.length + 1)))
-      throw escaped();
-    if (!(await child.stat()).isDirectory())
-      throw new FolderError("not-a-directory", `${shown} is a file, not a folder.`);
-    await verifyHandle(root, real, child);
-    return directory(child, real);
-  } catch (error) {
-    await child.close().catch(() => {});
-    throw error;
+    return { fd, real, chain: [identity(info)] };
+  } finally {
+    await handle.close();
   }
 }
 
+function folderError(path: string, shown: string, code: string) {
+  // macOS reports a link opened as a folder without following it as ENOTDIR.
+  if (entry(path)?.isSymbolicLink() || code === "ELOOP" || code === "EMLINK")
+    return new FolderError("outside-folder", `${shown} is a link. Scope does not copy into links.`);
+  if (code === "ENOENT") return new FolderError("not-found", `${shown} does not exist.`);
+  return new FolderError("not-a-directory", `${shown} is a file, not a folder.`);
+}
+
+type Create = "missing" | "exclusive";
+
 /**
- * Opens the folder at `parts` below the root, creating missing folders one at a time. Each
- * folder is opened without following a link and checked to be the child of the one before,
- * so a folder swapped for a link, including one into `.git`, is refused.
+ * Opens the child folder `part` of `parent`, creating it when missing. The parent is checked
+ * to be inside the root before and after, and a folder created in a parent that moved out
+ * meanwhile is removed again.
  */
-async function openDestination(
-  root: string,
-  top: Directory,
-  parts: readonly string[],
-): Promise<Directory> {
+function openChild(root: string, parent: Folder, part: string, shown: string, create: Create) {
+  return inFolder(parent, (base): Folder => {
+    checkInside(root, parent, base);
+    const path = `${base}/${part}`;
+    let created = false;
+    try {
+      mkdirSync(path);
+      created = true;
+    } catch (error) {
+      if (errorCode(error) !== "EEXIST") throw error;
+      if (create === "exclusive") throw new FolderError("exists", `${shown} already exists.`);
+    }
+    const undo = () => {
+      if (created) rmdirSync(path);
+    };
+    let fd: number;
+    try {
+      if (entry(path)?.isSymbolicLink()) throw folderError(path, shown, "ELOOP");
+      fd = openSync(
+        path,
+        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_DIRECTORY ?? 0),
+      );
+    } catch (error) {
+      undo();
+      if (error instanceof FolderError) throw error;
+      const code = errorCode(error);
+      if (["ENOTDIR", "ELOOP", "EMLINK", "ENOENT"].includes(code))
+        throw folderError(path, shown, code);
+      throw error;
+    }
+    const info = fstatSync(fd);
+    if (!info.isDirectory() || !stillInside(root, parent, base)) {
+      closeSync(fd);
+      undo();
+      if (!info.isDirectory())
+        throw new FolderError("not-a-directory", `${shown} is a file, not a folder.`);
+      throw escaped();
+    }
+    return { fd, real: `${parent.real}${sep}${part}`, chain: [...parent.chain, identity(info)] };
+  });
+}
+
+/** Opens the folders at `parts` below the root one by one, creating missing ones. */
+function openDestination(root: string, top: Folder, parts: readonly string[], last: Create) {
   let current = top;
   try {
     for (const [index, part] of parts.entries()) {
-      const child = await openChild(root, current, part, parts.slice(0, index + 1).join("/"));
-      if (current !== top) await current.handle.close();
+      const create = index === parts.length - 1 ? last : "missing";
+      const child = openChild(root, current, part, parts.slice(0, index + 1).join("/"), create);
+      if (current !== top) closeSync(current.fd);
       current = child;
     }
     return current;
   } catch (error) {
-    if (current !== top) await current.handle.close().catch(() => {});
+    if (current !== top) closeSync(current.fd);
     throw error;
   }
 }
 
-async function openRoot(root: string) {
-  const { handle, real } = await openInside(root, "", { directory: true });
-  return directory(handle, real);
-}
-
-/** Creates a folder inside the root, as when a dropped folder contains an empty folder. */
-export async function createFolderDirectory(root: string, relative: string): Promise<void> {
+/**
+ * Creates a folder inside the root, as when a dropped folder contains an empty folder.
+ * With `exclusive` an existing entry fails with `exists`; otherwise an existing folder is
+ * accepted.
+ */
+export async function createFolderDirectory(
+  root: string,
+  relative: string,
+  options: { exclusive?: boolean } = {},
+): Promise<void> {
   const path = validRelative(relative);
   if (!path) return;
   const top = await openRoot(root);
   try {
-    const created = await openDestination(root, top, path.split("/"));
-    if (created !== top) await created.handle.close();
+    const created = openDestination(
+      root,
+      top,
+      path.split("/"),
+      options.exclusive ? "exclusive" : "missing",
+    );
+    if (created !== top) closeSync(created.fd);
   } finally {
-    await top.handle.close();
+    closeSync(top.fd);
+  }
+}
+
+/** Renames, or without `replace` hard-links, a staged file to its name in the destination. */
+function commit(source: string, target: string, path: string, replace: boolean) {
+  if (replace) {
+    if (entry(target)?.isDirectory())
+      throw new FolderError("not-a-directory", `${path} is a folder and cannot be replaced.`);
+    renameSync(source, target);
+    return;
+  }
+  try {
+    linkSync(source, target);
+  } catch (error) {
+    const code = errorCode(error);
+    if (code === "EEXIST") throw new FolderError("exists", `${path} already exists.`);
+    if (["EPERM", "ENOTSUP", "EOPNOTSUPP", "ENOSYS", "EMLINK", "EXDEV"].includes(code))
+      throw new FolderError(
+        "unsupported",
+        `The drive under this folder cannot add ${path} without risking an overwrite, so Scope did not copy it.`,
+      );
+    throw error;
   }
 }
 
 /**
- * Copies bytes into the folder. They are staged in a new file at the top of the folder,
- * where a cancelled or failed copy can always remove it, and renamed into the destination
- * only after every folder on the way is checked again. A destination on another file
- * system stages in the destination itself. Without `replace` an existing entry fails with
- * `exists`, including one created while the bytes were copied; a hard link makes that check
- * and the commit one step where the file system supports it. Missing folders are created.
+ * Copies bytes into the folder. They are staged in a new file at the top of the folder, or
+ * in the destination when that is on another file system, so a cancelled or failed copy
+ * can always remove them. The commit renames, or without `replace` hard-links, the staged
+ * file into the opened destination folder after checking that the copy was not cancelled
+ * and that the folder is still inside the root; it checks again afterwards and removes the
+ * file if the folder moved out meanwhile. A hard link fails when the name exists, including
+ * one created during the copy; a file system without hard links fails with `unsupported`
+ * rather than checking and then renaming. Missing folders on the way are created.
  */
 export async function writeFolderFile(
   root: string,
@@ -140,75 +255,71 @@ export async function writeFolderFile(
   const fileName = parts.pop()!;
   options.signal.throwIfAborted();
   const top = await openRoot(root);
-  let destination: Directory | undefined;
-  let file: FileHandle | undefined;
-  let stagedPath: string | undefined;
+  let destination: Folder | undefined;
+  let stage: Folder | undefined;
+  let file: number | undefined;
+  let stagedId: Identity | undefined;
+  const staged = `${STAGED_PREFIX}${randomUUID()}`;
   try {
-    destination = await openDestination(root, top, parts);
-    const [topInfo, destinationInfo] = await Promise.all([
-      top.handle.stat(),
-      destination.handle.stat(),
-    ]);
-    const stage = topInfo.dev === destinationInfo.dev ? top : destination;
-    const staged = `${STAGED_PREFIX}${randomUUID()}`;
-    stagedPath = join(stage.base, staged);
-    file = await open(
-      stagedPath,
-      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
-      0o666,
-    );
-    const opened = await file.stat();
-    const check = async () => {
-      await verifyHandle(root, stage.real, stage.handle);
-      await verifyHandle(root, destination!.real, destination!.handle);
-      if (process.platform !== "linux") {
-        const entry = await lstat(join(stage.real, staged));
-        if (entry.ino !== opened.ino || entry.dev !== opened.dev) throw escaped();
-      }
-    };
-    await check();
+    destination = openDestination(root, top, parts, "missing");
+    stage = fstatSync(top.fd).dev === fstatSync(destination.fd).dev ? top : destination;
+    const stagedIn = stage;
+    file = inFolder(stagedIn, (base) => {
+      checkInside(root, stagedIn, base);
+      return openSync(
+        `${base}/${staged}`,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
+        0o666,
+      );
+    });
+    const stagedFile = identity(fstatSync(file));
+    stagedId = stagedFile;
     let size = 0;
     for await (const chunk of addAbortSignal(options.signal, body) as AsyncIterable<Buffer>) {
-      await file.write(chunk);
+      for (let offset = 0; offset < chunk.byteLength;)
+        offset += (await writeChunk(file, chunk, offset, chunk.byteLength - offset)).bytesWritten;
       size += chunk.byteLength;
     }
-    options.signal.throwIfAborted();
-    await file.sync();
-    await file.close();
+    await syncFile(file);
+    await closeFile(file);
     file = undefined;
-    await check();
-    const finalPath = join(destination.base, fileName);
-    if (options.replace) {
-      const existing = await lstat(finalPath).catch(() => undefined);
-      if (existing?.isDirectory())
-        throw new FolderError("not-a-directory", `${path} is a folder and cannot be replaced.`);
-      await rename(stagedPath, finalPath);
-    } else {
-      try {
-        await link(stagedPath, finalPath);
-      } catch (error) {
-        if (errorCode(error) === "EEXIST") throw clash(path);
-        // File systems without hard links, such as FAT, check and rename instead.
-        if (
-          await lstat(finalPath).then(
-            () => true,
-            () => false,
-          )
-        )
-          throw clash(path);
-        await rename(stagedPath, finalPath);
+    const target = destination;
+    inFolder(target, (base) => {
+      options.signal.throwIfAborted();
+      checkInside(root, target, base);
+      // From the top of the folder the staged file is named through the root, whose path
+      // Scope trusts; inside the destination, through the same folder reference.
+      const source =
+        stagedIn === target
+          ? `${base}/${staged}`
+          : procFolders
+            ? `/proc/self/fd/${top.fd}/${staged}`
+            : `${top.real}${sep}${staged}`;
+      const placed = entry(source);
+      if (!placed || !same(placed, stagedFile)) throw escaped();
+      commit(source, `${base}/${fileName}`, path, options.replace);
+      if (!stillInside(root, target, base)) {
+        const committed = entry(`${base}/${fileName}`);
+        if (committed && same(committed, stagedFile)) unlinkSync(`${base}/${fileName}`);
+        throw escaped();
       }
-    }
+    });
     return { path, size };
   } finally {
-    await file?.close().catch(() => {});
+    if (file !== undefined) await closeFile(file).catch(() => {});
     // After a hard link the staged name is left over; after a rename it is already gone.
-    if (stagedPath) await unlink(stagedPath).catch(() => {});
-    if (destination && destination !== top) await destination.handle.close().catch(() => {});
-    await top.handle.close().catch(() => {});
+    if (stage && stagedId) {
+      const stagedFile = stagedId;
+      try {
+        inFolder(stage, (base) => {
+          const leftover = entry(`${base}/${staged}`);
+          if (leftover && same(leftover, stagedFile)) unlinkSync(`${base}/${staged}`);
+        });
+      } catch {
+        // The top of the folder moved away; nothing staged can be reached through it.
+      }
+    }
+    if (destination && destination !== top) closeSync(destination.fd);
+    closeSync(top.fd);
   }
-}
-
-function clash(path: string) {
-  return new FolderError("exists", `${path} already exists.`);
 }

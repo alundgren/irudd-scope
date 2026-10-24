@@ -7,7 +7,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "../../renderer/components/ui/dialog.tsx";
-import type { FolderDropChoice, FolderTransfer } from "./contract.ts";
+import type { FolderDropChoice, FolderDropClash, FolderTransfer } from "./contract.ts";
 
 export function formatSize(size: number) {
   if (size < 1024) return `${size} bytes`;
@@ -71,17 +71,17 @@ export function useFolderDrop(tabId: string, onWritten: (paths: string[]) => voi
       }),
     );
   }
-  async function choose(clashes: readonly string[], again: boolean) {
+  async function choose(clashes: readonly FolderDropClash[], again: boolean) {
     const choices: Record<string, FolderDropChoice> = {};
     let all: FolderDropChoice | undefined;
-    for (const [index, path] of clashes.entries()) {
+    for (const [index, { id, path }] of clashes.entries()) {
       if (all) {
-        choices[path] = all;
+        choices[id] = all;
         continue;
       }
       const answer = await ask(path, clashes.length - index - 1, again);
       if (answer.choice === "cancel") return undefined;
-      choices[path] = answer.choice;
+      choices[id] = answer.choice;
       if (answer.all) all = answer.choice;
     }
     return choices;
@@ -106,7 +106,7 @@ export function useFolderDrop(tabId: string, onWritten: (paths: string[]) => voi
           break;
         }
         const result = await window.scope.startFolderDrop({ planId: plan.planId, choices });
-        copied.push(...result.written);
+        copied.push(...result.written.filter((path) => !result.directories.includes(path)));
         // A failed copy is shown by its transfer row.
         if (!result.clashes.length || result.cancelled || result.failed) break;
         clashes = result.clashes;

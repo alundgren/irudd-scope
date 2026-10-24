@@ -146,22 +146,37 @@ Dropping files on the tree copies them in; it is the only time Scope writes to a
 shared folder. The preload turns dropped `File` objects into paths with
 `webUtils.getPathForFile` and sends them straight to main, so a page can pass
 dropped files but never a path of its choice. Main lists the dropped files and the
-files inside dropped folders (skipping links, special files, and `.git`), reads
-each target folder to find names that exist, and returns a plan. Nothing is written
-until the renderer answers Replace, Keep both, or Cancel for each existing name.
-Main then streams one file at a time to the folder source: locally to
-`writeFolderFile`, remotely as the raw body of `PUT /v1/relay/folders/write`,
-sent with `node:http` because fetch gives up on a response that waits more than
-300 seconds for a long upload. `writeFolderFile` opens every folder on the way
-without following links, stages the bytes in `.scope-partial-*` at the top of
-the folder (in the destination itself when that is on another file system),
-checks every folder again, and commits by rename. Without Replace it commits with a
-hard link, which fails if the name appeared during the copy; the renderer then asks
-again. A cancelled, failed, or disconnected copy removes the staged file. On Linux
-the opened folders are addressed through `/proc/self/fd`, so a folder swapped for
-a link cannot redirect the write; macOS and Windows rely on the repeated checks
-above. When a drop finishes, main sends one `dropped` line listing the written
-paths to every `folder watch` on the tab.
+files and empty folders inside dropped folders (skipping links, special files, and
+`.git`), records each file's device and inode, reads each target folder to find
+names that exist, and returns a plan. Each item has its own ID, so two dropped files
+with the same name are asked about separately. Nothing is written until the
+renderer answers Replace, Keep both, or Cancel for each existing name. Main then
+streams one file at a time to the folder source, reading only a file that still has
+the recorded identity: locally to `writeFolderFile`, remotely as the raw body of
+`PUT /v1/relay/folders/write`, sent with `node:http` because fetch gives up on a
+response that waits more than 300 seconds for a long upload.
+
+`writeFolderFile` opens each folder on the way as a child of the one before,
+without following links, and creates a missing one only inside an opened folder
+that is checked to be inside the root before and after. The bytes go to a staged
+`.scope-partial-*` file at the top of the folder (in the destination itself when
+that is on another file system). The commit checks that the copy was not
+cancelled and that the destination is still inside the root, then renames the
+staged file into the opened destination, or without Replace hard-links it, which
+fails if the name appeared during the copy; the renderer then asks again. A file
+system without hard links fails clearly instead of checking and renaming. After the
+commit the destination is checked again, and a file committed into a folder that
+moved out meanwhile is removed. Every step names the opened folder itself rather
+than its path: Linux through `/proc/self/fd/N`; macOS by running the step
+synchronously with the process's working directory set to the folder and checked
+to be the opened one. "Inside the root" means that each parent reached through
+`..` is the folder opened on the way down. Windows resolves relative names from
+the directory's path, so there only those checks keep writes inside. A cancelled,
+failed, or disconnected copy, including a hub request that closes after its body
+arrived, removes the staged file and commits nothing. Listings, walks, search, and
+change feeds hide staged names and `.git` in any letter case. When a drop finishes,
+main sends one `dropped` line listing the written paths to every `folder watch` on
+the tab.
 
 Save to computer opens the native save dialog in Downloads, streams the file from
 the folder source into a `.scope-partial-*` file beside the chosen name, and

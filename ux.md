@@ -356,9 +356,10 @@ show line numbers too, and Select All copies the whole text.
 Dragging files from Finder or Explorer over the tree outlines the folder under
 the pointer. Over a file it copies into that file's folder, and over empty space
 it outlines the whole tree for the top folder. Dropping copies the files, and
-dropped folders with their contents, onto the folder's machine; the originals
+dropped folders with their contents except `.git`, onto the folder's machine; the originals
 stay put. The tree then selects the first new file. A name that already exists
-asks `NAME already exists in FOLDER` with Replace, Keep both, and Cancel. Keep
+asks `NAME already exists in FOLDER` with Replace, Keep both, and Cancel, and so
+does a second dropped file or folder with the same name. Keep
 both adds a number, as in `notes 2.md`; Cancel stops the whole drop before
 anything is written. With several existing names the question offers Apply to
 all. A name that appears while files are copied asks again instead of
@@ -368,7 +369,8 @@ folders offer the last two. Save opens the normal save dialog in Downloads with
 the file's name. Files Scope cannot preview also show a Save to computer…
 button. Saves and drops show a progress row with Cancel above the tree. A
 cancelled or failed transfer leaves no partial file, and a failure stays shown
-until dismissed.
+until dismissed. A dropped file that became another file or a link while Scope
+asked is not copied; the row says to drop it again.
 
 ## Sketchpad
 

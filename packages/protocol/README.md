@@ -263,9 +263,11 @@ heartbeat at least every 10 seconds. Closing the request stops the search.
 A write stages the body inside the folder and renames it into place after
 checking containment again, creating missing folders on the way. It never
 writes through a link. Without `replace=1` an existing entry, including one
-created during the upload, fails with 409 `exists` and nothing is written.
-`directory=1` creates an empty folder instead. Closing the request before the
-body ends removes the staged file.
+created during the upload, fails with 409 `exists` and nothing is written; on a
+file system without hard links it fails with 501 `unsupported` instead. With
+`directory=1` the route creates an empty folder; without `replace=1` an existing
+entry fails with `exists`. Closing the request before the answer is sent, even
+after the whole body arrived, cancels the write and removes the staged file.
 
 Every file route resolves real paths and rejects paths that leave `root`,
 including through symlinks, with 403 `outside-folder`. A desktop sends

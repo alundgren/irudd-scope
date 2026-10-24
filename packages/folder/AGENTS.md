@@ -10,7 +10,11 @@ out of this package.
 - Scope never edits, renames, or deletes files in a shared folder. The only
   write copies dropped files in with `writeFolderFile`: staged as
   `.scope-partial-*`, checked again, and committed by rename or hard link.
-  It never writes through a link and removes the staged file on failure.
+  Create, rename, and link only inside an opened folder, never through a
+  path below the root, and check the folder is still inside the root before
+  and after. Never fall back to checking a name and then renaming over it.
+  Staged names and `.git` in any letter case are never listed, searched, or
+  reported.
 - Never watch, list, or search through `.git`. Ignored folders are not watched,
   and search reads them only when ignored files are shown.
 - Open files and folders with `openInside`. On Linux it checks the opened handle's

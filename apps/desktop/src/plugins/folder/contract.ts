@@ -139,20 +139,24 @@ export function mergeFolderTab(current: Tab, incoming: Tab, selected?: FolderSel
   };
 }
 
+/** A dropped item whose name exists, or matches an earlier dropped item. */
+export type FolderDropClash = { id: string; path: string };
 /**
  * Files dropped on a Folder tab, read on this computer and checked against the folder.
- * `clashes` are target paths that already exist; nothing is written until `start`.
+ * Nothing is written until `start`, which takes a choice for each clash by its `id`.
  */
 export type FolderDropPlan =
-  | { status: "ok"; planId: string; files: number; bytes: number; clashes: string[] }
+  | { status: "ok"; planId: string; files: number; bytes: number; clashes: FolderDropClash[] }
   | { status: "failed"; message: string };
 /** What to do with a dropped file whose name already exists. */
 export type FolderDropChoice = "replace" | "keep";
 export type FolderDropResult = {
   /** Folder-relative paths written by this run, in drop order. */
   written: string[];
-  /** Names that appeared while the files were copied; ask again before writing them. */
-  clashes: string[];
+  /** The written paths that are empty folders. */
+  directories: string[];
+  /** Items whose names appeared while the files were copied; ask again before writing them. */
+  clashes: FolderDropClash[];
   cancelled: boolean;
   failed?: string;
 };

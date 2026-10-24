@@ -5,9 +5,10 @@ import {
   type FolderEntry,
   type FolderListing,
 } from "@irudd-scope/protocol/folder";
-import { GIT_DIRECTORY, IgnoreRules } from "./ignore-rules.ts";
+import { IgnoreRules } from "./ignore-rules.ts";
 import {
   FolderError,
+  hiddenName,
   inside,
   openInside,
   resolveInside,
@@ -84,7 +85,7 @@ export async function listFolder(
   const dirents = await readDirectory(root, path);
   const entries: FolderEntry[] = [];
   let truncated = false;
-  const candidates = dirents.filter((entry) => entry.name !== GIT_DIRECTORY);
+  const candidates = dirents.filter((entry) => !hiddenName(entry.name));
   for (let index = 0; index < candidates.length; index += 256) {
     const batch = await Promise.all(
       candidates.slice(index, index + 256).map((entry) => {

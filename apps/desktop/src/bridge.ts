@@ -101,6 +101,7 @@ export type ScopeBridge = {
   }) => Promise<FolderDropPlan>;
   startFolderDrop: (input: {
     planId: string;
+    /** By clash `id`. */
     choices: Record<string, FolderDropChoice>;
   }) => Promise<FolderDropResult>;
   discardFolderDrop: (planId: string) => Promise<void>;

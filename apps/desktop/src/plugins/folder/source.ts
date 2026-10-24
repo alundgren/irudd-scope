@@ -79,7 +79,8 @@ export type FolderSource = {
     replace: boolean,
     signal: AbortSignal,
   ) => Promise<FolderWriteReceipt>;
-  createDirectory: (path: string, signal: AbortSignal) => Promise<void>;
+  /** Creates a folder; without `replace` an existing entry fails with `exists`. */
+  createDirectory: (path: string, replace: boolean, signal: AbortSignal) => Promise<void>;
 };
 
 /** The remote answered 404 without a folder code: its hub predates folder support. */
@@ -142,7 +143,7 @@ export function localFolderSource(root: string): FolderSource {
       return { size: file.size, stream: file.stream };
     },
     write: (path, body, replace, signal) => writeFolderFile(root, path, body, { replace, signal }),
-    createDirectory: (path) => createFolderDirectory(root, path),
+    createDirectory: (path, replace) => createFolderDirectory(root, path, { exclusive: !replace }),
   };
 }
 
@@ -328,8 +329,8 @@ export function remoteFolderSource(remotes: Remotes, identity: FolderIdentity): 
       );
       return decode(FolderWriteReceipt, await readRemoteJson(response, 64 * 1024));
     },
-    async createDirectory(path, signal) {
-      const query = folderQuery({ root, path, replace: false, directory: true });
+    async createDirectory(path, replace, signal) {
+      const query = folderQuery({ root, path, replace, directory: true });
       const response = await request(
         `${FOLDER_FILE_ROUTES.write}?${query}`,
         signal,
