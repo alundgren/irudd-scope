@@ -38,6 +38,7 @@ export function GuestHtmlRecovery({
   const [review, setReview] = useState(false);
   const dirty = useRef(false);
   const captureError = useRef("");
+  const initialRead = useRef<Promise<void> | undefined>(undefined);
   const current = useRef({ available, loaded });
   current.current = { available, loaded };
   const artifact = record.source.artifact!;
@@ -54,6 +55,8 @@ export function GuestHtmlRecovery({
       return { ...key, kind: "html" as const, fields: [...fields.current.values()] };
     },
     async (value) => {
+      await initialRead.current;
+      value = { ...value, fields: [...fields.current.values()] };
       if (captureError.current) throw new Error(captureError.current);
       await window.scope.saveGuestInput(value);
       setInputs((inputs) => [
@@ -65,23 +68,22 @@ export function GuestHtmlRecovery({
   );
   useLayoutEffect(() => {
     let live = true;
-    void window.scope
-      .guestRecovery(record.tab.id)
-      .then((recovery) => {
-        if (!live) return;
-        const inputs = recovery.inputs.filter((input) => input.kind === "html");
+    initialRead.current = window.scope.guestRecovery(record.tab.id).then((recovery) => {
+      const inputs = recovery.inputs.filter((input) => input.kind === "html");
+      if (live) {
         setInputs(inputs);
         setLoaded(true);
-        const saved = inputs.find(
-          (input) => input.revision === artifact.revision && input.blob === artifact.blob,
-        );
-        for (const field of saved?.fields ?? [])
-          if (!fields.current.has(field.key)) fields.current.set(field.key, field);
-      })
-      .catch(() => {
-        if (live)
-          setError("Could not read saved input. Keep this tab open and retry by reopening Scope.");
-      });
+      }
+      const saved = inputs.find(
+        (input) => input.revision === artifact.revision && input.blob === artifact.blob,
+      );
+      for (const field of saved?.fields ?? [])
+        if (!fields.current.has(field.key)) fields.current.set(field.key, field);
+    });
+    void initialRead.current.catch(() => {
+      if (live)
+        setError("Could not read saved input. Keep this tab open and retry by reopening Scope.");
+    });
     const element = container.current!;
     const capture = (event: Event) => {
       if (!current.current.available || !frame.current) return;

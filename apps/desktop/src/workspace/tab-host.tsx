@@ -154,11 +154,12 @@ export function TabHost({
     </TabErrorBoundary>
   );
   if (tab.type !== "guest") return view;
+  const actions =
+    guest && guest.source.kind !== "folder" ? (
+      <GuestActions record={guest} owner={guestOwner} available={guestAvailable === true} />
+    ) : null;
   const guestView = (
     <>
-      {guest && guest.source.kind !== "folder" && (
-        <GuestActions record={guest} owner={guestOwner} available={guestAvailable === true} />
-      )}
       {notice && (
         <p role="status" className="empty-state">
           {notice}
@@ -169,15 +170,20 @@ export function TabHost({
       </div>
     </>
   );
-  return guest?.source.artifact?.kind === "html" ? (
-    <GuestHtmlRecovery
-      key={`${guest.source.artifact.revision}/${guest.source.artifact.blob}`}
-      record={guest}
-      available={guestAvailable === true}
-    >
-      {guestView}
-    </GuestHtmlRecovery>
-  ) : (
-    guestView
+  return (
+    <>
+      {actions}
+      {guest?.source.artifact?.kind === "html" ? (
+        <GuestHtmlRecovery
+          key={`${guest.source.artifact.revision}/${guest.source.artifact.blob}`}
+          record={guest}
+          available={guestAvailable === true}
+        >
+          {guestView}
+        </GuestHtmlRecovery>
+      ) : (
+        guestView
+      )}
+    </>
   );
 }
