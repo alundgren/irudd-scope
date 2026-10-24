@@ -3,6 +3,8 @@ import { createServer, request as httpRequest } from "node:http";
 /** Changes only synthetic peer responses; real app authentication and storage still execute. */
 export async function guestResponseFixture() {
   let ownerPort = 0;
+  let authorization = "";
+  let dropMutation = false;
   let mode: "normal" | "unsupported" | "partial" | "stale" | "same-revision" | "unknown-kind" =
     "normal";
   let savedCatalog = "";
@@ -32,6 +34,7 @@ export async function guestResponseFixture() {
       response.destroy();
       return;
     }
+    if (request.headers.authorization) authorization = request.headers.authorization;
     const upstream = httpRequest(
       {
         hostname: "127.0.0.1",
@@ -41,6 +44,16 @@ export async function guestResponseFixture() {
         headers: request.headers,
       },
       (incoming) => {
+        if (
+          request.url === "/guest/mutation-execute" &&
+          dropMutation &&
+          incoming.statusCode === 200
+        ) {
+          dropMutation = false;
+          incoming.resume();
+          incoming.on("end", () => response.destroy());
+          return;
+        }
         const catalog = request.url === "/guest/catalog" && incoming.statusCode === 200;
         const content = request.url === "/guest/artifact-content" && incoming.statusCode === 200;
         if (content) {
@@ -112,6 +125,17 @@ export async function guestResponseFixture() {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   return {
     port: (server.address() as { port: number }).port,
+    dropNextMutationReply() {
+      dropMutation = true;
+    },
+    async peer(route: string, body: unknown) {
+      const response = await fetch(`http://127.0.0.1:${ownerPort}/guest/${route}`, {
+        method: "POST",
+        headers: { Authorization: authorization, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return { status: response.status, body: await response.json() };
+    },
     denyAccess(value: boolean) {
       denied = value;
       if (value) server.closeAllConnections();

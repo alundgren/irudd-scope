@@ -1,0 +1,414 @@
+import { expect } from "vite-plus/test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { delimiter, join } from "node:path";
+import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
+import type {
+  GuestAction,
+  GuestChange,
+  GuestOperation,
+} from "@irudd-scope/protocol/guest-operation";
+import { desktopFixture } from "./desktop-fixture.ts";
+import { syntheticCli } from "./synthetic-cli.ts";
+import { guestCli } from "./guest-cli.ts";
+import { guestResponseFixture } from "./guest-response-fixture.ts";
+
+export async function guestMutationChecks() {
+  const directory = await mkdtemp(join(tmpdir(), "scope-mutations-"));
+  const routes = join(directory, "routes.json");
+  await writeFile(routes, "{}");
+  await syntheticCli(directory, "tailcat", guestCli);
+  const env = {
+    PATH: directory + delimiter + process.env.PATH,
+    SCOPE_GUEST_FIXTURE_EVENTS: join(directory, "events.jsonl"),
+    SCOPE_GUEST_FIXTURE_ROUTES: routes,
+  };
+  const a = await desktopFixture({ hideInitialPrompts: true, env });
+  const b = await desktopFixture({ hideInitialPrompts: true, env });
+  let left = await a.launch(),
+    right = await b.launch();
+  let pageA = await left.firstWindow(),
+    pageB = await right.firstWindow();
+  let ca = await a.connect();
+  const responses = await guestResponseFixture();
+  const html =
+    '<h1>Guest mutation example</h1><label>Notes<textarea id="notes"></textarea></label><label>Choice<select id="choice"><option>a</option><option>b</option></select></label><input id="agreed" type="checkbox"><input id="password" type="password"><input name="ambiguous"><input name="ambiguous"><script>document.body.dataset.events="0"; document.addEventListener("input",()=>document.body.dataset.events=String(Number(document.body.dataset.events)+1));</script>';
+  let artifact = await ca.publish(
+    "mutation-document",
+    {
+      name: "mutation-document",
+      title: "Mutation source",
+      kind: "html",
+      mediaType: "text/html",
+      fileName: "mutation.html",
+      expectedRevision: 0,
+    },
+    Buffer.from(html),
+  );
+  const plan = { version: 1, title: "Mutation plan", overviewHtml: "<h1>Proposal</h1>" };
+  await ca.publish(
+    "mutation-plan",
+    {
+      name: "mutation-plan",
+      title: plan.title,
+      kind: "plan",
+      mediaType: "application/json",
+      fileName: "mutation-plan.json",
+      expectedRevision: 0,
+    },
+    Buffer.from(JSON.stringify(plan)),
+  );
+  let peerId = "";
+  async function pair() {
+    for (const peer of (await pageA.evaluate(() => window.scope.transferDevices())).peers)
+      await pageA.evaluate((id) => window.scope.forgetScope(id), peer.id);
+    for (const peer of (await pageB.evaluate(() => window.scope.transferDevices())).peers)
+      await pageB.evaluate((id) => window.scope.forgetScope(id), peer.id);
+    const invitation = await pageA.evaluate(() => window.scope.createPairing("Owner laptop"));
+    await pageA.evaluate((id) => window.scope.copyPairingSecret(id), invitation.id);
+    const secret = await left.evaluate(({ clipboard }) => clipboard.readText());
+    await pageB.evaluate((input) => window.scope.pairScope(input), {
+      url: invitation.url,
+      secret,
+      name: "Guest laptop",
+    });
+    peerId = (await pageA.evaluate(() => window.scope.transferDevices())).peers.at(-1)!.id;
+    await pageA.evaluate((id) => window.scope.setGuestAccess(id, true), peerId);
+    await pageB.evaluate((id) => window.scope.setGuestAccess(id, true), peerId);
+    await pageA.evaluate((id) => window.scope.copyGuestLink(id), peerId);
+    const link = await left.evaluate(({ clipboard }) => clipboard.readText());
+    const endpoint = JSON.parse(Buffer.from(link.split("#")[1], "base64url").toString()).endpoint;
+    responses.target(endpoint.port);
+    await writeFile(routes, JSON.stringify({ [endpoint.port]: responses.port }));
+    await right.evaluate(({ clipboard }, link) => clipboard.writeText(link), link);
+    await pageB.evaluate((id) => window.scope.connectGuestLink(id), peerId);
+    await expect
+      .poll(
+        () =>
+          pageB.evaluate(() => window.scope.guestCatalog()).then((view) => view.available.length),
+        { timeout: 25000 },
+      )
+      .toBe(2);
+  }
+  const record = async (id = "mutation-document") =>
+    (await pageB.evaluate(() => window.scope.guestCatalog())).records.find(
+      (record) => record.source.artifact?.id === id,
+    )!;
+  async function change(action: GuestAction, id = "mutation-document"): Promise<GuestChange> {
+    const current = await record(id);
+    return {
+      version: 1,
+      target: { ownerDeviceId: current.ownerDeviceId, sourceTabId: current.source.sourceTabId },
+      expectedSourceVersion: current.source.sourceVersion!,
+      expectedRevision: current.source.artifact!.revision,
+      action,
+    };
+  }
+  async function fresh(id = "mutation-document") {
+    const latest = await ca.get(id);
+    await expect
+      .poll(async () => (await record(id)).source.artifact?.revision)
+      .toBe(latest.revision);
+    return latest;
+  }
+  async function select(id: string) {
+    const tab = pageB.locator(`#tab-${id}`);
+    if (await tab.isVisible()) await tab.click();
+    else {
+      await pageB.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
+      await pageB.getByLabel("Search tabs", { exact: true }).fill((await record()).tab.title);
+      await pageB
+        .getByRole("button", { name: (await record()).tab.title + " guest", exact: true })
+        .click();
+    }
+  }
+  async function capture(name: string) {
+    if (!process.env.SCOPE_REVIEW_DIR) return;
+    await mkdir(process.env.SCOPE_REVIEW_DIR, { recursive: true });
+    await pageB.screenshot({
+      path: join(process.env.SCOPE_REVIEW_DIR, name),
+      animations: "disabled",
+    });
+  }
+  const ownerDb = (work: (db: DatabaseSync) => void) => {
+    const db = new DatabaseSync(join(a.settingsDirectory, "artifacts", "scope.db"));
+    try {
+      work(db);
+    } finally {
+      db.close();
+    }
+  };
+  try {
+    await pair();
+    const guestId = (await record()).tab.id;
+    const sourceId = (await record()).source.sourceTabId;
+    const target = (await change({ kind: "trash" })).target;
+    await select(guestId);
+    let pane = pageB.locator(`#pane-${guestId}`);
+    let frame = pane.locator("iframe").contentFrame();
+    await frame.getByRole("heading", { name: "Guest mutation example" }).waitFor();
+    await frame.locator("#notes").fill("Recover this note after restart");
+    await frame.locator("#choice").selectOption("b");
+    await frame.locator("#agreed").check();
+    await frame.locator("#password").fill("not-persisted-password");
+    await frame.locator('[name="ambiguous"]').first().fill("not-persisted-ambiguous");
+    await expect
+      .poll(() =>
+        pageB
+          .evaluate((id) => window.scope.guestRecovery(id), guestId)
+          .then((value) => value.inputs.find((input) => input.kind === "html")?.fields.length),
+      )
+      .toBe(3);
+    const saved = await pageB.evaluate((id) => window.scope.guestRecovery(id), guestId);
+    expect(JSON.stringify(saved)).not.toContain("not-persisted");
+    expect(JSON.stringify(saved)).not.toContain("<h1>");
+    await right.close();
+    right = await b.launch();
+    pageB = await right.firstWindow();
+    await pair();
+    await select(guestId);
+    pane = pageB.locator(`#pane-${guestId}`);
+    frame = pane.locator("iframe").contentFrame();
+    await frame.locator("#notes").waitFor();
+    expect(await frame.locator("#notes").inputValue()).toBe("");
+    await pane.getByText(/Form input recovery/, { exact: false }).click();
+    await pane.getByRole("button", { name: "Restore saved fields" }).click();
+    expect(await frame.locator("#notes").inputValue()).toBe("Recover this note after restart");
+    expect(await frame.locator("#choice").inputValue()).toBe("b");
+    expect(await frame.locator("#agreed").isChecked()).toBe(true);
+    expect(await frame.locator("body").getAttribute("data-events")).toBe("0");
+    await capture("mutations-restored-light-laptop.png");
+    await pane.getByText(/Source actions ·/).click();
+    await pane.getByLabel("Source title", { exact: true }).fill("Retained competing title");
+    artifact = await ca.publish(
+      artifact.id,
+      { ...artifact, expectedRevision: artifact.revision, title: "Owner competing change" },
+      Buffer.from(html),
+    );
+    await fresh();
+    // Changed content revision never receives old form input, even with identical bytes.
+    await pane.getByText(/current revision .*copy or discard old input/).waitFor();
+    expect(await pane.getByRole("button", { name: "Restore saved fields" }).count()).toBe(0);
+    await pane.getByText(/Source actions ·/).click();
+    await expect
+      .poll(() => pane.getByLabel("Source title", { exact: true }).inputValue())
+      .toBe("Retained competing title");
+    await pane.getByRole("button", { name: "Rename on Owner laptop", exact: true }).click();
+    await pane.getByText(/The owner changed this source/).waitFor();
+    expect((await ca.get(artifact.id)).title).toBe("Owner competing change");
+    expect(await pane.getByLabel("Source title", { exact: true }).inputValue()).toBe(
+      "Retained competing title",
+    );
+    await capture("mutations-conflict-light-laptop.png");
+    await pageB.evaluate(() => window.scope.saveSettings({ appearance: "dark" }));
+    await right.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));
+    await capture("mutations-conflict-dark-narrow.png");
+    await pane.getByRole("button", { name: "Review current owner source" }).click();
+    await pane.getByRole("button", { name: "Rename on Owner laptop", exact: true }).click();
+    await expect
+      .poll(() => ca.get(artifact.id).then((value) => value.title))
+      .toBe("Retained competing title");
+    await fresh();
+    await pane.getByText(/Source actions ·/).click();
+    await pane
+      .getByRole("button", { name: "Keep permanently on Owner laptop", exact: true })
+      .click();
+    await expect
+      .poll(() =>
+        pageA
+          .evaluate(() => window.scope.retainedTabs())
+          .then((tabs) => tabs.find((entry) => entry.tab.id === sourceId)?.permanent),
+      )
+      .toBe(true);
+    await expect.poll(async () => (await record()).source.permanent).toBe(true);
+    const beforeClose = (await record()).source.sourceVersion;
+    await pageB
+      .getByRole("button", { name: "Close Retained competing title", exact: true })
+      .click();
+    expect((await ca.get(artifact.id)).title).toBe("Retained competing title");
+    expect((await record()).source.sourceVersion).toBe(beforeClose);
+    await select(guestId);
+    // A failed receipt write must roll back the source mutation as well.
+    const operation = await pageB.evaluate(
+      (change) => window.scope.guestPrepare(change),
+      await change({ kind: "rename", title: "Must roll back" }),
+    );
+    ownerDb((db) =>
+      db.exec(
+        "CREATE TRIGGER reject_guest_receipt BEFORE UPDATE ON guest_operations WHEN json_extract(NEW.outcome, '$.state') = 'completed' BEGIN SELECT RAISE(ABORT, 'Synthetic receipt failure'); END",
+      ),
+    );
+    await expect(
+      pageB.evaluate(({ target, operation }) => window.scope.guestExecute(target, operation), {
+        target,
+        operation,
+      }),
+    ).rejects.toThrow("uncertain");
+    expect((await ca.get(artifact.id)).title).toBe("Retained competing title");
+    ownerDb((db) => db.exec("DROP TRIGGER reject_guest_receipt"));
+    expect(
+      (
+        await pageB.evaluate(
+          ({ target, operation }) => window.scope.guestOperationStatus(target, operation),
+          { target, operation },
+        )
+      ).state,
+    ).toBe("rejected");
+    await pageB.evaluate(
+      ({ target, operation }) => window.scope.guestReconcile(target, operation),
+      { target, operation },
+    );
+    const prepareRaw = async (input: GuestChange): Promise<GuestOperation> => {
+      const reply = await responses.peer("mutation-prepare", input);
+      expect(reply.status).toBe(200);
+      return { ...reply.body, change: input };
+    };
+    const cancelled = await prepareRaw(await change({ kind: "rename", title: "Cancelled write" }));
+    expect((await responses.peer("mutation-status", cancelled)).body.state).toBe("rejected");
+    expect((await responses.peer("mutation-execute", cancelled)).body.state).toBe("rejected");
+    expect((await ca.get(artifact.id)).title).toBe("Retained competing title");
+    const mismatched = await prepareRaw(await change({ kind: "rename", title: "Bound body" }));
+    expect(
+      (
+        await responses.peer("mutation-execute", {
+          ...mismatched,
+          change: { ...mismatched.change, action: { kind: "rename", title: "Forged body" } },
+        })
+      ).status,
+    ).not.toBe(200);
+    ownerDb((db) =>
+      db
+        .prepare("UPDATE guest_operations SET caller = ? WHERE id = ?")
+        .run(randomUUID(), mismatched.operationId),
+    );
+    expect((await responses.peer("mutation-execute", mismatched)).status).not.toBe(200);
+    expect(
+      (await responses.peer("mutation-execute", { ...cancelled, operationId: randomUUID() })).body
+        .state,
+    ).toBe("unknown");
+    const first = await prepareRaw(await change({ kind: "rename", title: "Concurrent one" }));
+    const second = await prepareRaw(await change({ kind: "rename", title: "Concurrent two" }));
+    const outcomes = await Promise.all(
+      [first, second].map((operation) => responses.peer("mutation-execute", operation)),
+    );
+    expect(outcomes.map((reply) => reply.body.state).sort()).toEqual(["completed", "conflict"]);
+    await fresh();
+    const lateTrash = await prepareRaw(
+      await change({ kind: "rename", title: "Too late after trash" }),
+    );
+    await pageA.evaluate((id) => window.scope.closeTab(id), sourceId);
+    expect((await responses.peer("mutation-execute", lateTrash)).body.state).toBe("rejected");
+    await pageA.evaluate((id) => window.scope.restoreTab(id), sourceId);
+    await expect
+      .poll(async () => (await record()).source.sourceVersion)
+      .toBeGreaterThan(lateTrash.change.expectedSourceVersion);
+    // Existing plan validation and retained basis capture execute at the owner.
+    const captureBasis = await prepareRaw(
+      await change({ kind: "capture-basis", basisId: "proposal" }, "mutation-plan"),
+    );
+    expect((await responses.peer("mutation-execute", captureBasis)).body.state).toBe("completed");
+    const planArtifact = await fresh("mutation-plan");
+    const captured = JSON.parse(
+      Buffer.from(await ca.content(planArtifact.id, planArtifact.revision)).toString(),
+    );
+    expect(captured.bases[0]).toMatchObject({
+      id: "proposal",
+      revision: captureBasis.change.expectedRevision,
+    });
+    const invalidPlan = await prepareRaw(
+      await change({ kind: "replace-plan", document: plan }, "mutation-plan"),
+    );
+    expect((await responses.peer("mutation-execute", invalidPlan)).body.state).toBe("rejected");
+    expect((await ca.get("mutation-plan")).revision).toBe(planArtifact.revision);
+    const replace = await prepareRaw(
+      await change(
+        {
+          kind: "replace-plan",
+          document: { ...captured, context: "Changed proposal with retained basis" },
+        },
+        "mutation-plan",
+      ),
+    );
+    expect((await responses.peer("mutation-execute", replace)).body.state).toBe("completed");
+    // An interrupted reply retains the exact dispatch identity across both app restarts.
+    const lost = await pageB.evaluate(
+      (change) => window.scope.guestPrepare(change),
+      await change({ kind: "trash" }),
+    );
+    responses.dropNextMutationReply();
+    await expect(
+      pageB.evaluate(({ target, lost }) => window.scope.guestExecute(target, lost), {
+        target,
+        lost,
+      }),
+    ).rejects.toThrow("uncertain");
+    await expect
+      .poll(() =>
+        pageA
+          .evaluate(() => window.scope.retainedTabs())
+          .then((tabs) => tabs.find((entry) => entry.tab.id === sourceId)?.trashedAt !== null),
+      )
+      .toBe(true);
+    await left.close();
+    left = await a.launch();
+    pageA = await left.firstWindow();
+    ca = await a.connect();
+    await right.close();
+    right = await b.launch();
+    pageB = await right.firstWindow();
+    // One shared plan remains. Pairing helper expects two, so restore only after receipt status below.
+    await pageA.evaluate((id) => window.scope.restoreTab(id), sourceId);
+    await pair();
+    await pageA.evaluate((id) => window.scope.closeTab(id), sourceId);
+    const recovered = await pageB.evaluate((id) => window.scope.guestRecovery(id), guestId);
+    expect(recovered.pending?.operation.operationId).toBe(lost.operationId);
+    expect(recovered.pending?.dispatched).toBe(true);
+    expect(
+      (
+        await pageB.evaluate(
+          ({ target, lost }) => window.scope.guestOperationStatus(target, lost),
+          { target, lost },
+        )
+      ).state,
+    ).toBe("completed");
+    await expect(
+      pageB.evaluate(({ target, lost }) => window.scope.guestExecute(target, lost), {
+        target,
+        lost,
+      }),
+    ).rejects.toThrow("dispatched");
+    await pageB.evaluate(({ target, lost }) => window.scope.guestReconcile(target, lost), {
+      target,
+      lost,
+    });
+    // Consent is checked at execution, even for an already prepared ID.
+    await pageA.evaluate((id) => window.scope.restoreTab(id), sourceId);
+    await expect
+      .poll(async () => (await record()).source.sourceVersion)
+      .toBeGreaterThan(lost.change.expectedSourceVersion);
+    const revoked = await prepareRaw(
+      await change({ kind: "rename", title: "Late revoked change" }),
+    );
+    await pageA.evaluate((id) => window.scope.setGuestAccess(id, false), peerId);
+    expect((await responses.peer("mutation-execute", revoked)).status).not.toBe(200);
+    expect((await ca.get(artifact.id)).title).not.toBe("Late revoked change");
+    await select(guestId);
+    await capture("mutations-offline-recovery-dark-narrow.png");
+    // Receiver drafts are ordinary recovery records, never owner artifacts or persistent HTML.
+    const db = new DatabaseSync(join(b.settingsDirectory, "artifacts", "scope.db"));
+    try {
+      expect(db.prepare("SELECT count(*) AS count FROM artifacts").get()).toEqual({ count: 0 });
+    } finally {
+      db.close();
+    }
+  } finally {
+    await Promise.allSettled([left.close(), right.close()]);
+    await responses.close();
+    await Promise.all(
+      [a.directory, b.directory, directory].map((path) =>
+        rm(path, { recursive: true, force: true }),
+      ),
+    );
+  }
+}
