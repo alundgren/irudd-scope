@@ -126,15 +126,19 @@ function folderOf(path: string) {
 }
 
 /** Asks whether to replace a file with a dropped one of the same name. */
-export function ClashQuestion({ question }: { question: Question | undefined }) {
+export function ClashQuestion({ question: current }: { question: Question | undefined }) {
   const [all, setAll] = useState(false);
-  useEffect(() => setAll(false), [question?.path]);
+  useEffect(() => setAll(false), [current?.path]);
+  // The last question stays readable while the dialog closes.
+  const last = useRef(current);
+  if (current) last.current = current;
+  const question = current ?? last.current;
   const name = question ? question.path.slice(question.path.lastIndexOf("/") + 1) : "";
   return (
     <Dialog
-      open={question !== undefined}
+      open={current !== undefined}
       onOpenChange={(open) => {
-        if (!open) question?.answer("cancel", false);
+        if (!open) current?.answer("cancel", false);
       }}
     >
       <DialogContent showCloseButton={false} className="folder-clash">
@@ -157,13 +161,13 @@ export function ClashQuestion({ question }: { question: Question | undefined }) 
           </label>
         )}
         <div className="folder-clash-actions">
-          <Button variant="ghost" onClick={() => question?.answer("cancel", false)}>
+          <Button variant="ghost" onClick={() => current?.answer("cancel", false)}>
             Cancel
           </Button>
-          <Button variant="secondary" onClick={() => question?.answer("keep", all)}>
+          <Button variant="secondary" onClick={() => current?.answer("keep", all)}>
             Keep both
           </Button>
-          <Button onClick={() => question?.answer("replace", all)}>Replace</Button>
+          <Button onClick={() => current?.answer("replace", all)}>Replace</Button>
         </div>
       </DialogContent>
     </Dialog>
