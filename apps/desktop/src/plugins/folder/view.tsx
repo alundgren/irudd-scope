@@ -77,10 +77,11 @@ export function FolderView({
   // saved selection, which an agent may have made while the tab was not shown.
   const [revealed, setRevealed] = useState(data.selectedPath);
   const [lastSelected, setLastSelected] = useState(data.selectedPath);
-  const pickedInTree = useRef<string | null>(null);
+  const [pickedInTree, setPickedInTree] = useState<string | null>(null);
   if (lastSelected !== data.selectedPath) {
     setLastSelected(data.selectedPath);
-    setRevealed(pickedInTree.current === data.selectedPath ? null : data.selectedPath);
+    setRevealed(pickedInTree === data.selectedPath ? null : data.selectedPath);
+    setPickedInTree(null);
   }
   const paused =
     revealed !== null &&
@@ -238,7 +239,7 @@ export function FolderView({
                 onToggle={toggle}
                 onSelect={(path) => {
                   setTarget(undefined);
-                  pickedInTree.current = path;
+                  setPickedInTree(path);
                   update({ selectedPath: path });
                 }}
                 onRetry={retry}
