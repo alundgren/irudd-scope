@@ -22,7 +22,7 @@ export async function guestCloseLocalState(page: Page, app: ElectronApplication,
   const guest = (await page.evaluate(() => window.scope.workspace()))!.tabs.find(
     (tab) => tab.id === guestId,
   )!;
-  // Hold only scheduled renderer saves; the actual pre-close and quit barriers still execute.
+  // Pause renderer timers so autosave cannot conceal a missing local write. Explicit flushes still run.
   const time = Date.now();
   await page.clock.install({ time });
   await page.reload();
@@ -98,7 +98,7 @@ export async function guestCloseLocalState(page: Page, app: ElectronApplication,
       .locator(".artifact-tab.selected")
       .getByRole("button", { name: /^Close / })
       .click({ force: true });
-    await select("Prompts");
+    await select("Prompts prompts");
     await divider.focus();
     await page.keyboard.press("End");
     expect(await divider.getAttribute("aria-valuenow")).toBe("85");
