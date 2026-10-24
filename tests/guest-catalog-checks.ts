@@ -652,19 +652,24 @@ export async function guestCatalogChecks({
       expect(JSON.stringify(saved)).toBe(restartWorkspace);
       const hidden = saved!.tabs.find((tab) => tab.id === guestId)!;
       expect(hidden.hidden).toBe(true);
-      await page.getByRole("button", { name: "Search and controls" }).click();
-      await page.getByLabel("Search artifacts", { exact: true }).fill(hidden.title);
+      expect(
+        saved!.tabs.find((tab) => tab.title === "Hub publication")?.guestReadRevision,
+      ).toBeUndefined();
+      await page
+        .getByRole("button", { name: /^Tabs and Trashcan,/ })
+        .getByRole("img", { name: "Updated artifact" })
+        .waitFor();
+      await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
+      await page.getByLabel("Search tabs", { exact: true }).fill(hidden.title);
       await page.getByRole("button", { name: hidden.title + " guest", exact: true }).click();
       await expect
         .poll(async () => (await page.evaluate(() => window.scope.workspace()))?.selected)
         .toBe(guestId);
       expect(await page.locator(`#pane-${guestId} iframe`).count()).toBe(0);
-      const peer = (await page.evaluate(() => window.scope.transferDevices())).peers[0]!.id;
-      await page.evaluate((id) => window.scope.setGuestAccess(id, false), peer);
-      await page.getByText(/Guest sharing with Source Scope is off on this Scope/).waitFor();
-      await capture("workspace-disabled-dark-laptop.png", page);
-      await page.evaluate((id) => window.scope.forgetScope(id), peer);
-      await page.getByText(/This owner is no longer paired/).waitFor();
+      await page
+        .locator(`#pane-${guestId}`)
+        .getByText(/This owner is no longer paired/)
+        .waitFor();
       await capture("workspace-forgotten-dark-laptop.png", page);
       expect(
         (await page.evaluate(() => window.scope.workspace()))?.tabs.find(
@@ -693,6 +698,18 @@ export async function guestCatalogChecks({
         .waitFor();
       await capture("guest-owner-unavailable.png");
       await select(guestId);
+      const peer = (await pageB.evaluate(() => window.scope.transferDevices())).peers[0]!.id;
+      await pageB.evaluate((id) => window.scope.setGuestAccess(id, false), peer);
+      await pageB
+        .locator(`#pane-${guestId}`)
+        .getByText(/Guest sharing with Source Scope is off on this Scope/)
+        .waitFor();
+      await capture("workspace-disabled-dark-narrow.png");
+      await pageB.evaluate((id) => window.scope.forgetScope(id), peer);
+      await pageB
+        .locator(`#pane-${guestId}`)
+        .getByText(/This owner is no longer paired/)
+        .waitFor();
       await pageB
         .locator(".artifact-tab.selected")
         .getByRole("button", { name: "Close Same title", exact: true })

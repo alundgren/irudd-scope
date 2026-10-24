@@ -407,7 +407,11 @@ export class GuestCatalogs {
         throw new Error("The owner content did not match the requested revision.");
       access.throwIfAborted();
       const latest = this.view.records.find((record) => record.tab.id === id);
-      if (!this.view.available.includes(id) || latest?.source.artifact?.revision !== revision)
+      if (
+        !this.view.available.includes(id) ||
+        latest?.source.artifact?.revision !== revision ||
+        latest.source.artifact.blob !== artifact.blob
+      )
         throw new Error("This source changed while reading. Refresh the guest tab.");
       return { artifact, bytes: content };
     } catch (error) {
