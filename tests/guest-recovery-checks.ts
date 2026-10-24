@@ -25,7 +25,8 @@ async function gate(app: ElectronApplication, channel: string, afterWrite = fals
           ipcMain.handle(channel, original);
         },
       };
-      (globalThis as unknown as { recoveryGate: typeof state }).recoveryGate = state;
+      const host = globalThis as unknown as { recoveryGates?: Record<string, typeof state> };
+      (host.recoveryGates ??= {})[channel] = state;
       ipcMain.removeHandler(channel);
       ipcMain.handle(channel, async (event, ...args: unknown[]) => {
         const value = afterWrite ? await original(event, ...args) : undefined;
@@ -39,24 +40,32 @@ async function gate(app: ElectronApplication, channel: string, afterWrite = fals
   return {
     entered: () =>
       app.evaluate(
-        () =>
-          (globalThis as unknown as { recoveryGate: { entered: boolean } }).recoveryGate.entered,
+        (_electron, channel) =>
+          (globalThis as unknown as { recoveryGates: Record<string, { entered: boolean }> })
+            .recoveryGates[channel].entered,
+        channel,
       ),
     release: () =>
-      app.evaluate(() =>
-        (globalThis as unknown as { recoveryGate: { release: () => void } }).recoveryGate.release(),
+      app.evaluate(
+        (_electron, channel) =>
+          (
+            globalThis as unknown as { recoveryGates: Record<string, { release: () => void }> }
+          ).recoveryGates[channel].release(),
+        channel,
       ),
     restore: () =>
-      app.evaluate(() => {
+      app.evaluate((_electron, channel) => {
         const state = (
-          globalThis as unknown as { recoveryGate: { release: () => void; restore: () => void } }
-        ).recoveryGate;
+          globalThis as unknown as {
+            recoveryGates: Record<string, { release: () => void; restore: () => void }>;
+          }
+        ).recoveryGates[channel];
         state.release();
         state.restore();
-      }),
+      }, channel),
   };
 }
-async function startFlush(app: ElectronApplication) {
+async function startFlush(app: ElectronApplication, expected = true) {
   await app.evaluate(({ ipcMain, BrowserWindow }) => {
     type Handler = (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown;
     const channel = "scope:close-ready";
@@ -87,7 +96,7 @@ async function startFlush(app: ElectronApplication) {
                 .result,
           ),
         )
-        .toBe(true);
+        .toBe(expected);
     } finally {
       await app.evaluate(() =>
         (
@@ -273,4 +282,189 @@ export async function guestRecoveryChecks({
   }
   await appearance("light");
   return artifact as Artifact;
+}
+
+export async function guestReadFailureChecks({
+  page,
+  app,
+  guestId,
+  capture,
+}: {
+  page: Page;
+  app: ElectronApplication;
+  guestId: string;
+  capture: (name: string) => Promise<void>;
+}) {
+  await app.evaluate(({ ipcMain }) => {
+    type Handler = (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown;
+    const channel = "scope:guest-recovery";
+    const original = (
+      ipcMain as unknown as { _invokeHandlers: Map<string, Handler> }
+    )._invokeHandlers.get(channel)!;
+    (globalThis as unknown as { restoreRecoveryRead: () => void }).restoreRecoveryRead = () => {
+      ipcMain.removeHandler(channel);
+      ipcMain.handle(channel, original);
+    };
+    ipcMain.removeHandler(channel);
+    ipcMain.handle(channel, () => {
+      throw new Error("Synthetic initial recovery read failure");
+    });
+  });
+  try {
+    await page.reload();
+    const pane = page.locator(`#pane-${guestId}`);
+    const notes = pane.locator("iframe").contentFrame().locator("#notes");
+    const retry = pane.getByRole("button", { name: "Retry reading input", exact: true });
+    await retry.waitFor();
+    await (
+      await startFlush(app, false)
+    )();
+    await app.evaluate(() =>
+      (globalThis as unknown as { restoreRecoveryRead: () => void }).restoreRecoveryRead(),
+    );
+    await notes.fill("Recovered after an initial read failure");
+    const frame = pane.locator("iframe").contentFrame();
+    await frame.locator("#choice").selectOption("b");
+    await frame.locator("#agreed").check();
+    await frame.locator("#first").check();
+    expect(await retry.isVisible(), "Read retry remains available after supported input").toBe(
+      true,
+    );
+    await capture("mutations-r2-read-light-laptop.png");
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));
+    await capture("mutations-r2-read-light-narrow.png");
+    await appearance(page, "dark");
+    await capture("mutations-r2-read-dark-narrow.png");
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 820));
+    await capture("mutations-r2-read-dark-laptop.png");
+    const pending = await gate(app, "scope:guest-recovery");
+    try {
+      await retry.click();
+      await expect.poll(pending.entered).toBe(true);
+      expect(
+        await pane.getByRole("button", { name: "Reading saved input…", exact: true }).isDisabled(),
+      ).toBe(true);
+      const finished = await startFlush(app);
+      await pending.release();
+      await finished();
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate((id) => window.scope.guestRecovery(id), guestId)).inputs
+              .find((input) => input.kind === "html")
+              ?.fields.find((field) => field.key === "id:notes")?.value,
+        )
+        .toBe("Recovered after an initial read failure");
+    } finally {
+      await pending.restore();
+    }
+    await appearance(page, "light");
+  } catch (error) {
+    console.error("Initial recovery read journey failed:", error);
+    throw error;
+  } finally {
+    await app.evaluate(() =>
+      (globalThis as unknown as { restoreRecoveryRead: () => void }).restoreRecoveryRead(),
+    );
+  }
+}
+async function appearance(page: Page, value: "light" | "dark") {
+  await page.getByRole("button", { name: "Search and controls" }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByLabel("Search settings").fill("appearance");
+  await page.getByLabel("Appearance", { exact: true }).selectOption(value);
+  await page
+    .getByRole("dialog", { name: "Settings", exact: true })
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe(value);
+}
+export async function guestTitleCleanupChecks({
+  page,
+  app,
+  client,
+  guestId,
+  html,
+  mode,
+}: {
+  page: Page;
+  app: ElectronApplication;
+  client: ScopeClient;
+  guestId: string;
+  html: string;
+  mode: "discard" | "rename";
+}) {
+  const pane = page.locator(`#pane-${guestId}`);
+  const details = pane.getByText(/Source actions ·/).locator("..");
+  if (!(await details.evaluate((node) => (node as HTMLDetailsElement).open)))
+    await details.locator("summary").click();
+  const title = pane.getByLabel("Source title", { exact: true });
+  await title.fill("Older title draft");
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate((id) => window.scope.guestRecovery(id), guestId)).inputs
+          .filter((input) => input.kind === "action")
+          .at(-1)?.title,
+    )
+    .toBe("Older title draft");
+  let artifact = await client.get("mutation-document");
+  artifact = await client.publish(
+    artifact.id,
+    {
+      name: artifact.name,
+      title: artifact.title,
+      kind: "html",
+      mediaType: "text/html",
+      fileName: "mutation.html",
+      expectedRevision: artifact.revision,
+    },
+    Buffer.from(html),
+  );
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.scope.guestCatalog())).records.find(
+          (record) => record.tab.id === guestId,
+        )?.source.artifact?.revision,
+    )
+    .toBe(artifact.revision);
+  await pane.getByRole("button", { name: "Review current owner source", exact: true }).click();
+  await pane
+    .getByText(
+      `Current owner revision ${artifact.revision}. Review your retained input before saving.`,
+      { exact: true },
+    )
+    .waitFor();
+  const save = await gate(app, "scope:save-guest-input");
+  const read = await gate(app, "scope:guest-recovery", true);
+  try {
+    const submitted = mode === "discard" ? "Discarded current title" : "Acknowledged current title";
+    await title.fill(submitted);
+    await expect.poll(save.entered).toBe(true);
+    await app.evaluate(
+      ({ BrowserWindow }, id) =>
+        BrowserWindow.getAllWindows()[0].webContents.send("scope:guest-recovery-changed", id),
+      guestId,
+    );
+    await expect.poll(read.entered).toBe(true);
+    await pane
+      .getByRole("button", {
+        name: mode === "discard" ? "Discard title draft" : "Rename on Owner laptop",
+        exact: true,
+      })
+      .click();
+    await save.release();
+    if (mode === "discard") await expect.poll(() => title.inputValue()).toBe(artifact.title);
+    else await expect.poll(async () => (await client.get(artifact.id)).title).toBe(submitted);
+    await read.release();
+    await expect.poll(() => title.isEnabled()).toBe(true);
+    await (
+      await startFlush(app)
+    )();
+    return await client.get(artifact.id);
+  } finally {
+    await save.restore();
+    await read.restore();
+  }
 }

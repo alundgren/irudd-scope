@@ -51,6 +51,8 @@ export function GuestHtmlRecovery({
   const saved = useRef<GuestInput[]>([]);
   const [, render] = useState(0);
   const [error, setError] = useState("");
+  const [readError, setReadError] = useState(false);
+  const [reading, setReading] = useState(false);
   const [ready, setReady] = useState(false);
   const [review, setReview] = useState(false);
   const loaded = useRef(false);
@@ -102,13 +104,22 @@ export function GuestHtmlRecovery({
         save.schedule();
       }
       updateSaved(values);
+      setReadError(false);
     };
     reload.current = () => {
+      const sequence = readSequence.current + 1;
+      setReading(true);
       const task = read();
       if (!loaded.current) initialRead.current = task;
-      void task.catch(() => {
-        if (live) setError("Could not read saved input. Keep Scope open and retry.");
-      });
+      void task
+        .catch(() => {
+          if (!live || sequence !== readSequence.current) return;
+          if (!loaded.current) setReadError(true);
+          else setError("Could not refresh saved input. Keep Scope open and retry.");
+        })
+        .finally(() => {
+          if (live && sequence === readSequence.current) setReading(false);
+        });
       return task;
     };
     void reload.current();
@@ -232,10 +243,10 @@ export function GuestHtmlRecovery({
   for (const [revision, input] of working.current) displayed.set(revision, input);
   return (
     <div ref={container} className="guest-recovery-view">
-      {(artifact?.kind === "html" || displayed.size > 0 || error || save.error) && (
+      {(artifact?.kind === "html" || displayed.size > 0 || readError || error || save.error) && (
         <details
           className="guest-actions"
-          open={review || !!error || save.error}
+          open={review || readError || !!error || save.error}
           onToggle={(event) => setReview(event.currentTarget.open)}
         >
           <summary>
@@ -337,17 +348,16 @@ export function GuestHtmlRecovery({
             {(error || save.error) && (
               <p role="alert">{error || "Could not save form input. Keep Scope open and retry."}</p>
             )}
-            {!loaded.current && error && (
+            {readError && (
+              <p role="alert">Could not read saved input. Keep Scope open and retry.</p>
+            )}
+            {readError && (
               <Button
                 size="sm"
-                onClick={() =>
-                  void reload
-                    .current()
-                    .then(() => setError(""))
-                    .catch(() => {})
-                }
+                disabled={reading}
+                onClick={() => void reload.current().catch(() => {})}
               >
-                Retry reading input
+                {reading ? "Reading saved input…" : "Retry reading input"}
               </Button>
             )}
             {save.error && (

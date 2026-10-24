@@ -11,7 +11,11 @@ import type {
 } from "@irudd-scope/protocol/guest-operation";
 import { desktopFixture } from "./desktop-fixture.ts";
 import { syntheticCli } from "./synthetic-cli.ts";
-import { guestRecoveryChecks } from "./guest-recovery-checks.ts";
+import {
+  guestRecoveryChecks,
+  guestReadFailureChecks,
+  guestTitleCleanupChecks,
+} from "./guest-recovery-checks.ts";
 import { guestCli } from "./guest-cli.ts";
 import { guestResponseFixture } from "./guest-response-fixture.ts";
 
@@ -206,6 +210,7 @@ export async function guestMutationChecks() {
         ownerDeviceId: randomUUID(),
       }),
     ).rejects.toThrow("different guest");
+    await guestReadFailureChecks({ page: pageB, app: right, guestId, capture });
     await right.close();
     right = await b.launch();
     pageB = await right.firstWindow();
@@ -217,7 +222,9 @@ export async function guestMutationChecks() {
     expect(await frame.locator("#notes").inputValue()).toBe("");
     await openRecovery();
     await pane.getByRole("button", { name: "Restore saved fields" }).click();
-    expect(await frame.locator("#notes").inputValue()).toBe("Recover this note after restart");
+    expect(await frame.locator("#notes").inputValue()).toBe(
+      "Recovered after an initial read failure",
+    );
     expect(await frame.locator("#choice").inputValue()).toBe("b");
     expect(await frame.locator("#agreed").isChecked()).toBe(true);
     expect(await frame.locator("#first").isChecked()).toBe(true);
@@ -233,6 +240,31 @@ export async function guestMutationChecks() {
       html,
       capture,
     });
+    for (const mode of ["discard", "rename"] as const) {
+      artifact = await guestTitleCleanupChecks({
+        page: pageB,
+        app: right,
+        client: ca,
+        guestId,
+        html,
+        mode,
+      });
+      await right.close();
+      right = await b.launch();
+      pageB = await right.firstWindow();
+      await pair();
+      await select(guestId);
+      pane = pageB.locator(`#pane-${guestId}`);
+      await openActions();
+      expect(await pane.getByLabel("Source title", { exact: true }).inputValue()).toBe(
+        artifact.title,
+      );
+      expect(
+        (await pageB.evaluate((id) => window.scope.guestRecovery(id), guestId)).inputs.filter(
+          (input) => input.kind === "action",
+        ),
+      ).toEqual([]);
+    }
     await openActions();
     await pane.getByLabel("Source title", { exact: true }).fill("Retained competing title");
     artifact = await ca.publish(

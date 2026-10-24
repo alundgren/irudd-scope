@@ -29,6 +29,7 @@ export function GuestActions({
   const [open, setOpen] = useState(false);
   const changed = useRef(false);
   const editGeneration = useRef(0);
+  const draftRevisions = useRef(new Set<number>());
   const recoveryRead = useRef(0);
   const recoveryLoaded = useRef(false);
   const loadRecovery = useRef<() => Promise<void>>(async () => {});
@@ -45,7 +46,12 @@ export function GuestActions({
   };
   const target = { ownerDeviceId: record.ownerDeviceId, sourceTabId: record.source.sourceTabId };
   const save = useAutosave(
-    () => (changed.current ? { ...key, kind: "action" as const, title, fields: [] } : undefined),
+    () => {
+      if (!changed.current) return;
+      // Include queued snapshots, not only the last acknowledged database write.
+      draftRevisions.current.add(key.revision);
+      return { ...key, kind: "action" as const, title, fields: [] };
+    },
     async (value) => {
       await window.scope.saveGuestInput(value);
       setDraft(value);
@@ -58,7 +64,9 @@ export function GuestActions({
       const sequence = ++recoveryRead.current;
       const recovery = await window.scope.guestRecovery(record.tab.id);
       if (!live || sequence !== recoveryRead.current) return;
-      const action = recovery.inputs.filter((input) => input.kind === "action").at(-1);
+      const actions = recovery.inputs.filter((input) => input.kind === "action");
+      for (const input of actions) draftRevisions.current.add(input.revision);
+      const action = actions.at(-1);
       setPending(recovery.pending);
       setDraft(action);
       if (!recoveryLoaded.current) {
@@ -99,11 +107,38 @@ export function GuestActions({
   async function refresh() {
     await loadRecovery.current();
   }
+  function titleInput() {
+    return {
+      generation: editGeneration.current,
+      revisions: new Set([...draftRevisions.current, key.revision]),
+    };
+  }
+  async function clearTitle(input: ReturnType<typeof titleInput>, resetTitle: boolean) {
+    await save.commit(
+      () => ({ ...key, kind: "action" as const, title, fields: [] }),
+      async () => {
+        // Later edits may reuse the same revision row while this cleanup is queued.
+        if (editGeneration.current !== input.generation) return undefined;
+        for (const revision of input.revisions)
+          await window.scope.discardGuestInput(record.tab.id, "action", revision);
+        return undefined;
+      },
+      () => {
+        recoveryRead.current++;
+        if (editGeneration.current === input.generation) {
+          draftRevisions.current.clear();
+          changed.current = false;
+          setDraft(undefined);
+          if (resetTitle) setTitle(record.source.title);
+        }
+      },
+    );
+  }
   async function run(action: GuestAction) {
     if (!record.source.sourceVersion) return;
     setBusy(true);
     setError("");
-    const submitted = { generation: editGeneration.current, revision: key.revision, draft };
+    const submitted = titleInput();
     try {
       await save.flush();
       const change: GuestChange = {
@@ -118,31 +153,7 @@ export function GuestActions({
       setError(outcome.message ?? (outcome.state === "completed" ? "" : outcome.state));
       if (outcome.state === "completed") {
         await window.scope.guestReconcile(target, operation);
-        if (action.kind === "rename" && editGeneration.current === submitted.generation) {
-          await save.commit(
-            () => ({ ...key, kind: "action" as const, title: action.title, fields: [] }),
-            async () => {
-              await window.scope.discardGuestInput(record.tab.id, "action", submitted.revision);
-              if (
-                submitted.draft?.title === action.title &&
-                submitted.draft.revision !== submitted.revision
-              )
-                await window.scope.discardGuestInput(
-                  record.tab.id,
-                  "action",
-                  submitted.draft.revision,
-                );
-              return undefined;
-            },
-            () => {
-              if (editGeneration.current === submitted.generation) {
-                recoveryRead.current++;
-                changed.current = false;
-                setDraft(undefined);
-              }
-            },
-          );
-        }
+        if (action.kind === "rename") await clearTitle(submitted, false);
       }
     } catch (error) {
       setError(message(error));
@@ -275,23 +286,9 @@ export function GuestActions({
             variant="ghost"
             disabled={busy}
             onClick={() => {
-              const generation = editGeneration.current;
+              const input = titleInput();
               setBusy(true);
-              void save
-                .commit(
-                  () => ({ ...key, kind: "action" as const, title, fields: [] }),
-                  async () => {
-                    await window.scope.discardGuestInput(record.tab.id, "action", draft.revision);
-                    return undefined;
-                  },
-                  () => {
-                    if (editGeneration.current === generation) {
-                      changed.current = false;
-                      setDraft(undefined);
-                      setTitle(record.source.title);
-                    }
-                  },
-                )
+              void clearTitle(input, true)
                 .catch((error) => setError(message(error)))
                 .finally(() => setBusy(false));
             }}
