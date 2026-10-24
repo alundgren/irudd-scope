@@ -464,7 +464,7 @@ export async function guestMutationChecks() {
         kind: "replace-plan",
         document: {
           ...captured,
-          overviewHtml: "<p>" + "Synthetic proposal. ".repeat(7000) + "</p>",
+          overviewHtml: "<p>" + "Synthetic proposal. ".repeat(1_600_000) + "</p>",
         },
       },
       "mutation-plan",
@@ -482,7 +482,7 @@ export async function guestMutationChecks() {
       target: largeChange.target,
       revision: largeArtifact.revision,
     });
-    expect(JSON.parse(read.content).overviewHtml.length).toBeGreaterThan(64 * 1024);
+    expect(JSON.parse(read.content).overviewHtml.length).toBeGreaterThan(30 * 1024 * 1024);
     // An interrupted reply retains the exact dispatch identity across both app restarts.
     const lost = await pageB.evaluate(
       (change) => window.scope.guestPrepare(change),
