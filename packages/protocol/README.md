@@ -292,6 +292,65 @@ folder commands only to such a desktop and otherwise answer 501 `unsupported`
 without sending a relay event, because older desktops drop the relay on an
 unknown request.
 
+### Durable folder operations
+
+`src/folder-operation.ts` defines opt-in `folder-operations-v1`. Existing
+`write` requests retain their original contract. A desktop must first read
+`GET /v1/relay/folders/capabilities` and require that capability. An older hub
+requires an update; the desktop must not fall back to an unversioned write.
+All these routes require the paired desktop credential.
+
+- `GET /v1/relay/folders/version?root=&path=` returns `{ version }`, an opaque
+  regular-file version or `missing`. Versions fingerprint device, inode,
+  size, mode, modification time and change time. No file content is retained.
+- `PUT /v1/relay/folders/operations?root=&caller=` accepts raw streamed bytes
+  and a `Scope-Folder-Operation` header containing base64url UTF-8 JSON of
+  `FolderOperationRequest`. The existing 16 KiB request-header limit applies.
+- `GET /v1/relay/folders/operation-status?caller=&requestId=` returns
+  `FolderOperationStatus`, including the original receipt after completion.
+
+A request contains `version: 1`, `requestId`, `path`, `kind`, `expectedVersion`,
+`replace`, and `payload: { size, sha256 }`. IDs are creation time in epoch
+milliseconds, a colon, and a lowercase UUID v4. `file` creates with
+`expectedVersion: "missing"` and `replace: false`, or replaces with an observed
+version and explicit `replace: true`. `directory` requires exclusive creation,
+`missing`, no replacement, and the size and SHA-256 of an empty payload.
+Missing parent directories are created by the existing contained writer.
+
+The owner supplies `caller` from authenticated identity and resolves `root`
+from the current source tab. Neither value should come directly from an
+untrusted guest command. The hub binds the caller namespace to its authenticated
+desktop principal. Local owners use `DesktopStore.folderOperations` through
+`FolderSource.operations`. Peer transport and permission checks are separate.
+
+The filesystem host serializes versioned operations and legacy writes in the
+same process queue, including overlapping roots. File payload size and SHA-256
+are checked while streaming; the expected version is checked immediately before
+commit. Writes by external programs or another independently configured Scope
+process are not locked. A change between the final check and rename can still
+race. Native filesystem and containment limitations remain unchanged.
+
+Intent is persisted in host SQLite before filesystem changes. Completion is
+persisted before returning `completed`. The status can instead be `pending`,
+`failed`, `unresolved`, `unknown`, or `expired`. Filesystem commit and SQLite
+commit are separate: after a crash, an interrupted intent becomes `unresolved`
+without replay, even if matching bytes are present. A retained completion stays
+completed if an external program subsequently changes the file. Duplicate
+requests return the retained outcome; changed command or declared payload
+identity under the same ID fails with `request-mismatch`. Bytes on the first
+execution must match that declared identity.
+
+Retained outcomes expire 48 hours after the timestamp in the ID. The host keeps
+at most 4096 unexpired records and rejects admission when full. A persistent time
+floor prevents pruned IDs becoming fresh after clock rollback. Expired IDs never
+execute. `unknown`, `unresolved`, and `expired` do not authorize retry with a new
+ID: inspect and refresh the destination and obtain a new explicit action.
+`failed` carries a typed error; `conflict` means the expected version changed.
+Status lookup never writes files. Uploads have a 60-second idle timeout and a
+12-hour total deadline, including queue time; bytes use streaming backpressure
+and are independent of the artifact size limit. Queued cancellation closes the
+body without committing it.
+
 ## Removed diagram routes
 
 Scope no longer accepts `POST /v1/diagrams`, `POST /v1/diagrams/sync`, or

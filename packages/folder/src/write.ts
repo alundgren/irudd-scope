@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   close,
   closeSync,
@@ -22,6 +22,8 @@ import { basename, join, sep } from "node:path";
 import { addAbortSignal, type Readable } from "node:stream";
 import { promisify } from "node:util";
 import type { FolderWriteReceipt } from "@irudd-scope/protocol/folder";
+import type { FolderPayload } from "@irudd-scope/protocol/folder-operation";
+import { fileVersion } from "./version.ts";
 import { FolderError, GIT_DIRECTORY, STAGED_PREFIX, openInside, validRelative } from "./paths.ts";
 
 export { STAGED_PREFIX };
@@ -153,6 +155,8 @@ const SHORT_NAME = /^[^.]{1,6}~\d{1,6}(\.[^.]{0,3})?$/;
  */
 function writablePath(relative: string): string {
   const path = validRelative(relative);
+  if (path.split("/").some((name) => name.toLowerCase().startsWith(STAGED_PREFIX)))
+    throw new FolderError("outside-folder", "This name is reserved for incomplete folder copies.");
   if (process.platform !== "win32") return path;
   for (const name of path.split("/"))
     if (/[. ]$/.test(name) || name.includes(":"))
@@ -323,11 +327,18 @@ function commit(source: string, target: string, path: string, replace: boolean) 
  * one created during the copy; a file system without hard links fails with `unsupported`
  * rather than checking and then renaming. Missing folders on the way are created.
  */
+export type FolderWriteOptions = {
+  replace: boolean;
+  signal: AbortSignal;
+  expectedVersion?: string;
+  payload?: FolderPayload;
+};
+
 export async function writeInProcess(
   root: string,
   relative: string,
   body: Readable,
-  options: { replace: boolean; signal: AbortSignal },
+  options: FolderWriteOptions,
 ): Promise<FolderWriteReceipt> {
   const path = writablePath(relative);
   if (!path) throw new FolderError("not-a-directory", "Choose a file name inside the folder.");
@@ -355,11 +366,20 @@ export async function writeInProcess(
     const stagedFile = identity(fstatSync(file));
     stagedId = stagedFile;
     let size = 0;
+    const digest = options.payload ? createHash("sha256") : undefined;
     for await (const chunk of addAbortSignal(options.signal, body) as AsyncIterable<Buffer>) {
+      if (options.payload && size + chunk.byteLength > options.payload.size)
+        throw new FolderError("request-mismatch", "The file exceeds its declared payload size.");
+      digest?.update(chunk);
       for (let offset = 0; offset < chunk.byteLength;)
         offset += (await writeChunk(file, chunk, offset, chunk.byteLength - offset)).bytesWritten;
       size += chunk.byteLength;
     }
+    if (
+      options.payload &&
+      (size !== options.payload.size || digest!.digest("hex") !== options.payload.sha256)
+    )
+      throw new FolderError("request-mismatch", "The file does not match its declared payload.");
     await syncFile(file);
     await closeFile(file);
     file = undefined;
@@ -378,7 +398,24 @@ export async function writeInProcess(
       const placed = entry(source);
       if (!placed || !same(placed, stagedFile)) throw escaped();
       refuseShortAlias(base, fileName, path);
-      commit(source, `${base}/${fileName}`, path, options.replace);
+      const targetPath = `${base}/${fileName}`;
+      if (options.expectedVersion !== undefined) {
+        let version = "missing";
+        try {
+          const info = lstatSync(targetPath, { bigint: true });
+          if (!info.isFile())
+            throw new FolderError("conflict", "The destination is no longer a regular file.");
+          version = fileVersion(info);
+        } catch (error) {
+          if (errorCode(error) !== "ENOENT") throw error;
+        }
+        if (version !== options.expectedVersion)
+          throw new FolderError(
+            "conflict",
+            "The destination changed. Refresh it before choosing another operation.",
+          );
+      }
+      commit(source, targetPath, path, options.replace);
       if (!stillInside(root, target, base)) {
         const committed = entry(`${base}/${fileName}`);
         if (committed && same(committed, stagedFile)) unlinkSync(`${base}/${fileName}`);

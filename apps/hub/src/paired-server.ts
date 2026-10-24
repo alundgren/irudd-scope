@@ -120,7 +120,7 @@ export async function startPairedHub(
   // An older desktop drops the whole relay on an unknown request, so folder commands
   // go only to a desktop that advertised folder support when it connected.
   let desktopFolders = false;
-  const folderFiles = new FolderFileRoutes();
+  const folderFiles = new FolderFileRoutes(state);
   const pending = new Map<string, Pending>();
   // Folder commands hold a slot while their body is read and their path resolved, so
   // concurrent commands can never put more than 16 requests on the relay.

@@ -89,6 +89,7 @@ export function registerFolderIpc({
   artifacts,
   lifecycle,
   remotes,
+  store,
 }: MainPluginContext) {
   const feeds = new Map<string, AbortController>();
   const limited = machineLimiter();
@@ -99,7 +100,7 @@ export function registerFolderIpc({
       identity,
       source:
         identity.machineId === "local"
-          ? localFolderSource(identity.path)
+          ? localFolderSource(identity.path, store.folderOperations)
           : remoteFolderSource(remotes, identity),
     };
   }
@@ -219,7 +220,7 @@ export function registerFolderIpc({
   async function selectedFileIgnored(folder: FolderIdentity, file: string): Promise<boolean> {
     const source =
       folder.machineId === "local"
-        ? localFolderSource(folder.path)
+        ? localFolderSource(folder.path, store.folderOperations)
         : remoteFolderSource(remotes, folder);
     const parent = file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : "";
     const listing = await source

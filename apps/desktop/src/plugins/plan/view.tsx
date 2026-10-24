@@ -11,70 +11,75 @@ import { useDocumentScroll } from "./document-scroll.ts";
 import { Check, ProposalContext, RetainedTarget } from "./retained-target.tsx";
 
 function Records({ plan, inspect }: { plan: PlanDocument; inspect: (id: string) => void }) {
-  if (!plan.agreements?.length && !plan.evidence?.length)
-    return <p>No agreement or evidence recorded.</p>;
+  if (!plan.bases?.length) return <p>No agreement or evidence recorded.</p>;
   return (
     <section className="plan-records">
-      <h2>Recorded agreement and evidence</h2>
+      <h2>Retained proposals</h2>
       <p>
-        These records refer to retained proposals. Assess their applicability to the current
+        Agreement and evidence refer to these proposals. Assess their applicability to the current
         proposal.
       </p>
-      {(plan.bases ?? [])
-        .filter(
-          (basis) =>
-            plan.agreements?.some((x) => x.basisId === basis.id) ||
-            plan.evidence?.some((x) => x.basisId === basis.id),
-        )
-        .map((basis) => (
-          <section key={basis.id}>
-            <Button variant="outline" onClick={() => inspect(basis.id)}>
-              Inspect proposal from revision {basis.revision}
-            </Button>
-            <ProposalContext proposal={basis.proposal} />
-            {(plan.agreements ?? [])
-              .filter((x) => x.basisId === basis.id)
-              .map((record) => (
-                <div key={record.id}>
-                  <h3>Agreement</h3>
-                  <p>{record.note}</p>
-                  <ul aria-label="Agreement targets">
-                    {record.targetIds.map((id) => (
-                      <li key={id}>
-                        <RetainedTarget id={id} proposal={basis.proposal} />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+      {plan.bases.map((basis) => (
+        <section key={basis.id}>
+          <Button variant="outline" onClick={() => inspect(basis.id)}>
+            Inspect proposal from revision {basis.revision}
+          </Button>
+          <ProposalContext proposal={basis.proposal} />
+          {!!basis.proposal.checks?.length && (
+            <details className="plan-check">
+              <summary>Proposal checks</summary>
+              {basis.proposal.checks.map((check) => (
+                <Check key={check.id} check={check} />
               ))}
-            {(plan.evidence ?? [])
-              .filter((x) => x.basisId === basis.id)
-              .map((record) => (
-                <details className="plan-check" key={record.id}>
-                  <summary>
-                    {basis.proposal.checks?.find((x) => x.id === record.checkId)?.label}:{" "}
-                    {record.result} on recorded proposal
-                  </summary>
-                  <h4>Expected</h4>
-                  <p>{record.expected}</p>
-                  <h4>Observed</h4>
-                  <p>{record.observed}</p>
-                  <h4>Implementation</h4>
-                  <p>{record.implementation}</p>
-                  <h4>Conditions</h4>
-                  <p>{record.conditions}</p>
-                  {record.references?.map((reference, index) => (
-                    <p key={index}>{reference}</p>
+            </details>
+          )}
+          {!plan.agreements?.some((record) => record.basisId === basis.id) &&
+            !plan.evidence?.some((record) => record.basisId === basis.id) && (
+              <p>No agreement or evidence recorded.</p>
+            )}
+          {(plan.agreements ?? [])
+            .filter((x) => x.basisId === basis.id)
+            .map((record) => (
+              <div key={record.id}>
+                <h3>Agreement</h3>
+                <p>{record.note}</p>
+                <ul aria-label="Agreement targets">
+                  {record.targetIds.map((id) => (
+                    <li key={id}>
+                      <RetainedTarget id={id} proposal={basis.proposal} />
+                    </li>
                   ))}
-                  {basis.proposal.checks
-                    ?.filter((x) => x.id === record.checkId)
-                    .map((check) => (
-                      <Check key={check.id} check={check} />
-                    ))}
-                </details>
-              ))}
-          </section>
-        ))}
+                </ul>
+              </div>
+            ))}
+          {(plan.evidence ?? [])
+            .filter((x) => x.basisId === basis.id)
+            .map((record) => (
+              <details className="plan-check" key={record.id}>
+                <summary>
+                  {basis.proposal.checks?.find((x) => x.id === record.checkId)?.label}:{" "}
+                  {record.result} on recorded proposal
+                </summary>
+                <h4>Expected</h4>
+                <p>{record.expected}</p>
+                <h4>Observed</h4>
+                <p>{record.observed}</p>
+                <h4>Implementation</h4>
+                <p>{record.implementation}</p>
+                <h4>Conditions</h4>
+                <p>{record.conditions}</p>
+                {record.references?.map((reference, index) => (
+                  <p key={index}>{reference}</p>
+                ))}
+                {basis.proposal.checks
+                  ?.filter((x) => x.id === record.checkId)
+                  .map((check) => (
+                    <Check key={check.id} check={check} />
+                  ))}
+              </details>
+            ))}
+        </section>
+      ))}
     </section>
   );
 }

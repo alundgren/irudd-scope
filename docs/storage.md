@@ -288,6 +288,29 @@ stored; only a staged `.scope-partial-*` file exists at the destination while a
 copy runs. Restored tabs show the
 folder's current contents. Trashing a Folder tab keeps only its record.
 
+Versioned folder operations retain a bounded `folder-operations-v1` journal
+in the filesystem host's existing SQLite database: a desktop `preferences` row
+for local files, or a hub `settings` row for remote files. Adding this optional
+row preserves existing databases and their schema versions. It contains hashed
+caller/request identity, a command fingerprint, expiry and outcome, never file
+bytes or plaintext credentials. Host writes serialize the entire read/update
+sequence; desktop preference writes also use the store's existing queue.
+
+The journal retains at most 4096 outcomes for 48 hours from each request ID's
+embedded timestamp. New admission prunes expired outcomes and durably advances
+a time floor in the same document. Database shrinking preserves this ordinary
+row and its floor. Expired IDs are rejected after restart and clock rollback.
+A full journal rejects new operations instead of discarding unexpired receipts.
+
+Intent is saved before filesystem changes and completion before the reply.
+Interrupted intents remain unresolved without replay. A process crash can leave
+hidden `.scope-partial-*` files; matching file bytes alone are not proof of a
+completed operation. Resolve uncertain outcomes by status lookup and inspection,
+not by automatically issuing another write. Removing the database or restoring
+an older backup also removes its newer operation evidence; clients must treat
+missing status as uncertain. Folder files remain authoritative on their original
+filesystem and are not replicated into SQLite.
+
 ## Speech requests
 
 The desktop-main `voice/` module owns `voice_requests` in `desktop.db`. Each row

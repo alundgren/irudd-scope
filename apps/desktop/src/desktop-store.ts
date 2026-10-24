@@ -1,3 +1,4 @@
+import { FolderOperations } from "@irudd-scope/folder";
 import {
   RetroConfiguration,
   emptyRetroConfiguration,
@@ -65,6 +66,24 @@ const databaseRuntime = (filename: string) => ManagedRuntime.make(SqliteClient.l
 
 export class DesktopStore {
   maintenance!: DatabaseMaintenance;
+  readonly folderOperations = new FolderOperations({
+    read: async () => {
+      await this.pending;
+      const [row] = await this.run(
+        this.sql!<{
+          document: string;
+        }>`SELECT document FROM preferences WHERE name = 'folder-operations-v1'`,
+      );
+      return row ? JSON.parse(row.document) : undefined;
+    },
+    write: (document) =>
+      this.enqueue(async () => {
+        await this.run(
+          this
+            .sql!`INSERT INTO preferences(name, document) VALUES ('folder-operations-v1', ${JSON.stringify(document)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+        );
+      }),
+  });
   private saved: typeof SavedSettings.Type = {
     version: 2,
     provider: SAVED_PROVIDER,

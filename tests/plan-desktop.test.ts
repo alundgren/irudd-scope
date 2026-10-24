@@ -173,6 +173,14 @@ test(
           );
         })
         .toBeGreaterThan(400);
+      await page.getByRole("button", { name: "Work items", exact: true }).click();
+      await page.getByRole("button", { name: "Inspect proposal from revision 1" }).click();
+      await old.getByRole("heading", { name: "The ordinary result" }).waitFor();
+      await page.getByRole("button", { name: "Current proposal", exact: true }).click();
+      await frame.getByRole("heading", { name: "Keep existing work safe" }).waitFor();
+      await expect
+        .poll(() => frame.locator("html").evaluate(() => window.scrollY))
+        .toBeGreaterThan(400);
       await cli("text", "Other content", "--title", "Other artifact");
       await page.getByRole("tab", { name: "Other artifact", exact: true }).click();
       await page.getByRole("tab", { name: "Save a reading list", exact: true }).click();

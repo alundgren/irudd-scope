@@ -15,3 +15,5 @@ export { walkDirectories, type WalkedDirectory } from "./walk.ts";
 export { STAGED_PREFIX } from "./write.ts";
 export { createFolderDirectory, runFolderWriterProcess, writeFolderFile } from "./writer.ts";
 export { hiddenName } from "./paths.ts";
+export { folderFileVersion } from "./version.ts";
+export { FolderOperations, type FolderOperationStorage } from "./operations.ts";
