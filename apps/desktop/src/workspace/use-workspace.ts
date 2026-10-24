@@ -269,7 +269,12 @@ export function useWorkspace(onError: (message: string) => void) {
           if (opened && closed.has(opened.id)) {
             await hiding.current.get(opened.id)?.catch(() => {});
             // An ignored open may have cleared a built-in tab's saved hidden state.
-            if (current.current.tabs.some((entry) => entry.id === opened.id)) await save.flush();
+            if (current.current.tabs.some((entry) => entry.id === opened.id))
+              await save.commit(
+                () => current.current,
+                (value) => window.scope.saveWorkspace(value),
+                () => {},
+              );
           }
           if (opened && !closed.has(opened.id)) {
             const tabs = latest.tabs.some((entry) => entry.id === opened.id)

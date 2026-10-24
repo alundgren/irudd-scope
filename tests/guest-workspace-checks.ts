@@ -283,6 +283,11 @@ async function guestCloseOrderingChecks(
   const workspace = (await page.evaluate(() => window.scope.workspace()))!;
   const other = workspace.tabs.find((tab) => tab.type === "guest" && tab.id !== id && !tab.hidden)!;
   const title = workspace.tabs.find((tab) => tab.id === id)!.title;
+  const select = async (title: string) => {
+    await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
+    await page.getByLabel("Search tabs", { exact: true }).fill(title);
+    await page.getByRole("button", { name: title + " guest", exact: true }).click();
+  };
   for (const mode of ["select-other", "reopen", "reopen-failed"] as const) {
     await app.evaluate(({ ipcMain }) => {
       const channel = "scope:defer-guest-tab";
@@ -327,8 +332,8 @@ async function guestCloseOrderingChecks(
         )
         .toBe(true);
       // Selecting a guest queues an immediate workspace save while the close is still pending.
-      await page.locator(`#tab-${other.id}`).click();
-      if (mode !== "select-other") await page.locator(`#tab-${id}`).click();
+      await select(other.title);
+      if (mode !== "select-other") await select(title);
       await app.evaluate(() =>
         (
           globalThis as unknown as { guestCloseGate: { release: () => void } }
@@ -356,9 +361,7 @@ async function guestCloseOrderingChecks(
           .getAttribute("aria-selected"),
       ).toBe("true");
       if (mode === "select-other") {
-        await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
-        await page.getByLabel("Search tabs", { exact: true }).fill(title);
-        await page.getByRole("button", { name: title + " guest", exact: true }).click();
+        await select(title);
         await expect
           .poll(async () => (await page.evaluate(() => window.scope.workspace()))?.selected)
           .toBe(id);
