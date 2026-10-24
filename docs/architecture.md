@@ -942,6 +942,11 @@ handshake. Session tokens stay in main-process memory. Disabling or forgetting
 revokes active requests and blocks new ones; reconnect negotiates a new session.
 Saved peer endpoints containing PSKs are credentials, not workspace metadata.
 
-Owner operations register explicit method/capability handlers. The connection
-API carries byte streams with backpressure, caller cancellation, deadlines and
-idle timeouts. It does not forward arbitrary publishing routes or desktop IPC.
+Owner operations register explicit method/capability handlers with required idle
+and total deadlines in milliseconds. Headers have a ten-second limit and
+unauthenticated handshakes a thirty-second total limit. After authentication,
+each handler's limits govern both uploads and responses; progress resets only
+the idle limit. Expiry, disconnect, revocation and shutdown abort the handler's
+signal and close its streams. Handlers must observe that signal and release
+resources on cancellation. The connection API carries byte streams with
+backpressure and caller cancellation. It does not forward arbitrary publishing routes or desktop IPC.

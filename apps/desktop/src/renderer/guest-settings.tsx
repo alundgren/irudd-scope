@@ -35,7 +35,11 @@ export function GuestSettings({ peerId, name }: { peerId: string; name: string }
       setNotice(message);
       setConsent(false);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Guest connection failed. Retry.");
+      setError(
+        error instanceof Error
+          ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "")
+          : "Guest connection failed. Retry.",
+      );
     } finally {
       setBusy(false);
     }

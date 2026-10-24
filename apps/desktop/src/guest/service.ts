@@ -58,6 +58,8 @@ export type GuestOwnerRequest = {
 type OwnerRoute = {
   capability: string;
   method: "GET" | "POST" | "PUT";
+  idleMs: number;
+  deadlineMs: number;
   handle: (input: GuestOwnerRequest) => Promise<void>;
 };
 
@@ -89,7 +91,10 @@ export class GuestConnections {
     if (
       !/^[a-z][a-z0-9-]{0,63}$/.test(route) ||
       ["hello", "challenge", "identity", "revoke"].includes(route) ||
-      this.routes.has(route)
+      this.routes.has(route) ||
+      ![definition.idleMs, definition.deadlineMs].every(
+        (value) => Number.isSafeInteger(value) && value > 0 && value <= 2147483647,
+      )
     )
       throw new Error("Invalid guest owner route.");
     this.routes.set(route, definition);
@@ -210,16 +215,20 @@ export class GuestConnections {
         this.server = undefined;
       }
       const settings = await this.store.guestSettings();
-      const server = createServer({ maxHeaderSize: 16384 }, (request, response) => {
-        void this.accept(request, response).catch(() => {
-          if (!response.headersSent) reply(response, 403, { error: "Guest access rejected." });
-          else response.destroy();
-        });
-      });
+      const server = createServer(
+        { maxHeaderSize: 16384, connectionsCheckingInterval: 1000 },
+        (request, response) => {
+          void this.accept(request, response).catch(() => {
+            if (!response.headersSent) reply(response, 403, { error: "Guest access rejected." });
+            else response.destroy();
+          });
+        },
+      );
       server.maxConnections = 32;
       server.headersTimeout = 10000;
-      server.requestTimeout = 30000;
-      server.timeout = 30000;
+      // Body deadlines depend on the authenticated operation, not HTTP parsing.
+      server.requestTimeout = 0;
+      server.timeout = 0;
       this.server = server;
       await new Promise<void>((resolve, reject) => {
         server.once("error", () =>
@@ -506,6 +515,23 @@ export class GuestConnections {
     });
   }
   private async accept(request: IncomingMessage, response: ServerResponse) {
+    const operation = new AbortController();
+    const socket = request.socket;
+    const expire = () => operation.abort();
+    const abort = () => {
+      request.destroy();
+      response.destroy();
+    };
+    let deadline = setTimeout(expire, 30000);
+    socket.setTimeout(30000);
+    socket.on("timeout", expire);
+    operation.signal.addEventListener("abort", abort, { once: true });
+    response.once("close", () => {
+      clearTimeout(deadline);
+      socket.removeListener("timeout", expire);
+      operation.signal.removeEventListener("abort", abort);
+      operation.abort();
+    });
     if (this.closed || !this.endpoint || request.headers.origin !== undefined)
       return reply(response, 403, { error: "Guest access rejected." });
     if (request.method === "GET" && request.url === "/guest/challenge") {
@@ -520,6 +546,7 @@ export class GuestConnections {
       if (request.headers["content-type"] !== "application/json")
         throw new Error("Invalid handshake.");
       const proof = decode(GuestProof, await json(request));
+      operation.signal.throwIfAborted();
       const generation = this.generations.get(proof.hello.pairId) ?? 0;
       const epoch = this.epoch;
       const hello = proof.hello;
@@ -543,6 +570,7 @@ export class GuestConnections {
       if (hello.version === GUEST_VERSION && hello.capabilities.includes("session")) {
         this.allowed(peer.id);
         if ((await this.store.transferKey(peer.id)) !== key) throw new Error("Pairing changed.");
+        operation.signal.throwIfAborted();
         await this.store.saveGuestEndpoint(peer.id, hello.endpoint);
         this.allowed(peer.id);
         if (epoch !== this.epoch || generation !== (this.generations.get(peer.id) ?? 0))
@@ -586,21 +614,17 @@ export class GuestConnections {
       !session.capabilities.includes(route.capability)
     )
       return reply(response, 404, { error: "Unsupported guest operation." });
-    const disconnected = new AbortController();
-    const abort = () => {
-      request.destroy();
-      response.destroy();
-    };
+    clearTimeout(deadline);
+    deadline = setTimeout(expire, route.deadlineMs);
+    socket.setTimeout(route.idleMs);
     const signal = AbortSignal.any([
       session.controller.signal,
       this.lifetime.signal,
-      disconnected.signal,
+      operation.signal,
     ]);
     signal.addEventListener("abort", abort, { once: true });
-    response.once("close", () => {
-      signal.removeEventListener("abort", abort);
-      disconnected.abort();
-    });
+    response.once("close", () => signal.removeEventListener("abort", abort));
+    signal.throwIfAborted();
     await route.handle({ peer, request, response, signal });
   }
   async close() {

@@ -1,7 +1,12 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import { connect, type Socket } from "node:net";
-import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage } from "node:http";
+import {
+  Agent,
+  request as httpRequest,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+} from "node:http";
 import type { Readable } from "node:stream";
 import type { GuestEndpoint } from "@irudd-scope/protocol/guest";
 
@@ -32,9 +37,14 @@ export class GuestTransport {
   private child?: ChildProcess;
   private socksPort?: number;
   private pending?: Promise<unknown>;
-  constructor(private readonly disconnected: () => void) {}
+  private readonly disconnected: () => void;
+  private readonly worker: string;
+  constructor(disconnected: () => void, worker = join(import.meta.dirname, "guest-process.mjs")) {
+    this.disconnected = disconnected;
+    this.worker = worker;
+  }
   private run(command: { mode: "generate" } | { mode: "start"; key: string; port: number }) {
-    const child = fork(join(import.meta.dirname, "guest-process.mjs"), [], {
+    const child = fork(this.worker, [], {
       execArgv: [],
       serialization: "advanced",
       windowsHide: true,
@@ -120,15 +130,19 @@ export class GuestTransport {
     if (!this.socksPort) throw failure();
     const signal = AbortSignal.any([options.signal, AbortSignal.timeout(options.deadlineMs)]);
     const socket = await socksConnect(this.socksPort, endpoint, signal);
-    return new Promise((resolve, reject) => {
+    // agent:false creates Node's default Agent and discards createConnection.
+    // This Agent can use only the already authenticated transport socket.
+    const agent = new Agent({ keepAlive: false });
+    agent.createConnection = () => socket;
+    socket.once("close", () => agent.destroy());
+    return new Promise<PeerResponse>((resolve, reject) => {
       const request = httpRequest(
         {
           method: options.method ?? "GET",
           path,
-          host: "127.0.0.1",
+          host: "scope-peer.invalid",
           port: endpoint.port,
-          agent: false,
-          createConnection: () => socket,
+          agent,
           signal,
           maxHeaderSize: 16384,
           headers: { ...options.headers, Connection: "close" },
@@ -153,6 +167,9 @@ export class GuestTransport {
         request.once("close", () => body.destroy());
         body.pipe(request);
       } else request.end(options.body);
+    }).catch((error: unknown) => {
+      socket.destroy();
+      throw error;
     });
   }
 }

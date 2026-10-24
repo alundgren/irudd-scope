@@ -967,9 +967,12 @@ optional CLI-only check with the installed Tailcat, synthetic in-memory private
 keys, and a temporary authenticated HTTP listener. It generates and restores the
 key through the platform's protected pipe, restarts the transport worker, checks
 the same address, and sends authenticated and rejected requests through the
-PSK-preserving SOCKS path. It prints only outcomes and stops its child processes.
+production HTTP adapter and PSK-preserving SOCKS path. It prints only outcomes and stops its child processes.
 This uses live relays and is outside the standard suite. Run it separately on
 macOS and Windows; a Linux result does not establish native pipe or credential
 behavior. Windows requires built-in Windows PowerShell and its .NET Framework
 named-pipe security APIs. Protected pipe failures stop guest setup without a
-plaintext fallback. Standard connection tests use a synthetic local CLI.
+plaintext fallback. Standard connection tests use a synthetic local CLI and
+observe HTTP requests inside its SOCKS tunnel. Windows builds the fixture as a
+native executable using Node's built-in single-executable builder; setup fails
+if that build fails, without selecting an installed Tailcat instead.
