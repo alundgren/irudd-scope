@@ -156,6 +156,9 @@ export class GuestTransport {
           });
         },
       );
+      // SOCKS pauses reads while handing the socket over; resume after HTTP
+      // has attached its parser so no response bytes are lost.
+      request.once("socket", (connected) => connected.resume());
       request.setTimeout(options.idleMs, () => request.destroy(failure()));
       request.once("error", (error) => {
         socket.destroy();
