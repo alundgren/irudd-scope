@@ -20,7 +20,13 @@ export type FileContent = {
   /** Changes when the bytes change, such as a blob hash or a file's modification time. */
   version: string;
 };
-type ViewerProps = { content: FileContent; line?: number };
+type ViewerProps = { content: FileContent; line?: number; isolateHtml?: boolean };
+
+/**
+ * Folder files were not published by an agent, so their HTML runs in an opaque origin:
+ * scripts, forms, and popups work, but the page cannot reach `parent.scope`.
+ */
+const ISOLATED_HTML = "allow-scripts allow-forms allow-popups";
 
 const decodeText = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
@@ -154,9 +160,14 @@ function MarkdownView({ content }: ViewerProps) {
     </article>
   );
 }
-function HtmlView({ content }: ViewerProps) {
+function HtmlView({ content, isolateHtml }: ViewerProps) {
   return (
-    <iframe title={content.title} className="html-preview" srcDoc={decodeText(content.bytes)} />
+    <iframe
+      title={content.title}
+      className="html-preview"
+      srcDoc={decodeText(content.bytes)}
+      sandbox={isolateHtml ? ISOLATED_HTML : undefined}
+    />
   );
 }
 function ImageView({ content }: ViewerProps) {
@@ -178,16 +189,24 @@ const viewers = { text: TextView, markdown: MarkdownView, html: HtmlView, image:
 
 /**
  * Shows file content with the viewer for its kind, used for published files and Folder
- * tab previews. Kinds without a viewer show `fallback`.
+ * tab previews. Kinds without a viewer show `fallback`. Published HTML is trusted agent
+ * output and runs unrestricted; `isolateHtml` is for files that are not.
  */
 export const FileViews = memo(function FileViews({
   content,
   line,
+  isolateHtml,
   fallback,
 }: ViewerProps & { fallback: ReactNode }) {
   const Viewer = Object.hasOwn(viewers, content.kind)
     ? viewers[content.kind as keyof typeof viewers]
     : undefined;
   if (!Viewer) return fallback;
-  return <Viewer content={content} {...(line ? { line } : {})} />;
+  return (
+    <Viewer
+      content={content}
+      {...(line ? { line } : {})}
+      {...(isolateHtml ? { isolateHtml } : {})}
+    />
+  );
 });
