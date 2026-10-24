@@ -159,6 +159,8 @@ class FolderWatcher {
     this.watchers.clear();
     this.excludeWatchers.clear();
     this.namesakes.clear();
+    // A folder that comes back, or is polled instead, may have other ignore files.
+    this.filter.clear();
     clearTimeout(this.pollTimer);
     this.snapshot.clear();
   }

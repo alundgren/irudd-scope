@@ -246,12 +246,30 @@ test(
       await writeFile(join(app, ".gitignore"), "node_modules/\n");
       await item("new.txt").waitFor();
 
-      // The tab explains a missing folder and recovers when the folder returns.
+      // The tab explains a missing folder and recovers when the folder returns, and later
+      // files follow the returned folder's ignore rules, not the ones from before.
+      await writeFile(join(app, ".gitignore"), "node_modules/\nlate-*\n");
+      await writeFile(join(app, "src", "late-old.ts"), "export {};\n");
+      await new Promise((done) => setTimeout(done, 1000));
+      expect(await item("late-old.ts").count()).toBe(0);
       await rename(app, `${app}-moved`);
       await page.getByText("This folder no longer exists").waitFor();
       expect(await tree.count()).toBe(0);
+      await writeFile(join(`${app}-moved`, ".gitignore"), "node_modules/\n");
       await rename(`${app}-moved`, app);
       await item("new.ts").waitFor();
+      await item("late-old.ts").waitFor();
+      await writeFile(join(app, "src", "late-new.ts"), "export {};\n");
+      await item("late-new.ts").waitFor();
+      const filter = page
+        .getByRole("region", { name: "Login fix v2 folder" })
+        .getByLabel("Filter by file name");
+      await filter.fill("late-new");
+      await expect.poll(() => tree.getByRole("treeitem").count()).toBe(2);
+      await filter.fill("");
+      await rm(join(app, "src", "late-old.ts"));
+      await rm(join(app, "src", "late-new.ts"));
+      await item("late-new.ts").waitFor({ state: "hidden" });
 
       await application.close();
       await writeFile(join(app, "src", "later.ts"), "export {};\n");
