@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { GUEST_COMMAND_TIMEOUT_MS } from "@irudd-scope/protocol/guest-operation";
 import { PromptsGuide } from "@irudd-scope/protocol/prompts";
 import { promptsCommand } from "./prompts.ts";
 import { RetroGuide, retroCommand } from "./retro.ts";
@@ -615,7 +616,12 @@ async function main() {
       console.log(JSON.stringify(PlanGuide, null, 2));
       return;
     }
-    const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"]));
+    const signal = AbortSignal.timeout(
+      parseTimeout(
+        values["timeout-ms"] ??
+          (values["owner-device"] ? String(GUEST_COMMAND_TIMEOUT_MS) : undefined),
+      ),
+    );
     console.log(
       JSON.stringify(
         await planCommand(await connect(values, signal), positionals, values, signal),

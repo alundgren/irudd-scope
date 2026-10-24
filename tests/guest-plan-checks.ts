@@ -1,3 +1,4 @@
+import { guestPlanNetwork } from "./guest-plan-network.ts";
 import { expect } from "vite-plus/test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -53,6 +54,7 @@ const proposal: PlanDocument = {
 
 export async function guestPlanChecks() {
   const directory = await mkdtemp(join(tmpdir(), "scope-guest-plans-"));
+  await guestPlanNetwork(directory);
   const routes = join(directory, "routes.json");
   await writeFile(routes, "{}");
   await syntheticCli(directory, "tailcat", guestCli);
@@ -80,6 +82,7 @@ export async function guestPlanChecks() {
     expectedRevision: 0,
   };
   let peerId = "";
+  let pairingSecret = "";
   async function pair() {
     for (const page of [pageA, pageB])
       for (const peer of (await page.evaluate(() => window.scope.transferDevices())).peers)
@@ -87,6 +90,7 @@ export async function guestPlanChecks() {
     const invitation = await pageA.evaluate(() => window.scope.createPairing("Owner desktop"));
     await pageA.evaluate((id) => window.scope.copyPairingSecret(id), invitation.id);
     const secret = await left.evaluate(({ clipboard }) => clipboard.readText());
+    pairingSecret = secret;
     await pageB.evaluate((input) => window.scope.pairScope(input), {
       url: invitation.url,
       secret,
@@ -216,6 +220,7 @@ export async function guestPlanChecks() {
     await pane.getByRole("button", { name: "Work items", exact: true }).click();
     await pane.getByRole("button", { name: "Preserve requests", exact: true }).click();
     await pane.getByRole("button", { name: "Copy work item", exact: true }).click();
+    await pane.getByText("Work item copied.", { exact: true }).waitFor();
     const packet = JSON.parse(await right.evaluate(({ clipboard }) => clipboard.readText()));
     expect(packet.owner).toMatchObject(target);
     expect(packet.artifact.id).toBe("shared-id");
@@ -226,8 +231,7 @@ export async function guestPlanChecks() {
     await pane.locator("article").getByText(proposal.checks![0].method, { exact: true }).waitFor();
     for (const theme of ["light", "dark"] as const) {
       await pageB.evaluate(async (appearance) => {
-        const settings = await window.scope.settings();
-        await window.scope.saveSettings({ ...settings, appearance });
+        await window.scope.saveSettings({ appearance });
       }, theme);
       for (const width of [1366, 620]) {
         await right.evaluate(
@@ -458,6 +462,72 @@ export async function guestPlanChecks() {
       ).toBe(1);
     } finally {
       db.close();
+    }
+    // The owner enforces a race after preparation, independently of the CLI's early guard.
+    const source = (await cb.guestSource(target))!;
+    const prepared = await cb.guestPrepare({
+      version: 1,
+      target,
+      expectedRevision: source.artifact!.revision,
+      expectedSourceVersion: source.sourceVersion!,
+      action: { kind: "capture-basis", basisId: "conflicting" },
+    });
+    const identity = { operationId: prepared.operationId, digest: prepared.digest };
+    const beforeRace = await ca.get("shared-id");
+    await ca.publish(
+      "shared-id",
+      { ...metadata, expectedRevision: beforeRace.revision },
+      Buffer.from(JSON.stringify({ ...small, context: "Concurrent owner update" })),
+    );
+    expect((await cb.guestExecute(target, identity)).state).toBe("conflict");
+    await fresh();
+    await select(pageB, guestId);
+    const actions = pane.getByText(/Source actions ·/);
+    if ((await actions.locator("..").getAttribute("open")) === null) await actions.click();
+    await pane
+      .getByText(/conflict/i)
+      .first()
+      .waitFor();
+    await capture("conflict-dark-laptop");
+    await cli("plan", "reconcile", "shared-id", ...flags);
+    if ((await actions.locator("..").getAttribute("open")) !== null) await actions.click();
+    expect(
+      (await read()).document.bases.some((basis: { id: string }) => basis.id === "conflicting"),
+    ).toBe(false);
+    for (const capability of ["plan-read-v1", "mutations-v1"]) {
+      responses.omitCapabilities(pairingSecret, [capability]);
+      await pageB.evaluate((id) => window.scope.retryGuest(id), peerId);
+      await expect
+        .poll(
+          () => pageB.evaluate(() => window.scope.guestStatus()).then((s) => s.peers[0]?.state),
+          { timeout: 25000 },
+        )
+        .toBe("connected");
+      await expect(read()).rejects.toThrow(/Update/i);
+      if (capability === "plan-read-v1") {
+        await pageB.reload();
+        await select(pageB, guestId);
+        pane = pageB.locator(`#pane-${guestId}`);
+        await pane.getByText(/Update the other Scope|Update Scope/).waitFor();
+        await capture("update-dark-laptop");
+      }
+      responses.omitCapabilities(pairingSecret, []);
+      await pageB.evaluate((id) => window.scope.retryGuest(id), peerId);
+      await expect
+        .poll(
+          () => pageB.evaluate(() => window.scope.guestCatalog()).then((v) => v.available.length),
+          { timeout: 30000 },
+        )
+        .toBe(1);
+      await expect
+        .poll(async () => {
+          try {
+            return (await read()).artifact.id;
+          } catch {
+            return "";
+          }
+        })
+        .toBe("shared-id");
     }
     responses.offline(true);
     await expect(read()).rejects.toThrow();
