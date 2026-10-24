@@ -407,7 +407,8 @@ export class ArtifactStore {
         Effect.gen(function* () {
           yield* sql`UPDATE artifacts SET document = json_set(document, '$.kind', 'html') WHERE json_extract(document, '$.kind') = 'plan' AND json_extract(document, '$.mediaType') = 'text/html'`;
           yield* sql`UPDATE live_tabs SET document = json_set(document, '$.type', 'file') WHERE json_extract(document, '$.type') = 'plan' AND artifact_id IN (SELECT id FROM artifacts WHERE json_extract(document, '$.kind') = 'html')`;
-          yield* sql`PRAGMA user_version = 16`;
+          const [{ user_version }] = yield* sql<{ user_version: number }>`PRAGMA user_version`;
+          if (user_version < 16) yield* sql`PRAGMA user_version = 16`;
         }),
       ),
     );

@@ -11,6 +11,7 @@ import type {
 } from "@irudd-scope/protocol/guest-operation";
 import { desktopFixture } from "./desktop-fixture.ts";
 import { syntheticCli } from "./synthetic-cli.ts";
+import { guestRecoveryChecks } from "./guest-recovery-checks.ts";
 import { guestCli } from "./guest-cli.ts";
 import { guestResponseFixture } from "./guest-response-fixture.ts";
 
@@ -60,7 +61,7 @@ export async function guestMutationChecks() {
     Buffer.from(JSON.stringify(plan)),
   );
   let peerId = "";
-  async function pair() {
+  async function pair(expected = 2) {
     for (const peer of (await pageA.evaluate(() => window.scope.transferDevices())).peers)
       await pageA.evaluate((id) => window.scope.forgetScope(id), peer.id);
     for (const peer of (await pageB.evaluate(() => window.scope.transferDevices())).peers)
@@ -89,7 +90,7 @@ export async function guestMutationChecks() {
           pageB.evaluate(() => window.scope.guestCatalog()).then((view) => view.available.length),
         { timeout: 25000 },
       )
-      .toBe(2);
+      .toBe(expected);
   }
   const record = async (id = "mutation-document") =>
     (await pageB.evaluate(() => window.scope.guestCatalog())).records.find(
@@ -223,6 +224,15 @@ export async function guestMutationChecks() {
     expect(await frame.locator("#second").isChecked()).toBe(false);
     expect(await frame.locator("body").getAttribute("data-events")).toBe("0");
     await capture("mutations-restored-light-laptop.png");
+    artifact = await guestRecoveryChecks({
+      page: pageB,
+      app: right,
+      client: ca,
+      guestId,
+      settingsDirectory: b.settingsDirectory,
+      html,
+      capture,
+    });
     await openActions();
     await pane.getByLabel("Source title", { exact: true }).fill("Retained competing title");
     artifact = await ca.publish(
@@ -240,7 +250,10 @@ export async function guestMutationChecks() {
     await fresh();
     // Changed content revision never receives old form input, even with identical bytes.
     await openRecovery();
-    await pane.getByText(/current revision .*copy or discard old input/).waitFor();
+    await pane
+      .getByText(/current revision .*copy or discard old input/)
+      .first()
+      .waitFor();
     expect(await pane.getByRole("button", { name: "Restore saved fields" }).count()).toBe(0);
     await openActions();
     await expect
@@ -293,6 +306,9 @@ export async function guestMutationChecks() {
     await fresh();
     await openActions();
     await pane
+      .getByLabel("Source title", { exact: true })
+      .fill("Unsubmitted title retained through retention and trash");
+    await pane
       .getByRole("button", { name: "Keep permanently on Owner laptop", exact: true })
       .click();
     await expect
@@ -303,6 +319,50 @@ export async function guestMutationChecks() {
       )
       .toBe(true);
     await expect.poll(async () => (await record()).source.permanent).toBe(true);
+    await expect
+      .poll(() => pane.getByLabel("Source title", { exact: true }).inputValue())
+      .toBe("Unsubmitted title retained through retention and trash");
+    expect(
+      (await pageB.evaluate((id) => window.scope.guestRecovery(id), guestId)).inputs.find(
+        (input) => input.kind === "action",
+      )?.title,
+    ).toBe("Unsubmitted title retained through retention and trash");
+    await right.close();
+    right = await b.launch();
+    pageB = await right.firstWindow();
+    await pair();
+    await select(guestId);
+    pane = pageB.locator(`#pane-${guestId}`);
+    await openActions();
+    expect(await pane.getByLabel("Source title", { exact: true }).inputValue()).toBe(
+      "Unsubmitted title retained through retention and trash",
+    );
+    await pane.getByRole("button", { name: "Review current owner source", exact: true }).click();
+    await pane
+      .getByRole("button", { name: "Move source to Trashcan on Owner laptop", exact: true })
+      .click();
+    await pane.getByText(/This source is no longer shared by Owner laptop/).waitFor();
+    await expect
+      .poll(() => pane.getByLabel("Source title", { exact: true }).inputValue())
+      .toBe("Unsubmitted title retained through retention and trash");
+    await right.close();
+    right = await b.launch();
+    pageB = await right.firstWindow();
+    await pair(1);
+    await select(guestId);
+    pane = pageB.locator(`#pane-${guestId}`);
+    await openActions();
+    expect(await pane.getByLabel("Source title", { exact: true }).inputValue()).toBe(
+      "Unsubmitted title retained through retention and trash",
+    );
+    await pageA.evaluate((id) => window.scope.restoreTab(id), sourceId);
+    await expect
+      .poll(async () => (await pageB.evaluate(() => window.scope.guestCatalog())).available.length)
+      .toBe(2);
+    await pane.getByRole("button", { name: "Discard title draft", exact: true }).click();
+    await expect
+      .poll(() => pane.getByLabel("Source title", { exact: true }).inputValue())
+      .toBe("Retained competing title");
     const beforeClose = (await record()).source.sourceVersion;
     await pageB
       .getByRole("button", { name: "Close Retained competing title", exact: true })

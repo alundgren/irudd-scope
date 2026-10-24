@@ -28,6 +28,7 @@ export function GuestActions({
   const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(false);
   const changed = useRef(false);
+  const editGeneration = useRef(0);
   const expected = useRef({
     sourceVersion: record.source.sourceVersion,
     revision: record.source.artifact?.revision ?? 0,
@@ -102,6 +103,7 @@ export function GuestActions({
     if (!record.source.sourceVersion) return;
     setBusy(true);
     setError("");
+    const submitted = { generation: editGeneration.current, revision: key.revision, draft };
     try {
       await save.flush();
       const change: GuestChange = {
@@ -116,10 +118,30 @@ export function GuestActions({
       setError(outcome.message ?? (outcome.state === "completed" ? "" : outcome.state));
       if (outcome.state === "completed") {
         await window.scope.guestReconcile(target, operation);
-        changed.current = false;
-        if (draft) await window.scope.discardGuestInput(record.tab.id, "action", draft.revision);
-        await window.scope.discardGuestInput(record.tab.id, "action", key.revision);
-        setDraft(undefined);
+        if (action.kind === "rename" && editGeneration.current === submitted.generation) {
+          await save.commit(
+            () => ({ ...key, kind: "action" as const, title: action.title, fields: [] }),
+            async () => {
+              await window.scope.discardGuestInput(record.tab.id, "action", submitted.revision);
+              if (
+                submitted.draft?.title === action.title &&
+                submitted.draft.revision !== submitted.revision
+              )
+                await window.scope.discardGuestInput(
+                  record.tab.id,
+                  "action",
+                  submitted.draft.revision,
+                );
+              return undefined;
+            },
+            () => {
+              if (editGeneration.current === submitted.generation) {
+                changed.current = false;
+                setDraft(undefined);
+              }
+            },
+          );
+        }
       }
     } catch (error) {
       setError(message(error));
@@ -190,6 +212,7 @@ export function GuestActions({
             disabled={!available || !loaded || busy || !!pending}
             onChange={(event) => {
               changed.current = true;
+              editGeneration.current++;
               setTitle(event.target.value);
               save.schedule();
             }}
@@ -243,6 +266,36 @@ export function GuestActions({
             onClick={() => void reconcile()}
           >
             Review current owner source
+          </Button>
+        )}
+        {draft && !pending && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => {
+              const generation = editGeneration.current;
+              setBusy(true);
+              void save
+                .commit(
+                  () => ({ ...key, kind: "action" as const, title, fields: [] }),
+                  async () => {
+                    await window.scope.discardGuestInput(record.tab.id, "action", draft.revision);
+                    return undefined;
+                  },
+                  () => {
+                    if (editGeneration.current === generation) {
+                      changed.current = false;
+                      setDraft(undefined);
+                      setTitle(record.source.title);
+                    }
+                  },
+                )
+                .catch((error) => setError(message(error)))
+                .finally(() => setBusy(false));
+            }}
+          >
+            Discard title draft
           </Button>
         )}
         {pending && (

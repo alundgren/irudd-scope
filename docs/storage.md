@@ -622,3 +622,12 @@ same owner, source, revision and blob; it assigns values without submitting form
 or firing authored input handlers. Changed revisions retain old values for copy
 or discard. Arbitrary HTML runtime state and DOM bytes are never serialized.
 Interactive HTML remains trusted and can make network requests independently.
+
+Form recovery remains accessible when the owner replaces HTML with another
+revision or content type. Unsaved working values stay in the guest's current
+window, including values exceeding storage limits. They are labelled unsaved
+and can be copied or explicitly discarded; they are not restart-durable until
+the bounded recovery write succeeds. Discard waits for earlier writes and
+prevents queued snapshots from restoring discarded input. Retention and source
+Trashcan changes preserve unsubmitted title drafts. A completed matching rename
+or explicit title discard clears that title draft.

@@ -95,24 +95,32 @@ export function TabHost({
       : undefined;
   if (["file", "retro", "sketchpad", "folder", "guest"].includes(tab.type) && !active && !visited)
     return null;
-  if (!plugin)
-    return (
+  const withRecovery = (view: ReactNode) =>
+    tab.type === "guest" && guest ? (
       <>
-        {guest && guest.source.kind !== "folder" && (
+        {guest.source.kind !== "folder" && (
           <GuestActions record={guest} owner={guestOwner} available={guestAvailable === true} />
         )}
-        <p role="status" className="empty-state">
-          {notice ?? "This tab type is unavailable. Its saved data is still available."}
-        </p>
+        <GuestHtmlRecovery record={guest} available={guestAvailable === true}>
+          {view}
+        </GuestHtmlRecovery>
       </>
+    ) : (
+      view
+    );
+  if (!plugin)
+    return withRecovery(
+      <p role="status" className="empty-state">
+        {notice ?? "This tab type is unavailable. Its saved data is still available."}
+      </p>,
     );
   try {
     validateTabState(tab);
   } catch {
-    return (
+    return withRecovery(
       <p role="alert" className="empty-state">
         This tab's saved state cannot be opened by this version of Scope.
-      </p>
+      </p>,
     );
   }
   const View = plugin.View;
@@ -154,10 +162,6 @@ export function TabHost({
     </TabErrorBoundary>
   );
   if (tab.type !== "guest") return view;
-  const actions =
-    guest && guest.source.kind !== "folder" ? (
-      <GuestActions record={guest} owner={guestOwner} available={guestAvailable === true} />
-    ) : null;
   const guestView = (
     <>
       {notice && (
@@ -170,20 +174,5 @@ export function TabHost({
       </div>
     </>
   );
-  return (
-    <>
-      {actions}
-      {guest?.source.artifact?.kind === "html" ? (
-        <GuestHtmlRecovery
-          key={`${guest.source.artifact.revision}/${guest.source.artifact.blob}`}
-          record={guest}
-          available={guestAvailable === true}
-        >
-          {guestView}
-        </GuestHtmlRecovery>
-      ) : (
-        guestView
-      )}
-    </>
-  );
+  return withRecovery(guestView);
 }

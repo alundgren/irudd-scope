@@ -41,12 +41,6 @@ export function captureField(key: string, field: Field): GuestField {
     field.tagName === "SELECT"
       ? [...(field as HTMLSelectElement).selectedOptions].map((option) => option.value)
       : undefined;
-  if (
-    field.value.length > 8192 ||
-    selected?.some((value) => value.length > 8192) ||
-    (selected?.length ?? 0) > 64
-  )
-    throw new Error("This field exceeds recovery limits. Copy its value before closing Scope.");
   return {
     key,
     tag: field.tagName.toLowerCase() as GuestField["tag"],
