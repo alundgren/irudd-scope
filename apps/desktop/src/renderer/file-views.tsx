@@ -176,7 +176,7 @@ function TextView({ content, lines }: ViewerProps) {
     const height = final
       ? final.getBoundingClientRect().bottom - first.getBoundingClientRect().top
       : Infinity;
-    const fits = height <= scrollHeight(container.current!) * 0.8;
+    const fits = start === end || height <= scrollHeight(container.current!) * 0.8;
     const middle = fits && final ? Math.round((start! + end!) / 2) : start;
     (container.current?.querySelector(`[data-line="${middle}"]`) ?? first).scrollIntoView({
       block: fits ? "center" : "start",
