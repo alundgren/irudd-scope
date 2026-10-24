@@ -428,7 +428,9 @@ the person's permanence choice. Overview gives the authored HTML the available
 area beneath compact Overview and Work items controls. Trusted scripts and external
 resources remain supported. Work items exposes outcomes, full owned checks,
 prerequisites, related context and a copyable independent packet. It provides
-recorded agreement and evidence with inspection of the exact original proposal.
+inspection of every captured proposal, including those without agreement or evidence.
+Each retained proposal exposes its original HTML and complete checks, with a return
+to the current proposal. Inspection creates no agreement or evidence.
 Recorded results are labeled as results on that proposal, not current verification.
 
 Discussion stays in the coding session. There is no questionnaire, approval button
