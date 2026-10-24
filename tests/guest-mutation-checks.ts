@@ -511,6 +511,7 @@ export async function guestMutationChecks() {
     expect(await pane.getByRole("button", { name: "Check operation status" }).isEnabled()).toBe(
       true,
     );
+    expect(await pane.getByText("Saved on Owner laptop.", { exact: true }).count()).toBe(0);
     await capture("mutations-lost-trash-reply-dark-narrow.png");
     await left.close();
     left = await a.launch();
@@ -556,6 +557,7 @@ export async function guestMutationChecks() {
     expect((await responses.peer("mutation-execute", revoked)).status).not.toBe(200);
     expect((await ca.get(artifact.id)).title).not.toBe("Late revoked change");
     await select(guestId);
+    await right.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));
     await capture("mutations-offline-recovery-dark-narrow.png");
     await pageA.evaluate((id) => window.scope.setGuestAccess(id, true), peerId);
     await pageB.evaluate((id) => window.scope.retryGuest(id), peerId);

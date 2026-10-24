@@ -113,12 +113,7 @@ export function GuestActions({
       };
       const operation = await window.scope.guestPrepare(change);
       const outcome = await window.scope.guestExecute(target, operation);
-      setError(
-        outcome.message ??
-          (outcome.state === "completed"
-            ? `Saved on ${owner?.name ?? "the owner"}.`
-            : outcome.state),
-      );
+      setError(outcome.message ?? (outcome.state === "completed" ? "" : outcome.state));
       if (outcome.state === "completed") {
         await window.scope.guestReconcile(target, operation);
         changed.current = false;
