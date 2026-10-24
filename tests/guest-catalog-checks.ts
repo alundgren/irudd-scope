@@ -774,7 +774,7 @@ export async function guestCatalogChecks({
             )[0]?.id,
         )
         .toBe(planId);
-      await guestCloseFailureChecks(pageB, b.settingsDirectory, planId);
+      await guestCloseFailureChecks(pageB, b.settingsDirectory, planId, right);
       const workspace = (await pageB.evaluate(() => window.scope.workspace()))!;
       const local = workspace.tabs.findIndex((tab) => tab.type === "file");
       expect(workspace.tabs.slice(0, local).some((tab) => tab.type === "guest")).toBe(true);

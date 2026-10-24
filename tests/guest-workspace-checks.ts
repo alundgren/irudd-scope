@@ -157,7 +157,12 @@ export async function guestWorkspaceChecks({
   );
 }
 
-export async function guestCloseFailureChecks(page: Page, settingsDirectory: string, id: string) {
+export async function guestCloseFailureChecks(
+  page: Page,
+  settingsDirectory: string,
+  id: string,
+  app: ElectronApplication,
+) {
   const database = new DatabaseSync(join(settingsDirectory, "desktop.db"));
   const snapshot = () => ({
     guest: database.prepare("SELECT tab FROM guest_tabs WHERE id = ?").get(id),
@@ -176,6 +181,11 @@ export async function guestCloseFailureChecks(page: Page, settingsDirectory: str
     WHEN NEW.name = 'workspace_layout'
       AND EXISTS (SELECT 1 FROM guest_tabs WHERE id = '${id}' AND json_extract(tab, '$.hidden') = 1)
     BEGIN SELECT RAISE(ABORT, 'Synthetic layout failure after guest visibility write'); END`);
+  const rejectSelection = () =>
+    database.exec(`CREATE TRIGGER reject_guest_close BEFORE UPDATE ON preferences
+    WHEN NEW.name = 'workspace_layout'
+      AND json_extract(NEW.document, '$.selected') IS NOT json_extract(OLD.document, '$.selected')
+    BEGIN SELECT RAISE(ABORT, 'Synthetic selection write failure'); END`);
   try {
     // Flushes of the visible workspace can succeed; only the subsequent close layout fails.
     reject();
@@ -187,6 +197,16 @@ export async function guestCloseFailureChecks(page: Page, settingsDirectory: str
     await page.getByText("Could not save this tab. Try again.", { exact: true }).waitFor();
     expect(snapshot()).toEqual(before);
     expect(await tab.isVisible()).toBe(true);
+    database.exec("DROP TRIGGER reject_guest_close");
+    await page.getByRole("button", { name: "Dismiss error", exact: true }).click();
+    // The old pre-hide/order write succeeds under this trigger; only changing selection fails.
+    rejectSelection();
+    const selected = snapshot();
+    await close();
+    await page.getByText("Could not save this tab. Try again.", { exact: true }).waitFor();
+    expect(snapshot()).toEqual(selected);
+    expect(await tab.getAttribute("aria-selected")).toBe("true");
+    expect(await page.getByText("Could not save open tabs.", { exact: false }).count()).toBe(0);
     database.exec("DROP TRIGGER reject_guest_close");
     await page.getByRole("button", { name: "Dismiss error", exact: true }).click();
     const local = (await page.evaluate(() => window.scope.workspace()))!.tabs.find(
@@ -226,6 +246,9 @@ export async function guestCloseFailureChecks(page: Page, settingsDirectory: str
             ?.hidden,
       )
       .toBe(false);
+    await guestCloseOrderingChecks(page, app, id, rejectSelection, () => {
+      database.exec("DROP TRIGGER reject_guest_close");
+    });
     await tab.focus();
     const tabCount = (await page.evaluate(() => window.scope.workspace()))!.tabs.length;
     for (let i = 0; i < tabCount; i++) await page.keyboard.press("Alt+ArrowLeft");
@@ -237,7 +260,7 @@ export async function guestCloseFailureChecks(page: Page, settingsDirectory: str
           )[0]?.id,
       )
       .toBe(id);
-    reject();
+    rejectSelection();
     const reopened = snapshot();
     await close();
     await page.getByText("Could not save this tab. Try again.", { exact: true }).waitFor();
@@ -247,5 +270,108 @@ export async function guestCloseFailureChecks(page: Page, settingsDirectory: str
     // Keep the trigger through actual quit/restart: a clean flush must not hide the rejected tab.
   } finally {
     database.close();
+  }
+}
+
+async function guestCloseOrderingChecks(
+  page: Page,
+  app: ElectronApplication,
+  id: string,
+  rejectSelection: () => void,
+  allowSelection: () => void,
+) {
+  const workspace = (await page.evaluate(() => window.scope.workspace()))!;
+  const other = workspace.tabs.find((tab) => tab.type === "guest" && tab.id !== id && !tab.hidden)!;
+  const title = workspace.tabs.find((tab) => tab.id === id)!.title;
+  for (const mode of ["select-other", "reopen", "reopen-failed"] as const) {
+    await app.evaluate(({ ipcMain }) => {
+      const channel = "scope:defer-guest-tab";
+      type Handler = (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown;
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })
+        ._invokeHandlers;
+      const original = handlers.get(channel)!;
+      if (!original) throw new Error("Missing guest close IPC handler");
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const state = {
+        started: false,
+        release,
+        restore: () => {
+          ipcMain.removeHandler(channel);
+          ipcMain.handle(channel, original);
+        },
+      };
+      (globalThis as unknown as { guestCloseGate: typeof state }).guestCloseGate = state;
+      ipcMain.removeHandler(channel);
+      ipcMain.handle(channel, async (event, ...args: unknown[]) => {
+        state.started = true;
+        await gate;
+        return original(event, ...args);
+      });
+    });
+    if (mode === "reopen-failed") rejectSelection();
+    try {
+      await page
+        .locator(".artifact-tab.selected")
+        .getByRole("button", { name: /^Close / })
+        .click();
+      await expect
+        .poll(() =>
+          app.evaluate(
+            () =>
+              (globalThis as unknown as { guestCloseGate: { started: boolean } }).guestCloseGate
+                .started,
+          ),
+        )
+        .toBe(true);
+      // Selecting a guest queues an immediate workspace save while the close is still pending.
+      await page.locator(`#tab-${other.id}`).click();
+      if (mode !== "select-other") await page.locator(`#tab-${id}`).click();
+      await app.evaluate(() =>
+        (
+          globalThis as unknown as { guestCloseGate: { release: () => void } }
+        ).guestCloseGate.release(),
+      );
+      if (mode === "reopen-failed") {
+        await page.getByText("Could not save this tab. Try again.", { exact: true }).waitFor();
+        await page.getByRole("button", { name: "Dismiss error", exact: true }).click();
+      }
+      await expect
+        .poll(async () => {
+          const saved = (await page.evaluate(() => window.scope.workspace()))!;
+          return {
+            hidden: saved.tabs.find((tab) => tab.id === id)?.hidden,
+            selected: saved.selected,
+          };
+        })
+        .toEqual({
+          hidden: mode === "select-other",
+          selected: mode === "select-other" ? other.id : id,
+        });
+      expect(
+        await page
+          .locator(`#tab-${mode === "select-other" ? other.id : id}`)
+          .getAttribute("aria-selected"),
+      ).toBe("true");
+      if (mode === "select-other") {
+        await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
+        await page.getByLabel("Search tabs", { exact: true }).fill(title);
+        await page.getByRole("button", { name: title + " guest", exact: true }).click();
+        await expect
+          .poll(async () => (await page.evaluate(() => window.scope.workspace()))?.selected)
+          .toBe(id);
+      }
+    } finally {
+      if (mode === "reopen-failed") allowSelection();
+      await app.evaluate(() => {
+        const state = (
+          globalThis as unknown as { guestCloseGate: { release: () => void; restore: () => void } }
+        ).guestCloseGate;
+        state.release();
+        state.restore();
+      });
+    }
   }
 }

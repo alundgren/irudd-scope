@@ -124,6 +124,23 @@ export class DesktopLifecycle {
     });
   }
 
+  deferGuestTab(id: string, value: unknown): Promise<void> {
+    const workspace = decodeWorkspace(value);
+    for (const tab of workspace.tabs) validateTabState(tab, true);
+    return this.enqueue(async () => {
+      const guests = new Set((await this.desktop.guestRecords()).map((record) => record.tab.id));
+      if (
+        !guests.has(id) ||
+        !workspace.tabs.find((tab) => tab.id === id)?.hidden ||
+        workspace.selected === id
+      )
+        throw new Error("This guest reference cannot be closed.");
+      if (workspace.tabs.some((tab) => (tab.type === "guest") !== guests.has(tab.id)))
+        throw new Error("Guest and local tab identities cannot be exchanged.");
+      await this.desktop.saveGuestWorkspace(workspace);
+    });
+  }
+
   openTab(value: unknown, artifactRevision?: number): Promise<Tab | null> {
     const tab = decode(Tab, value);
     validateTabState(tab, true);

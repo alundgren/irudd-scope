@@ -269,8 +269,7 @@ export function useWorkspace(onError: (message: string) => void) {
           if (opened && closed.has(opened.id)) {
             await hiding.current.get(opened.id)?.catch(() => {});
             // An ignored open may have cleared a built-in tab's saved hidden state.
-            if (current.current.tabs.some((entry) => entry.id === opened.id))
-              await window.scope.saveWorkspace(current.current);
+            if (current.current.tabs.some((entry) => entry.id === opened.id)) await save.flush();
           }
           if (opened && !closed.has(opened.id)) {
             const tabs = latest.tabs.some((entry) => entry.id === opened.id)
@@ -330,7 +329,8 @@ export function useWorkspace(onError: (message: string) => void) {
   function revealTab(id: string): void {
     // Reopening also wins over a close that main has not finished.
     const closing = hiding.current.delete(id);
-    if (closing || current.current.tabs.find((tab) => tab.id === id)?.hidden)
+    const tab = current.current.tabs.find((tab) => tab.id === id);
+    if (tab?.type !== "guest" && (closing || tab?.hidden))
       void window.scope.setTabHidden(id, false).catch(() => {});
     const previous = current.current;
     replace({
@@ -338,6 +338,7 @@ export function useWorkspace(onError: (message: string) => void) {
       tabs: previous.tabs.map((tab) => (tab.id === id ? { ...tab, hidden: false } : tab)),
       selected: id,
     });
+    if (tab?.type === "guest") void save.flush().catch(() => {});
   }
 
   async function deferTab(id: string): Promise<string | null> {
@@ -365,14 +366,23 @@ export function useWorkspace(onError: (message: string) => void) {
     const next = deferred(current.current);
     if (next === current.current) return next.selected;
     for (const pending of pendingOpens.current) pending.closed.add(id);
-    // Main closes the stored tab first, so a workspace save it ignores as older cannot undo
-    // the close. Both requests are sent together to keep their order with a quick reopen.
-    const closing = window.scope.setTabHidden(id, true);
-    const saving = window.scope.saveWorkspace(next);
-    const hide: Promise<void> = Promise.all([closing, saving]).then(() => {
-      // A reopen while this save was pending wins over the close.
+    const apply = () => {
+      // A reopen while persistence was pending wins over this UI close.
       if (hiding.current.get(id) === hide) replace(deferred(current.current));
-    });
+    };
+    const guest = current.current.tabs.find((tab) => tab.id === id)?.type === "guest";
+    const hide: Promise<void> = guest
+      ? save.commit(
+          () => (hiding.current.get(id) === hide ? deferred(current.current) : current.current),
+          (value) =>
+            value.tabs.find((tab) => tab.id === id)?.hidden
+              ? window.scope.deferGuestTab(id, value)
+              : window.scope.saveWorkspace(value),
+          apply,
+        )
+      : Promise.all([window.scope.setTabHidden(id, true), window.scope.saveWorkspace(next)]).then(
+          apply,
+        );
     hiding.current.set(id, hide);
     try {
       await hide;
