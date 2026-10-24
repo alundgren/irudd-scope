@@ -96,7 +96,10 @@ export class GuestOperations {
               new Error("Owner operation capacity reached. Wait for receipts to expire."),
             );
           const [source] = yield* guestSources(sql, change.target.sourceTabId);
-          if (!source) return yield* Effect.fail(new Error("This source is no longer shared."));
+          if (!source || source.kind === "folder")
+            return yield* Effect.fail(
+              new Error("This source does not support artifact mutations."),
+            );
           const outcome: GuestOutcome = {
             operationId: randomUUID(),
             digest: digest(change),
@@ -161,7 +164,7 @@ export class GuestOperations {
           const change = operation.change;
           const [source] = yield* guestSources(sql, change.target.sourceTabId);
           let result: GuestOutcome;
-          if (!source)
+          if (!source || source.kind === "folder")
             result = { ...saved, state: "rejected", message: "This source is no longer shared." };
           else if (
             source.sourceVersion !== change.expectedSourceVersion ||
@@ -255,12 +258,8 @@ function apply(sql: SqliteClient.SqliteClient, change: GuestChange) {
     const [row] = yield* sql<{
       document: string;
     }>`SELECT document FROM artifacts WHERE tab_id = ${id}`;
-    if (!row) {
-      if (action.kind !== "rename")
-        return yield* Effect.fail(new ScopeError(400, "Only plans support this action."));
-      yield* sql`UPDATE live_tabs SET document = json_set(document, '$.title', ${action.title}) WHERE id = ${id}`;
-      return;
-    }
+    if (!row)
+      return yield* Effect.fail(new ScopeError(400, "This source has no supported artifact."));
     const previous = decode(Artifact, JSON.parse(row.document));
     const artifact = {
       ...previous,

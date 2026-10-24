@@ -1026,7 +1026,7 @@ readable and require an update for source actions. Targets always include
 `ownerDeviceId` and `sourceTabId`; names and artifact IDs alone cannot select a
 remote owner.
 
-`@irudd-scope/protocol/guest-operation` defines named `rename`, `retention`,
+`@irudd-scope/protocol/guest-operation` defines file/plan actions: `rename`, `retention`,
 `trash`, `replace-plan` and `capture-basis` actions. Changes include the expected
 source version and publication revision (zero for a source without an artifact).
 Plan replacement and basis capture use the owner's current document and the same

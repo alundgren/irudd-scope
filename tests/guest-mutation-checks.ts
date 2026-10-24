@@ -147,6 +147,14 @@ export async function guestMutationChecks() {
     await select(guestId);
     let pane = pageB.locator(`#pane-${guestId}`);
     let frame = pane.locator("iframe").contentFrame();
+    const openActions = async () => {
+      const summary = pane.getByText(/Source actions ·/);
+      if ((await summary.locator("..").getAttribute("open")) === null) await summary.click();
+    };
+    const openRecovery = async () => {
+      const summary = pane.locator("summary").filter({ hasText: "Form input recovery" });
+      if ((await summary.locator("..").getAttribute("open")) === null) await summary.click();
+    };
     await frame.getByRole("heading", { name: "Guest mutation example" }).waitFor();
     const recoveryDb = new DatabaseSync(join(b.settingsDirectory, "desktop.db"));
     recoveryDb.exec(
@@ -184,14 +192,14 @@ export async function guestMutationChecks() {
     frame = pane.locator("iframe").contentFrame();
     await frame.locator("#notes").waitFor();
     expect(await frame.locator("#notes").inputValue()).toBe("");
-    await pane.getByText(/Form input recovery/, { exact: false }).click();
+    await openRecovery();
     await pane.getByRole("button", { name: "Restore saved fields" }).click();
     expect(await frame.locator("#notes").inputValue()).toBe("Recover this note after restart");
     expect(await frame.locator("#choice").inputValue()).toBe("b");
     expect(await frame.locator("#agreed").isChecked()).toBe(true);
     expect(await frame.locator("body").getAttribute("data-events")).toBe("0");
     await capture("mutations-restored-light-laptop.png");
-    await pane.getByText(/Source actions ·/).click();
+    await openActions();
     await pane.getByLabel("Source title", { exact: true }).fill("Retained competing title");
     artifact = await ca.publish(
       artifact.id,
@@ -207,9 +215,10 @@ export async function guestMutationChecks() {
     );
     await fresh();
     // Changed content revision never receives old form input, even with identical bytes.
+    await openRecovery();
     await pane.getByText(/current revision .*copy or discard old input/).waitFor();
     expect(await pane.getByRole("button", { name: "Restore saved fields" }).count()).toBe(0);
-    await pane.getByText(/Source actions ·/).click();
+    await openActions();
     await expect
       .poll(() => pane.getByLabel("Source title", { exact: true }).inputValue())
       .toBe("Retained competing title");
@@ -229,7 +238,7 @@ export async function guestMutationChecks() {
       .poll(() => ca.get(artifact.id).then((value) => value.title))
       .toBe("Retained competing title");
     await fresh();
-    await pane.getByText(/Source actions ·/).click();
+    await openActions();
     await pane
       .getByRole("button", { name: "Keep permanently on Owner laptop", exact: true })
       .click();

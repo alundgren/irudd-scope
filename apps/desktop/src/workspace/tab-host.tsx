@@ -98,7 +98,7 @@ export function TabHost({
   if (!plugin)
     return (
       <>
-        {guest && (
+        {guest && guest.source.kind !== "folder" && (
           <GuestActions record={guest} owner={guestOwner} available={guestAvailable === true} />
         )}
         <p role="status" className="empty-state">
@@ -156,7 +156,7 @@ export function TabHost({
   if (tab.type !== "guest") return view;
   const guestView = (
     <>
-      {guest && (
+      {guest && guest.source.kind !== "folder" && (
         <GuestActions record={guest} owner={guestOwner} available={guestAvailable === true} />
       )}
       {notice && (

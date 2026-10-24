@@ -229,15 +229,18 @@ export function GuestActions({
         </div>
         {pending && (
           <p role="status">
-            Saved operation {pending.outcome.state}. Input and operation identity are retained.
-            Further source changes are blocked until reconciled.
+            Saved operation {pending.outcome.state}.{" "}
+            {pending.outcome.artifact &&
+              `Current owner revision ${pending.outcome.artifact.revision}. `}
+            Input and operation identity are retained. Further source changes are blocked until
+            reconciled.
           </p>
         )}
         {(pending || draft) && (
           <Button
             size="sm"
             variant="secondary"
-            disabled={!available || busy}
+            disabled={owner?.state !== "connected" || busy}
             onClick={() => void reconcile()}
           >
             Review current owner source
@@ -247,7 +250,7 @@ export function GuestActions({
           <Button
             size="sm"
             variant="secondary"
-            disabled={!available || busy}
+            disabled={owner?.state !== "connected" || busy}
             onClick={() => {
               setBusy(true);
               void window.scope
