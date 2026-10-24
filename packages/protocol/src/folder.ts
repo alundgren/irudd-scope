@@ -194,7 +194,7 @@ export const FolderFeedEvent = Schema.Union([
     overflow: Schema.Boolean,
     /**
      * Directories whose ignore rules changed, `""` for the whole folder after a change to
-     * its `.git/info/exclude`. Entries at any depth below each one may have become ignored
+     * its `.git/info/exclude` or to `.git` itself. Entries at any depth below each one may have become ignored
      * or shown, so readers reload every listing at or below it.
      */
     ignoreRulesChanged: Schema.optionalKey(

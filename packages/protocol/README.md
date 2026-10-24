@@ -259,7 +259,7 @@ the desktop connection credential, never the publishing token:
 
 A `changes` line of the events feed may carry `ignoreRulesChanged`, the
 directories whose `.gitignore` changed, with `""` for the folder's
-`.git/info/exclude`. Entries at any depth below each one may have become ignored or
+`.git/info/exclude` or for `.git` itself appearing, moving, or being replaced. Entries at any depth below each one may have become ignored or
 shown, so a reader reloads every listing it keeps at or below it. Such a line can
 have an empty `changes` list. The feed reports nothing else inside `.git`.
 

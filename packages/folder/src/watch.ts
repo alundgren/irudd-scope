@@ -98,6 +98,8 @@ class FolderWatcher {
    * that name really exists, so only a real one is reported as deleted.
    */
   private readonly namesakes = new Map<string, boolean>();
+  /** The top-level `.git` folder and its exclude file as last seen, by identity, size, and time. */
+  private gitSeen: string | undefined;
   private overflow = false;
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
   private flushing: Promise<void> = Promise.resolve();
@@ -162,6 +164,7 @@ class FolderWatcher {
   private async startWatching() {
     const generation = this.generation;
     if (!this.live) return this.startPolling(generation);
+    this.gitSeen = await this.gitState();
     try {
       if (process.platform === "linux") {
         await this.watchDirectories("", generation);
@@ -275,6 +278,24 @@ class FolderWatcher {
     this.excludeWatchers.set(path, { watcher, ino: info.ino });
   }
 
+  private async gitState() {
+    const git = await lstat(join(this.root, GIT_DIRECTORY)).catch(() => undefined);
+    return `${git?.isDirectory() ? git.ino : ""}:${await this.excludeSignature()}`;
+  }
+
+  /**
+   * `.git` itself was created, removed, moved, or replaced, which can bring other exclude
+   * rules or none. Linux moves its `.git` watches to the folder now there.
+   */
+  private async checkGit() {
+    const generation = this.generation;
+    const state = await this.gitState();
+    if (generation !== this.generation || state === this.gitSeen) return;
+    this.gitSeen = state;
+    if (process.platform === "linux" && this.live) await this.watchExclude(generation);
+    this.excludeChanged();
+  }
+
   private excludeChanged() {
     this.filter.clear();
     this.rulesChanged.add("");
@@ -315,11 +336,9 @@ class FolderWatcher {
     const parts = path.split("/");
     if (gitName(parts[0]!)) {
       const inGit = parts.slice(1).join("/");
-      // macOS and Windows see inside `.git` through the recursive watch; Linux adds the
-      // `.git/info` watch once `.git` appears.
+      // macOS and Windows see inside `.git` through the recursive watch.
       if (inGit === "info" || inGit === "info/exclude") this.excludeChanged();
-      else if (!inGit && process.platform === "linux" && this.live)
-        void this.watchExclude(this.generation).catch(() => {});
+      else if (!inGit) void this.checkGit().catch(() => {});
       return;
     }
     if (parts.some(hiddenName)) return;

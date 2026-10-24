@@ -10,6 +10,7 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  realpathSync,
   renameSync,
   rmdirSync,
   statSync,
@@ -17,7 +18,7 @@ import {
   write,
   type Stats,
 } from "node:fs";
-import { join, sep } from "node:path";
+import { basename, join, sep } from "node:path";
 import { addAbortSignal, type Readable } from "node:stream";
 import { promisify } from "node:util";
 import type { FolderWriteReceipt } from "@irudd-scope/protocol/folder";
@@ -142,23 +143,45 @@ function folderError(path: string, shown: string, code: string) {
 
 type Create = "missing" | "exclusive";
 
-/** Windows short names such as `GIT~1` or `REPORT~2.DOC`. */
+/** Names that may be Windows short names, such as `GIT~1` or `REPORT~2.DOC`. */
 const SHORT_NAME = /^[^.]{1,6}~\d{1,6}(\.[^.]{0,3})?$/;
 
 /**
- * A path Scope may create. On Windows a name ending in a dot or space, a name with `:`, and a
- * short name can each reach another entry, such as `.git`, so they are refused there.
+ * A path Scope may create. On Windows a name ending in a dot or space or containing `:`
+ * reaches another entry, such as `.git`, so it is refused there. Short names are checked
+ * where they are used, with `refuseShortAlias`.
  */
 function writablePath(relative: string): string {
   const path = validRelative(relative);
   if (process.platform !== "win32") return path;
   for (const name of path.split("/"))
-    if (/[. ]$/.test(name) || name.includes(":") || SHORT_NAME.test(name))
+    if (/[. ]$/.test(name) || name.includes(":"))
       throw new FolderError(
         "outside-folder",
         `Windows cannot store ${name} under that exact name. Rename it and try again.`,
       );
   return path;
+}
+
+/**
+ * On Windows, refuses `name` in `base` when it is the short name of an entry whose own name
+ * is different, such as `NOTES~1.TXT` for `notes from monday.txt`, so a copy never lands on
+ * or replaces an entry the person did not name. A file really named `notes~1.txt`, or a name
+ * nothing has yet, is accepted. Windows reports an entry's own name through its real path.
+ */
+function refuseShortAlias(base: string, name: string, shown: string) {
+  if (process.platform !== "win32" || !SHORT_NAME.test(name)) return;
+  let real: string;
+  try {
+    real = realpathSync.native(`${base}/${name}`);
+  } catch {
+    return;
+  }
+  if (basename(real).toLowerCase() !== name.toLowerCase())
+    throw new FolderError(
+      "outside-folder",
+      `${shown} is another name for ${basename(real)}. Rename it and try again.`,
+    );
 }
 
 /**
@@ -169,6 +192,7 @@ function writablePath(relative: string): string {
 function openChild(root: string, parent: Folder, part: string, shown: string, create: Create) {
   return inFolder(parent, (base): Folder => {
     checkInside(root, parent, base);
+    refuseShortAlias(base, part, shown);
     const path = `${base}/${part}`;
     let created = false;
     try {
@@ -347,6 +371,7 @@ export async function writeInProcess(
             : `${top.real}${sep}${staged}`;
       const placed = entry(source);
       if (!placed || !same(placed, stagedFile)) throw escaped();
+      refuseShortAlias(base, fileName, path);
       commit(source, `${base}/${fileName}`, path, options.replace);
       if (!stillInside(root, target, base)) {
         const committed = entry(`${base}/${fileName}`);

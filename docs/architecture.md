@@ -114,11 +114,14 @@ timeout. macOS and Windows watch a folder recursively; Linux watches each
 directory that is not ignored and polls every few seconds when it runs out of
 watches. `.git` and ignored folders are never watched, except that Linux watches
 `.git` and `.git/info` only to notice `.git/info/exclude` changing. A change to a
-`.gitignore` or to `.git/info/exclude` adds its directory (`""` for exclude) to the
-batch's `ignoreRulesChanged`; readers reload every listing at or below it, and
+`.gitignore` or to `.git/info/exclude`, or `.git` itself appearing, moving, or being
+replaced, adds its directory (`""` for exclude and `.git`) to the batch's
+`ignoreRulesChanged`; readers reload every listing at or below it, and
 Linux adds and removes directory watches below it to match the new rules. Scope
 reads an ignore file only when it and every folder above it inside the root are
-real, not links, as Git does, and skips one that is a FIFO without waiting.
+real, not links, as Git does, and skips one that is a FIFO without waiting. Each
+part of the path is checked with `lstat`, because macOS and Windows resolve
+`.gitignore` to a file stored as `.GITIGNORE`.
 
 The filter uses a path list that desktop main keeps in memory for each watched
 tab. A background walk builds it, locally with `packages/folder` and remotely by
@@ -195,8 +198,9 @@ disconnecting, aborts its writes and removes what they staged. "Inside the root"
 means that each parent reached through `..` is the folder opened on the way down.
 Windows resolves relative names from the directory's path, so there only those
 checks keep writes inside. Windows also reaches an entry through aliases, so
-writes there refuse names that end in a dot or space, contain `:`, or look like a
-short name such as `GIT~1`, and every platform refuses to open a folder on the
+writes there refuse names that end in a dot or space or contain `:`, and a name
+like `GIT~1` when it is the short name of an entry with a different name (a file
+really named `notes~1.txt` is fine), and every platform refuses to open a folder on the
 way whose device and inode are those of the root's `.git`. A cancelled,
 failed, or disconnected copy, including a hub request that closes after its body
 arrived, removes the staged file and commits nothing. Listings, walks, search, and

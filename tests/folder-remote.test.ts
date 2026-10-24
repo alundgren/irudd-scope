@@ -2,6 +2,7 @@ import { expect, test } from "vite-plus/test";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createServer, request as httpRequest } from "node:http";
 import { chmod, mkdir, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -136,6 +137,7 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
   await mkdir(join(root, "node_modules"), { recursive: true });
   await mkdir(join(root, ".git", "info"), { recursive: true });
   await mkdir(join(root, "pipes"), { recursive: true });
+  await mkdir(join(root, "logs"), { recursive: true });
   await mkdir(join(base, "routes-outside"), { recursive: true });
   await writeFile(join(root, "sub", "file.txt"), "inside");
   await writeFile(join(base, "routes-outside", "file.txt"), "OUTSIDE-SENTINEL");
@@ -272,7 +274,7 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
   // Changed ignore rules, including .git/info/exclude, are reported so readers reload below
   // them, and a folder that is no longer ignored is watched from then on.
   const rules = await feed(hub, desktop, real, async () => {
-    await writeFile(join(root, ".git", "info", "exclude"), "*.log\n");
+    await writeFile(join(root, ".git", "info", "exclude"), "*.log\nlogs/\n");
     await wait(600);
     await writeFile(join(root, "sub", ".gitignore"), "*.tmp\n");
     await wait(600);
@@ -288,6 +290,16 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
     await wait(600);
     await rm(join(root, "routes"));
     await wait(1200);
+    // Moving .git out of the folder drops its exclude rules; moving it back restores them.
+    await writeFile(join(root, "logs", "before.txt"), "x");
+    await rename(join(root, ".git"), join(base, "routes-git-parked"));
+    await wait(1000);
+    await writeFile(join(root, "logs", "git-moved-out.txt"), "x");
+    await wait(1000);
+    await rename(join(base, "routes-git-parked"), join(root, ".git"));
+    await wait(1000);
+    await writeFile(join(root, "logs", "git-back.txt"), "x");
+    await wait(1200);
   });
   const ruleChanges = rules.flatMap((event) => event.ignoreRulesChanged ?? []);
   const sub = ruleChanges.indexOf("sub");
@@ -299,6 +311,31 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
     "created routes",
     "deleted routes",
   ]);
+  const deletedNamesake = rules.findIndex((event) =>
+    event.changes?.some((change) => change.type === "deleted" && change.path === "routes"),
+  );
+  expect(
+    rules.slice(deletedNamesake + 1).filter((event) => event.ignoreRulesChanged?.includes(""))
+      .length,
+  ).toBeGreaterThanOrEqual(2);
+  expect(changed(rules).filter((change) => change.startsWith("created logs/"))).toEqual([
+    "created logs/git-moved-out.txt",
+  ]);
+
+  // Ignore files whose stored letter case differs still apply where names ignore case.
+  const cased = join(base, "cased");
+  await mkdir(join(cased, ".GIT", "info"), { recursive: true });
+  await writeFile(join(cased, ".GIT", "info", "exclude"), "excluded.txt\n");
+  await writeFile(join(cased, ".GITIGNORE"), "ignored.txt\n");
+  for (const name of ["excluded.txt", "ignored.txt", "kept.txt"])
+    await writeFile(join(cased, name), "x");
+  if (existsSync(join(cased, ".gitignore"))) {
+    const casedListing = await fetch(
+      `${hub.endpoint}/v1/relay/folders/list?${new URLSearchParams({ root: await realpath(cased), path: "", showIgnored: "0" })}`,
+      { headers: desktop },
+    ).then((response) => response.json() as Promise<{ entries: { name: string }[] }>);
+    expect(casedListing.entries.map((entry) => entry.name)).toEqual([".GITIGNORE", "kept.txt"]);
+  }
 }
 
 /** Without file watches, the feed says so and still finds added files and edited contents. */

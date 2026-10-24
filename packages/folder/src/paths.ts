@@ -167,6 +167,21 @@ export async function verifyHandle(root: string, real: string, handle: FileHandl
 }
 
 /**
+ * Whether a part of `path` below the root is a link or missing. macOS and Windows can
+ * resolve a path to a real path that differs only in letter case, as `.gitignore` reaches a
+ * file stored as `.GITIGNORE`, so each part is checked itself rather than compared.
+ */
+async function linkOnPath(root: string, path: string): Promise<boolean> {
+  let current = root;
+  for (const part of path.slice(root.length).split(sep).filter(Boolean)) {
+    current = join(current, part);
+    const info = await lstat(current).catch(() => undefined);
+    if (!info || info.isSymbolicLink()) return true;
+  }
+  return false;
+}
+
+/**
  * Opens a file or directory inside the root without letting a swapped symlink widen it.
  * `nonBlocking` returns at once for a FIFO instead of waiting for a writer; callers that
  * walk the folder use it and then check that the handle is a regular file. `noSymlinks`
@@ -185,7 +200,7 @@ export async function openInside(
 ): Promise<{ handle: FileHandle; real: string }> {
   const path = options.internal ? join(root, ...relative.split("/")) : joinInside(root, relative);
   const real = await resolveJoined(root, path, relative);
-  if (options.noSymlinks && real !== path) throw escaped();
+  if (options.noSymlinks && real !== path && (await linkOnPath(root, path))) throw escaped();
   // A link inside the folder, such as docs/config -> ../.git/config, does not reach `.git`.
   if (!options.internal && insideGit(root, real)) throw new FolderError("not-found", GIT_REFUSED);
   const flags =
