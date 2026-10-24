@@ -358,9 +358,9 @@ and scrolls its preview to that line.
 
 Selecting a file shows a read-only preview beside the tree, below it in narrow
 windows, using the published-file viewers. Text has line numbers; Markdown and
-HTML have a Source button, which a search match turns on. HTML previews run
-their scripts, forms, and popups but cannot reach Scope itself. A folder's files
-were not published by an agent, unlike published HTML, which runs unrestricted. Files Scope cannot
+HTML have a Source button, which a search match turns on. HTML previews are
+trusted and run like published HTML, with scripts, forms, popups, and external
+resources enabled and no iframe sandbox. Files Scope cannot
 display show name, size, and modified time. Text over 2 MiB shows its first
 2 MiB with a note. A file that changes reloads; a file that is deleted, or whose
 folder is renamed or deleted, says `This file was deleted.` Published text files

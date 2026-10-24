@@ -225,11 +225,11 @@ async function useFolderTab(page: Page, label: string, folder: string) {
   await preview("page.md").getByRole("heading", { name: "Release notes" }).waitFor();
   await item("image.png").click();
   await preview("image.png").getByRole("img", { name: "image.png" }).waitFor();
-  // A folder's HTML runs its scripts but cannot reach Scope; published HTML can.
+  // Folder HTML runs scripts with the same workspace access as published HTML.
   await item("page.html").click();
   await expect
     .poll(() => preview("page.html").frameLocator("iframe").locator("#reach").textContent())
-    .toBe("blocked blocked blocked");
+    .toBe("object object function");
   await item("archive.zip").click();
   await preview("archive.zip").getByText("Scope cannot preview this file.").waitFor();
   expect(await preview("archive.zip").locator("dd").first().textContent()).toBe("archive.zip");

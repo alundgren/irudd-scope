@@ -148,8 +148,8 @@ folder, never follows a final symlink, and skips FIFOs and other special files
 without waiting on them. Neither the path
 list nor search results are stored. Previews read byte ranges through the same
 source and show them with the published-file viewers in
-`renderer/file-views.tsx`, which take bytes, a kind, a media type, and a title;
-Folder previews ask them to isolate HTML.
+`renderer/file-views.tsx`, which take bytes, a kind, a media type, and a title.
+Folder HTML previews run with the same trust as published HTML.
 
 The tree keeps each expanded folder's listing in renderer memory and reads the
 parents of changed paths again, and the folders of dropped files as soon as the
@@ -790,11 +790,8 @@ HTML runs unchanged in an iframe with scripts, forms, popups, nested frames,
 and external resources enabled. Scope adds no iframe sandbox, content security
 policy, network filter, or permission denial. The document shares the workspace
 origin and can access its parent. Chromium's normal web rules, including CORS,
-still apply. HTML files previewed from a Folder tab were not published by an
-agent and may come from anywhere, so they run with the iframe sandbox
-`allow-scripts allow-forms allow-popups`. Without `allow-same-origin` the page
-has an opaque origin: its scripts, forms, and popups work, but it cannot reach
-the parent document or `window.scope`. Desktop main's `external-links.ts` redirects HTTP(S) document
+still apply. HTML files previewed from a Folder tab use the same unrestricted
+iframe rendering. Desktop main's `external-links.ts` redirects HTTP(S) document
 navigation and popups to the default browser, preserving the artifact in Scope.
 It leaves embedded frame loading, embedded form results, downloads, and in-page
 anchors in the document. PR inbox handlers run first to retain their validated
