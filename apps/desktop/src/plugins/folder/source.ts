@@ -1,4 +1,6 @@
+import { Readable } from "node:stream";
 import { buffer } from "node:stream/consumers";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { decode } from "@irudd-scope/protocol";
 import { readRemoteJson } from "@irudd-scope/protocol/remote";
 import {
@@ -9,23 +11,28 @@ import {
   FolderFeedEvent,
   FolderListing,
   FolderSearchEvent,
+  FolderWriteReceipt,
   folderQuery,
   type FolderIdentity,
   type FolderSearchRequest,
 } from "@irudd-scope/protocol/folder";
 import {
   FolderError,
+  createFolderDirectory,
   listFolder,
   readFolderFile,
   searchFolder,
   walkDirectories,
   watchFolder,
+  writeFolderFile,
 } from "@irudd-scope/folder";
 import { RemoteUnavailableError, type RemoteRequest, type Remotes } from "../../remotes.ts";
 
 /** Bytes read through IPC at once. Larger previews and saves stream instead. */
 export const MAX_FOLDER_IPC_READ = 8 * 1024 * 1024;
 const MAX_LISTING_BYTES = 32 * 1024 * 1024;
+/** The longest one save or dropped file may take. */
+const MAX_TRANSFER_MS = 12 * 60 * 60_000;
 
 export type FolderBytes = { size: number; modifiedAt: number; start: number; bytes: Uint8Array };
 /** One directory found by a walk: its direct children. */
@@ -60,6 +67,20 @@ export type FolderSource = {
     onEvent: (event: FolderSearchEvent) => void,
     signal: AbortSignal,
   ) => Promise<void>;
+  /** Streams a whole file, for saving it to this computer. */
+  download: (path: string, signal: AbortSignal) => Promise<{ size: number; stream: Readable }>;
+  /**
+   * Copies bytes into the folder through a staged file. Without `replace` an existing
+   * entry fails with `exists`. Missing folders on the way are created.
+   */
+  write: (
+    path: string,
+    body: Readable,
+    replace: boolean,
+    signal: AbortSignal,
+  ) => Promise<FolderWriteReceipt>;
+  /** Creates a folder; without `replace` an existing entry fails with `exists`. */
+  createDirectory: (path: string, replace: boolean, signal: AbortSignal) => Promise<void>;
 };
 
 /** The remote answered 404 without a folder code: its hub predates folder support. */
@@ -116,6 +137,13 @@ export function localFolderSource(root: string): FolderSource {
     async search(input, onEvent, signal) {
       for await (const event of searchFolder({ ...input, root }, signal)) onEvent(event);
     },
+    async download(path, signal) {
+      const file = await readFolderFile(root, path, 0);
+      signal.addEventListener("abort", () => file.stream.destroy(signal.reason), { once: true });
+      return { size: file.size, stream: file.stream };
+    },
+    write: (path, body, replace, signal) => writeFolderFile(root, path, body, { replace, signal }),
+    createDirectory: (path, replace) => createFolderDirectory(root, path, { exclusive: !replace }),
   };
 }
 
@@ -271,6 +299,50 @@ export function remoteFolderSource(remotes: Remotes, identity: FolderIdentity): 
       });
       if (!done && !signal.aborted)
         throw new RemoteUnavailableError("The remote stopped searching.");
+    },
+    async download(path, signal) {
+      const query = folderQuery({ root, path, start: 0 });
+      // Saves of large files can take hours; a silent response for 60 seconds fails it.
+      const response = await request(
+        `${FOLDER_FILE_ROUTES.read}?${query}`,
+        signal,
+        MAX_TRANSFER_MS,
+        60_000,
+      );
+      return {
+        size: Number(response.headers.get(FOLDER_FILE_SIZE_HEADER)),
+        stream: Readable.fromWeb(response.body! as NodeReadableStream),
+      };
+    },
+    async write(path, body, replace, signal) {
+      const query = folderQuery({ root, path, replace });
+      const response = await request(
+        `${FOLDER_FILE_ROUTES.write}?${query}`,
+        signal,
+        MAX_TRANSFER_MS,
+        60_000,
+        {
+          method: "PUT",
+          contentType: "application/octet-stream",
+          body,
+        },
+      );
+      return decode(FolderWriteReceipt, await readRemoteJson(response, 64 * 1024));
+    },
+    async createDirectory(path, replace, signal) {
+      const query = folderQuery({ root, path, replace, directory: true });
+      const response = await request(
+        `${FOLDER_FILE_ROUTES.write}?${query}`,
+        signal,
+        60_000,
+        20_000,
+        {
+          method: "PUT",
+          contentType: "application/octet-stream",
+          body: Readable.from([]),
+        },
+      );
+      await response.body?.cancel();
     },
   };
   return source;

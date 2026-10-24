@@ -353,6 +353,26 @@ display show name, size, and modified time. Text over 2 MiB shows its first
 folder is renamed or deleted, says `This file was deleted.` Published text files
 show line numbers too, and Select All copies the whole text.
 
+Dragging files from Finder or Explorer over the tree outlines the folder under
+the pointer. Over a file it copies into that file's folder, and over empty space
+it outlines the whole tree for the top folder. Dropping copies the files, and
+dropped folders with their contents except `.git`, onto the folder's machine; the originals
+stay put. The tree then selects the first new file. A name that already exists
+asks `NAME already exists in FOLDER` with Replace, Keep both, and Cancel, and so
+does a second dropped file or folder with the same name. Keep
+both adds a number, as in `notes 2.md`; Cancel stops the whole drop before
+anything is written. With several existing names the question offers Apply to
+all. A name that appears while files are copied asks again instead of
+overwriting. Right-clicking a file shows Save to computer…, Copy path, and, for
+folders on this computer, Reveal in Finder (Show in Explorer on Windows);
+folders offer the last two. Save opens the normal save dialog in Downloads with
+the file's name. Files Scope cannot preview also show a Save to computer…
+button. Saves and drops show a progress row with Cancel above the tree. A
+cancelled or failed transfer leaves no partial file, and a failure stays shown
+until dismissed. If a dropped file's path leads to a different file by the time Scope copies
+it, for example because it was replaced while Scope asked, it is not copied and
+the row says to drop it again. Edits to the same file are copied.
+
 ## Sketchpad
 
 The Sketchpad is one built-in Excalidraw canvas for the person's own ideas.

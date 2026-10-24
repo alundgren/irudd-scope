@@ -42,10 +42,14 @@ export type ArtifactLibrarySnapshot = {
 export type ArtifactContent = { artifact: Artifact; bytes: Uint8Array };
 import type { TabEventEnvelope } from "./plugins/events.ts";
 import type {
+  FolderDropChoice,
+  FolderDropPlan,
+  FolderDropResult,
   FolderFilterResult,
   FolderListResult,
   FolderSearchResult,
   FolderTabOpened,
+  FolderTransfer,
   FolderViewEvent,
 } from "./plugins/folder/contract.ts";
 
@@ -86,6 +90,27 @@ export type ScopeBridge = {
   copyFolderPath: (tabId: string) => Promise<void>;
   onFolderEvent: (listener: (event: FolderViewEvent) => void) => () => void;
   onFolderTabOpened: (listener: (opened: FolderTabOpened) => void) => () => void;
+  /**
+   * Checks files dropped on a Folder tab. Only the preload reads their paths on this
+   * computer, so the page can pass dropped File objects but never a path of its choice.
+   */
+  prepareFolderDrop: (input: {
+    tabId: string;
+    target: string;
+    files: readonly File[];
+  }) => Promise<FolderDropPlan>;
+  startFolderDrop: (input: {
+    planId: string;
+    /** By clash `id`. */
+    choices: Record<string, FolderDropChoice>;
+  }) => Promise<FolderDropResult>;
+  discardFolderDrop: (planId: string) => Promise<void>;
+  /** Asks where to save a folder file with the native dialog; false when cancelled. */
+  saveFolderFile: (input: { tabId: string; path: string }) => Promise<boolean>;
+  cancelFolderTransfer: (id: string) => Promise<void>;
+  /** Shows the native menu for a file or folder in a Folder tab. */
+  showFolderFileMenu: (input: { tabId: string; path: string; directory: boolean }) => Promise<void>;
+  onFolderTransfer: (listener: (transfer: FolderTransfer) => void) => () => void;
   promptCommand: (input: PromptDesktopCommand) => Promise<PromptResult<PromptReply>>;
   promptImage: (input: {
     itemId: string;

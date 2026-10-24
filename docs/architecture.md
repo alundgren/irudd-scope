@@ -142,6 +142,56 @@ a folder swapped for a link and back between two checks could pass. Change feeds
 their own per-remote budget of 64, separate from the 32 streamed listings, reads, and
 writes; desktop main queues listings and reads 8 at a time per machine.
 
+Dropping files on the tree copies them in; it is the only time Scope writes to a
+shared folder. The preload turns dropped `File` objects into paths with
+`webUtils.getPathForFile` and sends them straight to main, so a page can pass
+dropped files but never a path of its choice. Main lists the dropped files and the
+files and empty folders inside dropped folders (skipping links, special files, and
+`.git`), records each file's device and inode, reads each target folder to find
+names that exist, and returns a plan. Each item has its own ID, so two dropped files
+with the same name are asked about separately. Nothing is written until the
+renderer answers Replace, Keep both, or Cancel for each existing name. Main then
+streams one file at a time to the folder source, reading only a file whose path still
+leads to the recorded device and inode (edits to that file are copied): locally to `writeFolderFile`, remotely as the raw body of
+`PUT /v1/relay/folders/write`, sent with `node:http` because fetch gives up on a
+response that waits more than 300 seconds for a long upload.
+
+`writeFolderFile` opens each folder on the way as a child of the one before,
+without following links, and creates a missing one only inside an opened folder
+that is checked to be inside the root before and after. The bytes go to a staged
+`.scope-partial-*` file at the top of the folder (in the destination itself when
+that is on another file system). The commit checks that the copy was not
+cancelled and that the destination is still inside the root, then renames the
+staged file into the opened destination, or without Replace hard-links it, which
+fails if the name appeared during the copy; the renderer then asks again. A file
+system without hard links fails clearly instead of checking and renaming. After the
+commit the destination is checked again, and a file committed into a folder that
+moved out meanwhile is removed. Every step names the opened folder itself rather
+than its path. On Linux the calling process does this through `/proc/self/fd/N`.
+Node has no directory-relative calls on macOS and Windows, and a process's working
+directory is shared by all its threads, including file work other code already
+queued, so Electron main and the hub never change theirs. There writes run in the
+folder writer process (`folder-writer.mjs` beside each app's bundle, started with
+`fork` on first use, idle-unreferenced, restarted after an exit). The app streams
+the bytes to it over IPC, at most 16 chunks ahead; it runs each step synchronously
+with its own working directory set to the folder and checked to be the opened one,
+and uses only absolute paths and descriptors otherwise. Cancelling, or the app
+disconnecting, aborts its writes and removes what they staged. "Inside the root"
+means that each parent reached through `..` is the folder opened on the way down.
+Windows resolves relative names from the directory's path, so there only those
+checks keep writes inside. A cancelled,
+failed, or disconnected copy, including a hub request that closes after its body
+arrived, removes the staged file and commits nothing. Listings, walks, search, and
+change feeds hide staged names and `.git` in any letter case. When a drop finishes,
+main sends one `dropped` line listing the written paths to every `folder watch` on
+the tab.
+
+Save to computer opens the native save dialog in Downloads, streams the file from
+the folder source into a `.scope-partial-*` file beside the chosen name, and
+renames it only when every byte arrived. Remote saves read
+`GET /v1/relay/folders/read` without an end. Saves and drops report progress to
+the tab, can be cancelled, and stop when the tab closes.
+
 ## Tab transfer
 
 `apps/desktop/src/transfer/` owns desktop pairing, temporary invitations,

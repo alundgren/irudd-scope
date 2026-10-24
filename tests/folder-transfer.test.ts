@@ -1,0 +1,577 @@
+import { expect, test } from "vite-plus/test";
+import { spawn } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import { request as httpRequest } from "node:http";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { hostname } from "node:os";
+import { basename, join } from "node:path";
+import type { ElectronApplication, Page } from "@playwright/test";
+import { desktopFixture } from "./desktop-fixture.ts";
+import { cliMain, spawnedHub } from "./hub-fixture.ts";
+
+const MARKER = "DROP-MARKER-7c3a";
+const hash = async (path: string) =>
+  createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
+
+/** Runs `folder watch` and collects its lines until it is stopped. */
+async function startWatch(env: NodeJS.ProcessEnv, folder: string) {
+  const child = spawn(process.execPath, [cliMain, "folder", "watch", folder], {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  child.stdout.on("data", (data: Buffer) => (stdout += data.toString()));
+  await new Promise<void>((done, fail) => {
+    let stderr = "";
+    child.stderr.on("data", (data: Buffer) => {
+      stderr += data.toString();
+      if (stderr.includes("Watching the Folder tab")) done();
+    });
+    child.once("exit", () => fail(new Error(`folder watch exited early: ${stderr}`)));
+  });
+  return {
+    dropped: () =>
+      stdout
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { type: string; paths?: string[] })
+        .filter((event) => event.type === "dropped"),
+    stop: () => child.kill(),
+  };
+}
+
+/**
+ * Drops files or folders from this computer on a tree row, or on the tree's empty space.
+ * They come from a file input set through the DevTools protocol, so they carry real paths
+ * like items dragged from Finder, folders included.
+ */
+async function dropFiles(page: Page, tree: string, row: string | null, paths: string[]) {
+  const input = page.locator("#scope-test-drop");
+  if (!(await input.count()))
+    await page.evaluate(() => {
+      const element = document.createElement("input");
+      element.type = "file";
+      element.multiple = true;
+      element.id = "scope-test-drop";
+      element.hidden = true;
+      document.body.append(element);
+    });
+  const cdp = await page.context().newCDPSession(page);
+  const { root } = await cdp.send("DOM.getDocument");
+  const { nodeId } = await cdp.send("DOM.querySelector", {
+    nodeId: root.nodeId,
+    selector: "#scope-test-drop",
+  });
+  await cdp.send("DOM.setFileInputFiles", { nodeId, files: paths });
+  await cdp.detach();
+  await page.evaluate(
+    ({ tree, row }) => {
+      const files = (document.querySelector("#scope-test-drop") as HTMLInputElement).files!;
+      const transfer = new DataTransfer();
+      for (const file of files) transfer.items.add(file);
+      const region = document.querySelector(`[aria-label="${tree}"]`)!;
+      const target = row
+        ? region.querySelector(`[role="treeitem"][aria-label="${row}"]`)!
+        : region.querySelector('[role="tree"] > div')!;
+      for (const type of ["dragenter", "dragover", "drop"])
+        target.dispatchEvent(
+          new DragEvent(type, { dataTransfer: transfer, bubbles: true, cancelable: true }),
+        );
+    },
+    { tree, row },
+  );
+}
+
+/** Lists every file below a folder, including staged copies that were left behind. */
+const everything = async (folder: string) =>
+  (await readdir(folder, { recursive: true })).map((name) => name.split("\\").join("/")).sort();
+
+async function makeFolder(folder: string) {
+  await mkdir(join(folder, "docs"), { recursive: true });
+  await writeFile(join(folder, "docs", "notes.md"), "# Original notes\n");
+  await writeFile(join(folder, "data.bin"), randomBytes(3 * 1024 * 1024));
+  await writeFile(join(folder, "README.md"), "# App\n");
+}
+
+/** Drops, clashes, the agent's watch, saves, filter, search, and preview in one Folder tab. */
+async function transferJourney(
+  application: ElectronApplication,
+  page: Page,
+  options: { label: string; folder: string; desk: string; env: NodeJS.ProcessEnv },
+) {
+  const { label, folder, desk } = options;
+  const region = `${label.split(" · ").at(-1)} folder`;
+  await page.getByRole("tab", { name: label, exact: true }).click();
+  const tab = page.getByRole("region", { name: region });
+  const tree = tab.getByRole("tree", { name: "Folder contents" });
+  const item = (name: string) => tree.getByRole("treeitem", { name, exact: true });
+  if ((await item("docs").getAttribute("aria-expanded")) === "false") await item("docs").click();
+  await item("notes.md").waitFor();
+  const watch = await startWatch(options.env, folder);
+  const dialog = page.getByRole("dialog");
+  try {
+    // Two files dropped on docs/: one is new, one has a name that already exists.
+    await writeFile(join(desk, "spec.pdf"), randomBytes(200_000));
+    await writeFile(join(desk, "notes.md"), `# Dropped notes\n\n${MARKER}\n`);
+    await dropFiles(page, region, "docs", [join(desk, "spec.pdf"), join(desk, "notes.md")]);
+    await dialog.getByText("notes.md already exists in docs").waitFor();
+    await dialog.getByRole("button", { name: "Keep both" }).click();
+    await expect.poll(() => watch.dropped().length).toBe(1);
+    expect(watch.dropped()[0]!.paths).toEqual(["docs/spec.pdf", "docs/notes 2.md"]);
+    expect(await hash(join(folder, "docs", "spec.pdf"))).toBe(await hash(join(desk, "spec.pdf")));
+    expect(await hash(join(folder, "docs", "notes 2.md"))).toBe(await hash(join(desk, "notes.md")));
+    expect(await readFile(join(folder, "docs", "notes.md"), "utf8")).toBe("# Original notes\n");
+    expect(await readFile(join(desk, "notes.md"), "utf8")).toContain(MARKER);
+    // The tree shows the copies and selects the first one.
+    await expect.poll(() => item("spec.pdf").getAttribute("aria-selected")).toBe("true");
+    await item("notes 2.md").waitFor();
+
+    // Cancel writes nothing; Replace writes the dropped bytes only after it is chosen.
+    await writeFile(join(desk, "notes.md"), "# Replacement\n");
+    await dropFiles(page, region, "notes.md", [join(desk, "notes.md")]);
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await dialog.waitFor({ state: "hidden" });
+    expect(await readFile(join(folder, "docs", "notes.md"), "utf8")).toBe("# Original notes\n");
+    await dropFiles(page, region, "docs", [join(desk, "notes.md")]);
+    await dialog.getByRole("button", { name: "Replace" }).click();
+    await expect.poll(() => watch.dropped().length).toBe(2);
+    expect(watch.dropped()[1]!.paths).toEqual(["docs/notes.md"]);
+    expect(await readFile(join(folder, "docs", "notes.md"), "utf8")).toBe("# Replacement\n");
+
+    // Several clashes ask once with Apply to all; empty space copies into the folder itself.
+    await writeFile(join(desk, "README.md"), "# Dropped readme\n");
+    await writeFile(join(desk, "new.txt"), "new\n");
+    await writeFile(join(desk, "data.bin"), randomBytes(1000));
+    await dropFiles(page, region, null, [
+      join(desk, "README.md"),
+      join(desk, "new.txt"),
+      join(desk, "data.bin"),
+    ]);
+    await expect.poll(() => tab.locator(".folder-tree[data-drop-root]").count()).toBe(0);
+    await dialog.getByText("README.md already exists in this folder").waitFor();
+    await dialog.getByLabel("Apply to all 2 files with existing names").check();
+    await dialog.getByRole("button", { name: "Keep both" }).click();
+    await expect.poll(() => watch.dropped().length).toBe(3);
+    expect(watch.dropped()[2]!.paths).toEqual(["README 2.md", "new.txt", "data 2.bin"]);
+    expect(await readFile(join(folder, "README.md"), "utf8")).toBe("# App\n");
+    expect(await everything(folder)).not.toContainEqual(expect.stringMatching(/scope-partial/));
+
+    // A dropped file is found by the filter and content search, previews, and saves out.
+    await tab.getByLabel("Filter by file name").fill("notes 2");
+    await expect.poll(() => tree.getByRole("treeitem").count()).toBe(2);
+    await tab.getByLabel("Filter by file name").fill("");
+    await tab.getByRole("button", { name: "Search", exact: true }).click();
+    await tab.getByLabel("Search file contents").fill(MARKER);
+    const results = tab.getByRole("list", { name: "Search results" });
+    await expect
+      .poll(() => results.locator(".folder-search-place").allTextContents())
+      .toEqual(["docs/notes 2.md:3"]);
+    await tab.getByRole("button", { name: "Files", exact: true }).click();
+    await item("notes 2.md").click();
+    await tab
+      .getByRole("region", { name: "Preview of notes 2.md" })
+      .getByRole("heading", { name: "Dropped notes" })
+      .waitFor();
+    await saveOut(application, page, tab, item, folder, desk);
+    // Each folder gets its own dropped files, because the last case replaces one with a link.
+    const own = join(desk, basename(folder));
+    await mkdir(own, { recursive: true });
+    await dropEdges(page, tab, item, folder, own);
+  } finally {
+    watch.stop();
+  }
+}
+
+/**
+ * Saves the dropped file back out through the right-click menu with its exact bytes, copies
+ * its path, saves a binary file from its preview, and checks that a cancelled save writes
+ * nothing.
+ */
+async function saveOut(
+  application: ElectronApplication,
+  page: Page,
+  tab: ReturnType<Page["getByRole"]>,
+  item: (name: string) => ReturnType<Page["getByRole"]>,
+  folder: string,
+  desk: string,
+) {
+  await mkdir(join(desk, "saved"), { recursive: true });
+  const exists = (path: string) =>
+    readFile(path).then(
+      () => true,
+      () => false,
+    );
+  const saveTo = (filePath: string) =>
+    application.evaluate(({ dialog }, filePath) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath });
+    }, filePath);
+  // The native menu cannot be clicked from a test, so its items are captured and chosen.
+  await application.evaluate(({ Menu }) => {
+    Menu.buildFromTemplate = ((template: { label?: string; click?: () => void }[]) => {
+      Object.assign(globalThis, { folderMenu: template });
+      return { popup() {} };
+    }) as unknown as typeof Menu.buildFromTemplate;
+  });
+  const choose = async (row: string, label: string) => {
+    await item(row).click({ button: "right" });
+    await application.evaluate((_electron, label) => {
+      const menu = (globalThis as { folderMenu?: { label?: string; click?: () => void }[] })
+        .folderMenu!;
+      menu.find((entry) => entry.label === label)!.click!();
+    }, label);
+  };
+  const roundTrip = join(desk, "saved", `${Date.now()}-notes.md`);
+  await saveTo(roundTrip);
+  await choose("notes 2.md", "Save to computer…");
+  await expect.poll(() => exists(roundTrip)).toBe(true);
+  expect(await readFile(roundTrip, "utf8")).toBe(`# Dropped notes\n\n${MARKER}\n`);
+  expect(await hash(roundTrip)).toBe(await hash(join(folder, "docs", "notes 2.md")));
+  await choose("notes 2.md", "Copy path");
+  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toMatch(
+    /[\\/]docs[\\/]notes 2\.md$/,
+  );
+  await page.keyboard.press("Escape");
+
+  const saved = join(desk, "saved", `${Date.now()}.bin`);
+  await saveTo(saved);
+  await item("data.bin").click();
+  const preview = tab.getByRole("region", { name: "Preview of data.bin" });
+  await preview.getByRole("button", { name: "Save to computer…" }).click();
+  await expect.poll(() => exists(saved)).toBe(true);
+  expect(await hash(saved)).toBe(await hash(join(folder, "data.bin")));
+  const before = await everything(join(desk, "saved"));
+  await application.evaluate(({ dialog }) => {
+    dialog.showSaveDialog = async () => ({ canceled: true, filePath: "" });
+  });
+  await preview.getByRole("button", { name: "Save to computer…" }).click();
+  await new Promise((done) => setTimeout(done, 500));
+  expect(await everything(join(desk, "saved"))).toEqual(before);
+}
+
+/**
+ * A dropped folder is copied with its contents but without its `.git`; two dropped files
+ * with the same name both survive with Keep both; Keep both on an existing empty folder
+ * makes a new one; and a dropped file replaced by a link while Scope asks is not read.
+ */
+async function dropEdges(
+  page: Page,
+  tab: ReturnType<Page["getByRole"]>,
+  item: (name: string) => ReturnType<Page["getByRole"]>,
+  folder: string,
+  desk: string,
+) {
+  const region = (await tab.getAttribute("aria-label"))!;
+  const dialog = page.getByRole("dialog");
+  const pack = join(desk, "pack");
+  await mkdir(join(pack, "sub"), { recursive: true });
+  await mkdir(join(pack, ".git"), { recursive: true });
+  await mkdir(join(pack, "empty"), { recursive: true });
+  await writeFile(join(pack, "a.txt"), "a\n");
+  await writeFile(join(pack, "sub", "b.txt"), "b\n");
+  await writeFile(join(pack, ".git", "config"), "history\n");
+  await dropFiles(page, region, null, [pack]);
+  await expect
+    .poll(() => everything(join(folder, "pack")).catch(() => []))
+    .toEqual(["a.txt", "empty", "sub", "sub/b.txt"]);
+  await item("pack").waitFor();
+
+  await mkdir(join(desk, "one"), { recursive: true });
+  await mkdir(join(desk, "two"), { recursive: true });
+  await writeFile(join(desk, "one", "same.txt"), "first\n");
+  await writeFile(join(desk, "two", "same.txt"), "second\n");
+  await dropFiles(page, region, null, [
+    join(desk, "one", "same.txt"),
+    join(desk, "two", "same.txt"),
+  ]);
+  await dialog.getByText("same.txt already exists in this folder").waitFor();
+  await dialog.getByRole("button", { name: "Keep both" }).click();
+  await expect
+    .poll(() => readFile(join(folder, "same 2.txt"), "utf8").catch(() => ""))
+    .toBe("second\n");
+  expect(await readFile(join(folder, "same.txt"), "utf8")).toBe("first\n");
+
+  await mkdir(join(desk, "empty"), { recursive: true });
+  await mkdir(join(folder, "empty"), { recursive: true });
+  await dropFiles(page, region, null, [join(desk, "empty")]);
+  await dialog.getByText("empty already exists in this folder").waitFor();
+  await dialog.getByRole("button", { name: "Keep both" }).click();
+  await expect.poll(() => readdir(join(folder, "empty 2")).catch(() => undefined)).toEqual([]);
+
+  await writeFile(join(desk, "secret.txt"), "NOT-DROPPED\n");
+  await writeFile(join(desk, "same.txt"), "chosen\n");
+  await dropFiles(page, region, null, [join(desk, "same.txt")]);
+  await dialog.getByText("same.txt already exists in this folder").waitFor();
+  await rm(join(desk, "same.txt"));
+  await symlink(join(desk, "secret.txt"), join(desk, "same.txt"));
+  await dialog.getByRole("button", { name: "Replace" }).click();
+  await tab.getByText("same.txt changed after it was dropped. Drop it again.").waitFor();
+  expect(await readFile(join(folder, "same.txt"), "utf8")).toBe("first\n");
+  await tab.getByRole("button", { name: "Dismiss" }).click();
+}
+
+/** A slow PUT to a hub's write route, so the test can change the folder mid-copy. */
+function slowWrite(endpoint: string, headers: Record<string, string>, query: URLSearchParams) {
+  const outgoing = httpRequest(`${endpoint}/v1/relay/folders/write?${query}`, {
+    method: "PUT",
+    headers: { ...headers, "Content-Type": "application/octet-stream" },
+  });
+  const answer = new Promise<{ status: number; body: string }>((done, fail) => {
+    outgoing.on("response", (response) => {
+      let body = "";
+      response.on("data", (chunk: Buffer) => (body += chunk.toString()));
+      response.on("end", () => done({ status: response.statusCode!, body }));
+    });
+    outgoing.on("error", fail);
+  });
+  outgoing.write(randomBytes(256 * 1024));
+  return {
+    answer,
+    finish: () => outgoing.end(randomBytes(256 * 1024)),
+    abort: () => outgoing.destroy(),
+  };
+}
+
+/**
+ * A hub's write route stays inside the folder when docs/ is swapped for a link mid-copy,
+ * refuses to overwrite a name created mid-copy, and leaves no staged file after a cancel.
+ */
+async function writeRaces(base: string) {
+  const hub = await spawnedHub(join(base, "races-hub"));
+  try {
+    const paired = (await (
+      await fetch(`${hub.endpoint}/v1/pair`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${new URL(hub.pairUrl).hash.slice(1)}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name: "test desktop" }),
+      })
+    ).json()) as { token: string };
+    const desktop = { Authorization: `Bearer ${paired.token}` };
+    const folder = join(base, "races");
+    const outside = join(base, "races-outside");
+    await mkdir(join(folder, "docs"), { recursive: true });
+    await mkdir(join(folder, ".git"));
+    await mkdir(outside);
+    await symlink(join(folder, ".git"), join(folder, "gitlink"));
+    const root = await realpath(folder);
+    const query = (path: string) => new URLSearchParams({ root, path, replace: "0" });
+
+    const swapped = slowWrite(hub.endpoint, desktop, query("docs/race.bin"));
+    await new Promise((done) => setTimeout(done, 300));
+    await rename(join(folder, "docs"), join(folder, "docs-moved"));
+    await symlink(outside, join(folder, "docs"));
+    swapped.finish();
+    // The copy is refused, or lands in the moved folder, which is still inside; never outside.
+    const answer = await swapped.answer;
+    expect(await readdir(outside)).toEqual([]);
+    expect(await readdir(join(folder, "docs-moved"))).toEqual(
+      answer.status === 200 ? ["race.bin"] : [],
+    );
+    expect([200, 403]).toContain(answer.status);
+
+    await rm(join(folder, "docs"));
+    await rename(join(folder, "docs-moved"), join(folder, "docs"));
+    const late = slowWrite(hub.endpoint, desktop, query("docs/late.txt"));
+    await new Promise((done) => setTimeout(done, 300));
+    await writeFile(join(folder, "docs", "late.txt"), "theirs");
+    late.finish();
+    const clash = await late.answer;
+    expect([clash.status, JSON.parse(clash.body).code]).toEqual([409, "exists"]);
+    expect(await readFile(join(folder, "docs", "late.txt"), "utf8")).toBe("theirs");
+
+    const cancelled = slowWrite(hub.endpoint, desktop, query("docs/cancelled.bin"));
+    await new Promise((done) => setTimeout(done, 300));
+    cancelled.abort();
+    await cancelled.answer.catch(() => {});
+    for (const path of ["gitlink/x.txt", ".GIT/x.txt"]) {
+      const refused = slowWrite(hub.endpoint, desktop, query(path));
+      refused.finish();
+      expect((await refused.answer).status).toBeGreaterThanOrEqual(403);
+    }
+    // While docs/ keeps being swapped for a link to outside, writes and new folders stay in.
+    let swapping = true;
+    const swapper = (async () => {
+      while (swapping) {
+        await rename(join(folder, "docs"), join(folder, "docs-real")).catch(() => {});
+        await symlink(outside, join(folder, "docs")).catch(() => {});
+        await new Promise((done) => setTimeout(done, 1));
+        await rm(join(folder, "docs")).catch(() => {});
+        await rename(join(folder, "docs-real"), join(folder, "docs")).catch(() => {});
+      }
+    })();
+    for (let wave = 0; wave < 15; wave++)
+      await Promise.all(
+        Array.from({ length: 6 }, async (_, index) => {
+          const write = slowWrite(hub.endpoint, desktop, query(`docs/w-${wave}-${index}.txt`));
+          write.finish();
+          const folders = new URLSearchParams({
+            root,
+            path: `docs/d-${wave}-${index}/a/b`,
+            replace: "0",
+            directory: "1",
+          });
+          const created = slowWrite(hub.endpoint, desktop, folders);
+          created.finish();
+          await Promise.all([write.answer, created.answer]);
+        }),
+      );
+    swapping = false;
+    await swapper;
+    expect(await readdir(outside)).toEqual([]);
+    await rm(join(folder, "docs"), { recursive: true, force: true });
+    await rm(join(folder, "docs-real"), { recursive: true, force: true });
+
+    // Staged copies and `.git` in any letter case are never listed.
+    await mkdir(join(folder, "cases", ".GIT"), { recursive: true });
+    await writeFile(join(folder, "cases", ".scope-partial-left"), "staged");
+    await writeFile(join(folder, "cases", "kept.txt"), "kept");
+    const listing = await fetch(
+      `${hub.endpoint}/v1/relay/folders/list?${new URLSearchParams({ root, path: "cases", showIgnored: "1" })}`,
+      { headers: desktop },
+    );
+    expect(
+      ((await listing.json()) as { entries: { name: string }[] }).entries.map(
+        (entry) => entry.name,
+      ),
+    ).toEqual(["kept.txt"]);
+    await rm(join(folder, "cases"), { recursive: true });
+
+    // The publishing token cannot write files.
+    const agent = slowWrite(hub.endpoint, { Authorization: `Bearer ${hub.token}` }, query("x"));
+    agent.finish();
+    expect((await agent.answer).status).toBe(401);
+    await expect.poll(() => everything(folder)).toEqual([".git", "gitlink"]);
+  } finally {
+    await hub.stop();
+  }
+}
+
+test(
+  "files dropped on a Folder tab are copied in without overwriting by surprise, announced to the agent, and saved back out, locally and through a hub",
+  {
+    tags: ["folders-stay-inside", "no-lost-updates", "bad-requests-change-nothing"],
+    timeout: 240_000,
+  },
+  async () => {
+    const f = await desktopFixture({ hideInitialPrompts: true });
+    const local = join(f.directory, "work", "app");
+    const remote = join(f.directory, "work", "remote-app");
+    const desk = join(f.directory, "desk");
+    await mkdir(desk, { recursive: true });
+    await makeFolder(local);
+    await makeFolder(remote);
+    const localEnv = {
+      ...process.env,
+      SCOPE_CONNECTION_FILE: f.connectionFile,
+      SCOPE_ENDPOINT: undefined,
+      SCOPE_TOKEN: undefined,
+      SCOPE_TOKEN_FILE: undefined,
+    };
+    await writeRaces(f.directory);
+    const devbox = await spawnedHub(join(f.directory, "devbox"));
+    const application = await f.launch();
+    try {
+      const page = await application.firstWindow();
+      page.setDefaultTimeout(15_000);
+      // The agent selects a file it just wrote; the tab opens with it selected and previewed.
+      await writeFile(join(local, "docs", "plan.md"), "# Agent plan\n");
+      await f.cli("folder", "select", local, "docs/plan.md", "--title", "App");
+      await page.getByRole("tab", { name: "App", exact: true }).click();
+      await page
+        .getByRole("region", { name: "Preview of plan.md" })
+        .getByRole("heading", { name: "Agent plan" })
+        .waitFor();
+      // Electron main's working directory stays put while drops are written: relative-path
+      // file work queued by any other code keeps resolving where it did.
+      await application.evaluate(() => {
+        const fs = process.getBuiltinModule("node:fs");
+        const home = fs.statSync(".").ino;
+        const seen = { reads: 0, moved: 0, chdir: 0 };
+        const chdir = process.chdir.bind(process);
+        process.chdir = (directory: string) => {
+          seen.chdir++;
+          chdir(directory);
+        };
+        const timer = setInterval(() => {
+          for (let index = 0; index < 32; index++)
+            void fs.promises.stat(".").then((info) => {
+              seen.reads++;
+              if (info.ino !== home) seen.moved++;
+            });
+        }, 1);
+        Object.assign(globalThis, { workingDirectory: { seen, stop: () => clearInterval(timer) } });
+      });
+      await transferJourney(application, page, {
+        label: "App",
+        folder: local,
+        desk,
+        env: localEnv,
+      });
+      const seen = await application.evaluate(() => {
+        const watch = (
+          globalThis as unknown as {
+            workingDirectory: {
+              seen: { reads: number; moved: number; chdir: number };
+              stop(): void;
+            };
+          }
+        ).workingDirectory;
+        watch.stop();
+        return watch.seen;
+      });
+      expect(seen.reads).toBeGreaterThan(1000);
+      expect([seen.moved, seen.chdir]).toEqual([0, 0]);
+
+      await page.evaluate((url) => window.scope.pairRemote(url), devbox.pairUrl);
+      await expect
+        .poll(async () => (await page.evaluate(() => window.scope.remotes()))[0]?.connection)
+        .toBe("connected");
+      await writeFile(join(remote, "docs", "plan.md"), "# Remote plan\n");
+      await devbox.cli("folder", "select", remote, "docs/plan.md", "--title", "Remote app");
+      await page.getByRole("tab", { name: `${hostname()} · Remote app`, exact: true }).click();
+      await page
+        .getByRole("region", { name: "Preview of plan.md" })
+        .getByRole("heading", { name: "Remote plan" })
+        .waitFor();
+      await transferJourney(application, page, {
+        label: `${hostname()} · Remote app`,
+        folder: remote,
+        desk,
+        env: devbox.env,
+      });
+    } finally {
+      await application.close();
+      await devbox.stop();
+    }
+
+    // Dropped and saved bytes are never stored by Scope.
+    const databases = [
+      ...[f.settingsDirectory, join(f.settingsDirectory, "artifacts")].map((directory) =>
+        readdir(directory).then((names) => names.map((name) => join(directory, name))),
+      ),
+      readdir(join(f.directory, "devbox", "data")).then((names) =>
+        names.map((name) => join(f.directory, "devbox", "data", name)),
+      ),
+    ];
+    for (const path of (await Promise.all(databases)).flat())
+      if (/\.db(-wal)?$/.test(path)) {
+        const bytes = await readFile(path);
+        for (const text of [MARKER, "new.txt"])
+          expect(bytes.includes(text), `${path} contains ${text}`).toBe(false);
+      }
+    await rm(f.directory, { recursive: true, force: true });
+  },
+);

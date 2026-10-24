@@ -19,6 +19,7 @@ import {
 } from "@irudd-scope/protocol/folder";
 import {
   FolderError,
+  createFolderDirectory,
   listFolder,
   readFolderFile,
   searchFolder,
@@ -167,9 +168,19 @@ export class FolderFileRoutes {
       root: "string",
       path: "string",
       replace: "boolean",
+      directory: "boolean",
     });
+    if (input.directory) {
+      await createFolderDirectory(input.root, input.path, { exclusive: !input.replace });
+      send(response, 200, { path: input.path, size: 0 });
+      return;
+    }
+    // A desktop that cancels or disconnects before the answer is sent, even after the whole
+    // body arrived, cancels the write: nothing is committed and the staged file is removed.
     const controller = new AbortController();
-    request.on("aborted", () => controller.abort());
+    response.on("close", () => {
+      if (!response.writableEnded) controller.abort();
+    });
     send(
       response,
       200,

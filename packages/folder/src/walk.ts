@@ -1,5 +1,6 @@
 import { readDirectory } from "./listing.ts";
-import { GIT_DIRECTORY, IgnoreRules } from "./ignore-rules.ts";
+import { IgnoreRules } from "./ignore-rules.ts";
+import { hiddenName } from "./paths.ts";
 
 export type WalkedDirectory = {
   path: string;
@@ -41,7 +42,7 @@ export async function* directories(
       special: new Set(),
     };
     for (const entry of entries) {
-      if (entry.name === GIT_DIRECTORY) continue;
+      if (hiddenName(entry.name)) continue;
       const child = path ? `${path}/${entry.name}` : entry.name;
       if (ignoredAbove || rules.ignores(child, entry.isDirectory())) {
         if (!options.includeIgnored) continue;

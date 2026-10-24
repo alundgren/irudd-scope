@@ -6,8 +6,8 @@ import {
   type FolderChange,
   type FolderFeedEvent,
 } from "@irudd-scope/protocol/folder";
-import { GIT_DIRECTORY, IgnoreFilter } from "./ignore-rules.ts";
-import { checkRoot } from "./paths.ts";
+import { IgnoreFilter } from "./ignore-rules.ts";
+import { checkRoot, gitName, hiddenName } from "./paths.ts";
 import { walkDirectories } from "./walk.ts";
 
 export type FolderWatch = { close: () => void };
@@ -203,10 +203,12 @@ class FolderWatcher {
   }
 
   private record(path: string, type: "rename" | "change") {
-    if (path === GIT_DIRECTORY || path.startsWith(`${GIT_DIRECTORY}/`)) {
-      if (path === `${GIT_DIRECTORY}/info/exclude`) this.filter.clear();
+    const parts = path.split("/");
+    if (gitName(parts[0]!)) {
+      if (parts.slice(1).join("/") === "info/exclude") this.filter.clear();
       return;
     }
+    if (parts.some(hiddenName)) return;
     if (path.endsWith(".gitignore")) this.filter.clear();
     if (this.pending.size >= MAX_CLASSIFIED) this.overflow = true;
     else this.pending.set(path, this.pending.get(path) === "rename" ? "rename" : type);

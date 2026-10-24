@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+} from "react";
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen, Link } from "lucide-react";
 import type { FolderEntry, FolderListing } from "@irudd-scope/protocol/folder";
 import type { FolderNameMatch } from "./contract.ts";
@@ -158,6 +165,14 @@ function rowLabel(row: FolderRow) {
   return row.entry.ignored ? `${row.entry.name}, ignored` : row.entry.name;
 }
 
+/** The folder a drop on this row copies into: the folder itself, or a file's folder. */
+function dropFolder(row: FolderRow | undefined) {
+  if (!row) return "";
+  if (row.placeholder) return row.entry.path.slice(0, -1);
+  return row.entry.kind === "directory" ? row.entry.path : parent(row.entry.path);
+}
+const carriesFiles = (event: DragEvent) => event.dataTransfer.types.includes("Files");
+
 export function FolderTree({
   tabId,
   rows,
@@ -165,6 +180,7 @@ export function FolderTree({
   onToggle,
   onSelect,
   onRetry,
+  onDropFiles,
 }: {
   tabId: string;
   rows: readonly FolderRow[];
@@ -172,7 +188,10 @@ export function FolderTree({
   onToggle: (path: string, open: boolean) => void;
   onSelect: (path: string) => void;
   onRetry: (directory: string) => void;
+  /** Files dropped from the computer onto a folder, or onto empty space for the top folder. */
+  onDropFiles: (folder: string, files: File[]) => void;
 }) {
+  const [dropTarget, setDropTarget] = useState<string | undefined>();
   const container = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ top: 0, height: 600 });
   const [focused, setFocused] = useState<string | null>(selected);
@@ -253,12 +272,36 @@ export function FolderTree({
     move();
   }
 
+  function rowAt(event: DragEvent) {
+    const element = (event.target as Element).closest?.("[data-row-index]");
+    return element ? rows[Number(element.getAttribute("data-row-index"))] : undefined;
+  }
+  function dragOver(event: DragEvent) {
+    if (!carriesFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setDropTarget(dropFolder(rowAt(event)));
+  }
+
   return (
     <div
       ref={container}
       className="folder-tree"
       role="tree"
       aria-label="Folder contents"
+      data-drop-root={dropTarget === "" || undefined}
+      onDragEnter={dragOver}
+      onDragOver={dragOver}
+      onDragLeave={(event) => {
+        if (!container.current?.contains(event.relatedTarget as Node | null))
+          setDropTarget(undefined);
+      }}
+      onDrop={(event) => {
+        if (!carriesFiles(event)) return;
+        event.preventDefault();
+        setDropTarget(undefined);
+        onDropFiles(dropFolder(rowAt(event)), [...event.dataTransfer.files]);
+      }}
       tabIndex={0}
       aria-activedescendant={rows[focusIndex] ? rowId(rows[focusIndex]!.entry.path) : undefined}
       onKeyDown={keyboard}
@@ -288,6 +331,10 @@ export function FolderTree({
                   : entry.path
               }
               className="folder-row"
+              data-row-index={index}
+              data-drop-target={
+                (dropTarget && !row.placeholder && entry.path === dropTarget) || undefined
+              }
               data-focused={index === focusIndex || undefined}
               data-ignored={entry.ignored || undefined}
               data-deleted={row.deleted || undefined}
@@ -297,6 +344,16 @@ export function FolderTree({
                 paddingLeft: `calc(${row.depth - 1} * var(--folder-indent) + var(--scope-space-2))`,
               }}
               onClick={() => activate(row)}
+              onContextMenu={(event) => {
+                if (row.placeholder || row.deleted || entry.kind === "symlink") return;
+                event.preventDefault();
+                setFocused(entry.path);
+                void window.scope.showFolderFileMenu({
+                  tabId,
+                  path: entry.path,
+                  directory: entry.kind === "directory",
+                });
+              }}
             >
               <span className="folder-row-chevron" aria-hidden="true">
                 {expandable && (row.expanded ? <ChevronDown /> : <ChevronRight />)}

@@ -42,7 +42,8 @@ type Session = {
 /** Options for a streamed relay request. Deadlines are per operation, not global. */
 export type RemoteRequest = {
   method?: "GET" | "POST" | "PUT";
-  body?: BodyInit;
+  /** A Node stream is an upload, such as a dropped file; see `upload`. */
+  body?: BodyInit | Readable;
   contentType?: string;
   signal?: AbortSignal;
   /** Total time allowed for the request, including the response body. */
@@ -116,6 +117,22 @@ export class Remotes {
     };
     signal.addEventListener("abort", release, { once: true });
     try {
+      if (options.body instanceof Readable) {
+        const response = await upload(
+          `${session.endpoint}${path}`,
+          { Authorization: `Bearer ${session.token}`, "Content-Type": options.contentType },
+          options.body,
+          signal,
+          options.idleMs,
+        ).catch((error: unknown) => {
+          if (session.signal.aborted) throw new RemoteUnavailableError();
+          throw error;
+        });
+        return new Response(watchIdle(response.body!, controller, options.idleMs, release), {
+          status: response.status,
+          headers: response.headers,
+        });
+      }
       const init: RequestInit & { duplex: "half" } = {
         method: options.method ?? "GET",
         headers: {
@@ -639,6 +656,52 @@ function postResponse(
     outgoing.flushHeaders();
     if (body) pipeline(Readable.fromWeb(body as NodeReadableStream), outgoing).catch(reject);
     else outgoing.end();
+  });
+}
+
+/**
+ * Sends a streamed request body with node:http. fetch keeps a 300-second response-headers
+ * deadline while the body is still being sent, and a large file can take longer. The
+ * connection fails when neither side sends anything for `idleMs`.
+ */
+function upload(
+  url: string,
+  headers: Record<string, string | undefined>,
+  body: Readable,
+  signal: AbortSignal,
+  idleMs: number | undefined,
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const outgoing = (target.protocol === "https:" ? httpsRequest : httpRequest)(
+      target,
+      {
+        method: "PUT",
+        headers: Object.fromEntries(Object.entries(headers).filter(([, value]) => value)),
+        signal,
+        agent: false,
+      },
+      (incoming) => {
+        const responseHeaders = new Headers();
+        for (const [name, value] of Object.entries(incoming.headers))
+          if (typeof value === "string") responseHeaders.set(name, value);
+        resolve(
+          new Response(Readable.toWeb(incoming) as ReadableStream<Uint8Array>, {
+            status: incoming.statusCode,
+            headers: responseHeaders,
+          }),
+        );
+      },
+    );
+    if (idleMs)
+      outgoing.setTimeout(idleMs, () =>
+        outgoing.destroy(new Error("The remote stopped responding.")),
+      );
+    outgoing.on("error", reject);
+    pipeline(body, outgoing).catch((error: unknown) => {
+      outgoing.destroy();
+      reject(error);
+    });
   });
 }
 
