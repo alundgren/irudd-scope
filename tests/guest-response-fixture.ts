@@ -3,7 +3,8 @@ import { createServer, request as httpRequest } from "node:http";
 /** Changes only synthetic peer responses; real app authentication and storage still execute. */
 export async function guestResponseFixture() {
   let ownerPort = 0;
-  let mode: "normal" | "unsupported" | "partial" | "stale" | "same-revision" = "normal";
+  let mode: "normal" | "unsupported" | "partial" | "stale" | "same-revision" | "unknown-kind" =
+    "normal";
   let savedCatalog = "";
   let latestCatalog = "";
   let holdContent = false;
@@ -73,6 +74,7 @@ export async function guestResponseFixture() {
             );
             if (mode === "same-revision") document.sources[0].title = "Changed without a revision";
             if (mode === "unsupported") document.sources[0].version = 999;
+            if (mode === "unknown-kind") document.sources[0].kind = "future-tool";
             response.writeHead(200, { "Content-Type": "application/json" });
             response.end(JSON.stringify(document));
           }

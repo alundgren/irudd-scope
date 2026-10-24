@@ -495,7 +495,13 @@ export async function guestCatalogChecks({
       await ca.delete(large.id);
       // A failed or unsupported full refresh retains references without pretending they are current.
       const retained = (await source()).records.map((record) => record.tab.id).sort();
-      for (const mode of ["unsupported", "partial", "stale", "same-revision"] as const) {
+      for (const mode of [
+        "unsupported",
+        "unknown-kind",
+        "partial",
+        "stale",
+        "same-revision",
+      ] as const) {
         responses.mode(mode);
         await ca.publish(
           "wake",
@@ -573,6 +579,7 @@ export async function guestCatalogChecks({
       await expect.poll(async () => (await source()).available.length, { timeout: 25000 }).toBe(0);
       expect((await source()).records.some((record) => record.tab.id === guestId)).toBe(true);
       await pageB
+        .locator(".artifact-pane:not([hidden])")
         .getByText(/Source Scope is unavailable. Reconnect to read current content./)
         .waitFor();
       await capture("guest-owner-unavailable.png");
