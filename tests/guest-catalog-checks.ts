@@ -1,3 +1,4 @@
+import { guestCloseLocalState } from "./guest-close-local-state.ts";
 import { guestCloseFailureChecks, guestWorkspaceChecks } from "./guest-workspace-checks.ts";
 import { spawnedHub } from "./hub-fixture.ts";
 import { ScopeClient } from "@irudd-scope/protocol/client";
@@ -140,6 +141,7 @@ export async function guestCatalogChecks({
   const own = () => pageA.evaluate(() => window.scope.guestCatalog());
   let guestId = "";
   let restartWorkspace = "";
+  let localStateId = "";
 
   async function select(id: string) {
     const tab = pageB.locator(`#tab-${id}`);
@@ -652,6 +654,7 @@ export async function guestCatalogChecks({
         )
         .toBe(true);
       const saved = await page.evaluate(() => window.scope.workspace());
+      expect(saved!.tabs.find((tab) => tab.id === localStateId)?.state.data.divider).toBe(0.85);
       expect(JSON.stringify(saved)).toBe(restartWorkspace);
       const database = new DatabaseSync(join(b.settingsDirectory, "desktop.db"));
       database.exec("DROP TRIGGER reject_guest_close");
@@ -779,7 +782,26 @@ export async function guestCatalogChecks({
       const local = workspace.tabs.findIndex((tab) => tab.type === "file");
       expect(workspace.tabs.slice(0, local).some((tab) => tab.type === "guest")).toBe(true);
       expect(workspace.tabs.slice(local + 1).some((tab) => tab.type === "guest")).toBe(true);
-      restartWorkspace = JSON.stringify(workspace);
+      const database = new DatabaseSync(join(b.settingsDirectory, "desktop.db"));
+      database.exec("DROP TRIGGER reject_guest_close");
+      database.close();
+      const folderId = (await source()).records.find((record) => record.source.kind === "folder")!
+        .tab.id;
+      localStateId = await guestCloseLocalState(pageB, right, folderId);
+      const afterClose = (await pageB.evaluate(() => window.scope.workspace()))!;
+      restartWorkspace = JSON.stringify({
+        ...afterClose,
+        tabs: afterClose.tabs.map((tab) =>
+          tab.id === localStateId
+            ? { ...tab, state: { ...tab.state, data: { ...tab.state.data, divider: 0.85 } } }
+            : tab,
+        ),
+      });
+      const fault = new DatabaseSync(join(b.settingsDirectory, "desktop.db"));
+      fault.exec(`CREATE TRIGGER reject_guest_close BEFORE UPDATE ON preferences
+        WHEN NEW.name = 'workspace_layout' AND json_extract(NEW.document, '$.selected') IS NOT json_extract(OLD.document, '$.selected')
+        BEGIN SELECT RAISE(ABORT, 'Synthetic selection write failure'); END`);
+      fault.close();
     },
   };
 }
