@@ -269,9 +269,27 @@ test(
       expect(await item("docs").getAttribute("aria-expanded")).toBe("true");
       expect(await filter.inputValue()).toBe("login");
       await page.getByText("Showing all files so notes.md is visible.").waitFor();
-      await page.getByRole("button", { name: "Filter again", exact: true }).click();
+      const filterAgain = page.getByRole("button", { name: "Filter again", exact: true });
+      await filterAgain.click();
       await item("notes.md").waitFor({ state: "hidden" });
       await item("login.html, ignored").waitFor();
+      // Selecting the same file again pauses the filter again. Choosing another file in the
+      // paused tree keeps it paused; Filter again from the keyboard returns to the box.
+      await folder("select", app, "docs/notes.md");
+      await item("notes.md").waitFor();
+      await item("login.html, ignored").click();
+      await page.getByText("Showing all files so login.html is visible.").waitFor();
+      expect(await item("notes.md").isVisible()).toBe(true);
+      await filterAgain.focus();
+      await page.keyboard.press("Enter");
+      await item("notes.md").waitFor({ state: "hidden" });
+      expect(await filter.evaluate((input) => input === document.activeElement)).toBe(true);
+      // A matching file in a folder closed while filtering opens that folder again.
+      await item("plans").click();
+      await item("login.html, ignored").waitFor({ state: "hidden" });
+      await folder("select", app, "docs/plans/login.html");
+      await item("login.html, ignored").waitFor();
+      await page.getByText("1 file", { exact: true }).waitFor();
       await filter.fill("");
       await item("notes.md").waitFor();
 

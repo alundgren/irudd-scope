@@ -243,7 +243,19 @@ async function useFolderTab(page: Page, label: string, folder: string) {
   // Lines away from the view are still copied.
   const code = await readFile(join(folder, "src", "code.ts"), "utf8");
   await copiesExactly(preview("code.ts").locator(".text-document"), code);
+  // A match in a closed folder that the filter hides opens the folder and shows all files.
   await tab.getByRole("button", { name: "Files", exact: true }).click();
+  await filter.fill("page");
+  await expect.poll(() => filterStatus.textContent()).toBe("2 files");
+  await tab.getByRole("button", { name: "Search", exact: true }).click();
+  await results.getByRole("button", { name: /^notes\/n1\.txt:2/ }).click();
+  await tab.getByRole("button", { name: "Files", exact: true }).click();
+  await expect
+    .poll(() => filterStatus.textContent())
+    .toBe("Showing all files so n1.txt is visible.Filter again");
+  expect(await item("n1.txt").getAttribute("aria-selected")).toBe("true");
+  expect(await item("notes").getAttribute("aria-expanded")).toBe("true");
+  await filter.fill("");
 }
 
 /**

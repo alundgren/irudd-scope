@@ -337,12 +337,15 @@ saved expanded folders, so clearing the filter restores the previous tree. The
 filter text survives restart. While Scope still lists the folder, the filter
 says `Still scanning…`; for folders with more than 200,000 paths it says that
 it asks the folder's machine instead, and asks again when files change. It
-shows at most 10,000 files and says so. When an agent's `folder select`, a drop,
-or a search match selects a file the filter would hide, the tree shows all files
-so the file is visible and says `Showing all files so NAME is visible.` with
-Filter again. The filter text stays in the box; editing it or Filter again
-filters the tree again. A tab first shown after restart treats its saved
-selection the same way, because an agent may have selected it meanwhile.
+shows at most 10,000 files and says so. An agent's `folder select`, a drop, or a
+search match reveals its file each time, even when it is already selected: the
+folders down to it open in the tree shown, including folders closed while
+filtering. When the filter would hide the file, the tree shows all files and says
+`Showing all files so NAME is visible.`, naming the selected file, with Filter
+again. Selecting other files keeps all files shown. The filter text stays in the
+box; editing it or Filter again filters the tree again, and Filter again returns
+focus to the box. A tab first shown after restart reveals its saved selection,
+because an agent may have selected it meanwhile.
 
 Search looks through file contents on the folder's machine and lists each match
 as path, line number, and the line with the match marked. It skips binary files
