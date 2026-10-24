@@ -46,7 +46,7 @@ export async function guestMutationChecks() {
     },
     Buffer.from(html),
   );
-  const plan = { version: 1, title: "Mutation plan", overviewHtml: "<h1>Proposal</h1>" };
+  const plan = { version: 1 as const, title: "Mutation plan", overviewHtml: "<h1>Proposal</h1>" };
   await ca.publish(
     "mutation-plan",
     {
