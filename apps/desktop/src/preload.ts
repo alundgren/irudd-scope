@@ -42,6 +42,10 @@ function subscribe<T>(channel: string, listener: (value: T) => void) {
   };
 }
 const bridge: ScopeBridge = {
+  guestCatalog: () => ipcRenderer.invoke("scope:guest-catalog"),
+  onGuestCatalogChanged: (listener) => subscribe("scope:guest-catalog-changed", listener),
+  guestContent: (id, revision) => ipcRenderer.invoke("scope:guest-content", { id, revision }),
+  guestDownload: (id, revision) => ipcRenderer.invoke("scope:guest-download", { id, revision }),
   folderList: (input) => ipcRenderer.invoke("scope:folder-list", input),
   folderRead: (input) => ipcRenderer.invoke("scope:folder-read", input),
   folderFilter: (input) => ipcRenderer.invoke("scope:folder-filter", input),

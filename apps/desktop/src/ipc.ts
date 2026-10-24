@@ -1,3 +1,4 @@
+import type { GuestCatalogs } from "./guest/catalog.ts";
 import { clipboard, dialog, ipcMain, nativeTheme, type BrowserWindow } from "electron";
 import { writeFile } from "node:fs/promises";
 import { Schema } from "effect";
@@ -38,6 +39,7 @@ export function registerDesktopIpc({
   librarian,
   transfers,
   guests,
+  guestCatalogs,
   onRestartToUpdate,
   setSketchpadMenu,
 }: {
@@ -54,6 +56,7 @@ export function registerDesktopIpc({
   librarian: LibrarianService;
   transfers: TabTransfers;
   guests: GuestConnections;
+  guestCatalogs: GuestCatalogs;
   onRestartToUpdate: () => Promise<void>;
   setSketchpadMenu: (state: SketchpadMenuState) => void;
 }) {
@@ -234,6 +237,22 @@ export function registerDesktopIpc({
     const id = decode(TransferId, input);
     await guests.forget(id);
     await transfers.forget(id);
+  });
+  const guestRead = Schema.Struct({ id: Uuid, revision: Revision });
+  handle("scope:guest-catalog", () => guestCatalogs.snapshot());
+  handle("scope:guest-content", (input) => {
+    const { id, revision } = decode(guestRead, input);
+    return guestCatalogs.content(id, revision);
+  });
+  handle("scope:guest-download", async (input) => {
+    const { id, revision } = decode(guestRead, input);
+    const item = await guestCatalogs.content(id, revision);
+    const result = await dialog.showSaveDialog(window, { defaultPath: item.artifact.fileName });
+    if (result.canceled || !result.filePath) return false;
+    // Recheck after the human leaves the save dialog; source access may have been revoked.
+    const current = await guestCatalogs.content(id, revision);
+    await writeFile(result.filePath, current.bytes);
+    return true;
   });
   handle("scope:guest-status", () => guests.status());
   handle("scope:set-guest-access", (input) => {

@@ -17,11 +17,11 @@ function FileView({ artifact }: { artifact: Artifact }) {
 export const filePlugin: TabPlugin = {
   type: "file",
   publication: { accepts: () => true, artifactId: publishedArtifactId, state: publishedTabState },
-  View: ({ artifact }) =>
+  View: ({ artifact, context }) =>
     artifact?.kind === "file" ? (
       <FileView artifact={artifact} />
     ) : (
-      <PublishedContent artifact={artifact}>
+      <PublishedContent artifact={artifact} content={context.content}>
         {(item) => (
           <FileViews
             content={{

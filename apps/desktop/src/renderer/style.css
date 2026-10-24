@@ -326,6 +326,18 @@ svg.lucide {
   scrollbar-width: thin;
   scrollbar-color: var(--scope-outline) var(--scope-canvas);
 }
+.guest-pane {
+  display: flex;
+  flex-direction: column;
+}
+.guest-pane > .content-notice {
+  flex: none;
+}
+.guest-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
 .focus-controls {
   position: absolute;
   width: max-content;

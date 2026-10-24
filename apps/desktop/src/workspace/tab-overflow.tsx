@@ -75,7 +75,11 @@ export function TabOverflow({
     const kind = label?.detail ?? artifact?.kind ?? tab.type;
     const name = artifact?.name;
     const permanent = isBuiltinTab(tab) || (entry?.permanent ?? false);
-    if (section === "active" && filter !== "all" && permanent !== (filter === "permanent"))
+    if (
+      section === "active" &&
+      filter !== "all" &&
+      (tab.type === "guest" || permanent !== (filter === "permanent"))
+    )
       return [];
     if (
       needle &&
@@ -266,9 +270,11 @@ export function TabOverflow({
                         aria-label={`${title} ${name ? `${name} · ` : ""}${kind}`}
                         aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Delete"
                         aria-description={
-                          isBuiltinTab(tab)
-                            ? "Drag or Alt and arrow keys to reorder. Delete closes this built-in tab."
-                            : "Drag to reorder or drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
+                          tab.type === "guest"
+                            ? "Drag or Alt and arrow keys to reorder. Delete closes this guest locally."
+                            : isBuiltinTab(tab)
+                              ? "Drag or Alt and arrow keys to reorder. Delete closes this built-in tab."
+                              : "Drag to reorder or drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
                         }
                         title={title}
                         onKeyDown={(event) =>

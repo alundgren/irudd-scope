@@ -140,8 +140,18 @@ async function screenshot(page: Page, name: string) {
 }
 
 test(
-  "Other Scopes pairs explicitly, protects guest sessions, reconnects and forgets",
-  { tags: ["pairing-is-explicit", "secrets-stay-secret", "survives-restart"], timeout: 180_000 },
+  "Other Scopes pairs explicitly, protects guest catalogs and owner reads, reconnects and forgets",
+  {
+    tags: [
+      "pairing-is-explicit",
+      "secrets-stay-secret",
+      "survives-restart",
+      "publish",
+      "no-lost-updates",
+      "deletion-is-final",
+    ],
+    timeout: 180_000,
+  },
   async () => {
     const f = await desktopFixture({ hideInitialPrompts: true });
     const app = await f.launch();

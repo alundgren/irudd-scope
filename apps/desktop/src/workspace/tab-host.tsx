@@ -1,9 +1,10 @@
+import type { GuestCatalogView, GuestRecord } from "../guest/contract.ts";
 import { Component, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { OverlayName, OverlayPosition, Tab, TabState } from "./contract.ts";
 import type { TabEventRouter } from "./events.ts";
 import { beforeClose } from "./persistence.ts";
-import { findPlugin } from "../plugins/registry.renderer.ts";
+import { findPlugin, guestPlugin } from "../plugins/registry.renderer.ts";
 import { validateTabState } from "../plugins/registry.ts";
 import type { Theme } from "../renderer/appearance.ts";
 
@@ -30,6 +31,9 @@ export function TabHost({
   updateOverlayPosition,
   active,
   onClose,
+  guest,
+  guestOwner,
+  guestAvailable,
   ...display
 }: {
   tab: Tab;
@@ -42,6 +46,9 @@ export function TabHost({
   ) => void;
   active: boolean;
   onClose: (id: string) => void;
+  guest?: GuestRecord;
+  guestOwner?: GuestCatalogView["owners"][number];
+  guestAvailable?: boolean;
   artifact?: Artifact;
   theme: Theme;
   focus: boolean;
@@ -61,8 +68,34 @@ export function TabHost({
     },
     [events, saves],
   );
-  const plugin = findPlugin(tab.type);
-  if (["file", "retro", "sketchpad", "folder"].includes(tab.type) && !active && !visited)
+  const content = useMemo(
+    () =>
+      guest
+        ? {
+            ownerDeviceId: guest.ownerDeviceId,
+            sourceTabId: guest.source.sourceTabId,
+            read: (artifact: Artifact) => window.scope.guestContent(tab.id, artifact.revision),
+          }
+        : undefined,
+    [tab.id, guest?.ownerDeviceId, guest?.source.sourceTabId],
+  );
+  const plugin =
+    tab.type === "guest" ? guestPlugin(guest?.source.kind ?? "") : findPlugin(tab.type);
+  if (tab.type === "guest" && (!guestAvailable || !guest))
+    return (
+      <p role="status" className="empty-state">
+        {guestOwner?.message ??
+          `${guestOwner?.name ?? "The owner"} or this source tab is unavailable. Reconnect to read current content.`}
+      </p>
+    );
+  if (tab.type === "guest" && (!plugin || guest?.source.version !== 1))
+    return (
+      <p role="status" className="empty-state">
+        Update Scope to open shared {guest?.source.kind === "plan" ? "plans" : "folders"} from{" "}
+        {guestOwner?.name ?? "the owner"}.
+      </p>
+    );
+  if (["file", "retro", "sketchpad", "folder", "guest"].includes(tab.type) && !active && !visited)
     return null;
   if (!plugin)
     return (
@@ -93,7 +126,9 @@ export function TabHost({
           tab={tab}
           active={active}
           {...display}
+          artifact={guest?.source.artifact ?? display.artifact}
           context={{
+            content,
             tabId: tab.id,
             groupId: tab.groupId,
             events,

@@ -1,3 +1,4 @@
+import type { ArtifactContent } from "../bridge.ts";
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { Artifact } from "@irudd-scope/protocol";
@@ -11,7 +12,13 @@ import type {
 import type { Theme } from "../renderer/appearance.ts";
 import type { TabEvents } from "./events.ts";
 
+export type OwnerContent = {
+  ownerDeviceId: string;
+  sourceTabId: string;
+  read: (artifact: Artifact) => Promise<ArtifactContent>;
+};
 export type TabContext = {
+  content?: OwnerContent;
   tabId: string;
   groupId: string;
   events: TabEvents;

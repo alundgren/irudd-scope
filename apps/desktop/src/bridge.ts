@@ -1,4 +1,4 @@
-import type { GuestStatus } from "./guest/contract.ts";
+import type { GuestCatalogView, GuestStatus } from "./guest/contract.ts";
 import type { PromptEvent } from "@irudd-scope/protocol";
 import type { PromptReply, PromptImage } from "@irudd-scope/protocol/prompts";
 import type {
@@ -62,6 +62,10 @@ import type {
 } from "@irudd-scope/protocol/pull-requests";
 
 export type ScopeBridge = {
+  guestCatalog: () => Promise<GuestCatalogView>;
+  onGuestCatalogChanged: (listener: (view: GuestCatalogView) => void) => () => void;
+  guestContent: (id: string, revision: number) => Promise<ArtifactContent>;
+  guestDownload: (id: string, revision: number) => Promise<boolean>;
   folderList: (input: {
     tabId: string;
     path: string;

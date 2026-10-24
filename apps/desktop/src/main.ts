@@ -1,3 +1,4 @@
+import { GuestCatalogs } from "./guest/catalog.ts";
 import { initializeBuiltinPlugins } from "./plugins/registry.main.ts";
 import { VoiceService } from "./voice/service.ts";
 import {
@@ -166,7 +167,11 @@ async function main() {
   transferLinks.attach(window);
   transfers = new TabTransfers(store, lifecycle!, new TailcatCliTransport());
   const guests = new GuestConnections(store);
+  const guestCatalogs = new GuestCatalogs(guests, store, artifacts.store, (view) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:guest-catalog-changed", view);
+  });
   await guests.start();
+  await guestCatalogs.start();
   if (process.platform === "darwin") window.setWindowButtonVisibility(false);
   const client = new ScopeClient(artifacts.url, artifacts.token);
   const setSketchpadMenu = createApplicationMenu(window);
@@ -223,6 +228,7 @@ async function main() {
     librarian,
     transfers,
     guests,
+    guestCatalogs,
     setSketchpadMenu,
     onRestartToUpdate: async () => {
       if (updates.snapshot().phase !== "ready") throw new Error("No update is ready.");
@@ -290,6 +296,7 @@ async function main() {
     desktopIpc.dispose();
     externalLinks.dispose();
     library.close();
+    await guestCatalogs.close();
     await guests.close();
     await transfers?.close();
     await remotes.close();
