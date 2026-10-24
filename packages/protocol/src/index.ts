@@ -186,10 +186,13 @@ export function decodeLiveEvent(value: unknown): LiveEvent | undefined {
 
 export class ScopeError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  /** A route-specific error code from the response body, such as a folder error code. */
+  readonly code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.name = "ScopeError";
     this.status = status;
+    if (code !== undefined) this.code = code;
   }
 }
 

@@ -202,6 +202,96 @@ Mac and are excluded from the desktop relay allowlist. The stateless forwarding
 mode reports that it has no hub database. `irudd-scope hub shrink --status`
 reads the local hub result.
 
+## Folder tabs
+
+`src/folder.ts` defines the folder routes and contracts: `FolderIdentity`,
+`FolderOpenRequest`/`FolderOpenReceipt`, find and select requests and
+receipts, `FolderEntry`, `FolderListing`, `FolderChange`, `FolderFeedEvent`,
+`FolderDropEvent`, the watch stream line, search and write contracts, and
+`FolderErrorBody`. It imports no file system code. `MachineId` is `local` or a
+paired remote's ID. Paths inside a folder use `/` and have no `.` or `..` parts.
+
+Agent commands use the normal publishing token, locally or through a hub:
+
+| Request                                             | Result                                                                          |
+| --------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `POST /v1/folders/open`, `{ path, title? }`         | `{ tabId, machine, path, created }`                                             |
+| `POST /v1/folders/find`, `{ path }`                 | `{ open, tabId?, machine, path }`; a tab in Trashcan or the drawer is not open. |
+| `POST /v1/folders/select`, `{ path, file, title? }` | `FolderOpenReceipt` plus `file`                                                 |
+| `GET /v1/folders/watch?path=`                       | NDJSON `FolderWatchEvent` lines: `dropped`, `closed`, `heartbeat`               |
+
+`path` is absolute on the machine that runs the command. Scope resolves it to
+the canonical real path on that machine; hubs resolve it before relaying. Any
+`machine` field in the body is ignored: the machine is the connection that
+delivered the command. Folder commands are never queued. Failures are JSON
+`{ error, code }` with `code` one of `no-tab`, `not-found`, `outside-folder`,
+`not-a-directory`, `unsupported`, `desktop-offline`, `exists`, or `failed`. A 404 without a code
+comes from a Scope or hub without folder support; the CLI then prints
+`Update Scope on HOST to share folders`. `unsupported` with 501 means the feature
+is missing on that machine. `failed`, usually 500, is an error Scope did not
+expect, such as `EACCES` or `EMFILE`, or a busy limit; retrying can help, updating
+cannot. A path whose canonical form passes through `.git` in any letter case,
+including through a link, fails with 404 `not-found` "Scope does not show .git."
+for every command, and no tab opens.
+
+`select` checks `file`, relative to `path`, on the machine that has it before
+opening anything: a path that leaves the folder fails with 403
+`outside-folder`, a missing file with 404 `not-found`, and a directory with
+`not-a-directory`. It opens the tab like `open` when needed. `watch` answers
+404 `no-tab` when the folder has no open tab. Otherwise it writes one
+`{"type":"dropped","paths":[...]}` line per finished drop, listing the
+folder-relative paths the person copied in, a heartbeat
+line every 10 seconds and ends after `{"type":"closed"}` when the tab is closed
+or trashed. A stream that ends without `closed` means Scope disconnected.
+Each hub relays at most `MAX_FOLDER_WATCHES` (16) watches, counted apart from
+its 16 publication slots.
+
+The hub serves the paired desktop's file requests on routes that accept only
+the desktop connection credential, never the publishing token:
+
+| Request                                                          | Result                                                                                             |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `GET /v1/relay/folders/list?root=&path=&showIgnored=0\|1`        | `FolderListing` of one directory, at most 50,000 entries                                           |
+| `GET /v1/relay/folders/read?root=&path=&start=&end=`             | Raw bytes `start` to `end` (exclusive), `Scope-Folder-File-Size`, and `Scope-Folder-File-Modified` |
+| `GET /v1/relay/folders/events?root=`                             | NDJSON `FolderFeedEvent` lines with a heartbeat every 10 seconds                                   |
+| `POST /v1/relay/folders/search`, `FolderSearchRequest`           | NDJSON `FolderSearchEvent` lines ending with `done`                                                |
+| `PUT /v1/relay/folders/write?root=&path=&replace=0\|1`, raw body | `FolderWriteReceipt` once the file is committed in place                                           |
+
+A `changes` line of the events feed may carry `ignoreRulesChanged`, the
+directories whose `.gitignore` changed, with `""` for the folder's
+`.git/info/exclude` or for `.git` itself appearing, moving, or being replaced. Entries at any depth below each one may have become ignored or
+shown, so a reader reloads every listing it keeps at or below it. Such a line can
+have an empty `changes` list. The feed reports nothing else inside `.git`.
+
+Reads fail at once with 400 `not-a-directory` for FIFOs and other special files.
+Ignore files are read only when neither they nor a folder above them inside
+`root` is a link. A listed link that resolves into `.git` has `link: "outside"`
+and no size.
+
+Search matches `query` as plain text in any letter case and honours
+`showIgnored`. A content search reads only regular files inside `root`, skips
+binary files and files over 1 MiB, and
+sends `match` lines with the path, line number, and line text, stopping at 1,000
+with `done` and `truncated: true`. With `names: true` it matches file paths
+instead and sends `file` lines, stopping at 10,000. Long searches send a
+heartbeat at least every 10 seconds. Closing the request stops the search.
+
+A write stages the body inside the folder and renames it into place after
+checking containment again, creating missing folders on the way. It never
+writes through a link. Without `replace=1` an existing entry, including one
+created during the upload, fails with 409 `exists` and nothing is written; on a
+file system without hard links it fails with 501 `unsupported` instead. With
+`directory=1` the route creates an empty folder; without `replace=1` an existing
+entry fails with `exists`. Closing the request before the answer is sent, even
+after the whole body arrived, cancels the write and removes the staged file.
+
+Every file route resolves real paths and rejects paths that leave `root`,
+including through symlinks, with 403 `outside-folder`. A desktop sends
+`Scope-Relay-Capabilities: folders` on `GET /v1/relay/events`; hubs forward
+folder commands only to such a desktop and otherwise answer 501 `unsupported`
+without sending a relay event, because older desktops drop the relay on an
+unknown request.
+
 ## Removed diagram routes
 
 Scope no longer accepts `POST /v1/diagrams`, `POST /v1/diagrams/sync`, or

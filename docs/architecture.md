@@ -30,6 +30,210 @@ server. `packages/protocol/src/voice.ts` owns the public contracts; the CLI owns
 explicit audio and receipt exports. The hub forwards the same routes without
 provider calls or speech storage. Speech results are independent of tabs.
 
+## Folder tabs
+
+A Folder tab shows an agent's working folder, on this computer or on a paired
+remote, as a live tree. Only agent commands open one; Scope has no button,
+menu item, or drop target for it. Files stay on the machine that has them.
+
+```mermaid
+flowchart LR
+    LocalCLI[CLI on this computer] -->|/v1/folders/open, find, select, watch| Desktop[desktop main]
+    RemoteCLI[CLI on a remote] -->|/v1/folders/open, find, select, watch| Hub[apps/hub]
+    Hub -->|canonical path, relayed command| Desktop
+    Desktop -->|GET /v1/relay/folders/*| Hub
+    Desktop --> LocalFiles[packages/folder on this computer]
+    Hub --> RemoteFiles[packages/folder on the remote]
+    Desktop --> Record[scope.db: tab record and folder_tabs key]
+```
+
+`packages/folder` owns all file system work for both machines: the canonical
+path, per-directory listings, `.gitignore` rules, containment, byte-range reads,
+change feeds, content and file name search, and `writeFolderFile`, which copies
+dropped files in through a staged file and is Scope's only write to a shared
+folder.
+Desktop main uses it for local folders; the hub uses it for remote folders.
+`packages/protocol/src/folder.ts` defines the routes and wire contracts and
+imports no file system code.
+
+A Folder tab's identity is its machine and canonical path. The machine is
+`local` or the desktop's remote ID and always comes from the connection that
+delivered the command; Scope ignores any machine named in the body. When the
+desktop forwards a relayed folder command to its own listener, it adds a
+`Scope-Relay-Origin` header with a secret that exists only in that process. The
+canonical path comes from `canonicalFolder`, run on the machine that has the
+files: desktop main resolves local paths and a hub resolves its own before
+relaying. A canonical path with a `.git` part in any letter case, including
+through a link, fails with `not-found` "Scope does not show .git." and opens no
+tab; desktop main also refuses such a path from a hub. `canonicalFolder` also
+compares the folder and each folder above it with its parent's `.git` by device
+and inode, so another name for `.git`, such as a Windows short name, is refused
+too; inode 0, which some network drives report for everything, counts as unknown. `scope.db` enforces one tab per key in the `folder_tabs` table inside
+the same transaction that creates, restores, unhides, or renames the tab.
+
+The Folder plugin is an ordinary tab type: temporary by default, bookmarkable,
+and trashable. Opening a folder whose tab is trashed or hidden restores or
+unhides that same tab at the end of the strip. Main sends the change to the
+renderer as `scope:folder-tab-opened`. The renderer merges the title and folder
+into its copy and keeps its own expanded folders and selection. Brand-new tabs
+select themselves only when no tab is selected; restored and unhidden tabs
+never change selection. A per-tab `revision` in the Folder tab state counts
+main-side changes, and `scope.db` ignores renderer saves with an older revision.
+Folder tabs are unread through a tab ID set in renderer memory until selected.
+
+`folder find` reports whether a folder's tab is in the strip; a tab in Trashcan
+or closed to the drawer is not open. `folder select` checks the file on the
+machine that has it, then opens the tab like `folder open` and, in the same
+transaction, sets the selected file, adds every folder down to it to the
+expanded list, and bumps `revision`. `scope:folder-tab-opened` carries the
+selected file so the renderer replaces its selection and expands those folders
+while keeping its other expanded folders.
+
+`folder watch` is a long NDJSON response with a heartbeat every 10 seconds.
+Desktop main ends it with `closed` at the moment the tab leaves the strip:
+trashing and deletion reach the plugin through the lifecycle. Closing a
+bookmarked tab to the drawer, and reopening it, are their own lifecycle
+operation (`scope:set-tab-hidden`), queued in order with agent commands. It
+changes only the stored tab's visibility, so a renderer save that `scope.db`
+ignores as older cannot undo the close, and it tells the plugin before the
+renderer's request resolves. The watch ends even if the tab is reopened right
+after. A hub relays a watch like other
+requests but keeps it in its own count of at most 16, apart from the 16
+publication slots, and reserves the slot before resolving the path, so
+concurrent watches cannot exceed it. If the desktop does not start answering
+within 20 seconds, the hub fails the watch and cancels it on the relay. The
+desktop's relay keeps its own watch count, so idle watches never block
+publishing, and it answers busy instead of dropping the relay. The desktop
+uploads the watch response to the hub with `node:http`, because fetch gives up
+on a request body that is still streaming after 300 seconds.
+
+The plugin's main handlers read the folder through one source contract. Local
+sources call `packages/folder`. Remote sources use `Remotes.request`, a
+session-bound streaming request to the hub's file routes with raw bodies, caller
+cancellation, a deadline per operation, an idle limit, and cleanup when the
+relay session ends. It does not use the 32 MiB publication path. The hub's
+change feed writes a heartbeat every 10 seconds, under its 30-second socket
+timeout. macOS and Windows watch a folder recursively; Linux watches each
+directory that is not ignored and polls every few seconds when it runs out of
+watches. `.git` and ignored folders are never watched, except that Linux watches
+`.git` and `.git/info` only to notice `.git/info/exclude` changing. A change to a
+`.gitignore` or to `.git/info/exclude`, or `.git` itself appearing, moving, or being
+replaced, adds its directory (`""` for exclude and `.git`) to the batch's
+`ignoreRulesChanged`; readers reload every listing at or below it, and
+Linux adds and removes directory watches below it to match the new rules. A folder
+created, removed, or moved in or out brings ignore files that have no events of
+their own, so the watcher also reads the rules at and below it again; readers
+already reload such a folder. Scope
+reads an ignore file only when it and every folder above it inside the root are
+real, not links, as Git does, and skips one that is a FIFO without waiting. A
+case-insensitive volume resolves `.gitignore` to a file stored as `.GITIGNORE`, so
+a real path that differs only in letter case is accepted when `lstat` finds no
+link on any part of the path; the platform alone does not say how a volume treats
+case. On macOS and Windows, changes to `.GITIGNORE` or `.git/info/EXCLUDE` count
+as ignore-rule changes too, which on a case-sensitive volume only means one extra
+reload.
+
+The filter uses a path list that desktop main keeps in memory for each watched
+tab. A background walk builds it, locally with `packages/folder` and remotely by
+listing directories through the hub, four at a time. Change feed events keep it
+current. A created directory is walked, because its files may have no events of
+their own, and changed ignore rules or an overflow rebuild the list. Above
+200,000 paths, or when a remote directory has more entries than one listing
+returns, the list is dropped and each filter text becomes a `names` search on the
+folder's machine; changes then ask an open filter again about once a second. Content search always runs on the folder's machine with
+`searchFolder`, one search per tab; a new query or Cancel aborts the previous
+one, and the hub stops reading files when its response closes. Search enters a
+directory and reads a file only through handles checked to be inside the
+folder, never follows a final symlink, and skips FIFOs and other special files
+without waiting on them. Neither the path
+list nor search results are stored. Previews read byte ranges through the same
+source and show them with the published-file viewers in
+`renderer/file-views.tsx`, which take bytes, a kind, a media type, and a title;
+Folder previews ask them to isolate HTML.
+
+The tree keeps each expanded folder's listing in renderer memory and reads the
+parents of changed paths again, and the folders of dropped files as soon as the
+drop finishes. A deleted, created, or renamed path drops the
+listings at or below it and any listing answer still on its way. Open folders
+there stay shown and are read again, because a replaced folder's files may have
+no events of their own. A changed `.gitignore` reads every listing below its folder
+again. A full reload after an overflow or a Show ignored files change drops the
+listings of collapsed folders, which are read again when opened.
+
+The desktop advertises folder support with `Scope-Relay-Capabilities: folders`
+when it opens the relay. A hub forwards folder commands only to a desktop that
+advertised it, because an older desktop drops the whole relay on an unknown
+request. Folder commands are never queued. An older hub answers 404 and the CLI
+asks for an update on that machine. Only the desktop connection credential can
+use the hub's `/v1/relay/folders/` routes; the hub's publishing token cannot.
+
+Reads and listings go through handles checked to be inside the folder. Files are
+opened without waiting, so a FIFO fails at once with `not-a-directory` instead of
+holding a file system thread. A link that resolves into `.git` is listed as
+leading outside, without a size. The hub answers unexpected errors, such as
+`EACCES` or `EMFILE`, with 500 `failed`; the tab asks for an update only for a 404
+without a folder code or a 501 `unsupported`. Linux checks
+the kernel path of the opened handle. macOS and Windows compare the handle with a
+fresh walk from the root, which is a series of checks rather than one atomic one, so
+a folder swapped for a link and back between two checks could pass. Change feeds have
+their own per-remote budget of 64, separate from the 32 streamed listings, reads, and
+writes; desktop main queues listings and reads 8 at a time per machine.
+
+Dropping files on the tree copies them in; it is the only time Scope writes to a
+shared folder. The preload turns dropped `File` objects into paths with
+`webUtils.getPathForFile` and sends them straight to main, so a page can pass
+dropped files but never a path of its choice. Main lists the dropped files and the
+files and empty folders inside dropped folders (skipping links, special files, and
+`.git`), records each file's and folder's device and inode, reads a dropped folder
+only through a handle opened without following links that still matches them, reads each target folder to find
+names that exist, and returns a plan. Each item has its own ID, so two dropped files
+with the same name are asked about separately. Nothing is written until the
+renderer answers Replace, Keep both, or Cancel for each existing name. Main then
+streams one file at a time to the folder source, reading only a file whose path still
+leads to the recorded device and inode (edits to that file are copied): locally to `writeFolderFile`, remotely as the raw body of
+`PUT /v1/relay/folders/write`, sent with `node:http` because fetch gives up on a
+response that waits more than 300 seconds for a long upload.
+
+`writeFolderFile` opens each folder on the way as a child of the one before,
+without following links, and creates a missing one only inside an opened folder
+that is checked to be inside the root before and after. The bytes go to a staged
+`.scope-partial-*` file at the top of the folder (in the destination itself when
+that is on another file system). The commit checks that the copy was not
+cancelled and that the destination is still inside the root, then renames the
+staged file into the opened destination, or without Replace hard-links it, which
+fails if the name appeared during the copy; the renderer then asks again. A file
+system without hard links fails clearly instead of checking and renaming. After the
+commit the destination is checked again, and a file committed into a folder that
+moved out meanwhile is removed. Every step names the opened folder itself rather
+than its path. On Linux the calling process does this through `/proc/self/fd/N`.
+Node has no directory-relative calls on macOS and Windows, and a process's working
+directory is shared by all its threads, including file work other code already
+queued, so Electron main and the hub never change theirs. There writes run in the
+folder writer process (`folder-writer.mjs` beside each app's bundle, started with
+`fork` on first use, idle-unreferenced, restarted after an exit). The app streams
+the bytes to it over IPC, at most 16 chunks ahead; it runs each step synchronously
+with its own working directory set to the folder and checked to be the opened one,
+and uses only absolute paths and descriptors otherwise. Cancelling, or the app
+disconnecting, aborts its writes and removes what they staged. "Inside the root"
+means that each parent reached through `..` is the folder opened on the way down.
+Windows resolves relative names from the directory's path, so there only those
+checks keep writes inside. Windows also reaches an entry through aliases, so
+writes there refuse names that end in a dot or space or contain `:`, and a name
+like `GIT~1` when it is the short name of an entry with a different name (a file
+really named `notes~1.txt` is fine), and every platform refuses to open a folder on the
+way whose device and inode are those of the root's `.git`. A cancelled,
+failed, or disconnected copy, including a hub request that closes after its body
+arrived, removes the staged file and commits nothing. Listings, walks, search, and
+change feeds hide staged names and `.git` in any letter case. When a drop finishes,
+main sends one `dropped` line listing the written paths to every `folder watch` on
+the tab.
+
+Save to computer opens the native save dialog in Downloads, streams the file from
+the folder source into a `.scope-partial-*` file beside the chosen name, and
+renames it only when every byte arrived. Remote saves read
+`GET /v1/relay/folders/read` without an end. Saves and drops report progress to
+the tab, can be cancelled, and stop when the tab closes.
+
 ## Tab transfer
 
 `apps/desktop/src/transfer/` owns desktop pairing, temporary invitations,
@@ -305,6 +509,7 @@ formats are compatibility contracts.
 | Sketchpad        | The built-in Excalidraw canvas the person uses; agents have no access to it.                     | `apps/desktop/src/plugins/sketchpad/view.tsx` owns editing.                                               |
 | Sketchpad draft  | Local Excalidraw serialization and view position, stored only while the canvas is not empty.     | `apps/desktop/src/plugins/sketchpad/contract.ts`; `library/store.ts` stores drafts.                       |
 | Publishing token | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                   | Desktop discovery file; CLI and optional hub use it.                                                      |
+| Folder tab       | A live tree of one folder on one machine, keyed by machine ID and canonical path.                | `packages/folder` reads files; `plugins/folder` shows them; `folder_tabs` in `scope.db` keeps the key.    |
 
 `packages/protocol` owns shared schemas, wire formats, limits, the discovery
 contract, and the HTTP client. It imports no app, filesystem, Electron, or
@@ -410,6 +615,7 @@ undo window, and its draft contract. A plugin can render
 content without referencing a library item. Publication support is an optional
 registration. These are trusted modules in one renderer.
 Published HTML is trusted agent output and runs in an iframe without added restrictions.
+Folder tab files are not published output, so their HTML previews are the exception below.
 
 `plugins/registry.ts` registers process-independent saved-state validators.
 `registry.renderer.ts` registers views; `registry.main.ts` registers
@@ -584,7 +790,11 @@ HTML runs unchanged in an iframe with scripts, forms, popups, nested frames,
 and external resources enabled. Scope adds no iframe sandbox, content security
 policy, network filter, or permission denial. The document shares the workspace
 origin and can access its parent. Chromium's normal web rules, including CORS,
-still apply. Desktop main's `external-links.ts` redirects HTTP(S) document
+still apply. HTML files previewed from a Folder tab were not published by an
+agent and may come from anywhere, so they run with the iframe sandbox
+`allow-scripts allow-forms allow-popups`. Without `allow-same-origin` the page
+has an opaque origin: its scripts, forms, and popups work, but it cannot reach
+the parent document or `window.scope`. Desktop main's `external-links.ts` redirects HTTP(S) document
 navigation and popups to the default browser, preserving the artifact in Scope.
 It leaves embedded frame loading, embedded form results, downloads, and in-page
 anchors in the document. PR inbox handlers run first to retain their validated

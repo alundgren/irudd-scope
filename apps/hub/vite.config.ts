@@ -2,7 +2,7 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   pack: {
-    entry: ["src/main.ts", "src/update-runner.ts"],
+    entry: ["src/main.ts", "src/update-runner.ts", "src/folder-writer.ts"],
     format: ["esm"],
     target: "node26",
     platform: "node",
@@ -11,6 +11,8 @@ export default defineConfig({
     deps: {
       alwaysBundle: [
         "@irudd-scope/sqlite",
+        "@irudd-scope/folder",
+        "ignore",
         "@irudd-scope/memory-sync",
         "@irudd-scope/protocol",
         "@irudd-scope/protocol/**",

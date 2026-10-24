@@ -41,6 +41,17 @@ export type ArtifactLibrarySnapshot = {
 };
 export type ArtifactContent = { artifact: Artifact; bytes: Uint8Array };
 import type { TabEventEnvelope } from "./plugins/events.ts";
+import type {
+  FolderDropChoice,
+  FolderDropPlan,
+  FolderDropResult,
+  FolderFilterResult,
+  FolderListResult,
+  FolderSearchResult,
+  FolderTabOpened,
+  FolderTransfer,
+  FolderViewEvent,
+} from "./plugins/folder/contract.ts";
 
 import type {
   PullRequestsCommand,
@@ -50,6 +61,56 @@ import type {
 } from "@irudd-scope/protocol/pull-requests";
 
 export type ScopeBridge = {
+  folderList: (input: {
+    tabId: string;
+    path: string;
+    showIgnored: boolean;
+  }) => Promise<FolderListResult>;
+  folderRead: (input: {
+    tabId: string;
+    path: string;
+    start: number;
+    end: number;
+  }) => Promise<{ size: number; modifiedAt: number; start: number; bytes: Uint8Array }>;
+  /** Matches file paths against the filter text; empty text starts the path list. */
+  folderFilter: (input: {
+    tabId: string;
+    text: string;
+    showIgnored: boolean;
+  }) => Promise<FolderFilterResult>;
+  /** Searches file contents on the folder's machine. A new search cancels the tab's last one. */
+  folderSearch: (input: {
+    tabId: string;
+    query: string;
+    showIgnored: boolean;
+  }) => Promise<FolderSearchResult>;
+  cancelFolderSearch: (tabId: string) => Promise<void>;
+  watchFolder: (tabId: string) => Promise<void>;
+  unwatchFolder: (tabId: string) => Promise<void>;
+  copyFolderPath: (tabId: string) => Promise<void>;
+  onFolderEvent: (listener: (event: FolderViewEvent) => void) => () => void;
+  onFolderTabOpened: (listener: (opened: FolderTabOpened) => void) => () => void;
+  /**
+   * Checks files dropped on a Folder tab. Only the preload reads their paths on this
+   * computer, so the page can pass dropped File objects but never a path of its choice.
+   */
+  prepareFolderDrop: (input: {
+    tabId: string;
+    target: string;
+    files: readonly File[];
+  }) => Promise<FolderDropPlan>;
+  startFolderDrop: (input: {
+    planId: string;
+    /** By clash `id`. */
+    choices: Record<string, FolderDropChoice>;
+  }) => Promise<FolderDropResult>;
+  discardFolderDrop: (planId: string) => Promise<void>;
+  /** Asks where to save a folder file with the native dialog; false when cancelled. */
+  saveFolderFile: (input: { tabId: string; path: string }) => Promise<boolean>;
+  cancelFolderTransfer: (id: string) => Promise<void>;
+  /** Shows the native menu for a file or folder in a Folder tab. */
+  showFolderFileMenu: (input: { tabId: string; path: string; directory: boolean }) => Promise<void>;
+  onFolderTransfer: (listener: (transfer: FolderTransfer) => void) => () => void;
   promptCommand: (input: PromptDesktopCommand) => Promise<PromptResult<PromptReply>>;
   promptImage: (input: {
     itemId: string;
@@ -145,6 +206,8 @@ export type ScopeBridge = {
   retainedTabs: () => Promise<RetainedTab[]>;
   onRetentionChanged: (listener: (tabs: RetainedTab[]) => void) => () => void;
   setTabPermanent: (id: string, permanent: boolean) => Promise<void>;
+  /** Closes an open tab to the drawer, or reopens it, without saving the whole workspace. */
+  setTabHidden: (id: string, hidden: boolean) => Promise<void>;
   restoreTab: (id: string) => Promise<Tab>;
   emptyTrash: (entries: readonly TrashEntry[]) => Promise<void>;
   reportVisibleTabs: (ids: readonly string[]) => Promise<void>;

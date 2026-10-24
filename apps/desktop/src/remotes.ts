@@ -1,4 +1,9 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { hostname } from "node:os";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { setTimeout as delay } from "node:timers/promises";
 import { decode, validateEndpoint } from "@irudd-scope/protocol";
 import {
@@ -8,10 +13,16 @@ import {
   readRemoteJson,
   readRelayEvents,
   type RelayRequest,
+  RELAY_CAPABILITIES_HEADER,
   RELAY_WAKE_HEADER,
 } from "@irudd-scope/protocol/remote";
+import {
+  FOLDER_CAPABILITY,
+  MAX_FOLDER_WATCHES,
+  folderCommandRequest,
+} from "@irudd-scope/protocol/folder";
 import type { DesktopStore } from "./desktop-store.ts";
-import type { Remote, RemoteStatus } from "./remote-contract.ts";
+import { RELAY_ORIGIN_HEADER, type Remote, type RemoteStatus } from "./remote-contract.ts";
 import { synchronizeRemote } from "./remote-updates.ts";
 
 type Connection = { controller: AbortController; task: Promise<void> };
@@ -22,6 +33,39 @@ export type RemoteCall = (
   body?: unknown,
 ) => Promise<Response>;
 type SessionListener = (remote: Remote, call: RemoteCall, signal: AbortSignal) => void;
+type Session = {
+  endpoint: string;
+  token: string;
+  signal: AbortSignal;
+  active: { requests: number; feeds: number };
+};
+/** Options for a streamed relay request. Deadlines are per operation, not global. */
+export type RemoteRequest = {
+  method?: "GET" | "POST" | "PUT";
+  /** A Node stream is an upload, such as a dropped file; see `upload`. */
+  body?: BodyInit | Readable;
+  contentType?: string;
+  signal?: AbortSignal;
+  /** Total time allowed for the request, including the response body. */
+  deadlineMs: number;
+  /** The request fails when the response body is silent this long. */
+  idleMs?: number;
+  /**
+   * A long-lived stream such as a folder change feed. Feeds have their own budget, so open
+   * feeds never take the room that listings, reads, and writes need.
+   */
+  feed?: boolean;
+};
+/** The remote has no live relay session, so its files cannot be reached. */
+export class RemoteUnavailableError extends Error {
+  constructor(message = "The remote is offline.") {
+    super(message);
+    this.name = "RemoteUnavailableError";
+  }
+}
+const MAX_STREAMED_REQUESTS = 32;
+// Matches the hub's limit on open folder change feeds.
+const MAX_FEEDS = 64;
 
 export class Remotes {
   private readonly statuses = new Map<string, RemoteStatus>();
@@ -29,18 +73,94 @@ export class Remotes {
   private readonly updating = new Map<string, Connection>();
   private readonly pairing = new AbortController();
   private readonly sessionListeners = new Set<SessionListener>();
+  private readonly sessions = new Map<string, Session>();
   private pending = Promise.resolve();
   private closed = false;
 
   constructor(
     private readonly store: DesktopStore,
-    private readonly local: { url: string; token: string },
+    private readonly local: { url: string; token: string; originSecret?: string },
     private readonly onChange: (status: RemoteStatus[]) => void,
     private readonly currentCommit?: string,
   ) {}
 
   snapshot() {
     return [...this.statuses.values()];
+  }
+  /**
+   * Opens a request on a connected remote's relay API with a raw streamed body. It is
+   * cancelled by the caller, by its deadline, by a silent response, or when the session ends.
+   */
+  async request(remoteId: string, path: string, options: RemoteRequest): Promise<Response> {
+    const session = this.sessions.get(remoteId);
+    if (!session || session.signal.aborted) throw new RemoteUnavailableError();
+    const budget = options.feed ? "feeds" : "requests";
+    if (session.active[budget] >= (options.feed ? MAX_FEEDS : MAX_STREAMED_REQUESTS))
+      throw new Error(
+        options.feed
+          ? "Too many folders are open on this remote. Close a Folder tab and retry."
+          : "Too many folder requests to this remote. Retry shortly.",
+      );
+    const controller = new AbortController();
+    const signal = AbortSignal.any([
+      session.signal,
+      controller.signal,
+      AbortSignal.timeout(options.deadlineMs),
+      ...(options.signal ? [options.signal] : []),
+    ]);
+    session.active[budget]++;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      session.active[budget]--;
+    };
+    signal.addEventListener("abort", release, { once: true });
+    try {
+      if (options.body instanceof Readable) {
+        const response = await upload(
+          `${session.endpoint}${path}`,
+          { Authorization: `Bearer ${session.token}`, "Content-Type": options.contentType },
+          options.body,
+          signal,
+          options.idleMs,
+        ).catch((error: unknown) => {
+          if (session.signal.aborted) throw new RemoteUnavailableError();
+          throw error;
+        });
+        return new Response(watchIdle(response.body!, controller, options.idleMs, release), {
+          status: response.status,
+          headers: response.headers,
+        });
+      }
+      const init: RequestInit & { duplex: "half" } = {
+        method: options.method ?? "GET",
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          ...(options.contentType ? { "Content-Type": options.contentType } : {}),
+        },
+        body: options.body,
+        duplex: "half",
+        redirect: "error",
+        signal,
+      };
+      const response = await fetch(`${session.endpoint}${path}`, init).catch((error: unknown) => {
+        if (session.signal.aborted) throw new RemoteUnavailableError();
+        throw error;
+      });
+      if (!response.body) {
+        release();
+        return response;
+      }
+      return new Response(watchIdle(response.body, controller, options.idleMs, release), {
+        status: response.status,
+        headers: response.headers,
+      });
+    } catch (error) {
+      release();
+      controller.abort();
+      throw error;
+    }
   }
   onSession(listener: SessionListener) {
     this.sessionListeners.add(listener);
@@ -210,6 +330,8 @@ export class Remotes {
       const session = new AbortController();
       const sessionSignal = AbortSignal.any([signal, session.signal]);
       const requests = new Map<string, AbortController>();
+      // Folder watches have their own count so they never take a publication slot.
+      const watches = new Map<string, AbortController>();
       const tasks = new Set<Promise<void>>();
       let heartbeat: ReturnType<typeof setTimeout> | undefined;
       let checkedUpdates = false;
@@ -226,6 +348,7 @@ export class Remotes {
         const response = await fetch(`${endpoint}/v1/relay/events`, {
           headers: {
             Authorization: `Bearer ${token}`,
+            [RELAY_CAPABILITIES_HEADER]: FOLDER_CAPABILITY,
             ...(waking ? { [RELAY_WAKE_HEADER]: "1" } : {}),
           },
           redirect: "error",
@@ -238,6 +361,12 @@ export class Remotes {
             this.status(remote, "connected", "Connected. Publications arrive while Scope is open.");
             if (!checkedUpdates) {
               checkedUpdates = true;
+              this.sessions.set(remote.id, {
+                endpoint,
+                token,
+                signal: sessionSignal,
+                active: { requests: 0, feeds: 0 },
+              });
               this.updateRemote(remote, token, sessionSignal);
               const call: RemoteCall = (method, path, body) =>
                 fetch(`${endpoint}${path}`, {
@@ -258,24 +387,41 @@ export class Remotes {
             return;
           }
           if (event.type === "cancel") {
-            requests.get(event.id)?.abort();
+            (requests.get(event.id) ?? watches.get(event.id))?.abort();
             return;
           }
+          const watch = event.method === "GET" && folderCommandRequest(event.method, event.path);
           if (
-            !artifactRequest(event.method, event.path) ||
+            !(
+              artifactRequest(event.method, event.path) ||
+              folderCommandRequest(event.method, event.path)
+            ) ||
             requests.has(event.id) ||
-            requests.size >= 16
+            watches.has(event.id)
           )
             throw new Error("The hub sent an invalid publication request.");
+          // A hub can free a slot a moment before this side does; answer busy, keep the relay.
+          // Watches have their own limit so they never take one of the 16 request slots, with
+          // room for watches the hub already ended that are still stopping here.
+          const slots = watch ? watches : requests;
+          if (slots.size >= (watch ? MAX_FOLDER_WATCHES * 2 : 16)) {
+            const busy = this.answerBusy(endpoint, token, event.id, sessionSignal).finally(() =>
+              tasks.delete(busy),
+            );
+            tasks.add(busy);
+            return;
+          }
           const controller = new AbortController();
-          requests.set(event.id, controller);
+          slots.set(event.id, controller);
           const task = this.forward(
             endpoint,
             token,
-            event,
+            folderCommandRequest(event.method, event.path) && this.local.originSecret
+              ? { ...event, origin: `${this.local.originSecret}:${remote.id}` }
+              : event,
             AbortSignal.any([sessionSignal, controller.signal]),
           ).finally(() => {
-            requests.delete(event.id);
+            slots.delete(event.id);
             tasks.delete(task);
           });
           tasks.add(task);
@@ -292,6 +438,7 @@ export class Remotes {
       } finally {
         clearTimeout(heartbeat);
         session.abort();
+        if (this.sessions.get(remote.id)?.signal === sessionSignal) this.sessions.delete(remote.id);
         const update = this.updating.get(remote.id);
         update?.controller.abort();
         await update?.task;
@@ -300,7 +447,28 @@ export class Remotes {
       await delay(3000, undefined, { signal }).catch(() => {});
     }
   }
-  private async forward(endpoint: string, token: string, event: RelayRequest, signal: AbortSignal) {
+  private async answerBusy(endpoint: string, token: string, id: string, signal: AbortSignal) {
+    await fetch(`${endpoint}/v1/relay/requests/${id}/response`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "scope-response-status": "503",
+      },
+      body: JSON.stringify({ error: "Scope is busy. Retry after the current requests finish." }),
+      redirect: "error",
+      signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+    })
+      .then((response) => response.body?.cancel())
+      .catch(() => {});
+  }
+
+  private async forward(
+    endpoint: string,
+    token: string,
+    event: RelayRequest & { origin?: string },
+    signal: AbortSignal,
+  ) {
     const transfer = new AbortController();
     signal = AbortSignal.any([signal, transfer.signal]);
     const started = performance.now();
@@ -403,6 +571,7 @@ export class Remotes {
         headers: {
           Authorization: `Bearer ${this.local.token}`,
           ...(event.contentType ? { "Content-Type": event.contentType } : {}),
+          ...(event.origin ? { [RELAY_ORIGIN_HEADER]: event.origin } : {}),
         },
       };
       phase = "local-http";
@@ -420,19 +589,14 @@ export class Remotes {
         const value = result.headers.get(name);
         if (value) responseHeaders.set(name, value);
       }
-      const output: RequestInit & { duplex: "half" } = {
-        method: "POST",
-        headers: responseHeaders,
-        body: result.body,
-        duplex: "half",
-        signal,
-        redirect: "error",
-      };
       phase = "response-post";
       const postStarted = performance.now();
       phaseStarted = postStarted;
       report("response-started");
-      const delivered = await fetch(`${base}/response`, output);
+      const delivered = await postResponse(`${base}/response`, responseHeaders, result.body, {
+        signal,
+        streaming: event.method === "GET" && folderCommandRequest(event.method, event.path),
+      });
       report("response-headers", { status: delivered.status });
       if (!delivered.ok) throw new Error(`Response delivery returned HTTP ${delivered.status}.`);
       await readRemoteJson(delivered);
@@ -450,4 +614,135 @@ export class Remotes {
     await this.pending;
     await Promise.all([...this.connections.keys()].map((id) => this.disconnect(id)));
   }
+}
+
+/**
+ * Posts a relay response to the hub. A `streaming` response, such as a folder watch, can
+ * last for hours and uses node:http: fetch keeps a 300-second response-headers deadline
+ * while the request body is still being sent, and the hub answers only after the body ends.
+ */
+function postResponse(
+  url: string,
+  headers: Headers,
+  body: ReadableStream<Uint8Array> | null,
+  { signal, streaming }: { signal: AbortSignal; streaming: boolean },
+): Promise<Response> {
+  if (!streaming) {
+    const init: RequestInit & { duplex: "half" } = {
+      method: "POST",
+      headers,
+      body,
+      duplex: "half",
+      signal,
+      redirect: "error",
+    };
+    return fetch(url, init);
+  }
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const outgoing = (target.protocol === "https:" ? httpsRequest : httpRequest)(
+      target,
+      // A pooled socket can be closed by the hub as idle just as it is reused.
+      { method: "POST", headers: Object.fromEntries(headers), signal, agent: false },
+      (incoming) =>
+        resolve(
+          new Response(Readable.toWeb(incoming) as ReadableStream<Uint8Array>, {
+            status: incoming.statusCode,
+          }),
+        ),
+    );
+    outgoing.on("error", reject);
+    // Node sends headers with the first body bytes, which can be a heartbeat 10 seconds away.
+    outgoing.flushHeaders();
+    if (body) pipeline(Readable.fromWeb(body as NodeReadableStream), outgoing).catch(reject);
+    else outgoing.end();
+  });
+}
+
+/**
+ * Sends a streamed request body with node:http. fetch keeps a 300-second response-headers
+ * deadline while the body is still being sent, and a large file can take longer. The
+ * connection fails when neither side sends anything for `idleMs`.
+ */
+function upload(
+  url: string,
+  headers: Record<string, string | undefined>,
+  body: Readable,
+  signal: AbortSignal,
+  idleMs: number | undefined,
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const outgoing = (target.protocol === "https:" ? httpsRequest : httpRequest)(
+      target,
+      {
+        method: "PUT",
+        headers: Object.fromEntries(Object.entries(headers).filter(([, value]) => value)),
+        signal,
+        agent: false,
+      },
+      (incoming) => {
+        const responseHeaders = new Headers();
+        for (const [name, value] of Object.entries(incoming.headers))
+          if (typeof value === "string") responseHeaders.set(name, value);
+        resolve(
+          new Response(Readable.toWeb(incoming) as ReadableStream<Uint8Array>, {
+            status: incoming.statusCode,
+            headers: responseHeaders,
+          }),
+        );
+      },
+    );
+    if (idleMs)
+      outgoing.setTimeout(idleMs, () =>
+        outgoing.destroy(new Error("The remote stopped responding.")),
+      );
+    outgoing.on("error", reject);
+    pipeline(body, outgoing).catch((error: unknown) => {
+      outgoing.destroy();
+      reject(error);
+    });
+  });
+}
+
+function watchIdle(
+  body: ReadableStream<Uint8Array>,
+  controller: AbortController,
+  idleMs: number | undefined,
+  release: () => void,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const reset = () => {
+    clearTimeout(timer);
+    if (idleMs)
+      timer = setTimeout(
+        () => controller.abort(new Error("The remote stopped responding.")),
+        idleMs,
+      );
+  };
+  reset();
+  return new ReadableStream<Uint8Array>({
+    async pull(stream) {
+      try {
+        const next = await reader.read();
+        reset();
+        if (next.done) {
+          clearTimeout(timer);
+          release();
+          stream.close();
+        } else stream.enqueue(next.value);
+      } catch (error) {
+        clearTimeout(timer);
+        release();
+        stream.error(error);
+      }
+    },
+    async cancel(reason) {
+      clearTimeout(timer);
+      release();
+      controller.abort();
+      await reader.cancel(reason).catch(() => {});
+    },
+  });
 }

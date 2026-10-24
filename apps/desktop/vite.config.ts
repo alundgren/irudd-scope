@@ -42,6 +42,16 @@ export default defineConfig({
       outExtensions: () => ({ js: ".mjs" }),
     },
     {
+      entry: { "folder-writer": "src/folder-writer.ts" },
+      outDir: "dist",
+      clean: false,
+      format: "esm",
+      target: "node24",
+      platform: "node",
+      deps: { alwaysBundle: [/.*/] },
+      outExtensions: () => ({ js: ".mjs" }),
+    },
+    {
       entry: { "cli-process": "src/transfer/cli-process.ts" },
       outDir: "dist",
       clean: false,

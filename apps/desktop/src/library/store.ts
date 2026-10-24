@@ -30,6 +30,14 @@ import {
 } from "../workspace/retention.ts";
 import { SketchpadDraft } from "../plugins/sketchpad/contract.ts";
 import { importTransferredTab, transferReceipt } from "./transfer-import.ts";
+import {
+  createFolderTabs,
+  findFolderTab,
+  openFolderTab,
+  staleFolderTab,
+} from "./folder-tab-store.ts";
+import { FolderIdentity } from "@irudd-scope/protocol/folder";
+import type { FolderSelection } from "../plugins/folder/contract.ts";
 import { TransferId, type TransferManifest } from "@irudd-scope/protocol/transfer";
 
 // An artifact tab may become built-in when its artifact kind does, such as HTML
@@ -101,6 +109,7 @@ export class ArtifactStore {
       await store.initializeLifecycle();
       await store.initializeNames();
       await store.initializeRetention();
+      await store.run(createFolderTabs(sql));
       store.retros = new RetroStore({
         sql,
         run: (effect) => store.run(effect),
@@ -481,6 +490,32 @@ export class ArtifactStore {
     );
   }
 
+  /**
+   * Closes an open tab to the drawer or reopens it, changing only the saved tab's
+   * visibility so newer changes from desktop main stay. A closed tab moves to the end.
+   * Returns whether the visibility changed.
+   */
+  async setTabHidden(id: string, hidden: boolean): Promise<boolean> {
+    const sql = this.sql;
+    return await this.run(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const [row] = yield* sql<{
+            document: string | null;
+          }>`SELECT document FROM live_tabs WHERE id = ${id} AND opened = 1 AND trashed_at IS NULL`;
+          if (!row?.document) return false;
+          const saved = decode(Tab, JSON.parse(row.document));
+          if (Boolean(saved.hidden) === hidden) return false;
+          const document = JSON.stringify({ ...saved, hidden });
+          if (hidden)
+            yield* sql`UPDATE live_tabs SET document = ${document}, position = (SELECT coalesce(max(position), -1) + 1 FROM live_tabs) WHERE id = ${id}`;
+          else yield* sql`UPDATE live_tabs SET document = ${document} WHERE id = ${id}`;
+          return true;
+        }),
+      ),
+    );
+  }
+
   async trashTab(id: string, now = Date.now()): Promise<string[]> {
     const sql = this.sql;
     const rows = await this.run(
@@ -702,9 +737,9 @@ export class ArtifactStore {
           const [saved] = yield* sql<{
             document: string | null;
           }>`SELECT document FROM live_tabs WHERE id = ${id}`;
-          if (saved?.document)
-            assertBuiltinType(decode(Tab, JSON.parse(saved.document)), tab, kind);
-          const opened = { ...tab, id };
+          const previous = saved?.document ? decode(Tab, JSON.parse(saved.document)) : undefined;
+          if (previous) assertBuiltinType(previous, tab, kind);
+          const opened = previous && staleFolderTab(previous, tab) ? previous : { ...tab, id };
           const rows =
             yield* sql`UPDATE live_tabs SET opened = 1, document = ${JSON.stringify(opened)},
           permanent = CASE WHEN ${Number(isBuiltinTab(opened))} THEN 1 ELSE permanent END,
@@ -726,17 +761,41 @@ export class ArtifactStore {
             const [saved] = yield* sql<{
               document: string | null;
             }>`SELECT document FROM live_tabs WHERE id = ${tab.id}`;
-            if (saved?.document)
-              assertBuiltinType(
-                decode(Tab, JSON.parse(saved.document)),
-                tab,
-                yield* artifactKind(sql, tabArtifactId(tab)),
-              );
+            const previous = saved?.document ? decode(Tab, JSON.parse(saved.document)) : undefined;
+            if (previous)
+              assertBuiltinType(previous, tab, yield* artifactKind(sql, tabArtifactId(tab)));
+            // Desktop main changed this Folder tab after the renderer read it.
+            if (previous && staleFolderTab(previous, tab)) continue;
             yield* sql`UPDATE live_tabs SET document = ${JSON.stringify(tab)}, position = ${position} WHERE id = ${tab.id} AND opened = 1 AND trashed_at IS NULL AND artifact_id IS ${tabArtifactId(tab) ?? null}`;
           }
         }),
       ),
     );
+  }
+
+  async openFolderTab(
+    input: FolderIdentity & { title?: string; select?: FolderSelection; groupId: string },
+    now = Date.now(),
+  ) {
+    const opened = await this.run(openFolderTab(this.sql, { ...input, now }));
+    for (const listener of this.listeners) listener();
+    return opened;
+  }
+
+  /** The one tab for a folder, and whether it is in the tab strip. */
+  findFolderTab(identity: FolderIdentity): Promise<{ tabId: string; open: boolean } | undefined> {
+    return this.run(findFolderTab(this.sql, identity));
+  }
+
+  /** The folder a Folder tab shows. The tab record's own copy is display state only. */
+  async folderIdentity(tabId: string): Promise<FolderIdentity | undefined> {
+    const [row] = await this.run(
+      this.sql<{
+        machine_id: string;
+        path: string;
+      }>`SELECT machine_id, path FROM folder_tabs WHERE tab_id = ${tabId}`,
+    );
+    return row ? decode(FolderIdentity, { machineId: row.machine_id, path: row.path }) : undefined;
   }
 
   async removeArtifact(id: string): Promise<boolean> {

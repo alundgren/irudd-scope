@@ -10,7 +10,8 @@ import type { Artifact } from "@irudd-scope/protocol";
 import { Search, X } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { primaryShortcut } from "../renderer/shortcuts.ts";
-import { tabArtifactId } from "../plugins/registry.renderer.ts";
+import { tabArtifactId, tabLabel } from "../plugins/registry.renderer.ts";
+import type { TabLabelContext } from "../plugins/api.ts";
 import { isBuiltinTab } from "../plugins/registry.ts";
 import type { Tab } from "./contract.ts";
 import type { RetainedTab } from "./retention.ts";
@@ -27,6 +28,8 @@ export function TabBar({
   selectedId,
   artifacts,
   unread,
+  unreadTabs,
+  labels,
   tabButtons,
   controlsButton,
   searchOpen,
@@ -47,6 +50,8 @@ export function TabBar({
   selectedId: string | null;
   artifacts: ReadonlyMap<string, Artifact>;
   unread: ReadonlySet<string>;
+  unreadTabs: ReadonlySet<string>;
+  labels: TabLabelContext;
   tabButtons: RefObject<Map<string, HTMLButtonElement>>;
   controlsButton: RefObject<HTMLButtonElement | null>;
   searchOpen: boolean;
@@ -122,6 +127,8 @@ export function TabBar({
           hiddenIds={hiddenIds}
           artifacts={artifacts}
           unread={unread}
+          unreadTabs={unreadTabs}
+          labels={labels}
           tabButtons={tabButtons}
           onSelect={(id) => onSelect(id, true)}
           open={overflowOpen}
@@ -133,6 +140,7 @@ export function TabBar({
             const { id } = tab;
             const artifactId = tabArtifactId(tab);
             const artifact = artifacts.get(artifactId ?? "");
+            const label = tabLabel(tab, labels);
             const title = artifact?.title ?? tab.title;
             const builtin = isBuiltinTab(tab);
             const permanent =
@@ -155,7 +163,7 @@ export function TabBar({
                   aria-selected={isSelected}
                   aria-controls={`pane-${id}`}
                   tabIndex={id === selectedId ? 0 : -1}
-                  title={title}
+                  title={label?.tooltip ?? title}
                   aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight Delete"
                   aria-description={
                     builtin
@@ -172,9 +180,17 @@ export function TabBar({
                   }
                   onClick={() => onSelect(id)}
                 >
-                  {title}
+                  {label?.machine ? (
+                    <>
+                      <span className="tab-machine">{label.machine}</span>
+                      <span className="tab-machine-separator"> · </span>
+                      <span className="tab-label-title">{title}</span>
+                    </>
+                  ) : (
+                    title
+                  )}
                 </button>
-                {artifactId && unread.has(artifactId) && (
+                {((artifactId && unread.has(artifactId)) || unreadTabs.has(id)) && (
                   <span
                     className="unread-dot"
                     role="img"

@@ -292,6 +292,100 @@ Search and the empty workspace offer no manual creation controls for them. The
 empty workspace shows existing artifacts or an example publication command.
 Published `.excalidraw` files open as downloadable files.
 
+## Folder tabs
+
+Only agents open Folder tabs, when the person asks them to share a folder.
+Scope has no Open folder button, menu item, or folder drop target, so the strip
+and menus stay unchanged. A new Folder tab follows publication rules: it
+appears unread at the end of the strip and selects itself only when no tab is
+selected. Reopening an existing tab marks it unread, renames it when the agent
+passes a new title, and returns a closed or trashed tab to the end of the
+strip without changing selection, even when nothing is selected.
+
+When the person asks to see a file, the agent runs `folder select`. Scope
+opens the folder's tab if needed, expands every folder down to the file, and
+selects it in the tree, scrolled into view when the tab is shown. The tab is
+marked unread and the selected tab does not change. A file outside the folder
+or missing fails in the agent's shell and changes nothing in Scope.
+
+A local Folder tab shows only its title, like any tab. A remote Folder tab shows
+the machine name first in the muted color, then `·` and the title; only the
+title is shortened with an ellipsis. Folder tabs have no icon. The tooltip
+lists the full title, the machine (This Mac, This PC, or the remote's name),
+and the full path. The drawer's second line is the folder name, with the
+machine first for remotes, and drawer search matches the title, machine, and
+folder name.
+
+Inside the tab, a top bar shows a machine chip for remotes, the full path, a
+Show ignored files checkbox, and Copy path. The tree lists folders before
+files, each sorted by name, and renders only visible rows. `.git` is always
+hidden. Ignored files are hidden by default and dimmed when shown. Links that
+point outside the folder show a link icon and do not open. Changes on disk
+appear without losing scroll position, expanded folders, or the selected file,
+also when a folder is replaced or ignore rules change.
+A deleted selected file stays in the tree, struck through and marked Deleted.
+When a Linux machine runs out of file watches, the tab says live updates are
+slower. A missing folder shows `This folder no longer exists`, its path, and
+Close; the tree returns if the folder comes back. An offline remote shows
+`NAME is offline` with the path and no cached files. A remote whose hub lacks
+folder routes shows `Update Scope on NAME to view this folder`; other remote
+errors, such as a folder the hub may not read, show the error instead. Links
+into `.git` count as pointing outside the folder.
+
+Files and Search buttons sit above the tree. The filter box shows every file
+whose path contains its text, in any letter case, with parent folders open and
+everything else hidden. Closing a folder while filtering does not change the
+saved expanded folders, so clearing the filter restores the previous tree. The
+filter text survives restart. While Scope still lists the folder, the filter
+says `Still scanning…`; for folders with more than 200,000 paths it says that
+it asks the folder's machine instead, and asks again when files change. It
+shows at most 10,000 files and says so. An agent's `folder select`, a drop, or a
+search match reveals its file each time, even when it is already selected: the
+folders down to it open in the tree shown, including folders closed while
+filtering. When the filter would hide the file, the tree shows all files and says
+`Showing all files so NAME is visible.`, naming the selected file, with Filter
+again. Selecting other files keeps all files shown. The filter text stays in the
+box; editing it or Filter again filters the tree again, and Filter again returns
+focus to the box. A tab first shown after restart reveals its saved selection,
+because an agent may have selected it meanwhile.
+
+Search looks through file contents on the folder's machine and lists each match
+as path, line number, and the line with the match marked. It skips binary files
+and files over 1 MiB, follows Show ignored files, stops at 1,000 matches with a
+note, and has Cancel while running. A new query cancels the previous one.
+Switching between Files and Search keeps both. Clicking a match selects the file
+and scrolls its preview to that line.
+
+Selecting a file shows a read-only preview beside the tree, below it in narrow
+windows, using the published-file viewers. Text has line numbers; Markdown and
+HTML have a Source button, which a search match turns on. HTML previews run
+their scripts, forms, and popups but cannot reach Scope itself. A folder's files
+were not published by an agent, unlike published HTML, which runs unrestricted. Files Scope cannot
+display show name, size, and modified time. Text over 2 MiB shows its first
+2 MiB with a note. A file that changes reloads; a file that is deleted, or whose
+folder is renamed or deleted, says `This file was deleted.` Published text files
+show line numbers too, and Select All copies the whole text.
+
+Dragging files from Finder or Explorer over the tree outlines the folder under
+the pointer. Over a file it copies into that file's folder, and over empty space
+it outlines the whole tree for the top folder. Dropping copies the files, and
+dropped folders with their contents except `.git`, onto the folder's machine; the originals
+stay put. The tree then selects the first new file. A name that already exists
+asks `NAME already exists in FOLDER` with Replace, Keep both, and Cancel, and so
+does a second dropped file or folder with the same name. Keep
+both adds a number, as in `notes 2.md`; Cancel stops the whole drop before
+anything is written. With several existing names the question offers Apply to
+all. A name that appears while files are copied asks again instead of
+overwriting. Right-clicking a file shows Save to computer…, Copy path, and, for
+folders on this computer, Reveal in Finder (Show in Explorer on Windows);
+folders offer the last two. Save opens the normal save dialog in Downloads with
+the file's name. Files Scope cannot preview also show a Save to computer…
+button. Saves and drops show a progress row with Cancel above the tree. A
+cancelled or failed transfer leaves no partial file, and a failure stays shown
+until dismissed. If a dropped file's path leads to a different file by the time Scope copies
+it, for example because it was replaced while Scope asked, it is not copied and
+the row says to drop it again. Edits to the same file are copied.
+
 ## Sketchpad
 
 The Sketchpad is one built-in Excalidraw canvas for the person's own ideas.

@@ -29,6 +29,7 @@ export function TabHost({
   updateState,
   updateOverlayPosition,
   active,
+  onClose,
   ...display
 }: {
   tab: Tab;
@@ -40,6 +41,7 @@ export function TabHost({
     position: OverlayPosition | undefined,
   ) => void;
   active: boolean;
+  onClose: (id: string) => void;
   artifact?: Artifact;
   theme: Theme;
   focus: boolean;
@@ -60,7 +62,8 @@ export function TabHost({
     [events, saves],
   );
   const plugin = findPlugin(tab.type);
-  if (["file", "retro", "sketchpad"].includes(tab.type) && !active && !visited) return null;
+  if (["file", "retro", "sketchpad", "folder"].includes(tab.type) && !active && !visited)
+    return null;
   if (!plugin)
     return (
       <p role="status" className="empty-state">
@@ -95,6 +98,7 @@ export function TabHost({
             groupId: tab.groupId,
             events,
             updateState: (state) => updateState(tab.id, state),
+            close: () => onClose(tab.id),
             updateOverlayPosition: (name, position) =>
               updateOverlayPosition(tab.id, name, position),
             onBeforeClose: (save) => {

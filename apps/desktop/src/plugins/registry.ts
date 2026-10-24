@@ -8,6 +8,7 @@ import { planTabContract } from "./plan/contract.ts";
 
 import { pullRequestsTabContract } from "./pull-requests/contract.ts";
 import { retroTabContract } from "./retro/contract.ts";
+import { folderTabContract } from "./folder/contract.ts";
 
 const contracts = [
   promptsTabContract,
@@ -17,6 +18,7 @@ const contracts = [
   planTabContract,
   pullRequestsTabContract,
   retroTabContract,
+  folderTabContract,
 ];
 export function validateTabState(tab: Tab, preserveFuture = false): void {
   const contract = contracts.find((entry) => entry.type === tab.type);

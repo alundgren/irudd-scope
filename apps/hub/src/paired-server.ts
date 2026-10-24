@@ -28,8 +28,20 @@ import {
   PairRequest,
   HubUpdateRequest,
   type RelayEvent,
+  RELAY_CAPABILITIES_HEADER,
   RELAY_WAKE_HEADER,
 } from "@irudd-scope/protocol/remote";
+import {
+  FOLDER_CAPABILITY,
+  FOLDER_COMMAND_ROUTES,
+  MAX_FOLDER_COMMAND_BYTES,
+  MAX_FOLDER_WATCHES,
+  FolderRelativePath,
+  folderCommandRequest,
+  folderQuery,
+} from "@irudd-scope/protocol/folder";
+import { FolderError, canonicalFolder, readFolderFile } from "@irudd-scope/folder";
+import { FolderFileRoutes, folderFailure } from "./folder-routes.ts";
 import type { HubState } from "./state.ts";
 import type { HubUpdates } from "./updates.ts";
 import type { MemorySync } from "@irudd-scope/memory-sync";
@@ -105,10 +117,23 @@ export async function startPairedHub(
 ) {
   memory?.configure(state.memoryConfiguration());
   let desktop: ServerResponse | undefined;
+  // An older desktop drops the whole relay on an unknown request, so folder commands
+  // go only to a desktop that advertised folder support when it connected.
+  let desktopFolders = false;
+  const folderFiles = new FolderFileRoutes();
   const pending = new Map<string, Pending>();
+  // Folder commands hold a slot while their body is read and their path resolved, so
+  // concurrent commands can never put more than 16 requests on the relay.
+  let reserved = 0;
+  const relayFull = () => pending.size + reserved >= 16;
+  // Folder watches stay open until a tab closes, so they have their own slots, reserved
+  // the same way before their path is resolved.
+  const watches = new Map<string, Pending>();
+  let reservedWatches = 0;
   function forget(id: string) {
-    const item = pending.get(id);
+    const item = pending.get(id) ?? watches.get(id);
     pending.delete(id);
+    watches.delete(id);
     if (item) clearTimeout(item.timer);
     return item;
   }
@@ -127,15 +152,17 @@ export async function startPairedHub(
   function disconnect() {
     const previous = desktop;
     desktop = undefined;
+    desktopFolders = false;
     previous?.destroy();
-    for (const id of pending.keys())
+    folderFiles.closeAll();
+    for (const id of [...pending.keys(), ...watches.keys()])
       finish(
         id,
         "Scope on the Mac disconnected. Check the artifact before retrying an uncertain write.",
       );
   }
   function requestTimedOut(id: string, receivingDesktop: ServerResponse, error: string) {
-    const item = pending.get(id);
+    const item = pending.get(id) ?? watches.get(id);
     if (!item) return;
     const unstartedWrite = item.method !== "GET" && !item.bodyRead;
     finish(id, error);
@@ -143,7 +170,7 @@ export async function startPairedHub(
   }
   const relay: RelayCall = (method, path, body, signal) =>
     new Promise((resolve, reject) => {
-      if (!desktop || pending.size >= 16 || signal.aborted) {
+      if (!desktop || relayFull() || signal.aborted) {
         reject(new ScopeError(503, "The desktop relay is unavailable or busy."));
         return;
       }
@@ -369,12 +396,16 @@ export async function startPairedHub(
       json(response, 200, { unpaired: true });
       return;
     }
+    if (await folderFiles.handle(request, response, url)) return;
     if (url.pathname === "/v1/relay/events" && request.method === "GET") {
       if (desktop) {
         json(response, 409, { error: "This hub already has a connected Mac." });
         return;
       }
       desktop = response;
+      desktopFolders = String(request.headers[RELAY_CAPABILITIES_HEADER.toLowerCase()] ?? "")
+        .split(",")
+        .some((value) => value.trim() === FOLDER_CAPABILITY);
       response.writeHead(200, {
         "Content-Type": "application/x-ndjson",
         "Cache-Control": "no-store",
@@ -390,7 +421,7 @@ export async function startPairedHub(
       return;
     }
     const match = /^\/v1\/relay\/requests\/([a-f0-9-]{36})\/(body|response)$/.exec(url.pathname);
-    const item = match && pending.get(match[1]);
+    const item = match && (pending.get(match[1]) ?? watches.get(match[1]));
     if (!match || !item) {
       json(response, 404, { error: "The publication request has ended." });
       return;
@@ -511,6 +542,12 @@ export async function startPairedHub(
       json(response, 401, { error: "A valid publishing token is required." });
       return;
     }
+    if (folderCommandRequest(request.method ?? "", request.url ?? "")) {
+      await forwardFolderCommand(request, response).catch((error: unknown) =>
+        folderFailure(response, error),
+      );
+      return;
+    }
     if (!artifactRequest(request.method ?? "", request.url ?? "")) {
       json(response, 404, { error: "Artifact endpoint not found." });
       return;
@@ -535,7 +572,7 @@ export async function startPairedHub(
       });
       return;
     }
-    if (pending.size >= 16) {
+    if (relayFull()) {
       json(response, 503, { error: "The hub is busy. Retry after the current requests finish." });
       return;
     }
@@ -557,12 +594,117 @@ export async function startPairedHub(
         ? TRANSFER_IMPORT_TIMEOUT_MS
         : 30_000;
     request.setTimeout(timeoutMs);
+    startForward(request, request, response, timeoutMs, request.headers["content-type"]);
+  }
+
+  /** Folder commands are live only: they are never queued and need a desktop that supports them. */
+  async function forwardFolderCommand(request: IncomingMessage, response: ServerResponse) {
+    if (!desktop)
+      throw new FolderError(
+        "desktop-offline",
+        "Scope desktop is not connected. Open Scope and connect this remote, then retry.",
+      );
+    if (!desktopFolders)
+      throw new FolderError("unsupported", "Update Scope on the paired desktop to share folders.");
+    if (request.method === "GET") {
+      await forwardFolderWatch(request, response);
+      return;
+    }
+    if (relayFull()) {
+      json(response, 503, { error: "The hub is busy. Retry after the current requests finish." });
+      return;
+    }
+    reserved++;
+    let body: Buffer;
+    try {
+      body = await canonicalCommand(request);
+    } finally {
+      reserved--;
+    }
+    if (!desktop || !desktopFolders)
+      throw new FolderError("desktop-offline", "Scope desktop disconnected. Retry the command.");
+    request.setTimeout(30_000);
+    startForward(request, body, response, 30_000, "application/json");
+  }
+
+  /** Reads a folder command and replaces its path with the canonical path on this machine. */
+  async function canonicalCommand(request: IncomingMessage): Promise<Buffer> {
+    let input: Record<string, unknown>;
+    try {
+      const value: unknown = JSON.parse(
+        (await readBody(request, MAX_FOLDER_COMMAND_BYTES)).toString(),
+      );
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
+      input = value as Record<string, unknown>;
+    } catch {
+      throw new FolderError("not-found", "Send a folder command with an absolute path.");
+    }
+    if (typeof input.path !== "string" || input.path.length > 4096)
+      throw new FolderError("not-found", "Send a folder command with an absolute path.");
+    // The canonical path is computed on the machine that has the files.
+    const path = await canonicalFolder(input.path);
+    // A selected file is checked here too, so a missing or outside file opens no tab.
+    if (request.url === FOLDER_COMMAND_ROUTES.select && typeof input.file === "string") {
+      let file: string;
+      try {
+        file = decode(FolderRelativePath, input.file);
+      } catch {
+        throw new FolderError(
+          "outside-folder",
+          "Use a FILE path inside the folder, such as docs/plan.md.",
+        );
+      }
+      await readFolderFile(path, file, 0, 0);
+    }
+    return Buffer.from(JSON.stringify({ ...input, path }));
+  }
+
+  /**
+   * Relays `folder watch` as a long stream. The desktop's heartbeats keep both sockets
+   * under the 30-second timeout; the deadline only covers the desktop starting its answer.
+   */
+  async function forwardFolderWatch(request: IncomingMessage, response: ServerResponse) {
+    const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
+    const path = query.get("path");
+    if (!path || [...query.keys()].some((name) => name !== "path" && name !== "machine"))
+      throw new FolderError("not-found", "Send a folder watch with an absolute path.");
+    if (watches.size + reservedWatches >= MAX_FOLDER_WATCHES) {
+      json(response, 503, {
+        error: `This hub already has ${MAX_FOLDER_WATCHES} folder watches. Stop one and retry.`,
+      });
+      return;
+    }
+    reservedWatches++;
+    let canonical: string;
+    try {
+      canonical = await canonicalFolder(path);
+    } finally {
+      reservedWatches--;
+    }
+    const forwarded = `${FOLDER_COMMAND_ROUTES.watch}?${folderQuery({ path: canonical })}`;
+    if (!desktop || !desktopFolders)
+      throw new FolderError("desktop-offline", "Scope desktop disconnected. Retry the command.");
+    // Shorter than the 30-second socket timeout, so the caller gets the failure.
+    startForward(request, Buffer.alloc(0), response, 20_000, undefined, {
+      path: forwarded,
+      slots: watches,
+    });
+  }
+
+  function startForward(
+    request: IncomingMessage,
+    body: IncomingMessage | Buffer,
+    response: ServerResponse,
+    timeoutMs: number,
+    contentType: string | undefined,
+    { path = request.url!, slots = pending }: { path?: string; slots?: Map<string, Pending> } = {},
+  ) {
     const id = randomUUID();
-    const receivingDesktop = desktop;
+    const receivingDesktop = desktop!;
     const item: Pending = {
       method: request.method!,
-      path: request.url!,
-      request,
+      path,
+      request: body,
       response,
       bodyRead: false,
       answered: false,
@@ -572,12 +714,14 @@ export async function startPairedHub(
           requestTimedOut(
             id,
             receivingDesktop,
-            "The Mac did not respond in time. Check the artifact before retrying.",
+            slots === watches
+              ? "Scope desktop did not start the folder watch in time. Retry the command."
+              : "The Mac did not respond in time. Check the artifact before retrying.",
           ),
         timeoutMs,
       ),
     };
-    pending.set(id, item);
+    slots.set(id, item);
     response.on("close", () => {
       if (!response.writableFinished) finish(id);
     });
@@ -586,8 +730,8 @@ export async function startPairedHub(
       type: "request",
       id,
       method: request.method as "GET" | "POST" | "PUT" | "DELETE",
-      path: request.url!,
-      ...(request.headers["content-type"] ? { contentType: request.headers["content-type"] } : {}),
+      path,
+      ...(contentType ? { contentType } : {}),
     });
   }
 

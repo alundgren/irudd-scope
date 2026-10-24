@@ -12,7 +12,17 @@ import {
 } from "@irudd-scope/protocol/voice";
 import type { VoiceService } from "../voice/service.ts";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { RemoteId } from "@irudd-scope/protocol/remote";
+import {
+  FOLDER_COMMAND_ROUTES,
+  FOLDER_HEARTBEAT_MS,
+  MAX_FOLDER_COMMAND_BYTES,
+  folderErrorBody,
+  type FolderWatchEvent,
+  type MachineId,
+} from "@irudd-scope/protocol/folder";
+import { RELAY_ORIGIN_HEADER } from "../remote-contract.ts";
 import {
   ArtifactId,
   ArtifactWrite,
@@ -59,7 +69,20 @@ export async function startArtifactServer(options: {
   shrink?: (timeoutMs: number) => Promise<ShrinkReceipt>;
   maintenanceStatus?: () => DatabaseShrink[];
   deleteArtifact?: (id: string) => Promise<{ id: string; deleted: boolean }>;
+  /** Runs an agent folder command for the machine that delivered it. */
+  folders?: (
+    command: Exclude<keyof typeof FOLDER_COMMAND_ROUTES, "watch">,
+    input: unknown,
+    machineId: MachineId,
+  ) => Promise<unknown>;
+  /** Starts an agent's watch on a folder's open tab; events end when the tab closes. */
+  watchFolder?: (
+    input: unknown,
+    machineId: MachineId,
+    signal: AbortSignal,
+  ) => Promise<AsyncIterable<FolderWatchEvent>>;
 }) {
+  const originSecret = randomBytes(32).toString("base64url");
   if (options.token.length < 24 || /[\r\n]/.test(options.token))
     throw new Error("Use a publishing token with at least 24 characters and no newlines.");
   const store = await ArtifactStore.open(options.directory);
@@ -72,6 +95,7 @@ export async function startArtifactServer(options: {
     throw error;
   }
   const streams = new Set<ServerResponse>();
+  let watches = 0;
   const pending = new Set<Promise<void>>();
   let uploads = 0;
   const sendEvent = (response: ServerResponse, event: LiveEvent) => {
@@ -146,6 +170,10 @@ export async function startArtifactServer(options: {
       const body = await readJson(request, 2 * 1024 * 1024, "Librarian command exceeds 2 MiB.");
       const input = validate(() => decode(LibrarianCommand, body));
       json(response, 200, decode(LibrarianReply, await options.librarian(input)));
+      return;
+    }
+    if (url.pathname.startsWith("/v1/folders/")) {
+      await folderCommand(request, response, url);
       return;
     }
     if (await handlePromptHttp(request, response, url, store.prompts)) return;
@@ -254,6 +282,97 @@ export async function startArtifactServer(options: {
     if (!match) throw new ScopeError(404, "Endpoint not found.");
     const id = validate(() => decode(ArtifactId, decodeURIComponent(match[1])));
     await handleArtifact(request, response, url, id, match[2]);
+  }
+
+  // The machine comes from the connection that delivered the command, never from its body.
+  function commandMachine(request: IncomingMessage): MachineId {
+    const value = request.headers[RELAY_ORIGIN_HEADER.toLowerCase()];
+    if (typeof value !== "string") return "local";
+    const separator = value.lastIndexOf(":");
+    const secret = Buffer.from(value.slice(0, Math.max(0, separator)));
+    const expected = Buffer.from(originSecret);
+    if (secret.length !== expected.length || !timingSafeEqual(secret, expected)) return "local";
+    try {
+      return decode(RemoteId, value.slice(separator + 1));
+    } catch {
+      return "local";
+    }
+  }
+
+  async function folderCommand(request: IncomingMessage, response: ServerResponse, url: URL) {
+    const command = (
+      Object.keys(FOLDER_COMMAND_ROUTES) as (keyof typeof FOLDER_COMMAND_ROUTES)[]
+    ).find((name) => FOLDER_COMMAND_ROUTES[name] === url.pathname);
+    const method = command === "watch" ? "GET" : "POST";
+    try {
+      if (!command || request.method !== method)
+        throw new ScopeError(404, "Folder endpoint not found.", "unsupported");
+      if (!options.folders || !options.watchFolder)
+        throw new ScopeError(501, "Folders are unavailable in this Scope.", "unsupported");
+      if (command === "watch") {
+        await watchFolder(request, response, url, options.watchFolder);
+        return;
+      }
+      const input = await readJson(
+        request,
+        MAX_FOLDER_COMMAND_BYTES,
+        "Folder command exceeds 16 KiB.",
+      );
+      json(response, 200, await options.folders(command, input, commandMachine(request)));
+    } catch (error) {
+      const status =
+        error instanceof ScopeError
+          ? error.status
+          : error &&
+              typeof error === "object" &&
+              "status" in error &&
+              typeof error.status === "number"
+            ? error.status
+            : 500;
+      json(response, status, folderErrorBody(error, status === 400 ? "not-found" : "failed"));
+    }
+  }
+
+  /** Streams NDJSON watch events with heartbeats until the tab closes or the caller leaves. */
+  async function watchFolder(
+    request: IncomingMessage,
+    response: ServerResponse,
+    url: URL,
+    start: NonNullable<typeof options.watchFolder>,
+  ) {
+    if (watches >= MAX_LOCAL_FOLDER_WATCHES)
+      throw new ScopeError(503, "Too many folder watches. Stop one and retry.", "failed");
+    const controller = new AbortController();
+    response.on("close", () => controller.abort());
+    watches++;
+    try {
+      const events = await start(
+        Object.fromEntries(url.searchParams),
+        commandMachine(request),
+        controller.signal,
+      );
+      response.writeHead(200, {
+        "Content-Type": "application/x-ndjson",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      });
+      response.flushHeaders();
+      const heartbeat = setInterval(
+        () => response.write(`${JSON.stringify({ type: "heartbeat" })}\n`),
+        FOLDER_HEARTBEAT_MS,
+      );
+      try {
+        for await (const event of events) response.write(`${JSON.stringify(event)}\n`);
+      } catch {
+        // Ending without `closed` tells the agent the watch stopped.
+        response.destroy();
+      } finally {
+        clearInterval(heartbeat);
+        response.end();
+      }
+    } finally {
+      watches--;
+    }
   }
 
   function openEventStream(response: ServerResponse) {
@@ -373,6 +492,7 @@ export async function startArtifactServer(options: {
   let closing: Promise<void> | undefined;
   return {
     store,
+    originSecret,
     url: `http://127.0.0.1:${address.port}`,
     close: () =>
       (closing ??= (async () => {
@@ -387,6 +507,9 @@ export async function startArtifactServer(options: {
       })()),
   };
 }
+
+// Local agents plus watches relayed from every paired remote, each hub sending at most 16.
+const MAX_LOCAL_FOLDER_WATCHES = 128;
 
 function authenticate(request: IncomingMessage, token: string) {
   const expected = Buffer.from(`Bearer ${token}`);
