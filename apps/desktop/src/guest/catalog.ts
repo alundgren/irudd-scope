@@ -32,6 +32,15 @@ async function input<S extends Schema.ConstraintDecoder<unknown>>(
   return decode(schema, JSON.parse((await bytes(request, 1024)).toString()));
 }
 
+function guestFailure(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : "";
+  return /^(Update (Scope|the other Scope)|The owner |This source |Guest catalog owner )/.test(
+    message,
+  )
+    ? message
+    : fallback;
+}
+
 /** Catalog ownership and artifact reads. Connections owns authentication and cancellation. */
 export class GuestCatalogs {
   private closed = new AbortController();
@@ -241,7 +250,10 @@ export class GuestCatalogs {
             deviceId: peer.deviceId,
             name: peer.name,
             state: state?.state === "update-required" ? "update-required" : "offline",
-            message: state?.message,
+            message:
+              state?.state === "update-required"
+                ? state.message
+                : `${peer.name} is unavailable. Reconnect to read current content.`,
           });
         }
       }
@@ -315,7 +327,10 @@ export class GuestCatalogs {
       }
     } catch (error) {
       this.available.delete(ownerDeviceId);
-      const message = error instanceof Error ? error.message : "Could not refresh shared tabs.";
+      const message = guestFailure(
+        error,
+        `${name} is unavailable. Reconnect to read current content.`,
+      );
       this.owners.set(ownerDeviceId, {
         deviceId: ownerDeviceId,
         name,
@@ -339,18 +354,23 @@ export class GuestCatalogs {
       (peer) => peer.deviceId === record.ownerDeviceId,
     );
     if (!peer) throw new Error("The owner is no longer paired.");
-    const response = await this.connections.request(
-      peer.id,
-      record.source.kind === "plan" ? "plan-content" : "artifact-content",
-      {
+    const response = await this.connections
+      .request(peer.id, record.source.kind === "plan" ? "plan-content" : "artifact-content", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: Buffer.from(JSON.stringify({ sourceTabId: record.source.sourceTabId, revision })),
         signal: this.closed.signal,
         idleMs: 15000,
         deadlineMs: 60000,
-      },
-    );
+      })
+      .catch((error) => {
+        throw new Error(
+          guestFailure(
+            error,
+            "Could not read current content from the owner. Reconnect or reopen this tab.",
+          ),
+        );
+      });
     try {
       if (response.status !== 200)
         throw new Error("The owner no longer allows this read. Refresh the guest tab.");
@@ -364,6 +384,13 @@ export class GuestCatalogs {
       if (!this.view.available.includes(id) || latest?.source.artifact?.revision !== revision)
         throw new Error("This source changed while reading. Refresh the guest tab.");
       return { artifact, bytes: content };
+    } catch (error) {
+      throw new Error(
+        guestFailure(
+          error,
+          "Could not read current content from the owner. Reconnect or reopen this tab.",
+        ),
+      );
     } finally {
       response.body.destroy();
     }

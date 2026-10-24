@@ -572,6 +572,9 @@ export async function guestCatalogChecks({
       ).rejects.toThrow();
       await expect.poll(async () => (await source()).available.length, { timeout: 25000 }).toBe(0);
       expect((await source()).records.some((record) => record.tab.id === guestId)).toBe(true);
+      await pageB
+        .getByText(/Source Scope is unavailable. Reconnect to read current content./)
+        .waitFor();
       await capture("guest-owner-unavailable.png");
     },
   };
