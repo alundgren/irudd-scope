@@ -166,6 +166,12 @@ const bridge: ScopeBridge = {
     ipcRenderer.on("scope:memory-changed", receive);
     return () => ipcRenderer.removeListener("scope:memory-changed", receive);
   },
+  guestStatus: () => ipcRenderer.invoke("scope:guest-status"),
+  setGuestAccess: (peerId, enabled) =>
+    ipcRenderer.invoke("scope:set-guest-access", { peerId, enabled }),
+  retryGuest: (peerId) => ipcRenderer.invoke("scope:retry-guest", peerId),
+  copyGuestLink: (peerId) => ipcRenderer.invoke("scope:copy-guest-link", peerId),
+  connectGuestLink: (peerId) => ipcRenderer.invoke("scope:connect-guest-link", peerId),
   transferDevices: () => ipcRenderer.invoke("scope:transfer-devices"),
   createPairing: (name) => ipcRenderer.invoke("scope:create-pairing", name),
   copyPairingSecret: (id) => ipcRenderer.invoke("scope:copy-pairing-secret", id),

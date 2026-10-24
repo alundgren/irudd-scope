@@ -30,6 +30,7 @@ import { Remotes } from "./remotes.ts";
 import { MemoryService } from "./memory.ts";
 import { LibrarianService } from "./librarian.ts";
 import { createApplicationMenu } from "./menu.ts";
+import { GuestConnections } from "./guest/service.ts";
 import { TabTransfers } from "./transfer/service.ts";
 import { TailcatCliTransport } from "./transfer/transport.ts";
 import { registerTransferLinks } from "./transfer/links.ts";
@@ -164,6 +165,8 @@ async function main() {
     });
   transferLinks.attach(window);
   transfers = new TabTransfers(store, lifecycle!, new TailcatCliTransport());
+  const guests = new GuestConnections(store);
+  await guests.start();
   if (process.platform === "darwin") window.setWindowButtonVisibility(false);
   const client = new ScopeClient(artifacts.url, artifacts.token);
   const setSketchpadMenu = createApplicationMenu(window);
@@ -187,6 +190,7 @@ async function main() {
   powerMonitor.on("resume", () => {
     void store.maintenance.check();
     void artifacts.store.maintenance.check();
+    void guests.reconnect();
     void remotes.resume().catch(() => console.error("Could not reconnect remotes after waking."));
     void memory?.retry().catch(() => console.error("Could not sync memory after waking."));
   });
@@ -218,6 +222,7 @@ async function main() {
     memory,
     librarian,
     transfers,
+    guests,
     setSketchpadMenu,
     onRestartToUpdate: async () => {
       if (updates.snapshot().phase !== "ready") throw new Error("No update is ready.");
@@ -285,6 +290,7 @@ async function main() {
     desktopIpc.dispose();
     externalLinks.dispose();
     library.close();
+    await guests.close();
     await transfers?.close();
     await remotes.close();
     await librarian?.close();

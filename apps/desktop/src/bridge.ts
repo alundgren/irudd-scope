@@ -1,3 +1,4 @@
+import type { GuestStatus } from "./guest/contract.ts";
 import type { PromptEvent } from "@irudd-scope/protocol";
 import type { PromptReply, PromptImage } from "@irudd-scope/protocol/prompts";
 import type {
@@ -167,6 +168,11 @@ export type ScopeBridge = {
   retryMemory: () => Promise<MemoryStatus>;
   copyMemoryRequest: (kind: "create" | "conflicts") => Promise<void>;
   onMemoryChange: (listener: (status: MemoryStatus) => void) => () => void;
+  guestStatus: () => Promise<GuestStatus>;
+  setGuestAccess: (peerId: string, enabled: boolean) => Promise<void>;
+  retryGuest: (peerId: string) => Promise<void>;
+  copyGuestLink: (peerId: string) => Promise<void>;
+  connectGuestLink: (peerId: string) => Promise<void>;
   transferDevices: () => Promise<TransferDevices>;
   createPairing: (name: string) => Promise<TransferStatus>;
   copyPairingSecret: (id: string) => Promise<void>;

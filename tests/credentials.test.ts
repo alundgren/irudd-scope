@@ -114,16 +114,28 @@ test(
       await first.load();
       const device = await first.transferDevice("Private Mac");
       await first.saveScopePeer(peer, secret);
+      await first.saveGuestKey("synthetic-guest-transport-key");
+      await first.saveGuestEndpoint(peer.id, { address: "tc" + "z".repeat(80), port: 41234 });
+      await first.updateGuestSettings({ peerId: peer.id, enabled: true });
+      await first.updateGuestSettings({ port: 41235 });
       await first.saveSettings({ apiKey: "synthetic-provider-key" });
       await first.close();
       await second.load();
       expect(await second.transferDevice()).toEqual(device);
       expect(await second.scopePeers()).toEqual([peer]);
       expect(await second.transferKey(peer.id)).toBe(secret);
+      expect(await second.guestKey()).toBe("synthetic-guest-transport-key");
+      expect(await second.guestEndpoint(peer.id)).toEqual({
+        address: "tc" + "z".repeat(80),
+        port: 41234,
+      });
+      expect(await second.guestSettings()).toEqual({ enabled: { [peer.id]: true }, port: 41235 });
       await second.removeScopePeer(peer.id);
       expect(await second.scopePeers()).toEqual([]);
       expect(await credentials.read()).toEqual({
         apiKey: "synthetic-provider-key",
+        guestKey: "synthetic-guest-transport-key",
+        guestEndpoints: {},
         transferKeys: {},
       });
     } finally {

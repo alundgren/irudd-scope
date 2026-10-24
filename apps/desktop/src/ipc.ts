@@ -19,6 +19,8 @@ import type { LibrarianService } from "./librarian.ts";
 import { RemoteId } from "@irudd-scope/protocol/remote";
 import { openKeychainAccess } from "./signing.ts";
 import { SketchpadMenuState } from "./menu-contract.ts";
+import type { GuestConnections } from "./guest/service.ts";
+import { GuestAccess } from "./guest/contract.ts";
 import type { TabTransfers } from "./transfer/service.ts";
 import { TransferId, TransferName } from "@irudd-scope/protocol/transfer";
 
@@ -35,6 +37,7 @@ export function registerDesktopIpc({
   memory,
   librarian,
   transfers,
+  guests,
   onRestartToUpdate,
   setSketchpadMenu,
 }: {
@@ -50,6 +53,7 @@ export function registerDesktopIpc({
   memory: MemoryService;
   librarian: LibrarianService;
   transfers: TabTransfers;
+  guests: GuestConnections;
   onRestartToUpdate: () => Promise<void>;
   setSketchpadMenu: (state: SketchpadMenuState) => void;
 }) {
@@ -226,7 +230,23 @@ export function registerDesktopIpc({
     await clipboard.writeText(transfers.pairingSecret(decode(TransferId, input)));
   });
   handle("scope:pair-scope", (input) => transfers.pair(input));
-  handle("scope:forget-scope", (input) => transfers.forget(decode(TransferId, input)));
+  handle("scope:forget-scope", async (input) => {
+    const id = decode(TransferId, input);
+    await guests.forget(id);
+    await transfers.forget(id);
+  });
+  handle("scope:guest-status", () => guests.status());
+  handle("scope:set-guest-access", (input) => {
+    const value = decode(GuestAccess, input);
+    return guests.setEnabled(value.peerId, value.enabled);
+  });
+  handle("scope:retry-guest", (input) => guests.reconnect(decode(TransferId, input)));
+  handle("scope:copy-guest-link", async (input) =>
+    clipboard.writeText(await guests.connectionLink(decode(TransferId, input))),
+  );
+  handle("scope:connect-guest-link", async (input) =>
+    guests.connectLink(decode(TransferId, input), await clipboard.readText()),
+  );
   handle("scope:send-tab", (input) => transfers.send(input));
   handle("scope:transfer-status", (input) => transfers.status(decode(TransferId, input)));
   handle("scope:cancel-transfer", (input) => transfers.cancel(decode(TransferId, input)));

@@ -977,3 +977,9 @@ workspace and visible-library reads. A desktop editor must retain dirty local
 text and handle revision conflicts explicitly. Agent commands never navigate
 the selected desktop tab. Paired hubs forward these routes only while the
 desktop is connected; prompt commands and exports are never queued offline.
+
+Guest connections use the versioned schemas in `src/guest.ts`: signed setup links,
+fresh server challenges, paired device proofs, and session capability replies.
+Endpoint addresses include transport credentials and stay in protected desktop
+storage. The peer listener exposes only registered owner operations; these
+contracts do not grant publishing or arbitrary desktop IPC access.

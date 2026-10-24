@@ -17,6 +17,7 @@
     "./prompts": "./src/prompts.ts",
     "./plan": "./src/plan.ts",
     "./folder": "./src/folder.ts",
+    "./guest": "./src/guest.ts",
     "./folder-operation": "./src/folder-operation.ts"
   },
   "dependencies": {
