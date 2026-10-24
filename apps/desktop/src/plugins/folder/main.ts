@@ -249,9 +249,11 @@ export function registerFolderIpc({
       // A hub checks the file on its machine before forwarding; local files are checked here.
       if (machineId === "local") await readFolderFile(folder.path, request.file, 0, 0);
       const ignored = await selectedFileIgnored(folder, request.file);
+      const lines = request.lines ? { lines: request.lines } : {};
       return {
-        ...(await open(folder, request, { file: request.file, ignored })),
+        ...(await open(folder, request, { file: request.file, ignored, ...lines })),
         file: request.file,
+        ...lines,
       };
     }
     const request = commandInput(FolderOpenRequest, input);

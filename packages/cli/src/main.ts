@@ -60,7 +60,7 @@ irudd-scope plan capture-basis NAME BASIS_ID --expected-revision REVISION
 irudd-scope plan content NAME --output NEW_FILE.html
 irudd-scope folder open [PATH] [--title TITLE]
 irudd-scope folder find [PATH]
-irudd-scope folder select PATH FILE [--title TITLE]
+irudd-scope folder select PATH FILE [--lines START[-END]] [--title TITLE]
 irudd-scope folder watch [PATH]
 irudd-scope folder guide
 irudd-scope voice generate|status|result|cancel|guide [FILE_OR_ID]
@@ -87,7 +87,7 @@ Import-link imports a tab sharing link into the receiver's paired Scope without 
 Create sharing links and pair in the desktop app. Both computers must be online with Tailcat installed separately.
 Import-link defaults to a 300000 ms timeout and is never queued. Retry the same link after an uncertain result.
 Folder open shows a folder on this machine as a Folder tab in Scope, once per folder. It is never queued.
-Folder find reports whether the folder's tab is open. Folder select opens the tab if needed and selects FILE, a path relative to PATH.
+Folder find reports whether the folder's tab is open. Folder select opens the tab if needed and selects FILE, a path relative to PATH; --lines highlights lines in it.
 Folder watch prints one JSON line per event and exits 0 when the tab closes.
 `;
 
@@ -199,6 +199,7 @@ function parseOptions() {
       status: { type: "boolean" },
       help: { type: "boolean", short: "h" },
       title: { type: "string" },
+      lines: { type: "string" },
       id: { type: "string" },
       kind: { type: "string" },
       endpoint: { type: "string" },

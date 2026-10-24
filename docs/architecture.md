@@ -84,10 +84,11 @@ Folder tabs are unread through a tab ID set in renderer memory until selected.
 `folder find` reports whether a folder's tab is in the strip; a tab in Trashcan
 or closed to the drawer is not open. `folder select` checks the file on the
 machine that has it, then opens the tab like `folder open` and, in the same
-transaction, sets the selected file, adds every folder down to it to the
-expanded list, and bumps `revision`. `scope:folder-tab-opened` carries the
-selected file so the renderer replaces its selection and expands those folders
-while keeping its other expanded folders.
+transaction, sets the selected file and the lines passed with `--lines` (or
+clears them), adds every folder down to it to the expanded list, and bumps
+`revision`. `scope:folder-tab-opened` carries the selected file and lines so the
+renderer replaces its selection and expands those folders while keeping its
+other expanded folders. Choosing another file in the tab clears the lines.
 
 `folder watch` is a long NDJSON response with a heartbeat every 10 seconds.
 Desktop main ends it with `closed` at the moment the tab leaves the strip:

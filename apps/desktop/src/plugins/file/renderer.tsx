@@ -29,6 +29,7 @@ export const filePlugin: TabPlugin = {
               kind: item.artifact.kind,
               mediaType: item.artifact.mediaType,
               title: item.artifact.title,
+              fileName: item.artifact.fileName,
               version: item.artifact.blob,
             }}
             fallback={<FileView artifact={item.artifact} />}

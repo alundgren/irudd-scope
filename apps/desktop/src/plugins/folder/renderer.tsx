@@ -1,3 +1,4 @@
+import { Folder } from "lucide-react";
 import { lazy } from "react";
 import { decode } from "@irudd-scope/protocol";
 import type { TabPlugin } from "../api.ts";
@@ -17,6 +18,7 @@ export const folderPlugin: TabPlugin = {
     const name = folderName(path);
     return {
       title: tab.title,
+      icon: Folder,
       ...(machine ? { machine } : {}),
       detail: machine ? `${machine} · ${name}` : name,
       tooltip: `${tab.title}\n${machine ?? localMachineName(platform)}\n${path}`,

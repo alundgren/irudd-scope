@@ -154,6 +154,13 @@ test(
     await mkdir(other);
     await writeFile(join(app, "docs", "plans", "login.html"), "<h1>Login fix</h1>\n");
     await writeFile(join(app, "docs", "notes.md"), "# Notes\n");
+    await mkdir(join(app, "lib"));
+    await writeFile(
+      join(app, "lib", "setup.ts"),
+      Array.from({ length: 60 }, (_, index) => `export const step${index + 1} = "ready";\n`).join(
+        "",
+      ),
+    );
     await mkdir(join(app, "long"));
     for (let index = 0; index < 180; index++)
       await writeFile(join(app, "long", `z${String(index).padStart(3, "0")}.txt`), "");
@@ -320,6 +327,24 @@ test(
       await item("z179.txt").waitFor({ state: "detached" });
       await folder("select", app, "long/z179.txt");
       await item("z179.txt").waitFor();
+      // `--lines` shows the file's text with those lines marked and coloured as code;
+      // choosing another file clears the marks.
+      expect(await failure(f.cli("folder", "select", app, "lib/setup.ts", "--lines", "9-3"))).toBe(
+        "Use --lines START or --lines START-END, such as --lines 40-58.",
+      );
+      expect(await folder("select", app, "lib/setup.ts", "--lines", "40-42")).toMatchObject({
+        file: "lib/setup.ts",
+        lines: { start: 40, end: 42 },
+      });
+      const marked = page.locator(".text-line[data-marked]");
+      await expect
+        .poll(() => marked.evaluateAll((lines) => lines.map((line) => line.dataset.line)))
+        .toEqual(["40", "41", "42"]);
+      await expect
+        .poll(() => marked.first().locator("span[style*='color']").count())
+        .toBeGreaterThan(0);
+      await item("notes.md").click();
+      await expect.poll(() => marked.count()).toBe(0);
 
       // A local watch ends with `closed` when the person closes the tab, here a bookmark,
       // even while the window still shows an older copy of the tab: main's notice of the

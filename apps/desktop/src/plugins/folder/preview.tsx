@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Download } from "lucide-react";
 import { Button } from "../../renderer/components/ui/button.tsx";
-import { FileViews, type FileContent } from "../../renderer/file-views.tsx";
+import { FileViews, type FileContent, type MarkedLines } from "../../renderer/file-views.tsx";
 import type { FolderViewEvent } from "./contract.ts";
 
 /** Text previews show at most this much of a file. */
@@ -82,6 +82,7 @@ async function loadPreview(tabId: string, path: string): Promise<Loaded> {
       kind,
       mediaType,
       title: path.slice(path.lastIndexOf("/") + 1),
+      fileName: path.slice(path.lastIndexOf("/") + 1),
       version: `${first.size}:${first.modifiedAt}`,
     },
   };
@@ -116,13 +117,15 @@ function touches(event: FolderViewEvent["event"], path: string): "changed" | "de
 export function FolderPreview({
   tabId,
   path,
-  line,
+  lines,
 }: {
   tabId: string;
   path: string;
-  /** A search match's line: shows the file's text and scrolls to it. */
-  line: number | undefined;
+  /** A search match's line or an agent's marked lines: shows the file's text and scrolls to them. */
+  lines: MarkedLines | undefined;
 }) {
+  const start = lines?.start;
+  const end = lines?.end;
   const [loaded, setLoaded] = useState<Loaded>({ status: "loading" });
   const [source, setSource] = useState(false);
   const [reloads, setReloads] = useState(0);
@@ -130,7 +133,7 @@ export function FolderPreview({
   // Counts reads and deletions; a read that finishes after a newer one or a deletion is dropped.
   const generation = useRef(0);
 
-  useEffect(() => setSource(line !== undefined), [path, line]);
+  useEffect(() => setSource(start !== undefined), [path, start, end]);
   useEffect(() => {
     const run = ++generation.current;
     const current = () => run === generation.current;
@@ -236,7 +239,7 @@ export function FolderPreview({
                 ? { ...loaded.content, kind: "text", mediaType: "text/plain" }
                 : loaded.content
             }
-            line={line}
+            {...(start && end ? { lines: { start, end } } : {})}
             fallback={null}
           />
         )}

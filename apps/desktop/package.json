@@ -27,6 +27,7 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-markdown": "catalog:",
+    "shiki": "catalog:",
     "tw-animate-css": "catalog:"
   },
   "devDependencies": {

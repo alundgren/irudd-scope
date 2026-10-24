@@ -180,10 +180,15 @@ export function TabBar({
                   }
                   onClick={() => onSelect(id)}
                 >
-                  {label?.machine ? (
+                  {label?.icon || label?.machine ? (
                     <>
-                      <span className="tab-machine">{label.machine}</span>
-                      <span className="tab-machine-separator"> · </span>
+                      {label.icon && <label.icon className="tab-icon" aria-hidden />}
+                      {label.machine && (
+                        <>
+                          <span className="tab-machine">{label.machine}</span>
+                          <span className="tab-machine-separator"> · </span>
+                        </>
+                      )}
                       <span className="tab-label-title">{title}</span>
                     </>
                   ) : (
