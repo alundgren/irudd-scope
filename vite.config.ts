@@ -46,7 +46,8 @@ export default defineConfig({
     })),
   },
   test: {
-    maxWorkers: 2,
+    // Native macOS fullscreen windows share one display and compete for focus.
+    maxWorkers: process.platform === "darwin" ? 1 : 2,
     testTimeout: 30_000,
     reporters: ["minimal"],
     tags: promises.map(({ name, description }) => ({ name, description })),

@@ -134,7 +134,11 @@ test(
   "the built CLI publishes every tab view through appearance, focus, restart, trash, and explicit deletion",
   { tags: ["publish", "deletion-is-final"], timeout: 120_000 },
   async () => {
-    const { directory, launch, cli, connect } = await desktopFixture({ hideInitialPrompts: true });
+    // Native macOS fullscreen needs a visible window.
+    const { directory, launch, cli, connect } = await desktopFixture({
+      hideInitialPrompts: true,
+      showWindow: process.platform === "darwin",
+    });
     let application = await launch();
     const failures: string[] = [];
     const fullscreen = () =>
