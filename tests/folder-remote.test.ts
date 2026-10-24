@@ -102,7 +102,7 @@ type FeedEvent = {
   ignoreRulesChanged?: string[];
 };
 
-/** `during` can read the events received so far. */
+/** Runs `during` once the hub watches the folder; `during` can read the events so far. */
 async function feed(
   hub: Hub,
   desktop: Record<string, string>,
@@ -117,7 +117,9 @@ async function feed(
     { headers: desktop, signal: controller.signal },
   );
   const reading = lines(response, received).catch(() => {});
-  await wait(500);
+  // The first status line comes once the hub watches the folder.
+  await expect.poll(() => parsed().some((event) => event.type === "status")).toBe(true);
+  await wait(300);
   await during(parsed);
   controller.abort();
   await reading;
