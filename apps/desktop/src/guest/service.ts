@@ -517,6 +517,10 @@ export class GuestConnections {
     await this.connectPeer(peerId, link.endpoint);
     this.retry.delete(peerId);
   }
+  supports(peerId: string, capability: string): boolean {
+    return this.outgoing.get(peerId)?.capabilities.includes(capability) === true;
+  }
+
   access(peerId: string): AbortSignal {
     this.allowed(peerId);
     const session = this.outgoing.get(peerId);

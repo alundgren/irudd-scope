@@ -1,3 +1,4 @@
+import { MAX_GUEST_OPERATION_BYTES } from "@irudd-scope/protocol/guest-operation";
 import { handlePromptHttp } from "./prompt-http.ts";
 import { RetroCommand, RetroReply, MAX_RETRO_REQUEST_BYTES } from "@irudd-scope/protocol/retro";
 import type { RetroConfiguration } from "@irudd-scope/protocol/retro";
@@ -56,6 +57,7 @@ export async function startArtifactServer(options: {
       command: Extract<RetroCommand, { action: "configure" }>,
     ) => Promise<RetroConfiguration>;
   };
+  guestCommand?: (route: string, input: unknown) => Promise<unknown>;
   importLink?: (url: string) => Promise<TransferImportReceipt>;
   memory?: {
     status: () => MemoryStatus | Promise<MemoryStatus>;
@@ -143,6 +145,18 @@ export async function startArtifactServer(options: {
       return;
     }
     authenticate(request, options.token);
+    const guestRoute = /^\/v1\/guests\/(prepare|execute|status|reconcile|read)$/.exec(url.pathname);
+    if (guestRoute && request.method === "POST" && !url.search) {
+      if (!options.guestCommand)
+        throw new ScopeError(503, "Guest operations require an open desktop.");
+      const input = await readJson(
+        request,
+        MAX_GUEST_OPERATION_BYTES,
+        "Guest operation exceeds its input limit.",
+      );
+      json(response, 200, await options.guestCommand(guestRoute[1], input));
+      return;
+    }
     if (route === "POST /v1/retros" && !url.search) {
       const body = await readJson(
         request,

@@ -42,6 +42,17 @@ function subscribe<T>(channel: string, listener: (value: T) => void) {
   };
 }
 const bridge: ScopeBridge = {
+  guestPrepare: (change) => ipcRenderer.invoke("scope:guest-prepare", change),
+  guestExecute: (target, identity) =>
+    ipcRenderer.invoke("scope:guest-execute", { target, ...identity }),
+  guestOperationStatus: (target, identity) =>
+    ipcRenderer.invoke("scope:guest-operation-status", { target, ...identity }),
+  guestReconcile: (target, identity) =>
+    ipcRenderer.invoke("scope:guest-reconcile", { target, ...identity }),
+  guestRecovery: (id) => ipcRenderer.invoke("scope:guest-recovery", id),
+  saveGuestInput: (input) => ipcRenderer.invoke("scope:save-guest-input", input),
+  discardGuestInput: (id, kind, revision) =>
+    ipcRenderer.invoke("scope:discard-guest-input", { id, kind, revision }),
   guestCatalog: () => ipcRenderer.invoke("scope:guest-catalog"),
   onGuestCatalogChanged: (listener) => subscribe("scope:guest-catalog-changed", listener),
   guestContent: (id, revision) => ipcRenderer.invoke("scope:guest-content", { id, revision }),

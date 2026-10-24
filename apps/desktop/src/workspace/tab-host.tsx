@@ -1,3 +1,5 @@
+import { GuestActions } from "../guest/actions.tsx";
+import { GuestHtmlRecovery } from "../guest/html-recovery.tsx";
 import type { GuestCatalogView, GuestRecord } from "../guest/contract.ts";
 import { Component, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
@@ -147,8 +149,11 @@ export function TabHost({
     </TabErrorBoundary>
   );
   if (tab.type !== "guest") return view;
-  return (
+  const guestView = (
     <>
+      {guest && (
+        <GuestActions record={guest} owner={guestOwner} available={guestAvailable === true} />
+      )}
       {notice && (
         <p role="status" className="empty-state">
           {notice}
@@ -158,5 +163,16 @@ export function TabHost({
         {view}
       </div>
     </>
+  );
+  return guest?.source.artifact?.kind === "html" ? (
+    <GuestHtmlRecovery
+      key={`${guest.source.artifact.revision}/${guest.source.artifact.blob}`}
+      record={guest}
+      available={guestAvailable === true}
+    >
+      {guestView}
+    </GuestHtmlRecovery>
+  ) : (
+    guestView
   );
 }
