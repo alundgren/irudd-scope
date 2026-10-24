@@ -33,7 +33,7 @@ export async function guestMutationChecks() {
   let ca = await a.connect();
   const responses = await guestResponseFixture();
   const html =
-    '<h1>Guest mutation example</h1><label>Notes<textarea id="notes"></textarea></label><label>Choice<select id="choice"><option>a</option><option>b</option></select></label><input id="agreed" type="checkbox"><input id="password" type="password"><input name="ambiguous"><input name="ambiguous"><script>document.body.dataset.events="0"; document.addEventListener("input",()=>document.body.dataset.events=String(Number(document.body.dataset.events)+1));</script>';
+    '<h1>Guest mutation example</h1><label>Notes<textarea id="notes"></textarea></label><label>Choice<select id="choice"><option>a</option><option>b</option></select></label><input id="agreed" type="checkbox"><input id="first" type="radio" name="radio-choice"><input id="second" type="radio" name="radio-choice"><input id="password" type="password"><input name="ambiguous"><input name="ambiguous"><script>document.body.dataset.events="0"; document.addEventListener("input",()=>document.body.dataset.events=String(Number(document.body.dataset.events)+1));</script>';
   let artifact = await ca.publish(
     "mutation-document",
     {
@@ -171,6 +171,9 @@ export async function guestMutationChecks() {
     await pageB.getByRole("button", { name: "Dismiss error", exact: true }).click();
     await frame.locator("#choice").selectOption("b");
     await frame.locator("#agreed").check();
+    await frame.locator("#first").check();
+    await frame.locator("#second").check();
+    await frame.locator("#first").check();
     await frame.locator("#password").fill("not-persisted-password");
     await frame.locator('[name="ambiguous"]').first().fill("not-persisted-ambiguous");
     await expect
@@ -179,10 +182,29 @@ export async function guestMutationChecks() {
           .evaluate((id) => window.scope.guestRecovery(id), guestId)
           .then((value) => value.inputs.find((input) => input.kind === "html")?.fields.length),
       )
-      .toBe(3);
+      .toBe(5);
     const saved = await pageB.evaluate((id) => window.scope.guestRecovery(id), guestId);
     expect(JSON.stringify(saved)).not.toContain("not-persisted");
     expect(JSON.stringify(saved)).not.toContain("<h1>");
+    await expect(
+      pageB.evaluate((input) => window.scope.saveGuestInput(input), {
+        ...saved.inputs[0],
+        fields: [
+          {
+            key: "id:password",
+            tag: "input" as const,
+            type: "password",
+            value: "must-not-persist",
+          },
+        ],
+      }),
+    ).rejects.toThrow();
+    await expect(
+      pageB.evaluate((input) => window.scope.saveGuestInput(input), {
+        ...saved.inputs[0],
+        ownerDeviceId: randomUUID(),
+      }),
+    ).rejects.toThrow("different guest");
     await right.close();
     right = await b.launch();
     pageB = await right.firstWindow();
@@ -197,6 +219,8 @@ export async function guestMutationChecks() {
     expect(await frame.locator("#notes").inputValue()).toBe("Recover this note after restart");
     expect(await frame.locator("#choice").inputValue()).toBe("b");
     expect(await frame.locator("#agreed").isChecked()).toBe(true);
+    expect(await frame.locator("#first").isChecked()).toBe(true);
+    expect(await frame.locator("#second").isChecked()).toBe(false);
     expect(await frame.locator("body").getAttribute("data-events")).toBe("0");
     await capture("mutations-restored-light-laptop.png");
     await openActions();
@@ -228,10 +252,39 @@ export async function guestMutationChecks() {
     expect(await pane.getByLabel("Source title", { exact: true }).inputValue()).toBe(
       "Retained competing title",
     );
+    await right.close();
+    right = await b.launch();
+    pageB = await right.firstWindow();
+    await pair();
+    await select(guestId);
+    pane = pageB.locator(`#pane-${guestId}`);
+    await openActions();
+    expect(await pane.getByLabel("Source title", { exact: true }).inputValue()).toBe(
+      "Retained competing title",
+    );
+    expect(
+      (await pageB.evaluate((id) => window.scope.guestRecovery(id), guestId)).pending?.outcome
+        .state,
+    ).toBe("conflict");
     await capture("mutations-conflict-light-laptop.png");
-    await pageB.evaluate(() => window.scope.saveSettings({ appearance: "dark" }));
+    await right.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));
+    await capture("mutations-conflict-light-narrow.png");
+    await pageB.getByRole("button", { name: "Search and controls" }).click();
+    await pageB.getByRole("button", { name: "Settings", exact: true }).click();
+    await pageB.getByLabel("Search settings").fill("appearance");
+    await pageB.getByLabel("Appearance", { exact: true }).selectOption("dark");
+    await pageB
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await expect.poll(() => pageB.locator("html").getAttribute("data-theme")).toBe("dark");
     await right.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));
     await capture("mutations-conflict-dark-narrow.png");
+    await right.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].setSize(1280, 820),
+    );
+    await capture("mutations-conflict-dark-laptop.png");
+    await right.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));
     await pane.getByRole("button", { name: "Review current owner source" }).click();
     await pane.getByRole("button", { name: "Rename on Owner laptop", exact: true }).click();
     await expect
@@ -322,6 +375,16 @@ export async function guestMutationChecks() {
       (await responses.peer("mutation-execute", { ...cancelled, operationId: randomUUID() })).body
         .state,
     ).toBe("unknown");
+    const navigation = await prepareRaw(
+      await change({ kind: "rename", title: "After owner navigation" }),
+    );
+    await pageA.evaluate(async (id) => {
+      await window.scope.setTabHidden(id, true);
+      await window.scope.setTabHidden(id, false);
+      await window.scope.reportVisibleTabs([id]);
+    }, sourceId);
+    expect((await responses.peer("mutation-execute", navigation)).body.state).toBe("completed");
+    await fresh();
     const first = await prepareRaw(await change({ kind: "rename", title: "Concurrent one" }));
     const second = await prepareRaw(await change({ kind: "rename", title: "Concurrent two" }));
     const outcomes = await Promise.all(
@@ -439,6 +502,11 @@ export async function guestMutationChecks() {
           .then((tabs) => tabs.find((entry) => entry.tab.id === sourceId)?.trashedAt !== null),
       )
       .toBe(true);
+    await openActions();
+    expect(await pane.getByRole("button", { name: "Check operation status" }).isEnabled()).toBe(
+      true,
+    );
+    await capture("mutations-lost-trash-reply-dark-narrow.png");
     await left.close();
     left = await a.launch();
     pageA = await left.firstWindow();
@@ -508,9 +576,48 @@ export async function guestMutationChecks() {
       ).body.state,
     ).toBe("expired");
     expect((await responses.peer("mutation-execute", aged)).body.state).toBe("expired");
-    await prepareRaw(await change({ kind: "rename", title: "New after clock advance" }));
+    const liveReceipt = await prepareRaw(
+      await change({ kind: "rename", title: "New after clock advance" }),
+    );
     expect((await responses.peer("mutation-execute", aged)).body.state).toBe("unknown");
     expect((await ca.get(artifact.id)).title).not.toBe("Expired write");
+    ownerDb((db) => {
+      const row = db
+        .prepare("SELECT * FROM guest_operations WHERE id = ?")
+        .get(liveReceipt.operationId) as {
+        caller: string;
+        digest: string;
+        expires_at: number;
+        outcome: string;
+      };
+      const count = (
+        db.prepare("SELECT count(*) AS count FROM guest_operations").get() as { count: number }
+      ).count;
+      const insert = db.prepare("INSERT INTO guest_operations VALUES (?, ?, ?, ?, ?)");
+      db.exec("BEGIN");
+      for (let i = count; i < 4096; i++) {
+        const id = randomUUID();
+        insert.run(
+          id,
+          row.caller,
+          row.digest,
+          row.expires_at,
+          JSON.stringify({ ...JSON.parse(row.outcome), operationId: id }),
+        );
+      }
+      db.exec("COMMIT");
+    });
+    expect(
+      (await responses.peer("mutation-prepare", await change({ kind: "trash" }))).status,
+    ).not.toBe(200);
+    expect(
+      (
+        await responses.peer("mutation-status", {
+          operationId: liveReceipt.operationId,
+          digest: liveReceipt.digest,
+        })
+      ).body.state,
+    ).toBe("rejected");
     // Receiver drafts are ordinary recovery records, never owner artifacts or persistent HTML.
     const db = new DatabaseSync(join(b.settingsDirectory, "artifacts", "scope.db"));
     try {

@@ -229,7 +229,11 @@ export function GuestActions({
         </div>
         {pending && (
           <p role="status">
-            Saved operation {pending.outcome.state}.{" "}
+            Saved operation{" "}
+            {pending.dispatched && pending.outcome.state === "prepared"
+              ? "awaiting owner status"
+              : pending.outcome.state}
+            .{" "}
             {pending.outcome.artifact &&
               `Current owner revision ${pending.outcome.artifact.revision}. `}
             Input and operation identity are retained. Further source changes are blocked until

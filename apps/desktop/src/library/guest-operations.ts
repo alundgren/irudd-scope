@@ -153,17 +153,19 @@ export class GuestOperations {
       throw new Error("Operation body does not match its prepared identity.");
     const { sql } = this.owner;
     const clock = this.clock();
-    const outcome = await this.owner.mutate(
+    const committed = await this.owner.mutate(
       sql.withTransaction(
         Effect.gen(function* () {
           const now = yield* clock;
           const [row] =
             yield* sql<Row>`SELECT * FROM guest_operations WHERE id = ${operation.operationId}`;
           const saved = resolve(row, caller, operation, now);
-          if (saved.state !== "prepared") return saved;
+          if (saved.state !== "prepared")
+            return { outcome: saved, artifact: undefined as Artifact | undefined };
           const change = operation.change;
           const [source] = yield* guestSources(sql, change.target.sourceTabId);
           let result: GuestOutcome;
+          let notification: Artifact | undefined;
           if (!source || source.kind === "folder")
             result = { ...saved, state: "rejected", message: "This source is no longer shared." };
           else if (
@@ -195,6 +197,7 @@ export class GuestOperations {
                 artifact: source.artifact,
               };
             else {
+              notification = changed;
               const [current] = yield* guestSources(sql, change.target.sourceTabId);
               result = {
                 ...saved,
@@ -206,16 +209,13 @@ export class GuestOperations {
           }
           yield* sql`UPDATE guest_operations SET outcome = ${JSON.stringify(result)} WHERE id = ${operation.operationId}`;
           yield* Effect.sync(() => signal.throwIfAborted());
-          return result;
+          return { outcome: result, artifact: notification };
         }),
       ),
-      (result) =>
-        result.state === "completed" && result.artifact
-          ? [{ type: "artifact", artifact: result.artifact }]
-          : [],
+      (result) => (result.artifact ? [{ type: "artifact", artifact: result.artifact }] : []),
     );
-    if (outcome.state === "completed") this.owner.changed();
-    return outcome;
+    if (committed.outcome.state === "completed") this.owner.changed();
+    return committed.outcome;
   }
 }
 function resolve(
@@ -299,5 +299,6 @@ function apply(sql: SqliteClient.SqliteClient, change: GuestChange) {
     yield* sql`UPDATE artifacts SET revision = ${artifact.revision}, document = ${JSON.stringify(artifact)}, blob_id = ${artifact.blob} WHERE tab_id = ${id}`;
     yield* sql`UPDATE lifecycle SET value = max(value, ${artifact.revision}) WHERE name = 'max_revision'`;
     yield* sql`UPDATE live_tabs SET document = json_set(document, '$.title', ${artifact.title}) WHERE id = ${id} AND document IS NOT NULL`;
+    return artifact;
   });
 }

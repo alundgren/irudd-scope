@@ -37,7 +37,7 @@ export function GuestHtmlRecovery({
   const [ready, setReady] = useState(false);
   const [review, setReview] = useState(false);
   const dirty = useRef(false);
-  const captureError = useRef("");
+  const captureErrors = useRef(new Map<string, string>());
   const initialRead = useRef<Promise<void> | undefined>(undefined);
   const current = useRef({ available, loaded });
   current.current = { available, loaded };
@@ -57,7 +57,7 @@ export function GuestHtmlRecovery({
     async (value) => {
       await initialRead.current;
       value = { ...value, fields: [...fields.current.values()] };
-      if (captureError.current) throw new Error(captureError.current);
+      if (captureErrors.current.size) throw new Error([...captureErrors.current.values()][0]);
       await window.scope.saveGuestInput(value);
       setInputs((inputs) => [
         ...inputs.filter((input) => input.revision !== value.revision),
@@ -96,20 +96,37 @@ export function GuestHtmlRecovery({
         return;
       }
       dirty.current = true;
-      try {
-        if (!fields.current.has(found[0]) && fields.current.size >= 64)
-          throw new Error(
-            "More than 64 edited fields cannot be saved. Copy your input before closing.",
+      const related =
+        found[1].tagName === "INPUT" && found[1].type === "radio"
+          ? [...supported].filter(
+              ([, field]) =>
+                field.type === "radio" &&
+                field.name === found[1].name &&
+                field.form === found[1].form,
+            )
+          : [found];
+      for (const [key, field] of related) {
+        try {
+          if (!fields.current.has(key) && fields.current.size >= 64) {
+            if (field.value === "") {
+              captureErrors.current.delete(key);
+              continue;
+            }
+            throw new Error(
+              "More than 64 edited fields cannot be saved. Copy your input before closing.",
+            );
+          }
+          fields.current.set(key, captureField(key, field));
+          captureErrors.current.delete(key);
+        } catch (error) {
+          captureErrors.current.set(
+            key,
+            error instanceof Error ? error.message : "Could not capture input.",
           );
-        fields.current.set(found[0], captureField(...found));
-        captureError.current = "";
-        setError("");
-        save.schedule();
-      } catch (error) {
-        captureError.current = error instanceof Error ? error.message : "Could not capture input.";
-        setError(captureError.current);
-        save.schedule();
+        }
       }
+      setError([...captureErrors.current.values()][0] ?? "");
+      save.schedule();
     };
     const detach = () => {
       frame.current?.removeEventListener("input", capture);
@@ -146,7 +163,7 @@ export function GuestHtmlRecovery({
       if (input.revision === artifact.revision) {
         dirty.current = false;
         fields.current.clear();
-        captureError.current = "";
+        captureErrors.current.clear();
       }
       await window.scope.discardGuestInput(record.tab.id, "html", input.revision);
       setInputs((values) => values.filter((value) => value.revision !== input.revision));
