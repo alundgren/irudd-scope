@@ -312,13 +312,17 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
     "created routes",
     "deleted routes",
   ]);
+  // Under load one batch can hold several steps, so each window includes its edges.
   const deletedNamesake = rules.findIndex((event) =>
     event.changes?.some((change) => change.type === "deleted" && change.path === "routes"),
   );
-  expect(
-    rules.slice(deletedNamesake + 1).filter((event) => event.ignoreRulesChanged?.includes(""))
-      .length,
-  ).toBeGreaterThanOrEqual(2);
+  const movedOut = rules.findIndex((event) =>
+    event.changes?.some((change) => change.path === "logs/git-moved-out.txt"),
+  );
+  const excludeChanged = (event: (typeof rules)[number]) =>
+    event.ignoreRulesChanged?.includes("") ?? false;
+  expect(rules.slice(deletedNamesake, movedOut + 1).some(excludeChanged)).toBe(true);
+  expect(rules.slice(Math.max(movedOut, 0)).some(excludeChanged)).toBe(true);
   expect(changed(rules).filter((change) => change.startsWith("created logs/"))).toEqual([
     "created logs/git-moved-out.txt",
   ]);
