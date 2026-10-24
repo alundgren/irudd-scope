@@ -320,9 +320,10 @@ HTML and records. Reading state persists with the workspace in SQLite. Native
 controls use Scope tokens; authored content keeps its presentation.
 
 The CLI assembles JSON and HTML and uses ordinary artifact reads and revision-checked
-publication for local plans. Explicit owner commands use the receiver guest API and
-the existing peer mutation receipts for an owner plan. The paired hub transports the same bytes and queues writes without
-new routes or a plan service. Reads and basis capture need the desktop online.
+publication for local plans. The paired hub can queue opted-in local plan publication
+through the artifact protocol. Reads and basis capture need the desktop online.
+Explicit owner commands use the receiver guest API and existing peer mutation
+receipts. These commands require a live connection and are never queued by the hub.
 Scope neither orchestrates agents nor infers agreement or verification.
 
 Legacy HTML plans convert to ordinary HTML artifacts and file tabs, preserving

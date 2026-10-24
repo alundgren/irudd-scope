@@ -1,5 +1,5 @@
 import { expect } from "vite-plus/test";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
@@ -73,7 +73,7 @@ export async function guestPlanNetwork(directory: string) {
     const result = await fetch(`${hub.endpoint}/v1/hub/queue`, {
       headers: { Authorization: `Bearer ${hub.token}` },
     }).then((r) => r.json());
-    expect(result.entries).toEqual([]);
+    expect(result.items).toEqual([]);
     const endpoint = `http://127.0.0.1:${(old.address() as { port: number }).port}`;
     await expect(
       promisify(execFile)(
@@ -105,4 +105,37 @@ export async function guestPlanNetwork(directory: string) {
     await new Promise<void>((resolve) => old.close(() => resolve()));
     await hub.stop();
   }
+}
+
+/** Drops only the receiver acknowledgement, after preparation has finished durably. */
+export async function lostPreparation(endpoint: string) {
+  let dropped = false;
+  const server = createServer((request, response) => {
+    const upstream = httpRequest(
+      `${endpoint}${request.url}`,
+      { method: request.method, headers: request.headers },
+      (incoming) => {
+        if (!dropped && request.url === "/v1/guests/prepare" && incoming.statusCode === 200) {
+          dropped = true;
+          incoming.resume();
+          incoming.on("end", () => response.destroy());
+        } else {
+          response.writeHead(incoming.statusCode!, incoming.headers);
+          incoming.pipe(response);
+        }
+        incoming.on("error", () => response.destroy());
+      },
+    );
+    upstream.on("error", () => response.destroy());
+    request.pipe(upstream);
+    response.on("close", () => upstream.destroy());
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return {
+    endpoint: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
+    close: async () => {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
 }

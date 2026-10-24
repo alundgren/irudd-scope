@@ -1,4 +1,4 @@
-import { guestPlanNetwork } from "./guest-plan-network.ts";
+import { guestPlanNetwork, lostPreparation } from "./guest-plan-network.ts";
 import { expect } from "vite-plus/test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -18,7 +18,7 @@ const proposal: PlanDocument = {
   version: 1,
   title: "Shared request plan",
   overviewHtml:
-    '<!doctype html><style>body{background:#242424;color:#eee;font:18px system-ui;padding:32px}button{font:inherit;padding:12px}section{margin:32px 0}</style><h1>Owner request plan</h1><button onclick="this.textContent=\'Inspected\'">Inspect request</button><section data-plan-goal="goal"></section><details data-plan-procedure="check"></details><div style="height:2400px">Original full proposal</div><script>document.body.dataset.check=window.scopePlan.data.checks[0].expectation</script>',
+    '<!doctype html><style>body{background:#242424;color:#eee;font:18px system-ui;padding:32px}button{font:inherit;padding:12px}section{margin:32px 0}</style><h1>Owner request plan</h1><button onclick="this.textContent=\'Inspected\'">Inspect request</button><section data-plan-goal="goal"></section><section data-plan-procedure="check"></section><div style="height:2400px">Original full proposal</div><script>document.body.dataset.check=window.scopePlan.data.checks[0].expectation</script>',
   goals: [{ id: "goal", outcome: "Requests preserve their original input." }],
   checks: [
     {
@@ -196,6 +196,38 @@ export async function guestPlanChecks() {
     const exportPath = join(directory, "overview.html");
     await cli("plan", "content", "shared-id", ...flags, "--output", exportPath);
     expect(await readFile(exportPath, "utf8")).toBe(proposal.overviewHtml);
+    const preparation = await lostPreparation(hub.endpoint);
+    try {
+      await expect(
+        exec(
+          process.execPath,
+          [
+            cliMain,
+            "plan",
+            "capture-basis",
+            "shared-id",
+            "not-dispatched",
+            ...flags,
+            ...versions(),
+          ],
+          {
+            env: { ...hub.env, SCOPE_ENDPOINT: preparation.endpoint, SCOPE_TOKEN: hub.token },
+            timeout: 15000,
+          },
+        ),
+      ).rejects.toThrow(/status/);
+      const saved = await cb.guestPending(target);
+      expect(saved!.dispatched).toBe(false);
+      expect(saved!.outcome.state).toBe("prepared");
+      expect((await cb.guestPending(target))!.operation).toEqual(saved!.operation);
+      expect((await ca.get("shared-id")).revision).toBe(current.artifact.revision);
+      const settled = await cli("plan", "status", "shared-id", ...flags);
+      expect(settled.operation.operationId).toBe(saved!.operation.operationId);
+      expect(settled.outcome.state).toBe("rejected");
+      await cli("plan", "reconcile", "shared-id", ...flags);
+    } finally {
+      await preparation.close();
+    }
     const captureResult = await cli(
       "plan",
       "capture-basis",
@@ -223,6 +255,10 @@ export async function guestPlanChecks() {
     await pane.getByText("Work item copied.", { exact: true }).waitFor();
     const packet = JSON.parse(await right.evaluate(({ clipboard }) => clipboard.readText()));
     expect(packet.owner).toMatchObject(target);
+    expect(JSON.stringify(packet)).not.toContain(pairingSecret);
+    expect(JSON.stringify(packet)).not.toContain(hub.token);
+    expect(await pane.locator("iframe").getAttribute("srcdoc")).not.toContain(pairingSecret);
+    expect(await pane.locator("iframe").getAttribute("srcdoc")).not.toContain(hub.token);
     expect(packet.artifact.id).toBe("shared-id");
     expect(packet.prerequisites[0].item.id).toBe("prepare");
     expect(await cli(...packet.retrieval.item.split(" ").slice(1))).toEqual(packet);
@@ -230,9 +266,13 @@ export async function guestPlanChecks() {
     await pane.locator("article").getByText("Keep the request", { exact: true }).click();
     await pane.locator("article").getByText(proposal.checks![0].method, { exact: true }).waitFor();
     for (const theme of ["light", "dark"] as const) {
-      await pageB.evaluate(async (appearance) => {
-        await window.scope.saveSettings({ appearance });
-      }, theme);
+      await pageB.keyboard.press("ControlOrMeta+,");
+      const settings = pageB.getByRole("dialog", { name: "Settings", exact: true });
+      await settings.getByLabel("Search settings").fill("appearance");
+      await pageB.getByLabel("Appearance", { exact: true }).selectOption(theme);
+      await expect.poll(() => pageB.locator("html").getAttribute("data-theme")).toBe(theme);
+      await settings.getByRole("button", { name: "Close", exact: true }).click();
+      await settings.waitFor({ state: "hidden" });
       for (const width of [1366, 620]) {
         await right.evaluate(
           ({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 820),
@@ -267,23 +307,30 @@ export async function guestPlanChecks() {
       .getByRole("heading", { name: "Owner request plan" })
       .waitFor();
     await ownerPane.getByRole("button", { name: "Current proposal", exact: true }).click();
-    await ownerPane
-      .locator("iframe")
-      .evaluate((element) => (element as HTMLIFrameElement).contentWindow!.scrollTo(0, 180));
+    await expect
+      .poll(async () => {
+        await ownerPane
+          .locator("iframe")
+          .evaluate((element) => (element as HTMLIFrameElement).contentWindow!.scrollTo(0, 180));
+        return (await pageA.evaluate(() => window.scope.workspace()))!.tabs.find(
+          (t) => t.id === guest.source.sourceTabId,
+        )!.state.data.scrollY;
+      })
+      .toBe(180);
     await pane.getByRole("button", { name: "Overview", exact: true }).click();
     await pane
       .locator("iframe")
       .evaluate((element) => (element as HTMLIFrameElement).contentWindow!.scrollTo(0, 540));
     await expect
-      .poll(() =>
-        pageB
-          .evaluate(() => window.scope.workspace())
-          .then(
-            (w) =>
-              (w!.tabs.find((t) => t.id === guestId)!.state.data.plan as { scrollY: number })
-                .scrollY,
-          ),
-      )
+      .poll(async () => {
+        await pane
+          .locator("iframe")
+          .evaluate((element) => (element as HTMLIFrameElement).contentWindow!.scrollTo(0, 540));
+        const workspace = await pageB.evaluate(() => window.scope.workspace());
+        return (
+          workspace!.tabs.find((t) => t.id === guestId)!.state.data.plan as { scrollY: number }
+        ).scrollY;
+      })
       .toBe(540);
     await pane.getByRole("button", { name: "Work items", exact: true }).click();
     await pane.locator(".plan-work").evaluate((element) => {
@@ -301,15 +348,15 @@ export async function guestPlanChecks() {
       .locator("iframe")
       .evaluate((element) => (element as HTMLIFrameElement).contentWindow!.scrollTo(0, 320));
     await expect
-      .poll(() =>
-        pageB
-          .evaluate(() => window.scope.workspace())
-          .then(
-            (w) =>
-              (w!.tabs.find((t) => t.id === guestId)!.state.data.plan as { basisScrollY: number })
-                .basisScrollY,
-          ),
-      )
+      .poll(async () => {
+        await pane
+          .locator("iframe")
+          .evaluate((element) => (element as HTMLIFrameElement).contentWindow!.scrollTo(0, 320));
+        const workspace = await pageB.evaluate(() => window.scope.workspace());
+        return (
+          workspace!.tabs.find((t) => t.id === guestId)!.state.data.plan as { basisScrollY: number }
+        ).basisScrollY;
+      })
       .toBe(320);
     expect((await read()).document.agreements ?? []).toEqual([]);
     expect((await read()).document.evidence ?? []).toEqual([]);
@@ -406,6 +453,21 @@ export async function guestPlanChecks() {
     await cli("plan", "reconcile", "shared-id", ...flags);
     await fresh();
     current = await read();
+    await expect
+      .poll(() =>
+        pane
+          .getByRole("button", { name: "Preserve requests", exact: true })
+          .getAttribute("aria-pressed"),
+      )
+      .toBe("true");
+    await expect
+      .poll(() => pane.locator(".plan-work").evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(100);
+    await pane.getByText("Current revised context", { exact: true }).waitFor();
+    await pane.getByText("Synthetic recorded agreement.", { exact: true }).waitFor();
+    await pane.getByText("Keep the request: passed on recorded proposal", { exact: true }).click();
+    await pane.getByText("Synthetic recorded agreement.", { exact: true }).scrollIntoViewIfNeeded();
+    await capture("records-dark-laptop");
     await expect(
       cli("plan", "publish", "shared-id", json, html, ...flags, ...oldVersions),
     ).rejects.toThrow(/changed/);
@@ -496,13 +558,20 @@ export async function guestPlanChecks() {
     ).toBe(false);
     for (const capability of ["plan-read-v1", "mutations-v1"]) {
       responses.omitCapabilities(pairingSecret, [capability]);
-      await pageB.evaluate((id) => window.scope.retryGuest(id), peerId);
+      await pageB.evaluate((id) => window.scope.setGuestAccess(id, false), peerId);
+      await pageB.evaluate((id) => window.scope.setGuestAccess(id, true), peerId);
       await expect
         .poll(
           () => pageB.evaluate(() => window.scope.guestStatus()).then((s) => s.peers[0]?.state),
           { timeout: 25000 },
         )
         .toBe("connected");
+      await expect
+        .poll(
+          () => pageB.evaluate(() => window.scope.guestCatalog()).then((v) => v.available.length),
+          { timeout: 30000 },
+        )
+        .toBe(1);
       await expect(read()).rejects.toThrow(/Update/i);
       if (capability === "plan-read-v1") {
         await pageB.reload();
@@ -512,7 +581,8 @@ export async function guestPlanChecks() {
         await capture("update-dark-laptop");
       }
       responses.omitCapabilities(pairingSecret, []);
-      await pageB.evaluate((id) => window.scope.retryGuest(id), peerId);
+      await pageB.evaluate((id) => window.scope.setGuestAccess(id, false), peerId);
+      await pageB.evaluate((id) => window.scope.setGuestAccess(id, true), peerId);
       await expect
         .poll(
           () => pageB.evaluate(() => window.scope.guestCatalog()).then((v) => v.available.length),

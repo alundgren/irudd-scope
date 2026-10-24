@@ -162,7 +162,23 @@ export async function startArtifactServer(options: {
         MAX_GUEST_OPERATION_BYTES,
         "Guest operation exceeds its input limit.",
       );
-      json(response, 200, await options.guestCommand(guestRoute[1], input));
+      try {
+        json(response, 200, await options.guestCommand(guestRoute[1], input));
+      } catch (error) {
+        if (error instanceof ScopeError) throw error;
+        const message = error instanceof Error ? error.message : "";
+        if (/^Update (Scope|the other Scope)/.test(message)) throw new ScopeError(501, message);
+        if (
+          /^(The (owner|other Scope|source outcome)|This (source|operation)|No (guest for|matching saved)|Resolve the previous)/.test(
+            message,
+          )
+        )
+          throw new ScopeError(409, message);
+        throw new ScopeError(
+          409,
+          "The owner or source is unavailable. Check the guest tab and saved operation status before making another change.",
+        );
+      }
       return;
     }
     if (route === "POST /v1/retros" && !url.search) {

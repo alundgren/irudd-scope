@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { decode } from "@irudd-scope/protocol";
 import { planItemPacket, readPlan, type PlanDocument } from "@irudd-scope/protocol/plan";
 import type { ArtifactContent } from "../../bridge.ts";
@@ -142,9 +142,10 @@ function PlanContent({ content, ...props }: TabProps & { content: ArtifactConten
       update(basis ? { basisScrollY: y } : { scrollY: y });
     },
   );
-  useEffect(() => {
-    if (work.current) work.current.scrollTop = stateRef.current.workScrollY ?? 0;
-  }, []);
+  useLayoutEffect(() => {
+    if (props.active && view === "work" && work.current)
+      work.current.scrollTop = stateRef.current.workScrollY ?? 0;
+  }, [props.active, view, content.artifact.revision]);
   function inspect(id: string) {
     update({ basisId: id, basisScrollY: 0, view: "overview" });
   }
