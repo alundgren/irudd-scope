@@ -17,11 +17,11 @@ import {
   write,
   type Stats,
 } from "node:fs";
-import { sep } from "node:path";
+import { join, sep } from "node:path";
 import { addAbortSignal, type Readable } from "node:stream";
 import { promisify } from "node:util";
 import type { FolderWriteReceipt } from "@irudd-scope/protocol/folder";
-import { FolderError, STAGED_PREFIX, openInside, validRelative } from "./paths.ts";
+import { FolderError, GIT_DIRECTORY, STAGED_PREFIX, openInside, validRelative } from "./paths.ts";
 
 export { STAGED_PREFIX };
 
@@ -34,8 +34,11 @@ const errorCode = (error: unknown) =>
   error instanceof Error && "code" in error ? String(error.code) : "";
 
 type Identity = { dev: number; ino: number };
-/** An opened folder inside the root and the identity of every folder from the root down to it. */
-type Folder = { fd: number; real: string; chain: Identity[] };
+/**
+ * An opened folder inside the root and the identity of every folder from the root down to it.
+ * `git` is the identity of the root's `.git` folder, if it has one.
+ */
+type Folder = { fd: number; real: string; chain: Identity[]; git?: Identity };
 
 const identity = (info: Stats): Identity => ({ dev: info.dev, ino: info.ino });
 const same = (info: Stats | Identity, expected: Identity) =>
@@ -117,7 +120,13 @@ async function openRoot(root: string): Promise<Folder> {
       closeSync(fd);
       throw new FolderError("not-found", "This folder no longer exists.");
     }
-    return { fd, real, chain: [identity(info)] };
+    const git = entry(join(real, GIT_DIRECTORY));
+    return {
+      fd,
+      real,
+      chain: [identity(info)],
+      ...(git?.isDirectory() ? { git: identity(git) } : {}),
+    };
   } finally {
     await handle.close();
   }
@@ -132,6 +141,25 @@ function folderError(path: string, shown: string, code: string) {
 }
 
 type Create = "missing" | "exclusive";
+
+/** Windows short names such as `GIT~1` or `REPORT~2.DOC`. */
+const SHORT_NAME = /^[^.]{1,6}~\d{1,6}(\.[^.]{0,3})?$/;
+
+/**
+ * A path Scope may create. On Windows a name ending in a dot or space, a name with `:`, and a
+ * short name can each reach another entry, such as `.git`, so they are refused there.
+ */
+function writablePath(relative: string): string {
+  const path = validRelative(relative);
+  if (process.platform !== "win32") return path;
+  for (const name of path.split("/"))
+    if (/[. ]$/.test(name) || name.includes(":") || SHORT_NAME.test(name))
+      throw new FolderError(
+        "outside-folder",
+        `Windows cannot store ${name} under that exact name. Rename it and try again.`,
+      );
+  return path;
+}
 
 /**
  * Opens the child folder `part` of `parent`, creating it when missing. The parent is checked
@@ -169,6 +197,11 @@ function openChild(root: string, parent: Folder, part: string, shown: string, cr
       throw error;
     }
     const info = fstatSync(fd);
+    // Windows also opens `.git` as `.git.`, `.git::$INDEX_ALLOCATION`, or its short name.
+    if (parent.git && same(info, parent.git)) {
+      closeSync(fd);
+      throw new FolderError("not-found", "Scope does not show .git.");
+    }
     if (!info.isDirectory() || !stillInside(root, parent, base)) {
       closeSync(fd);
       undo();
@@ -176,7 +209,12 @@ function openChild(root: string, parent: Folder, part: string, shown: string, cr
         throw new FolderError("not-a-directory", `${shown} is a file, not a folder.`);
       throw escaped();
     }
-    return { fd, real: `${parent.real}${sep}${part}`, chain: [...parent.chain, identity(info)] };
+    return {
+      fd,
+      real: `${parent.real}${sep}${part}`,
+      chain: [...parent.chain, identity(info)],
+      ...(parent.git ? { git: parent.git } : {}),
+    };
   });
 }
 
@@ -207,7 +245,7 @@ export async function createDirectoryInProcess(
   relative: string,
   options: { exclusive?: boolean } = {},
 ): Promise<void> {
-  const path = validRelative(relative);
+  const path = writablePath(relative);
   if (!path) return;
   const top = await openRoot(root);
   try {
@@ -261,7 +299,7 @@ export async function writeInProcess(
   body: Readable,
   options: { replace: boolean; signal: AbortSignal },
 ): Promise<FolderWriteReceipt> {
-  const path = validRelative(relative);
+  const path = writablePath(relative);
   if (!path) throw new FolderError("not-a-directory", "Choose a file name inside the folder.");
   const parts = path.split("/");
   const fileName = parts.pop()!;

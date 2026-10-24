@@ -6,6 +6,7 @@ import { FolderRelativePath, type FolderErrorCode } from "@irudd-scope/protocol/
 
 /** `.git` is never shown, listed, or watched. */
 export const GIT_DIRECTORY = ".git";
+const GIT_REFUSED = "Scope does not show .git.";
 
 const STATUS: Record<FolderErrorCode, number> = {
   "no-tab": 404,
@@ -15,6 +16,7 @@ const STATUS: Record<FolderErrorCode, number> = {
   unsupported: 501,
   "desktop-offline": 503,
   exists: 409,
+  failed: 500,
 };
 
 /** A folder operation failure with the wire error code and its HTTP status. */
@@ -50,9 +52,16 @@ export async function canonicalFolder(path: string): Promise<string> {
     if (missing(error)) throw new FolderError("not-found", `The folder ${path} does not exist.`);
     throw error;
   }
+  // `.git` itself, a folder inside it, or a link to either is never opened as a folder.
+  if (gitPath(real)) throw new FolderError("not-found", GIT_REFUSED);
   if (!(await stat(real)).isDirectory())
     throw new FolderError("not-a-directory", `${path} is not a folder.`);
   return real;
+}
+
+/** Whether an absolute path, with either separator, passes through `.git` in any letter case. */
+export function gitPath(path: string): boolean {
+  return path.split(/[\\/]/).some(gitName);
 }
 
 /** Checks that a canonical root still exists at the same real path. */
@@ -77,8 +86,7 @@ export function validRelative(relative: string): string {
     throw new FolderError("outside-folder", "Use a path inside the folder.");
   }
   // Letter case matters only on some file systems: `.GIT` is `.git` on macOS and Windows.
-  if (path.split("/").some(gitName))
-    throw new FolderError("not-found", "Scope does not show .git.");
+  if (path.split("/").some(gitName)) throw new FolderError("not-found", GIT_REFUSED);
   return path;
 }
 
@@ -125,7 +133,7 @@ async function resolveJoined(root: string, path: string, shown: string): Promise
  */
 export async function resolveInside(root: string, relative: string): Promise<string> {
   const real = await resolveJoined(root, joinInside(root, relative), relative);
-  if (insideGit(root, real)) throw new FolderError("not-found", "Scope does not show .git.");
+  if (insideGit(root, real)) throw new FolderError("not-found", GIT_REFUSED);
   return real;
 }
 
@@ -179,8 +187,7 @@ export async function openInside(
   const real = await resolveJoined(root, path, relative);
   if (options.noSymlinks && real !== path) throw escaped();
   // A link inside the folder, such as docs/config -> ../.git/config, does not reach `.git`.
-  if (!options.internal && insideGit(root, real))
-    throw new FolderError("not-found", "Scope does not show .git.");
+  if (!options.internal && insideGit(root, real)) throw new FolderError("not-found", GIT_REFUSED);
   const flags =
     constants.O_RDONLY |
     (constants.O_NOFOLLOW ?? 0) |
@@ -204,14 +211,22 @@ export async function openInside(
   }
 }
 
-/** Reads a small text file, such as `.gitignore`, only when it is inside the root. */
+/**
+ * Reads a small regular file, such as `.gitignore` or `.git/info/exclude`, only when every
+ * part of its path below the root is a real directory or file, never a link. A FIFO or other
+ * special file is opened without waiting for a writer and then skipped.
+ */
 export async function readInsideText(
   root: string,
   relative: string,
   limit = 1024 * 1024,
 ): Promise<string | undefined> {
   try {
-    const { handle } = await openInside(root, relative, { internal: true });
+    const { handle } = await openInside(root, relative, {
+      internal: true,
+      nonBlocking: true,
+      noSymlinks: true,
+    });
     try {
       const info = await handle.stat();
       if (!info.isFile() || info.size > limit) return undefined;

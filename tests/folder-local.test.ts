@@ -10,7 +10,9 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
+import { promisify } from "node:util";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { desktopFixture } from "./desktop-fixture.ts";
@@ -141,7 +143,14 @@ test(
       await item("app.ts").click();
       expect(await item("app.ts").getAttribute("aria-selected")).toBe("true");
 
-      // Main's IPC handlers reject every escape and read exactly the requested bytes.
+      // Main's IPC handlers reject every escape and read exactly the requested bytes. Named
+      // pipes, which block a plain open until something writes to them, fail at once, and a
+      // pipe named .gitignore does not hold up a listing.
+      await mkdir(join(app, "pipes"));
+      await promisify(execFile)("mkfifo", [
+        join(app, "pipes", "pipe.txt"),
+        join(app, "pipes", ".gitignore"),
+      ]);
       const escapes = await page.evaluate(async (tabId) => {
         const outcome = (task: Promise<unknown>) =>
           task.then(
@@ -164,6 +173,12 @@ test(
           range: await window.scope
             .folderRead({ tabId, path: "src/app.ts", start: 22, end: 42 })
             .then(({ bytes, size }) => ({ text: new TextDecoder().decode(bytes), size })),
+          pipes: await Promise.all(
+            Array.from({ length: 8 }, () =>
+              outcome(window.scope.folderRead({ tabId, path: "pipes/pipe.txt", start: 0, end: 1 })),
+            ),
+          ),
+          pipeListing: await window.scope.folderList({ tabId, path: "pipes", showIgnored: false }),
         };
       }, first.tabId);
       const source = await readFile(join(app, "src", "app.ts"));
@@ -175,6 +190,11 @@ test(
         readParent: "rejected",
         readLink: "rejected",
         range: { text: source.subarray(22, 42).toString(), size: source.length },
+        pipes: Array.from({ length: 8 }, () => "rejected"),
+        pipeListing: {
+          status: "ok",
+          listing: { entries: [{ name: ".gitignore" }, { name: "pipe.txt" }] },
+        },
       });
 
       // Unreadable folders are retried together, then offered for a manual retry.

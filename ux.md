@@ -327,7 +327,9 @@ When a Linux machine runs out of file watches, the tab says live updates are
 slower. A missing folder shows `This folder no longer exists`, its path, and
 Close; the tree returns if the folder comes back. An offline remote shows
 `NAME is offline` with the path and no cached files. A remote whose hub lacks
-folder routes shows `Update Scope on NAME to view this folder`.
+folder routes shows `Update Scope on NAME to view this folder`; other remote
+errors, such as a folder the hub may not read, show the error instead. Links
+into `.git` count as pointing outside the folder.
 
 Files and Search buttons sit above the tree. The filter box shows every file
 whose path contains its text, in any letter case, with parent folders open and

@@ -1,7 +1,7 @@
 import { expect, test } from "vite-plus/test";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createServer, request as httpRequest } from "node:http";
-import { mkdir, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -117,6 +117,7 @@ async function feed(
         overflow?: boolean;
         live?: boolean;
         changes?: { type: string; path: string }[];
+        ignoreRulesChanged?: string[];
       },
   );
 }
@@ -133,7 +134,8 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
   const root = join(base, "routes");
   await mkdir(join(root, "sub"), { recursive: true });
   await mkdir(join(root, "node_modules"), { recursive: true });
-  await mkdir(join(root, ".git"), { recursive: true });
+  await mkdir(join(root, ".git", "info"), { recursive: true });
+  await mkdir(join(root, "pipes"), { recursive: true });
   await mkdir(join(base, "routes-outside"), { recursive: true });
   await writeFile(join(root, "sub", "file.txt"), "inside");
   await writeFile(join(base, "routes-outside", "file.txt"), "OUTSIDE-SENTINEL");
@@ -141,6 +143,9 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
   await writeFile(join(root, "visible.txt"), "visible");
   await writeFile(join(root, ".git", "internal-marker"), "internal");
   await symlink(join(base, "routes-outside", ".gitignore"), join(root, ".gitignore"));
+  await symlink(join(root, ".git", "internal-marker"), join(root, "git-marker"));
+  // Named pipes block a plain open until something writes to them.
+  await exec("mkfifo", [join(root, "pipes", "pipe.txt"), join(root, "pipes", ".gitignore")]);
   const real = await realpath(root);
   const route = (name: string, query: Record<string, string>) =>
     fetch(
@@ -158,6 +163,49 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
   const git = await route("list", { path: ".git", showIgnored: "0" });
   expect(git.status).toBe(404);
   expect(await git.text()).not.toContain("internal-marker");
+  // A link into .git is listed as leading outside, without the size of what is there.
+  expect(listing.entries.find((entry) => entry.name === "git-marker")).toEqual({
+    name: "git-marker",
+    path: "git-marker",
+    kind: "symlink",
+    link: "outside",
+    modifiedAt: expect.any(Number),
+    ignored: false,
+  });
+
+  // Reads of a named pipe fail at once and leave no file system threads waiting, and a pipe
+  // named .gitignore does not hold up a listing.
+  const pipes = await Promise.all(
+    Array.from({ length: 8 }, () =>
+      fetch(
+        `${hub.endpoint}/v1/relay/folders/read?${new URLSearchParams({ root: real, path: "pipes/pipe.txt", start: "0" })}`,
+        { headers: desktop, signal: AbortSignal.timeout(5000) },
+      ).then(async (response) => ({ status: response.status, ...(await response.json()) })),
+    ),
+  );
+  expect(pipes.map(({ status, code }) => `${status} ${code}`)).toEqual(
+    Array.from({ length: 8 }, () => "400 not-a-directory"),
+  );
+  const piped = await fetch(
+    `${hub.endpoint}/v1/relay/folders/list?${new URLSearchParams({ root: real, path: "pipes", showIgnored: "0" })}`,
+    { headers: desktop, signal: AbortSignal.timeout(5000) },
+  );
+  expect(await piped.json()).toMatchObject({
+    entries: [
+      { name: ".gitignore", kind: "other" },
+      { name: "pipe.txt", kind: "other" },
+    ],
+  });
+
+  // A file system error is `failed`, never `unsupported`, which asks for an update.
+  if (process.getuid?.() !== 0) {
+    await mkdir(join(root, "locked"));
+    await chmod(join(root, "locked"), 0);
+    const locked = await route("list", { path: "locked", showIgnored: "0" });
+    expect(locked.status).toBe(500);
+    expect(await locked.json()).toMatchObject({ code: "failed" });
+    await chmod(join(root, "locked"), 0o755);
+  }
   await rm(join(root, ".gitignore"));
   await writeFile(join(root, ".gitignore"), "node_modules/\n");
 
@@ -220,6 +268,25 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
     expect.arrayContaining(["created sub/again.txt", "created burst/later.txt"]),
   );
   expect(recovered.some((event) => event.overflow)).toBe(true);
+
+  // Changed ignore rules, including .git/info/exclude, are reported so readers reload below
+  // them, and a folder that is no longer ignored is watched from then on.
+  const rules = await feed(hub, desktop, real, async () => {
+    await writeFile(join(root, ".git", "info", "exclude"), "*.log\n");
+    await wait(600);
+    await writeFile(join(root, "sub", ".gitignore"), "*.tmp\n");
+    await wait(600);
+    await writeFile(join(root, ".gitignore"), "");
+    await wait(800);
+    await writeFile(join(root, "node_modules", "unignored.js"), "x");
+    await wait(1200);
+  });
+  const ruleChanges = rules.flatMap((event) => event.ignoreRulesChanged ?? []);
+  const sub = ruleChanges.indexOf("sub");
+  expect(ruleChanges.slice(0, Math.max(sub, 0))).toContain("");
+  expect(ruleChanges.slice(sub + 1)).toContain("");
+  expect(changed(rules)).toContain("created node_modules/unignored.js");
+  expect(changed(rules).filter((change) => change.includes(".git/"))).toEqual([]);
 }
 
 /** Without file watches, the feed says so and still finds added files and edited contents. */
@@ -495,6 +562,20 @@ test(
       expect(Buffer.from(await range.arrayBuffer())).toEqual(bytes.subarray(7, 19));
       expect(range.headers.get("scope-folder-file-size")).toBe(String(bytes.length));
       await fileRouteChecks(older, desktop, f.directory);
+      // A file system error on the remote shows as an error, not as a request to update.
+      if (process.getuid?.() !== 0) {
+        const locked = join(folder, "locked");
+        await mkdir(locked);
+        await chmod(locked, 0);
+        expect(
+          await page.evaluate(
+            (tabId) => window.scope.folderList({ tabId, path: "locked", showIgnored: false }),
+            receipt.tabId,
+          ),
+        ).toMatchObject({ status: "error" });
+        await chmod(locked, 0o755);
+        await rm(locked, { recursive: true });
+      }
       relay.abort();
       await expect
         .poll(() => failure(older.cli("folder", "open", folder)))

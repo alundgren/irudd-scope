@@ -328,8 +328,8 @@ export async function startArtifactServer(options: {
               "status" in error &&
               typeof error.status === "number"
             ? error.status
-            : 400;
-      json(response, status, folderErrorBody(error, status === 400 ? "not-found" : "unsupported"));
+            : 500;
+      json(response, status, folderErrorBody(error, status === 400 ? "not-found" : "failed"));
     }
   }
 
@@ -341,7 +341,7 @@ export async function startArtifactServer(options: {
     start: NonNullable<typeof options.watchFolder>,
   ) {
     if (watches >= MAX_LOCAL_FOLDER_WATCHES)
-      throw new ScopeError(503, "Too many folder watches. Stop one and retry.", "unsupported");
+      throw new ScopeError(503, "Too many folder watches. Stop one and retry.", "failed");
     const controller = new AbortController();
     response.on("close", () => controller.abort());
     watches++;

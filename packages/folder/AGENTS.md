@@ -17,8 +17,12 @@ out of this package.
   (`writer.ts`), which apps ship as `folder-writer.mjs` beside their bundle. Never fall back to checking a name and then renaming over it.
   Staged names and `.git` in any letter case are never listed, searched, or
   reported.
-- Never watch, list, or search through `.git`. Ignored folders are not watched,
-  and search reads them only when ignored files are shown.
+- Never watch, list, or search through `.git`, and never accept it, a folder
+  inside it, or a link to either as a folder root. Ignored folders are not
+  watched, and search reads them only when ignored files are shown. Ignore
+  files are read only when no part of their path below the root is a link.
+- Open files with `nonBlocking` and check the opened handle is a regular file,
+  so a FIFO never holds one of Node's file system threads.
 - Open files and folders with `openInside`. On Linux it checks the opened handle's
   kernel path in `/proc/self/fd`, which is exact. macOS and Windows have no Node API
   for a handle's path, so it checks successive observations instead: every folder

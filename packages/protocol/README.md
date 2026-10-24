@@ -225,9 +225,14 @@ the canonical real path on that machine; hubs resolve it before relaying. Any
 `machine` field in the body is ignored: the machine is the connection that
 delivered the command. Folder commands are never queued. Failures are JSON
 `{ error, code }` with `code` one of `no-tab`, `not-found`, `outside-folder`,
-`not-a-directory`, `unsupported`, `desktop-offline`, or `exists`. A 404 without a code
+`not-a-directory`, `unsupported`, `desktop-offline`, `exists`, or `failed`. A 404 without a code
 comes from a Scope or hub without folder support; the CLI then prints
-`Update Scope on HOST to share folders`.
+`Update Scope on HOST to share folders`. `unsupported` with 501 means the feature
+is missing on that machine. `failed`, usually 500, is an error Scope did not
+expect, such as `EACCES` or `EMFILE`, or a busy limit; retrying can help, updating
+cannot. A path whose canonical form passes through `.git` in any letter case,
+including through a link, fails with 404 `not-found` "Scope does not show .git."
+for every command, and no tab opens.
 
 `select` checks `file`, relative to `path`, on the machine that has it before
 opening anything: a path that leaves the folder fails with 403
@@ -251,6 +256,17 @@ the desktop connection credential, never the publishing token:
 | `GET /v1/relay/folders/events?root=`                             | NDJSON `FolderFeedEvent` lines with a heartbeat every 10 seconds                                   |
 | `POST /v1/relay/folders/search`, `FolderSearchRequest`           | NDJSON `FolderSearchEvent` lines ending with `done`                                                |
 | `PUT /v1/relay/folders/write?root=&path=&replace=0\|1`, raw body | `FolderWriteReceipt` once the file is committed in place                                           |
+
+A `changes` line of the events feed may carry `ignoreRulesChanged`, the
+directories whose `.gitignore` changed, with `""` for the folder's
+`.git/info/exclude`. Entries at any depth below each one may have become ignored or
+shown, so a reader reloads every listing it keeps at or below it. Such a line can
+have an empty `changes` list. The feed reports nothing else inside `.git`.
+
+Reads fail at once with 400 `not-a-directory` for FIFOs and other special files.
+Ignore files are read only when neither they nor a folder above them inside
+`root` is a link. A listed link that resolves into `.git` has `link: "outside"`
+and no size.
 
 Search matches `query` as plain text in any letter case and honours
 `showIgnored`. A content search reads only regular files inside `root`, skips

@@ -5,7 +5,8 @@ export { GIT_DIRECTORY };
 
 type Level = { directory: string; rules: Ignore };
 
-// Ignore files are read like any other file: a symlink out of the folder is not followed.
+// An ignore file that is a link, or sits below one, is not read, so a link into `.git` or
+// out of the folder never supplies rules. FIFOs are skipped without waiting.
 const readRules = (root: string, path: string) => readInsideText(root, path);
 
 /**
