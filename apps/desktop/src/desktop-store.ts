@@ -870,15 +870,18 @@ export class DesktopStore {
   setGuestHidden(id: string, hidden: boolean): Promise<boolean> {
     return this.enqueue(async () => {
       const sql = this.sql!;
-      const [row] = await this.run(
-        sql<{ tab: string }>`SELECT tab FROM guest_tabs WHERE id = ${id}`,
+      return this.run(
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const [row] = yield* sql<{ tab: string }>`SELECT tab FROM guest_tabs WHERE id = ${id}`;
+            if (!row) return false;
+            const tab = decode(Tab, JSON.parse(row.tab));
+            yield* sql`UPDATE guest_tabs SET tab = ${JSON.stringify({ ...tab, hidden })} WHERE id = ${id}`;
+            if (hidden) yield* moveLayoutTabToEnd(sql, id);
+            return true;
+          }),
+        ),
       );
-      if (!row) return false;
-      const tab = decode(Tab, JSON.parse(row.tab));
-      await this.run(
-        sql`UPDATE guest_tabs SET tab = ${JSON.stringify({ ...tab, hidden })} WHERE id = ${id}`,
-      );
-      return true;
     });
   }
 
@@ -1035,20 +1038,7 @@ export class DesktopStore {
 
   moveLayoutTabToEnd(id: string): Promise<void> {
     return this.enqueue(async () => {
-      const sql = this.sql!;
-      const [row] = await this.run(
-        sql<{ document: string }>`SELECT document FROM preferences WHERE name = 'workspace_layout'`,
-      );
-      if (!row) return;
-      const layout = JSON.parse(row.document);
-      if (!Array.isArray(layout.order)) return;
-      const order = [
-        ...decode(Schema.Array(Uuid), layout.order).filter((entry) => entry !== id),
-        id,
-      ];
-      await this.run(
-        sql`UPDATE preferences SET document = ${JSON.stringify({ ...layout, order })} WHERE name = 'workspace_layout'`,
-      );
+      await this.run(moveLayoutTabToEnd(this.sql!, id));
     });
   }
 
@@ -1079,4 +1069,17 @@ export class DesktopStore {
     await this.pending;
     await this.runtime?.dispose();
   }
+}
+
+function moveLayoutTabToEnd(sql: SqliteClient.SqliteClient, id: string) {
+  return Effect.gen(function* () {
+    const [row] = yield* sql<{
+      document: string;
+    }>`SELECT document FROM preferences WHERE name = 'workspace_layout'`;
+    if (!row) return;
+    const layout = JSON.parse(row.document);
+    if (!Array.isArray(layout.order)) return;
+    const order = [...decode(Schema.Array(Uuid), layout.order).filter((entry) => entry !== id), id];
+    yield* sql`UPDATE preferences SET document = ${JSON.stringify({ ...layout, order })} WHERE name = 'workspace_layout'`;
+  });
 }

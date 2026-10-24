@@ -156,3 +156,91 @@ export async function guestWorkspaceChecks({
     ownerRetention.map(({ tab, permanent, trashedAt }) => ({ tab, permanent, trashedAt })),
   );
 }
+
+export async function guestCloseFailureChecks(page: Page, settingsDirectory: string, id: string) {
+  const database = new DatabaseSync(join(settingsDirectory, "desktop.db"));
+  const snapshot = () => ({
+    guest: database.prepare("SELECT tab FROM guest_tabs WHERE id = ?").get(id),
+    layout: database
+      .prepare("SELECT document FROM preferences WHERE name = 'workspace_layout'")
+      .get(),
+  });
+  const tab = page.locator(`#tab-${id}`);
+  const close = () => tab.getByRole("button", { name: /^Close / }).click();
+  const reject = () =>
+    database.exec(`CREATE TRIGGER reject_guest_close BEFORE UPDATE ON preferences
+    WHEN NEW.name = 'workspace_layout'
+      AND EXISTS (SELECT 1 FROM guest_tabs WHERE id = '${id}' AND json_extract(tab, '$.hidden') = 1)
+    BEGIN SELECT RAISE(ABORT, 'Synthetic layout failure after guest visibility write'); END`);
+  try {
+    // Flushes of the visible workspace can succeed; only the subsequent close layout fails.
+    reject();
+    const before = snapshot();
+    await expect(page.evaluate((id) => window.scope.closeTab(id), id)).rejects.toThrow();
+    expect(snapshot()).toEqual(before);
+    expect(await tab.isVisible()).toBe(true);
+    await close();
+    await page.getByText("Could not save this tab. Try again.", { exact: true }).waitFor();
+    expect(snapshot()).toEqual(before);
+    expect(await tab.isVisible()).toBe(true);
+    database.exec("DROP TRIGGER reject_guest_close");
+    await page.getByRole("button", { name: "Dismiss error", exact: true }).click();
+    const local = (await page.evaluate(() => window.scope.workspace()))!.tabs.find(
+      (tab) => tab.type === "file",
+    )!;
+    database.exec(
+      "CREATE TRIGGER reject_local_order BEFORE UPDATE ON preferences WHEN NEW.name = 'workspace_layout' BEGIN SELECT RAISE(ABORT, 'Synthetic local order failure'); END",
+    );
+    try {
+      // A committed local close still reports success and delivers its notifications.
+      await page.evaluate((id) => window.scope.setTabHidden(id, true), local.id);
+      expect(
+        (await page.evaluate(() => window.scope.workspace()))!.tabs.find(
+          (tab) => tab.id === local.id,
+        )?.hidden,
+      ).toBe(true);
+      await page.evaluate((id) => window.scope.setTabHidden(id, false), local.id);
+    } finally {
+      database.exec("DROP TRIGGER reject_local_order");
+    }
+    // Retry the ordinary close and reopen paths, then leave a rejected close for the real quit.
+    await close();
+    await tab.waitFor({ state: "hidden" });
+    await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
+    const saved = (await page.evaluate(() => window.scope.workspace()))!.tabs.find(
+      (tab) => tab.id === id,
+    )!;
+    await page.getByLabel("Search tabs", { exact: true }).fill(saved.title);
+    await page.getByRole("button", { name: saved.title + " guest", exact: true }).click();
+    await expect
+      .poll(async () => (await page.evaluate(() => window.scope.workspace()))?.selected)
+      .toBe(id);
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.scope.workspace()))?.tabs.find((tab) => tab.id === id)
+            ?.hidden,
+      )
+      .toBe(false);
+    await tab.focus();
+    for (let i = 0; i < 3; i++) await page.keyboard.press("Alt+ArrowLeft");
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.scope.workspace()))?.tabs.filter(
+            (tab) => !tab.hidden,
+          )[0]?.id,
+      )
+      .toBe(id);
+    reject();
+    const reopened = snapshot();
+    await close();
+    await page.getByText("Could not save this tab. Try again.", { exact: true }).waitFor();
+    expect(snapshot()).toEqual(reopened);
+    expect(await tab.isVisible()).toBe(true);
+    await page.getByRole("button", { name: "Dismiss error", exact: true }).click();
+    // Keep the trigger through actual quit/restart: a clean flush must not hide the rejected tab.
+  } finally {
+    database.close();
+  }
+}

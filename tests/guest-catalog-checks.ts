@@ -1,4 +1,4 @@
-import { guestWorkspaceChecks } from "./guest-workspace-checks.ts";
+import { guestCloseFailureChecks, guestWorkspaceChecks } from "./guest-workspace-checks.ts";
 import { spawnedHub } from "./hub-fixture.ts";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import type { guestResponseFixture } from "./guest-response-fixture.ts";
@@ -653,6 +653,11 @@ export async function guestCatalogChecks({
         .toBe(true);
       const saved = await page.evaluate(() => window.scope.workspace());
       expect(JSON.stringify(saved)).toBe(restartWorkspace);
+      const database = new DatabaseSync(join(b.settingsDirectory, "desktop.db"));
+      database.exec("DROP TRIGGER reject_guest_close");
+      database.close();
+      expect(saved!.tabs.find((tab) => tab.id === saved!.selected)?.hidden).toBe(false);
+      await page.locator(`#tab-${saved!.selected}`).waitFor({ state: "visible" });
       const hidden = saved!.tabs.find((tab) => tab.id === guestId)!;
       expect(hidden.hidden).toBe(true);
       expect(
@@ -769,6 +774,7 @@ export async function guestCatalogChecks({
             )[0]?.id,
         )
         .toBe(planId);
+      await guestCloseFailureChecks(pageB, b.settingsDirectory, planId);
       const workspace = (await pageB.evaluate(() => window.scope.workspace()))!;
       const local = workspace.tabs.findIndex((tab) => tab.type === "file");
       expect(workspace.tabs.slice(0, local).some((tab) => tab.type === "guest")).toBe(true);

@@ -160,14 +160,19 @@ export class DesktopLifecycle {
    */
   setTabHidden(id: string, hidden: boolean): Promise<void> {
     return this.enqueue(async () => {
-      if (await this.desktop.setGuestHidden(id, hidden)) {
-        if (hidden) await this.desktop.moveLayoutTabToEnd(id);
-        return;
-      }
+      if (await this.desktop.setGuestHidden(id, hidden)) return;
       if ((await this.artifacts.setTabHidden(id, hidden)) && hidden) {
-        await this.desktop.moveLayoutTabToEnd(id);
+        await this.moveLocalTabToEnd(id);
         this.onHidden([id]);
       }
+    });
+  }
+
+  private async moveLocalTabToEnd(id: string): Promise<void> {
+    // Local visibility already committed in scope.db. A preferences failure must not
+    // suppress its notification or reject that completed operation. Renderer saves retry layout.
+    await this.desktop.moveLayoutTabToEnd(id).catch((error: unknown) => {
+      console.error("Could not update local tab order:", error);
     });
   }
 
@@ -182,10 +187,7 @@ export class DesktopLifecycle {
 
   closeTab(id: string): Promise<void> {
     return this.enqueue(async () => {
-      if (await this.desktop.setGuestHidden(id, true)) {
-        await this.desktop.moveLayoutTabToEnd(id);
-        return;
-      }
+      if (await this.desktop.setGuestHidden(id, true)) return;
       const ids = await this.artifacts.trashTab(id);
       this.onRemoved(ids);
       await this.notifyRetention();
@@ -203,7 +205,7 @@ export class DesktopLifecycle {
       if (!groupId) throw new Error("Scope is still starting. Retry shortly.");
       const opened = await this.artifacts.openFolderTab({ ...input, groupId });
       if (opened.created || opened.restored || opened.unhidden) {
-        await this.desktop.moveLayoutTabToEnd(opened.tab.id);
+        await this.moveLocalTabToEnd(opened.tab.id);
         await this.notifyRetention();
       }
       return opened;
@@ -213,7 +215,7 @@ export class DesktopLifecycle {
   restoreTab(id: string): Promise<Tab> {
     return this.enqueue(async () => {
       const tab = await this.artifacts.restoreTab(id);
-      await this.desktop.moveLayoutTabToEnd(id);
+      await this.moveLocalTabToEnd(id);
       await this.notifyRetention();
       return tab;
     });
