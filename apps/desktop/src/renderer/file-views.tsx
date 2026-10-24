@@ -73,11 +73,14 @@ const TextBlock = memo(function TextBlock({
           {!text ? (
             <br />
           ) : colored?.[index] ? (
-            colored[index].map((part, run) => (
-              <span key={run} style={part.style}>
-                {part.text}
-              </span>
-            ))
+            // One element, so the runs share the line's text column in its grid.
+            <span>
+              {colored[index].map((part, run) => (
+                <span key={run} style={part.style}>
+                  {part.text}
+                </span>
+              ))}
+            </span>
           ) : (
             text
           )}
