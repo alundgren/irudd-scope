@@ -79,6 +79,29 @@ export async function guestWorkspaceChecks({
   await frame.getByRole("button", { name: "Clicked" }).waitFor();
   await expect.poll(() => frame.locator("body").evaluate(() => window.scrollY)).toBe(480);
 
+  responses.denyAccess(true);
+  await pageB.evaluate((id) => window.scope.retryGuest(id), peer);
+  await expect
+    .poll(async () => (await pageB.evaluate(() => window.scope.guestStatus())).peers[0]?.state, {
+      timeout: 30000,
+    })
+    .toBe("access-denied");
+  await pane.getByText(/Source Scope rejected guest access/).waitFor();
+  expect(await pane.locator(".guest-view").isVisible()).toBe(false);
+  await capture("workspace-access-denied-light.png");
+  responses.denyAccess(false);
+  await pageB.evaluate((id) => window.scope.retryGuest(id), peer);
+  await expect
+    .poll(
+      async () =>
+        (await pageB.evaluate(() => window.scope.guestCatalog())).available.includes(guestId),
+      { timeout: 30000 },
+    )
+    .toBe(true);
+  expect(await frame.getByLabel("Local draft").inputValue()).toBe(
+    "Receiver navigation remains local",
+  );
+
   // Reject real SQLite layout writes, then exercise both tab-close and quit recovery.
   const database = new DatabaseSync(join(settingsDirectory, "desktop.db"));
   try {
@@ -94,6 +117,7 @@ export async function guestWorkspaceChecks({
       .click();
     await pageB.getByText("Could not save this tab. Try again.", { exact: true }).waitFor();
     expect(await tab.isVisible()).toBe(true);
+    await capture("workspace-save-blocked-light.png");
     await right.evaluate(({ app, dialog }) => {
       const state = globalThis as unknown as { guestQuitButtons?: string[] };
       dialog.showMessageBox = async (windowOrOptions, options?: Electron.MessageBoxOptions) => {
@@ -122,6 +146,7 @@ export async function guestWorkspaceChecks({
     .getByRole("button", { name: "Retry", exact: true })
     .click();
   await pageB.getByText("Could not save open tabs.", { exact: false }).waitFor({ state: "hidden" });
+  await pageB.getByRole("button", { name: "Dismiss error", exact: true }).click();
   // Restore the interleaved order after the failed save; the real quit will flush it.
   await tab.focus();
   await pageB.keyboard.press("Alt+ArrowLeft");

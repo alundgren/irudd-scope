@@ -278,7 +278,7 @@ export class GuestCatalogs {
           this.available.delete(id);
           this.owners.set(id, {
             deviceId: id,
-            name: this.owners.get(id)?.name ?? "The owner",
+            name: this.owners.get(id)?.name ?? "Unpaired Scope",
             state: "forgotten",
             message:
               "This owner is no longer paired. Pair it again and enable guest sharing in Other Scopes. Your local tab position is saved.",
@@ -354,7 +354,7 @@ export class GuestCatalogs {
       this.available.delete(ownerDeviceId);
       const message = guestFailure(
         error,
-        `${name} is unavailable. Reconnect to read current content.`,
+        `${name} is unavailable. Open that Scope and check its connection. Scope will reconnect automatically; you can also retry in Other Scopes.`,
       );
       this.owners.set(ownerDeviceId, {
         deviceId: ownerDeviceId,

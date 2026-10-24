@@ -15,10 +15,17 @@ export async function guestResponseFixture() {
   let contentReads = 0;
   let failContent = false;
   let offline = false;
+  let denied = false;
   const server = createServer((request, response) => {
     if (request.url === "/resource.js") {
       response.writeHead(200, { "Content-Type": "text/javascript" });
       response.end("document.body.dataset.externalResource = 'loaded';");
+      return;
+    }
+    if (denied) {
+      response
+        .writeHead(403, { "Content-Type": "application/json" })
+        .end('{"error":"Guest access rejected."}');
       return;
     }
     if (offline) {
@@ -105,6 +112,10 @@ export async function guestResponseFixture() {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   return {
     port: (server.address() as { port: number }).port,
+    denyAccess(value: boolean) {
+      denied = value;
+      if (value) server.closeAllConnections();
+    },
     offline(value: boolean) {
       offline = value;
       if (value) server.closeAllConnections();

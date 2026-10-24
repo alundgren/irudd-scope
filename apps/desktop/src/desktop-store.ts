@@ -1033,6 +1033,25 @@ export class DesktopStore {
       : null;
   }
 
+  moveLayoutTabToEnd(id: string): Promise<void> {
+    return this.enqueue(async () => {
+      const sql = this.sql!;
+      const [row] = await this.run(
+        sql<{ document: string }>`SELECT document FROM preferences WHERE name = 'workspace_layout'`,
+      );
+      if (!row) return;
+      const layout = JSON.parse(row.document);
+      if (!Array.isArray(layout.order)) return;
+      const order = [
+        ...decode(Schema.Array(Uuid), layout.order).filter((entry) => entry !== id),
+        id,
+      ];
+      await this.run(
+        sql`UPDATE preferences SET document = ${JSON.stringify({ ...layout, order })} WHERE name = 'workspace_layout'`,
+      );
+    });
+  }
+
   saveLayout(layout: Pick<Workspace, "groups" | "selected">): Promise<void> {
     return this.enqueue(async () => {
       await this.run(

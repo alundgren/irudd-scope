@@ -36,10 +36,21 @@ export function GuestFileReading({
     const element = container.current!;
     let frameWindow: Window | null = null;
     const captureFrame = () => {
-      if (frameWindow) record(frameWindow.scrollX, frameWindow.scrollY);
+      try {
+        if (frameWindow) record(frameWindow.scrollX, frameWindow.scrollY);
+      } catch {
+        /* The HTML may have navigated to another origin. */
+      }
+    };
+    const detach = () => {
+      try {
+        frameWindow?.removeEventListener("scroll", captureFrame);
+      } catch {
+        /* The previous document may now be cross-origin. */
+      }
     };
     const loaded = () => {
-      frameWindow?.removeEventListener("scroll", captureFrame);
+      detach();
       // srcdoc shares Scope's origin. A document that navigates elsewhere has no readable position.
       try {
         frameWindow = element.querySelector("iframe")?.contentWindow ?? null;
@@ -53,7 +64,7 @@ export function GuestFileReading({
     loaded();
     return () => {
       element.removeEventListener("load", loaded, true);
-      frameWindow?.removeEventListener("scroll", captureFrame);
+      detach();
     };
   }, []);
   useLayoutEffect(() => {

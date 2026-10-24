@@ -87,6 +87,8 @@ export async function guestCatalogChecks({
   } finally {
     database.close();
   }
+  await pageB.reload();
+  await pageB.locator(`#tab-${sourceTab.id}`).waitFor();
   await pageA.evaluate((id) => window.scope.setTabPermanent(id, true), sourceTab.id);
   await pageA.getByRole("button", { name: "Close Same title", exact: true }).click();
   await ca.folderOpen({ path: a.directory, title: "Owner folder" });
@@ -149,10 +151,10 @@ export async function guestCatalogChecks({
     const record = (await source()).records.find((record) => record.tab.id === id)!;
     await pageB.getByRole("button", { name: record.tab.title + " guest", exact: true }).click();
   }
-  async function capture(name: string) {
+  async function capture(name: string, page = pageB) {
     if (!process.env.SCOPE_REVIEW_DIR) return;
     await mkdir(process.env.SCOPE_REVIEW_DIR, { recursive: true });
-    await pageB.screenshot({
+    await page.screenshot({
       animations: "disabled",
       path: join(process.env.SCOPE_REVIEW_DIR, name),
     });
@@ -242,6 +244,7 @@ export async function guestCatalogChecks({
         responses,
         capture,
       });
+      await frame.locator("body").evaluate(() => window.scrollTo(0, 0));
       await capture("guest-html-light.png");
       await pageB.getByRole("button", { name: "Search and controls" }).click();
       await pageB.getByRole("button", { name: "Settings", exact: true }).click();
@@ -255,6 +258,15 @@ export async function guestCatalogChecks({
         BrowserWindow.getAllWindows()[0]!.setSize(640, 820),
       );
       await capture("guest-html-dark-narrow.png");
+      await frame.locator("body").evaluate(() => window.scrollTo(0, 480));
+      await expect
+        .poll(
+          async () =>
+            (await pageB.evaluate(() => window.scope.workspace()))?.tabs.find(
+              (tab) => tab.id === guestId,
+            )?.state.data.fileScroll,
+        )
+        .toEqual({ x: 0, y: 480 });
       const destination = join(b.directory, "download.html");
       await right.evaluate(({ dialog }, path) => {
         dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
@@ -266,6 +278,8 @@ export async function guestCatalogChecks({
         ),
       ).toBe(true);
       expect(await readFile(destination, "utf8")).toContain("Try guest");
+      responses.hold();
+      const replacingRead = responses.held();
       current = await ca.publish(
         "same-id",
         { ...metadata, expectedRevision: current.revision },
@@ -282,6 +296,9 @@ export async function guestCatalogChecks({
       expect(
         view.records.find((record) => record.tab.id === guestId)?.tab.state.data.fileScroll,
       ).toEqual({ x: 0, y: 480 });
+      await expect.poll(() => responses.held()).toBe(replacingRead + 1);
+      expect(await pane.locator("iframe").count()).toBe(0);
+      responses.release();
       await frame.getByRole("heading", { name: "Current owner revision" }).waitFor();
       const future = await ca.publish(
         "future",
@@ -345,6 +362,28 @@ export async function guestCatalogChecks({
           .map((record) => record.tab.id),
       ).toEqual([futureGuest.tab.id]);
       await pane.getByText("future content", { exact: true }).waitFor();
+      // Expiry belongs to the owner even while the receiver is viewing this tab.
+      await pageA.evaluate((id) => window.scope.setTabHidden(id, true), futureSource.id);
+      const expiry = new DatabaseSync(join(a.settingsDirectory, "artifacts", "scope.db"));
+      try {
+        expiry
+          .prepare("UPDATE live_tabs SET last_visible_at = ? WHERE id = ?")
+          .run(Date.now() - 2 * 86400000, futureSource.id);
+        const before = expiry
+          .prepare("SELECT last_visible_at FROM live_tabs WHERE id = ?")
+          .get(futureSource.id);
+        await pageB.evaluate((id) => window.scope.reportVisibleTabs([id]), futureGuest.tab.id);
+        expect(
+          expiry.prepare("SELECT last_visible_at FROM live_tabs WHERE id = ?").get(futureSource.id),
+        ).toEqual(before);
+        await pageA.evaluate(() => window.scope.checkTabRetention([]));
+      } finally {
+        expiry.close();
+      }
+      await expect
+        .poll(async () => (await source()).available.includes(futureGuest.tab.id))
+        .toBe(false);
+      await pane.getByText(/may have expired, moved to Trashcan, or become ineligible/).waitFor();
       await ca.delete(future.id);
       await expect
         .poll(async () => (await source()).available.includes(futureGuest.tab.id))
@@ -623,8 +662,10 @@ export async function guestCatalogChecks({
       const peer = (await page.evaluate(() => window.scope.transferDevices())).peers[0]!.id;
       await page.evaluate((id) => window.scope.setGuestAccess(id, false), peer);
       await page.getByText(/Guest sharing with Source Scope is off on this Scope/).waitFor();
+      await capture("workspace-disabled-dark-laptop.png", page);
       await page.evaluate((id) => window.scope.forgetScope(id), peer);
       await page.getByText(/This owner is no longer paired/).waitFor();
+      await capture("workspace-forgotten-dark-laptop.png", page);
       expect(
         (await page.evaluate(() => window.scope.workspace()))?.tabs.find(
           (tab) => tab.id === guestId,
@@ -672,7 +713,19 @@ export async function guestCatalogChecks({
       await expect
         .poll(async () => (await pageB.evaluate(() => window.scope.workspace()))?.selected)
         .toBe(planId);
-      restartWorkspace = JSON.stringify(await pageB.evaluate(() => window.scope.workspace()));
+      await expect
+        .poll(
+          async () =>
+            (await pageB.evaluate(() => window.scope.workspace()))?.tabs.filter(
+              (tab) => !tab.hidden,
+            )[0]?.id,
+        )
+        .toBe(planId);
+      const workspace = (await pageB.evaluate(() => window.scope.workspace()))!;
+      const local = workspace.tabs.findIndex((tab) => tab.type === "file");
+      expect(workspace.tabs.slice(0, local).some((tab) => tab.type === "guest")).toBe(true);
+      expect(workspace.tabs.slice(local + 1).some((tab) => tab.type === "guest")).toBe(true);
+      restartWorkspace = JSON.stringify(workspace);
     },
   };
 }

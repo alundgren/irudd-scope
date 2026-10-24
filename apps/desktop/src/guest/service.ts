@@ -366,6 +366,7 @@ export class GuestConnections {
     if (this.attempts.has(peerId))
       throw new Error("This guest connection is already connecting. Retry shortly.");
     this.attempts.add(peerId);
+    if (!this.outgoing.has(peerId)) this.state(peerId, "connecting");
     const controller = new AbortController();
     this.handshakes.set(peerId, controller);
     const generation = this.generations.get(peerId) ?? 0;

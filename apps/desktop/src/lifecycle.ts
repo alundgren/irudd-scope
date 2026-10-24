@@ -160,8 +160,14 @@ export class DesktopLifecycle {
    */
   setTabHidden(id: string, hidden: boolean): Promise<void> {
     return this.enqueue(async () => {
-      if (await this.desktop.setGuestHidden(id, hidden)) return;
-      if ((await this.artifacts.setTabHidden(id, hidden)) && hidden) this.onHidden([id]);
+      if (await this.desktop.setGuestHidden(id, hidden)) {
+        if (hidden) await this.desktop.moveLayoutTabToEnd(id);
+        return;
+      }
+      if ((await this.artifacts.setTabHidden(id, hidden)) && hidden) {
+        await this.desktop.moveLayoutTabToEnd(id);
+        this.onHidden([id]);
+      }
     });
   }
 
@@ -176,7 +182,10 @@ export class DesktopLifecycle {
 
   closeTab(id: string): Promise<void> {
     return this.enqueue(async () => {
-      if (await this.desktop.setGuestHidden(id, true)) return;
+      if (await this.desktop.setGuestHidden(id, true)) {
+        await this.desktop.moveLayoutTabToEnd(id);
+        return;
+      }
       const ids = await this.artifacts.trashTab(id);
       this.onRemoved(ids);
       await this.notifyRetention();
@@ -193,7 +202,10 @@ export class DesktopLifecycle {
       const groupId = layout?.groups[0]?.id;
       if (!groupId) throw new Error("Scope is still starting. Retry shortly.");
       const opened = await this.artifacts.openFolderTab({ ...input, groupId });
-      if (opened.created || opened.restored || opened.unhidden) await this.notifyRetention();
+      if (opened.created || opened.restored || opened.unhidden) {
+        await this.desktop.moveLayoutTabToEnd(opened.tab.id);
+        await this.notifyRetention();
+      }
       return opened;
     });
   }
@@ -201,6 +213,7 @@ export class DesktopLifecycle {
   restoreTab(id: string): Promise<Tab> {
     return this.enqueue(async () => {
       const tab = await this.artifacts.restoreTab(id);
+      await this.desktop.moveLayoutTabToEnd(id);
       await this.notifyRetention();
       return tab;
     });
