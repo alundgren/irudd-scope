@@ -19,4 +19,4 @@ journal.
 Keep proposals, work-item references, review receipts, rejected alternatives,
 and prototype assets outside tracked guidance. Do not add a separate agent
 or human document when both audiences need the same instructions. Check local
-links after moving files. Documentation changes still require `vp run ready`.
+links after moving files. Documentation changes still require `vp run check`.
