@@ -452,7 +452,16 @@ test(
         ),
       );
       expect(published).toHaveLength(16);
-      await page.getByRole("tab", { name: "Concurrent 15", exact: true }).waitFor();
+      // Arrival order varies, so later tabs can land in the drawer instead of the strip.
+      await expect
+        .poll(
+          async () =>
+            (JSON.parse(await devbox.cli("list")) as { title: string }[]).filter((artifact) =>
+              artifact.title.startsWith("Concurrent "),
+            ).length,
+          { timeout: 15_000 },
+        )
+        .toBe(16);
       expect(remoteWatch.child.exitCode).toBeNull();
       expect((await page.evaluate(() => window.scope.remotes()))[0]?.connection).toBe("connected");
       extra.abort();
