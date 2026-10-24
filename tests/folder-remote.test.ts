@@ -280,6 +280,14 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
     await wait(800);
     await writeFile(join(root, "node_modules", "unignored.js"), "x");
     await wait(1200);
+    // Watches name events on a watched folder itself by its own name, as if it were a child.
+    await chmod(root, 0o700);
+    await chmod(join(root, "sub"), 0o700);
+    await wait(600);
+    await writeFile(join(root, "routes"), "a child named like the folder");
+    await wait(600);
+    await rm(join(root, "routes"));
+    await wait(1200);
   });
   const ruleChanges = rules.flatMap((event) => event.ignoreRulesChanged ?? []);
   const sub = ruleChanges.indexOf("sub");
@@ -287,6 +295,10 @@ async function fileRouteChecks(hub: Hub, desktop: Record<string, string>, base: 
   expect(ruleChanges.slice(sub + 1)).toContain("");
   expect(changed(rules)).toContain("created node_modules/unignored.js");
   expect(changed(rules).filter((change) => change.includes(".git/"))).toEqual([]);
+  expect(changed(rules).filter((change) => / (routes|sub\/sub)$/.test(change))).toEqual([
+    "created routes",
+    "deleted routes",
+  ]);
 }
 
 /** Without file watches, the feed says so and still finds added files and edited contents. */

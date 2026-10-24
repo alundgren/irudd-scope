@@ -1,6 +1,6 @@
 import { watch, type FSWatcher, type Stats } from "node:fs";
 import { lstat } from "node:fs/promises";
-import { join, sep } from "node:path";
+import { basename, join, sep } from "node:path";
 import {
   MAX_FOLDER_CHANGES,
   type FolderChange,
@@ -91,6 +91,13 @@ class FolderWatcher {
   private readonly excludeWatchers = new Map<string, Watched>();
   private readonly pending = new Map<string, "rename" | "change">();
   private readonly rulesChanged = new Set<string>();
+  /**
+   * Native watches name an event on a watched folder itself, such as a change to its
+   * permissions, by the folder's own name, as if it were a child: `app` for the folder
+   * `/work/app`, `docs/docs` for `docs` on Linux. Keyed by that path, whether an entry with
+   * that name really exists, so only a real one is reported as deleted.
+   */
+  private readonly namesakes = new Map<string, boolean>();
   private overflow = false;
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
   private flushing: Promise<void> = Promise.resolve();
@@ -147,6 +154,7 @@ class FolderWatcher {
       watcher.close();
     this.watchers.clear();
     this.excludeWatchers.clear();
+    this.namesakes.clear();
     clearTimeout(this.pollTimer);
     this.snapshot.clear();
   }
@@ -158,7 +166,10 @@ class FolderWatcher {
       if (process.platform === "linux") {
         await this.watchDirectories("", generation);
         await this.watchExclude(generation);
-      } else this.watchRecursively();
+      } else {
+        this.watchRecursively();
+        await this.noteNamesake("");
+      }
     } catch (error) {
       if (!exhausted(error)) console.error("Scope could not watch a folder; checking it instead.");
       this.fallBack(generation);
@@ -207,6 +218,15 @@ class FolderWatcher {
       if (exhausted(error)) this.fallBack(generation);
     });
     this.watchers.set(path, { watcher, ino: info.ino });
+    await this.noteNamesake(path);
+  }
+
+  private async noteNamesake(directory: string) {
+    const name = directory ? directory.slice(directory.lastIndexOf("/") + 1) : basename(this.root);
+    if (!name) return;
+    const path = directory ? `${directory}/${name}` : name;
+    const info = await lstat(join(this.root, ...path.split("/"))).catch(() => undefined);
+    this.namesakes.set(path, Boolean(info));
   }
 
   private async watchDirectories(start: string, generation: number) {
@@ -268,6 +288,8 @@ class FolderWatcher {
         watcher.close();
         this.watchers.delete(path);
       }
+    for (const path of this.namesakes.keys())
+      if (parent(path) && within(parent(path), directory)) this.namesakes.delete(path);
   }
 
   /**
@@ -324,6 +346,12 @@ class FolderWatcher {
 
   private async classify(path: string, type: "rename" | "change") {
     const info = await lstat(join(this.root, ...path.split("/"))).catch(() => undefined);
+    const existed = this.namesakes.get(path);
+    if (existed !== undefined) {
+      this.namesakes.set(path, Boolean(info));
+      // An event on the watched folder itself, not a child that was there.
+      if (!info && !existed) return undefined;
+    }
     const ignored = info
       ? await this.filter.ignores(path, info.isDirectory())
       : (await this.filter.ignores(path, false)) || (await this.filter.ignores(path, true));
