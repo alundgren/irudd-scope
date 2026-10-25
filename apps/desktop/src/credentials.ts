@@ -8,7 +8,6 @@ const Secrets = Schema.Struct({
   apiKey: Schema.optionalKey(Schema.String),
   guestPairs: Schema.optionalKey(Schema.Record(Schema.String, GuestPairCredential)),
   remoteTokens: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
-  transferKeys: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
 const LegacySecrets = Schema.Struct({
   ...Secrets.fields,
@@ -41,11 +40,12 @@ const EncryptedCredentials = Schema.Struct({
   ),
 });
 
-// Obsolete guest data must not prevent access to unrelated protected credentials.
+// Obsolete pairing data must not prevent access to unrelated protected credentials.
 // Retained fields still pass through the strict credential decoder below.
 function retainedCredentials(input: unknown): unknown {
   if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
   const {
+    transferKeys: _transferKeys,
     guestKey: _key,
     guestEndpoints: _endpoints,
     ...retained
@@ -80,8 +80,7 @@ export function windowsCredentials(protection: WindowsProtection): CredentialFac
         if (
           !next.apiKey &&
           !Object.keys(next.guestPairs ?? {}).length &&
-          !Object.keys(next.remoteTokens ?? {}).length &&
-          !Object.keys(next.transferKeys ?? {}).length
+          !Object.keys(next.remoteTokens ?? {}).length
         ) {
           await document.write(undefined);
           return;
@@ -140,7 +139,6 @@ export function keychainCredentials(entry: KeychainEntry): CredentialStore {
           ...(secrets.guestPairs === undefined ? {} : { guestPairs: secrets.guestPairs }),
           ...(secrets.apiKey === undefined ? {} : { apiKey: secrets.apiKey }),
           ...(secrets.remoteTokens === undefined ? {} : { remoteTokens: secrets.remoteTokens }),
-          ...(secrets.transferKeys === undefined ? {} : { transferKeys: secrets.transferKeys }),
         };
       } catch {
         throw new Error("Scope's saved Keychain entry has an invalid format.");
@@ -151,8 +149,7 @@ export function keychainCredentials(entry: KeychainEntry): CredentialStore {
         if (
           secrets.apiKey ||
           Object.keys(secrets.guestPairs ?? {}).length ||
-          Object.keys(secrets.remoteTokens ?? {}).length ||
-          Object.keys(secrets.transferKeys ?? {}).length
+          Object.keys(secrets.remoteTokens ?? {}).length
         )
           await entry.setPassword(JSON.stringify(decode(Secrets, secrets)));
         else await entry.deleteCredential();

@@ -16,33 +16,6 @@ release candidates; other dependencies use stable releases. Alpha, beta,
 nightly, and canary versions require a specific project decision. Update
 manifests, catalog, and lockfile together through Vite+.
 
-## Installed Tailcat transport
-
-Tab transfer requires Tailcat installed separately by the user on each desktop.
-Windows uses native `tailcat.exe` on PATH. Scope discovers the CLI through PATH, then `/opt/homebrew/bin/tailcat` and
-`/usr/local/bin/tailcat` for GUI-launched Mac apps. Scope provides no installer
-or installation action. The adapter uses the Tailcat v0.7.0 CLI interface;
-installed versions must support the same JSON listener and port-forwarding commands.
-
-The desktop build compiles a TypeScript transport supervisor with Vite+.
-Scope uses its existing Electron runtime to supervise the user-installed CLI.
-Builds and packaging need neither Tailcat nor a Go compiler and redistribute
-no Tailcat binary or Go dependencies. Standard tests use synthetic local CLI
-subprocesses and need no Tailcat installation or live relay.
-
-The optional `vp exec node tools/check-transfer-transport.ts` smoke test uses
-an already installed Tailcat CLI and sends synthetic content through its hosted
-relay. It runs separately from `ready`, never installs dependencies, and uses
-no personal artifacts or provider credentials.
-
-Sharing-link creation and Scope-to-Scope pairing stay in the desktop app. A receiver
-can authorize an agent to run `irudd-scope import-link 'scope-transfer://v2/#...'`
-through its normal Scope connection. Main imports without a desktop receive
-click, retaining the same pairing, expiry, validation and retry guarantees.
-Both computers must be awake and online; a connected paired hub can forward the
-request, but imports are never queued. The command defaults to a bounded
-300,000 ms timeout. Retry the same link if its result is uncertain.
-
 ## Validation and tests
 
 `vp run ready` builds the CLI, hub, and desktop, runs `vp run check`, then runs
@@ -475,9 +448,8 @@ version pinned in Scope's workspace catalog.
 | `%LOCALAPPDATA%\irudd-scope\bin\irudd-scope.exe`   | Optional native CLI launcher installed from Settings. |
 
 `SCOPE_INSTALL_ROOT` can select another absolute local installation directory.
-The installer creates the per-user Start Menu shortcut and `scope-transfer`
-protocol registration against the stable launcher. App updates prepare a
-separate build, then **Restart to update** flushes pending saves and selects
+The installer creates the per-user Start Menu shortcut against the stable launcher.
+App updates prepare a separate build, then **Restart to update** flushes pending saves and selects
 that build. Activation keeps the running executable in its original directory
 and restores the previous selection if it fails. Desktop launching, the CLI,
 and bundled skills follow the same active build. A failed build leaves the
@@ -492,10 +464,8 @@ or network request. Existing unrelated files remain untouched. Refresh or
 start an agent session after updating skills.
 
 Use Settings to remove the CLI and skills before removing the app. Quit Scope,
-delete its Start Menu shortcut and installation directory, and remove the
-`HKCU\Software\Classes\scope-transfer` registration if it still points to that
-installation. The independent desktop profile in `%APPDATA%\irudd-scope`
-remains. The discovery file and memory clone live under the default installation
+delete its Start Menu shortcut and installation directory. The independent desktop
+profile in `%APPDATA%\irudd-scope` remains. The discovery file and memory clone live under the default installation
 root, so preserve them before deleting that directory if needed. See
 [storage](storage.md) for credentials, data locations, and backup limits.
 

@@ -86,6 +86,7 @@ test(
             confirmed: true,
           },
         },
+        transferKeys: { retired: 42 },
         guestKey: "synthetic-retired-guest-key",
         guestEndpoints: {
           [peer.id]: { address: "100.64.0.2", port: 41234 },
@@ -130,6 +131,7 @@ test(
       const plaintext = await encryption.decryptStringAsync(
         Buffer.from(protectedValue.ciphertext, "base64"),
       );
+      expect(plaintext.result).not.toContain("transferKeys");
       expect(plaintext.result).not.toContain("guestKey");
       expect(plaintext.result).not.toContain("guestEndpoints");
       expect(plaintext.result).not.toContain("retired");
@@ -213,7 +215,6 @@ test(
       for (const invalid of [
         { apiKey: 42 },
         { remoteTokens: { hub: 42 } },
-        { transferKeys: { peer: 42 } },
         { guestPairs: { peer: { key: "invalid" } } },
       ]) {
         const ciphertext = await encryption.encryptStringAsync(

@@ -55,7 +55,7 @@ export async function integrateWindows(root: string, build: string) {
       cleanup = false;
       throw new AggregateError(
         [error, restoreError],
-        `Could not restore Scope's shortcut and protocol registration. Backups remain at ${backup}.`,
+        `Could not restore Scope's shortcut. Backups remain at ${backup}.`,
       );
     }
     throw error;

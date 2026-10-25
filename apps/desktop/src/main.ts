@@ -33,12 +33,7 @@ import { MemoryService } from "./memory.ts";
 import { LibrarianService } from "./librarian.ts";
 import { createApplicationMenu } from "./menu.ts";
 import { GuestConnections } from "./guest/service.ts";
-import { TabTransfers } from "./transfer/service.ts";
-import { TailcatCliTransport } from "./transfer/transport.ts";
-import { registerTransferLinks } from "./transfer/links.ts";
 import { registerExternalLinks } from "./external-links.ts";
-
-const transferLinks = registerTransferLinks();
 
 app.setName("irudd-scope");
 if (process.platform === "win32") app.setAppUserModelId(WINDOWS_APP_ID);
@@ -80,7 +75,6 @@ async function main() {
   await voice.start();
   nativeTheme.themeSource = store.settings().appearance;
   let lifecycle: DesktopLifecycle;
-  let transfers: TabTransfers | undefined;
   let memory: MemoryService | undefined;
   let librarian: LibrarianService | undefined;
   let guestMutations: GuestMutations | undefined;
@@ -98,11 +92,6 @@ async function main() {
     guestCommand: (route, input) => {
       if (!guestMutations) throw new Error("Guest operations are not ready.");
       return guestMutations.command(route, input);
-    },
-    importLink: (url) => {
-      if (!transfers)
-        throw new ScopeError(503, "Scope is still starting. Retry the same link shortly.");
-      return transfers.importLink(url);
     },
     voice,
     memory: {
@@ -173,8 +162,6 @@ async function main() {
   store.guestRecovery.onChanged = (id) => {
     if (!window.isDestroyed()) window.webContents.send("scope:guest-recovery-changed", id);
   };
-  transferLinks.attach(window);
-  transfers = new TabTransfers(store, lifecycle!, new TailcatCliTransport());
   const guests = new GuestConnections(store);
   const guestCatalogs = new GuestCatalogs(guests, store, artifacts.store, (view) => {
     if (!window.isDestroyed()) window.webContents.send("scope:guest-catalog-changed", view);
@@ -234,7 +221,6 @@ async function main() {
     remotes,
     memory,
     librarian,
-    transfers,
     guests,
     guestCatalogs,
     guestMutations,
@@ -310,7 +296,6 @@ async function main() {
     await guestMutations?.close();
     await guestCatalogs.close();
     await guests.close();
-    await transfers?.close();
     await remotes.close();
     await librarian?.close();
     await memory?.close();

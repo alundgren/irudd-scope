@@ -32,21 +32,6 @@ never falls back to plaintext. This optional preference row does not change
 the desktop database schema version. Mac and Windows profiles are independent;
 Scope does not migrate or share them between platforms.
 
-Tab transfer stores local identity and peer metadata in the `transfer-device`
-and `scope-peers` preference rows in `desktop.db`. Pairing keys live in the
-profile's Keychain entry on macOS or encrypted Windows credential record,
-alongside provider and remote credentials. Linux and
-explicit session-credential profiles retain keys only in memory, so pairing
-lasts until that app closes. Forget removes the selected pairing key and
-preserves provider and hub credentials.
-
-The additive `transfer_receipts` table in `scope.db` stores source and invitation
-IDs, expiry, and imported metadata in the same transaction as copied bytes.
-Receipts survive removal of the copied tab to prevent recreation by retry.
-Maintenance reclaims receipts after expiry. Existing artifact and desktop rows
-are preserved; these additions do not change their formats. Source snapshots
-and request records stay in memory for at most fifteen minutes.
-
 On Unix, Scope creates database directories with mode `0700` and database files
 with mode `0600`. Windows uses the current user's profile directories and
 their Windows access permissions. Treat the whole profile and discovery file as private. Explicit
@@ -562,9 +547,8 @@ Success requires both writes. A failed cancellation stays retryable and must be
 resolved before restarting; it does not claim durable revocation when storage is
 unavailable. A stale enabled preference alone cannot authorize an unconfirmed pair.
 
-There is no conversion of earlier guest or casting pairs. Protected credential
-reads discard obsolete guest-only key and endpoint fields before strictly
-validating retained provider keys, hub tokens, casting keys and current guest pairs.
+Protected credential reads discard obsolete pairing key and endpoint fields before
+strictly validating retained provider keys, hub tokens and current guest pairs.
 Reading leaves protected bytes unchanged. The next successful credential update
 writes retained fields only. Invalid retained credentials still fail explicitly.
 
@@ -585,8 +569,8 @@ keeps its last valid records after failed or incomplete refreshes. Restoring an
 older owner database can roll back its revision and requires resolving that
 mismatch before the receiver accepts it.
 
-Guest records and content never enter the receiver's `scope.db`, blob tables,
-retention records or transfer receipts. There is no persistent guest content
+Guest records and content never enter the receiver's `scope.db`, blob tables or
+retention records. There is no persistent guest content
 cache. Published bytes remain in the owner's `scope.db`; folder files remain on
 their existing filesystem. Credential storage remains separate from these
 metadata records. Exported guest downloads are ordinary user-selected files.

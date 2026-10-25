@@ -32,7 +32,6 @@ import {
 } from "./workspace/contract.ts";
 import { Remote, Remotes } from "./remote-contract.ts";
 import { RemoteToken } from "@irudd-scope/protocol/remote";
-import { TransferName, TransferSecret } from "@irudd-scope/protocol/transfer";
 import {
   GuestEndpoint,
   GuestDevice,
@@ -41,7 +40,6 @@ import {
   GuestPairCredential,
 } from "@irudd-scope/protocol/guest";
 import { GuestRecord, GuestSettings } from "./guest/contract.ts";
-import { ScopeDevice, ScopePeer, ScopePeers } from "./transfer/contract.ts";
 import { machineRetroConfiguration } from "./retro-configuration.ts";
 import type { MemoryConfiguration } from "@irudd-scope/protocol/memory";
 import { LibrarianView, type LibrarianReply } from "@irudd-scope/protocol/librarian";
@@ -668,84 +666,6 @@ export class DesktopStore {
 
   get credentialStorage(): CredentialStore["kind"] {
     return this.credentials.kind;
-  }
-
-  transferDevice(name?: string): Promise<ScopeDevice> {
-    if (name !== undefined) decode(TransferName, name);
-    return this.enqueue(async () => {
-      const [row] = await this.run(
-        this.sql!<{
-          document: string;
-        }>`SELECT document FROM preferences WHERE name = 'transfer-device'`,
-      );
-      const device = row
-        ? decode(ScopeDevice, JSON.parse(row.document))
-        : { deviceId: crypto.randomUUID(), name: name ?? "Scope" };
-      const next = { ...device, name: name ?? device.name };
-      await this.run(
-        this
-          .sql!`INSERT INTO preferences(name, document) VALUES ('transfer-device', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
-      );
-      return next;
-    });
-  }
-
-  async scopePeers(): Promise<ScopePeer[]> {
-    await this.pending;
-    const [row] = await this.run(
-      this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'scope-peers'`,
-    );
-    return row ? [...decode(ScopePeers, JSON.parse(row.document))] : [];
-  }
-
-  async transferKey(id: string): Promise<string | undefined> {
-    await this.pending;
-    return (await this.credentials.read()).transferKeys?.[id];
-  }
-
-  saveScopePeer(value: ScopePeer, secret: string): Promise<void> {
-    const peer = decode(ScopePeer, value);
-    decode(TransferSecret, secret);
-    return this.enqueue(async () => {
-      const [row] = await this.run(
-        this.sql!<{
-          document: string;
-        }>`SELECT document FROM preferences WHERE name = 'scope-peers'`,
-      );
-      const peers = row ? [...decode(ScopePeers, JSON.parse(row.document))] : [];
-      const secrets = await this.credentials.read();
-      await this.credentials.write({
-        ...secrets,
-        transferKeys: { ...secrets.transferKeys, [peer.id]: secret },
-      });
-      const next = [...peers.filter((item) => item.id !== peer.id), peer];
-      await this.run(
-        this
-          .sql!`INSERT INTO preferences(name, document) VALUES ('scope-peers', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
-      );
-    });
-  }
-
-  removeScopePeer(id: string): Promise<void> {
-    return this.enqueue(async () => {
-      const [row] = await this.run(
-        this.sql!<{
-          document: string;
-        }>`SELECT document FROM preferences WHERE name = 'scope-peers'`,
-      );
-      const peers = row ? [...decode(ScopePeers, JSON.parse(row.document))] : [];
-      const secrets = await this.credentials.read();
-      const transferKeys = { ...secrets.transferKeys };
-      delete transferKeys[id];
-      await this.credentials.write({
-        ...secrets,
-        transferKeys,
-      });
-      await this.run(
-        this
-          .sql!`UPDATE preferences SET document = ${JSON.stringify(peers.filter((peer) => peer.id !== id))} WHERE name = 'scope-peers'`,
-      );
-    });
   }
 
   async guestRecords(): Promise<GuestRecord[]> {

@@ -68,9 +68,20 @@ test(
     const directory = await mkdtemp(join(tmpdir(), "scope-remote-credentials-"));
     const id = "11111111-1111-4111-8111-111111111111";
     const token = "synthetic-remote-connection-token-for-tests";
+    const guestId = randomUUID();
+    const guestKey = randomBytes(32).toString("base64url");
+    const guestPairs = {
+      [guestId]: {
+        key: guestKey,
+        endpoint: { address: "100.64.0.2", port: 41234 },
+        confirmed: true,
+      },
+    };
     const saved = JSON.stringify({
+      guestPairs,
       apiKey: "synthetic-existing-provider-key",
       remoteTokens: { [id]: token },
+      transferKeys: { retired: 42 },
       guestKey: "synthetic-retired-guest-key",
       guestEndpoints: { retired: { address: "tc" + "z".repeat(80), port: 41234 } },
     });
@@ -81,6 +92,7 @@ test(
       await first.load();
       expect(await first.secret("apiKey")).toBe("synthetic-existing-provider-key");
       expect(await first.remoteToken(id)).toBe(token);
+      expect(await first.guestKey(guestId)).toBe(guestKey);
       expect(await first.guestEndpoint("retired")).toBeUndefined();
       expect(await entry.getPassword()).toBe(saved);
       await first.saveRemote(
@@ -88,18 +100,22 @@ test(
         token,
       );
       await first.saveSettings({ voiceGenerationEnabled: true, apiKey: "synthetic-provider-key" });
+      expect(await entry.getPassword()).not.toContain("transferKeys");
       expect(await entry.getPassword()).not.toContain("guestKey");
       expect(await entry.getPassword()).not.toContain("retired");
       await first.close();
       await second.load();
       expect(await second.remoteToken(id)).toBe(token);
+      expect(await second.guestKey(guestId)).toBe(guestKey);
       expect(await second.remotes()).toEqual([
         { id, name: "Test remote", endpoint: "https://remote.example.test", enabled: true },
       ]);
       await second.saveSettings({ removeApiKey: true });
       expect(await second.remoteToken(id)).toBe(token);
       await second.removeRemote(id);
-      expect(await keychainCredentials(entry).read()).toEqual({});
+      expect(await second.remoteToken(id)).toBeUndefined();
+      expect(await second.secret("apiKey")).toBeUndefined();
+      expect(await second.guestKey(guestId)).toBe(guestKey);
     } finally {
       await second.close();
       await rm(directory, { recursive: true, force: true });
@@ -210,7 +226,6 @@ test.for(['{"apiKey":"synthetic-key"', '{"apiKey":42}', "null"])(
     for (const invalid of [
       { apiKey: 42 },
       { remoteTokens: { hub: 42 } },
-      { transferKeys: { peer: 42 } },
       { guestPairs: { peer: { key: "invalid" } } },
       { hubToken: 42 },
     ]) {

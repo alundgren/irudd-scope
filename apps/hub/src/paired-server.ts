@@ -8,10 +8,6 @@ import {
 import { MAX_PROMPT_REQUEST_BYTES } from "@irudd-scope/protocol/prompts";
 import { MAX_PULL_REQUESTS_REQUEST_BYTES } from "@irudd-scope/protocol/pull-requests";
 import { MAX_VOICE_REQUEST_BYTES } from "@irudd-scope/protocol/voice";
-import {
-  MAX_TRANSFER_IMPORT_REQUEST_BYTES,
-  TRANSFER_IMPORT_TIMEOUT_MS,
-} from "@irudd-scope/protocol/transfer";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { Transform } from "node:stream";
@@ -609,13 +605,11 @@ export async function startPairedHub(
     }
     const limit = guestCommandRequest(request.method ?? "", request.url ?? "")
       ? MAX_GUEST_OPERATION_BYTES
-      : request.url === "/v1/transfers/import"
-        ? MAX_TRANSFER_IMPORT_REQUEST_BYTES
-        : request.url === "/v1/prompts"
-          ? MAX_PROMPT_REQUEST_BYTES
-          : request.url === "/v1/pull-requests"
-            ? MAX_PULL_REQUESTS_REQUEST_BYTES
-            : MAX_CONTENT_BYTES;
+      : request.url === "/v1/prompts"
+        ? MAX_PROMPT_REQUEST_BYTES
+        : request.url === "/v1/pull-requests"
+          ? MAX_PULL_REQUESTS_REQUEST_BYTES
+          : MAX_CONTENT_BYTES;
     if (Number(request.headers["content-length"]) > limit) {
       json(response, 413, { error: `Request exceeds the ${limit / (1024 * 1024)} MiB limit.` });
       return;
@@ -624,9 +618,7 @@ export async function startPairedHub(
       ? GUEST_COMMAND_TIMEOUT_MS
       : maintenanceRequest(request.url ?? "")
         ? MAX_MAINTENANCE_TIMEOUT_MS + 5000
-        : request.url === "/v1/transfers/import"
-          ? TRANSFER_IMPORT_TIMEOUT_MS
-          : 30_000;
+        : 30_000;
     request.setTimeout(timeoutMs);
     startForward(request, request, response, timeoutMs, request.headers["content-type"]);
   }

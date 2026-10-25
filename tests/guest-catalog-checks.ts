@@ -407,7 +407,6 @@ export async function guestCatalogChecks({
             .get()?.n,
         ).toBe(0);
         expect(receiver.prepare("SELECT count(*) AS n FROM artifacts").get()?.n).toBe(1);
-        expect(receiver.prepare("SELECT count(*) AS n FROM transfer_receipts").get()?.n).toBe(0);
       } finally {
         receiver.close();
       }

@@ -244,67 +244,6 @@ renames it only when every byte arrived. Remote saves read
 `GET /v1/relay/folders/read` without an end. Saves and drops report progress to
 the tab, can be cancelled, and stop when the tab closes.
 
-## Tab transfer
-
-`apps/desktop/src/transfer/` owns desktop pairing, temporary invitations,
-authentication, and transport cleanup. `packages/protocol/src/transfer.ts`
-defines the versioned invitation and portable artifact manifest. Desktop main
-exposes named IPC for Settings, Send, and Import. The renderer receives metadata
-and status, never saved pairing keys. Copying a generated secret uses a named
-main-process clipboard operation.
-
-Each pair has an independently generated random secret in the credential store
-and peer identity and name in `desktop.db`. Signed invitations bind the source,
-connection address, and fifteen-minute lifetime. Receivers verify signatures
-before connecting. AES-256-GCM messages use HKDF-derived directional keys,
-fresh nonces, and invitation-bound authenticated data. Responses identify the
-source and originating request. Repeated requests do not repeat mutations;
-live invitations bound accepted request counts.
-
-Tab transfer requires a user-installed Tailcat CLI on each desktop. Scope searches
-PATH, including native executables on Windows, and the standard Mac Homebrew locations, and reports a missing CLI when a
-transfer starts. Scope does not install, download, or bundle Tailcat.
-
-Desktop main runs a TypeScript transport supervisor using its existing runtime.
-The supervisor owns one loopback HTTP listener and a Tailcat process serving
-only that listener's port, with ephemeral keys. Version 2 invitations sign the
-port alongside the address and lifetime. Version 1 transfer links are rejected;
-both desktops must use version 2 links. Existing saved pairings remain valid.
-
-The supervisor stops Tailcat before releasing its HTTP port on cancellation,
-expiry, main-process disconnect, or CLI failure. Requests and responses have
-size limits, deadlines, and bounded concurrency. The target uses the CLI's
-loopback port forwarding and sends encrypted messages over HTTP. Pairing secrets
-and payloads never enter CLI arguments; the invitation's connection address does.
-Tailcat is experimental; its hosted relays can observe connection metadata and
-provide rate-limited service without uptime guarantees.
-
-Send freezes an ordinary artifact, including an Excalidraw file, as published.
-Sharing links and Scope-to-Scope pairings are created only in the desktop app.
-The receiver can give an agent a tab sharing link and authorize
-`irudd-scope import-link LINK`. The authenticated publication API exposes only
-`POST /v1/transfers/import` for this operation. Desktop main performs Inspect
-then Import without a renderer confirmation; pairing keys stay in the desktop credential store.
-The CLI uses normal receiver discovery or a connected paired hub. Imports are
-never queued, and the import request has a bounded five-minute deadline.
-Conversations, proposals, credentials, and agent sessions remain local. Inspect
-authenticates and retains the approved manifest in main. Import validates the
-download against that manifest and requests final source authorization.
-Authorization is serialized against Cancel and Forget. Cancel stops imports
-not yet authorized; closing or forgetting the source cannot retract previously
-authorized bytes.
-
-`library/transfer-import.ts` commits the new tab, artifact, bytes, and retry
-receipt together in `scope.db`. New local identities and omission of the
-original unique name prevent overwrites. Repeated imports return the existing
-copy. Removing that copy retains its receipt until expiry and prevents
-recreation. Explicit desktop Import or an authorized agent command precedes HTML execution under the existing trusted
-content behavior. Both apps must be online and awake. Invitations and snapshots
-exist only in memory, with no offline queue or continuing synchronization.
-Only ordinary file tabs transfer. Plans, PR inboxes, and retros are excluded;
-PR inboxes and retros keep additional records that are not in the portable
-manifest.
-
 ## Structured plans
 
 A named `plan` artifact stores one versioned JSON document in existing SQLite
@@ -555,7 +494,7 @@ Keychain. No app imports build-tool code at runtime.
 The root `install.ps1` builds and packages native Windows 11 x64. Windows keeps
 each app build immutable and selects it through `current`, `previous`, and
 `prepared` junctions. A stable per-user launcher selects the active build for
-the Start Menu and transfer protocol. The native CLI launcher and bundled skill
+the Start Menu. The native CLI launcher and bundled skill
 junctions select that same build. Activation changes these references without
 replacing an executing binary and restores them on failure. Windows credentials
 and desktop data remain in the independent Electron profile. Windows has no
@@ -922,7 +861,7 @@ invalidate clean editor state and visible picker reads without navigation.
 
 `apps/desktop/src/guest/` owns explicit guest consent, authenticated peer sessions,
 reconnection and a dedicated peer HTTP listener. Guest identity, peers, invitations
-and protected pair credentials are independent of `transfer/`. Pairing grants no
+and protected pair credentials belong to this module. Pairing grants no
 access through the publishing API. `packages/protocol/src/guest.ts` defines the
 validated guest contracts. Named desktop IPC exposes invitation review, consent,
 cancel, forget and retry; main owns clipboard invitation access.
@@ -981,7 +920,7 @@ The process-independent plugin registry explicitly allows ordinary files,
 structured plans and folders. Hidden bookmarked sources remain eligible.
 Built-ins, unsupported kinds, incomplete publications and trash do not appear.
 Guest references have their own desktop preferences records and cannot become
-local artifacts or transfer sources.
+local artifacts.
 
 Catalog replies are complete snapshots with increasing persisted revisions.
 A bounded long poll returns the next snapshot or the current snapshot after

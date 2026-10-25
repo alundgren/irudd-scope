@@ -7,7 +7,7 @@ import { NativeSelect, NativeSelectOption } from "./components/ui/native-select.
 import { Switch } from "./components/ui/switch.tsx";
 import { InstallationSettings } from "./installation-settings.tsx";
 import { RemoteSettings } from "./remote-settings.tsx";
-import { TransferSettings } from "./transfer-settings.tsx";
+import { GuestPairingSettings } from "./guest-pairing-settings.tsx";
 import { RetroSettings } from "./retro-settings.tsx";
 import { MemorySettings } from "./memory-settings.tsx";
 import { ProviderSettings } from "./provider-settings.tsx";
@@ -159,7 +159,9 @@ export function SettingsViewPanel({
         <RemoteSettings query={query} />
         <RetroSettings query={query} />
         <MemorySettings query={query} />
-        <TransferSettings query={query} />
+        <SettingsSection id="guests" query={query}>
+          <GuestPairingSettings />
+        </SettingsSection>
         <InstallationSettings query={query} />
       </div>
     </>

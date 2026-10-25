@@ -7,7 +7,7 @@ allows sharing, then the issuer reviews the requesting Scope and approves.
 Both endpoints are verified and both sides protect their pair credentials before
 access begins. Cancel and expiry leave access off. Partial pairing reports a
 failure and asks the person to forget any incomplete pair before starting again.
-Guest pairing uses the installed Tailscale network and is independent of tab copying.
+Guest pairing uses the installed Tailscale network.
 
 Cancellation shows progress until consent and protected confirmation are revoked.
 If either write fails, Other Scopes shows Retry cancellation and asks the person
@@ -31,7 +31,7 @@ without the required capability show an update requirement. Unavailable sources 
 from interaction. Offline, disabled, unpaired and incompatible connections have
 distinct recovery advice. An absent source may have expired, moved to Trashcan,
 or become ineligible; checking the source belongs on its owner.
-Close hides a guest locally; guests have no local bookmark, Send tab or Trashcan action.
+Close hides a guest locally; guests have no local bookmark or Trashcan action.
 Source actions name the owner and separately offer source title changes, retention
 and moving the source to the owner’s Trashcan. Stale changes retain entered input
 and show the current owner revision. Uncertain operations block further source
@@ -52,37 +52,6 @@ explicit and requires the same owner, source, revision and blob. Changed documen
 keep old input available for copy or discard. Passwords, files, sensitive fields,
 ambiguous identifiers and arbitrary script state are excluded; unsupported fields
 never promise persistence. Scope stores no persistent guest HTML snapshot.
-
-Other Scopes explains that transfers require Tailcat installed separately on
-each device. Scope has no installer or installation action; a missing CLI produces
-an inline error when pairing or transfer starts.
-
-Other Scopes in Settings pairs desktops using a public invitation and a
-separately exchanged generated secret. Saved keys never appear in the renderer.
-Main copies the setup secret; the target clears its transient input after
-success or cancellation. Mac pairings persist in Keychain; Windows pairings use
-DPAPI protection for the current Windows account. Session profiles
-explain their shorter lifetime.
-
-Current tab offers Send to another Scope for ordinary artifacts, including
-Excalidraw files. It freezes a copy for the selected peer. The Sketchpad, plans,
-and PR inboxes do not offer it. Invitations show
-a QR code, Copy link, expiry, and Cancel, and last fifteen minutes. Cancel is
-unavailable after final authorization; the source shows Import in progress.
-Delivered means the target committed and acknowledged its copy.
-
-Import from link is a workspace action. Transfer URLs prepopulate pairing or
-import dialogs and require an explicit action. Import shows authenticated tab
-details and source before opening the artifact. Repeated imports open the
-existing copy. Dialogs preserve the mounted source tab and return keyboard
-focus to the workspace.
-
-Sharing-link creation and Scope-to-Scope pairing remain desktop-app actions. A
-receiver can authorize an agent to run `irudd-scope import-link LINK` instead
-of using the import dialog. That command imports immediately after main's
-authenticated inspection and validation, with no desktop confirmation click.
-Opening a transfer URL normally still shows the dialog. Same-link agent retries
-return the existing copy.
 
 Scope is a macOS and Windows 11 x64 workspace for inspecting artifacts left by coding agents and
 reviewing structured plans, with a personal Sketchpad for ideas. The selected artifact gets the window. One compact strip

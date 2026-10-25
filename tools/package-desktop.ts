@@ -66,13 +66,7 @@ try {
     }),
   );
   await mkdir(join(source, "dist"));
-  for (const entry of [
-    "main.mjs",
-    "preload.cjs",
-    "cli-process.mjs",
-    "folder-writer.mjs",
-    "renderer",
-  ])
+  for (const entry of ["main.mjs", "preload.cjs", "folder-writer.mjs", "renderer"])
     await cp(join(desktop, "dist", entry), join(source, "dist", entry), { recursive: true });
   await cp(join(desktop, "resources"), join(source, "resources"), { recursive: true });
   await cp(join(root, "packages/cli/dist"), join(source, "cli"), { recursive: true });
@@ -112,12 +106,6 @@ try {
     extraResource: windows ? [] : [join(desktop, "resources/icon.icns")],
     extendInfo: {
       CFBundleIconFile: "icon.icns",
-      CFBundleURLTypes: [
-        {
-          CFBundleURLName: "alundgren.irudd-scope.transfer",
-          CFBundleURLSchemes: ["scope-transfer"],
-        },
-      ],
     },
     platform: windows ? "win32" : "darwin",
     arch: process.arch as "arm64" | "x64",

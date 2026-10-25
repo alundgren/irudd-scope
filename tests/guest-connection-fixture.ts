@@ -72,6 +72,13 @@ export async function guestConnectionChecks() {
     }
     await settings(pageA);
     await settings(pageB);
+    for (const page of [pageA, pageB]) {
+      expect(await page.getByText("Tab copying", { exact: true }).count()).toBe(0);
+      expect(await page.getByLabel("Pairing link", { exact: true }).count()).toBe(0);
+      expect(
+        await page.getByRole("button", { name: "Copy guest connection", exact: true }).count(),
+      ).toBe(0);
+    }
     await pageA.getByLabel("This Scope's guest name").fill("Source Scope");
     await writeFile(network.state, JSON.stringify({ "100.64.0.1": { stopped: true } }));
     await pageA.getByRole("button", { name: "Create guest invitation", exact: true }).click();

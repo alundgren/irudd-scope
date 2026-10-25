@@ -42,7 +42,7 @@ const settingsSections = [
     terms: "hub pairing tailnet tailscale disconnect cli skill version retry",
   },
   {
-    id: "transfers",
+    id: "guests",
     title: "Other Scopes",
     description: "Pair another Scope for guest sharing",
     terms: "guest tabs devices pairing sharing tailscale invitation",

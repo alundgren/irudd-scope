@@ -49,11 +49,6 @@ import {
 } from "@irudd-scope/protocol/maintenance";
 import { ArtifactStore } from "./store.ts";
 import { ArtifactName } from "@irudd-scope/protocol";
-import {
-  decodeTransferImportRequest,
-  TransferImportReceipt,
-  MAX_TRANSFER_IMPORT_REQUEST_BYTES,
-} from "@irudd-scope/protocol/transfer";
 
 export async function startArtifactServer(options: {
   librarian?: (command: LibrarianCommand) => Promise<LibrarianReply>;
@@ -64,7 +59,6 @@ export async function startArtifactServer(options: {
     ) => Promise<RetroConfiguration>;
   };
   guestCommand?: (route: string, input: unknown) => Promise<unknown>;
-  importLink?: (url: string) => Promise<TransferImportReceipt>;
   memory?: {
     status: () => MemoryStatus | Promise<MemoryStatus>;
     connect: (repository: string) => Promise<MemoryStatus>;
@@ -222,37 +216,6 @@ export async function startArtifactServer(options: {
     }
     if (await handlePromptHttp(request, response, url, store.prompts)) return;
     if (await handlePullRequestsHttp(request, response, url, store.pullRequests)) return;
-
-    if (route === "POST /v1/transfers/import" && !url.search) {
-      if (!options.importLink)
-        throw new ScopeError(
-          503,
-          "Link import is unavailable. Update and open Scope on the receiver.",
-        );
-      const body = await readJson(
-        request,
-        MAX_TRANSFER_IMPORT_REQUEST_BYTES,
-        "Transfer import request exceeds 16 KiB.",
-      );
-      let input;
-      try {
-        input = decodeTransferImportRequest(body);
-      } catch {
-        throw new ScopeError(
-          400,
-          "Provide a valid tab sharing link. Complete pairing in Scope first.",
-        );
-      }
-      let receipt;
-      try {
-        receipt = await options.importLink(input.url);
-      } catch (error) {
-        if (error instanceof ScopeError) throw error;
-        throw new ScopeError(400, error instanceof Error ? error.message : "The transfer failed.");
-      }
-      json(response, 200, decode(TransferImportReceipt, receipt));
-      return;
-    }
 
     if (route === "POST /v1/voice" && !url.search) {
       if (!options.voice) throw new ScopeError(503, "Voice generation is unavailable.");

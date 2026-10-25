@@ -90,6 +90,15 @@ test(
     const link = f.state.pairUrl();
     await f.remotes.pair(link);
     await expect.poll(() => f.remotes.snapshot()[0]?.connection).toBe("connected");
+    expect(
+      (
+        await fetch(`${f.hub.url}/v1/transfers/import`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${f.local.token}` },
+          body: "{}",
+        })
+      ).status,
+    ).toBe(404);
     const id = f.remotes.snapshot()[0].id;
     const pairing = readPairingUrl(link);
     const used = await fetch(`${f.hub.url}/v1/pair`, {
