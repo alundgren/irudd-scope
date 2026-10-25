@@ -53,10 +53,12 @@ export function GuestPairingSettings() {
     } catch (error) {
       const status = await window.scope.guestPairingStatus().catch(() => undefined);
       if (status) setPairing(status);
+      const message = operationError(error, "Guest pairing failed. Retry.");
       setError(
-        status?.state === "revocation-failed"
+        status?.state === "revocation-failed" ||
+          (status?.state === "failed" && status.message === message)
           ? ""
-          : operationError(error, "Guest pairing failed. Retry."),
+          : message,
       );
     } finally {
       setBusy(false);
@@ -161,8 +163,10 @@ export function GuestPairingSettings() {
           {pairing.state === "revocation-failed" && <p role="alert">{pairing.message}</p>}
           {pairing.state === "failed" && (
             <p role="alert">
-              {pairing.message} Pairing is incomplete. Forget any incomplete pair below, then create
-              a new invitation.
+              {pairing.message}{" "}
+              {devices?.peers.some((peer) => peer.id === pairing.id)
+                ? "Pairing is incomplete. Forget the incomplete pair below, then create a new invitation."
+                : "Create or paste a new invitation to retry."}
             </p>
           )}
           {!ended && pairing.state !== "cancelling" && (

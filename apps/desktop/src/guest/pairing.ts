@@ -197,8 +197,9 @@ export class GuestPairing {
         }),
       ),
       signal: p.controller.signal,
-      deadlineMs: 15000,
-      idleMs: 10000,
+      // A claim waits for the other desktop's bounded return-connection check.
+      deadlineMs: action === "claim" ? 30000 : 15000,
+      idleMs: action === "claim" ? 25000 : 10000,
     });
     const data = await guestJson(response.body);
     this.current(p);
