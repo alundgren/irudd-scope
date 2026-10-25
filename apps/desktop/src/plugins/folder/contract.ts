@@ -146,6 +146,19 @@ export function mergeFolderTab(current: Tab, incoming: Tab, selected?: FolderSel
   };
 }
 
+/** A file's version on its machine, read before its text so a later save can check it. */
+export type FolderFileVersionResult =
+  | { status: "ok"; version: string }
+  | { status: "failed"; message: string };
+/**
+ * The outcome of saving edited text. A conflict means the file changed since the editor
+ * read it and nothing was written; `version` is the file's version now, for Overwrite.
+ */
+export type FolderFileSaveResult =
+  | { status: "saved"; version: string }
+  | { status: "conflict"; version: string }
+  | { status: "failed"; message: string };
+
 /** A dropped item whose name exists, or matches an earlier dropped item. */
 export type FolderDropClash = { id: string; path: string };
 /**

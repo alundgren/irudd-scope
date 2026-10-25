@@ -399,8 +399,11 @@ note, and has Cancel while running. A new query cancels the previous one.
 Switching between Files and Search keeps both. Clicking a match selects the file
 and scrolls its preview to that line.
 
-Selecting a file shows a read-only preview beside the tree, below it in narrow
-windows, using the published-file viewers. Text has line numbers, and code is
+Selecting a file shows a preview beside the tree, below it in narrow
+windows, using the published-file viewers. The preview bar's expand button hides
+the tree and the folder bar so the preview fills the tab; the same button or
+Escape outside a text field brings them back. With Fullscreen the preview fills
+the screen. Text has line numbers, and code is
 coloured by its file name in both appearances; files over 2 MiB and lines over
 2,000 characters stay plain. Markdown and HTML have a Source button, which a
 search match or an agent's marked lines turn on. HTML previews are
@@ -410,6 +413,22 @@ display show name, size, and modified time. Text over 2 MiB shows its first
 2 MiB with a note. A file that changes reloads; a file that is deleted, or whose
 folder is renamed or deleted, says `This file was deleted.` Published text files
 show line numbers too, and Select All copies the whole text.
+
+Text, Markdown, and HTML files up to 2 MiB have Edit in the preview bar, on this
+computer, on remotes, and in guest folders. Edit replaces the preview with the
+file's text; Save, or Ctrl+S (Command-S on macOS), writes it to the folder's
+machine, keeping the file's line endings and byte order mark. Done returns to the
+preview, and becomes Discard while there are unsaved changes. Unsaved text stays
+only in the open tab, across switching files and tabs, and the tree marks such
+files Edited. Closing a permanent or guest tab to the drawer keeps them. Moving
+the tab to Trashcan or quitting Scope with unsaved changes is refused, with a
+note naming the files, until they are saved or discarded. A file that
+changes on its machine while unedited reloads in the editor. With unsaved
+changes the editor keeps the text and says the file changed, offering Reload and
+discard my changes or Overwrite with my changes; Save stays off until one is
+chosen. A save that finds the file changed is refused the same way, so a newer
+file is never replaced silently. A deleted file says so, and Save creates it
+again. A remote whose hub lacks versioned folder operations asks for an update.
 
 Dragging files from Finder or Explorer over the tree outlines the folder under
 the pointer. Over a file it copies into that file's folder, and over empty space

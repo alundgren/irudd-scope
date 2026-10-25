@@ -49,9 +49,12 @@ flowchart LR
 
 `packages/folder` owns all file system work for both machines: the canonical
 path, per-directory listings, `.gitignore` rules, containment, byte-range reads,
-change feeds, content and file name search, and `writeFolderFile`, which copies
-dropped files in through a staged file and is Scope's only write to a shared
-folder.
+change feeds, content and file name search, and `writeFolderFile`, which writes
+through a staged file and is Scope's only write to a shared folder. It copies
+dropped files in and saves text edited in a Folder tab. Each edit save is a
+versioned folder operation whose expected version is the one the editor read
+before the text, so a file changed since then is never replaced. Unsaved text
+stays in the renderer's open editor; Scope stores no copy.
 Desktop main uses it for local folders; the hub uses it for remote folders.
 `packages/protocol/src/folder.ts` defines the routes and wire contracts and
 imports no file system code.

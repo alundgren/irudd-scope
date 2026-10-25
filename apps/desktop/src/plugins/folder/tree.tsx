@@ -155,11 +155,12 @@ function RowIcon({ row }: { row: FolderRow }) {
   return <File aria-hidden="true" />;
 }
 
-function rowLabel(row: FolderRow) {
+function rowLabel(row: FolderRow, unsaved: boolean) {
   if (row.placeholder === "loading") return "Loading…";
   if (row.placeholder === "retrying") return "Could not read this folder. Retrying…";
   if (row.placeholder === "failed") return "Could not read this folder. Select to retry.";
   if (row.deleted) return `${row.entry.name}, deleted`;
+  if (unsaved) return `${row.entry.name}, unsaved changes`;
   if (row.entry.kind === "symlink")
     return `${row.entry.name}, ${row.entry.link === "outside" ? "link outside this folder" : "link"}`;
   return row.entry.ignored ? `${row.entry.name}, ignored` : row.entry.name;
@@ -177,6 +178,7 @@ export function FolderTree({
   tabId,
   rows,
   selected,
+  unsaved,
   revealCount,
   onToggle,
   onSelect,
@@ -186,6 +188,8 @@ export function FolderTree({
   tabId: string;
   rows: readonly FolderRow[];
   selected: string | null;
+  /** Files with unsaved edits. */
+  unsaved: ReadonlySet<string>;
   /** Counts requests to show the selected file, which can repeat for the same file. */
   revealCount: number;
   onToggle: (path: string, open: boolean) => void;
@@ -327,7 +331,7 @@ export function FolderTree({
               aria-posinset={row.position}
               aria-selected={entry.path === selected}
               aria-expanded={expandable ? row.expanded : undefined}
-              aria-label={rowLabel(row)}
+              aria-label={rowLabel(row, unsaved.has(entry.path))}
               title={
                 entry.kind === "symlink" && entry.link === "outside"
                   ? "This link points outside the folder and cannot be opened."
@@ -363,9 +367,10 @@ export function FolderTree({
               </span>
               <RowIcon row={row} />
               <span className="folder-row-name">
-                {row.placeholder ? rowLabel(row) : entry.name}
+                {row.placeholder ? rowLabel(row, false) : entry.name}
               </span>
               {row.deleted && <small>Deleted</small>}
+              {!row.deleted && unsaved.has(entry.path) && <small>Edited</small>}
             </div>
           );
         })}

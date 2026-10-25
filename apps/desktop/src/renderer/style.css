@@ -1859,6 +1859,43 @@ h2 {
 .folder-preview-body > .text-document {
   padding-top: var(--scope-space-3);
 }
+.folder-tab[data-full-preview] .folder-body {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+.folder-bar[hidden],
+.folder-side[hidden],
+.folder-preview-body[hidden] {
+  display: none;
+}
+.folder-edit-status {
+  flex: none;
+  color: var(--scope-muted);
+  font-size: var(--scope-text-detail);
+}
+.folder-edit-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--scope-space-2);
+  color: var(--scope-text);
+}
+.folder-editor {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: var(--scope-space-3) var(--scope-space-4);
+  border: 0;
+  resize: none;
+  background: var(--scope-canvas);
+  color: var(--scope-text);
+  font: var(--scope-text-ui) / var(--scope-leading-reading) var(--scope-font-mono);
+  tab-size: 4;
+  outline: none;
+}
+.folder-editor:focus-visible {
+  box-shadow: inset 0 0 0 var(--scope-focus-width) var(--scope-accent);
+}
 
 .guest-actions {
   flex: none;

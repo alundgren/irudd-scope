@@ -59,6 +59,8 @@ import type {
   FolderDropChoice,
   FolderDropPlan,
   FolderDropResult,
+  FolderFileSaveResult,
+  FolderFileVersionResult,
   FolderFilterResult,
   FolderListResult,
   FolderSearchResult,
@@ -143,6 +145,15 @@ export type ScopeBridge = {
     choices: Record<string, FolderDropChoice>;
   }) => Promise<FolderDropResult>;
   discardFolderDrop: (planId: string) => Promise<void>;
+  /** A folder file's version, read before its text when editing starts. */
+  folderFileVersion: (input: { tabId: string; path: string }) => Promise<FolderFileVersionResult>;
+  /** Replaces a folder file with edited text while it still has `expectedVersion`. */
+  saveFolderText: (input: {
+    tabId: string;
+    path: string;
+    text: string;
+    expectedVersion: string;
+  }) => Promise<FolderFileSaveResult>;
   /** Asks where to save a folder file with the native dialog; false when cancelled. */
   saveFolderFile: (input: { tabId: string; path: string }) => Promise<boolean>;
   cancelFolderTransfer: (id: string) => Promise<void>;

@@ -95,6 +95,8 @@ const bridge: ScopeBridge = {
     }),
   startFolderDrop: (input) => ipcRenderer.invoke("scope:folder-drop-start", input),
   discardFolderDrop: (planId) => ipcRenderer.invoke("scope:folder-drop-discard", planId),
+  folderFileVersion: (input) => ipcRenderer.invoke("scope:folder-file-version", input),
+  saveFolderText: (input) => ipcRenderer.invoke("scope:folder-file-save", input),
   saveFolderFile: (input) => ipcRenderer.invoke("scope:folder-save", input),
   cancelFolderTransfer: (id) => ipcRenderer.invoke("scope:folder-transfer-cancel", id),
   showFolderFileMenu: (input) => ipcRenderer.invoke("scope:folder-file-menu", input),
