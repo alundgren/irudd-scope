@@ -1,14 +1,7 @@
-import { fork, type ChildProcess } from "node:child_process";
-import { join } from "node:path";
-import { connect, type Socket } from "node:net";
-import {
-  Agent,
-  request as httpRequest,
-  type IncomingHttpHeaders,
-  type IncomingMessage,
-} from "node:http";
+import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage } from "node:http";
 import type { Readable } from "node:stream";
 import type { GuestEndpoint } from "@irudd-scope/protocol/guest";
+import { GuestNetwork, GuestNetworkError } from "./tailscale.ts";
 
 export type PeerRequest = {
   method?: "GET" | "POST" | "PUT";
@@ -19,156 +12,108 @@ export type PeerRequest = {
   idleMs: number;
 };
 export type PeerResponse = { status: number; headers: IncomingHttpHeaders; body: IncomingMessage };
-const failure = () =>
-  new Error("Guest transport disconnected. Check Tailcat and retry the connection.");
-async function stop(child: ChildProcess) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => child.kill("SIGKILL"), 5000);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    if (child.connected) child.disconnect();
-    else child.kill();
-  });
-}
 export class GuestTransport {
-  private child?: ChildProcess;
-  private socksPort?: number;
-  private pending?: Promise<unknown>;
-  private readonly disconnected: () => void;
-  private readonly worker: string;
-  constructor(disconnected: () => void, worker = join(import.meta.dirname, "guest-process.mjs")) {
-    this.disconnected = disconnected;
-    this.worker = worker;
+  private lifetime = new AbortController();
+  readonly network: GuestNetwork;
+  constructor(network = new GuestNetwork()) {
+    this.network = network;
   }
-  private run(command: { mode: "generate" } | { mode: "start"; key: string; port: number }) {
-    const child = fork(this.worker, [], {
-      execArgv: [],
-      serialization: "advanced",
-      windowsHide: true,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-      stdio: ["ignore", "ignore", "ignore", "ipc"],
-    });
-    this.child = child;
-    const result = new Promise<{ key?: string; address?: string; socksPort?: number }>(
-      (resolve, reject) => {
-        const timer = setTimeout(() => {
-          reject(failure());
-          void stop(child);
-        }, 50000);
-        child.once("error", () => {
-          clearTimeout(timer);
-          reject(failure());
-        });
-        child.once("exit", () => {
-          clearTimeout(timer);
-          reject(failure());
-          if (this.child === child) {
-            this.child = undefined;
-            this.socksPort = undefined;
-            this.disconnected();
-          }
-        });
-        child.on("message", (input: unknown) => {
-          if (!input || typeof input !== "object" || !("type" in input)) return;
-          const message = input as {
-            type: string;
-            key?: string;
-            address?: string;
-            socksPort?: number;
-            message?: string;
-          };
-          if (message.type === "error") {
-            clearTimeout(timer);
-            reject(new Error(message.message ?? failure().message));
-            void stop(child);
-          } else if (
-            (command.mode === "generate" &&
-              message.type === "key" &&
-              typeof message.key === "string") ||
-            (command.mode === "start" &&
-              message.type === "ready" &&
-              typeof message.address === "string" &&
-              Number.isInteger(message.socksPort))
-          ) {
-            clearTimeout(timer);
-            resolve(message);
-          }
-        });
-        child.send(command, (error) => {
-          if (error) reject(failure());
-        });
-      },
-    );
-    this.pending = result;
-    return result;
-  }
-  async generate() {
-    const result = await this.run({ mode: "generate" });
-    await this.close();
-    return result.key!;
-  }
-  async start(key: string, port: number): Promise<GuestEndpoint> {
-    const result = await this.run({ mode: "start", key, port });
-    this.socksPort = result.socksPort;
-    return { address: result.address!, port };
-  }
+
   async close() {
-    const child = this.child;
-    this.child = undefined;
-    this.socksPort = undefined;
-    if (child) await stop(child);
-    await this.pending?.catch(() => {});
+    this.lifetime.abort();
+    this.lifetime = new AbortController();
   }
+
   async request(
     endpoint: GuestEndpoint,
     path: string,
     options: PeerRequest,
   ): Promise<PeerResponse> {
     const body = options.body && "pipe" in options.body ? options.body : undefined;
-    const bodyFailed = new AbortController();
-    const bodyError = () => bodyFailed.abort();
-    // Own the upload before any setup can fail. Keep its error listener until
-    // close because destroy() may report an asynchronous file/stream error.
+    const operation = new AbortController();
+    const bodyError = () => operation.abort(new Error("Guest upload could not be read."));
+    // Own uploads before discovery. destroy() can emit a file error asynchronously.
     if (body && !body.closed) {
       body.once("error", bodyError);
       body.once("close", () => {
         body.removeListener("error", bodyError);
-        if (!body.readableEnded) bodyFailed.abort();
+        if (!body.readableEnded) bodyError();
       });
     }
-    let socket: Socket | undefined;
-    let request: ReturnType<typeof httpRequest> | undefined;
+    const signal = AbortSignal.any([options.signal, operation.signal, this.lifetime.signal]);
+    let pending: ReturnType<typeof httpRequest> | undefined;
+    let incoming: IncomingMessage | undefined;
+    const deadline = setTimeout(
+      () => operation.abort(new GuestNetworkError("Guest request exceeded its total deadline.")),
+      options.deadlineMs,
+    );
+    const idle = setTimeout(
+      () =>
+        operation.abort(
+          new GuestNetworkError(
+            "Guest connection timed out. Check Tailscale access and the guest port, then retry.",
+          ),
+        ),
+      options.idleMs,
+    );
+    let rejectDiscovery: ((error: unknown) => void) | undefined;
+    const abort = () => {
+      body?.destroy();
+      pending?.destroy(
+        signal.reason instanceof Error ? signal.reason : new Error("Guest request cancelled."),
+      );
+      incoming?.destroy(
+        signal.reason instanceof Error ? signal.reason : new Error("Guest request cancelled."),
+      );
+      rejectDiscovery?.(signal.reason);
+    };
+    const cleanup = () => {
+      clearTimeout(deadline);
+      clearTimeout(idle);
+      signal.removeEventListener("abort", abort);
+    };
+    signal.addEventListener("abort", abort, { once: true });
     try {
-      if (!this.socksPort || body?.destroyed) throw failure();
-      const signal = AbortSignal.any([
-        options.signal,
-        bodyFailed.signal,
-        AbortSignal.timeout(options.deadlineMs),
+      signal.throwIfAborted();
+      if (body?.destroyed) throw new Error("Guest upload closed before connecting.");
+      if (!/^\/guest\/[a-z][a-z0-9-]{0,63}$/.test(path))
+        throw new GuestNetworkError(
+          "Invalid guest route. Publishing routes and arbitrary URLs are not available.",
+        );
+      const destination = await Promise.race([
+        this.network.peer(endpoint, signal),
+        new Promise<never>((_, reject) => {
+          rejectDiscovery = reject;
+        }),
       ]);
-      const connected = await socksConnect(this.socksPort, endpoint, signal);
-      socket = connected;
-      // agent:false creates Node's default Agent and discards createConnection.
-      // This Agent can use only the already authenticated transport socket.
-      const agent = new Agent({ keepAlive: false });
-      agent.createConnection = () => connected;
-      connected.once("close", () => agent.destroy());
+      rejectDiscovery = undefined;
+      signal.throwIfAborted();
       return await new Promise<PeerResponse>((resolve, reject) => {
-        const pending = httpRequest(
+        pending = httpRequest(
           {
+            host: destination.endpoint.address,
+            port: destination.endpoint.port,
+            localAddress: destination.localAddress,
+            family: 4,
             method: options.method ?? "GET",
             path,
-            host: "scope-peer.invalid",
-            port: endpoint.port,
-            agent,
-            signal,
+            agent: false,
             maxHeaderSize: 16384,
             headers: { ...options.headers, Connection: "close" },
           },
           (response) => {
-            response.setTimeout(options.idleMs, () => response.destroy(failure()));
+            incoming = response;
+            // Keep cancellation and the total deadline until the response body closes.
+            response.once("error", () => {});
+            response.once("close", cleanup);
+            if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400) {
+              reject(
+                new GuestNetworkError("Invalid guest destination: redirects are not allowed."),
+              );
+              response.destroy();
+              pending?.destroy();
+              return;
+            }
             resolve({
               status: response.statusCode ?? 502,
               headers: response.headers,
@@ -176,65 +121,37 @@ export class GuestTransport {
             });
           },
         );
-        request = pending;
-        pending.once("error", reject);
-        // A successful return transfers the response stream to the caller;
-        // upload ownership lasts until the HTTP exchange closes, not headers.
-        pending.once("close", () => body?.destroy());
-        pending.once("socket", (assigned) => assigned.resume());
-        pending.setTimeout(options.idleMs, () => pending.destroy(failure()));
+        pending.once("error", (error) =>
+          reject(
+            signal.aborted
+              ? signal.reason
+              : new GuestNetworkError(
+                  ["EACCES", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")
+                    ? "Guest connection was denied. Check Tailscale access and the guest port."
+                    : "Guest connection failed. The other Scope may be offline or its guest port blocked.",
+                ),
+          ),
+        );
+        pending.once("close", () => {
+          body?.destroy();
+          if (!incoming || incoming.destroyed) cleanup();
+        });
+        pending.once("socket", (socket) => {
+          // Socket activity covers both upload and response, including backpressure.
+          socket.once("connect", () => clearTimeout(idle));
+          socket.setTimeout(options.idleMs, () =>
+            operation.abort(new GuestNetworkError("Guest connection was idle for too long.")),
+          );
+        });
         if (body) body.pipe(pending);
         else pending.end(options.body);
       });
     } catch (error) {
+      cleanup();
       body?.destroy();
-      request?.destroy();
-      socket?.destroy();
+      pending?.destroy();
+      incoming?.destroy();
       throw error;
     }
   }
-}
-function socksConnect(port: number, endpoint: GuestEndpoint, signal: AbortSignal): Promise<Socket> {
-  signal.throwIfAborted();
-  return new Promise((resolve, reject) => {
-    const socket = connect({ host: "127.0.0.1", port });
-    let buffer = Buffer.alloc(0);
-    let greeting = false;
-    let complete = false;
-    const abort = () => socket.destroy(failure());
-    signal.addEventListener("abort", abort, { once: true });
-    socket.once("close", () => {
-      signal.removeEventListener("abort", abort);
-      if (!complete) reject(failure());
-    });
-    socket.once("error", () => reject(failure()));
-    socket.once("connect", () => socket.write(Buffer.from([5, 1, 0])));
-    const data = (chunk: Buffer) => {
-      buffer = Buffer.concat([buffer, chunk]);
-      if (buffer.length > 4096) return abort();
-      if (!greeting) {
-        if (buffer.length < 2) return;
-        if (buffer[0] !== 5 || buffer[1] !== 0) return abort();
-        buffer = buffer.subarray(2);
-        greeting = true;
-        const host = Buffer.from(endpoint.address);
-        if (host.length > 255) return abort();
-        const targetPort = Buffer.alloc(2);
-        targetPort.writeUInt16BE(endpoint.port);
-        socket.write(Buffer.concat([Buffer.from([5, 1, 0, 3, host.length]), host, targetPort]));
-      }
-      if (buffer.length < 5) return;
-      if (buffer[0] !== 5 || buffer[1] !== 0) return abort();
-      const size =
-        buffer[3] === 1 ? 10 : buffer[3] === 4 ? 22 : buffer[3] === 3 ? 7 + buffer[4]! : 0;
-      if (!size) return abort();
-      if (buffer.length < size) return;
-      socket.removeListener("data", data);
-      socket.pause();
-      if (buffer.length > size) socket.unshift(buffer.subarray(size));
-      complete = true;
-      resolve(socket);
-    };
-    socket.on("data", data);
-  });
 }

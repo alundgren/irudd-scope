@@ -541,14 +541,15 @@ workspace and all other Scope content. Separately authored example-scene
 metadata belongs to its library item. Export refuses an existing output path
 and libraries above the 128 MiB export bound. There is no ZIP import.
 
-Guest connection consent and the reserved listener port use the `guest-settings`
-preference in `desktop.db`. Missing consent means disabled, including for existing
-transfer pairings. `guestKey` and `guestEndpoints` extend the existing credential
-document: Keychain on macOS, DPAPI-encrypted storage on Windows, and process memory
-on Linux development profiles. Peer endpoints contain a WireGuard preshared key
-and never appear in ordinary preferences. Forget removes that peer's endpoint;
-the local transport key remains available for other pairings. Session tokens and
-server challenges are memory-only and invalid after restart.
+Guest connection consent, the reserved listener port and the discovered local
+Tailscale address use the `guest-settings` preference in `desktop.db`. Missing
+consent means disabled, including for existing transfer pairings. `guestEndpoints`
+retains paired IPv4 addresses and ports in the existing protected credential
+document. Forget removes that peer's endpoint. Session tokens and server
+challenges are memory-only and invalid after restart. If the local address
+changes, automatic connection fails until the person copies and exchanges new
+guest connection links. Guest endpoint formats from earlier unreleased builds
+are unsupported; fresh guest setup is required.
 
 ## Guest references
 

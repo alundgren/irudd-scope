@@ -1,11 +1,12 @@
+import { createServer } from "node:http";
+import { guestNetworkFixture } from "./guest-network-fixture.ts";
 import { guestCli } from "./guest-cli.ts";
 import { guestResponseFixture } from "./guest-response-fixture.ts";
 import { guestCatalogChecks } from "./guest-catalog-checks.ts";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
-import { createServer } from "node:http";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { expect } from "vite-plus/test";
 import { syntheticCli } from "./synthetic-cli.ts";
 import { desktopFixture } from "./desktop-fixture.ts";
@@ -16,14 +17,30 @@ export async function guestConnectionChecks() {
   const routes = join(directory, "routes.json");
   await writeFile(routes, "{}");
   await syntheticCli(directory, "tailcat", guestCli);
+  const network = await guestNetworkFixture(directory);
   const env = {
-    PATH: directory + delimiter + process.env.PATH,
+    ...network.env,
     SCOPE_GUEST_FIXTURE_EVENTS: events,
     SCOPE_GUEST_FIXTURE_ROUTES: routes,
   };
-  const a = await desktopFixture({ hideInitialPrompts: true, env });
-  const b = await desktopFixture({ hideInitialPrompts: true, env });
-  const trap = createServer((_request, response) => response.writeHead(403).end());
+  const a = await desktopFixture({
+    hideInitialPrompts: true,
+    entry: network.entry,
+    env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.1" },
+  });
+  const b = await desktopFixture({
+    hideInitialPrompts: true,
+    entry: network.entry,
+    env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.2" },
+  });
+  let trapStatus = 403;
+  let trapRequests = 0;
+  const trap = createServer((_request, response) => {
+    trapRequests++;
+    response
+      .writeHead(trapStatus, { "Content-Type": "application/json", Location: "http://example.com" })
+      .end('{"error":"Synthetic access denied"}');
+  });
   await new Promise<void>((resolve) => trap.listen(0, "127.0.0.1", resolve));
   const trapPort = (trap.address() as { port: number }).port;
   const responses = await guestResponseFixture();
@@ -47,29 +64,53 @@ export async function guestConnectionChecks() {
       enabled: false,
       state: "disabled",
     });
+    await writeFile(network.state, JSON.stringify({ "100.64.0.1": { stopped: true } }));
     await pageA.evaluate((id) => window.scope.setGuestAccess(id, true), id);
+    await expect(pageA.evaluate((id) => window.scope.copyGuestLink(id), id)).rejects.toThrow(
+      "Tailscale is unavailable",
+    );
+    await writeFile(network.state, JSON.stringify({ "100.64.0.1": { interfaceMissing: true } }));
+    await expect(pageA.evaluate((id) => window.scope.copyGuestLink(id), id)).rejects.toThrow(
+      "interface is unavailable",
+    );
+    await writeFile(network.state, JSON.stringify({ "100.64.0.1": { occupied: true } }));
+    await expect(pageA.evaluate((id) => window.scope.copyGuestLink(id), id)).rejects.toThrow(
+      "port is in use",
+    );
+    await writeFile(network.state, "{}");
     await pageA.evaluate((id) => window.scope.copyGuestLink(id), id);
     const link = await left.evaluate(({ clipboard }) => clipboard.readText());
     const decoded = JSON.parse(Buffer.from(link.split("#")[1]!, "base64url").toString());
-    const { mac: _mac, ...routed } = decoded;
     responses.target(decoded.endpoint.port);
-    await writeFile(
-      routes,
-      JSON.stringify({ [trapPort]: responses.port, [decoded.endpoint.port]: responses.port }),
-    );
-    routed.endpoint = { ...routed.endpoint, port: trapPort };
-    const mac = createHmac("sha256", Buffer.from(pairingSecret, "base64url"))
-      .update("scope-guest:link:" + JSON.stringify(routed))
-      .digest("base64url");
-    const routedLink =
-      "scope-guest://v1/#" + Buffer.from(JSON.stringify({ ...routed, mac })).toString("base64url");
-    // The signed destination rejects direct HTTP. Only SOCKS maps it to the peer.
-    expect((await fetch(`http://127.0.0.1:${trapPort}/guest/challenge`)).status).toBe(403);
-    await right.evaluate(({ clipboard }, link) => clipboard.writeText(link), routedLink);
+    await writeFile(routes, JSON.stringify({ [decoded.endpoint.port]: responses.port }));
+    expect(decoded.endpoint.address).toBe("100.64.0.1");
+    await right.evaluate(({ clipboard }, link) => clipboard.writeText(link), link);
     await expect(pageB.evaluate((id) => window.scope.connectGuestLink(id), id)).rejects.toThrow(
       "disabled",
     );
     await pageB.evaluate((id) => window.scope.setGuestAccess(id, true), id);
+    const { mac: _mac, ...unsigned } = decoded;
+    async function invalidDestination(address: string, port: number, expected: string) {
+      const value = { ...unsigned, endpoint: { address, port } };
+      const mac = createHmac("sha256", Buffer.from(pairingSecret, "base64url"))
+        .update("scope-guest:link:" + JSON.stringify(value))
+        .digest("base64url");
+      const invalid =
+        "scope-guest://v1/#" + Buffer.from(JSON.stringify({ ...value, mac })).toString("base64url");
+      await right!.evaluate(({ clipboard }, text) => clipboard.writeText(text), invalid);
+      await expect(pageB.evaluate((id) => window.scope.connectGuestLink(id), id)).rejects.toThrow(
+        expected,
+      );
+    }
+    await invalidDestination("8.8.8.8", trapPort, "invalid");
+    await invalidDestination("http://100.64.0.1", trapPort, "invalid");
+    await invalidDestination("100.64.0.99", trapPort, "not a Tailscale peer");
+    expect(trapRequests).toBe(0);
+    await invalidDestination("100.64.0.1", trapPort, "rejected guest access");
+    trapStatus = 302;
+    await invalidDestination("100.64.0.1", trapPort, "redirects are not allowed");
+    expect(trapRequests).toBe(2);
+    await right.evaluate(({ clipboard }, text) => clipboard.writeText(text), link);
     await pageB.evaluate((id) => window.scope.connectGuestLink(id), id);
     const stateA = () =>
       pageA.evaluate(() => window.scope.guestStatus()).then((status) => status.peers[0]?.state);
@@ -85,11 +126,18 @@ export async function guestConnectionChecks() {
     const rows = (await readFile(events, "utf8"))
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line) as { kind: string; pid: number; port: number });
-    // These events are emitted only after HTTP bytes cross the SOCKS tunnel.
-    // Merely completing SOCKS CONNECT while HTTP uses a local socket cannot pass.
-    expect(rows.some((row) => row.kind === "/guest/challenge" && row.port === trapPort)).toBe(true);
-    expect(rows.some((row) => row.kind === "/guest/hello" && row.port === trapPort)).toBe(true);
+      .map(
+        (line) => JSON.parse(line) as { kind: string; pid: number; port: number; address?: string },
+      );
+    expect(new Set(rows.filter((row) => row.kind === "listen").map((row) => row.address))).toEqual(
+      new Set(["100.64.0.1", "100.64.0.2"]),
+    );
+    expect(
+      rows.some((row) => row.kind === "/guest/challenge" && row.port === decoded.endpoint.port),
+    ).toBe(true);
+    expect(
+      rows.some((row) => row.kind === "/guest/hello" && row.port === decoded.endpoint.port),
+    ).toBe(true);
     expect(rows.filter((row) => row.kind === "/guest/challenge").length).toBeGreaterThanOrEqual(2);
     expect(rows.filter((row) => row.kind === "/guest/hello").length).toBeGreaterThanOrEqual(2);
     await pageA.evaluate((id) => window.scope.retryGuest(id), id);
@@ -97,21 +145,13 @@ export async function guestConnectionChecks() {
       .poll(async () => (await readFile(events, "utf8")).includes('"/guest/identity"'))
       .toBe(true);
     await catalog.connected();
-    const servers = rows.filter((row) => row.kind === "serve");
-    const endpoint = JSON.parse(Buffer.from(link.split("#")[1]!, "base64url").toString())
-      .endpoint as { port: number; address: string };
+    const endpoint = decoded.endpoint as { port: number; address: string };
     expect((await fetch(`http://127.0.0.1:${endpoint.port}/guest/identity`)).status).toBe(403);
     expect((await fetch(`http://127.0.0.1:${endpoint.port}/v1/artifacts`)).status).toBe(403);
-    const tailcat = servers.find((row) => row.port === endpoint.port)!;
-    process.kill(tailcat.pid, "SIGKILL");
-    await expect
-      .poll(
-        async () =>
-          (await readFile(events, "utf8")).split("\n").filter((line) => line.includes('"serve"'))
-            .length,
-        { timeout: 30000 },
-      )
-      .toBeGreaterThan(servers.length);
+    responses.offline(true);
+    await pageB.evaluate((id) => window.scope.retryGuest(id), id);
+    await expect.poll(stateB, { timeout: 30000 }).toBe("offline");
+    responses.offline(false);
     await pageA.evaluate((id) => window.scope.retryGuest(id), id);
     await pageB.evaluate((id) => window.scope.retryGuest(id), id);
     await expect.poll(stateA, { timeout: 30000 }).toBe("connected");

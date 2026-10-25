@@ -927,22 +927,25 @@ publishing API. `packages/protocol/src/guest.ts` defines validated handshakes an
 connection setup links. Named desktop IPC exposes status, consent, retry, and
 main-process clipboard setup operations.
 
-Each desktop retains a Tailcat key in its existing credential store and reserves
-one loopback port on first guest setup. Later starts reuse that port; a conflict
-reports an error instead of silently changing the saved endpoint. The transport
-supervisor uses transient private FIFOs on Unix and a protected named pipe made
-by Windows PowerShell on Windows. Keys never become regular files. The Windows
-pipe has a protected logon-session ACL, denies network access, and has a bounded
-lifetime tied to its supervisor. Tailcat's destination-free loopback SOCKS proxy
-receives peer addresses through SOCKS bytes, preserving the WireGuard PSK without
-placing it in process arguments. Scope still uses the separately installed CLI.
+Desktop-owned Tailscale discovery reads the installed CLI's status JSON and
+verifies the local IPv4 address against OS interfaces. The dedicated guest HTTP
+listener binds only that address and saves its port and address in desktop.db.
+Later starts reuse the port; missing interfaces and occupied ports fail explicitly.
+A changed local address requires copying and exchanging new connection links.
+The shared guest endpoint contract permits only canonical IPv4 addresses in
+100.64.0.0/10 and a port. Before each direct HTTP request, the desktop verifies
+that the exact destination appears in Tailscale's peer records and binds the
+outgoing socket to its local Tailscale address. DNS destinations, URLs, redirects
+and publishing routes are rejected. Scope does not configure Serve, Funnel,
+ACLs or Tailscale installation. Pair authentication still supplies application
+consent; presence in the tailnet alone grants no guest access.
 
 A one-time signed setup link exchanges endpoints for an existing pairing. Both
 users explicitly enable guest sharing before the session can start. A fresh
 server challenge, paired secret, device IDs and runtime epochs authenticate the
 handshake. Session tokens stay in main-process memory. Disabling or forgetting
 revokes active requests and blocks new ones; reconnect negotiates a new session.
-Saved peer endpoints containing PSKs are credentials, not workspace metadata.
+Saved peer endpoints remain in protected desktop storage.
 
 Owner operations register explicit method/capability handlers with required idle
 and total deadlines in milliseconds. Headers have a ten-second limit and

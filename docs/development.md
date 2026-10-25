@@ -962,23 +962,18 @@ plan. Reads and basis capture require the desktop connected.
 
 ### Native guest connection transport check
 
-After building the desktop, `vp exec node tools/check-guest-transport.ts` runs an
-optional CLI-only check with the installed Tailcat, synthetic in-memory private
-keys, and a temporary authenticated HTTP listener. It generates and restores the
-key through the platform's protected pipe, restarts the transport worker, checks
-the same address, and sends authenticated and rejected requests through the
-production HTTP adapter and PSK-preserving SOCKS path. It prints only outcomes and stops its child processes.
-This uses live relays and is outside the standard suite. Run it separately on
-macOS and Windows; a Linux result does not establish native pipe or credential
-behavior. Windows requires built-in Windows PowerShell and its .NET Framework
-named-pipe security APIs. Protected pipe failures stop guest setup without a
-plaintext fallback. Standard connection tests use a synthetic local CLI and
-observe HTTP requests inside its SOCKS tunnel. Windows builds the fixture as a
-native executable using Node's built-in single-executable builder; setup fails
-if that build fails, without selecting an installed Tailcat instead.
+`vp exec node tools/check-guest-transport.ts` is an optional native check using
+installed Tailscale status, the actual local IPv4 interface and a temporary
+HTTP listener bound exclusively to that address. It sends authenticated and
+rejected local requests without changing Tailscale configuration. Run it in an
+authorized isolated environment. It does not establish peer connectivity,
+protected credential storage or restart and sleep/wake behavior; those need
+separate macOS and Windows checks.
 
 `vp exec node tools/check-guest-request.ts` is a bounded offline adapter probe.
-It uses opened synthetic files and local SOCKS/HTTP fixtures to check upload
-ownership before connection setup, cancellation, negotiation and send failures,
-and successful response streaming. It needs no installed Tailcat or GUI and
-closes every fixture socket, file, and worker before returning.
+Synthetic discovery and local HTTP sockets exercise exact destination and route
+validation, upload ownership before discovery, cancellation, deadlines, redirects,
+connection failures and response streaming. Standard Electron guest journeys
+inject OS discovery and socket routing from test fixtures outside the product.
+They need no installed Tailscale or live tailnet and preserve production
+endpoint validation.

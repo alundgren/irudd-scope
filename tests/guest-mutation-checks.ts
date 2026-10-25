@@ -1,6 +1,7 @@
+import { guestNetworkFixture } from "./guest-network-fixture.ts";
 import { expect } from "vite-plus/test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
@@ -24,13 +25,22 @@ export async function guestMutationChecks() {
   const routes = join(directory, "routes.json");
   await writeFile(routes, "{}");
   await syntheticCli(directory, "tailcat", guestCli);
+  const network = await guestNetworkFixture(directory);
   const env = {
-    PATH: directory + delimiter + process.env.PATH,
+    ...network.env,
     SCOPE_GUEST_FIXTURE_EVENTS: join(directory, "events.jsonl"),
     SCOPE_GUEST_FIXTURE_ROUTES: routes,
   };
-  const a = await desktopFixture({ hideInitialPrompts: true, env });
-  const b = await desktopFixture({ hideInitialPrompts: true, env });
+  const a = await desktopFixture({
+    hideInitialPrompts: true,
+    entry: network.entry,
+    env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.1" },
+  });
+  const b = await desktopFixture({
+    hideInitialPrompts: true,
+    entry: network.entry,
+    env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.2" },
+  });
   let left = await a.launch(),
     right = await b.launch();
   let pageA = await left.firstWindow(),
@@ -377,6 +387,11 @@ export async function guestMutationChecks() {
     await expect
       .poll(() => pane.getByLabel("Source title", { exact: true }).inputValue())
       .toBe("Unsubmitted title retained through retention and trash");
+    await expect
+      .poll(
+        async () => (await pageB.evaluate((id) => window.scope.guestRecovery(id), guestId)).pending,
+      )
+      .toBeUndefined();
     await right.close();
     right = await b.launch();
     pageB = await right.firstWindow();
@@ -646,7 +661,14 @@ export async function guestMutationChecks() {
       await change({ kind: "rename", title: "Late revoked change" }),
     );
     await pageA.evaluate((id) => window.scope.setGuestAccess(id, false), peerId);
-    expect((await responses.peer("mutation-execute", revoked)).status).not.toBe(200);
+    const rejected = await responses.peer("mutation-execute", revoked).then(
+      (response) => response.status,
+      (error: Error & { cause?: NodeJS.ErrnoException }) => {
+        expect(error.cause?.code).toBe("ECONNREFUSED");
+        return 0;
+      },
+    );
+    expect(rejected).not.toBe(200);
     expect((await ca.get(artifact.id)).title).not.toBe("Late revoked change");
     await select(guestId);
     await right.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));

@@ -980,8 +980,10 @@ desktop is connected; prompt commands and exports are never queued offline.
 
 Guest connections use the versioned schemas in `src/guest.ts`: signed setup links,
 fresh server challenges, paired device proofs, and session capability replies.
-Endpoint addresses include transport credentials and stay in protected desktop
-storage. The peer listener exposes only registered owner operations; these
+Endpoints contain a canonical Tailscale IPv4 address in 100.64.0.0/10 and a
+port from 1 through 65535. They stay in protected desktop storage. Desktop
+discovery validates the exact address against current Tailscale peer records
+before opening a direct HTTP connection; redirects and DNS names are rejected. The peer listener exposes only registered owner operations; these
 contracts do not grant publishing or arbitrary desktop IPC access.
 
 ## Guest catalogs

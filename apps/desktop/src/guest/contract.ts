@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { GuestSource } from "@irudd-scope/protocol/guest";
+import { GuestAddress, GuestSource } from "@irudd-scope/protocol/guest";
 import { Tab } from "../workspace/contract.ts";
 import { TransferId } from "@irudd-scope/protocol/transfer";
 
@@ -23,6 +23,7 @@ export type GuestStatus = {
 };
 
 export const GuestSettings = Schema.Struct({
+  address: Schema.optionalKey(GuestAddress),
   port: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
   enabled: Schema.Record(Schema.String, Schema.Boolean),
 });

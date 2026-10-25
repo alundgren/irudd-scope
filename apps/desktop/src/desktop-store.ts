@@ -904,7 +904,7 @@ export class DesktopStore {
   }
 
   updateGuestSettings(
-    update: { peerId: string; enabled: boolean } | { port: number },
+    update: { peerId: string; enabled: boolean } | { port: number; address?: string },
   ): Promise<void> {
     return this.enqueue(async () => {
       const [row] = await this.run(
@@ -916,25 +916,13 @@ export class DesktopStore {
       const next = decode(
         GuestSettings,
         "port" in update
-          ? { ...current, port: update.port }
+          ? { ...current, ...update }
           : { ...current, enabled: { ...current.enabled, [update.peerId]: update.enabled } },
       );
       await this.run(
         this
           .sql!`INSERT INTO preferences(name, document) VALUES ('guest-settings', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
       );
-    });
-  }
-
-  async guestKey(): Promise<string | undefined> {
-    await this.pending;
-    return (await this.credentials.read()).guestKey;
-  }
-
-  saveGuestKey(key: string): Promise<void> {
-    if (!key || key.length > 16384) throw new Error("Invalid guest transport key.");
-    return this.enqueue(async () => {
-      await this.credentials.write({ ...(await this.credentials.read()), guestKey: key });
     });
   }
 

@@ -2,12 +2,16 @@
 
 Other Scopes enables guest sharing separately for each paired desktop. Existing
 pairs remain transfer-only until both sides consent. Setup uses a fifteen-minute
-guest connection link copied and read by main, so endpoint credentials do not
+guest connection link copied and read by main, so endpoint details do not
 appear in renderer state. After the initial exchange, saved connections retry
 automatically on startup, wake and outages. Status distinguishes setup, offline,
 connected and incompatible versions. Disable revokes guests while preserving
 transfer pairing; Forget removes the pairing too. A saved listener port conflict
-asks the user to close the conflicting app and retry.
+asks the user to close the conflicting app and retry. Guest sharing uses the
+installed Tailscale network. Missing local interfaces, invalid peer destinations
+and denied connections have separate errors. A changed local address requires
+copying and exchanging new guest connection links; retry never changes the saved
+address silently.
 
 Eligible owner tabs appear automatically after guest sharing connects, including
 hidden bookmarked files, plans and folders. A guest names its owner above the

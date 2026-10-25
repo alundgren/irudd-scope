@@ -1,3 +1,4 @@
+import { guestNetworkFixture } from "./guest-network-fixture.ts";
 import { guestFolderRecoveryChecks } from "./guest-folder-recovery-checks.ts";
 import { createHash } from "node:crypto";
 import { folderNetwork } from "./guest-folder-network.ts";
@@ -5,7 +6,7 @@ import { folderCommand } from "./folder-operation-checks.ts";
 import { expect } from "vite-plus/test";
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, delimiter } from "node:path";
+import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 import { spawnedHub } from "./hub-fixture.ts";
 import { syntheticCli } from "./synthetic-cli.ts";
@@ -40,13 +41,22 @@ export async function guestFolderChecks() {
   const routes = join(directory, "routes.json");
   await writeFile(routes, "{}");
   await syntheticCli(directory, "tailcat", guestCli);
+  const network = await guestNetworkFixture(directory);
   const env = {
-    PATH: directory + delimiter + process.env.PATH,
+    ...network.env,
     SCOPE_GUEST_FIXTURE_EVENTS: join(directory, "events.jsonl"),
     SCOPE_GUEST_FIXTURE_ROUTES: routes,
   };
-  const a = await desktopFixture({ hideInitialPrompts: true, env });
-  const b = await desktopFixture({ hideInitialPrompts: true, env });
+  const a = await desktopFixture({
+    hideInitialPrompts: true,
+    entry: network.entry,
+    env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.1" },
+  });
+  const b = await desktopFixture({
+    hideInitialPrompts: true,
+    entry: network.entry,
+    env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.2" },
+  });
   const ha = await spawnedHub(join(directory, "hub-a"));
   const hb = await spawnedHub(join(directory, "hub-b"));
   const hubProxy = await folderNetwork();
@@ -204,11 +214,14 @@ export async function guestFolderChecks() {
       await folderPane.getByLabel("New folder path", { exact: true }).fill("created");
       await folderPane.getByRole("button", { name: "Create", exact: true }).click();
       await expect.poll(() => readdir(root)).toContain("created");
+      await expect
+        .poll(() => page.evaluate((id) => window.scope.guestFolderRecovery(id), id))
+        .toBeUndefined();
 
       const upload = join(directory, "large-file.bin");
       await writeFile(upload, Buffer.alloc(33 * 1024 * 1024, 71));
       const plan = await prepare(page, id, [upload]);
-      expect(plan.status).toBe("ok");
+      expect(plan.status, JSON.stringify(plan)).toBe("ok");
       if (plan.status !== "ok") throw new Error(plan.message);
       if (page === pageB) hubProxy.pauseNextUpload(3000);
       const copying = page.evaluate(

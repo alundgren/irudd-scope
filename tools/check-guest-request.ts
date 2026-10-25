@@ -1,171 +1,211 @@
 import assert from "node:assert/strict";
-import { createReadStream, fstatSync, type ReadStream } from "node:fs";
+import { createReadStream, fstatSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer as httpServer } from "node:http";
-import { createServer, connect, type Socket } from "node:net";
+import http, { createServer } from "node:http";
+import { syncBuiltinESMExports } from "node:module";
 import { once } from "node:events";
-import { tmpdir } from "node:os";
+import { tmpdir, type NetworkInterfaceInfo } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { GuestTransport, type PeerRequest } from "../apps/desktop/src/guest/transport.ts";
+import { GuestNetwork } from "../apps/desktop/src/guest/tailscale.ts";
 
-// Bounded, offline probe of the production HTTP adapter. The synthetic worker
-// supplies a local SOCKS endpoint; no installed CLI or native credentials run.
+// Synthetic discovery and socket routing exercise the production validation and adapter.
 const directory = await mkdtemp(join(tmpdir(), "scope-guest-request-"));
-const sockets = new Set<Socket>();
-const bodies = new Set<ReadStream>();
-let mode: "stall" | "reject" | "forward" = "stall";
-let negotiations = 0;
-function track(socket: Socket) {
-  sockets.add(socket);
-  socket.on("error", () => {});
-  socket.once("close", () => sockets.delete(socket));
-  return socket;
-}
-const http = httpServer((request, response) => {
+let mode = "normal";
+let discoveries = 0;
+let requests = 0;
+let connections = 0;
+const localAddress = "100.64.0.1";
+const peerAddress = "100.64.0.2";
+const network = new GuestNetwork(
+  async (signal) => {
+    discoveries++;
+    if (mode === "discovery-stall") await delay(10000, undefined, { signal });
+    if (mode === "discovery-error") throw new Error("Synthetic unavailable CLI");
+    return {
+      BackendState: mode === "stopped" ? "Stopped" : "Running",
+      Self: { TailscaleIPs: [localAddress] },
+      Peer: { synthetic: { TailscaleIPs: [peerAddress] } },
+    };
+  },
+  () => ({
+    synthetic:
+      mode === "interface-missing"
+        ? []
+        : [{ address: localAddress, family: "IPv4", internal: false } as NetworkInterfaceInfo],
+  }),
+);
+const transport = new GuestTransport(network);
+const server = createServer((request, response) => {
+  if (mode === "redirect") return response.writeHead(302, { Location: "http://example.com" }).end();
+  if (mode === "idle") return;
+  if (mode === "response-stall") {
+    response.writeHead(200);
+    response.write("first");
+    return;
+  }
   response.writeHead(200);
   response.write("received:");
   let bytes = 0;
   request.on("data", (chunk: Buffer) => {
     bytes += chunk.length;
   });
-  request.once("end", () => setTimeout(() => response.end(String(bytes)), 100));
+  request.once("end", () => setTimeout(() => response.end(String(bytes)), 50));
 });
-http.on("connection", track);
-const proxy = createServer((socket) => {
-  track(socket);
-  let buffer = Buffer.alloc(0),
-    greeted = false;
-  const receive = (chunk: Buffer) => {
-    buffer = Buffer.concat([buffer, chunk]);
-    if (!greeted && buffer.length >= 3) {
-      greeted = true;
-      negotiations++;
-      if (mode === "stall") return;
-      buffer = buffer.subarray(3);
-      socket.write(Buffer.from([5, 0]));
-    }
-    if (!greeted || mode === "stall" || buffer.length < 5) return;
-    const length = 7 + buffer[4]!;
-    if (buffer.length < length) return;
-    socket.removeListener("data", receive);
-    socket.write(Buffer.from([5, mode === "reject" ? 5 : 0, 0, 1, 127, 0, 0, 1, 0, 0]));
-    if (mode === "reject") return socket.end();
-    const remote = track(connect((http.address() as { port: number }).port, "127.0.0.1"));
-    socket.once("close", () => remote.destroy());
-    remote.once("close", () => socket.destroy());
-    if (buffer.length > length) remote.write(buffer.subarray(length));
-    socket.pipe(remote);
-    remote.pipe(socket);
-  };
-  socket.on("data", receive);
+server.on("connection", (socket) => {
+  connections++;
+  socket.once("close", () => connections--);
 });
-let transport: GuestTransport | undefined;
-const endpoint = { address: "tc" + "a".repeat(80), port: 9 };
+const originalRequest = http.request;
+// Only addresses already validated by the adapter are mapped. There is no shipped bypass.
+http.request = ((
+  options: http.RequestOptions,
+  callback: (response: http.IncomingMessage) => void,
+) => {
+  requests++;
+  assert.equal(options.host, peerAddress);
+  assert.equal(options.localAddress, localAddress);
+  assert.equal(options.family, 4);
+  return originalRequest({ ...options, host: "127.0.0.1", localAddress: "127.0.0.1" }, callback);
+}) as typeof http.request;
+syncBuiltinESMExports();
+const endpoint = { address: peerAddress, port: 1 };
+const defaults = { signal: AbortSignal.timeout(30000), deadlineMs: 2000, idleMs: 500 };
 async function until(check: () => boolean) {
-  for (let i = 0; i < 100; i++) {
-    if (check()) return;
-    await delay(10);
-  }
-  assert.ok(check(), "cleanup or negotiation did not complete within one second");
+  for (let i = 0; i < 100 && !check(); i++) await delay(10);
+  assert.ok(check(), "cleanup did not finish within one second");
 }
 async function rejected(
   label: string,
   override: Partial<PeerRequest> = {},
-  trigger?: (body: ReadStream, controller: AbortController) => Promise<void>,
+  trigger?: (
+    body: ReturnType<typeof createReadStream>,
+    controller: AbortController,
+  ) => Promise<void>,
+  target = endpoint,
+  path = "/guest/upload",
 ) {
   const body = createReadStream(join(directory, "upload"));
-  bodies.add(body);
   const [fd] = (await once(body, "open")) as [number];
   const controller = new AbortController();
-  const before = negotiations;
-  const pending = transport!.request(endpoint, "/", {
+  const pending = transport.request(target, path, {
+    ...defaults,
     method: "PUT",
     body,
     signal: controller.signal,
-    deadlineMs: 1500,
-    idleMs: 500,
     ...override,
   });
-  // Attach rejection handling before deliberately failing an asynchronous body.
-  const rejected = assert.rejects(pending);
+  const failed = assert.rejects(pending);
   if (trigger) await trigger(body, controller);
-  await rejected;
-  assert.equal(body.destroyed, true, label + ": upload not destroyed");
+  await failed;
+  assert.equal(body.destroyed, true, label);
   await until(() => body.closed);
-  assert.throws(() => fstatSync(fd), { code: "EBADF" }, label + ": descriptor still open");
-  assert.equal(body.listenerCount("error"), 0, label + ": error listener retained after close");
-  await until(() => sockets.size === 0);
+  assert.throws(() => fstatSync(fd), { code: "EBADF" });
+  assert.equal(body.listenerCount("error"), 0);
+  await until(() => connections === 0);
   console.log("PASS:", label);
-  return before;
 }
 try {
   await writeFile(join(directory, "upload"), Buffer.alloc(65536, 42));
-  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
-  await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
-  const port = (proxy.address() as { port: number }).port;
-  const worker = join(directory, "worker.mjs");
-  await writeFile(
-    worker,
-    `process.on('message',()=>process.send({type:'ready',address:${JSON.stringify(endpoint.address)},socksPort:${port}}));process.on('disconnect',()=>process.exit());`,
-  );
-  transport = new GuestTransport(() => {}, worker);
-  await rejected("transport unavailable before setup");
-  await transport.start("synthetic", endpoint.port);
-  const before = await rejected("pre-aborted signal", { signal: AbortSignal.abort() });
-  assert.equal(negotiations, before);
-  await rejected("cancel stalled SOCKS", {}, async (_body, controller) => {
-    const before = negotiations;
-    await until(() => negotiations > before);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  endpoint.port = (server.address() as { port: number }).port;
+  for (const address of [
+    "example.com",
+    "https://100.64.0.2",
+    "127.0.0.1",
+    "0.0.0.0",
+    "192.168.1.1",
+    "8.8.8.8",
+    "100.64.0.3",
+    localAddress,
+    "100.064.0.2",
+  ]) {
+    await rejected("invalid destination " + address, {}, undefined, { ...endpoint, address });
+  }
+  for (const path of [
+    "/v1/artifacts",
+    "http://100.64.0.2/guest/hello",
+    "//100.64.0.2/guest/hello",
+    "/guest/../v1/artifacts",
+    "/guest/hello?redirect=1",
+  ])
+    await rejected("invalid route " + path, {}, undefined, endpoint, path);
+  assert.equal(requests, 0);
+  for (mode of ["discovery-error", "stopped", "interface-missing"]) await rejected(mode);
+  const before = discoveries;
+  await rejected("pre-aborted signal", { signal: AbortSignal.abort() });
+  assert.equal(discoveries, before);
+  mode = "discovery-stall";
+  await rejected("discovery idle deadline", { idleMs: 50 });
+  await rejected("discovery total deadline", { deadlineMs: 50 });
+  await rejected("cancel discovery", {}, async (_body, controller) => {
+    await delay(20);
     controller.abort();
   });
-  await rejected("SOCKS deadline");
-  await rejected("body error during SOCKS setup", {}, async (body) => {
-    const before = negotiations;
-    await until(() => negotiations > before);
-    body.destroy(new Error("Synthetic upload read failure"));
+  await rejected("body error during discovery", {}, async (body) => {
+    await delay(20);
+    body.destroy(new Error("Synthetic read error"));
   });
-  await rejected("body closed during SOCKS setup", {}, async (body) => {
-    const before = negotiations;
-    await until(() => negotiations > before);
+  await rejected("body close during discovery", {}, async (body) => {
+    await delay(20);
     body.destroy();
   });
-  mode = "reject";
-  await rejected("SOCKS destination failure");
-  mode = "forward";
+  mode = "normal";
   await rejected("HTTP construction failure", { headers: { "Invalid Header": "value" } });
-  await rejected("HTTP send setup failure", {}, async (body) => {
+  await rejected("HTTP send failure", {}, async (body) => {
     body.pipe = () => {
       throw new Error("Synthetic send failure");
     };
   });
+  mode = "redirect";
+  await rejected("redirect rejected");
+  mode = "idle";
+  await rejected("HTTP idle expiry", { idleMs: 50 });
+  mode = "response-stall";
+  for (const cancellation of ["caller", "close", "deadline", "idle"]) {
+    const controller = new AbortController();
+    const response = await transport.request(endpoint, "/guest/read", {
+      ...defaults,
+      signal: controller.signal,
+      ...(cancellation === "deadline" ? { deadlineMs: 100 } : {}),
+      ...(cancellation === "idle" ? { idleMs: 100 } : {}),
+    });
+    const consumed = assert.rejects(async () => {
+      for await (const _chunk of response.body) {
+        /* consume */
+      }
+    });
+    if (cancellation === "caller") controller.abort();
+    if (cancellation === "close") await transport.close();
+    await consumed;
+    await until(() => connections === 0);
+    console.log("PASS: response cancellation", cancellation);
+  }
+  mode = "normal";
   const body = new PassThrough();
-  const pending = transport.request(endpoint, "/", {
+  const pending = transport.request(endpoint, "/guest/upload", {
+    ...defaults,
     method: "PUT",
     body,
-    signal: AbortSignal.timeout(3000),
-    deadlineMs: 2500,
-    idleMs: 1000,
   });
   body.write("first");
   const response = await pending;
-  assert.equal(body.destroyed, false, "headers destroyed an unfinished upload");
-  assert.equal(response.body.destroyed, false, "headers destroyed the response");
+  assert.equal(body.destroyed, false);
   body.end("last");
   let text = "";
   for await (const chunk of response.body) text += chunk;
   assert.equal(text, "received:9");
-  await until(() => body.destroyed && sockets.size === 0);
-  console.log("PASS: streamed upload and response survive headers, then clean up");
-  await new Promise<void>((resolve) => proxy.close(() => resolve()));
-  await rejected("SOCKS listener connection refused");
+  await until(() => body.destroyed && connections === 0);
+  console.log("PASS: upload and response survive headers and clean up");
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await rejected("connection refused");
 } finally {
-  for (const body of bodies) body.destroy();
-  for (const socket of sockets) socket.destroy();
-  await transport?.close();
-  await Promise.all(
-    [http, proxy].map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
-  );
+  http.request = originalRequest;
+  syncBuiltinESMExports();
+  await transport.close();
+  server.closeAllConnections();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
   await rm(directory, { recursive: true, force: true });
 }

@@ -1,10 +1,15 @@
 import { Schema } from "effect";
 import { Artifact, PublicationTabId, Revision } from "./index.ts";
-import { TransferId, TransferName, TransferSecret, TailcatAddress } from "./transfer.ts";
+import { TransferId, TransferName, TransferSecret } from "./transfer.ts";
 
 export const GUEST_VERSION = 1;
+export const GuestAddress = Schema.String.check(
+  Schema.isPattern(
+    /^100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.(?:0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.(?:0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])$/,
+  ),
+);
 export const GuestEndpoint = Schema.Struct({
-  address: TailcatAddress.check(Schema.isMaxLength(255)),
+  address: GuestAddress,
   port: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 })),
 });
 export type GuestEndpoint = typeof GuestEndpoint.Type;

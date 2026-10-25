@@ -14,6 +14,7 @@ import type { ScopePeer } from "../transfer/contract.ts";
 import type { DesktopStore } from "../desktop-store.ts";
 import type { GuestPeerStatus, GuestStatus } from "./contract.ts";
 import { GuestTransport, type PeerRequest, type PeerResponse } from "./transport.ts";
+import { GuestNetworkError } from "./tailscale.ts";
 
 const secret = () => randomBytes(32).toString("base64url");
 function sign(key: string, purpose: string, value: unknown) {
@@ -64,7 +65,7 @@ type OwnerRoute = {
 };
 
 export class GuestConnections {
-  private transport = new GuestTransport(() => this.transportLost());
+  private transport = new GuestTransport();
   private server?: Server;
   private endpoint?: GuestEndpoint;
   private epoch = randomUUID();
@@ -199,13 +200,26 @@ export class GuestConnections {
   private transportLost() {
     if (this.closed) return;
     this.endpoint = undefined;
+    void this.transport.close();
+    this.server?.closeAllConnections();
+    this.server?.close();
+    this.server = undefined;
     for (const id of this.enabled.keys()) this.revoke(id);
     this.epoch = randomUUID();
     this.challenges.clear();
     this.schedule(1000);
   }
-  private async ensureTransport() {
-    if (this.endpoint) return;
+  private async ensureTransport(repairAddress = false) {
+    if (this.endpoint) {
+      try {
+        const local = await this.transport.network.discover(this.lifetime.signal);
+        if (local.address === this.endpoint.address) return;
+        this.transportLost();
+      } catch (error) {
+        this.transportLost();
+        throw error;
+      }
+    }
     if (this.starting) return this.starting;
     this.starting = (async () => {
       await this.transport.close();
@@ -215,6 +229,11 @@ export class GuestConnections {
         this.server = undefined;
       }
       const settings = await this.store.guestSettings();
+      const local = await this.transport.network.discover(this.lifetime.signal);
+      if (settings.address && settings.address !== local.address && !repairAddress)
+        throw new GuestNetworkError(
+          "The local Tailscale address changed. Copy and exchange new guest connection links to repair the connection.",
+        );
       const server = createServer(
         { maxHeaderSize: 16384, connectionsCheckingInterval: 1000 },
         (request, response) => {
@@ -231,24 +250,23 @@ export class GuestConnections {
       server.timeout = 0;
       this.server = server;
       await new Promise<void>((resolve, reject) => {
-        server.once("error", () =>
+        server.once("error", (error: NodeJS.ErrnoException) =>
           reject(
-            new Error(
-              "The saved guest connection port is in use. Close the other app using it, then retry.",
+            new GuestNetworkError(
+              error.code === "EADDRINUSE"
+                ? "The saved guest connection port is in use. Close the other app using it, then retry."
+                : error.code === "EADDRNOTAVAIL"
+                  ? "The local Tailscale IPv4 interface is unavailable. Reconnect Tailscale, then retry."
+                  : "The guest listener could not open on the Tailscale interface. Check access to its port, then retry.",
             ),
           ),
         );
-        server.listen(settings.port ?? 0, "127.0.0.1", resolve);
+        server.listen(settings.port ?? 0, local.address, resolve);
       });
       const port = (server.address() as { port: number }).port;
-      if (!settings.port) await this.store.updateGuestSettings({ port });
-      let key = await this.store.guestKey();
-      if (!key) {
-        key = await this.transport.generate();
-        await this.store.saveGuestKey(key);
-      }
+      await this.store.updateGuestSettings({ port, address: local.address });
       if (this.closed) throw new Error("Guest connections are closing.");
-      this.endpoint = await this.transport.start(key, port);
+      this.endpoint = { address: local.address, port };
       this.epoch = randomUUID();
       this.challenges.clear();
       if (this.closed) throw new Error("Guest connections are closing.");
@@ -307,7 +325,7 @@ export class GuestConnections {
             if (response.status !== 200) throw new Error("Guest connection ended.");
           } else await this.connectPeer(peer.id, endpoint);
           this.retry.delete(peer.id);
-        } catch {
+        } catch (error) {
           this.revoke(peer.id);
           if (!this.enabled.get(peer.id)) continue;
           const failures = (this.retry.get(peer.id)?.failures ?? 0) + 1;
@@ -322,7 +340,9 @@ export class GuestConnections {
             this.state(
               peer.id,
               "offline",
-              "Waiting for the other Scope. Both apps must be open with guest sharing enabled.",
+              error instanceof GuestNetworkError
+                ? error.message
+                : "Waiting for the other Scope. Both apps must be open with guest sharing enabled.",
             );
         }
       }
@@ -444,6 +464,13 @@ export class GuestConnections {
         (await this.store.transferKey(peerId)) !== key
       )
         throw new Error("Guest connection changed while connecting.");
+      if (
+        result.hello.endpoint.address !== endpoint.address ||
+        result.hello.endpoint.port !== endpoint.port
+      )
+        throw new GuestNetworkError(
+          "The guest endpoint changed. Exchange new guest connection links to repair the connection.",
+        );
       await this.store.saveGuestEndpoint(peerId, result.hello.endpoint);
       this.allowed(peerId);
       signal.throwIfAborted();
@@ -457,8 +484,9 @@ export class GuestConnections {
         controller,
       });
       this.state(peerId, "connected");
-    } catch {
+    } catch (error) {
       controller.abort();
+      if (error instanceof GuestNetworkError) throw error;
       throw new Error(
         ["update-required", "access-denied"].includes(this.states.get(peerId)?.state ?? "")
           ? this.states.get(peerId)!.message
@@ -471,7 +499,7 @@ export class GuestConnections {
   }
   async connectionLink(peerId: string) {
     this.allowed(peerId);
-    await this.ensureTransport();
+    await this.ensureTransport(true);
     this.allowed(peerId);
     const { peer, key } = await this.peer(peerId);
     const device = await this.store.transferDevice();
@@ -602,6 +630,7 @@ export class GuestConnections {
         this.allowed(peer.id);
         if ((await this.store.transferKey(peer.id)) !== key) throw new Error("Pairing changed.");
         operation.signal.throwIfAborted();
+        await this.transport.network.peer(hello.endpoint, operation.signal);
         await this.store.saveGuestEndpoint(peer.id, hello.endpoint);
         this.allowed(peer.id);
         if (epoch !== this.epoch || generation !== (this.generations.get(peer.id) ?? 0))

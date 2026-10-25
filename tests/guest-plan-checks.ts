@@ -1,3 +1,4 @@
+import { guestNetworkFixture } from "./guest-network-fixture.ts";
 import { guestPlanDeadlines } from "./guest-plan-deadlines.ts";
 import { decodeLocalConnection } from "@irudd-scope/protocol";
 import { guestPlanNetwork, lostPreparation } from "./guest-plan-network.ts";
@@ -5,7 +6,7 @@ import { expect } from "vite-plus/test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { readPlan, type PlanDocument } from "@irudd-scope/protocol/plan";
@@ -60,13 +61,22 @@ export async function guestPlanChecks() {
   const routes = join(directory, "routes.json");
   await writeFile(routes, "{}");
   await syntheticCli(directory, "tailcat", guestCli);
+  const network = await guestNetworkFixture(directory);
   const env = {
-    PATH: directory + delimiter + process.env.PATH,
+    ...network.env,
     SCOPE_GUEST_FIXTURE_EVENTS: join(directory, "events.jsonl"),
     SCOPE_GUEST_FIXTURE_ROUTES: routes,
   };
-  const a = await desktopFixture({ hideInitialPrompts: true, env });
-  const b = await desktopFixture({ hideInitialPrompts: true, env });
+  const a = await desktopFixture({
+    hideInitialPrompts: true,
+    entry: network.entry,
+    env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.1" },
+  });
+  const b = await desktopFixture({
+    hideInitialPrompts: true,
+    entry: network.entry,
+    env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.2" },
+  });
   let left = await a.launch(),
     right = await b.launch();
   let pageA = await left.firstWindow(),

@@ -18,6 +18,7 @@ export async function desktopFixture(
     disableGpu?: boolean;
     showWindow?: boolean;
     env?: NodeJS.ProcessEnv;
+    entry?: string;
   } = {},
 ) {
   const showWindow = options.showWindow ?? process.env.SCOPE_TEST_SHOW_WINDOWS === "1";
@@ -42,7 +43,7 @@ export async function desktopFixture(
   delete env.SCOPE_TOKEN;
   delete env.SCOPE_TOKEN_FILE;
   const args = [
-    resolve("apps/desktop"),
+    options.entry ?? resolve("apps/desktop"),
     ...((options.disableGpu ?? true) ? ["--disable-gpu"] : []),
   ];
   let firstLaunch = true;
