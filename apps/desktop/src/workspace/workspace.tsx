@@ -57,6 +57,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const [settings, setSettings] = useState(false);
   const [settingsQuery, setSettingsQuery] = useState("");
   const [search, setSearch] = useState(false);
+  const [guestControls, setGuestControls] = useState<HTMLDivElement | null>(null);
   const [overflow, setOverflow] = useState(false);
   const [query, setQuery] = useState("");
   const [focus, setFocus] = useState(false);
@@ -527,16 +528,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
               key={id}
               hidden={id !== workspace.selected}
             >
-              {tab.type === "guest" && (
-                <p className="content-notice">
-                  Shared by{" "}
-                  {guests.owners.find(
-                    (owner) =>
-                      owner.deviceId ===
-                      guests.records.find((record) => record.tab.id === tab.id)?.ownerDeviceId,
-                  )?.name ?? "another Scope"}
-                </p>
-              )}
               <div className={tab.type === "guest" ? "guest-content" : "contents"}>
                 <TabHost
                   tab={tab}
@@ -549,6 +540,8 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                       guests.records.find((record) => record.tab.id === tab.id)?.ownerDeviceId,
                   )}
                   guestAvailable={guests.available.includes(tab.id)}
+                  guestControls={id === workspace.selected && search ? guestControls : null}
+                  onGuestControls={openSearch}
                   router={events}
                   updateState={updateState}
                   updateOverlayPosition={updateOverlayPosition}
@@ -586,6 +579,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       </div>
       <WorkspaceSearch
         open={search}
+        guestControlsRef={setGuestControls}
         onOpenChange={setSearch}
         query={query}
         setQuery={setQuery}
@@ -644,6 +638,10 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           active
             ? {
                 title: activeArtifact?.title ?? active.title,
+                guestOwner: activeGuest
+                  ? (guests.owners.find((owner) => owner.deviceId === activeGuest.ownerDeviceId)
+                      ?.name ?? "another Scope")
+                  : undefined,
                 actions: [
                   ...(activeArtifact
                     ? [

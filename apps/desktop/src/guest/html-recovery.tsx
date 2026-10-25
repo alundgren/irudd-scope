@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { GuestRecord } from "./contract.ts";
 import type { GuestField, GuestInput } from "./recovery-contract.ts";
@@ -37,10 +38,14 @@ export function GuestHtmlRecovery({
   record,
   available,
   children,
+  controls,
+  onOpenControls,
 }: {
   record: GuestRecord;
   available: boolean;
   children: ReactNode;
+  controls: HTMLDivElement | null;
+  onOpenControls: () => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const frame = useRef<{ document: Document; revision: number; blob: string } | undefined>(
@@ -51,6 +56,7 @@ export function GuestHtmlRecovery({
   const saved = useRef<GuestInput[]>([]);
   const [, render] = useState(0);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [readError, setReadError] = useState(false);
   const [reading, setReading] = useState(false);
   const [ready, setReady] = useState(false);
@@ -114,8 +120,7 @@ export function GuestHtmlRecovery({
       void task
         .catch(() => {
           if (!live || sequence !== readSequence.current) return;
-          if (!loaded.current) setReadError(true);
-          else setError("Could not refresh saved input. Keep Scope open and retry.");
+          setReadError(true);
         })
         .finally(() => {
           if (live && sequence === readSequence.current) setReading(false);
@@ -185,6 +190,7 @@ export function GuestHtmlRecovery({
       for (const [key, field] of related) fields.set(key, captureField(key, field));
       working.current.set(artifact.revision, { ...input, fields: [...fields.values()] });
       setError("");
+      setNotice("");
       render((value) => value + 1);
       save.schedule();
     };
@@ -232,6 +238,7 @@ export function GuestHtmlRecovery({
             working.current.delete(input.revision);
           updateSaved(saved.current.filter((value) => value.revision !== input.revision));
           setError("");
+          setNotice("");
         },
       );
       await save.flush();
@@ -241,133 +248,156 @@ export function GuestHtmlRecovery({
   }
   const displayed = new Map(inputs.map((input) => [input.revision, input]));
   for (const [revision, input] of working.current) displayed.set(revision, input);
-  return (
-    <div ref={container} className="guest-recovery-view">
-      {(artifact?.kind === "html" || displayed.size > 0 || readError || error || save.error) && (
-        <details
-          className="guest-actions"
-          open={review || readError || !!error || save.error}
-          onToggle={(event) => setReview(event.currentTarget.open)}
+  const failure =
+    error ||
+    (readError
+      ? "Could not read saved input. Keep Scope open and retry."
+      : save.error
+        ? "Could not save form input. Keep Scope open and retry."
+        : "");
+  const body =
+    displayed.size > 0 || failure ? (
+      <details
+        className="guest-actions"
+        open={review || readError || !!error || save.error}
+        onToggle={(event) => setReview(event.currentTarget.open)}
+      >
+        <summary
+          data-search-result
+          data-search-keywords="form input recovery saved working restore copy discard retry"
         >
-          <summary>
-            Form input recovery
-            {displayed.size
-              ? ` · ${displayed.size} revision${displayed.size === 1 ? "" : "s"}`
-              : ""}
-          </summary>
-          <div className="guest-actions-body">
-            <p>
-              Scope saves supported fields with unique names or labels. Passwords, files, sensitive
-              fields and script state are excluded. HTML can still run scripts and make network
-              requests.
-            </p>
-            {!available && (
-              <p>
-                The owner is unavailable. Recovery input stays here; no source writes are queued.
-              </p>
-            )}
-            {[...displayed.values()].map((input) => {
-              const persisted = inputs.find((value) => value.revision === input.revision);
-              const unsaved = JSON.stringify(persisted) !== JSON.stringify(input);
-              const same =
-                artifact?.kind === "html" &&
-                input.ownerDeviceId === record.ownerDeviceId &&
-                input.sourceTabId === record.source.sourceTabId &&
-                input.revision === artifact.revision &&
-                input.blob === artifact.blob;
-              return (
-                <div key={input.revision}>
-                  <p>
-                    {unsaved ? "Unsaved input" : "Saved input"} · owner revision {input.revision}
-                    {same
-                      ? ""
-                      : ` · current revision ${artifact?.revision ?? "unavailable"}; copy or discard old input`}
+          Form input recovery
+          {displayed.size ? ` · ${displayed.size} revision${displayed.size === 1 ? "" : "s"}` : ""}
+        </summary>
+        <div className="guest-actions-body">
+          <p>
+            Scope saves supported fields with unique names or labels. Passwords, files, sensitive
+            fields and script state are excluded. HTML can still run scripts and make network
+            requests.
+          </p>
+          {!available && (
+            <p>The owner is unavailable. Recovery input stays here; no source writes are queued.</p>
+          )}
+          {[...displayed.values()].map((input) => {
+            const persisted = inputs.find((value) => value.revision === input.revision);
+            const unsaved = JSON.stringify(persisted) !== JSON.stringify(input);
+            const same =
+              artifact?.kind === "html" &&
+              input.ownerDeviceId === record.ownerDeviceId &&
+              input.sourceTabId === record.source.sourceTabId &&
+              input.revision === artifact.revision &&
+              input.blob === artifact.blob;
+            return (
+              <div key={input.revision}>
+                <p>
+                  {unsaved ? "Unsaved input" : "Saved input"} · owner revision {input.revision}
+                  {same
+                    ? ""
+                    : ` · current revision ${artifact?.revision ?? "unavailable"}; copy or discard old input`}
+                </p>
+                {unsaved && (
+                  <p role="status">
+                    {limitError(input)} These working values are only in this window until saved.
+                    Copy or discard them before closing.
                   </p>
-                  {unsaved && (
-                    <p role="status">
-                      {limitError(input)} These working values are only in this window until saved.
-                      Copy or discard them before closing.
-                    </p>
-                  )}
-                  <div className="flex flex-wrap gap-2">
-                    {same && !unsaved && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={!available || !ready || !loaded.current}
-                        onClick={() => {
-                          try {
-                            restoreFields(frame.current!.document, input.fields);
-                            setError(
-                              "Restored saved field values without submitting forms or running input handlers.",
-                            );
-                          } catch (error) {
-                            setError(
-                              error instanceof Error ? error.message : "Could not restore input.",
-                            );
-                          }
-                        }}
-                      >
-                        Restore saved fields
-                      </Button>
-                    )}
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {same && !unsaved && (
                     <Button
                       size="sm"
                       variant="secondary"
-                      onClick={() =>
-                        void navigator.clipboard
-                          .writeText(inputText(input))
-                          .catch(() =>
-                            setError("Could not copy. Select and copy the retained values below."),
-                          )
-                      }
+                      disabled={!available || !ready || !loaded.current}
+                      onClick={() => {
+                        try {
+                          restoreFields(frame.current!.document, input.fields);
+                          setError("");
+                          setNotice(
+                            "Restored saved field values without submitting forms or running input handlers.",
+                          );
+                        } catch (error) {
+                          setError(
+                            error instanceof Error ? error.message : "Could not restore input.",
+                          );
+                        }
+                      }}
                     >
-                      Copy {unsaved ? "unsaved" : "saved"} input
+                      Restore saved fields
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={!loaded.current}
-                      onClick={() => void discard(input)}
-                    >
-                      Discard {unsaved ? "unsaved" : "saved"} input
-                    </Button>
-                  </div>
-                  <details>
-                    <summary>View {unsaved ? "unsaved" : "saved"} values</summary>
-                    {input.fields.map((field) => (
-                      <label key={field.key}>
-                        {field.key.slice(field.key.indexOf(":") + 1)}
-                        <Textarea readOnly value={fieldText(field)} rows={2} />
-                      </label>
-                    ))}
-                  </details>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      void navigator.clipboard
+                        .writeText(inputText(input))
+                        .catch(() =>
+                          setError("Could not copy. Select and copy the retained values below."),
+                        )
+                    }
+                  >
+                    Copy {unsaved ? "unsaved" : "saved"} input
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={!loaded.current}
+                    onClick={() => void discard(input)}
+                  >
+                    Discard {unsaved ? "unsaved" : "saved"} input
+                  </Button>
                 </div>
-              );
-            })}
-            {(error || save.error) && (
-              <p role="alert">{error || "Could not save form input. Keep Scope open and retry."}</p>
-            )}
-            {readError && (
-              <p role="alert">Could not read saved input. Keep Scope open and retry.</p>
-            )}
-            {readError && (
-              <Button
-                size="sm"
-                disabled={reading}
-                onClick={() => void reload.current().catch(() => {})}
-              >
-                {reading ? "Reading saved input…" : "Retry reading input"}
-              </Button>
-            )}
-            {save.error && (
-              <Button size="sm" onClick={() => void save.flush().catch(() => {})}>
-                Retry form save
-              </Button>
-            )}
-          </div>
-        </details>
+                <details>
+                  <summary>View {unsaved ? "unsaved" : "saved"} values</summary>
+                  {input.fields.map((field) => (
+                    <label key={field.key}>
+                      {field.key.slice(field.key.indexOf(":") + 1)}
+                      <Textarea readOnly value={fieldText(field)} rows={2} />
+                    </label>
+                  ))}
+                </details>
+              </div>
+            );
+          })}
+          {notice && <p role="status">{notice}</p>}
+          {(error || save.error) && (
+            <p role="alert">{error || "Could not save form input. Keep Scope open and retry."}</p>
+          )}
+          {readError && <p role="alert">Could not read saved input. Keep Scope open and retry.</p>}
+          {readError && (
+            <Button
+              size="sm"
+              disabled={reading}
+              onClick={() => void reload.current().catch(() => {})}
+            >
+              {reading ? "Reading saved input…" : "Retry reading input"}
+            </Button>
+          )}
+          {save.error && (
+            <Button size="sm" onClick={() => void save.flush().catch(() => {})}>
+              Retry form save
+            </Button>
+          )}
+        </div>
+      </details>
+    ) : null;
+  return (
+    <div ref={container} className="guest-recovery-view">
+      {!controls && failure && (
+        <div className="guest-notice" role="alert">
+          <span>{failure}</span>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setReview(true);
+              onOpenControls();
+            }}
+          >
+            Review form input
+          </Button>
+        </div>
       )}
+      {controls && createPortal(body, controls)}
       {children}
     </div>
   );

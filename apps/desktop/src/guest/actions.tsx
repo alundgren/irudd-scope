@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import type { GuestAction, GuestChange } from "@irudd-scope/protocol/guest-operation";
 import type { GuestCatalogView, GuestRecord } from "./contract.ts";
@@ -15,17 +16,23 @@ export function GuestActions({
   record,
   owner,
   available,
+  controls,
+  onOpenControls,
 }: {
   record: GuestRecord;
   owner?: GuestCatalogView["owners"][number];
   available: boolean;
+  controls: HTMLDivElement | null;
+  onOpenControls: () => void;
 }) {
   const [title, setTitle] = useState(record.source.title);
   const [draft, setDraft] = useState<GuestInput>();
   const [pending, setPending] = useState<GuestPending>();
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [readError, setReadError] = useState(false);
   const [open, setOpen] = useState(false);
   const changed = useRef(false);
   const editGeneration = useRef(0);
@@ -67,6 +74,7 @@ export function GuestActions({
       const actions = recovery.inputs.filter((input) => input.kind === "action");
       for (const input of actions) draftRevisions.current.add(input.revision);
       const action = actions.at(-1);
+      setReadError(false);
       setPending(recovery.pending);
       setDraft(action);
       if (!recoveryLoaded.current) {
@@ -84,11 +92,11 @@ export function GuestActions({
     const remove = window.scope.onGuestRecoveryChanged((id) => {
       if (id === record.tab.id)
         void read().catch(() => {
-          if (live) setError("Could not refresh saved recovery data.");
+          if (live) setReadError(true);
         });
     });
-    void read().catch((error) => {
-      if (live) setError(message(error));
+    void read().catch(() => {
+      if (live) setReadError(true);
     });
     return () => {
       live = false;
@@ -138,6 +146,7 @@ export function GuestActions({
     if (!record.source.sourceVersion) return;
     setBusy(true);
     setError("");
+    setNotice("");
     const submitted = titleInput();
     try {
       await save.flush();
@@ -150,7 +159,9 @@ export function GuestActions({
       };
       const operation = await window.scope.guestPrepare(change);
       const outcome = await window.scope.guestExecute(target, operation);
-      setError(outcome.message ?? (outcome.state === "completed" ? "" : outcome.state));
+      (outcome.state === "completed" || outcome.state === "prepared" ? setNotice : setError)(
+        outcome.message ?? (outcome.state === "completed" ? "" : outcome.state),
+      );
       if (outcome.state === "completed") {
         await window.scope.guestReconcile(target, operation);
         if (action.kind === "rename") await clearTitle(submitted, false);
@@ -165,10 +176,11 @@ export function GuestActions({
   async function reconcile() {
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       if (pending) {
         const result = await window.scope.guestReconcile(target, pending.operation);
-        setError(
+        setNotice(
           result.source
             ? `Current owner revision ${result.source.artifact?.revision ?? result.source.sourceVersion}. Input retained; review it before making a new change.`
             : "The owner no longer shares this source. Input is retained.",
@@ -183,7 +195,7 @@ export function GuestActions({
           sourceVersion: record.source.sourceVersion,
           revision: record.source.artifact?.revision ?? 0,
         };
-        setError(
+        setNotice(
           `Current owner revision ${expected.current.revision}. Review your retained input before saving.`,
         );
       }
@@ -201,13 +213,18 @@ export function GuestActions({
     loaded &&
     !busy &&
     !pending;
-  return (
+  const body = (
     <details
       className="guest-actions"
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary>Source actions · {owner?.name ?? "owner"}</summary>
+      <summary
+        data-search-result
+        data-search-keywords={`source actions guest owner shared rename title retention keep permanently temporary trash review operation retry ${owner?.name ?? "owner"}`}
+      >
+        Source actions · {owner?.name ?? "owner"}
+      </summary>
       <div className="guest-actions-body">
         <p>Changes apply on {owner?.name ?? "the owner"}. Close tab only hides this guest here.</p>
         <p>
@@ -305,7 +322,13 @@ export function GuestActions({
               setBusy(true);
               void window.scope
                 .guestOperationStatus(target, pending.operation)
-                .then((outcome) => setError(outcome.message ?? `Operation ${outcome.state}.`))
+                .then((outcome) => {
+                  setError("");
+                  setNotice("");
+                  (outcome.state === "completed" || outcome.state === "prepared"
+                    ? setNotice
+                    : setError)(outcome.message ?? `Operation ${outcome.state}.`);
+                })
                 .catch((error) => setError(message(error)))
                 .finally(() => {
                   void refresh();
@@ -315,6 +338,25 @@ export function GuestActions({
           >
             Check operation status
           </Button>
+        )}
+        {notice && <p role="status">{notice}</p>}
+        {readError && (
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              void refresh()
+                .then(() => setError(""))
+                .catch((error) => setError(message(error)))
+                .finally(() => setBusy(false));
+            }}
+          >
+            Retry source recovery
+          </Button>
+        )}
+        {readError && (
+          <p role="alert">Could not read source recovery. Retry to review saved changes.</p>
         )}
         {(error || save.error) && (
           <p role="alert">
@@ -328,5 +370,38 @@ export function GuestActions({
         )}
       </div>
     </details>
+  );
+  return (
+    <>
+      {!controls &&
+        (error ||
+          save.error ||
+          readError ||
+          (pending &&
+            !busy &&
+            pending.outcome.state !== "completed" &&
+            (pending.dispatched || pending.outcome.state !== "prepared"))) && (
+          <div className="guest-notice" role="alert">
+            <span>
+              {save.error
+                ? "Could not save source input."
+                : readError
+                  ? "Could not read source recovery."
+                  : error || "Source operation needs review."}
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setOpen(true);
+                onOpenControls();
+              }}
+            >
+              Review source actions
+            </Button>
+          </div>
+        )}
+      {controls && createPortal(body, controls)}
+    </>
   );
 }

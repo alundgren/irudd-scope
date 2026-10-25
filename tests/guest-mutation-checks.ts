@@ -1,3 +1,10 @@
+import {
+  guestControls,
+  openGuestControls,
+  closeGuestControls,
+  guestConnectionControls,
+  guestSearchKeyboardChecks,
+} from "./guest-controls-fixture.ts";
 import { pairGuests } from "./guest-pairing-fixture.ts";
 import { guestNetworkFixture } from "./guest-network-fixture.ts";
 import { expect } from "vite-plus/test";
@@ -116,6 +123,7 @@ export async function guestMutationChecks() {
     return latest;
   }
   async function select(id: string) {
+    await closeGuestControls(pageB);
     const tab = pageB.locator(`#tab-${id}`);
     if (await tab.isVisible()) await tab.click();
     else {
@@ -151,27 +159,100 @@ export async function guestMutationChecks() {
     await select(guestId);
     let pane = pageB.locator(`#pane-${guestId}`);
     let frame = pane.locator("iframe").contentFrame();
-    const openActions = async () => {
-      const summary = pane.getByText(/Source actions ·/);
-      if ((await summary.locator("..").getAttribute("open")) === null) await summary.click();
-    };
-    const openRecovery = async () => {
-      const summary = pane.locator("summary").filter({ hasText: "Form input recovery" });
-      if ((await summary.locator("..").getAttribute("open")) === null) await summary.click();
-    };
+    const controls = () => guestControls(pageB);
+    const openActions = () => openGuestControls(pageB, "source");
+    const openRecovery = () => openGuestControls(pageB, "recovery");
     await frame.getByRole("heading", { name: "Guest mutation example" }).waitFor();
+    await guestConnectionControls(pageB, right);
+    const originalFrame = await pane.locator("iframe").elementHandle();
+    const originalDocument = await frame.locator("body").elementHandle();
+    for (const theme of ["dark", "light"] as const) {
+      await openGuestControls(pageB);
+      await pageB.getByRole("button", { name: "Settings", exact: true }).click();
+      await pageB.getByLabel("Search settings").fill("appearance");
+      await pageB.getByLabel("Appearance", { exact: true }).selectOption(theme);
+      await pageB
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      await expect.poll(() => pageB.locator("html").getAttribute("data-theme")).toBe(theme);
+      for (const width of [1280, 640]) {
+        await right.evaluate(
+          ({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 820),
+          width,
+        );
+        const bounds = await pane.evaluate((element) => ({
+          content: element.querySelector("iframe")!.getBoundingClientRect().top,
+          navigation: document.querySelector(".workspace-bar")!.getBoundingClientRect().bottom,
+        }));
+        expect(bounds.content).toBe(bounds.navigation);
+        expect(await pane.locator("summary").count()).toBe(0);
+        expect(await pane.getByText(/Shared by/).count()).toBe(0);
+        await capture(`guest-healthy-${theme}-${width}.png`);
+        const trigger = pageB.getByRole("button", { name: "Search and controls", exact: true });
+        await trigger.focus();
+        await pageB.keyboard.press("Enter");
+        await controls().getByText("Shared by Owner laptop", { exact: true }).waitFor();
+        expect(await controls().getByText("Form input recovery", { exact: true }).count()).toBe(0);
+        await openActions();
+        expect(
+          await controls()
+            .locator(".search-body")
+            .evaluate((element) => element.scrollWidth <= element.clientWidth),
+        ).toBe(true);
+        await capture(`guest-controls-${theme}-${width}.png`);
+        await pageB.keyboard.press("Escape");
+        await controls().waitFor({ state: "hidden" });
+        await expect
+          .poll(() => trigger.evaluate((element) => element === document.activeElement))
+          .toBe(true);
+        expect(
+          await originalFrame!.evaluate(
+            (element) => element === document.querySelector(".artifact-pane:not([hidden]) iframe"),
+          ),
+        ).toBe(true);
+        expect(await originalDocument!.evaluate((element) => element === document.body)).toBe(true);
+      }
+    }
+    await frame.locator("#notes").fill("Retain while controls and tabs change");
+    expect(await controls().isVisible()).toBe(false);
+    await openActions();
+    await controls().getByLabel("Source title", { exact: true }).fill("Unsubmitted panel draft");
+    await closeGuestControls(pageB);
+    await select((await record("mutation-plan")).tab.id);
+    await select(guestId);
+    await openActions();
+    expect(await controls().getByLabel("Source title", { exact: true }).inputValue()).toBe(
+      "Unsubmitted panel draft",
+    );
+    expect(await frame.locator("#notes").inputValue()).toBe(
+      "Retain while controls and tabs change",
+    );
+    expect(await originalDocument!.evaluate((element) => element === document.body)).toBe(true);
+    await guestSearchKeyboardChecks(pageB, right, guestId, "Unsubmitted panel draft");
+    expect((await ca.get(artifact.id)).title).toBe(artifact.title);
+    expect((await ca.get(artifact.id)).revision).toBe(artifact.revision);
+    await controls().getByRole("button", { name: "Discard title draft", exact: true }).click();
+    await expect
+      .poll(() => controls().getByLabel("Source title", { exact: true }).inputValue())
+      .toBe("Mutation source");
+    await closeGuestControls(pageB);
     const recoveryDb = new DatabaseSync(join(b.settingsDirectory, "desktop.db"));
     recoveryDb.exec(
       "CREATE TRIGGER reject_recovery BEFORE INSERT ON guest_recovery BEGIN SELECT RAISE(ABORT, 'Synthetic recovery failure'); END",
     );
     await frame.locator("#notes").fill("Recover this note after restart");
     await pane.getByText("Could not save form input. Keep Scope open and retry.").waitFor();
+    expect(await controls().isVisible()).toBe(false);
+    await capture("guest-form-save-failure-light-narrow.png");
     await pageB.getByRole("button", { name: "Close Mutation source", exact: true }).click();
     await pageB.getByText("Could not save this tab. Try again.", { exact: true }).waitFor();
     expect(await frame.locator("#notes").inputValue()).toBe("Recover this note after restart");
     recoveryDb.exec("DROP TRIGGER reject_recovery");
     recoveryDb.close();
-    await pane.getByRole("button", { name: "Retry form save" }).click();
+    await openRecovery();
+    await controls().getByRole("button", { name: "Retry form save" }).click();
+    await closeGuestControls(pageB);
     await pageB.getByRole("button", { name: "Dismiss error", exact: true }).click();
     await frame.locator("#choice").selectOption("b");
     await frame.locator("#agreed").check();
@@ -220,7 +301,7 @@ export async function guestMutationChecks() {
     await frame.locator("#notes").waitFor();
     expect(await frame.locator("#notes").inputValue()).toBe("");
     await openRecovery();
-    await pane.getByRole("button", { name: "Restore saved fields" }).click();
+    await controls().getByRole("button", { name: "Restore saved fields" }).click();
     expect(await frame.locator("#notes").inputValue()).toBe(
       "Recovered after an initial read failure",
     );
@@ -230,6 +311,8 @@ export async function guestMutationChecks() {
     expect(await frame.locator("#second").isChecked()).toBe(false);
     expect(await frame.locator("body").getAttribute("data-events")).toBe("0");
     await capture("mutations-restored-light-laptop.png");
+    await closeGuestControls(pageB);
+    expect(await pane.getByRole("alert").count()).toBe(0);
     artifact = await guestRecoveryChecks({
       page: pageB,
       app: right,
@@ -255,7 +338,7 @@ export async function guestMutationChecks() {
       await select(guestId);
       pane = pageB.locator(`#pane-${guestId}`);
       await openActions();
-      expect(await pane.getByLabel("Source title", { exact: true }).inputValue()).toBe(
+      expect(await controls().getByLabel("Source title", { exact: true }).inputValue()).toBe(
         artifact.title,
       );
       expect(
@@ -265,7 +348,7 @@ export async function guestMutationChecks() {
       ).toEqual([]);
     }
     await openActions();
-    await pane.getByLabel("Source title", { exact: true }).fill("Retained competing title");
+    await controls().getByLabel("Source title", { exact: true }).fill("Retained competing title");
     artifact = await ca.publish(
       artifact.id,
       {
@@ -281,19 +364,34 @@ export async function guestMutationChecks() {
     await fresh();
     // Changed content revision never receives old form input, even with identical bytes.
     await openRecovery();
-    await pane
+    await controls()
       .getByText(/current revision .*copy or discard old input/)
       .first()
       .waitFor();
-    expect(await pane.getByRole("button", { name: "Restore saved fields" }).count()).toBe(0);
+    expect(await controls().getByRole("button", { name: "Restore saved fields" }).count()).toBe(0);
     await openActions();
     await expect
-      .poll(() => pane.getByLabel("Source title", { exact: true }).inputValue())
+      .poll(() => controls().getByLabel("Source title", { exact: true }).inputValue())
       .toBe("Retained competing title");
-    await pane.getByRole("button", { name: "Rename on Owner laptop", exact: true }).click();
-    await pane.getByText(/The owner changed this source/).waitFor();
+    await controls().getByRole("button", { name: "Rename on Owner laptop", exact: true }).click();
+    await controls()
+      .getByText(/The owner changed this source/)
+      .waitFor();
     expect((await ca.get(artifact.id)).title).toBe("Owner competing change");
-    expect(await pane.getByLabel("Source title", { exact: true }).inputValue()).toBe(
+    const blockedOperation = (await pageB.evaluate((id) => window.scope.guestRecovery(id), guestId))
+      .pending!.operation;
+    await select((await record("mutation-plan")).tab.id);
+    await select(guestId);
+    await openActions();
+    expect(
+      await controls()
+        .getByRole("button", { name: "Rename on Owner laptop", exact: true })
+        .isDisabled(),
+    ).toBe(true);
+    expect(
+      (await pageB.evaluate((id) => window.scope.guestRecovery(id), guestId)).pending!.operation,
+    ).toEqual(blockedOperation);
+    expect(await controls().getByLabel("Source title", { exact: true }).inputValue()).toBe(
       "Retained competing title",
     );
     await right.close();
@@ -303,7 +401,7 @@ export async function guestMutationChecks() {
     await select(guestId);
     pane = pageB.locator(`#pane-${guestId}`);
     await openActions();
-    expect(await pane.getByLabel("Source title", { exact: true }).inputValue()).toBe(
+    expect(await controls().getByLabel("Source title", { exact: true }).inputValue()).toBe(
       "Retained competing title",
     );
     expect(
@@ -313,7 +411,7 @@ export async function guestMutationChecks() {
     await capture("mutations-conflict-light-laptop.png");
     await right.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));
     await capture("mutations-conflict-light-narrow.png");
-    await pageB.getByRole("button", { name: "Search and controls" }).click();
+    await openGuestControls(pageB);
     await pageB.getByRole("button", { name: "Settings", exact: true }).click();
     await pageB.getByLabel("Search settings").fill("appearance");
     await pageB.getByLabel("Appearance", { exact: true }).selectOption("dark");
@@ -323,23 +421,24 @@ export async function guestMutationChecks() {
       .click();
     await expect.poll(() => pageB.locator("html").getAttribute("data-theme")).toBe("dark");
     await right.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));
+    await openActions();
     await capture("mutations-conflict-dark-narrow.png");
     await right.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].setSize(1280, 820),
     );
     await capture("mutations-conflict-dark-laptop.png");
     await right.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));
-    await pane.getByRole("button", { name: "Review current owner source" }).click();
-    await pane.getByRole("button", { name: "Rename on Owner laptop", exact: true }).click();
+    await controls().getByRole("button", { name: "Review current owner source" }).click();
+    await controls().getByRole("button", { name: "Rename on Owner laptop", exact: true }).click();
     await expect
       .poll(() => ca.get(artifact.id).then((value) => value.title))
       .toBe("Retained competing title");
     await fresh();
     await openActions();
-    await pane
+    await controls()
       .getByLabel("Source title", { exact: true })
       .fill("Unsubmitted title retained through retention and trash");
-    await pane
+    await controls()
       .getByRole("button", { name: "Keep permanently on Owner laptop", exact: true })
       .click();
     await expect
@@ -351,7 +450,7 @@ export async function guestMutationChecks() {
       .toBe(true);
     await expect.poll(async () => (await record()).source.permanent).toBe(true);
     await expect
-      .poll(() => pane.getByLabel("Source title", { exact: true }).inputValue())
+      .poll(() => controls().getByLabel("Source title", { exact: true }).inputValue())
       .toBe("Unsubmitted title retained through retention and trash");
     expect(
       (await pageB.evaluate((id) => window.scope.guestRecovery(id), guestId)).inputs.find(
@@ -365,16 +464,18 @@ export async function guestMutationChecks() {
     await select(guestId);
     pane = pageB.locator(`#pane-${guestId}`);
     await openActions();
-    expect(await pane.getByLabel("Source title", { exact: true }).inputValue()).toBe(
+    expect(await controls().getByLabel("Source title", { exact: true }).inputValue()).toBe(
       "Unsubmitted title retained through retention and trash",
     );
-    await pane.getByRole("button", { name: "Review current owner source", exact: true }).click();
-    await pane
+    await controls()
+      .getByRole("button", { name: "Review current owner source", exact: true })
+      .click();
+    await controls()
       .getByRole("button", { name: "Move source to Trashcan on Owner laptop", exact: true })
       .click();
     await pane.getByText(/This source is no longer shared by Owner laptop/).waitFor();
     await expect
-      .poll(() => pane.getByLabel("Source title", { exact: true }).inputValue())
+      .poll(() => controls().getByLabel("Source title", { exact: true }).inputValue())
       .toBe("Unsubmitted title retained through retention and trash");
     await expect
       .poll(
@@ -388,18 +489,19 @@ export async function guestMutationChecks() {
     await select(guestId);
     pane = pageB.locator(`#pane-${guestId}`);
     await openActions();
-    expect(await pane.getByLabel("Source title", { exact: true }).inputValue()).toBe(
+    expect(await controls().getByLabel("Source title", { exact: true }).inputValue()).toBe(
       "Unsubmitted title retained through retention and trash",
     );
     await pageA.evaluate((id) => window.scope.restoreTab(id), sourceId);
     await expect
       .poll(async () => (await pageB.evaluate(() => window.scope.guestCatalog())).available.length)
       .toBe(2);
-    await pane.getByRole("button", { name: "Discard title draft", exact: true }).click();
+    await controls().getByRole("button", { name: "Discard title draft", exact: true }).click();
     await expect
-      .poll(() => pane.getByLabel("Source title", { exact: true }).inputValue())
+      .poll(() => controls().getByLabel("Source title", { exact: true }).inputValue())
       .toBe("Retained competing title");
     const beforeClose = (await record()).source.sourceVersion;
+    await closeGuestControls(pageB);
     await pageB
       .getByRole("button", { name: "Close Retained competing title", exact: true })
       .click();
@@ -604,9 +706,9 @@ export async function guestMutationChecks() {
       )
       .toBe(true);
     await openActions();
-    expect(await pane.getByRole("button", { name: "Check operation status" }).isEnabled()).toBe(
-      true,
-    );
+    expect(
+      await controls().getByRole("button", { name: "Check operation status" }).isEnabled(),
+    ).toBe(true);
     expect(await pane.getByText("Saved on Owner laptop.", { exact: true }).count()).toBe(0);
     await capture("mutations-lost-trash-reply-dark-narrow.png");
     await left.close();

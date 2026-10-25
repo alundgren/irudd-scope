@@ -1,3 +1,4 @@
+import { openGuestControls, closeGuestControls } from "./guest-controls-fixture.ts";
 import { pairGuests } from "./guest-pairing-fixture.ts";
 import { guestCloseLocalState } from "./guest-close-local-state.ts";
 import { guestCloseFailureChecks, guestWorkspaceChecks } from "./guest-workspace-checks.ts";
@@ -203,7 +204,10 @@ export async function guestCatalogChecks({
       const contentReads = responses.reads();
       await select(guestId);
       const pane = pageB.locator(".artifact-pane:not([hidden])");
-      await pane.getByText("Shared by", { exact: false }).waitFor();
+      const controls = await openGuestControls(pageB);
+      await controls.getByText("Shared by", { exact: false }).waitFor();
+      await closeGuestControls(pageB);
+      expect(await pane.getByText("Shared by", { exact: false }).count()).toBe(0);
       await pane.getByRole("alert").waitFor();
       expect(responses.reads()).toBe(contentReads + 1);
       const catalogRequests = responses.requests();
