@@ -41,6 +41,31 @@ const EncryptedCredentials = Schema.Struct({
   ),
 });
 
+// Obsolete guest data must not prevent access to unrelated protected credentials.
+// Retained fields still pass through the strict credential decoder below.
+function retainedCredentials(input: unknown): unknown {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
+  const { guestKey: _retired, guestEndpoints, ...retained } = input as Record<string, unknown>;
+  if (
+    typeof guestEndpoints !== "object" ||
+    guestEndpoints === null ||
+    Array.isArray(guestEndpoints)
+  )
+    return retained;
+  return {
+    ...retained,
+    guestEndpoints: Object.fromEntries(
+      Object.entries(guestEndpoints).flatMap(([id, endpoint]) => {
+        try {
+          return [[id, decode(GuestEndpoint, endpoint)]];
+        } catch {
+          return [];
+        }
+      }),
+    ),
+  };
+}
+
 export function windowsCredentials(protection: WindowsProtection): CredentialFactory {
   return (document) => {
     const available = async () => {
@@ -58,7 +83,7 @@ export function windowsCredentials(protection: WindowsProtection): CredentialFac
           const { result } = await protection.decryptStringAsync(
             Buffer.from(encrypted.ciphertext, "base64"),
           );
-          return decode(Secrets, JSON.parse(result));
+          return decode(Secrets, retainedCredentials(JSON.parse(result)));
         } catch (cause) {
           throw new Error("Could not read Scope credentials protected by Windows.", { cause });
         }
@@ -123,7 +148,7 @@ export function keychainCredentials(entry: KeychainEntry): CredentialStore {
       // The native binding returns null for a missing entry; its async types declare undefined.
       if (value === null || value === undefined) return {};
       try {
-        const secrets = decode(LegacySecrets, JSON.parse(value));
+        const secrets = decode(LegacySecrets, retainedCredentials(JSON.parse(value)));
         return {
           ...(secrets.guestEndpoints === undefined
             ? {}

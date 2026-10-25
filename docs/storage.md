@@ -549,7 +549,11 @@ document. Forget removes that peer's endpoint. Session tokens and server
 challenges are memory-only and invalid after restart. If the local address
 changes, automatic connection fails until the person copies and exchanges new
 guest connection links. Guest endpoint formats from earlier unreleased builds
-are unsupported; fresh guest setup is required.
+are unsupported; fresh guest setup is required. Credential reads discard the
+retired guest transport key and unusable guest endpoints while preserving and
+validating provider keys, hub tokens and pairing keys. Reading leaves the
+protected record unchanged; the next credential update writes only retained
+fields.
 
 ## Guest references
 

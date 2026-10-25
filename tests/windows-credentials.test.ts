@@ -77,6 +77,27 @@ test(
         expect(persisted).not.toContain(secret);
       expect(persisted).toContain("ciphertext");
       await store.close();
+      const saved = {
+        apiKey: providerKey,
+        remoteTokens: { [remote.id]: token },
+        transferKeys: { [peer.id]: transferKey },
+        guestKey: "synthetic-retired-guest-key",
+        guestEndpoints: {
+          [peer.id]: { address: "100.64.0.2", port: 41234 },
+          retired: { address: "tc" + "z".repeat(80), port: 41234 },
+          invalid: { address: "8.8.8.8", port: 41234 },
+        },
+      };
+      const ciphertext = await encryption.encryptStringAsync(JSON.stringify(saved));
+      const db = new DatabaseSync(join(directory, "desktop.db"));
+      try {
+        db.prepare("UPDATE preferences SET document = ? WHERE name = 'windows-credentials'").run(
+          JSON.stringify({ version: 1, ciphertext: ciphertext.toString("base64") }),
+        );
+      } finally {
+        db.close();
+      }
+      const beforeRead = preferences(directory).find((row) => row.name === "windows-credentials");
       store = new DesktopStore(directory, factory);
       await store.load();
       expect(store.settings().hasApiKey).toBeNull();
@@ -92,6 +113,21 @@ test(
         address: "100.64.0.2",
         port: 41234,
       });
+      expect(await store.guestEndpoint("retired")).toBeUndefined();
+      expect(await store.guestEndpoint("invalid")).toBeUndefined();
+      expect(preferences(directory).find((row) => row.name === "windows-credentials")).toEqual(
+        beforeRead,
+      );
+      await store.saveSettings({ apiKey: "synthetic-replacement-provider-key" });
+      expect(await store.secret("apiKey")).toBe("synthetic-replacement-provider-key");
+      const updated = preferences(directory).find((row) => row.name === "windows-credentials")!;
+      const protectedValue = JSON.parse(String(updated.document));
+      const plaintext = await encryption.decryptStringAsync(
+        Buffer.from(protectedValue.ciphertext, "base64"),
+      );
+      expect(plaintext.result).not.toContain("guestKey");
+      expect(plaintext.result).not.toContain("retired");
+      expect(plaintext.result).not.toContain("8.8.8.8");
       await store.saveSettings({ removeApiKey: true });
       expect(await store.remoteToken(remote.id)).toBe(token);
       expect(await store.transferKey(peer.id)).toBe(transferKey);
@@ -148,7 +184,8 @@ test(
   { tags: ["secrets-stay-secret"] },
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "scope windows invalid-"));
-    const store = new DesktopStore(directory, windowsCredentials(protection()));
+    const encryption = protection();
+    const store = new DesktopStore(directory, windowsCredentials(encryption));
     try {
       await store.load();
       const db = new DatabaseSync(store.filename);
@@ -167,6 +204,29 @@ test(
         "protected by Windows",
       );
       expect(preferences(directory)).toEqual(saved);
+      for (const invalid of [
+        { apiKey: 42 },
+        { remoteTokens: { hub: 42 } },
+        { transferKeys: { peer: 42 } },
+      ]) {
+        const ciphertext = await encryption.encryptStringAsync(
+          JSON.stringify({ guestKey: "retired", guestEndpoints: null, ...invalid }),
+        );
+        const db = new DatabaseSync(store.filename);
+        try {
+          db.prepare("UPDATE preferences SET document = ? WHERE name = 'windows-credentials'").run(
+            JSON.stringify({ version: 1, ciphertext: ciphertext.toString("base64") }),
+          );
+        } finally {
+          db.close();
+        }
+        const before = preferences(directory);
+        await expect(store.secret("apiKey")).rejects.toThrow("protected by Windows");
+        await expect(store.saveSettings({ apiKey: "synthetic-new-key" })).rejects.toThrow(
+          "protected by Windows",
+        );
+        expect(preferences(directory)).toEqual(before);
+      }
     } finally {
       await store.close();
       await rm(directory, { recursive: true, force: true });

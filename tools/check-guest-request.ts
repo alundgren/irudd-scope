@@ -14,6 +14,7 @@ import { GuestNetwork } from "../apps/desktop/src/guest/tailscale.ts";
 // Synthetic discovery and socket routing exercise the production validation and adapter.
 const directory = await mkdtemp(join(tmpdir(), "scope-guest-request-"));
 let mode = "normal";
+let statusOverride: unknown;
 let discoveries = 0;
 let requests = 0;
 let connections = 0;
@@ -24,10 +25,20 @@ const network = new GuestNetwork(
     discoveries++;
     if (mode === "discovery-stall") await delay(10000, undefined, { signal });
     if (mode === "discovery-error") throw new Error("Synthetic unavailable CLI");
+    if (statusOverride !== undefined) return statusOverride;
     return {
+      Version: "1.90.0-synthetic",
+      TUN: true,
       BackendState: mode === "stopped" ? "Stopped" : "Running",
-      Self: { TailscaleIPs: [localAddress] },
-      Peer: { synthetic: { TailscaleIPs: [peerAddress] } },
+      Self: { ID: "synthetic-self", HostName: "scope-one", TailscaleIPs: [localAddress] },
+      Peer: {
+        synthetic: {
+          ID: "synthetic-peer",
+          HostName: "scope-two",
+          Online: true,
+          TailscaleIPs: [peerAddress],
+        },
+      },
     };
   },
   () => ({
@@ -111,6 +122,30 @@ try {
   await writeFile(join(directory, "upload"), Buffer.alloc(65536, 42));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   endpoint.port = (server.address() as { port: number }).port;
+  const discovered = await network.discover(defaults.signal);
+  assert.equal(discovered.address, localAddress);
+  assert.deepEqual([...discovered.peers], [peerAddress]);
+  console.log("PASS: installed status metadata at root, self, and peer levels");
+  for (const invalid of [
+    { BackendState: 42 },
+    { Self: { TailscaleIPs: "100.64.0.1" } },
+    { Self: { TailscaleIPs: [42] } },
+    { Peer: { synthetic: { TailscaleIPs: [42] } } },
+    { Peer: { synthetic: null } },
+  ]) {
+    statusOverride = {
+      BackendState: "Running",
+      Self: { TailscaleIPs: [localAddress] },
+      Peer: {},
+      ...invalid,
+    };
+    await rejected("invalid consumed status field " + JSON.stringify(invalid));
+  }
+  statusOverride = undefined;
+  await rejected("strict endpoint fields", {}, undefined, {
+    ...endpoint,
+    extra: true,
+  } as typeof endpoint);
   for (const address of [
     "example.com",
     "https://100.64.0.2",

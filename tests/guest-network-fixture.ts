@@ -14,7 +14,7 @@ export async function guestNetworkFixture(directory: string) {
 const address = process.env.SCOPE_GUEST_TEST_ADDRESS;
 const fault = JSON.parse(require('node:fs').readFileSync(process.env.SCOPE_GUEST_TEST_STATE, 'utf8'))[address] ?? {};
 const peer = address === '100.64.0.1' ? '100.64.0.2' : '100.64.0.1';
-console.log(JSON.stringify({ BackendState: fault.stopped ? 'Stopped' : 'Running', Self: { TailscaleIPs: [address] }, Peer: { synthetic: { TailscaleIPs: [peer] } } }));
+console.log(JSON.stringify({ Version: '1.90.0-synthetic', TUN: true, Health: [], BackendState: fault.stopped ? 'Stopped' : 'Running', Self: { ID: 'synthetic-self', HostName: 'scope-one', Online: true, TailscaleIPs: [address] }, Peer: { synthetic: { ID: 'synthetic-peer', HostName: 'scope-two', DNSName: 'scope-two.example.test.', Online: true, TailscaleIPs: [peer] } } }));
 `,
   );
   const entry = join(directory, "guest-desktop.cjs");

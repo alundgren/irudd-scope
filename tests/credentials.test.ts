@@ -65,18 +65,30 @@ test(
   { tags: ["secrets-stay-secret", "survives-restart"] },
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "scope-remote-credentials-"));
-    const entry = keychainEntry(null);
     const id = "11111111-1111-4111-8111-111111111111";
     const token = "synthetic-remote-connection-token-for-tests";
+    const saved = JSON.stringify({
+      apiKey: "synthetic-existing-provider-key",
+      remoteTokens: { [id]: token },
+      guestKey: "synthetic-retired-guest-key",
+      guestEndpoints: { retired: { address: "tc" + "z".repeat(80), port: 41234 } },
+    });
+    const entry = keychainEntry(saved);
     const first = new DesktopStore(directory, keychainCredentials(entry));
     const second = new DesktopStore(directory, keychainCredentials(entry));
     try {
       await first.load();
+      expect(await first.secret("apiKey")).toBe("synthetic-existing-provider-key");
+      expect(await first.remoteToken(id)).toBe(token);
+      expect(await first.guestEndpoint("retired")).toBeUndefined();
+      expect(await entry.getPassword()).toBe(saved);
       await first.saveRemote(
         { id, name: "Test remote", endpoint: "https://remote.example.test", enabled: true },
         token,
       );
       await first.saveSettings({ voiceGenerationEnabled: true, apiKey: "synthetic-provider-key" });
+      expect(await entry.getPassword()).not.toContain("guestKey");
+      expect(await entry.getPassword()).not.toContain("retired");
       await first.close();
       await second.load();
       expect(await second.remoteToken(id)).toBe(token);
@@ -155,6 +167,17 @@ test.for(['{"apiKey":"synthetic-key"', '{"apiKey":42}', "null"])(
     expect(error).toBeInstanceOf(Error);
     expect(error).toHaveProperty("message", "Scope's saved Keychain entry has an invalid format.");
     expect(error).not.toHaveProperty("cause");
+    for (const invalid of [
+      { apiKey: 42 },
+      { remoteTokens: { hub: 42 } },
+      { transferKeys: { peer: 42 } },
+      { hubToken: 42 },
+    ]) {
+      const retained = keychainCredentials(
+        keychainEntry(JSON.stringify({ guestKey: "retired", guestEndpoints: null, ...invalid })),
+      );
+      await expect(retained.read()).rejects.toThrow("invalid format");
+    }
   },
 );
 

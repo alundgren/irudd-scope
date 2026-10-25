@@ -602,18 +602,27 @@ export async function guestPlanChecks() {
       await pageB.evaluate((id) => window.scope.setGuestAccess(id, true), peerId);
       await expect
         .poll(
+          () => pageB.evaluate(() => window.scope.guestStatus()).then((s) => s.peers[0]?.state),
+          { timeout: 25000 },
+        )
+        .toBe("connected");
+      await expect
+        .poll(
           () => pageB.evaluate(() => window.scope.guestCatalog()).then((v) => v.available.length),
           { timeout: 30000 },
         )
         .toBe(1);
       await expect
-        .poll(async () => {
-          try {
-            return (await read()).artifact.id;
-          } catch {
-            return "";
-          }
-        })
+        .poll(
+          async () => {
+            try {
+              return (await read()).artifact.id;
+            } catch (error) {
+              return error instanceof Error ? error.message : String(error);
+            }
+          },
+          { timeout: 30000 },
+        )
         .toBe("shared-id");
     }
     responses.offline(true);

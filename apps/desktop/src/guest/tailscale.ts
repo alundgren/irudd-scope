@@ -68,7 +68,10 @@ export class GuestNetwork {
     signal.throwIfAborted();
     let status: typeof Status.Type;
     try {
-      status = decode(Status, await this.status(signal));
+      // Installed CLI output includes version-dependent metadata outside the fields we consume.
+      status = Schema.decodeUnknownSync(Status, { onExcessProperty: "ignore" })(
+        await this.status(signal),
+      );
     } catch {
       signal.throwIfAborted();
       throw unavailable();
