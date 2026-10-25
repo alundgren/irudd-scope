@@ -117,9 +117,18 @@ export async function guestConnectionChecks() {
     await pageB
       .getByRole("button", { name: "Allow guest sharing with Source Scope", exact: true })
       .waitFor();
-    await expect(
-      pageB.evaluate((id) => window.scope.approveGuestPairing(id), cancelled.id),
-    ).rejects.toThrow();
+    await pageB
+      .getByRole("button", { name: "Allow guest sharing with Source Scope", exact: true })
+      .click();
+    await pageB
+      .getByRole("alert")
+      .filter({ hasText: "Create or paste a new invitation" })
+      .waitFor();
+    expect(await pageB.getByRole("alert").count()).toBe(1);
+    expect(await pageB.getByRole("alert").innerText()).toContain(
+      "Create or paste a new invitation",
+    );
+    await capture(pageB, right, "failed-pairing");
     expect((await pageB.evaluate(() => window.scope.guestDevices())).peers).toHaveLength(0);
     const expired = JSON.parse(Buffer.from(cancelledLink.split("#")[1]!, "base64url").toString());
     expired.expiresAt = Date.now() - 1;
@@ -165,6 +174,32 @@ export async function guestConnectionChecks() {
         globalThis as unknown as { scopeOriginalClock: typeof Date.now }
       ).scopeOriginalClock;
     });
+    // Each return-check phase fits its budget, while their sum exceeds ten seconds.
+    const slow = await pageA.evaluate(() => window.scope.createGuestInvitation("Source Scope"));
+    await pageA.evaluate((id) => window.scope.copyGuestInvitation(id), slow.id);
+    const slowLink = await left.evaluate(({ clipboard }) => clipboard.readText());
+    await right.evaluate(({ clipboard }, link) => clipboard.writeText(link), slowLink);
+    await pageB.evaluate(() => window.scope.inspectGuestInvitation("Guest Scope"));
+    await writeFile(
+      network.state,
+      JSON.stringify({
+        "100.64.0.1": { statusDelayMs: 3000 },
+        "100.64.0.2": { verifyDelayMs: 8000 },
+      }),
+    );
+    try {
+      await pageB.evaluate((id) => window.scope.approveGuestPairing(id), slow.id);
+      expect((await pageA.evaluate(() => window.scope.guestPairingStatus()))?.state).toBe("review");
+      expect((await pageB.evaluate(() => window.scope.guestPairingStatus()))?.state).toBe(
+        "pending",
+      );
+      expect((await pageA.evaluate(() => window.scope.guestDevices())).peers).toHaveLength(0);
+      expect((await pageB.evaluate(() => window.scope.guestDevices())).peers).toHaveLength(0);
+    } finally {
+      await writeFile(network.state, "{}");
+      await pageA.evaluate((id) => window.scope.cancelGuestPairing(id), slow.id);
+      await pageB.evaluate((id) => window.scope.cancelGuestPairing(id), slow.id);
+    }
     // Hold the real completion reply while the receiver saves and then cancels its protected pair.
     const unfinished = await pageA.evaluate(() =>
       window.scope.createGuestInvitation("Source Scope"),

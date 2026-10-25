@@ -20,7 +20,7 @@ if (process.env.TAILSCALE_BE_CLI !== '1' || fault.invalidStatus) {
 }
 if (fault.commandFailed) process.exit(1);
 const peer = address === '100.64.0.1' ? '100.64.0.2' : '100.64.0.1';
-console.log(JSON.stringify({ Version: '1.90.0-synthetic', TUN: true, Health: [], BackendState: fault.stopped ? 'Stopped' : 'Running', Self: { ID: 'synthetic-self', HostName: 'scope-one', Online: true, TailscaleIPs: [address] }, Peer: { synthetic: { ID: 'synthetic-peer', HostName: 'scope-two', DNSName: 'scope-two.example.test.', Online: true, TailscaleIPs: [peer] } } }));
+setTimeout(() => console.log(JSON.stringify({ Version: '1.90.0-synthetic', TUN: true, Health: [], BackendState: fault.stopped ? 'Stopped' : 'Running', Self: { ID: 'synthetic-self', HostName: 'scope-one', Online: true, TailscaleIPs: [address] }, Peer: { synthetic: { ID: 'synthetic-peer', HostName: 'scope-two', DNSName: 'scope-two.example.test.', Online: true, TailscaleIPs: [peer] } } })), fault.statusDelayMs ?? 0);
 `,
   );
   const entry = join(directory, "guest-desktop.cjs");
@@ -33,6 +33,14 @@ const net = require('node:net');
 const http = require('node:http');
 const address = process.env.SCOPE_GUEST_TEST_ADDRESS;
 const fault = () => JSON.parse(fs.readFileSync(process.env.SCOPE_GUEST_TEST_STATE, 'utf8'))[address] ?? {};
+const emit = http.Server.prototype.emit;
+http.Server.prototype.emit = function(event, ...args) {
+  if (event === 'request' && args[0].url === '/guest/pair-verify' && fault().verifyDelayMs) {
+    setTimeout(() => emit.call(this, event, ...args), fault().verifyDelayMs);
+    return true;
+  }
+  return emit.call(this, event, ...args);
+};
 os.networkInterfaces = () => ({ synthetic: fault().interfaceMissing ? [] : [{ address, family: 'IPv4', internal: false }] });
 const listen = net.Server.prototype.listen;
 net.Server.prototype.listen = function(...args) {

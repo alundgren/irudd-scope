@@ -140,7 +140,15 @@ export class GuestTransport {
           // Socket activity covers both upload and response, including backpressure.
           socket.once("connect", () => clearTimeout(idle));
           socket.setTimeout(options.idleMs, () =>
-            operation.abort(new GuestNetworkError("Guest connection was idle for too long.")),
+            operation.abort(
+              new GuestNetworkError(
+                socket.connecting
+                  ? "Could not connect to the other Scope. Check that it is open and its guest port is reachable."
+                  : incoming
+                    ? "The guest transfer stopped responding. Retry the operation."
+                    : "The other Scope accepted the connection but did not reply in time. Check Other Scopes on that computer, then retry.",
+              ),
+            ),
           );
         });
         if (body) body.pipe(pending);
