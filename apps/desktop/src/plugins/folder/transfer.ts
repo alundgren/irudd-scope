@@ -76,7 +76,7 @@ type Plan = {
   timer: ReturnType<typeof setTimeout>;
   sourceVersion?: number;
 };
-type Folder = {
+export type Folder = {
   identity: FolderIdentity;
   source: FolderSource;
   guest?: GuestTarget;
@@ -240,6 +240,8 @@ async function freeName(source: FolderSource, path: string, signal: AbortSignal)
   while (taken.has(keptName(path, count))) count++;
   return keptName(path, count);
 }
+
+export type FolderTransfers = ReturnType<typeof registerFolderTransfers>;
 
 /**
  * Drops into Folder tabs and saves out of them. Bytes stream between this computer and
@@ -437,37 +439,65 @@ export function registerFolderTransfers({
         replace,
         payload: { size, sha256: digest.digest("hex") },
       };
-      const pending = {
-        guestId: tabId,
-        write: { target: current.guest!, sourceVersion: current.sourceVersion!, operation },
-        ...(item.file ? { original: { path: item.source, ...item.file } } : {}),
-      };
-      await recovery.folderSave(pending);
-      body = handle
-        ? pipe(handle.createReadStream({ start: 0 }), counted(progress), () => {})
-        : Readable.from([]);
-      const outcome = await current.source.operations.execute("", operation, body, signal);
-      if (outcome.requestId !== operation.requestId)
-        throw new Error("The host returned a different operation identity.");
-      await recovery.folderSave({ ...pending, outcome });
+      const outcome = await guestOperation(
+        current,
+        tabId,
+        operation,
+        () => {
+          body = handle
+            ? pipe(handle.createReadStream({ start: 0 }), counted(progress), () => {})
+            : Readable.from([]);
+          return body;
+        },
+        signal,
+        item.file && { path: item.source, ...item.file },
+      );
       if (outcome.state !== "completed")
         throw new Error(
           outcome.error?.code === "conflict"
             ? "This file changed after replacement was offered. Your original file is saved in recovery. Check status and refresh before trying again."
             : `The folder operation is ${outcome.state}. Check its saved status before trying again.`,
         );
-      const refreshed = await folder(tabId);
-      await refreshed.source.list(
-        path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "",
-        true,
-        signal,
-      );
-      await recovery.folderClear(tabId, operation.requestId);
       return path;
     } finally {
       body?.destroy();
       await handle?.close().catch(() => {});
     }
+  }
+
+  /**
+   * Runs one versioned write through a guest folder's owner. The operation is saved for
+   * recovery before it starts and cleared only after it completed and the folder was read
+   * again, so an interrupted write keeps asking for its status instead of being retried.
+   */
+  async function guestOperation(
+    current: Folder,
+    tabId: string,
+    operation: FolderOperationRequest,
+    body: () => Readable,
+    signal: AbortSignal,
+    original?: { path: string; dev: number; ino: number },
+  ) {
+    const pending = {
+      guestId: tabId,
+      write: { target: current.guest!, sourceVersion: current.sourceVersion!, operation },
+      ...(original ? { original } : {}),
+    };
+    await recovery.folderSave(pending);
+    const outcome = await current.source.operations.execute("", operation, body(), signal);
+    if (outcome.requestId !== operation.requestId)
+      throw new Error("The host returned a different operation identity.");
+    await recovery.folderSave({ ...pending, outcome });
+    if (outcome.state !== "completed") return outcome;
+    const path = operation.path;
+    const refreshed = await folder(tabId);
+    await refreshed.source.list(
+      path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "",
+      true,
+      signal,
+    );
+    await recovery.folderClear(tabId, operation.requestId);
+    return outcome;
   }
 
   const starting = new Set<string>();
@@ -669,6 +699,8 @@ export function registerFolderTransfers({
   return {
     recoveryActive: (tabId: string) => starting.has(tabId),
     releaseRecovery: exclusive,
+    exclusive,
+    guestOperation,
     /** Cancels the transfers and forgets the drops of tabs that closed. */
     cancelTabs(ids: readonly string[]) {
       for (const { transfer, controller } of running.values())

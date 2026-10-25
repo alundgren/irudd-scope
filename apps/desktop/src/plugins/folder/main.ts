@@ -27,6 +27,7 @@ import type {
   FolderViewEvent,
 } from "./contract.ts";
 import { registerFolderFind } from "./find.ts";
+import { registerFolderEdits } from "./edit.ts";
 import { registerFolderTransfers } from "./transfer.ts";
 import {
   FolderUpdateNeeded,
@@ -152,6 +153,13 @@ export function registerFolderIpc(context: MainPluginContext) {
     folder,
     notifyWatchers,
     recovery: store.guestRecovery,
+  });
+  registerFolderEdits({
+    handle,
+    folder,
+    recovery: store.guestRecovery,
+    exclusive: transfers.exclusive,
+    guestOperation: transfers.guestOperation,
   });
   function send(tabId: string, event: FolderViewEvent["event"]) {
     find.apply(tabId, event);

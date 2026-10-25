@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Download } from "lucide-react";
+import { Download, Maximize2, Minimize2 } from "lucide-react";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { FileViews, type FileContent, type MarkedLines } from "../../renderer/file-views.tsx";
 import type { FolderViewEvent } from "./contract.ts";
+import { FolderEditActions, FolderEditor, type FolderEdits } from "./editor.tsx";
 
 /** Text previews show at most this much of a file. */
 export const MAX_PREVIEW_TEXT_BYTES = 2 * 1024 * 1024;
@@ -54,7 +55,7 @@ type Loaded =
   | { status: "deleted" }
   | { status: "error"; message: string };
 
-async function loadPreview(tabId: string, path: string): Promise<Loaded> {
+export async function loadPreview(tabId: string, path: string): Promise<Loaded> {
   const read = (start: number, end: number) => window.scope.folderRead({ tabId, path, start, end });
   const first = await read(0, FIRST_READ_BYTES);
   const known = kindFor(path);
@@ -92,7 +93,10 @@ async function loadPreview(tabId: string, path: string): Promise<Loaded> {
  * How a change batch affects the previewed file, including through a parent folder: a
  * deleted or renamed `docs` deletes `docs/notes.txt`, and a created one may bring it back.
  */
-function touches(event: FolderViewEvent["event"], path: string): "changed" | "deleted" | null {
+export function touches(
+  event: FolderViewEvent["event"],
+  path: string,
+): "changed" | "deleted" | null {
   if (event.type !== "changes") return null;
   if (event.overflow) return "changed";
   const covers = (changed: string) => changed === path || path.startsWith(`${changed}/`);
@@ -110,19 +114,26 @@ function touches(event: FolderViewEvent["event"], path: string): "changed" | "de
 }
 
 /**
- * A read-only preview of one file in a Folder tab, using the published-file viewers. It
- * reloads when the file changes on disk and says so when it is deleted. Nothing is kept
- * after the preview closes. Key it by path so another file starts fresh.
+ * A preview of one file in a Folder tab, using the published-file viewers, or its editor
+ * while the file is being edited. The preview reloads when the file changes on disk and
+ * says so when it is deleted. Key it by path so another file starts fresh.
  */
 export function FolderPreview({
   tabId,
   path,
   lines,
+  edits,
+  expanded,
+  onExpand,
 }: {
   tabId: string;
   path: string;
   /** A search match's line or an agent's marked lines: shows the file's text and scrolls to them. */
   lines: MarkedLines | undefined;
+  edits: FolderEdits;
+  /** Whether the preview fills the tab, with the tree hidden. */
+  expanded: boolean;
+  onExpand: (expanded: boolean) => void;
 }) {
   const start = lines?.start;
   const end = lines?.end;
@@ -175,9 +186,12 @@ export function FolderPreview({
 
   const name = path.slice(path.lastIndexOf("/") + 1);
   const rendered = loaded.status === "shown" && loaded.content.kind !== "text" ? loaded : undefined;
-  const sourceToggle = rendered && rendered.content.kind !== "image";
+  const edit = edits.edits.get(path);
+  const sourceToggle = !edit && rendered && rendered.content.kind !== "image";
+  const editable =
+    loaded.status === "shown" && !loaded.truncated && loaded.content.kind !== "image";
   return (
-    <section className="folder-preview" aria-label={`Preview of ${name}`}>
+    <section className="folder-preview" aria-label={`${edit ? "Editing" : "Preview of"} ${name}`}>
       <header className="folder-preview-bar">
         <code title={path}>{path}</code>
         {sourceToggle && (
@@ -190,13 +204,30 @@ export function FolderPreview({
             Source
           </Button>
         )}
+        <FolderEditActions path={path} editable={editable} edits={edits} />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={expanded ? "Show the file tree" : "Expand the preview"}
+          title={expanded ? "Show the file tree" : "Expand the preview"}
+          aria-pressed={expanded}
+          onClick={() => onExpand(!expanded)}
+        >
+          {expanded ? <Minimize2 /> : <Maximize2 />}
+        </Button>
       </header>
-      {loaded.status === "shown" && loaded.truncated && (
+      {edits.opening?.path === path && edits.opening.error && (
+        <p className="folder-notice" role="alert">
+          {edits.opening.error}
+        </p>
+      )}
+      {!edit && loaded.status === "shown" && loaded.truncated && (
         <p className="folder-notice" role="status">
           Showing the first {formatSize(MAX_PREVIEW_TEXT_BYTES)} of {formatSize(loaded.size)}.
         </p>
       )}
-      <div className="folder-preview-body">
+      {edit && <FolderEditor path={path} edit={edit} edits={edits} />}
+      <div className="folder-preview-body" hidden={Boolean(edit)}>
         {loaded.status === "loading" && <p className="folder-state">Reading file…</p>}
         {loaded.status === "deleted" && (
           <p className="folder-state" role="status">

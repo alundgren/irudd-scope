@@ -11,6 +11,7 @@ import { useFolder, type FolderStatus } from "./use-folder.ts";
 import { FolderTree, filteredRows, folderRows } from "./tree.tsx";
 import { FolderSearch, filterStatus, useFolderFilter } from "./find-panel.tsx";
 import { FolderPreview } from "./preview.tsx";
+import { useFolderEdits } from "./editor.tsx";
 import { ClashQuestion, FolderTransfers, useFolderDrop } from "./transfers.tsx";
 
 function Unavailable({
@@ -163,6 +164,27 @@ export function FolderView({
     [filtering, filter.matches, collapsed, listings, expanded, data.selectedPath, failed],
   );
   const [copied, setCopied] = useState(false);
+  const [fullPreview, setFullPreview] = useState(false);
+  const edits = useFolderEdits(tab.id);
+  const unsaved = edits.unsaved();
+  const unsavedPaths = useMemo(() => new Set(edits.unsaved()), [edits.edits]);
+  const [closeNotice, setCloseNotice] = useState("");
+  if (closeNotice && !unsaved.length) setCloseNotice("");
+  const unsavedRef = useRef(edits.unsaved);
+  unsavedRef.current = edits.unsaved;
+  // Closing this tab or quitting waits until unsaved edits are saved or discarded, since
+  // Scope keeps them nowhere else.
+  useEffect(
+    () =>
+      context.onBeforeClose(async (purpose) => {
+        const paths = unsavedRef.current();
+        if (purpose !== "close" || !paths.length) return;
+        const names = paths.map((path) => path.slice(path.lastIndexOf("/") + 1)).join(", ");
+        setCloseNotice(`Save or discard your changes to ${names} before closing.`);
+        throw new Error("This Folder tab has unsaved changes.");
+      }),
+    [tab.id],
+  );
   const update = (patch: Partial<FolderTabData>) => updateReading({ ...data, ...patch });
   /** Selects a file from outside the tree, opening its folders, and reveals it. */
   const selectAndReveal = (path: string, current: FolderTabData) => {
@@ -215,9 +237,21 @@ export function FolderView({
     <section
       className="folder-tab"
       data-guest={guest || undefined}
+      data-full-preview={fullPreview || undefined}
       aria-label={`${tab.title} folder`}
+      onKeyDown={(event) => {
+        const target = event.target as HTMLElement;
+        if (event.key !== "Escape" || !fullPreview || target.closest("input, textarea")) return;
+        event.preventDefault();
+        setFullPreview(false);
+      }}
     >
-      <header className="folder-bar">
+      {closeNotice && (
+        <p className="folder-notice folder-edit-notice" role="alert">
+          {closeNotice}
+        </p>
+      )}
+      <header className="folder-bar" hidden={fullPreview}>
         {(remote || guest) && <span className="folder-machine">{machine}</span>}
         <code className="folder-path" title={guest ? tab.title : data.path}>
           {guest ? tab.title : data.path}
@@ -304,7 +338,7 @@ export function FolderView({
       <ClashQuestion question={dropping.question} />
       {status.kind === "ok" ? (
         <div className="folder-body">
-          <div className="folder-side">
+          <div className="folder-side" hidden={fullPreview}>
             <nav className="folder-find-modes" aria-label="Find in folder">
               <Button
                 variant={mode === "files" ? "secondary" : "ghost"}
@@ -363,6 +397,7 @@ export function FolderView({
                 tabId={tab.id}
                 rows={rows}
                 selected={data.selectedPath}
+                unsaved={unsavedPaths}
                 revealCount={revealCount}
                 onToggle={toggle}
                 onSelect={(path) => {
@@ -395,6 +430,9 @@ export function FolderView({
                   ? { start: target.line, end: target.line }
                   : (data.selectedLines ?? undefined)
               }
+              edits={edits}
+              expanded={fullPreview}
+              onExpand={setFullPreview}
             />
           ) : (
             <p className="folder-preview folder-state">Select a file to preview it.</p>
