@@ -6,10 +6,6 @@ import { decode } from "@irudd-scope/protocol";
 import { GuestAddress, GuestEndpoint } from "@irudd-scope/protocol/guest";
 
 export class GuestNetworkError extends Error {}
-const unavailable = () =>
-  new GuestNetworkError(
-    "Tailscale is unavailable. Open Tailscale and connect to your tailnet, then retry.",
-  );
 const NodeStatus = Schema.Struct({ TailscaleIPs: Schema.Array(Schema.String) });
 const Status = Schema.Struct({
   BackendState: Schema.String,
@@ -39,6 +35,8 @@ async function installedStatus(signal: AbortSignal): Promise<unknown> {
           ["status", "--json"],
           {
             signal,
+            // The macOS app also contains the CLI; desktop launches have no terminal environment.
+            env: { ...process.env, TAILSCALE_BE_CLI: "1" },
             timeout: 5000,
             maxBuffer: 4 * 1024 * 1024,
             windowsHide: true,
@@ -50,10 +48,16 @@ async function installedStatus(signal: AbortSignal): Promise<unknown> {
     } catch (error) {
       signal.throwIfAborted();
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-      throw unavailable();
+      throw new GuestNetworkError(
+        error instanceof SyntaxError
+          ? "Scope could not read Tailscale's status response. Retry guest pairing."
+          : "Scope could not run Tailscale's status command. Retry guest pairing.",
+      );
     }
   }
-  throw unavailable();
+  throw new GuestNetworkError(
+    "Scope could not find the Tailscale command. Check that Tailscale is installed in its usual location, then retry.",
+  );
 }
 
 export class GuestNetwork {
@@ -72,12 +76,18 @@ export class GuestNetwork {
       status = Schema.decodeUnknownSync(Status, { onExcessProperty: "ignore" })(
         await this.status(signal),
       );
-    } catch {
+    } catch (error) {
       signal.throwIfAborted();
-      throw unavailable();
+      if (error instanceof GuestNetworkError) throw error;
+      throw new GuestNetworkError(
+        "Scope could not read Tailscale's status response. Retry guest pairing.",
+      );
     }
     signal.throwIfAborted();
-    if (status.BackendState !== "Running") throw unavailable();
+    if (status.BackendState !== "Running")
+      throw new GuestNetworkError(
+        "Tailscale is not connected. Open Tailscale and connect to your tailnet, then retry.",
+      );
     const address = status.Self.TailscaleIPs.find((ip) => Schema.is(GuestAddress)(ip));
     if (
       !address ||

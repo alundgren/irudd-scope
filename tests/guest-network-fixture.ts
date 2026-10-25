@@ -13,6 +13,12 @@ export async function guestNetworkFixture(directory: string) {
     String.raw`
 const address = process.env.SCOPE_GUEST_TEST_ADDRESS;
 const fault = JSON.parse(require('node:fs').readFileSync(process.env.SCOPE_GUEST_TEST_STATE, 'utf8'))[address] ?? {};
+// The macOS app executable needs explicit CLI mode when launched without a terminal.
+if (process.env.TAILSCALE_BE_CLI !== '1' || fault.invalidStatus) {
+  process.stdout.write('');
+  process.exit(0);
+}
+if (fault.commandFailed) process.exit(1);
 const peer = address === '100.64.0.1' ? '100.64.0.2' : '100.64.0.1';
 console.log(JSON.stringify({ Version: '1.90.0-synthetic', TUN: true, Health: [], BackendState: fault.stopped ? 'Stopped' : 'Running', Self: { ID: 'synthetic-self', HostName: 'scope-one', Online: true, TailscaleIPs: [address] }, Peer: { synthetic: { ID: 'synthetic-peer', HostName: 'scope-two', DNSName: 'scope-two.example.test.', Online: true, TailscaleIPs: [peer] } } }));
 `,
@@ -63,6 +69,14 @@ import(${JSON.stringify(pathToFileURL(resolve("apps/desktop/dist/main.mjs")).hre
   return {
     entry,
     state,
-    env: { PATH: directory + delimiter + process.env.PATH, SCOPE_GUEST_TEST_STATE: state },
+    env: {
+      PATH: directory + delimiter + process.env.PATH,
+      SCOPE_GUEST_TEST_STATE: state,
+      SHLVL: "",
+      TERM: "",
+      TERM_PROGRAM: "",
+      PS1: "",
+      TAILSCALE_BE_CLI: "0",
+    },
   };
 }

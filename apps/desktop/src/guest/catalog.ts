@@ -265,7 +265,7 @@ export class GuestCatalogs {
               state?.state === "disabled"
                 ? `Guest sharing with ${peer.name} is off on this Scope. Enable it in Other Scopes to reconnect.`
                 : state?.state === "setup"
-                  ? `Connect a guest connection link for ${peer.name} in Other Scopes.`
+                  ? `Pairing with ${peer.name} is incomplete. Forget this Scope and pair again in Other Scopes.`
                   : state?.state === "update-required" || state?.state === "access-denied"
                     ? state.message
                     : `${peer.name} is unavailable. Open that Scope and check its connection. Scope will reconnect automatically; you can also retry in Other Scopes.`,
