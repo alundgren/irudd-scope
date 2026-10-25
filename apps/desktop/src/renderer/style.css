@@ -330,9 +330,6 @@ svg.lucide {
   display: flex;
   flex-direction: column;
 }
-.guest-pane > .content-notice {
-  flex: none;
-}
 .guest-content {
   flex: 1;
   min-height: 0;
@@ -585,6 +582,7 @@ h2 {
   outline-offset: var(--scope-focus-offset);
 }
 .current-tab-controls {
+  overflow-wrap: anywhere;
   display: flex;
   flex-direction: column;
   padding: var(--scope-space-4);
@@ -1884,9 +1882,31 @@ h2 {
 
 .guest-actions {
   flex: none;
-  padding: var(--scope-space-2) var(--scope-space-3);
+  padding: var(--scope-space-2) 0;
   color: var(--scope-text);
   font-size: var(--scope-text-ui);
+  overflow-wrap: anywhere;
+}
+.guest-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--scope-space-2);
+  padding: var(--scope-space-1) var(--scope-space-3);
+  font-size: var(--scope-text-detail);
+  flex: none;
+}
+.guest-notice span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.guest-notice button {
+  flex: none;
+}
+.guest-actions button {
+  max-width: 100%;
+  min-height: var(--scope-control);
+  height: auto;
+  white-space: normal;
 }
 .guest-actions summary {
   cursor: pointer;

@@ -80,13 +80,15 @@ export function GuestSettings({ peerId, name }: { peerId: string; name: string }
       {status?.enabled && (
         <>
           <div className="installation-actions">
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() => void run(() => window.scope.retryGuest(peerId))}
-            >
-              Retry connection
-            </Button>
+            {status.state !== "connected" && status.state !== "connecting" && (
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => void run(() => window.scope.retryGuest(peerId))}
+              >
+                Retry connection
+              </Button>
+            )}
             <Button
               variant="destructive"
               disabled={busy}

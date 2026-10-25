@@ -1,3 +1,4 @@
+import { openGuestControls, closeGuestControls } from "./guest-controls-fixture.ts";
 import { pairGuests } from "./guest-pairing-fixture.ts";
 import { guestNetworkFixture } from "./guest-network-fixture.ts";
 import { guestPlanDeadlines } from "./guest-plan-deadlines.ts";
@@ -550,15 +551,16 @@ export async function guestPlanChecks() {
     expect((await cb.guestExecute(target, identity)).state).toBe("conflict");
     await fresh();
     await select(pageB, guestId);
-    const actions = pane.getByText(/Source actions ·/);
+    const controls = await openGuestControls(pageB, "source");
+    const actions = controls.getByText(/Source actions ·/);
     if ((await actions.locator("..").getAttribute("open")) === null) await actions.click();
-    await pane
+    await controls
       .getByText(/conflict/i)
       .first()
       .waitFor();
     await capture("conflict-dark-laptop");
     await cli("plan", "reconcile", "shared-id", ...flags);
-    if ((await actions.locator("..").getAttribute("open")) !== null) await actions.click();
+    await closeGuestControls(pageB);
     expect(
       (await read()).document.bases.some((basis: { id: string }) => basis.id === "conflicting"),
     ).toBe(false);

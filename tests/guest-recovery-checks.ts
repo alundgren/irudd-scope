@@ -1,3 +1,4 @@
+import { guestControls, openGuestControls, closeGuestControls } from "./guest-controls-fixture.ts";
 import { expect } from "vite-plus/test";
 import type { ElectronApplication, Page } from "@playwright/test";
 import type { Artifact } from "@irudd-scope/protocol";
@@ -188,9 +189,15 @@ export async function guestRecoveryChecks({
   const overLimit = "x".repeat(8193);
   const oldRevision = artifact.revision;
   await notes().fill(overLimit);
-  await pane.getByText(/This field exceeds recovery limits/).waitFor();
+  await pane.getByRole("alert").filter({ hasText: "Could not save form input" }).waitFor();
+  await openGuestControls(page, "recovery");
+  await guestControls(page)
+    .getByText(/This field exceeds recovery limits/)
+    .waitFor();
   await publish("html");
-  await pane.getByRole("button", { name: "Copy unsaved input", exact: true }).click();
+  await guestControls(page)
+    .getByRole("button", { name: "Copy unsaved input", exact: true })
+    .click();
   await expect
     .poll(async () =>
       (await app.evaluate(({ clipboard }) => clipboard.readText())).includes(overLimit),
@@ -201,7 +208,7 @@ export async function guestRecoveryChecks({
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));
   await capture("mutations-r1-unsaved-light-narrow.png");
   async function appearance(value: "light" | "dark") {
-    await page.getByRole("button", { name: "Search and controls" }).click();
+    await openGuestControls(page);
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByLabel("Search settings").fill("appearance");
     await page.getByLabel("Appearance", { exact: true }).selectOption(value);
@@ -212,16 +219,20 @@ export async function guestRecoveryChecks({
     await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe(value);
   }
   await appearance("dark");
+  await openGuestControls(page, "recovery");
   await capture("mutations-r1-unsaved-dark-narrow.png");
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 820));
   await capture("mutations-r1-unsaved-dark-laptop.png");
-  await pane.getByRole("button", { name: "Discard unsaved input", exact: true }).click();
+  await guestControls(page)
+    .getByRole("button", { name: "Discard unsaved input", exact: true })
+    .click();
   await expect
     .poll(async () => (await read()).inputs.some((input) => input.revision === oldRevision))
     .toBe(false);
   await (
     await startFlush(app)
   )();
+  await closeGuestControls(page);
   const db = new DatabaseSync(join(settingsDirectory, "desktop.db"));
   db.exec("PRAGMA busy_timeout = 5000");
   const failingRevision = artifact.revision;
@@ -235,7 +246,10 @@ export async function guestRecoveryChecks({
       .getByText("Could not save form input. Keep Scope open and retry.", { exact: true })
       .waitFor();
     await publish("text");
-    await pane.getByRole("button", { name: "Copy unsaved input", exact: true }).click();
+    await openGuestControls(page, "recovery");
+    await guestControls(page)
+      .getByRole("button", { name: "Copy unsaved input", exact: true })
+      .click();
     await expect
       .poll(async () =>
         (await app.evaluate(({ clipboard }) => clipboard.readText())).includes(
@@ -244,10 +258,12 @@ export async function guestRecoveryChecks({
       )
       .toBe(true);
     db.exec("DROP TRIGGER reject_revision_recovery");
-    await pane.getByRole("button", { name: "Retry form save", exact: true }).click();
+    await guestControls(page).getByRole("button", { name: "Retry form save", exact: true }).click();
     await expect.poll(delayedWrite.entered).toBe(true);
     await delayedWrite.release();
-    await pane.getByRole("button", { name: "Copy saved input", exact: true }).click();
+    await guestControls(page)
+      .getByRole("button", { name: "Copy saved input", exact: true })
+      .click();
     expect(
       (await read()).inputs.find((input) => input.revision === failingRevision)?.fields[0].value,
     ).toBe("Latest working input across HTML to text");
@@ -255,7 +271,9 @@ export async function guestRecoveryChecks({
       await startFlush(app)
     )();
     expect(
-      await pane.getByRole("button", { name: "Restore saved fields", exact: true }).count(),
+      await guestControls(page)
+        .getByRole("button", { name: "Restore saved fields", exact: true })
+        .count(),
     ).toBe(0);
     await capture("mutations-r1-text-recovery-dark-laptop.png");
   } finally {
@@ -263,13 +281,17 @@ export async function guestRecoveryChecks({
     db.close();
     await delayedWrite.restore();
   }
+  await closeGuestControls(page);
   await publish("html");
   const discardGate = await gate(app, "scope:save-guest-input", true);
   try {
     await notes().fill("A write being acknowledged when discarded");
     await expect.poll(discardGate.entered).toBe(true);
+    await openGuestControls(page, "recovery");
     // Discard queues behind the pending write and must not require an invalid draft to save first.
-    await pane.getByRole("button", { name: "Discard unsaved input", exact: true }).click();
+    await guestControls(page)
+      .getByRole("button", { name: "Discard unsaved input", exact: true })
+      .click();
     await discardGate.release();
     await expect
       .poll(async () => (await read()).inputs.some((input) => input.revision === artifact.revision))
@@ -315,8 +337,16 @@ export async function guestReadFailureChecks({
     await page.reload();
     const pane = page.locator(`#pane-${guestId}`);
     const notes = pane.locator("iframe").contentFrame().locator("#notes");
-    const retry = pane.getByRole("button", { name: "Retry reading input", exact: true });
+    await pane.getByText("Could not read saved input. Keep Scope open and retry.").waitFor();
+    expect(await guestControls(page).isVisible()).toBe(false);
+    await capture("guest-read-failure-notice.png");
+    const retry = guestControls(page).getByRole("button", {
+      name: "Retry reading input",
+      exact: true,
+    });
+    await openGuestControls(page, "recovery");
     await retry.waitFor();
+    await closeGuestControls(page);
     await (
       await startFlush(app, false)
     )();
@@ -328,6 +358,8 @@ export async function guestReadFailureChecks({
     await frame.locator("#choice").selectOption("b");
     await frame.locator("#agreed").check();
     await frame.locator("#first").check();
+    expect(await guestControls(page).isVisible()).toBe(false);
+    await openGuestControls(page, "recovery");
     expect(await retry.isVisible(), "Read retry remains available after supported input").toBe(
       true,
     );
@@ -335,6 +367,7 @@ export async function guestReadFailureChecks({
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));
     await capture("mutations-r2-read-light-narrow.png");
     await appearance(page, "dark");
+    await openGuestControls(page, "recovery");
     await capture("mutations-r2-read-dark-narrow.png");
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 820));
     await capture("mutations-r2-read-dark-laptop.png");
@@ -343,7 +376,9 @@ export async function guestReadFailureChecks({
       await retry.click();
       await expect.poll(pending.entered).toBe(true);
       expect(
-        await pane.getByRole("button", { name: "Reading saved input…", exact: true }).isDisabled(),
+        await guestControls(page)
+          .getByRole("button", { name: "Reading saved input…", exact: true })
+          .isDisabled(),
       ).toBe(true);
       const finished = await startFlush(app);
       await pending.release();
@@ -370,7 +405,7 @@ export async function guestReadFailureChecks({
   }
 }
 async function appearance(page: Page, value: "light" | "dark") {
-  await page.getByRole("button", { name: "Search and controls" }).click();
+  await openGuestControls(page);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByLabel("Search settings").fill("appearance");
   await page.getByLabel("Appearance", { exact: true }).selectOption(value);
@@ -395,11 +430,8 @@ export async function guestTitleCleanupChecks({
   html: string;
   mode: "discard" | "rename";
 }) {
-  const pane = page.locator(`#pane-${guestId}`);
-  const details = pane.getByText(/Source actions ·/).locator("..");
-  if (!(await details.evaluate((node) => (node as HTMLDetailsElement).open)))
-    await details.locator("summary").click();
-  const title = pane.getByLabel("Source title", { exact: true });
+  await openGuestControls(page, "source");
+  const title = guestControls(page).getByLabel("Source title", { exact: true });
   await title.fill("Older title draft");
   await expect
     .poll(
@@ -430,8 +462,10 @@ export async function guestTitleCleanupChecks({
         )?.source.artifact?.revision,
     )
     .toBe(artifact.revision);
-  await pane.getByRole("button", { name: "Review current owner source", exact: true }).click();
-  await pane
+  await guestControls(page)
+    .getByRole("button", { name: "Review current owner source", exact: true })
+    .click();
+  await guestControls(page)
     .getByText(
       `Current owner revision ${artifact.revision}. Review your retained input before saving.`,
       { exact: true },
@@ -449,7 +483,7 @@ export async function guestTitleCleanupChecks({
       guestId,
     );
     await expect.poll(read.entered).toBe(true);
-    await pane
+    await guestControls(page)
       .getByRole("button", {
         name: mode === "discard" ? "Discard title draft" : "Rename on Owner laptop",
         exact: true,

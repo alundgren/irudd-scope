@@ -21,11 +21,13 @@ removes guest credentials while preserving local references and recovery input.
 A saved listener port conflict asks the person to close the conflicting app and
 retry. Missing local interfaces, invalid destinations and denied connections have
 separate errors. Changed endpoints require forgetting the peer and pairing again;
-retry never silently changes the saved endpoint.
+retry never silently changes the saved endpoint. Retry connection is hidden while
+connected or connecting.
 
 Eligible owner tabs appear automatically after guest sharing connects, including
-hidden bookmarked files, plans and folders. A guest names its owner above the
-content. File guests use the existing viewers and Download action. Plans and
+hidden bookmarked files, plans and folders. Healthy guest content starts directly
+below navigation. Search and controls names the owner in its current-tab area
+and contains source actions. File guests use the existing viewers and Download action. Plans and
 folders use their registered native views and preserve their kind. Older builds
 without the required capability show an update requirement. Unavailable sources show a status message and hide the document
 from interaction. Offline, disabled, unpaired and incompatible connections have
@@ -47,7 +49,10 @@ During temporary unavailability, loaded HTML stays mounted but hidden and inert.
 A current accepted catalog for the same owner, source, revision and blob is required
 before showing it again. A changed revision loads current owner bytes. Hidden HTML
 is still trusted executable content; hiding does not suspend scripts. Runtime state remains in memory only. Supported edited form fields have separate
-bounded receiver recovery records and survive restart. Restore saved fields is
+bounded receiver recovery records and survive restart. Form input recovery appears
+in Search and controls only when saved or working input exists or recovery fails.
+Real failures show a compact action to review recovery; editing never opens the
+panel automatically. Opening or closing the panel preserves the document and drafts. Restore saved fields is
 explicit and requires the same owner, source, revision and blob. Changed documents
 keep old input available for copy or discard. Passwords, files, sensitive fields,
 ambiguous identifiers and arbitrary script state are excluded; unsupported fields

@@ -37,6 +37,8 @@ export function TabHost({
   guest,
   guestOwner,
   guestAvailable,
+  guestControls,
+  onGuestControls,
   ...display
 }: {
   tab: Tab;
@@ -52,6 +54,8 @@ export function TabHost({
   guest?: GuestRecord;
   guestOwner?: GuestCatalogView["owners"][number];
   guestAvailable?: boolean;
+  guestControls: HTMLDivElement | null;
+  onGuestControls: () => void;
   artifact?: Artifact;
   theme: Theme;
   focus: boolean;
@@ -110,9 +114,20 @@ export function TabHost({
       <>
         {guest.source.kind === "folder" && <GuestFolderRecovery tabId={tab.id} />}
         {guest.source.kind !== "folder" && (
-          <GuestActions record={guest} owner={guestOwner} available={guestAvailable === true} />
+          <GuestActions
+            record={guest}
+            owner={guestOwner}
+            available={guestAvailable === true}
+            controls={guestControls}
+            onOpenControls={onGuestControls}
+          />
         )}
-        <GuestHtmlRecovery record={guest} available={guestAvailable === true}>
+        <GuestHtmlRecovery
+          record={guest}
+          available={guestAvailable === true}
+          controls={guestControls}
+          onOpenControls={onGuestControls}
+        >
           {view}
         </GuestHtmlRecovery>
       </>
