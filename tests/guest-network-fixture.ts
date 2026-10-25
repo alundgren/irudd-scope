@@ -48,6 +48,8 @@ net.Server.prototype.listen = function(...args) {
     if (fault().occupied) { process.nextTick(() => this.emit('error', Object.assign(new Error('Synthetic occupied port'), { code: 'EADDRINUSE' }))); return this; }
     if (process.env.SCOPE_GUEST_FIXTURE_EVENTS) fs.appendFileSync(process.env.SCOPE_GUEST_FIXTURE_EVENTS, JSON.stringify({ kind: 'listen', address })+'\\n');
     args[1] = '127.0.0.1';
+    if (fault().stallStart) return this;
+    if (fault().interruptStart) { const result = listen.apply(this, args); this.close(); return result; }
   }
   return listen.apply(this, args);
 };

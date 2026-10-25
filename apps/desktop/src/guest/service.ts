@@ -263,18 +263,18 @@ export class GuestConnections {
     this.schedule(1000);
   }
   private async ensureTransport(repairAddress = false) {
-    if (this.endpoint) {
-      try {
-        const local = await this.transport.network.discover(this.lifetime.signal);
-        if (local.address === this.endpoint.address) return;
-        this.transportLost();
-      } catch (error) {
-        this.transportLost();
-        throw error;
-      }
-    }
     if (this.starting) return this.starting;
     this.starting = (async () => {
+      if (this.endpoint) {
+        try {
+          const local = await this.transport.network.discover(this.lifetime.signal);
+          if (local.address === this.endpoint.address) return;
+          this.transportLost();
+        } catch (error) {
+          this.transportLost();
+          throw error;
+        }
+      }
       await this.transport.close();
       if (this.server) {
         this.server.closeAllConnections();
@@ -302,20 +302,35 @@ export class GuestConnections {
       server.requestTimeout = 0;
       server.timeout = 0;
       this.server = server;
-      await new Promise<void>((resolve, reject) => {
-        server.once("error", (error: NodeJS.ErrnoException) =>
-          reject(
-            new GuestNetworkError(
-              error.code === "EADDRINUSE"
-                ? "The saved guest connection port is in use. Close the other app using it, then retry."
-                : error.code === "EADDRNOTAVAIL"
-                  ? "The local Tailscale IPv4 interface is unavailable. Reconnect Tailscale, then retry."
-                  : "The guest listener could not open on the Tailscale interface. Check access to its port, then retry.",
+      let cancelOpening: (() => void) | undefined;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          cancelOpening = () =>
+            reject(
+              new GuestNetworkError("The guest listener stopped while opening. Retry pairing."),
+            );
+          server.once("close", cancelOpening);
+          this.lifetime.signal.addEventListener("abort", cancelOpening, { once: true });
+          this.lifetime.signal.throwIfAborted();
+          server.once("error", (error: NodeJS.ErrnoException) =>
+            reject(
+              new GuestNetworkError(
+                error.code === "EADDRINUSE"
+                  ? "The saved guest connection port is in use. Close the other app using it, then retry."
+                  : error.code === "EADDRNOTAVAIL"
+                    ? "The local Tailscale IPv4 interface is unavailable. Reconnect Tailscale, then retry."
+                    : "The guest listener could not open on the Tailscale interface. Check access to its port, then retry.",
+              ),
             ),
-          ),
-        );
-        server.listen(settings.port ?? 0, local.address, resolve);
-      });
+          );
+          server.listen(settings.port ?? 0, local.address, resolve);
+        });
+      } finally {
+        if (cancelOpening) {
+          server.removeListener("close", cancelOpening);
+          this.lifetime.signal.removeEventListener("abort", cancelOpening);
+        }
+      }
       const port = (server.address() as { port: number }).port;
       await this.store.updateGuestSettings({ port, address: local.address });
       if (this.closed) throw new Error("Guest connections are closing.");
