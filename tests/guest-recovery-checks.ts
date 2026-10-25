@@ -223,6 +223,7 @@ export async function guestRecoveryChecks({
     await startFlush(app)
   )();
   const db = new DatabaseSync(join(settingsDirectory, "desktop.db"));
+  db.exec("PRAGMA busy_timeout = 5000");
   const failingRevision = artifact.revision;
   const delayedWrite = await gate(app, "scope:save-guest-input", true);
   try {

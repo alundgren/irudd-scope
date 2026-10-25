@@ -11,7 +11,6 @@
     "./maintenance": "./src/maintenance.ts",
     "./voice": "./src/voice.ts",
     "./pull-requests": "./src/pull-requests.ts",
-    "./transfer": "./src/transfer.ts",
     "./retro": "./src/retro.ts",
     "./memory": "./src/memory.ts",
     "./librarian": "./src/librarian.ts",

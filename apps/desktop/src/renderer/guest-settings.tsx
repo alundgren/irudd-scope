@@ -1,3 +1,4 @@
+import { operationError } from "./operation-error.ts";
 import { useEffect, useState } from "react";
 import type { GuestPeerStatus } from "../guest/contract.ts";
 import { Button } from "./components/ui/button";
@@ -35,17 +36,13 @@ export function GuestSettings({ peerId, name }: { peerId: string; name: string }
       setNotice(message);
       setConsent(false);
     } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "")
-          : "Guest connection failed. Retry.",
-      );
+      setError(operationError(error, "Guest connection failed. Retry."));
     } finally {
       setBusy(false);
     }
   }
   return (
-    <div className="transfer-form">
+    <div className="guest-form">
       {status && (
         <p className="secondary" role="status">
           {status.enabled
@@ -82,38 +79,7 @@ export function GuestSettings({ peerId, name }: { peerId: string; name: string }
       )}
       {status?.enabled && (
         <>
-          {status.state === "setup" && (
-            <p className="secondary">
-              Enable sharing on {name}, then copy a guest connection link from either Scope and
-              connect it on the other. Setup links expire after 15 minutes; established connections
-              reconnect automatically.
-            </p>
-          )}
           <div className="installation-actions">
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() =>
-                void run(
-                  () => window.scope.copyGuestLink(peerId),
-                  "Guest connection link copied. Connect it on the other Scope.",
-                )
-              }
-            >
-              Copy guest connection
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() =>
-                void run(
-                  () => window.scope.connectGuestLink(peerId),
-                  "Guest connection established.",
-                )
-              }
-            >
-              Connect copied guest connection
-            </Button>
             <Button
               variant="secondary"
               disabled={busy}

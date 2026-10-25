@@ -1,15 +1,13 @@
 import { createHash } from "node:crypto";
 import { Schema } from "effect";
-import { GuestEndpoint } from "@irudd-scope/protocol/guest";
+import { GuestPairCredential } from "@irudd-scope/protocol/guest";
 import { decode } from "@irudd-scope/protocol";
 import { credentialHelperEntry } from "./credential-helper.ts";
 
 const Secrets = Schema.Struct({
   apiKey: Schema.optionalKey(Schema.String),
-  guestKey: Schema.optionalKey(Schema.String),
-  guestEndpoints: Schema.optionalKey(Schema.Record(Schema.String, GuestEndpoint)),
+  guestPairs: Schema.optionalKey(Schema.Record(Schema.String, GuestPairCredential)),
   remoteTokens: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
-  transferKeys: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
 const LegacySecrets = Schema.Struct({
   ...Secrets.fields,
@@ -42,6 +40,19 @@ const EncryptedCredentials = Schema.Struct({
   ),
 });
 
+// Obsolete pairing data must not prevent access to unrelated protected credentials.
+// Retained fields still pass through the strict credential decoder below.
+function retainedCredentials(input: unknown): unknown {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
+  const {
+    transferKeys: _transferKeys,
+    guestKey: _key,
+    guestEndpoints: _endpoints,
+    ...retained
+  } = input as Record<string, unknown>;
+  return retained;
+}
+
 export function windowsCredentials(protection: WindowsProtection): CredentialFactory {
   return (document) => {
     const available = async () => {
@@ -59,7 +70,7 @@ export function windowsCredentials(protection: WindowsProtection): CredentialFac
           const { result } = await protection.decryptStringAsync(
             Buffer.from(encrypted.ciphertext, "base64"),
           );
-          return decode(Secrets, JSON.parse(result));
+          return decode(Secrets, retainedCredentials(JSON.parse(result)));
         } catch (cause) {
           throw new Error("Could not read Scope credentials protected by Windows.", { cause });
         }
@@ -68,10 +79,8 @@ export function windowsCredentials(protection: WindowsProtection): CredentialFac
         const next = decode(Secrets, secrets);
         if (
           !next.apiKey &&
-          !next.guestKey &&
-          !Object.keys(next.guestEndpoints ?? {}).length &&
-          !Object.keys(next.remoteTokens ?? {}).length &&
-          !Object.keys(next.transferKeys ?? {}).length
+          !Object.keys(next.guestPairs ?? {}).length &&
+          !Object.keys(next.remoteTokens ?? {}).length
         ) {
           await document.write(undefined);
           return;
@@ -125,15 +134,11 @@ export function keychainCredentials(entry: KeychainEntry): CredentialStore {
       // The native binding returns null for a missing entry; its async types declare undefined.
       if (value === null || value === undefined) return {};
       try {
-        const secrets = decode(LegacySecrets, JSON.parse(value));
+        const secrets = decode(LegacySecrets, retainedCredentials(JSON.parse(value)));
         return {
-          ...(secrets.guestKey === undefined ? {} : { guestKey: secrets.guestKey }),
-          ...(secrets.guestEndpoints === undefined
-            ? {}
-            : { guestEndpoints: secrets.guestEndpoints }),
+          ...(secrets.guestPairs === undefined ? {} : { guestPairs: secrets.guestPairs }),
           ...(secrets.apiKey === undefined ? {} : { apiKey: secrets.apiKey }),
           ...(secrets.remoteTokens === undefined ? {} : { remoteTokens: secrets.remoteTokens }),
-          ...(secrets.transferKeys === undefined ? {} : { transferKeys: secrets.transferKeys }),
         };
       } catch {
         throw new Error("Scope's saved Keychain entry has an invalid format.");
@@ -143,10 +148,8 @@ export function keychainCredentials(entry: KeychainEntry): CredentialStore {
       try {
         if (
           secrets.apiKey ||
-          secrets.guestKey ||
-          Object.keys(secrets.guestEndpoints ?? {}).length ||
-          Object.keys(secrets.remoteTokens ?? {}).length ||
-          Object.keys(secrets.transferKeys ?? {}).length
+          Object.keys(secrets.guestPairs ?? {}).length ||
+          Object.keys(secrets.remoteTokens ?? {}).length
         )
           await entry.setPassword(JSON.stringify(decode(Secrets, secrets)));
         else await entry.deleteCredential();

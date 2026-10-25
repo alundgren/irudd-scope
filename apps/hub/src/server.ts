@@ -8,7 +8,6 @@ import { request as httpsRequest } from "node:https";
 import { timingSafeEqual } from "node:crypto";
 import { artifactRequest, maintenanceRequest } from "@irudd-scope/protocol/remote";
 import { MAX_MAINTENANCE_TIMEOUT_MS } from "@irudd-scope/protocol/maintenance";
-import { TRANSFER_IMPORT_TIMEOUT_MS } from "@irudd-scope/protocol/transfer";
 import { DEFAULT_PORT, validateEndpoint } from "@irudd-scope/protocol";
 
 export async function startHub(options: { endpoint: string; token: string; port?: number }) {
@@ -89,9 +88,7 @@ export async function startHub(options: { endpoint: string; token: string; port?
           ? GUEST_COMMAND_TIMEOUT_MS
           : maintenanceRequest(request.url ?? "")
             ? MAX_MAINTENANCE_TIMEOUT_MS + 5000
-            : request.url === "/v1/transfers/import"
-              ? TRANSFER_IMPORT_TIMEOUT_MS
-              : 30_000,
+            : 30_000,
         () => upstream.destroy(new Error("Desktop request timed out.")),
       );
       response.on("close", () => upstream.destroy());

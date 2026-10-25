@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { transferError } from "../renderer/transfer-invitation.tsx";
+import { operationError } from "../renderer/operation-error.ts";
 import { Button } from "../renderer/components/ui/button.tsx";
 import type { GuestFolderRecoveryView } from "./folder-recovery-contract.ts";
 
@@ -28,7 +28,7 @@ export function GuestFolderRecovery({ tabId }: { tabId: string }) {
       await action();
       await refresh();
     } catch (error) {
-      setMessage(transferError(error));
+      setMessage(operationError(error));
     } finally {
       setBusy(false);
     }

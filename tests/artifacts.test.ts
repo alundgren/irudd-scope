@@ -168,6 +168,15 @@ test(
     const hub = await startHub({ endpoint: server.url, token, port: 0 });
     cleanup.push(hub.close);
     const forwarded = new ScopeClient(hub.url, token);
+    expect(
+      (
+        await fetch(`${hub.url}/v1/transfers/import`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: "{}",
+        })
+      ).status,
+    ).toBe(404);
     expect((await fetch(`${hub.url}/v1/artifacts`)).status).toBe(401);
     expect(
       (

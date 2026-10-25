@@ -63,11 +63,6 @@ export function useArtifactLibrary(onError: (message: string) => void) {
     });
   }
 
-  function recordPublication(artifact: Artifact): void {
-    acknowledgeArrivals([artifact]);
-    markRead(artifact.id);
-  }
-
   function queueArrivals(artifacts: readonly Artifact[]): void {
     setArrivals((previous) => {
       const pending = new Map(previous.map((artifact) => [artifact.id, artifact]));
@@ -97,6 +92,5 @@ export function useArtifactLibrary(onError: (message: string) => void) {
     queueArrivals,
     acknowledgeArrivals,
     markRead,
-    recordPublication,
   };
 }

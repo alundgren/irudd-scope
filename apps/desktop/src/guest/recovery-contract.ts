@@ -1,12 +1,12 @@
 import { Schema } from "effect";
 import { BlobId, Revision } from "@irudd-scope/protocol";
 import { GuestOperation, GuestOutcome } from "@irudd-scope/protocol/guest-operation";
-import { TransferId } from "@irudd-scope/protocol/transfer";
+import { GuestId } from "@irudd-scope/protocol/guest";
 
 export const GuestRecoveryKey = Schema.Struct({
-  guestId: TransferId,
-  ownerDeviceId: TransferId,
-  sourceTabId: TransferId,
+  guestId: GuestId,
+  ownerDeviceId: GuestId,
+  sourceTabId: GuestId,
   revision: Revision,
   sourceVersion: Schema.optionalKey(Revision),
   blob: Schema.optionalKey(BlobId),
@@ -58,7 +58,7 @@ export const GuestInput = Schema.Struct({
 });
 export type GuestInput = typeof GuestInput.Type;
 export const GuestPending = Schema.Struct({
-  guestId: TransferId,
+  guestId: GuestId,
   operation: GuestOperation,
   outcome: GuestOutcome,
   dispatched: Schema.Boolean,

@@ -31,7 +31,6 @@ import {
   type TrashEntry,
 } from "../workspace/retention.ts";
 import { SketchpadDraft } from "../plugins/sketchpad/contract.ts";
-import { importTransferredTab, transferReceipt } from "./transfer-import.ts";
 import {
   createFolderTabs,
   findFolderTab,
@@ -40,7 +39,6 @@ import {
 } from "./folder-tab-store.ts";
 import { FolderIdentity } from "@irudd-scope/protocol/folder";
 import type { FolderSelection } from "../plugins/folder/contract.ts";
-import { TransferId, type TransferManifest } from "@irudd-scope/protocol/transfer";
 
 // An artifact tab may become built-in when its artifact kind does, such as HTML
 // republished as a pull request inbox. Built-in tabs never change type again.
@@ -125,9 +123,6 @@ export class ArtifactStore {
         mutate: (effect, events) => store.mutate(effect, events),
       });
       await store.pullRequests.initialize();
-      await store.run(
-        sql`CREATE TABLE IF NOT EXISTS transfer_receipts (source_id TEXT NOT NULL, invitation_id TEXT NOT NULL, expires_at INTEGER NOT NULL, artifact TEXT NOT NULL CHECK(json_valid(artifact)), tab TEXT NOT NULL CHECK(json_valid(tab)), PRIMARY KEY(source_id, invitation_id)) STRICT`,
-      );
       await store.initializePublicationHistory();
       await store.initializePullRequestsAppState();
       await store.initializePullRequestAppState();
@@ -846,30 +841,6 @@ export class ArtifactStore {
     );
   }
 
-  transferReceipt(sourceId: string, id: string) {
-    decode(TransferId, sourceId);
-    decode(TransferId, id);
-    return this.run(transferReceipt(this.sql, sourceId, id));
-  }
-
-  importTransferredTab(
-    sourceId: string,
-    id: string,
-    expiresAt: number,
-    groupId: string,
-    manifest: TransferManifest,
-    bytes: Uint8Array,
-    now = Date.now,
-  ) {
-    decode(TransferId, sourceId);
-    decode(TransferId, id);
-    decode(Uuid, groupId);
-    return this.mutate(
-      importTransferredTab(this.sql, sourceId, id, expiresAt, groupId, manifest, bytes, now),
-      (result) => (result.alreadyImported ? [] : { type: "artifact", artifact: result.artifact }),
-    );
-  }
-
   async promptDraft(id: string): Promise<PromptDraft | null> {
     decode(Uuid, id);
     const [row] = await this.run(this.sql<{ document: string }>`SELECT d.document FROM tab_drafts d
@@ -946,7 +917,6 @@ export class ArtifactStore {
     return this.run(
       sql.withTransaction(
         Effect.gen(function* () {
-          yield* sql`DELETE FROM transfer_receipts WHERE expires_at <= ${now}`;
           yield* sql`DELETE FROM tab_blobs WHERE staged_until <= ${now} AND NOT EXISTS (SELECT 1 FROM artifacts WHERE artifacts.tab_id = tab_blobs.tab_id AND artifacts.blob_id = tab_blobs.blob_id) AND NOT EXISTS (SELECT 1 FROM publications WHERE publications.tab_id = tab_blobs.tab_id AND (publications.checkpoint_blob = tab_blobs.blob_id OR publications.operation_blob = tab_blobs.blob_id))`;
           yield* sql`DELETE FROM live_tabs WHERE opened = 0 AND created_at <= ${now - UPLOAD_GRACE_MS} AND NOT EXISTS (SELECT 1 FROM artifacts WHERE artifacts.tab_id = live_tabs.id) AND NOT EXISTS (SELECT 1 FROM tab_blobs WHERE tab_blobs.tab_id = live_tabs.id)`;
           const [row] = yield* sql<{

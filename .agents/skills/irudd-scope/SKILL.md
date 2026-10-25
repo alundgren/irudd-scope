@@ -28,25 +28,14 @@ Use `text TEXT` for plain text, or `text TEXT --kind markdown` for Markdown. Tex
 
 Direct publication commands print a JSON artifact record with its ID and revision. Paired hubs return a queue receipt with `id`, `queued: true`, and `expiresAt`, including while the desktop is connected. Treat the returned JSON as the receipt; run `list` or `get ID` only when you need to locate or inspect a record. `get` returns metadata, not artifact bytes.
 
-## Receive a tab sharing link
+## Guest sharing between desktops
 
-When the person asks you to import a Scope tab sharing link into their receiver,
-run it through that receiver's normal Scope connection:
-
-```sh
-irudd-scope import-link 'scope-transfer://v2/#...'
-```
-
-The command authorizes import without a desktop receive click. Main uses the
-receiver's saved pairing key, authenticates and inspects the source, validates
-the content, and commits an independent local copy. It returns JSON containing
-`artifact` and `alreadyImported`. Use that receipt to report the imported title
-and ID. Sharing-link creation and Scope-to-Scope pairing stay in the desktop app.
-Both computers must be awake and online with Tailcat installed separately. The agent
-may use a connected paired hub; import requests are never queued. The command
-defaults to a 300,000 ms timeout. If a result is uncertain, retry the same link;
-an existing copy is returned without duplication. Opening a link alone does not
-authorize import. Expired invitations require a new link from the source app.
+Guest pairing happens in Other Scopes on the two desktops. Both computers need
+their installed Tailscale connected to the same tailnet and Scope running.
+Create a guest invitation on one desktop, paste it into the other, and review
+the named peer and approve sharing on both. Guest tabs keep their source owner;
+the receiving desktop stores its own reading position. Scope uses direct guest
+HTTP connections over Tailscale. Pairing does not expose the publishing API.
 
 ## Choose input the desktop can display
 

@@ -16,33 +16,6 @@ release candidates; other dependencies use stable releases. Alpha, beta,
 nightly, and canary versions require a specific project decision. Update
 manifests, catalog, and lockfile together through Vite+.
 
-## Installed Tailcat transport
-
-Tab transfer requires Tailcat installed separately by the user on each desktop.
-Windows uses native `tailcat.exe` on PATH. Scope discovers the CLI through PATH, then `/opt/homebrew/bin/tailcat` and
-`/usr/local/bin/tailcat` for GUI-launched Mac apps. Scope provides no installer
-or installation action. The adapter uses the Tailcat v0.7.0 CLI interface;
-installed versions must support the same JSON listener and port-forwarding commands.
-
-The desktop build compiles a TypeScript transport supervisor with Vite+.
-Scope uses its existing Electron runtime to supervise the user-installed CLI.
-Builds and packaging need neither Tailcat nor a Go compiler and redistribute
-no Tailcat binary or Go dependencies. Standard tests use synthetic local CLI
-subprocesses and need no Tailcat installation or live relay.
-
-The optional `vp exec node tools/check-transfer-transport.ts` smoke test uses
-an already installed Tailcat CLI and sends synthetic content through its hosted
-relay. It runs separately from `ready`, never installs dependencies, and uses
-no personal artifacts or provider credentials.
-
-Sharing-link creation and Scope-to-Scope pairing stay in the desktop app. A receiver
-can authorize an agent to run `irudd-scope import-link 'scope-transfer://v2/#...'`
-through its normal Scope connection. Main imports without a desktop receive
-click, retaining the same pairing, expiry, validation and retry guarantees.
-Both computers must be awake and online; a connected paired hub can forward the
-request, but imports are never queued. The command defaults to a bounded
-300,000 ms timeout. Retry the same link if its result is uncertain.
-
 ## Validation and tests
 
 `vp run ready` builds the CLI, hub, and desktop, runs `vp run check`, then runs
@@ -211,6 +184,12 @@ vp run test tests/artifacts.test.ts
 
 The test runner supplies the display environment for Electron. A test that
 does not use Electron can also run directly with `vp test run tests/artifact-storage.test.ts`.
+The Windows installation test executes its isolated PowerShell registry fixture
+on Windows. On other platforms, set `SCOPE_TEST_POWERSHELL` to a PowerShell
+executable to include it in `vp run test tests/windows-installation.test.ts`.
+The fixture intercepts registry, shortcut, and launcher operations; it does not
+change the host's registrations.
+
 Passing Linux tests does not establish Mac signing, native Keychain access,
 Windows installation, DPAPI access, or live OpenRouter behavior. Validate those separately on their real platform
 when changing the relevant integration. `vp run check:credentials` verifies the
@@ -280,9 +259,9 @@ and integration measurements remain separate. The known-delay smoke scenario
 checks that an injected GitHub command delay appears in external timing data.
 
 Read coverage reasons before interpreting a report. Linux uses software
-rendering on isolated Xvfb displays. Synthetic providers, GitHub and transport
+rendering on isolated Xvfb displays. Synthetic providers, GitHub and local hub connections
 establish integration behavior; they do not measure live services. Native
-platform dialogs, macOS/Windows behavior and Tailcat relay latency remain
+platform dialogs, macOS/Windows behavior and live Tailscale guest latency remain
 unmeasured. External durations can overlap application work. Remaining elapsed
 time is unattributed, and rising RSS alone does not establish a memory leak.
 
@@ -475,9 +454,12 @@ version pinned in Scope's workspace catalog.
 | `%LOCALAPPDATA%\irudd-scope\bin\irudd-scope.exe`   | Optional native CLI launcher installed from Settings. |
 
 `SCOPE_INSTALL_ROOT` can select another absolute local installation directory.
-The installer creates the per-user Start Menu shortcut and `scope-transfer`
-protocol registration against the stable launcher. App updates prepare a
-separate build, then **Restart to update** flushes pending saves and selects
+The installer creates the per-user Start Menu shortcut against the stable launcher.
+Activation also removes the retired `scope-transfer` URL registration when its
+open command points to this installation's stable launcher. Other registrations
+remain untouched. Failed activation restores the removed registration from its
+backup along with the shortcut.
+App updates prepare a separate build, then **Restart to update** flushes pending saves and selects
 that build. Activation keeps the running executable in its original directory
 and restores the previous selection if it fails. Desktop launching, the CLI,
 and bundled skills follow the same active build. A failed build leaves the
@@ -492,10 +474,8 @@ or network request. Existing unrelated files remain untouched. Refresh or
 start an agent session after updating skills.
 
 Use Settings to remove the CLI and skills before removing the app. Quit Scope,
-delete its Start Menu shortcut and installation directory, and remove the
-`HKCU\Software\Classes\scope-transfer` registration if it still points to that
-installation. The independent desktop profile in `%APPDATA%\irudd-scope`
-remains. The discovery file and memory clone live under the default installation
+delete its Start Menu shortcut and installation directory. The independent desktop
+profile in `%APPDATA%\irudd-scope` remains. The discovery file and memory clone live under the default installation
 root, so preserve them before deleting that directory if needed. See
 [storage](storage.md) for credentials, data locations, and backup limits.
 
@@ -962,23 +942,18 @@ plan. Reads and basis capture require the desktop connected.
 
 ### Native guest connection transport check
 
-After building the desktop, `vp exec node tools/check-guest-transport.ts` runs an
-optional CLI-only check with the installed Tailcat, synthetic in-memory private
-keys, and a temporary authenticated HTTP listener. It generates and restores the
-key through the platform's protected pipe, restarts the transport worker, checks
-the same address, and sends authenticated and rejected requests through the
-production HTTP adapter and PSK-preserving SOCKS path. It prints only outcomes and stops its child processes.
-This uses live relays and is outside the standard suite. Run it separately on
-macOS and Windows; a Linux result does not establish native pipe or credential
-behavior. Windows requires built-in Windows PowerShell and its .NET Framework
-named-pipe security APIs. Protected pipe failures stop guest setup without a
-plaintext fallback. Standard connection tests use a synthetic local CLI and
-observe HTTP requests inside its SOCKS tunnel. Windows builds the fixture as a
-native executable using Node's built-in single-executable builder; setup fails
-if that build fails, without selecting an installed Tailcat instead.
+`vp exec node tools/check-guest-transport.ts` is an optional native check using
+installed Tailscale status, the actual local IPv4 interface and a temporary
+HTTP listener bound exclusively to that address. It sends authenticated and
+rejected local requests without changing Tailscale configuration. Run it in an
+authorized isolated environment. It does not establish peer connectivity,
+protected credential storage or restart and sleep/wake behavior; those need
+separate macOS and Windows checks.
 
 `vp exec node tools/check-guest-request.ts` is a bounded offline adapter probe.
-It uses opened synthetic files and local SOCKS/HTTP fixtures to check upload
-ownership before connection setup, cancellation, negotiation and send failures,
-and successful response streaming. It needs no installed Tailcat or GUI and
-closes every fixture socket, file, and worker before returning.
+Synthetic discovery and local HTTP sockets exercise exact destination and route
+validation, upload ownership before discovery, cancellation, deadlines, redirects,
+connection failures and response streaming. Standard Electron guest journeys
+inject OS discovery and socket routing from test fixtures outside the product.
+They need no installed Tailscale or live tailnet and preserve production
+endpoint validation.

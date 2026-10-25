@@ -204,24 +204,14 @@ const bridge: ScopeBridge = {
   setGuestAccess: (peerId, enabled) =>
     ipcRenderer.invoke("scope:set-guest-access", { peerId, enabled }),
   retryGuest: (peerId) => ipcRenderer.invoke("scope:retry-guest", peerId),
-  copyGuestLink: (peerId) => ipcRenderer.invoke("scope:copy-guest-link", peerId),
-  connectGuestLink: (peerId) => ipcRenderer.invoke("scope:connect-guest-link", peerId),
-  transferDevices: () => ipcRenderer.invoke("scope:transfer-devices"),
-  createPairing: (name) => ipcRenderer.invoke("scope:create-pairing", name),
-  copyPairingSecret: (id) => ipcRenderer.invoke("scope:copy-pairing-secret", id),
-  pairScope: (input) => ipcRenderer.invoke("scope:pair-scope", input),
-  forgetScope: (id) => ipcRenderer.invoke("scope:forget-scope", id),
-  sendTab: (input) => ipcRenderer.invoke("scope:send-tab", input),
-  transferStatus: (id) => ipcRenderer.invoke("scope:transfer-status", id),
-  cancelTransfer: (id) => ipcRenderer.invoke("scope:cancel-transfer", id),
-  inspectTransfer: (url) => ipcRenderer.invoke("scope:inspect-transfer", url),
-  importTransfer: (url) => ipcRenderer.invoke("scope:import-transfer", url),
-  onTransferLink: (listener) => {
-    const receive = (_event: unknown, link: { url: string; kind: "pair" | "tab" }) =>
-      listener(link);
-    ipcRenderer.on("scope:transfer-link", receive);
-    return () => ipcRenderer.removeListener("scope:transfer-link", receive);
-  },
+  guestDevices: () => ipcRenderer.invoke("scope:guest-devices"),
+  createGuestInvitation: (name) => ipcRenderer.invoke("scope:create-guest-invitation", name),
+  copyGuestInvitation: (id) => ipcRenderer.invoke("scope:copy-guest-invitation", id),
+  inspectGuestInvitation: (name) => ipcRenderer.invoke("scope:inspect-guest-invitation", name),
+  approveGuestPairing: (id) => ipcRenderer.invoke("scope:approve-guest-pairing", id),
+  cancelGuestPairing: (id) => ipcRenderer.invoke("scope:cancel-guest-pairing", id),
+  guestPairingStatus: () => ipcRenderer.invoke("scope:guest-pairing-status"),
+  forgetGuest: (id) => ipcRenderer.invoke("scope:forget-guest", id),
   pairRemote: (url) => ipcRenderer.invoke("scope:pair-remote", url),
   setRemoteEnabled: (id, enabled) =>
     ipcRenderer.invoke("scope:set-remote-enabled", { id, enabled }),

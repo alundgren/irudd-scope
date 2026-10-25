@@ -1,3 +1,4 @@
+import { GuestId, GuestName } from "@irudd-scope/protocol/guest";
 import type { GuestMutations } from "./guest/mutations.ts";
 import { GuestInput } from "./guest/recovery-contract.ts";
 import type { GuestCatalogs } from "./guest/catalog.ts";
@@ -24,8 +25,6 @@ import { openKeychainAccess } from "./signing.ts";
 import { SketchpadMenuState } from "./menu-contract.ts";
 import type { GuestConnections } from "./guest/service.ts";
 import { GuestAccess } from "./guest/contract.ts";
-import type { TabTransfers } from "./transfer/service.ts";
-import { TransferId, TransferName } from "@irudd-scope/protocol/transfer";
 
 export function registerDesktopIpc({
   window,
@@ -39,7 +38,6 @@ export function registerDesktopIpc({
   remotes,
   memory,
   librarian,
-  transfers,
   guests,
   guestCatalogs,
   guestMutations,
@@ -57,7 +55,6 @@ export function registerDesktopIpc({
   remotes: Remotes;
   memory: MemoryService;
   librarian: LibrarianService;
-  transfers: TabTransfers;
   guests: GuestConnections;
   guestCatalogs: GuestCatalogs;
   guestMutations: GuestMutations;
@@ -237,17 +234,6 @@ export function registerDesktopIpc({
   handle("scope:close-tab", async (input) => {
     await lifecycle.closeTab(decode(Uuid, input));
   });
-  handle("scope:transfer-devices", () => transfers.devices());
-  handle("scope:create-pairing", (input) => transfers.createPairing(decode(TransferName, input)));
-  handle("scope:copy-pairing-secret", async (input) => {
-    await clipboard.writeText(transfers.pairingSecret(decode(TransferId, input)));
-  });
-  handle("scope:pair-scope", (input) => transfers.pair(input));
-  handle("scope:forget-scope", async (input) => {
-    const id = decode(TransferId, input);
-    await guests.forget(id);
-    await transfers.forget(id);
-  });
   handle("scope:guest-prepare", (input) => guestMutations.command("prepare", input));
   handle("scope:guest-execute", (input) => guestMutations.command("execute", input));
   handle("scope:guest-operation-status", (input) => guestMutations.command("status", input));
@@ -282,19 +268,21 @@ export function registerDesktopIpc({
     const value = decode(GuestAccess, input);
     return guests.setEnabled(value.peerId, value.enabled);
   });
-  handle("scope:retry-guest", (input) => guests.reconnect(decode(TransferId, input)));
-  handle("scope:copy-guest-link", async (input) =>
-    clipboard.writeText(await guests.connectionLink(decode(TransferId, input))),
+  handle("scope:retry-guest", (input) => guests.reconnect(decode(GuestId, input)));
+  handle("scope:guest-devices", () => guests.devices());
+  handle("scope:create-guest-invitation", (input) =>
+    guests.pairing.create(decode(GuestName, input)),
   );
-  handle("scope:connect-guest-link", async (input) =>
-    guests.connectLink(decode(TransferId, input), await clipboard.readText()),
+  handle("scope:copy-guest-invitation", async (input) =>
+    clipboard.writeText(guests.pairing.invitation(decode(GuestId, input))),
   );
-  handle("scope:send-tab", (input) => transfers.send(input));
-  handle("scope:transfer-status", (input) => transfers.status(decode(TransferId, input)));
-  handle("scope:cancel-transfer", (input) => transfers.cancel(decode(TransferId, input)));
-  const TransferLink = Schema.String.check(Schema.isMaxLength(8192));
-  handle("scope:inspect-transfer", (input) => transfers.inspect(decode(TransferLink, input)));
-  handle("scope:import-transfer", (input) => transfers.import(decode(TransferLink, input)));
+  handle("scope:inspect-guest-invitation", async (input) =>
+    guests.pairing.inspect(await clipboard.readText(), decode(GuestName, input)),
+  );
+  handle("scope:approve-guest-pairing", (input) => guests.pairing.approve(decode(GuestId, input)));
+  handle("scope:cancel-guest-pairing", (input) => guests.cancelPairing(decode(GuestId, input)));
+  handle("scope:guest-pairing-status", () => guests.pairing.status());
+  handle("scope:forget-guest", (input) => guests.forget(decode(GuestId, input)));
   handle("scope:workspace", () => lifecycle.workspace());
   handle("scope:save-workspace", (input) => lifecycle.saveWorkspace(input));
   handle("scope:close-ready", (input) => onCloseReady(decode(Schema.Boolean, input)));

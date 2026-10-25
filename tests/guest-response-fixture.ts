@@ -20,6 +20,9 @@ export async function guestResponseFixture() {
   let failContent = false;
   let offline = false;
   let denied = false;
+  let holdPairing = false;
+  let pairingHeld = false;
+  let releasePairing: (() => void) | undefined;
   const server = createServer((request, response) => {
     if (request.url === "/resource.js") {
       response.writeHead(200, { "Content-Type": "text/javascript" });
@@ -46,6 +49,19 @@ export async function guestResponseFixture() {
         headers: request.headers,
       },
       (incoming) => {
+        if (request.url === "/guest/pair-commit" && holdPairing && incoming.statusCode === 200) {
+          const parts: Buffer[] = [];
+          incoming.on("data", (part) => parts.push(part));
+          incoming.on("end", () => {
+            pairingHeld = true;
+            releasePairing = () => {
+              response.writeHead(200, incoming.headers);
+              response.end(Buffer.concat(parts));
+            };
+          });
+          incoming.on("error", () => response.destroy());
+          return;
+        }
         if (
           request.url === "/guest/mutation-execute" &&
           dropMutation &&
@@ -144,6 +160,16 @@ export async function guestResponseFixture() {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   return {
     port: (server.address() as { port: number }).port,
+    holdPairingCompletion() {
+      holdPairing = true;
+      pairingHeld = false;
+    },
+    pairingCompletionHeld: () => pairingHeld,
+    releasePairingCompletion() {
+      holdPairing = false;
+      releasePairing?.();
+      releasePairing = undefined;
+    },
     omitCapabilities(secret: string, capabilities: string[]) {
       omitted = capabilities.length ? { secret, capabilities } : undefined;
     },

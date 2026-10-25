@@ -1,6 +1,8 @@
+import { pairGuests } from "./guest-pairing-fixture.ts";
+import { guestNetworkFixture } from "./guest-network-fixture.ts";
 import { expect } from "vite-plus/test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
@@ -10,27 +12,33 @@ import type {
   GuestOperation,
 } from "@irudd-scope/protocol/guest-operation";
 import { desktopFixture } from "./desktop-fixture.ts";
-import { syntheticCli } from "./synthetic-cli.ts";
 import {
   guestRecoveryChecks,
   guestReadFailureChecks,
   guestTitleCleanupChecks,
 } from "./guest-recovery-checks.ts";
-import { guestCli } from "./guest-cli.ts";
 import { guestResponseFixture } from "./guest-response-fixture.ts";
 
 export async function guestMutationChecks() {
   const directory = await mkdtemp(join(tmpdir(), "scope-mutations-"));
   const routes = join(directory, "routes.json");
   await writeFile(routes, "{}");
-  await syntheticCli(directory, "tailcat", guestCli);
+  const network = await guestNetworkFixture(directory);
   const env = {
-    PATH: directory + delimiter + process.env.PATH,
+    ...network.env,
     SCOPE_GUEST_FIXTURE_EVENTS: join(directory, "events.jsonl"),
     SCOPE_GUEST_FIXTURE_ROUTES: routes,
   };
-  const a = await desktopFixture({ hideInitialPrompts: true, env });
-  const b = await desktopFixture({ hideInitialPrompts: true, env });
+  const a = await desktopFixture({
+    hideInitialPrompts: true,
+    entry: network.entry,
+    env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.1" },
+  });
+  const b = await desktopFixture({
+    hideInitialPrompts: true,
+    entry: network.entry,
+    env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.2" },
+  });
   let left = await a.launch(),
     right = await b.launch();
   let pageA = await left.firstWindow(),
@@ -66,28 +74,18 @@ export async function guestMutationChecks() {
   );
   let peerId = "";
   async function pair(expected = 2) {
-    for (const peer of (await pageA.evaluate(() => window.scope.transferDevices())).peers)
-      await pageA.evaluate((id) => window.scope.forgetScope(id), peer.id);
-    for (const peer of (await pageB.evaluate(() => window.scope.transferDevices())).peers)
-      await pageB.evaluate((id) => window.scope.forgetScope(id), peer.id);
-    const invitation = await pageA.evaluate(() => window.scope.createPairing("Owner laptop"));
-    await pageA.evaluate((id) => window.scope.copyPairingSecret(id), invitation.id);
-    const secret = await left.evaluate(({ clipboard }) => clipboard.readText());
-    await pageB.evaluate((input) => window.scope.pairScope(input), {
-      url: invitation.url,
-      secret,
-      name: "Guest laptop",
-    });
-    peerId = (await pageA.evaluate(() => window.scope.transferDevices())).peers.at(-1)!.id;
-    await pageA.evaluate((id) => window.scope.setGuestAccess(id, true), peerId);
-    await pageB.evaluate((id) => window.scope.setGuestAccess(id, true), peerId);
-    await pageA.evaluate((id) => window.scope.copyGuestLink(id), peerId);
-    const link = await left.evaluate(({ clipboard }) => clipboard.readText());
-    const endpoint = JSON.parse(Buffer.from(link.split("#")[1], "base64url").toString()).endpoint;
-    responses.target(endpoint.port);
-    await writeFile(routes, JSON.stringify({ [endpoint.port]: responses.port }));
-    await right.evaluate(({ clipboard }, link) => clipboard.writeText(link), link);
-    await pageB.evaluate((id) => window.scope.connectGuestLink(id), peerId);
+    const paired = await pairGuests(
+      left,
+      right,
+      pageA,
+      pageB,
+      ["Owner laptop", "Guest laptop"],
+      async (invitation) => {
+        responses.target(invitation.endpoint.port);
+        await writeFile(routes, JSON.stringify({ [invitation.endpoint.port]: responses.port }));
+      },
+    );
+    peerId = paired.id;
     await expect
       .poll(
         () =>
@@ -144,6 +142,7 @@ export async function guestMutationChecks() {
       db.close();
     }
   };
+  let failed = false;
   try {
     await pair();
     const guestId = (await record()).tab.id;
@@ -377,6 +376,11 @@ export async function guestMutationChecks() {
     await expect
       .poll(() => pane.getByLabel("Source title", { exact: true }).inputValue())
       .toBe("Unsubmitted title retained through retention and trash");
+    await expect
+      .poll(
+        async () => (await pageB.evaluate((id) => window.scope.guestRecovery(id), guestId)).pending,
+      )
+      .toBeUndefined();
     await right.close();
     right = await b.launch();
     pageB = await right.firstWindow();
@@ -646,7 +650,14 @@ export async function guestMutationChecks() {
       await change({ kind: "rename", title: "Late revoked change" }),
     );
     await pageA.evaluate((id) => window.scope.setGuestAccess(id, false), peerId);
-    expect((await responses.peer("mutation-execute", revoked)).status).not.toBe(200);
+    const rejected = await responses.peer("mutation-execute", revoked).then(
+      (response) => response.status,
+      (error: Error & { cause?: NodeJS.ErrnoException }) => {
+        expect(error.cause?.code).toBe("ECONNREFUSED");
+        return 0;
+      },
+    );
+    expect(rejected).not.toBe(200);
     expect((await ca.get(artifact.id)).title).not.toBe("Late revoked change");
     await select(guestId);
     await right.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 820));
@@ -724,6 +735,9 @@ export async function guestMutationChecks() {
     } finally {
       db.close();
     }
+  } catch (error) {
+    failed = true;
+    throw error;
   } finally {
     const cleanup = await Promise.allSettled([left.close(), right.close()]);
     await responses.close();
@@ -733,7 +747,8 @@ export async function guestMutationChecks() {
       ),
     );
     const failures = cleanup.filter((result) => result.status === "rejected");
-    if (failures.length)
+    // Keep the original assertion when closing an unsaved form also fails.
+    if (failures.length && !failed)
       throw new AggregateError(
         failures.map((result) => result.reason),
         "Guest test cleanup failed.",
