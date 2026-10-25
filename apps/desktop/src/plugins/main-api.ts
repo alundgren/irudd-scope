@@ -1,3 +1,5 @@
+import type { GuestConnections } from "../guest/service.ts";
+import type { GuestCatalogs } from "../guest/catalog.ts";
 import type { MemoryService } from "../memory.ts";
 import type { DesktopStore } from "../desktop-store.ts";
 import type { ScopeClient } from "@irudd-scope/protocol/client";
@@ -19,4 +21,6 @@ export type MainPluginContext = {
   memory: MemoryService;
   lifecycle: DesktopLifecycle;
   remotes: Remotes;
+  guests: GuestConnections;
+  guestCatalogs: GuestCatalogs;
 };

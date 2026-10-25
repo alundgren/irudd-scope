@@ -56,6 +56,15 @@ Desktop main uses it for local folders; the hub uses it for remote folders.
 `packages/protocol/src/folder.ts` defines the routes and wire contracts and
 imports no file system code.
 
+Versioned folder operations use `FolderSource.operations` and shared contracts
+in `packages/protocol/src/folder-operation.ts`. `packages/folder` owns the
+contained write, payload and version checks, host write queue, and journal
+execution. It accepts persistence callbacks without importing SQLite. The
+local `DesktopStore` and remote `HubState` retain the journal in their own
+existing database. Hub operation routes authenticate the desktop and bind
+caller identity there. Legacy folder writes share the host queue; guest
+transport does not own filesystem commits or receipts.
+
 A Folder tab's identity is its machine and canonical path. The machine is
 `local` or the desktop's remote ID and always comes from the connection that
 delivered the command; Scope ignores any machine named in the body. When the
@@ -311,8 +320,10 @@ HTML and records. Reading state persists with the workspace in SQLite. Native
 controls use Scope tokens; authored content keeps its presentation.
 
 The CLI assembles JSON and HTML and uses ordinary artifact reads and revision-checked
-publication. The paired hub transports the same bytes and queues writes without
-new routes or a plan service. Reads and basis capture need the desktop online.
+publication for local plans. The paired hub can queue opted-in local plan publication
+through the artifact protocol. Reads and basis capture need the desktop online.
+Explicit owner commands use the receiver guest API and existing peer mutation
+receipts. These commands require a live connection and are never queued by the hub.
 Scope neither orchestrates agents nor infers agreement or verification.
 
 Legacy HTML plans convert to ordinary HTML artifacts and file tabs, preserving
@@ -906,3 +917,112 @@ retain the latest local document separately from an uncertain dispatched write.
 The plugin registry creates the singleton at startup while preserving existing
 selection and stored hidden state. Library event and reconnect subscriptions
 invalidate clean editor state and visible picker reads without navigation.
+
+## Guest peer connections
+
+`apps/desktop/src/guest/` owns explicit guest consent, authenticated peer sessions,
+reconnection and a dedicated peer HTTP listener. Transfer pairing remains in
+`transfer/`; enabling guests does not import tabs or grant access through the
+publishing API. `packages/protocol/src/guest.ts` defines validated handshakes and
+connection setup links. Named desktop IPC exposes status, consent, retry, and
+main-process clipboard setup operations.
+
+Each desktop retains a Tailcat key in its existing credential store and reserves
+one loopback port on first guest setup. Later starts reuse that port; a conflict
+reports an error instead of silently changing the saved endpoint. The transport
+supervisor uses transient private FIFOs on Unix and a protected named pipe made
+by Windows PowerShell on Windows. Keys never become regular files. The Windows
+pipe has a protected logon-session ACL, denies network access, and has a bounded
+lifetime tied to its supervisor. Tailcat's destination-free loopback SOCKS proxy
+receives peer addresses through SOCKS bytes, preserving the WireGuard PSK without
+placing it in process arguments. Scope still uses the separately installed CLI.
+
+A one-time signed setup link exchanges endpoints for an existing pairing. Both
+users explicitly enable guest sharing before the session can start. A fresh
+server challenge, paired secret, device IDs and runtime epochs authenticate the
+handshake. Session tokens stay in main-process memory. Disabling or forgetting
+revokes active requests and blocks new ones; reconnect negotiates a new session.
+Saved peer endpoints containing PSKs are credentials, not workspace metadata.
+
+Owner operations register explicit method/capability handlers with required idle
+and total deadlines in milliseconds. Headers have a ten-second limit and
+unauthenticated handshakes a thirty-second total limit. After authentication,
+each handler's limits govern both uploads and responses; progress resets only
+the idle limit. Expiry, disconnect, revocation and shutdown abort the handler's
+signal and close its streams. Handlers must observe that signal and release
+resources on cancellation. The connection API carries byte streams with
+backpressure and caller cancellation. It does not forward arbitrary publishing routes or desktop IPC.
+
+Guest catalogs and artifact reads are named routes on those sessions.
+`guest/catalog.ts` obtains an authoritative projection from `library/store.ts`,
+joining active tab lifecycle with complete publications or folder identities.
+The process-independent plugin registry explicitly allows ordinary files,
+structured plans and folders. Hidden bookmarked sources remain eligible.
+Built-ins, unsupported kinds, incomplete publications and trash do not appear.
+Guest references have their own desktop preferences records and cannot become
+local artifacts or transfer sources.
+
+Catalog replies are complete snapshots with increasing persisted revisions.
+A bounded long poll returns the next snapshot or the current snapshot after
+20 seconds. Reconnect requests a full snapshot. Limits reject the entire
+refresh; partial catalogs never remove entries. Source changes wake waiting
+catalog readers and invalidate affected in-flight artifact reads. Every owner
+read resolves the source tab again and checks its lifecycle and revision.
+
+The receiver stores source metadata and local guest navigation in desktop.db.
+The workspace host selects the registered file view and supplies an explicit
+owner content reader. Bytes remain in memory only and downloads are explicit
+exports. HTML keeps its interactive trusted-content behavior. Folder references use the registered Folder presentation and an owner-qualified
+FolderSource. Plan references use the registered PlanView with the owner content
+reader and receiver-local reading state. Closing a guest hides the receiver
+reference and never changes source retention or enters the local Trashcan.
+
+Receiver workspace layout orders local and guest UUIDs together. Guest navigation,
+file reading positions and last-read revisions persist in `desktop.db`; source
+metadata refresh never replaces that navigation. The host keeps unavailable HTML
+hidden and inert, retaining in-memory input only for an unchanged document. Owner
+content reads and catalog acceptance are tied to the authenticated session;
+revocation invalidates late replies. Rendering also checks owner, source, revision
+and blob before presenting retained content. Visibility reports only affect local
+source retention, never the other desktop's records.
+
+Guest mutation routes live in `guest/mutations.ts`. They validate explicit owner
+targets and named actions, bind operation identity to the authenticated caller,
+and save receiver dispatch/input records before network execution. The owner
+`library/guest-operations.ts` commits each SQLite-owned source change and terminal
+receipt in one `scope.db` transaction. Source versions observe publication and
+lifecycle writes, including local API writes, without observing reading state.
+`guest/recovery.ts` owns separately bounded receiver recovery records in
+`desktop.db`; `guest/actions.tsx` and `guest/html-recovery.tsx` use the existing
+workspace flush barrier. Recovery notifications update mounted controls without
+marking an entire workspace saved after a partial write. Filesystem mutation
+receipts remain owned by the actual folder host.
+
+Guest folders register named read, search, watch, version, upload, directory and
+status routes in the Folder plugin. The owner resolves the source tab's current
+eligibility and version before accessing its local or paired-hub FolderSource.
+Guest requests never select a root or hub. Source changes and revoked sessions
+cancel active requests; interrupted feeds cause fresh listings. Streams retain
+backpressure across both connections and use the folder transfer limits rather
+than artifact body limits. A disconnected hub affects its folders independently
+of other owner content.
+
+Receiver upload recovery uses GuestRecoveryStore in desktop.db. It stores the
+original local file reference and exact operation input before dispatch, not file
+bytes. Owner routing bindings in that same database retain the authenticated
+caller and original filesystem host for status after source removal or restart.
+Only FolderOperations at that host records filesystem outcomes. No desktop
+binding claims to commit a remote write atomically. Status never replays a write.
+
+Guest plan CLI requests use explicit owner device, source tab and artifact identity.
+The protocol client reads owner content through the receiver's authenticated API;
+the CLI never obtains peer credentials. Existing-plan writes use owner source
+versions and artifact revisions, immutable history validation and durable mutation
+receipts. A receiver pending read exposes saved operation input without dispatching
+or clearing it. Status and reconciliation never resend a write.
+
+Paired hubs forward guest commands only to desktops advertising `guest-plans-v1`.
+Authenticated capability discovery reports an update requirement for an older hub
+or desktop. Guest commands are live-only and bypass publication buffering. The
+32 MiB content bound remains independent of the 34 MiB operation budget and the
+larger JSON-escaped content reply allowance.

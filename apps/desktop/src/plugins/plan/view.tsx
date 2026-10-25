@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { decode } from "@irudd-scope/protocol";
 import { planItemPacket, readPlan, type PlanDocument } from "@irudd-scope/protocol/plan";
 import type { ArtifactContent } from "../../bridge.ts";
@@ -11,77 +11,91 @@ import { useDocumentScroll } from "./document-scroll.ts";
 import { Check, ProposalContext, RetainedTarget } from "./retained-target.tsx";
 
 function Records({ plan, inspect }: { plan: PlanDocument; inspect: (id: string) => void }) {
-  if (!plan.agreements?.length && !plan.evidence?.length)
-    return <p>No agreement or evidence recorded.</p>;
+  if (!plan.bases?.length) return <p>No agreement or evidence recorded.</p>;
   return (
     <section className="plan-records">
-      <h2>Recorded agreement and evidence</h2>
+      <h2>Retained proposals</h2>
       <p>
-        These records refer to retained proposals. Assess their applicability to the current
+        Agreement and evidence refer to these proposals. Assess their applicability to the current
         proposal.
       </p>
-      {(plan.bases ?? [])
-        .filter(
-          (basis) =>
-            plan.agreements?.some((x) => x.basisId === basis.id) ||
-            plan.evidence?.some((x) => x.basisId === basis.id),
-        )
-        .map((basis) => (
-          <section key={basis.id}>
-            <Button variant="outline" onClick={() => inspect(basis.id)}>
-              Inspect proposal from revision {basis.revision}
-            </Button>
-            <ProposalContext proposal={basis.proposal} />
-            {(plan.agreements ?? [])
-              .filter((x) => x.basisId === basis.id)
-              .map((record) => (
-                <div key={record.id}>
-                  <h3>Agreement</h3>
-                  <p>{record.note}</p>
-                  <ul aria-label="Agreement targets">
-                    {record.targetIds.map((id) => (
-                      <li key={id}>
-                        <RetainedTarget id={id} proposal={basis.proposal} />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+      {plan.bases.map((basis) => (
+        <section key={basis.id}>
+          <Button variant="outline" onClick={() => inspect(basis.id)}>
+            Inspect proposal from revision {basis.revision}
+          </Button>
+          <ProposalContext proposal={basis.proposal} />
+          {!!basis.proposal.checks?.length && (
+            <details className="plan-check">
+              <summary>Proposal checks</summary>
+              {basis.proposal.checks.map((check) => (
+                <Check key={check.id} check={check} />
               ))}
-            {(plan.evidence ?? [])
-              .filter((x) => x.basisId === basis.id)
-              .map((record) => (
-                <details className="plan-check" key={record.id}>
-                  <summary>
-                    {basis.proposal.checks?.find((x) => x.id === record.checkId)?.label}:{" "}
-                    {record.result} on recorded proposal
-                  </summary>
-                  <h4>Expected</h4>
-                  <p>{record.expected}</p>
-                  <h4>Observed</h4>
-                  <p>{record.observed}</p>
-                  <h4>Implementation</h4>
-                  <p>{record.implementation}</p>
-                  <h4>Conditions</h4>
-                  <p>{record.conditions}</p>
-                  {record.references?.map((reference, index) => (
-                    <p key={index}>{reference}</p>
+            </details>
+          )}
+          {!plan.agreements?.some((record) => record.basisId === basis.id) &&
+            !plan.evidence?.some((record) => record.basisId === basis.id) && (
+              <p>No agreement or evidence recorded.</p>
+            )}
+          {(plan.agreements ?? [])
+            .filter((x) => x.basisId === basis.id)
+            .map((record) => (
+              <div key={record.id}>
+                <h3>Agreement</h3>
+                <p>{record.note}</p>
+                <ul aria-label="Agreement targets">
+                  {record.targetIds.map((id) => (
+                    <li key={id}>
+                      <RetainedTarget id={id} proposal={basis.proposal} />
+                    </li>
                   ))}
-                  {basis.proposal.checks
-                    ?.filter((x) => x.id === record.checkId)
-                    .map((check) => (
-                      <Check key={check.id} check={check} />
-                    ))}
-                </details>
-              ))}
-          </section>
-        ))}
+                </ul>
+              </div>
+            ))}
+          {(plan.evidence ?? [])
+            .filter((x) => x.basisId === basis.id)
+            .map((record) => (
+              <details className="plan-check" key={record.id}>
+                <summary>
+                  {basis.proposal.checks?.find((x) => x.id === record.checkId)?.label}:{" "}
+                  {record.result} on recorded proposal
+                </summary>
+                <h4>Expected</h4>
+                <p>{record.expected}</p>
+                <h4>Observed</h4>
+                <p>{record.observed}</p>
+                <h4>Implementation</h4>
+                <p>{record.implementation}</p>
+                <h4>Conditions</h4>
+                <p>{record.conditions}</p>
+                {record.references?.map((reference, index) => (
+                  <p key={index}>{reference}</p>
+                ))}
+                {basis.proposal.checks
+                  ?.filter((x) => x.id === record.checkId)
+                  .map((check) => (
+                    <Check key={check.id} check={check} />
+                  ))}
+              </details>
+            ))}
+        </section>
+      ))}
     </section>
   );
 }
 
 function PlanContent({ content, ...props }: TabProps & { content: ArtifactContent }) {
   const plan = useMemo(() => readPlan(content.bytes), [content.bytes]);
-  const state = decode(PlanTabState, props.tab.state).data;
+  const owner = props.context.content;
+  const state = decode(
+    PlanTabState,
+    owner
+      ? {
+          version: 1,
+          data: { ...(props.tab.state.data.plan as object), artifactId: content.artifact.id },
+        }
+      : props.tab.state,
+  ).data;
   const stateRef = useRef(state);
   stateRef.current = state;
   const iframe = useRef<HTMLIFrameElement>(null);
@@ -92,30 +106,48 @@ function PlanContent({ content, ...props }: TabProps & { content: ArtifactConten
   const html = useMemo(() => planHtml(basis?.proposal ?? plan), [plan, basis]);
   const item = plan.items?.find((x) => x.id === state.itemId) ?? plan.items?.[0];
   const packet = useMemo(
-    () => (item ? planItemPacket(plan, item.id, content.artifact) : undefined),
-    [plan, item, content.artifact],
+    () =>
+      item
+        ? planItemPacket(
+            plan,
+            item.id,
+            content.artifact,
+            owner
+              ? {
+                  ownerDeviceId: owner.ownerDeviceId,
+                  sourceTabId: owner.sourceTabId,
+                  sourceVersion: owner.sourceVersion,
+                }
+              : undefined,
+          )
+        : undefined,
+    [plan, item, content.artifact, owner],
   );
   const update = (patch: Partial<typeof state>) => {
     const data = Object.fromEntries(
       Object.entries({ ...stateRef.current, ...patch }).filter(([, value]) => value !== undefined),
     );
     stateRef.current = decode(PlanTabState, { version: 1, data }).data;
-    props.context.updateState({ version: 1, data });
+    if (owner) {
+      const { artifactId: _artifact, ...reading } = data;
+      props.context.updateState({ version: 1, data: { ...props.tab.state.data, plan: reading } });
+    } else props.context.updateState({ version: 1, data });
   };
   const observe = useDocumentScroll(
     iframe,
     props.active && view === "overview",
     `${content.artifact.revision}:${basis?.id ?? "current"}`,
-    basis ? 0 : (state.scrollY ?? 0),
+    basis ? (state.basisScrollY ?? 0) : (state.scrollY ?? 0),
     (y) => {
-      if (!basis) update({ scrollY: y });
+      update(basis ? { basisScrollY: y } : { scrollY: y });
     },
   );
-  useEffect(() => {
-    if (work.current) work.current.scrollTop = stateRef.current.workScrollY ?? 0;
-  }, []);
+  useLayoutEffect(() => {
+    if (props.active && view === "work" && work.current)
+      work.current.scrollTop = stateRef.current.workScrollY ?? 0;
+  }, [props.active, view, content.artifact.revision]);
   function inspect(id: string) {
-    update({ basisId: id, view: "overview" });
+    update({ basisId: id, basisScrollY: 0, view: "overview" });
   }
   async function copy() {
     try {
@@ -191,9 +223,7 @@ function PlanContent({ content, ...props }: TabProps & { content: ArtifactConten
               Copy work item
             </Button>
             <p role="status">{message}</p>
-            <code className="plan-command">
-              irudd-scope plan item {content.artifact.name} {item.id}
-            </code>
+            <code className="plan-command">{packet.retrieval.item}</code>
             {item.context && <p>{item.context}</p>}
             {plan.context && <p>{plan.context}</p>}
             {!![...(plan.constraints ?? []), ...(item.constraints ?? [])].length && (
@@ -271,7 +301,7 @@ function PlanContent({ content, ...props }: TabProps & { content: ArtifactConten
 }
 export function PlanView(props: TabProps) {
   return (
-    <PublishedContent artifact={props.artifact}>
+    <PublishedContent artifact={props.artifact} content={props.context.content}>
       {(content) => <PlanContent {...props} content={content} />}
     </PublishedContent>
   );

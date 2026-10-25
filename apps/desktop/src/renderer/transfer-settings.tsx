@@ -1,3 +1,4 @@
+import { GuestSettings } from "./guest-settings.tsx";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./components/ui/button.tsx";
 import { Input } from "./components/ui/input.tsx";
@@ -260,6 +261,7 @@ function TransferDevices() {
         devices?.peers.map((peer) => (
           <div className="installation-tool" key={peer.id}>
             <strong>{peer.name}</strong>
+            <GuestSettings peerId={peer.id} name={peer.name} />
             {forget === peer.id ? (
               <>
                 <p>Forget {peer.name}? You will need to pair again to exchange tabs.</p>

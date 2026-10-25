@@ -1,3 +1,4 @@
+import { GUEST_PLANS_CAPABILITY } from "@irudd-scope/protocol/guest-operation";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { hostname } from "node:os";
@@ -45,6 +46,8 @@ export type RemoteRequest = {
   /** A Node stream is an upload, such as a dropped file; see `upload`. */
   body?: BodyInit | Readable;
   contentType?: string;
+  /** Base64url versioned folder command accompanying a raw upload. */
+  folderOperation?: string;
   signal?: AbortSignal;
   /** Total time allowed for the request, including the response body. */
   deadlineMs: number;
@@ -120,7 +123,11 @@ export class Remotes {
       if (options.body instanceof Readable) {
         const response = await upload(
           `${session.endpoint}${path}`,
-          { Authorization: `Bearer ${session.token}`, "Content-Type": options.contentType },
+          {
+            Authorization: `Bearer ${session.token}`,
+            "Content-Type": options.contentType,
+            "Scope-Folder-Operation": options.folderOperation,
+          },
           options.body,
           signal,
           options.idleMs,
@@ -348,7 +355,7 @@ export class Remotes {
         const response = await fetch(`${endpoint}/v1/relay/events`, {
           headers: {
             Authorization: `Bearer ${token}`,
-            [RELAY_CAPABILITIES_HEADER]: FOLDER_CAPABILITY,
+            [RELAY_CAPABILITIES_HEADER]: `${FOLDER_CAPABILITY},${GUEST_PLANS_CAPABILITY}`,
             ...(waking ? { [RELAY_WAKE_HEADER]: "1" } : {}),
           },
           redirect: "error",

@@ -1,3 +1,15 @@
+import { PassThrough } from "node:stream";
+import type { HubState } from "./state.ts";
+import {
+  FOLDER_OPERATION_CAPABILITY,
+  FOLDER_OPERATION_ROUTES,
+  FolderOperationRequest,
+  FolderOperationCaller,
+  FolderOperationId,
+  FOLDER_OPERATION_RETENTION_MS,
+  MAX_FOLDER_OPERATIONS,
+  FOLDER_UPLOAD_IDLE_MS,
+} from "@irudd-scope/protocol/folder-operation";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { pipeline } from "node:stream/promises";
 import { Schema } from "effect";
@@ -9,6 +21,7 @@ import {
   FOLDER_HEARTBEAT_MS,
   FolderListQuery,
   FolderPath,
+  FolderRelativePath,
   FolderReadQuery,
   FolderSearchRequest,
   FolderWriteQuery,
@@ -19,6 +32,7 @@ import {
 } from "@irudd-scope/protocol/folder";
 import {
   FolderError,
+  folderFileVersion,
   createFolderDirectory,
   listFolder,
   readFolderFile,
@@ -73,6 +87,8 @@ function query<S extends Schema.ConstraintDecoder<unknown>>(
 
 /** File routes for the paired desktop. The caller has already checked the desktop credential. */
 export class FolderFileRoutes {
+  constructor(private readonly state: HubState) {}
+  private operations = 0;
   private readonly active = new Set<ServerResponse>();
   private readonly feeds = new Set<ServerResponse>();
 
@@ -80,6 +96,35 @@ export class FolderFileRoutes {
   async handle(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
     const route = `${request.method} ${url.pathname}`;
     const routes: Record<string, () => Promise<void>> = {
+      [`GET ${FOLDER_OPERATION_ROUTES.capabilities}`]: async () =>
+        send(response, 200, {
+          capabilities: [FOLDER_OPERATION_CAPABILITY],
+          retentionMs: FOLDER_OPERATION_RETENTION_MS,
+          maxOperations: MAX_FOLDER_OPERATIONS,
+        }),
+      [`GET ${FOLDER_OPERATION_ROUTES.version}`]: async () => {
+        const input = query(url, Schema.Struct({ root: FolderPath, path: FolderRelativePath }), {
+          root: "string",
+          path: "string",
+        });
+        send(response, 200, { version: await folderFileVersion(input.root, input.path) });
+      },
+      [`GET ${FOLDER_OPERATION_ROUTES.status}`]: async () => {
+        const input = query(
+          url,
+          Schema.Struct({ caller: FolderOperationCaller, requestId: FolderOperationId }),
+          { caller: "string", requestId: "string" },
+        );
+        send(
+          response,
+          200,
+          await this.state.folderOperations.status(
+            this.state.folderCaller(input.caller),
+            input.requestId,
+          ),
+        );
+      },
+      [`PUT ${FOLDER_OPERATION_ROUTES.execute}`]: () => this.operation(request, response, url),
       [`GET ${FOLDER_FILE_ROUTES.list}`]: () => this.list(response, url),
       [`GET ${FOLDER_FILE_ROUTES.read}`]: () => this.read(response, url),
       [`GET ${FOLDER_FILE_ROUTES.events}`]: () => this.events(request, response, url),
@@ -168,6 +213,58 @@ export class FolderFileRoutes {
       response.write(`${JSON.stringify(event)}\n`);
     }
     response.end();
+  }
+
+  private async operation(request: IncomingMessage, response: ServerResponse, url: URL) {
+    if (this.operations >= 16) throw new FolderError("busy", "Too many folder uploads are active.");
+    const input = query(url, Schema.Struct({ root: FolderPath, caller: FolderOperationCaller }), {
+      root: "string",
+      caller: "string",
+    });
+    let command: FolderOperationRequest;
+    try {
+      command = decode(
+        FolderOperationRequest,
+        JSON.parse(
+          Buffer.from(String(request.headers["scope-folder-operation"]), "base64url").toString(
+            "utf8",
+          ),
+        ),
+      );
+    } catch {
+      throw new FolderError("request-mismatch", "Use a valid versioned folder operation.");
+    }
+    this.operations++;
+    // A valid upload has its own idle limit; the journal service also bounds total time.
+    const previousTimeout = request.socket.timeout ?? 0;
+    request.setTimeout(FOLDER_UPLOAD_IDLE_MS);
+    const controller = new AbortController();
+    const body = new PassThrough();
+    request.on("aborted", () => controller.abort());
+    request.on("error", () => controller.abort());
+    response.on("close", () => {
+      if (!response.writableEnded) controller.abort();
+    });
+    request.pipe(body);
+    try {
+      const status = await this.state.folderOperations.execute(
+        this.state.folderCaller(input.caller),
+        input.root,
+        command,
+        body,
+        controller.signal,
+      );
+      if (!request.complete) response.setHeader("Connection", "close");
+      send(response, 200, status);
+    } finally {
+      this.operations--;
+      request.setTimeout(previousTimeout);
+      request.unpipe(body);
+      // Early duplicate/expired answers close this connection instead of buffering the upload.
+      if (!request.complete) {
+        request.resume();
+      }
+    }
   }
 
   private async write(request: IncomingMessage, response: ServerResponse, url: URL) {

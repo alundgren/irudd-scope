@@ -288,6 +288,29 @@ stored; only a staged `.scope-partial-*` file exists at the destination while a
 copy runs. Restored tabs show the
 folder's current contents. Trashing a Folder tab keeps only its record.
 
+Versioned folder operations retain a bounded `folder-operations-v1` journal
+in the filesystem host's existing SQLite database: a desktop `preferences` row
+for local files, or a hub `settings` row for remote files. Adding this optional
+row preserves existing databases and their schema versions. It contains hashed
+caller/request identity, a command fingerprint, expiry and outcome, never file
+bytes or plaintext credentials. Host writes serialize the entire read/update
+sequence; desktop preference writes also use the store's existing queue.
+
+The journal retains at most 4096 outcomes for 48 hours from each request ID's
+embedded timestamp. New admission prunes expired outcomes and durably advances
+a time floor in the same document. Database shrinking preserves this ordinary
+row and its floor. Expired IDs are rejected after restart and clock rollback.
+A full journal rejects new operations instead of discarding unexpired receipts.
+
+Intent is saved before filesystem changes and completion before the reply.
+Interrupted intents remain unresolved without replay. A process crash can leave
+hidden `.scope-partial-*` files; matching file bytes alone are not proof of a
+completed operation. Resolve uncertain outcomes by status lookup and inspection,
+not by automatically issuing another write. Removing the database or restoring
+an older backup also removes its newer operation evidence; clients must treat
+missing status as uncertain. Folder files remain authoritative on their original
+filesystem and are not replicated into SQLite.
+
 ## Speech requests
 
 The desktop-main `voice/` module owns `voice_requests` in `desktop.db`. Each row
@@ -517,3 +540,138 @@ records, structure definitions and referenced images exclude the current
 workspace and all other Scope content. Separately authored example-scene
 metadata belongs to its library item. Export refuses an existing output path
 and libraries above the 128 MiB export bound. There is no ZIP import.
+
+Guest connection consent and the reserved listener port use the `guest-settings`
+preference in `desktop.db`. Missing consent means disabled, including for existing
+transfer pairings. `guestKey` and `guestEndpoints` extend the existing credential
+document: Keychain on macOS, DPAPI-encrypted storage on Windows, and process memory
+on Linux development profiles. Peer endpoints contain a WireGuard preshared key
+and never appear in ordinary preferences. Forget removes that peer's endpoint;
+the local transport key remains available for other pairings. Session tokens and
+server challenges are memory-only and invalid after restart.
+
+## Guest references
+
+`desktop.db` adds `guest_tabs`, keyed by a receiver UUID and a unique owner
+device ID/source tab UUID pair. Each row stores projected source metadata and
+the receiver's own tab navigation. `guest_catalogs` retains the last accepted
+revision and source fingerprint per owner. Equal revisions must carry identical
+source metadata. These additive tables do not change existing local tab
+records. Source metadata refresh preserves the receiver UUID and navigation.
+Missing sources remain references but are unavailable for content reads.
+
+The `guest-catalog-version` preference stores the owner catalog's revision and
+metadata fingerprint together. Revisions increase when that complete projection
+changes and survive normal restart. A receiver rejects older revisions and
+keeps its last valid records after failed or incomplete refreshes. Restoring an
+older owner database can roll back its revision and requires resolving that
+mismatch before the receiver accepts it.
+
+Guest records and content never enter the receiver's `scope.db`, blob tables,
+retention records or transfer receipts. There is no persistent guest content
+cache. Published bytes remain in the owner's `scope.db`; folder files remain on
+their existing filesystem. Credential storage remains separate from these
+metadata records. Exported guest downloads are ordinary user-selected files.
+
+Receiver workspace layout includes an optional ordered UUID list interleaving local
+and guest tabs. Existing layouts without it restore their previous local order,
+then guest order; the next workspace save records the combined order. New tabs
+append after saved entries. Guest navigation and layout save together in a
+`desktop.db` transaction. A failed write remains in the workspace flush/quit
+recovery flow.
+
+Guest tab documents also accept an optional `guestReadRevision` marker, separate
+from plugin state. File guests keep scroll coordinates in `state.data.fileScroll`.
+These fields contain only receiver preferences, never owner bytes or source
+edits. Older builds ignore the optional fields and may lose those preferences
+when saving; no database schema version changes. Hidden guest UUIDs remain
+reopenable after restart, and owner restore reuses the same reference.
+
+## Guest changes and recoverable input
+
+Artifact schema 17 adds `live_tabs.guest_version` and source-version triggers.
+The additive `guest_operations` table in `scope.db` stores caller-bound prepared
+identities, payload digests, expiry and outcomes. A terminal outcome and its source
+mutation commit in the same transaction. Receipt records survive source deletion.
+The `guest_clock` lifecycle counter retains the maximum observed owner time.
+Receipts expire after 48 hours; a 4096-receipt limit rejects preparation rather
+than evicting live outcomes. An older desktop cannot open artifact schema 17.
+
+Receiver `desktop.db` adds `guest_recovery`. Action drafts and HTML field input
+are qualified by guest UUID, owner device, source UUID and publication revision;
+HTML also records the blob identity. These are not imported artifacts or an
+HTML cache. Each input record allows 64 fields, 8192 characters per value and
+64 KiB encoded JSON. The combined draft budget is 16 MiB and 4096 records.
+Failures remain visible and participate in the existing close/quit save barrier.
+Scope does not truncate or automatically evict input. Explicit discard removes it.
+
+Pending operations have a separate budget: at most four receiver operations,
+each up to 34 MiB encoded JSON, preserving the existing 32 MiB plan content
+limit independently of the form budget. The receiver saves its submitted input,
+owner target, expected versions, operation identity and outcome before dispatch.
+These records persist through restart and block further changes to the same guest
+until status and the current owner source are reconciled. They are recovery input,
+not an offline write queue; reconnect never dispatches them automatically.
+
+HTML recovery covers edited ordinary input, textarea and select controls with a
+unique ID, name or accessible label. Password, file, hidden, email, telephone,
+autocomplete credential/payment/identity fields, sensitive identifiers,
+`data-scope-recovery="off"`, contenteditable, script state, ambiguous identifiers
+and cross-origin documents are excluded. Restore is explicit and requires the
+same owner, source, revision and blob; it assigns values without submitting forms
+or firing authored input handlers. Changed revisions retain old values for copy
+or discard. Arbitrary HTML runtime state and DOM bytes are never serialized.
+Interactive HTML remains trusted and can make network requests independently.
+
+Form recovery remains accessible when the owner replaces HTML with another
+revision or content type. Unsaved working values stay in the guest's current
+window, including values exceeding storage limits. They are labelled unsaved
+and can be copied or explicitly discarded; they are not restart-durable until
+the bounded recovery write succeeds. Discard waits for earlier writes and
+prevents queued snapshots from restoring discarded input. Retention and source
+Trashcan changes preserve unsubmitted title drafts. A completed matching rename
+or explicit title discard clears that title draft.
+
+Folder guest navigation is saved under the guest tab's `state.data.folder` in
+`desktop.db`, containing expanded directories, filter, ignored-file preference,
+selection and preview line selection. It contains no owner root or file contents.
+
+The `folder` kind in `guest_recovery` retains at most 32 pending folder operations,
+each limited to 32 KiB. It records the guest target, source version, exact host
+operation request, original upload path and device/inode identity, and the last
+observed host outcome. The original file remains on its filesystem. This budget
+is separate from form input and artifact operations; either pending operation
+blocks further writes to its guest. Input is saved before dispatch and survives
+restart. Reconnection does not resend it. A changed or missing original file must
+be selected again. Explicit status and fresh listings precede clearing recovery;
+an unknown outcome requires inspecting the destination and an explicit decision.
+Receiver execution and recovery release share a per-tab exclusion through
+execution cleanup or release's status/list/delete sequence. Active requests cannot
+lose their recovery record through release. The desktop release IPC names the
+exact operation and, for an uncertain outcome, the outcome the person inspected.
+If fresh status becomes uncertain or changes from that acknowledgement, recovery
+remains until a new explicit inspection decision. Execution activity is transient
+and is not stored in the recovery document.
+
+The additive `guest_folder_routes` table records owner routing bindings for at
+most 4096 operations during the host's 48-hour retention window. A binding fixes
+the authenticated caller, source target, command and original local or remote
+FolderIdentity before execution. It contains no credentials or file bytes and
+is not an operation receipt. Status requires current peer authorization and
+queries that original host even when the source tab has been trashed. Missing
+bindings return unknown without executing anything. Existing database schema
+versions and artifact/form recovery formats remain unchanged.
+
+Plan guests keep view choice, selected work item, retained basis, current overview
+scroll, work-item scroll and selected-basis scroll under `state.data.plan` in the
+receiver's guest tab document. The optional `basisScrollY` reading field also
+applies to local plan tabs. It defaults to zero. Existing guest and local records
+remain readable; older builds can discard this new preference on save. No schema
+version changes, owner plan bytes or authoritative plan copies are added to the
+receiver. Owner updates preserve compatible reading fields.
+
+Authenticated guest pending reads return the existing receiver operation input,
+identity, dispatch marker and last outcome. They do not dispatch, settle or delete
+the operation. CLI status settles the same identity; explicit reconciliation reads
+status and current source before releasing the dependent-write block. A lost reply
+never authorizes another preparation or execution with a new identity.

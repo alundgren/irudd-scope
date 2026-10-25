@@ -1,3 +1,4 @@
+import { GuestFileReading } from "./reading.tsx";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { TabPlugin } from "../api.ts";
 import { PublishedContent } from "../../library/content-view.tsx";
@@ -17,24 +18,33 @@ function FileView({ artifact }: { artifact: Artifact }) {
 export const filePlugin: TabPlugin = {
   type: "file",
   publication: { accepts: () => true, artifactId: publishedArtifactId, state: publishedTabState },
-  View: ({ artifact }) =>
+  View: ({ artifact, context, tab, active }) =>
     artifact?.kind === "file" ? (
       <FileView artifact={artifact} />
     ) : (
-      <PublishedContent artifact={artifact}>
-        {(item) => (
-          <FileViews
-            content={{
-              bytes: item.bytes,
-              kind: item.artifact.kind,
-              mediaType: item.artifact.mediaType,
-              title: item.artifact.title,
-              fileName: item.artifact.fileName,
-              version: item.artifact.blob,
-            }}
-            fallback={<FileView artifact={item.artifact} />}
-          />
-        )}
+      <PublishedContent artifact={artifact} content={context.content}>
+        {(item) => {
+          const view = (
+            <FileViews
+              content={{
+                bytes: item.bytes,
+                kind: item.artifact.kind,
+                mediaType: item.artifact.mediaType,
+                title: item.artifact.title,
+                fileName: item.artifact.fileName,
+                version: item.artifact.blob,
+              }}
+              fallback={<FileView artifact={item.artifact} />}
+            />
+          );
+          return context.content ? (
+            <GuestFileReading key={item.artifact.blob} tab={tab} context={context} active={active}>
+              {view}
+            </GuestFileReading>
+          ) : (
+            view
+          );
+        }}
       </PublishedContent>
     ),
 };

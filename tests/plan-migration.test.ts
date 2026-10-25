@@ -69,6 +69,12 @@ test(
         application = await f.launch();
         page = await application.firstWindow();
         const client = await f.connect();
+        const recovered = new DatabaseSync(join(f.settingsDirectory, "artifacts", "scope.db"));
+        try {
+          expect(recovered.prepare("PRAGMA user_version").get()).toEqual({ user_version: 17 });
+        } finally {
+          recovered.close();
+        }
         const tab = page.getByRole("tab", { name: "Legacy visible", exact: true });
         await tab.waitFor();
         expect(await tab.getAttribute("id")).toBe(selected);

@@ -67,7 +67,9 @@ const original: PlanDocument = {
 };
 
 async function retainedDetails(page: Page) {
-  const records = page.locator(".plan-records");
+  const records = page.locator(".plan-records > section").filter({
+    has: page.getByRole("button", { name: "Inspect proposal from revision 1", exact: true }),
+  });
   const targets = records.getByRole("list", { name: "Agreement targets" }).locator(":scope > li");
   const check = targets.nth(0);
   await check.locator("summary").click();
@@ -110,8 +112,41 @@ async function retainedDetails(page: Page) {
     await records.getByText(text, { exact: true }).waitFor();
 }
 
+async function inspectWithoutRecords(
+  page: Page,
+  revision: number,
+  proposal: PlanDocument,
+  heading: string,
+) {
+  const inspect = page.getByRole("button", {
+    name: `Inspect proposal from revision ${revision}`,
+    exact: true,
+  });
+  const retained = page.locator(".plan-records > section").filter({ has: inspect });
+  await retained.getByText("No agreement or evidence recorded.", { exact: true }).waitFor();
+  const checks = retained.locator("details").filter({
+    has: page.locator("summary", { hasText: /^Proposal checks$/ }),
+  });
+  await checks.locator(":scope > summary").click();
+  for (const check of proposal.checks ?? []) {
+    const procedure = checks.locator(":scope > details").filter({
+      has: page.getByText(check.label, { exact: true }),
+    });
+    await procedure.locator("summary").click();
+    for (const text of [check.expectation, check.conditions, check.method])
+      await procedure.getByText(text, { exact: true }).waitFor();
+  }
+  await inspect.click();
+  await page
+    .frameLocator(`iframe[title="Recorded proposal from revision ${revision}"]`)
+    .getByRole("heading", { name: heading, exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "Current proposal", exact: true }).click();
+  await page.frameLocator(`iframe[title="${proposal.title}"]`).locator("body").waitFor();
+}
+
 test(
-  "agreement-only definitions survive changed and removed checks; leaving recorded overview copies current work",
+  "every captured proposal remains inspectable without changing records or current work",
   { tags: ["publish", "survives-restart"], timeout: 120_000 },
   async () => {
     const { directory, launch, cli } = await desktopFixture({ hideInitialPrompts: true });
@@ -126,6 +161,9 @@ test(
       await page.getByRole("tab", { name: original.title, exact: true }).click();
       await cli("plan", "capture-basis", "latency-plan", "discussed", "--expected-revision", "1");
       const read = JSON.parse((await cli("plan", "read", "latency-plan")).stdout);
+      await page.getByRole("button", { name: "Work items", exact: true }).click();
+      await inspectWithoutRecords(page, 1, original, "Original request flow");
+      expect(JSON.parse((await cli("plan", "read", "latency-plan")).stdout)).toEqual(read);
       const changed: PlanDocument = {
         ...read.document,
         context: "Current proposal context.",
@@ -160,6 +198,8 @@ test(
       await writeFile(json, JSON.stringify(changed));
       await writeFile(html, '<!doctype html><h1 id="request">Current request flow</h1>');
       await cli("plan", "publish", "latency-plan", json, html, "--expected-revision", "2");
+      await cli("plan", "capture-basis", "latency-plan", "unreviewed", "--expected-revision", "3");
+      const captured = JSON.parse((await cli("plan", "read", "latency-plan")).stdout);
       await page.getByRole("button", { name: "Work items", exact: true }).click();
       await page.getByRole("button", { name: "Implement latency", exact: true }).click();
       await retainedDetails(page);
@@ -213,18 +253,33 @@ test(
         .getByRole("heading", { name: "Current request flow", exact: true })
         .waitFor();
       const removed: PlanDocument = {
-        ...changed,
+        ...captured.document,
         checks: [],
         visuals: [],
         items: changed.items!.map((item) => ({ ...item, checkIds: [] })),
       };
       await writeFile(json, JSON.stringify(removed));
-      await cli("plan", "publish", "latency-plan", json, html, "--expected-revision", "3");
+      await cli("plan", "publish", "latency-plan", json, html, "--expected-revision", "4");
+      const beforeInspection = JSON.parse((await cli("plan", "read", "latency-plan")).stdout);
       await application.close();
       application = await launch();
       page = await application.firstWindow();
       await page.getByRole("button", { name: "Work items", exact: true }).click();
       await page.getByText("No completion checks defined yet.", { exact: true }).waitFor();
+      await inspectWithoutRecords(page, 3, changed, "Current request flow");
+      await page
+        .frameLocator(`iframe[title="${original.title}"]`)
+        .getByRole("heading", { name: "Current request flow", exact: true })
+        .waitFor();
+      expect(JSON.parse((await cli("plan", "read", "latency-plan")).stdout)).toEqual(
+        beforeInspection,
+      );
+      await page.getByRole("button", { name: "Work items", exact: true }).click();
+      expect(
+        await page
+          .getByRole("button", { name: "Implement latency", exact: true })
+          .getAttribute("aria-pressed"),
+      ).toBe("true");
       await retainedDetails(page);
       if (process.env.SCOPE_TEST_SCREENSHOTS) {
         await mkdir(process.env.SCOPE_TEST_SCREENSHOTS, { recursive: true });

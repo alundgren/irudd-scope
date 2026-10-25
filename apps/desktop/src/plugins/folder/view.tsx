@@ -3,9 +3,10 @@ import { Copy } from "lucide-react";
 import { decode } from "@irudd-scope/protocol";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { useRemotes } from "../../renderer/remote-names.ts";
+import { transferError } from "../../renderer/transfer-invitation.tsx";
 import type { TabContext } from "../api.ts";
 import type { Tab } from "../../workspace/contract.ts";
-import { FolderTabState, folderAncestors, type FolderTabData } from "./contract.ts";
+import { FolderTabState, folderTabState, folderAncestors, type FolderTabData } from "./contract.ts";
 import { useFolder, type FolderStatus } from "./use-folder.ts";
 import { FolderTree, filteredRows, folderRows } from "./tree.tsx";
 import { FolderSearch, filterStatus, useFolderFilter } from "./find-panel.tsx";
@@ -59,10 +60,50 @@ export function FolderView({
   context: TabContext;
   active: boolean;
 }) {
-  const data = decode(FolderTabState, tab.state).data;
+  const guest = tab.type === "guest";
+  const data = decode(
+    FolderTabState,
+    guest
+      ? {
+          version: 1,
+          data: {
+            ...folderTabState({ machineId: "local", path: "/" }).data,
+            ...(tab.state.data.folder as object),
+          },
+        }
+      : tab.state,
+  ).data;
+  const [ownerMachine, setOwnerMachine] = useState("Owner computer");
+  useEffect(() => {
+    if (!guest || !active) return;
+    let cancelled = false;
+    void window.scope.guestFolderInfo(tab.id).then(
+      (info) => {
+        if (!cancelled) setOwnerMachine(info.machine);
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [guest, active, tab.id]);
+  const updateReading = (next: FolderTabData) => {
+    if (!guest) context.updateState({ version: 1, data: next });
+    else {
+      const { machineId: _machine, path: _path, ...reading } = next;
+      context.updateState({ version: 1, data: { ...tab.state.data, folder: reading } });
+    }
+  };
+  const [directory, setDirectory] = useState<string | undefined>();
+  const [directoryBusy, setDirectoryBusy] = useState(false);
+  const [directoryError, setDirectoryError] = useState("");
   const remotes = useRemotes();
   const remote = data.machineId === "local" ? undefined : data.machineId;
-  const machine = remote ? (remotes.get(remote)?.name ?? "The remote") : "This computer";
+  const machine = guest
+    ? `${context.content?.ownerName ?? "Owner"} · ${ownerMachine}`
+    : remote
+      ? (remotes.get(remote)?.name ?? "The remote")
+      : "This computer";
   const { listings, failed, status, live, load, retry } = useFolder(tab.id, data, active);
   const filter = useFolderFilter(tab.id, data.filter, data.showIgnored, status.kind === "ok");
   const [mode, setMode] = useState<"files" | "search">("files");
@@ -122,18 +163,14 @@ export function FolderView({
     [filtering, filter.matches, collapsed, listings, expanded, data.selectedPath, failed],
   );
   const [copied, setCopied] = useState(false);
-  const update = (patch: Partial<FolderTabData>) =>
-    context.updateState({ version: 1, data: { ...data, ...patch } });
+  const update = (patch: Partial<FolderTabData>) => updateReading({ ...data, ...patch });
   /** Selects a file from outside the tree, opening its folders, and reveals it. */
   const selectAndReveal = (path: string, current: FolderTabData) => {
-    context.updateState({
-      version: 1,
-      data: {
-        ...current,
-        expanded: [...new Set([...current.expanded, ...folderAncestors(path)])],
-        selectedPath: path,
-        selectedLines: null,
-      },
+    updateReading({
+      ...current,
+      expanded: [...new Set([...current.expanded, ...folderAncestors(path)])],
+      selectedPath: path,
+      selectedLines: null,
     });
     revealFile(path);
   };
@@ -175,11 +212,15 @@ export function FolderView({
   }
 
   return (
-    <section className="folder-tab" aria-label={`${tab.title} folder`}>
+    <section
+      className="folder-tab"
+      data-guest={guest || undefined}
+      aria-label={`${tab.title} folder`}
+    >
       <header className="folder-bar">
-        {remote && <span className="folder-machine">{machine}</span>}
-        <code className="folder-path" title={data.path}>
-          {data.path}
+        {(remote || guest) && <span className="folder-machine">{machine}</span>}
+        <code className="folder-path" title={guest ? tab.title : data.path}>
+          {guest ? tab.title : data.path}
         </code>
         <label className="folder-ignored">
           <input
@@ -189,14 +230,70 @@ export function FolderView({
           />
           Show ignored files
         </label>
-        <Button variant="ghost" size="sm" onClick={() => void copyPath()}>
-          <Copy /> {copied ? "Copied" : "Copy path"}
-        </Button>
+        {guest && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setDirectory("");
+              setDirectoryError("");
+            }}
+          >
+            New folder
+          </Button>
+        )}
+        {!guest && (
+          <Button variant="ghost" size="sm" onClick={() => void copyPath()}>
+            <Copy /> {copied ? "Copied" : "Copy path"}
+          </Button>
+        )}
       </header>
+      {guest && directory !== undefined && (
+        <form
+          className="folder-bar"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setDirectoryBusy(true);
+            setDirectoryError("");
+            void window.scope
+              .createFolderDirectory({ tabId: tab.id, path: directory })
+              .then(
+                () => {
+                  setDirectory(undefined);
+                  void load([""]);
+                },
+                (error) => setDirectoryError(transferError(error)),
+              )
+              .finally(() => setDirectoryBusy(false));
+          }}
+        >
+          <input
+            className="folder-find-input"
+            aria-label="New folder path"
+            placeholder="Folder name or relative path"
+            value={directory}
+            disabled={directoryBusy}
+            onChange={(event) => setDirectory(event.target.value)}
+          />
+          <Button type="submit" size="sm" disabled={directoryBusy || !directory}>
+            Create
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={directoryBusy}
+            onClick={() => setDirectory(undefined)}
+          >
+            Cancel
+          </Button>
+          {directoryError && <p role="alert">{directoryError}</p>}
+        </form>
+      )}
       {!live && status.kind === "ok" && (
         <p className="folder-notice" role="status">
-          Live updates are slower on {remote ? machine : "this computer"}. Scope checks for changes
-          every few seconds.
+          Live updates are slower on {remote || guest ? machine : "this computer"}. Scope checks for
+          changes every few seconds.
         </p>
       )}
       <FolderTransfers
@@ -304,7 +401,12 @@ export function FolderView({
           )}
         </div>
       ) : (
-        <Unavailable status={status} machine={machine} path={data.path} onClose={context.close} />
+        <Unavailable
+          status={status}
+          machine={machine}
+          path={guest ? tab.title : data.path}
+          onClose={context.close}
+        />
       )}
     </section>
   );

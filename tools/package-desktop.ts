@@ -70,6 +70,8 @@ try {
     "main.mjs",
     "preload.cjs",
     "cli-process.mjs",
+    "guest-process.mjs",
+    "key-pipe.ps1",
     "folder-writer.mjs",
     "renderer",
   ])

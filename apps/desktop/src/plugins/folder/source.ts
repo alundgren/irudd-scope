@@ -1,3 +1,13 @@
+import {
+  FOLDER_OPERATION_CAPABILITY,
+  FOLDER_OPERATION_ROUTES,
+  FolderOperationCapabilities,
+  FolderVersionReceipt,
+  FolderOperationStatus,
+  FOLDER_UPLOAD_IDLE_MS,
+  FOLDER_UPLOAD_TOTAL_MS,
+  type FolderOperationRequest,
+} from "@irudd-scope/protocol/folder-operation";
 import { Readable } from "node:stream";
 import { buffer } from "node:stream/consumers";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
@@ -18,6 +28,8 @@ import {
 } from "@irudd-scope/protocol/folder";
 import {
   FolderError,
+  FolderOperations,
+  folderFileVersion,
   createFolderDirectory,
   listFolder,
   readFolderFile,
@@ -49,7 +61,22 @@ const REMOTE_WALK_REQUESTS = 4;
  * Where a Folder tab's files are read. Local folders use packages/folder directly; remote
  * folders use the hub's file routes. The Folder plugin does not otherwise know the difference.
  */
+export type FolderSourceOperations = {
+  version: (path: string, signal: AbortSignal) => Promise<string>;
+  execute: (
+    caller: string,
+    input: FolderOperationRequest,
+    body: Readable,
+    signal: AbortSignal,
+  ) => Promise<FolderOperationStatus>;
+  status: (
+    caller: string,
+    requestId: string,
+    signal: AbortSignal,
+  ) => Promise<FolderOperationStatus>;
+};
 export type FolderSource = {
+  operations: FolderSourceOperations;
   list: (path: string, showIgnored: boolean, signal: AbortSignal) => Promise<FolderListing>;
   read: (path: string, start: number, end: number, signal: AbortSignal) => Promise<FolderBytes>;
   /** Delivers change feed events until the signal aborts or the feed fails. */
@@ -91,8 +118,14 @@ export class FolderUpdateNeeded extends Error {
   }
 }
 
-export function localFolderSource(root: string): FolderSource {
+export function localFolderSource(root: string, operations: FolderOperations): FolderSource {
   return {
+    operations: {
+      version: (path) => folderFileVersion(root, path),
+      execute: (caller, input, body, signal) =>
+        operations.execute(caller, root, input, body, signal),
+      status: (caller, requestId) => operations.status(caller, requestId),
+    },
     list: (path, showIgnored) => listFolder(root, path, { showIgnored }),
     async read(path, start, end) {
       const file = await readFolderFile(
@@ -148,7 +181,7 @@ export function localFolderSource(root: string): FolderSource {
 }
 
 /** Reads NDJSON lines from a response body until it ends or the signal aborts. */
-async function readLines(
+export async function readLines(
   response: Response,
   signal: AbortSignal,
   onLine: (line: string) => boolean | void,
@@ -195,7 +228,7 @@ export function remoteFolderSource(remotes: Remotes, identity: FolderIdentity): 
     signal: AbortSignal,
     deadlineMs: number,
     idleMs: number,
-    init: Pick<RemoteRequest, "method" | "body" | "contentType" | "feed"> = {},
+    init: Pick<RemoteRequest, "method" | "body" | "contentType" | "feed" | "folderOperation"> = {},
   ) => {
     const response = await remotes.request(identity.machineId, path, {
       ...init,
@@ -206,7 +239,55 @@ export function remoteFolderSource(remotes: Remotes, identity: FolderIdentity): 
     if (!response.ok) throw await failure(response);
     return response;
   };
+  const requireOperations = async (signal: AbortSignal) => {
+    const response = await request(FOLDER_OPERATION_ROUTES.capabilities, signal, 60_000, 20_000);
+    const capabilities = decode(FolderOperationCapabilities, await readRemoteJson(response, 8192));
+    if (!capabilities.capabilities.includes(FOLDER_OPERATION_CAPABILITY))
+      throw new FolderUpdateNeeded();
+  };
   const source: FolderSource = {
+    operations: {
+      async version(path, signal) {
+        await requireOperations(signal);
+        const response = await request(
+          `${FOLDER_OPERATION_ROUTES.version}?${folderQuery({ root, path })}`,
+          signal,
+          60_000,
+          20_000,
+        );
+        return decode(FolderVersionReceipt, await readRemoteJson(response, 8192)).version;
+      },
+      async status(caller, requestId, signal) {
+        await requireOperations(signal);
+        const response = await request(
+          `${FOLDER_OPERATION_ROUTES.status}?${folderQuery({ caller, requestId })}`,
+          signal,
+          60_000,
+          20_000,
+        );
+        return decode(FolderOperationStatus, await readRemoteJson(response, 8192));
+      },
+      async execute(caller, input, body, signal) {
+        try {
+          await requireOperations(signal);
+          const response = await request(
+            `${FOLDER_OPERATION_ROUTES.execute}?${folderQuery({ root, caller })}`,
+            signal,
+            FOLDER_UPLOAD_TOTAL_MS,
+            FOLDER_UPLOAD_IDLE_MS,
+            {
+              method: "PUT",
+              body,
+              contentType: "application/octet-stream",
+              folderOperation: Buffer.from(JSON.stringify(input)).toString("base64url"),
+            },
+          );
+          return decode(FolderOperationStatus, await readRemoteJson(response, 8192));
+        } finally {
+          body.destroy();
+        }
+      },
+    },
     async list(path, showIgnored, signal) {
       const query = folderQuery({ root, path, showIgnored });
       const response = await request(`${FOLDER_FILE_ROUTES.list}?${query}`, signal, 60_000, 20_000);

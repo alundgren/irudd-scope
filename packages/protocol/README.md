@@ -292,6 +292,65 @@ folder commands only to such a desktop and otherwise answer 501 `unsupported`
 without sending a relay event, because older desktops drop the relay on an
 unknown request.
 
+### Durable folder operations
+
+`src/folder-operation.ts` defines opt-in `folder-operations-v1`. Existing
+`write` requests retain their original contract. A desktop must first read
+`GET /v1/relay/folders/capabilities` and require that capability. An older hub
+requires an update; the desktop must not fall back to an unversioned write.
+All these routes require the paired desktop credential.
+
+- `GET /v1/relay/folders/version?root=&path=` returns `{ version }`, an opaque
+  regular-file version or `missing`. Versions fingerprint device, inode,
+  size, mode, modification time and change time. No file content is retained.
+- `PUT /v1/relay/folders/operations?root=&caller=` accepts raw streamed bytes
+  and a `Scope-Folder-Operation` header containing base64url UTF-8 JSON of
+  `FolderOperationRequest`. The existing 16 KiB request-header limit applies.
+- `GET /v1/relay/folders/operation-status?caller=&requestId=` returns
+  `FolderOperationStatus`, including the original receipt after completion.
+
+A request contains `version: 1`, `requestId`, `path`, `kind`, `expectedVersion`,
+`replace`, and `payload: { size, sha256 }`. IDs are creation time in epoch
+milliseconds, a colon, and a lowercase UUID v4. `file` creates with
+`expectedVersion: "missing"` and `replace: false`, or replaces with an observed
+version and explicit `replace: true`. `directory` requires exclusive creation,
+`missing`, no replacement, and the size and SHA-256 of an empty payload.
+Missing parent directories are created by the existing contained writer.
+
+The owner supplies `caller` from authenticated identity and resolves `root`
+from the current source tab. Neither value should come directly from an
+untrusted guest command. The hub binds the caller namespace to its authenticated
+desktop principal. Local owners use `DesktopStore.folderOperations` through
+`FolderSource.operations`. Peer transport and permission checks are separate.
+
+The filesystem host serializes versioned operations and legacy writes in the
+same process queue, including overlapping roots. File payload size and SHA-256
+are checked while streaming; the expected version is checked immediately before
+commit. Writes by external programs or another independently configured Scope
+process are not locked. A change between the final check and rename can still
+race. Native filesystem and containment limitations remain unchanged.
+
+Intent is persisted in host SQLite before filesystem changes. Completion is
+persisted before returning `completed`. The status can instead be `pending`,
+`failed`, `unresolved`, `unknown`, or `expired`. Filesystem commit and SQLite
+commit are separate: after a crash, an interrupted intent becomes `unresolved`
+without replay, even if matching bytes are present. A retained completion stays
+completed if an external program subsequently changes the file. Duplicate
+requests return the retained outcome; changed command or declared payload
+identity under the same ID fails with `request-mismatch`. Bytes on the first
+execution must match that declared identity.
+
+Retained outcomes expire 48 hours after the timestamp in the ID. The host keeps
+at most 4096 unexpired records and rejects admission when full. A persistent time
+floor prevents pruned IDs becoming fresh after clock rollback. Expired IDs never
+execute. `unknown`, `unresolved`, and `expired` do not authorize retry with a new
+ID: inspect and refresh the destination and obtain a new explicit action.
+`failed` carries a typed error; `conflict` means the expected version changed.
+Status lookup never writes files. Uploads have a 60-second idle timeout and a
+12-hour total deadline, including queue time; bytes use streaming backpressure
+and are independent of the artifact size limit. Queued cancellation closes the
+body without committing it.
+
 ## Removed diagram routes
 
 Scope no longer accepts `POST /v1/diagrams`, `POST /v1/diagrams/sync`, or
@@ -918,3 +977,176 @@ workspace and visible-library reads. A desktop editor must retain dirty local
 text and handle revision conflicts explicitly. Agent commands never navigate
 the selected desktop tab. Paired hubs forward these routes only while the
 desktop is connected; prompt commands and exports are never queued offline.
+
+Guest connections use the versioned schemas in `src/guest.ts`: signed setup links,
+fresh server challenges, paired device proofs, and session capability replies.
+Endpoint addresses include transport credentials and stay in protected desktop
+storage. The peer listener exposes only registered owner operations; these
+contracts do not grant publishing or arbitrary desktop IPC access.
+
+## Guest catalogs
+
+Paired desktop guest sessions negotiate `catalog-v1`, `artifact-read-v1` and
+`plan-read-v1` independently of transfer-copy support. These routes use the peer
+session credential in desktop main, never the publishing token or renderer
+credentials. They are not general publication or plugin forwarding routes.
+
+`POST /guest/catalog` accepts `{}` for a complete refresh or `{ "after": N }`
+for a bounded change wait. `GuestCatalog` contains version 1, owner device ID,
+increasing revision and source entries. An entry identifies the source tab
+UUID, display title, `file`, `plan` or `folder` kind, supported content version,
+and artifact metadata where applicable. Source filesystem paths, plugin state
+and publication provenance are omitted. Built-ins, trash, incomplete sources,
+unsupported kinds and guest references are excluded.
+
+A reply is a complete snapshot, limited to 4096 sources and 8 MiB. Exceeding a
+limit fails the refresh; it never truncates the source list. Waits return after
+at most 20 seconds, with a 25-second idle limit and 30-second total deadline.
+Reconnects request a complete snapshot. Receivers validate the complete reply,
+authenticated owner identity, unique source UUIDs, kind/version support and
+monotonic revision before applying it. A failed refresh preserves saved
+references and makes content unavailable until a successful refresh.
+
+`POST /guest/artifact-content` and `POST /guest/plan-content` accept a source
+tab UUID and expected artifact revision. The owner resolves current active
+eligibility before and after loading bytes and cancels an affected read on
+source change or session revocation. Content uses a raw response, at most
+32 MiB, with a 15-second idle limit and 60-second total deadline. The receiver
+checks byte count and SHA-256 against the requested metadata. Plan content
+retains the original structured document and renders through the registered native
+plan view. Peers without `plan-read-v1` require an update. Unknown catalog versions or
+kinds also require an update and never fall back to ordinary HTML.
+
+### Guest source operations
+
+Guest peers negotiate `mutations-v1`. The catalog's optional `sourceVersion`
+tracks source publication, title, permanence and trash/restore changes; ordinary
+reading, selection, hiding and scrolling do not advance it. Older catalogs remain
+readable and require an update for source actions. Targets always include
+`ownerDeviceId` and `sourceTabId`; names and artifact IDs alone cannot select a
+remote owner.
+
+`@irudd-scope/protocol/guest-operation` defines file/plan actions: `rename`, `retention`,
+`trash`, `replace-plan` and `capture-basis` actions. Changes include the expected
+source version and publication revision (zero for a source without an artifact).
+Plan replacement and basis capture use the owner's current document and the same
+validation and immutable-record rules as ordinary plan publication.
+
+The local authenticated desktop API accepts POST JSON at:
+
+- `/v1/guests/source`: `GuestTarget`, returning the current `GuestSource` or null.
+  This provides the expected source version and publication revision for a new change.
+- `/v1/guests/read`: `GuestRead`, returning `{ artifact, content }` from the owner.
+- `/v1/guests/prepare`: `GuestChange`, returning `GuestOperation` after the owner
+  allocates an identity and the receiver durably saves the input and identity.
+- `/v1/guests/execute`: `{ target, operationId, digest }`. The receiver persists
+  dispatch before sending the immutable operation. A second dispatch is rejected.
+- `/v1/guests/status`: `{ target, operationId, digest }`, returning `GuestOutcome`.
+  **Status settles a still-prepared operation as rejected.** That settlement and
+  execution serialize in the owner database; a delayed execute cannot follow a
+  definitive no-write outcome. Status is valid for a previously committed source
+  Trashcan action even when the source is no longer shared.
+- `/v1/guests/reconcile`: the same identity, returning `{ outcome, source }` after
+  settling status and reading the current authoritative source (or null when no
+  longer shared). It releases the receiver's dependent-write block. Starting any
+  new change remains an explicit caller action.
+
+The peer routes are `mutation-prepare`, `mutation-execute`, `mutation-status`
+and `mutation-source` under `/guest/`; they require mutual consent and negotiated
+capability. There is no arbitrary IPC, plugin callback, path or publishing-token
+forwarding. Authentication supplies the caller identity, never the request body.
+Source eligibility is checked inside execution. Receipt lookup requires current
+peer authorization but does not require the source to survive.
+
+The owner retains at most 4096 receipts for 48 hours. Live receipts are never
+evicted; preparation fails at capacity and reclaims expired rows. A persisted maximum wall-clock value
+prevents clock rollback from extending receipts; forward clock changes may expire
+them. Execution never inserts a missing receipt, so unknown, expired and deleted
+IDs cannot execute again. A lost reply requires same-ID status, never a fresh ID
+or blind replay. Unknown outcomes retain receiver input until explicit current
+source reconciliation. These transactions cover SQLite-owned data only; folder
+filesystem writes use the separate host operation protocol.
+
+### Guest folders
+
+`@irudd-scope/protocol/guest-folder` defines explicit peer routes under
+`/guest/folder-`. `list`, `read`, `events`, `search` and `info` negotiate
+`folder-read-v1`; `version`, `upload`, `directory` and `status` negotiate
+`folder-version-v1`, `folder-write-v1`, `folder-directory-v1` and
+`folder-status-v1` respectively. Upload uses PUT; the other routes use POST.
+A bounded base64url `Scope-Guest-Folder` header carries validated metadata.
+Uploads carry raw streamed bytes without the artifact body limit.
+
+Every access names `{ target: { ownerDeviceId, sourceTabId }, sourceVersion }`,
+except status, which names `{ target, requestId }`. Listings add relative `path`
+and `showIgnored`; reads add relative `path`, `start` and optional `end`, with
+at most 8 MiB per preview and no end for a whole-file download. Searches add
+`query`, `showIgnored` and optional `names`. Upload and directory requests include
+the unchanged version 1 FolderOperationRequest. Caller identity comes from the
+peer session; the owner obtains the root and hub from its own source tab.
+
+The owner forwards the exact operation identity to FolderSource.operations at the
+filesystem host. Actual remote adapters require `folder-operations-v1`; an old
+hub returns an update requirement and never receives a legacy write instead.
+Caller-bound owner bindings preserve status routing after an uncertain commit or
+source removal. Status still requires peer authorization, never bypasses revoked
+sharing, and returns the host's outcome rather than a desktop receipt. Unknown
+or unresolved status never authorizes automatic retry.
+
+Reads, uploads and downloads have a 60-second idle limit and a 12-hour total
+limit. Other bounded requests use 20-second idle and 60-second total limits.
+Search uses 35-second idle and 30-minute total limits; feeds send heartbeats every
+10 seconds with a 35-second idle limit. Each peer has separate limits of 16 feeds
+and 16 other folder requests. Event buffering is bounded to 256 events and 1 MiB;
+an overflow disconnects the feed so the receiver re-lists. Source changes and
+revocation cancel both hops. Existing handshake/header limits and ordinary
+local/remote client write semantics remain unchanged.
+
+### Owner-targeted plan commands
+
+Existing `plan read`, `item`, `content`, `capture-basis` and `publish` commands
+accept `--owner-device UUID --source-tab UUID` together. With these flags the
+positional identifier must be the exact artifact ID, not its name. Reads return
+`{artifact, document, owner}` with `owner` containing both target IDs and the
+current `sourceVersion`. Packets include that owner and retrieval commands with
+all three identity fields. No credential is included. Missing, offline, revoked
+or mismatched owners fail without a local fallback.
+
+Guest publication replaces an existing plan only. Both `--expected-revision N`
+and `--expected-source-version N` are required, from an owner read. The CLI checks
+the document and immutable history, then prepares and executes the existing owner
+operation once. The owner validates again in its source/receipt transaction.
+Writes return the exact operation identity, outcome and recovery commands.
+Normal local commands retain their existing behavior.
+
+`plan status ARTIFACT_ID` and `plan reconcile ARTIFACT_ID` use the same owner flags
+and the receiver's saved operation. Status settles a still-prepared operation as
+rejected, never executes it, and returns original input plus the current outcome.
+Reconcile additionally reads current source state and releases the dependent-write
+block. Inspect that result before deciding on another write. Keep the original
+input after failures. Neither command allocates another identity or retries a write.
+
+Authenticated `GET /v1/guests/capabilities` returns
+`{capabilities:["guest-plans-v1"]}` when the receiver supports this workflow.
+Paired hubs forward these routes only when the connected desktop advertises
+`guest-plans-v1` in `Scope-Relay-Capabilities`; older hubs fail capability discovery
+and require an update. Peer reads still require `plan-read-v1`; source lookup and
+writes require `mutations-v1`. Guest routes are never queued or served from hub
+metadata. The desktop and owner must be online.
+
+`POST /v1/guests/pending` accepts `GuestTarget` and returns null or
+`{artifactId?, operation, outcome, dispatched}` from receiver recovery. It makes no
+owner request and changes no state. It can recover the saved identity after a lost
+prepare acknowledgement. The other routes retain their existing contracts above.
+
+Guest command requests and operation replies allow 34 MiB. `/v1/guests/read`
+returns original UTF-8 content inside a JSON string, so its reply allows twice
+`MAX_CONTENT_BYTES` plus `MAX_METADATA_BYTES` for JSON escaping and metadata.
+The actual plan still cannot exceed 32 MiB, including retained bases and records.
+Hub admission and streamed relay transfers enforce these separate limits. Commands
+have a bounded 120-second client/relay deadline; peer operations retain their
+60-second deadline. Desktop and stateless-hub HTTP body receipt has its own elapsed
+120-second deadline for authenticated exact guest routes; ordinary routes retain
+30-second body receipt and headers retain a separate 10-second limit. Progress does
+not reset these deadlines. Incomplete timed-out input closes its connection before
+preparation. These limits do not change ordinary artifact publication.

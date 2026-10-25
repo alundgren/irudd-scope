@@ -1,8 +1,10 @@
+import { Readable } from "node:stream";
+import { folderCommand } from "./folder-operation-checks.ts";
 import { ArtifactStore } from "../apps/desktop/src/library/store.ts";
 import { DesktopLifecycle } from "../apps/desktop/src/lifecycle.ts";
 import { importWorkspace } from "../apps/desktop/src/workspace/contract.ts";
 import { expect, test } from "vite-plus/test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, readFile, writeFile, realpath } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -124,6 +126,18 @@ test(
     let reopened: DesktopStore | undefined;
     try {
       await store.load();
+      const folderRoot = await realpath(directory);
+      const bytes = Buffer.from("Local folder operation");
+      const operation = folderCommand("local.txt", bytes);
+      expect(
+        await store.folderOperations.execute(
+          "local-peer",
+          folderRoot,
+          operation,
+          Readable.from([bytes]),
+          new AbortController().signal,
+        ),
+      ).toMatchObject({ state: "completed" });
       const secret = "synthetic-provider-secret";
       const view = await store.saveSettings({
         voiceGenerationEnabled: true,
@@ -142,6 +156,20 @@ test(
       await store.close();
       reopened = new DesktopStore(directory, credentials);
       await reopened.load();
+      expect(
+        await reopened.folderOperations.status("local-peer", operation.requestId),
+      ).toMatchObject({ state: "completed" });
+      await writeFile(join(directory, "local.txt"), "external local change");
+      expect(
+        await reopened.folderOperations.execute(
+          "local-peer",
+          folderRoot,
+          operation,
+          Readable.from([bytes]),
+          new AbortController().signal,
+        ),
+      ).toMatchObject({ state: "completed" });
+      expect(await readFile(join(directory, "local.txt"), "utf8")).toBe("external local change");
       expect(reopened.settings().appearance).toBe("dark");
       expect(await reopened.layout()).toEqual({
         groups: workspace.groups,

@@ -7,6 +7,7 @@ import { startArtifactServer } from "./server.ts";
 export async function startLocalArtifacts(options: {
   librarian?: Parameters<typeof startArtifactServer>[0]["librarian"];
   retroConfiguration?: Parameters<typeof startArtifactServer>[0]["retroConfiguration"];
+  guestCommand?: Parameters<typeof startArtifactServer>[0]["guestCommand"];
   importLink?: Parameters<typeof startArtifactServer>[0]["importLink"];
   memory?: Parameters<typeof startArtifactServer>[0]["memory"];
   voice?: Parameters<typeof startArtifactServer>[0]["voice"];

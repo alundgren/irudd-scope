@@ -1,3 +1,17 @@
+import type {
+  GuestFolderRecoveryView,
+  GuestFolderRelease,
+} from "./guest/folder-recovery-contract.ts";
+import type {
+  GuestChange,
+  GuestOperation,
+  GuestOperationIdentity,
+  GuestOutcome,
+  GuestTarget,
+} from "@irudd-scope/protocol/guest-operation";
+import type { GuestSource } from "@irudd-scope/protocol/guest";
+import type { GuestInput, GuestRecovery } from "./guest/recovery-contract.ts";
+import type { GuestCatalogView, GuestStatus } from "./guest/contract.ts";
 import type { PromptEvent } from "@irudd-scope/protocol";
 import type { PromptReply, PromptImage } from "@irudd-scope/protocol/prompts";
 import type {
@@ -61,6 +75,30 @@ import type {
 } from "@irudd-scope/protocol/pull-requests";
 
 export type ScopeBridge = {
+  guestPrepare: (change: GuestChange) => Promise<GuestOperation>;
+  guestExecute: (target: GuestTarget, identity: GuestOperationIdentity) => Promise<GuestOutcome>;
+  guestOperationStatus: (
+    target: GuestTarget,
+    identity: GuestOperationIdentity,
+  ) => Promise<GuestOutcome>;
+  guestReconcile: (
+    target: GuestTarget,
+    identity: GuestOperationIdentity,
+  ) => Promise<{ outcome: GuestOutcome; source: GuestSource | null }>;
+  onGuestRecoveryChanged: (listener: (id: string) => void) => () => void;
+  guestRecovery: (id: string) => Promise<GuestRecovery>;
+  saveGuestInput: (input: GuestInput) => Promise<void>;
+  discardGuestInput: (id: string, kind: "html" | "action", revision: number) => Promise<void>;
+  guestCatalog: () => Promise<GuestCatalogView>;
+  onGuestCatalogChanged: (listener: (view: GuestCatalogView) => void) => () => void;
+  guestContent: (id: string, revision: number) => Promise<ArtifactContent>;
+  guestDownload: (id: string, revision: number) => Promise<boolean>;
+  guestFolderInfo: (id: string) => Promise<{ machine: string }>;
+  guestFolderRecovery: (id: string) => Promise<GuestFolderRecoveryView | undefined>;
+  guestFolderStatus: (id: string) => Promise<GuestFolderRecoveryView | undefined>;
+  guestFolderRelease: (input: GuestFolderRelease) => Promise<void>;
+  guestFolderCopyOriginal: (id: string) => Promise<void>;
+  createFolderDirectory: (input: { tabId: string; path: string }) => Promise<string>;
   folderList: (input: {
     tabId: string;
     path: string;
@@ -167,6 +205,11 @@ export type ScopeBridge = {
   retryMemory: () => Promise<MemoryStatus>;
   copyMemoryRequest: (kind: "create" | "conflicts") => Promise<void>;
   onMemoryChange: (listener: (status: MemoryStatus) => void) => () => void;
+  guestStatus: () => Promise<GuestStatus>;
+  setGuestAccess: (peerId: string, enabled: boolean) => Promise<void>;
+  retryGuest: (peerId: string) => Promise<void>;
+  copyGuestLink: (peerId: string) => Promise<void>;
+  connectGuestLink: (peerId: string) => Promise<void>;
   transferDevices: () => Promise<TransferDevices>;
   createPairing: (name: string) => Promise<TransferStatus>;
   copyPairingSecret: (id: string) => Promise<void>;
@@ -208,6 +251,7 @@ export type ScopeBridge = {
   setTabPermanent: (id: string, permanent: boolean) => Promise<void>;
   /** Closes an open tab to the drawer, or reopens it, without saving the whole workspace. */
   setTabHidden: (id: string, hidden: boolean) => Promise<void>;
+  deferGuestTab: (id: string, workspace: Workspace) => Promise<void>;
   restoreTab: (id: string) => Promise<Tab>;
   emptyTrash: (entries: readonly TrashEntry[]) => Promise<void>;
   reportVisibleTabs: (ids: readonly string[]) => Promise<void>;

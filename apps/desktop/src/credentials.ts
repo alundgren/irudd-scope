@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
 import { Schema } from "effect";
+import { GuestEndpoint } from "@irudd-scope/protocol/guest";
 import { decode } from "@irudd-scope/protocol";
 import { credentialHelperEntry } from "./credential-helper.ts";
 
 const Secrets = Schema.Struct({
   apiKey: Schema.optionalKey(Schema.String),
+  guestKey: Schema.optionalKey(Schema.String),
+  guestEndpoints: Schema.optionalKey(Schema.Record(Schema.String, GuestEndpoint)),
   remoteTokens: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   transferKeys: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
@@ -65,6 +68,8 @@ export function windowsCredentials(protection: WindowsProtection): CredentialFac
         const next = decode(Secrets, secrets);
         if (
           !next.apiKey &&
+          !next.guestKey &&
+          !Object.keys(next.guestEndpoints ?? {}).length &&
           !Object.keys(next.remoteTokens ?? {}).length &&
           !Object.keys(next.transferKeys ?? {}).length
         ) {
@@ -122,6 +127,10 @@ export function keychainCredentials(entry: KeychainEntry): CredentialStore {
       try {
         const secrets = decode(LegacySecrets, JSON.parse(value));
         return {
+          ...(secrets.guestKey === undefined ? {} : { guestKey: secrets.guestKey }),
+          ...(secrets.guestEndpoints === undefined
+            ? {}
+            : { guestEndpoints: secrets.guestEndpoints }),
           ...(secrets.apiKey === undefined ? {} : { apiKey: secrets.apiKey }),
           ...(secrets.remoteTokens === undefined ? {} : { remoteTokens: secrets.remoteTokens }),
           ...(secrets.transferKeys === undefined ? {} : { transferKeys: secrets.transferKeys }),
@@ -134,6 +143,8 @@ export function keychainCredentials(entry: KeychainEntry): CredentialStore {
       try {
         if (
           secrets.apiKey ||
+          secrets.guestKey ||
+          Object.keys(secrets.guestEndpoints ?? {}).length ||
           Object.keys(secrets.remoteTokens ?? {}).length ||
           Object.keys(secrets.transferKeys ?? {}).length
         )

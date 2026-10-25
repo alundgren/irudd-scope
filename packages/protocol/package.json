@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
+    "./http-input": "./src/http-input.ts",
     "./remote": "./src/remote.ts",
     "./maintenance": "./src/maintenance.ts",
     "./voice": "./src/voice.ts",
@@ -16,7 +17,11 @@
     "./librarian": "./src/librarian.ts",
     "./prompts": "./src/prompts.ts",
     "./plan": "./src/plan.ts",
-    "./folder": "./src/folder.ts"
+    "./folder": "./src/folder.ts",
+    "./guest": "./src/guest.ts",
+    "./folder-operation": "./src/folder-operation.ts",
+    "./guest-operation": "./src/guest-operation.ts",
+    "./guest-folder": "./src/guest-folder.ts"
   },
   "dependencies": {
     "effect": "catalog:"

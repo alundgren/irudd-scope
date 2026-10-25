@@ -71,8 +71,16 @@ test(
         store.saveRemote(remote, token),
         store.saveScopePeer(peer, transferKey),
       ]);
+      await store.saveGuestKey("synthetic-guest-key");
+      await store.saveGuestEndpoint(peer.id, { address: "tc" + "z".repeat(80), port: 41234 });
       const persisted = JSON.stringify(preferences(directory));
-      for (const secret of [providerKey, token, transferKey])
+      for (const secret of [
+        providerKey,
+        token,
+        transferKey,
+        "synthetic-guest-key",
+        "tc" + "z".repeat(80),
+      ])
         expect(persisted).not.toContain(secret);
       expect(persisted).toContain("ciphertext");
       await store.close();
@@ -87,13 +95,20 @@ test(
       expect(await store.secret("apiKey")).toBe(providerKey);
       expect(await store.remoteToken(remote.id)).toBe(token);
       expect(await store.transferKey(peer.id)).toBe(transferKey);
+      expect(await store.guestKey()).toBe("synthetic-guest-key");
+      expect(await store.guestEndpoint(peer.id)).toEqual({
+        address: "tc" + "z".repeat(80),
+        port: 41234,
+      });
       await store.saveSettings({ removeApiKey: true });
       expect(await store.remoteToken(remote.id)).toBe(token);
       expect(await store.transferKey(peer.id)).toBe(transferKey);
       await store.removeRemote(remote.id);
       await store.removeScopePeer(peer.id);
       expect(await store.secret("apiKey")).toBeUndefined();
-      expect(preferences(directory).some((row) => row.name === "windows-credentials")).toBe(false);
+      expect(await store.guestEndpoint(peer.id)).toBeUndefined();
+      expect(await store.guestKey()).toBe("synthetic-guest-key");
+      expect(JSON.stringify(preferences(directory))).not.toContain("synthetic-guest-key");
     } finally {
       await store.close();
       await rm(directory, { recursive: true, force: true });

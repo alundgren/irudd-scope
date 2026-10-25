@@ -42,6 +42,40 @@ function subscribe<T>(channel: string, listener: (value: T) => void) {
   };
 }
 const bridge: ScopeBridge = {
+  guestPrepare: (change) => ipcRenderer.invoke("scope:guest-prepare", change),
+  guestExecute: (target, identity) =>
+    ipcRenderer.invoke("scope:guest-execute", {
+      target,
+      operationId: identity.operationId,
+      digest: identity.digest,
+    }),
+  guestOperationStatus: (target, identity) =>
+    ipcRenderer.invoke("scope:guest-operation-status", {
+      target,
+      operationId: identity.operationId,
+      digest: identity.digest,
+    }),
+  guestReconcile: (target, identity) =>
+    ipcRenderer.invoke("scope:guest-reconcile", {
+      target,
+      operationId: identity.operationId,
+      digest: identity.digest,
+    }),
+  onGuestRecoveryChanged: (listener) => subscribe("scope:guest-recovery-changed", listener),
+  guestRecovery: (id) => ipcRenderer.invoke("scope:guest-recovery", id),
+  saveGuestInput: (input) => ipcRenderer.invoke("scope:save-guest-input", input),
+  discardGuestInput: (id, kind, revision) =>
+    ipcRenderer.invoke("scope:discard-guest-input", { id, kind, revision }),
+  guestCatalog: () => ipcRenderer.invoke("scope:guest-catalog"),
+  onGuestCatalogChanged: (listener) => subscribe("scope:guest-catalog-changed", listener),
+  guestContent: (id, revision) => ipcRenderer.invoke("scope:guest-content", { id, revision }),
+  guestDownload: (id, revision) => ipcRenderer.invoke("scope:guest-download", { id, revision }),
+  guestFolderInfo: (id) => ipcRenderer.invoke("scope:guest-folder-info", id),
+  guestFolderRecovery: (id) => ipcRenderer.invoke("scope:guest-folder-recovery", id),
+  guestFolderStatus: (id) => ipcRenderer.invoke("scope:guest-folder-status", id),
+  guestFolderRelease: (input) => ipcRenderer.invoke("scope:guest-folder-release", input),
+  guestFolderCopyOriginal: (id) => ipcRenderer.invoke("scope:guest-folder-copy-original", id),
+  createFolderDirectory: (input) => ipcRenderer.invoke("scope:folder-create-directory", input),
   folderList: (input) => ipcRenderer.invoke("scope:folder-list", input),
   folderRead: (input) => ipcRenderer.invoke("scope:folder-read", input),
   folderFilter: (input) => ipcRenderer.invoke("scope:folder-filter", input),
@@ -166,6 +200,12 @@ const bridge: ScopeBridge = {
     ipcRenderer.on("scope:memory-changed", receive);
     return () => ipcRenderer.removeListener("scope:memory-changed", receive);
   },
+  guestStatus: () => ipcRenderer.invoke("scope:guest-status"),
+  setGuestAccess: (peerId, enabled) =>
+    ipcRenderer.invoke("scope:set-guest-access", { peerId, enabled }),
+  retryGuest: (peerId) => ipcRenderer.invoke("scope:retry-guest", peerId),
+  copyGuestLink: (peerId) => ipcRenderer.invoke("scope:copy-guest-link", peerId),
+  connectGuestLink: (peerId) => ipcRenderer.invoke("scope:connect-guest-link", peerId),
   transferDevices: () => ipcRenderer.invoke("scope:transfer-devices"),
   createPairing: (name) => ipcRenderer.invoke("scope:create-pairing", name),
   copyPairingSecret: (id) => ipcRenderer.invoke("scope:copy-pairing-secret", id),
@@ -237,6 +277,7 @@ const bridge: ScopeBridge = {
   setTabPermanent: (id, permanent) =>
     ipcRenderer.invoke("scope:set-tab-permanent", { id, permanent }),
   setTabHidden: (id, hidden) => ipcRenderer.invoke("scope:set-tab-hidden", { id, hidden }),
+  deferGuestTab: (id, workspace) => ipcRenderer.invoke("scope:defer-guest-tab", { id, workspace }),
   restoreTab: (id) => ipcRenderer.invoke("scope:restore-tab", id),
   emptyTrash: (entries) => ipcRenderer.invoke("scope:empty-trash", entries),
   reportVisibleTabs: (ids) => ipcRenderer.invoke("scope:visible-tabs", ids),

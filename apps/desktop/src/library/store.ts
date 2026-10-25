@@ -1,3 +1,5 @@
+import { guestSources } from "./guest-source.ts";
+import { GuestOperations } from "./guest-operations.ts";
 import { readPlan, validatePlanUpdate } from "@irudd-scope/protocol/plan";
 import { PromptDraft } from "../plugins/prompts/contract.ts";
 import { PromptStore } from "./prompt-store.ts";
@@ -73,6 +75,7 @@ export type LiveTab = {
 
 export class ArtifactStore {
   maintenance!: DatabaseMaintenance;
+  guestOperations!: GuestOperations;
   prompts!: PromptStore;
   retros!: RetroStore;
   pullRequests!: PullRequestStore;
@@ -139,6 +142,15 @@ export class ArtifactStore {
       await store.removePlanFeedback();
       await store.convertLegacyPlans();
       await store.pullRequests.recoverInterruptedSync();
+      store.guestOperations = new GuestOperations({
+        sql,
+        run: (effect) => store.run(effect),
+        mutate: (effect, events) => store.mutate(effect, events),
+        changed: () => {
+          for (const listener of store.listeners) listener();
+        },
+      });
+      await store.guestOperations.initialize();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -221,7 +233,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 16) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 17) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");
@@ -395,7 +407,8 @@ export class ArtifactStore {
         Effect.gen(function* () {
           yield* sql`UPDATE artifacts SET document = json_set(document, '$.kind', 'html') WHERE json_extract(document, '$.kind') = 'plan' AND json_extract(document, '$.mediaType') = 'text/html'`;
           yield* sql`UPDATE live_tabs SET document = json_set(document, '$.type', 'file') WHERE json_extract(document, '$.type') = 'plan' AND artifact_id IN (SELECT id FROM artifacts WHERE json_extract(document, '$.kind') = 'html')`;
-          yield* sql`PRAGMA user_version = 16`;
+          const [{ user_version }] = yield* sql<{ user_version: number }>`PRAGMA user_version`;
+          if (user_version < 16) yield* sql`PRAGMA user_version = 16`;
         }),
       ),
     );
@@ -488,6 +501,7 @@ export class ArtifactStore {
         }),
       ),
     );
+    for (const listener of this.listeners) listener();
   }
 
   /**
@@ -497,7 +511,7 @@ export class ArtifactStore {
    */
   async setTabHidden(id: string, hidden: boolean): Promise<boolean> {
     const sql = this.sql;
-    return await this.run(
+    const result = await this.run(
       sql.withTransaction(
         Effect.gen(function* () {
           const [row] = yield* sql<{
@@ -514,6 +528,8 @@ export class ArtifactStore {
         }),
       ),
     );
+    for (const listener of this.listeners) listener();
+    return result;
   }
 
   async trashTab(id: string, now = Date.now()): Promise<string[]> {
@@ -551,7 +567,7 @@ export class ArtifactStore {
 
   async expireTemporaryTabs(now = Date.now()): Promise<string[]> {
     const sql = this.sql;
-    return this.run(
+    const result = await this.run(
       sql.withTransaction(
         Effect.gen(function* () {
           const candidates = yield* sql<{
@@ -569,6 +585,8 @@ export class ArtifactStore {
         }),
       ),
     );
+    for (const listener of this.listeners) listener();
+    return result;
   }
 
   async expiredTrash(now = Date.now()): Promise<readonly TrashEntry[]> {
@@ -608,6 +626,10 @@ export class ArtifactStore {
     return removed.map((row) => row.id);
   }
 
+  guestSources() {
+    return this.run(guestSources(this.sql));
+  }
+
   async tabs(): Promise<readonly LiveTab[]> {
     return this.run(this.sql<LiveTab>`SELECT * FROM live_tabs ORDER BY position, rowid`);
   }
@@ -625,6 +647,8 @@ export class ArtifactStore {
           for (const id of closed)
             if (!openArtifacts.has(id)) yield* sql`DELETE FROM live_tabs WHERE artifact_id = ${id}`;
           for (const [position, tab] of tabs.entries()) {
+            if (tab.type === "guest")
+              throw new Error("Guest references belong to desktop preferences.");
             const artifactId = tabArtifactId(tab);
             const [artifact] = artifactId
               ? yield* sql<{
@@ -687,10 +711,11 @@ export class ArtifactStore {
 
   async openTab(value: Tab, artifactRevision?: number): Promise<Tab | null> {
     const tab = decode(Tab, value);
+    if (tab.type === "guest") throw new Error("Guest references belong to desktop preferences.");
     if (artifactRevision !== undefined) decode(Revision, artifactRevision);
     const artifactId = tabArtifactId(tab);
     const sql = this.sql;
-    return this.run(
+    const result = await this.run(
       sql.withTransaction(
         Effect.gen(function* () {
           let id = tab.id;
@@ -750,6 +775,8 @@ export class ArtifactStore {
         }),
       ),
     );
+    for (const listener of this.listeners) listener();
+    return result;
   }
 
   async saveTabs(tabs: readonly Tab[]): Promise<void> {
@@ -758,6 +785,8 @@ export class ArtifactStore {
       sql.withTransaction(
         Effect.gen(function* () {
           for (const [position, tab] of tabs.entries()) {
+            if (tab.type === "guest")
+              throw new Error("Guest references belong to desktop preferences.");
             const [saved] = yield* sql<{
               document: string | null;
             }>`SELECT document FROM live_tabs WHERE id = ${tab.id}`;
@@ -771,6 +800,7 @@ export class ArtifactStore {
         }),
       ),
     );
+    for (const listener of this.listeners) listener();
   }
 
   async openFolderTab(
