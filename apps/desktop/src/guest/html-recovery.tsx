@@ -262,7 +262,10 @@ export function GuestHtmlRecovery({
         open={review || readError || !!error || save.error}
         onToggle={(event) => setReview(event.currentTarget.open)}
       >
-        <summary>
+        <summary
+          data-search-result
+          data-search-keywords="form input recovery saved working restore copy discard retry"
+        >
           Form input recovery
           {displayed.size ? ` · ${displayed.size} revision${displayed.size === 1 ? "" : "s"}` : ""}
         </summary>

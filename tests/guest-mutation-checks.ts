@@ -3,6 +3,7 @@ import {
   openGuestControls,
   closeGuestControls,
   guestConnectionControls,
+  guestSearchKeyboardChecks,
 } from "./guest-controls-fixture.ts";
 import { pairGuests } from "./guest-pairing-fixture.ts";
 import { guestNetworkFixture } from "./guest-network-fixture.ts";
@@ -228,6 +229,9 @@ export async function guestMutationChecks() {
       "Retain while controls and tabs change",
     );
     expect(await originalDocument!.evaluate((element) => element === document.body)).toBe(true);
+    await guestSearchKeyboardChecks(pageB, right, guestId, "Unsubmitted panel draft");
+    expect((await ca.get(artifact.id)).title).toBe(artifact.title);
+    expect((await ca.get(artifact.id)).revision).toBe(artifact.revision);
     await controls().getByRole("button", { name: "Discard title draft", exact: true }).click();
     await expect
       .poll(() => controls().getByLabel("Source title", { exact: true }).inputValue())

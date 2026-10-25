@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent as ReactKeyboardEvent, type Ref, type RefObject } from "react";
+import { useRef, type Ref, type RefObject } from "react";
 import { File, Search, Settings, X, type LucideIcon } from "lucide-react";
 import type { Artifact } from "@irudd-scope/protocol";
 import { Button } from "../renderer/components/ui/button.tsx";
@@ -27,6 +27,7 @@ function ActionButton({ action }: { action: WorkspaceAction }) {
     <Button
       variant="ghost"
       className="control-action"
+      data-search-result
       aria-pressed={action.pressed}
       title={action.shortcut ? `${action.title} · ${action.shortcut}` : action.title}
       onClick={action.onSelect}
@@ -64,13 +65,18 @@ export function WorkspaceSearch({
 }) {
   const results = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
-  function navigateResults(event: ReactKeyboardEvent) {
-    if (!["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
-    const buttons = Array.from(
-      results.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
+  function navigateResults(event: KeyboardEvent) {
+    if (event.defaultPrevented || !["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
+    const candidates = Array.from(
+      results.current?.querySelectorAll<HTMLElement>("[data-search-result]:not(:disabled)") ?? [],
+    ).filter(
+      (element) =>
+        element.checkVisibility({ visibilityProperty: true }) &&
+        (!element.dataset.searchKeywords ||
+          element.dataset.searchKeywords.toLowerCase().includes(query.trim().toLowerCase())),
     );
-    if (!buttons.length) return;
-    const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (!candidates.length) return;
+    const index = candidates.indexOf(document.activeElement as HTMLElement);
     if (index < 0 && document.activeElement !== input.current) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -78,12 +84,16 @@ export function WorkspaceSearch({
         index < 0
           ? event.key === "ArrowDown"
             ? 0
-            : buttons.length - 1
-          : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
-      buttons[next]?.focus();
+            : candidates.length - 1
+          : (index + (event.key === "ArrowDown" ? 1 : -1) + candidates.length) % candidates.length;
+      candidates[next]?.focus();
     } else if (index < 0 && query.trim()) {
       event.preventDefault();
-      buttons[0]?.click();
+      const first = candidates[0]!;
+      if (first.tagName === "SUMMARY") {
+        first.focus();
+        if (!first.closest("details")?.open) first.click();
+      } else first.click();
     }
   }
   const needle = query.trim().toLowerCase();
@@ -115,7 +125,16 @@ export function WorkspaceSearch({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="search-dialog" onKeyDown={navigateResults} finalFocus={finalFocus}>
+      <DialogContent
+        className="search-dialog"
+        finalFocus={finalFocus}
+        ref={(element) => {
+          if (!element) return;
+          // Guest controls are React portals owned by their tabs; keyboard navigation follows the dialog DOM.
+          element.addEventListener("keydown", navigateResults);
+          return () => element.removeEventListener("keydown", navigateResults);
+        }}
+      >
         <div className="search-header">
           <DialogHeader>
             <DialogTitle>Search and controls</DialogTitle>
@@ -178,7 +197,7 @@ export function WorkspaceSearch({
               <h2>Settings</h2>
               <div className="artifact-list">
                 {settingMatches.map((section) => (
-                  <button key={section.id} onClick={() => onOpenSettings(query)}>
+                  <button data-search-result key={section.id} onClick={() => onOpenSettings(query)}>
                     <Settings aria-hidden="true" />
                     <span>{section.title}</span>
                     <small>Setting</small>
@@ -192,7 +211,11 @@ export function WorkspaceSearch({
               <h2>Artifacts</h2>
               <div className="artifact-list">
                 {matches.map((artifact) => (
-                  <button key={artifact.id} onClick={() => onOpenArtifact(artifact.id)}>
+                  <button
+                    data-search-result
+                    key={artifact.id}
+                    onClick={() => onOpenArtifact(artifact.id)}
+                  >
                     <File aria-hidden="true" />
                     <span>{artifact.title}</span>
                     <small>{artifact.kind}</small>

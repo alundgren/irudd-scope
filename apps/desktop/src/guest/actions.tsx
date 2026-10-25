@@ -219,7 +219,12 @@ export function GuestActions({
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary>Source actions · {owner?.name ?? "owner"}</summary>
+      <summary
+        data-search-result
+        data-search-keywords={`source actions guest owner shared rename title retention keep permanently temporary trash review operation retry ${owner?.name ?? "owner"}`}
+      >
+        Source actions · {owner?.name ?? "owner"}
+      </summary>
       <div className="guest-actions-body">
         <p>Changes apply on {owner?.name ?? "the owner"}. Close tab only hides this guest here.</p>
         <p>

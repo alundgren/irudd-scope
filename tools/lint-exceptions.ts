@@ -107,13 +107,6 @@ export const lintExceptions: readonly LintException[] = [
       "Search composes workspace actions, current-tab actions, settings matches, and artifacts into one keyboard-navigable result list. The conditional sections preserve their distinct labels and shared query.",
   },
   {
-    file: "apps/desktop/src/workspace/search.tsx",
-    at: "function navigateResults(event: ReactKeyboardEvent) {",
-    limits: { complexity: 16 },
-    reason:
-      "This short keyboard handler covers entry from the search input, wrapping in both directions, and Enter activation only for a nonempty query. Keeping those focus rules together avoids splitting one navigation decision.",
-  },
-  {
     file: "apps/desktop/src/workspace/use-workspace.ts",
     at: "const task = opening.current.then(async () => {",
     limits: { complexity: 14 },
