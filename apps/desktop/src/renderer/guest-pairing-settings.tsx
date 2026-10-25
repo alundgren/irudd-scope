@@ -51,7 +51,13 @@ export function GuestPairingSettings() {
       setDevices(await window.scope.guestDevices());
       setNotice(notice);
     } catch (error) {
-      setError(operationError(error, "Guest pairing failed. Retry."));
+      const status = await window.scope.guestPairingStatus().catch(() => undefined);
+      if (status) setPairing(status);
+      setError(
+        status?.state === "revocation-failed"
+          ? ""
+          : operationError(error, "Guest pairing failed. Retry."),
+      );
     } finally {
       setBusy(false);
     }
@@ -149,18 +155,24 @@ export function GuestPairingSettings() {
             <p role="status">Guest invitation expired. Create or paste a new invitation.</p>
           )}
           {pairing.state === "cancelled" && <p role="status">Guest pairing cancelled.</p>}
+          {pairing.state === "cancelling" && (
+            <p role="status">Stopping guest sharing and saving cancellation…</p>
+          )}
+          {pairing.state === "revocation-failed" && <p role="alert">{pairing.message}</p>}
           {pairing.state === "failed" && (
             <p role="alert">
               {pairing.message} Pairing is incomplete. Forget any incomplete pair below, then create
               a new invitation.
             </p>
           )}
-          {!ended && (
+          {!ended && pairing.state !== "cancelling" && (
             <Button
               variant="secondary"
               onClick={() => void run(() => window.scope.cancelGuestPairing(pairing.id))}
             >
-              Cancel guest pairing
+              {pairing.state === "revocation-failed"
+                ? "Retry cancellation"
+                : "Cancel guest pairing"}
             </Button>
           )}
         </div>
@@ -171,7 +183,15 @@ export function GuestPairingSettings() {
       {devices?.peers.map((peer) => (
         <div className="installation-tool" key={peer.id}>
           <strong className="break-words">{peer.name}</strong>
-          <GuestSettings peerId={peer.id} name={peer.name} />
+          {pairing?.id === peer.id && pairing.state !== "complete" ? (
+            <p className="secondary">
+              {pairing.state === "cancelling" || pairing.state === "revocation-failed"
+                ? "Finish cancellation above before forgetting this incomplete pair."
+                : "This pair is incomplete. Forget it before pairing again."}
+            </p>
+          ) : (
+            <GuestSettings peerId={peer.id} name={peer.name} />
+          )}
           {forget === peer.id ? (
             <>
               <p>

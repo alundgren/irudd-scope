@@ -79,7 +79,8 @@ export class GuestConnections {
         await this.ensureTransport(true);
         return this.endpoint!;
       },
-      (id, enabled) => this.setEnabled(id, enabled),
+      (id, enabled) => this.changeAccess(id, enabled),
+      (id) => this.revokePairing(id),
     );
   }
   async devices() {
@@ -90,8 +91,18 @@ export class GuestConnections {
     };
   }
   cancelPairing(id: string) {
-    this.pairing.cancel(id);
-    return this.setEnabled(id, false).catch(() => {});
+    return this.pairing.cancel(id);
+  }
+  private async revokePairing(id: string) {
+    // Try both stores: either durable denial blocks restart if the other write fails.
+    const writes = await Promise.allSettled([
+      this.changeAccess(id, false),
+      this.store.revokeGuestPair(id),
+    ]);
+    if (writes.some((write) => write.status === "rejected"))
+      throw new Error(
+        "Could not save cancellation. Sharing is blocked while this app stays open. Retry cancellation before restarting.",
+      );
   }
 
   register(route: string, definition: OwnerRoute) {
@@ -115,7 +126,20 @@ export class GuestConnections {
   }
   async start() {
     const settings = await this.store.guestSettings();
-    this.enabled = new Map(Object.entries(settings.enabled));
+    for (const [id, enabled] of Object.entries(settings.enabled)) {
+      // A stale enabled preference cannot restore a revoked or incomplete protected pair.
+      this.enabled.set(id, false);
+      if (!enabled) continue;
+      try {
+        this.enabled.set(id, !!(await this.store.guestKey(id)));
+      } catch {
+        this.state(
+          id,
+          "disabled",
+          "Could not read protected guest credentials. Retry enabling sharing when storage is available.",
+        );
+      }
+    }
     this.schedule(0);
   }
   async status(): Promise<GuestStatus> {
@@ -151,16 +175,24 @@ export class GuestConnections {
       throw new Error("Guest sharing is disabled for this Scope.");
   }
   setEnabled(peerId: string, enabled: boolean) {
+    if (this.pairing.incomplete(peerId)) {
+      if (enabled)
+        return Promise.reject(new Error("Finish or cancel guest pairing before enabling sharing."));
+      return this.pairing.cancel(peerId);
+    }
+    return this.changeAccess(peerId, enabled);
+  }
+  private changeAccess(peerId: string, enabled: boolean) {
     const generation = (this.generations.get(peerId) ?? 0) + 1;
     this.generations.set(peerId, generation);
     // Revoke synchronously, before waiting for credential or preference writes.
     if (!enabled) {
-      this.pairing.cancel(peerId);
       this.enabled.set(peerId, false);
       this.revoke(peerId);
       this.state(peerId, "disabled");
     }
     const result = this.operations.then(async () => {
+      if (enabled && (this.closed || this.generations.get(peerId) !== generation)) return;
       if (enabled) await this.peer(peerId);
       else if (!(await this.store.guestPeers()).some((peer) => peer.id === peerId)) {
         this.enabled.delete(peerId);
@@ -168,6 +200,7 @@ export class GuestConnections {
         if (!this.handshakes.has(peerId)) this.generations.delete(peerId);
         return;
       }
+      if (enabled && (this.closed || this.generations.get(peerId) !== generation)) return;
       await this.store.updateGuestSettings({ peerId, enabled });
       if (this.closed || this.generations.get(peerId) !== generation) return;
       this.enabled.set(peerId, enabled);
@@ -179,11 +212,14 @@ export class GuestConnections {
     return result;
   }
   forget(peerId: string) {
-    this.pairing.cancel(peerId);
+    const cancellation = this.pairing.incomplete(peerId)
+      ? this.pairing.cancel(peerId)
+      : Promise.resolve();
     this.generations.set(peerId, (this.generations.get(peerId) ?? 0) + 1);
     this.enabled.set(peerId, false);
     this.revoke(peerId);
     const result = this.operations.then(async () => {
+      await cancellation;
       await this.store.updateGuestSettings({ peerId, enabled: false });
       await this.store.removeGuestPeer(peerId);
       this.states.delete(peerId);
@@ -664,7 +700,7 @@ export class GuestConnections {
   }
   async close() {
     this.closed = true;
-    this.pairing.close();
+    const pairing = Promise.allSettled([this.pairing.close()]);
     clearTimeout(this.timer);
     this.lifetime.abort();
     for (const peerId of this.enabled.keys()) this.revoke(peerId);
@@ -675,5 +711,7 @@ export class GuestConnections {
       await new Promise<void>((resolve) => this.server!.close(() => resolve()));
     }
     await this.operations;
+    const [result] = await pairing;
+    if (result.status === "rejected") throw result.reason;
   }
 }

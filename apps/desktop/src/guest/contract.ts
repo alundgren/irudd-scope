@@ -66,6 +66,8 @@ export type GuestPairingStatus = {
     | "pending"
     | "saving"
     | "complete"
+    | "cancelling"
+    | "revocation-failed"
     | "cancelled"
     | "expired"
     | "failed";

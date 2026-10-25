@@ -1,5 +1,6 @@
 import type { Page, ElectronApplication } from "@playwright/test";
 import { pairGuests } from "./guest-pairing-fixture.ts";
+import { DatabaseSync } from "node:sqlite";
 import { guestNetworkFixture } from "./guest-network-fixture.ts";
 import { guestResponseFixture } from "./guest-response-fixture.ts";
 import { guestCatalogChecks } from "./guest-catalog-checks.ts";
@@ -136,7 +137,11 @@ export async function guestConnectionChecks() {
       (globalThis as unknown as { scopeOriginalClock: typeof Date.now }).scopeOriginalClock = clock;
       Date.now = () => clock() + 5 * 60_000 + 1;
     });
-    expect((await pageA.evaluate(() => window.scope.guestPairingStatus()))?.state).toBe("expired");
+    await expect
+      .poll(() =>
+        pageA.evaluate(() => window.scope.guestPairingStatus()).then((value) => value?.state),
+      )
+      .toBe("expired");
     await expect(
       pageA.evaluate((id) => window.scope.copyGuestInvitation(id), expiring.id),
     ).rejects.toThrow();
@@ -145,6 +150,48 @@ export async function guestConnectionChecks() {
         globalThis as unknown as { scopeOriginalClock: typeof Date.now }
       ).scopeOriginalClock;
     });
+    // Hold the real completion reply while the receiver saves and then cancels its protected pair.
+    const unfinished = await pageA.evaluate(() =>
+      window.scope.createGuestInvitation("Source Scope"),
+    );
+    await pageA.evaluate((id) => window.scope.copyGuestInvitation(id), unfinished.id);
+    const unfinishedLink = await left.evaluate(({ clipboard }) => clipboard.readText());
+    const unfinishedEndpoint = JSON.parse(
+      Buffer.from(unfinishedLink.split("#")[1]!, "base64url").toString(),
+    ).endpoint;
+    responses.target(unfinishedEndpoint.port);
+    await writeFile(routes, JSON.stringify({ [unfinishedEndpoint.port]: responses.port }));
+    responses.holdPairingCompletion();
+    await right.evaluate(({ clipboard }, link) => clipboard.writeText(link), unfinishedLink);
+    await pageB.evaluate(() => window.scope.inspectGuestInvitation("Guest Scope"));
+    await pageB.evaluate((id) => window.scope.approveGuestPairing(id), unfinished.id);
+    await pageA.evaluate((id) => window.scope.approveGuestPairing(id), unfinished.id);
+    await expect.poll(responses.pairingCompletionHeld, { timeout: 10000 }).toBe(true);
+    const cancellationDb = new DatabaseSync(join(b.settingsDirectory, "desktop.db"));
+    try {
+      cancellationDb.exec(`CREATE TRIGGER reject_pair_cancel BEFORE UPDATE ON preferences
+        WHEN NEW.name = 'guest-settings' AND json_extract(NEW.document, '$.enabled."${unfinished.id}"') = 0
+        BEGIN SELECT RAISE(FAIL, 'Synthetic cancellation failure'); END`);
+      await pageB.getByRole("button", { name: "Cancel guest pairing", exact: true }).click();
+      await pageB.getByRole("button", { name: "Retry cancellation", exact: true }).waitFor();
+      expect((await pageB.evaluate(() => window.scope.guestPairingStatus()))?.state).toBe(
+        "revocation-failed",
+      );
+      expect(await pageB.getByText("Guest pairing cancelled.", { exact: true }).count()).toBe(0);
+      await expect(
+        pageB.evaluate((id) => window.scope.setGuestAccess(id, true), unfinished.id),
+      ).rejects.toThrow();
+      await capture(pageB, right, "cancellation-failed");
+      cancellationDb.exec("DROP TRIGGER reject_pair_cancel");
+      await pageB.getByRole("button", { name: "Retry cancellation", exact: true }).focus();
+      await pageB.keyboard.press("Enter");
+      await pageB.getByText("Guest pairing cancelled.", { exact: true }).waitFor();
+      await capture(pageB, right, "cancellation-saved");
+    } finally {
+      cancellationDb.exec("DROP TRIGGER IF EXISTS reject_pair_cancel");
+      cancellationDb.close();
+      responses.releasePairingCompletion();
+    }
     const paired = await pairGuests(
       left,
       right,

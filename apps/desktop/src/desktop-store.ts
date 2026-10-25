@@ -1029,6 +1029,18 @@ export class DesktopStore {
     });
   }
 
+  revokeGuestPair(id: string): Promise<void> {
+    return this.enqueue(async () => {
+      const secrets = await this.credentials.read();
+      const pair = secrets.guestPairs?.[id];
+      if (!pair || !pair.confirmed) return;
+      await this.credentials.write({
+        ...secrets,
+        guestPairs: { ...secrets.guestPairs, [id]: { ...pair, confirmed: false } },
+      });
+    });
+  }
+
   removeGuestPeer(id: string): Promise<void> {
     return this.enqueue(async () => {
       const [row] = await this.run(

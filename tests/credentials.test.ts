@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { keychainCredentials } from "../apps/desktop/src/credentials.ts";
 import { DesktopStore } from "../apps/desktop/src/desktop-store.ts";
 import { randomBytes, randomUUID } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 
 function keychainEntry(initial: string | null | undefined) {
   let value = initial;
@@ -160,6 +161,30 @@ test(
         port: 41235,
         address: "100.64.0.1",
       });
+      const db = new DatabaseSync(join(directory, "desktop.db"));
+      try {
+        db.exec(
+          "CREATE TRIGGER reject_disable BEFORE UPDATE ON preferences WHEN NEW.name = 'guest-settings' BEGIN SELECT RAISE(FAIL, 'Synthetic revocation failure'); END",
+        );
+        await expect(
+          second.updateGuestSettings({ peerId: peer.id, enabled: false }),
+        ).rejects.toThrow();
+        await second.revokeGuestPair(peer.id);
+        expect(await second.guestKey(peer.id)).toBeUndefined();
+        expect((await second.guestSettings()).enabled[peer.id]).toBe(true);
+      } finally {
+        db.exec("DROP TRIGGER reject_disable");
+        db.close();
+      }
+      const restarted = new DesktopStore(directory, credentials);
+      try {
+        await restarted.load();
+        expect(await restarted.guestKey(peer.id)).toBeUndefined();
+        expect(await restarted.guestPeers()).toEqual([peer]);
+        expect(await restarted.secret("apiKey")).toBe("synthetic-provider-key");
+      } finally {
+        await restarted.close();
+      }
       await second.removeGuestPeer(peer.id);
       expect(await second.guestPeers()).toEqual([]);
       expect(await credentials.read()).toEqual({

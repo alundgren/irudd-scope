@@ -949,6 +949,15 @@ Protected credentials and peer metadata are saved before the completion exchange
 permits sessions. A failed or cancelled exchange keeps sharing disabled locally;
 partial pairs can be forgotten and paired again without deleting guest references.
 
+Cancellation aborts live requests immediately, then saves consent off and revokes
+the protected pair confirmation. It reports success only after both writes finish.
+A failed write leaves a visible cancellation failure with an explicit retry;
+starting another invitation or enabling the incomplete pair is blocked. Either
+persisted denial prevents restart authorization if the other write fails. If both
+stores are unavailable, access remains off in the current process and Scope asks
+the person to retry cancellation before restarting. Startup requires both saved
+consent and a confirmed protected pair. Late completion cannot restore live access.
+
 Fresh challenges, pair secrets, device IDs and runtime epochs authenticate each
 session. Tokens remain in main memory, with at most one incoming and one outgoing
 session for each of the 32 allowed peers. Requests retain their route deadlines,

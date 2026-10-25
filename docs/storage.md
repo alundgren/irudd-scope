@@ -556,6 +556,12 @@ restart; compatible saved peers negotiate fresh sessions using the same identity
 address and port. Changed endpoints require explicit fresh pairing. Session-only
 credential profiles require pairing again after restart.
 
+Cancelling an incomplete pair saves consent off and sets its protected confirmation
+to false, retaining the key, endpoint, peer metadata and recovery data until Forget.
+Success requires both writes. A failed cancellation stays retryable and must be
+resolved before restarting; it does not claim durable revocation when storage is
+unavailable. A stale enabled preference alone cannot authorize an unconfirmed pair.
+
 There is no conversion of earlier guest or casting pairs. Protected credential
 reads discard obsolete guest-only key and endpoint fields before strictly
 validating retained provider keys, hub tokens, casting keys and current guest pairs.

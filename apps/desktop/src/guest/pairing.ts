@@ -24,6 +24,8 @@ type Pending = {
   verified: boolean;
   busy: boolean;
   message?: string;
+  endState?: "cancelled" | "expired" | "failed";
+  revoking?: Promise<boolean>;
 };
 
 export class GuestPairing {
@@ -35,13 +37,16 @@ export class GuestPairing {
     private transport: GuestTransport,
     private endpoint: () => Promise<GuestEndpoint>,
     private enable: (id: string, enabled: boolean) => Promise<void>,
+    private revoke: (id: string) => Promise<void>,
   ) {}
   get active() {
     if (this.pending) this.expire(this.pending);
     return (
       this.preparing ||
       (!!this.pending &&
-        !["complete", "cancelled", "expired", "failed"].includes(this.pending.state))
+        !["complete", "cancelled", "expired", "failed", "revocation-failed"].includes(
+          this.pending.state,
+        ))
     );
   }
   status(): GuestPairingStatus | undefined {
@@ -58,10 +63,13 @@ export class GuestPairing {
     };
   }
   private expire(p: Pending) {
-    if (Date.now() >= p.invitation.expiresAt && p.state !== "complete") {
-      p.state = "expired";
-      p.controller.abort();
-    }
+    if (
+      Date.now() >= p.invitation.expiresAt &&
+      !["complete", "cancelled", "expired", "failed", "cancelling", "revocation-failed"].includes(
+        p.state,
+      )
+    )
+      void this.stop(p, "expired");
   }
   private current(p: Pending) {
     this.expire(p);
@@ -248,6 +256,7 @@ export class GuestPairing {
         throw new Error("Unexpected guest pairing state.");
       p.state = "saving";
       await this.save(p);
+      this.current(p);
       await this.store.confirmGuestPeer(p.invitation.id);
       this.current(p);
       if ((await this.send(p, "commit")) !== "complete")
@@ -262,30 +271,55 @@ export class GuestPairing {
   }
   private async fail(p: Pending, error: unknown) {
     if (this.pending !== p) return;
-    if (!["cancelled", "expired"].includes(p.state)) {
-      p.state = "failed";
+    if (p.state === "revocation-failed" || p.state === "cancelled" || p.state === "expired") return;
+    if (!p.endState) {
       p.message =
         error instanceof Error ? error.message : "Guest pairing failed. Cancel and try again.";
     }
-    p.controller.abort();
-    // The peer can have protected credentials without permission after a partial exchange.
-    await this.enable(p.invitation.id, false).catch(() => {});
+    await this.stop(p, p.endState ?? "failed");
   }
-  cancel(id: string) {
+  incomplete(id: string) {
     const p = this.pending;
-    if (
-      !p ||
-      p.invitation.id !== id ||
-      ["complete", "cancelled", "failed", "expired"].includes(p.state)
-    )
-      return;
-    p.state = "cancelled";
+    return !!p && p.invitation.id === id && !["complete", "cancelled"].includes(p.state);
+  }
+  private stop(p: Pending, state: "cancelled" | "expired" | "failed"): Promise<boolean> {
+    if (state === "cancelled" || !p.endState) p.endState = state;
+    if (p.revoking) return p.revoking;
+    p.state = "cancelling";
     p.controller.abort();
     clearTimeout(this.timer);
+    p.revoking = this.revoke(p.invitation.id)
+      .then(
+        () => {
+          p.state = p.endState!;
+          if (p.state !== "failed") p.message = undefined;
+          return true;
+        },
+        (error: unknown) => {
+          p.state = "revocation-failed";
+          p.message =
+            error instanceof Error
+              ? error.message
+              : "Could not save cancellation. Retry before restarting.";
+          return false;
+        },
+      )
+      .finally(() => {
+        p.revoking = undefined;
+      });
+    return p.revoking;
   }
-  close() {
+  async cancel(id: string) {
+    const p = this.pending;
+    if (!p || p.invitation.id !== id)
+      throw new Error("This guest invitation is no longer available.");
+    if (p.state === "cancelled") return;
+    if (!(await this.stop(p, "cancelled"))) throw new Error(p.message);
+  }
+  async close() {
     clearTimeout(this.timer);
-    this.pending?.controller.abort();
+    const p = this.pending;
+    if (p && this.incomplete(p.invitation.id)) await this.cancel(p.invitation.id);
   }
   async accept(action: string, request: IncomingMessage, response: ServerResponse) {
     const p = this.pending;

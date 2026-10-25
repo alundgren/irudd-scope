@@ -9,6 +9,11 @@ access begins. Cancel and expiry leave access off. Partial pairing reports a
 failure and asks the person to forget any incomplete pair before starting again.
 Guest pairing uses the installed Tailscale network and is independent of tab copying.
 
+Cancellation shows progress until consent and protected confirmation are revoked.
+If either write fails, Other Scopes shows Retry cancellation and asks the person
+to resolve it before restarting. It does not show cancellation as complete or
+allow a new invitation to replace that failure. Local access stops immediately.
+
 Saved compatible pairs retry automatically on startup, wake and outages without
 another invitation. Status distinguishes setup, offline, denied access, connected
 and incompatible versions. Disable revokes guest requests and sessions; Forget
