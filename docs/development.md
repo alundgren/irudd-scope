@@ -259,9 +259,9 @@ and integration measurements remain separate. The known-delay smoke scenario
 checks that an injected GitHub command delay appears in external timing data.
 
 Read coverage reasons before interpreting a report. Linux uses software
-rendering on isolated Xvfb displays. Synthetic providers, GitHub and transport
+rendering on isolated Xvfb displays. Synthetic providers, GitHub and local hub connections
 establish integration behavior; they do not measure live services. Native
-platform dialogs, macOS/Windows behavior and Tailcat relay latency remain
+platform dialogs, macOS/Windows behavior and live Tailscale guest latency remain
 unmeasured. External durations can overlap application work. Remaining elapsed
 time is unattributed, and rising RSS alone does not establish a memory leak.
 

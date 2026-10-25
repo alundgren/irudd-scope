@@ -186,8 +186,8 @@ export function summarize(directory: string) {
       ["phase", "session", "checkpoint", "cleanup"].includes(row.type),
     ),
     limitations: [
-      "Linux visible Xvfb windows with GPU disabled. No hardware GPU, macOS/Windows, native dialogs, paid providers, live GitHub, SSH or Tailcat relay measurements.",
-      "Synthetic GitHub, memory sync and transport timings establish integration behavior only. Native OKF is measured only when explicitly supplied.",
+      "Linux visible Xvfb windows with GPU disabled. No hardware GPU, macOS/Windows, native dialogs, paid providers, live GitHub, SSH or live Tailscale guest measurements.",
+      "Synthetic GitHub, memory sync and local hub timings establish integration behavior only. Native OKF is measured only when explicitly supplied.",
       "External intervals and end-to-end timings can overlap. Residual time is unattributed, not automatically Scope CPU time. RSS growth alone does not establish a leak.",
       "Standard test-suite wall time is never an application responsiveness metric.",
     ],
