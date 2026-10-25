@@ -37,15 +37,10 @@ import { checkSkill, installSkill, syncSkill } from "./skill.ts";
 import { PlanGuide, planCommand } from "./plan.ts";
 import { folderCommand, watchFolderCommand } from "./folder.ts";
 import { FolderGuide } from "@irudd-scope/protocol/folder";
-import {
-  decodeTransferImportRequest,
-  TRANSFER_IMPORT_TIMEOUT_MS,
-} from "@irudd-scope/protocol/transfer";
 
 const help = `irudd-scope add FILE [--title TITLE] [--id ID] [--named | --name NAME] [--plan | --pull-requests | --retro]
 irudd-scope text TEXT [--title TITLE] [--id ID] [--kind text|markdown]
 irudd-scope update ID_OR_NAME FILE [--title TITLE]
-irudd-scope import-link LINK [--timeout-ms MS]
 irudd-scope pull-requests guide|read|configure|sync|detail|apply [NAME_OR_FILE] [OWNER/REPO_OR_NODE_ID]
 irudd-scope retro guide|settings|read NAME|apply REQUEST.json|history|watch NAME
 irudd-scope memory guide|status|connect OWNER/REPO
@@ -84,9 +79,6 @@ Output is JSON. Updates read the current revision and reject concurrent changes.
 Offline updates use the paired hub's saved revision and block on delivery if the tab changed.
 Paired hubs store publications before delivery, up to 50 tabs for 48 hours.
 Queued publications return an expiry receipt. Use hub queue to inspect them or hub discard ID to cancel.
-Import-link imports a tab sharing link into the receiver's paired Scope without a desktop confirmation.
-Create sharing links and pair in the desktop app. Both computers must be online with Tailcat installed separately.
-Import-link defaults to a 300000 ms timeout and is never queued. Retry the same link after an uncertain result.
 Folder open shows a folder on this machine as a Folder tab in Scope, once per folder. It is never queued.
 Folder find reports whether the folder's tab is open. Folder select opens the tab if needed and selects FILE, a path relative to PATH; --lines highlights lines in it.
 Folder watch prints one JSON line per event and exits 0 when the tab closes.
@@ -397,28 +389,6 @@ async function main() {
     return;
   }
   const [command, argument, replacement] = positionals;
-  if (command === "import-link") {
-    if (!argument || positionals.length !== 2) throw new Error("Use irudd-scope import-link LINK.");
-    const input = decodeTransferImportRequest({ url: argument });
-    const signal = AbortSignal.timeout(
-      parseTimeout(values["timeout-ms"] ?? String(TRANSFER_IMPORT_TIMEOUT_MS)),
-    );
-    const client = await connect(values, signal);
-    try {
-      console.log(JSON.stringify(await client.importLink(input.url), null, 2));
-    } catch (error) {
-      if (signal.aborted)
-        throw new Error(
-          "Link import timed out. The copy may already be saved; retry the same link to check it.",
-        );
-      if (error instanceof ScopeError && error.status === 404)
-        throw new Error(
-          "Link import is unavailable. Update and open Scope on the receiver and update its hub if used.",
-        );
-      throw error;
-    }
-    return;
-  }
   if (command === "setup") {
     await setup({
       yes: values.yes,

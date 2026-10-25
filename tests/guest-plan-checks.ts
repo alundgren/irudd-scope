@@ -1,3 +1,5 @@
+import { pairGuests } from "./guest-pairing-fixture.ts";
+import { guestNetworkFixture } from "./guest-network-fixture.ts";
 import { guestPlanDeadlines } from "./guest-plan-deadlines.ts";
 import { decodeLocalConnection } from "@irudd-scope/protocol";
 import { guestPlanNetwork, lostPreparation } from "./guest-plan-network.ts";
@@ -5,13 +7,11 @@ import { expect } from "vite-plus/test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { readPlan, type PlanDocument } from "@irudd-scope/protocol/plan";
 import { desktopFixture } from "./desktop-fixture.ts";
-import { syntheticCli } from "./synthetic-cli.ts";
-import { guestCli } from "./guest-cli.ts";
 import { guestResponseFixture } from "./guest-response-fixture.ts";
 import { cliMain, spawnedHub } from "./hub-fixture.ts";
 
@@ -59,14 +59,22 @@ export async function guestPlanChecks() {
   await guestPlanNetwork(directory);
   const routes = join(directory, "routes.json");
   await writeFile(routes, "{}");
-  await syntheticCli(directory, "tailcat", guestCli);
+  const network = await guestNetworkFixture(directory);
   const env = {
-    PATH: directory + delimiter + process.env.PATH,
+    ...network.env,
     SCOPE_GUEST_FIXTURE_EVENTS: join(directory, "events.jsonl"),
     SCOPE_GUEST_FIXTURE_ROUTES: routes,
   };
-  const a = await desktopFixture({ hideInitialPrompts: true, env });
-  const b = await desktopFixture({ hideInitialPrompts: true, env });
+  const a = await desktopFixture({
+    hideInitialPrompts: true,
+    entry: network.entry,
+    env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.1" },
+  });
+  const b = await desktopFixture({
+    hideInitialPrompts: true,
+    entry: network.entry,
+    env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.2" },
+  });
   let left = await a.launch(),
     right = await b.launch();
   let pageA = await left.firstWindow(),
@@ -86,28 +94,19 @@ export async function guestPlanChecks() {
   let peerId = "";
   let pairingSecret = "";
   async function pair() {
-    for (const page of [pageA, pageB])
-      for (const peer of (await page.evaluate(() => window.scope.transferDevices())).peers)
-        await page.evaluate((id) => window.scope.forgetScope(id), peer.id);
-    const invitation = await pageA.evaluate(() => window.scope.createPairing("Owner desktop"));
-    await pageA.evaluate((id) => window.scope.copyPairingSecret(id), invitation.id);
-    const secret = await left.evaluate(({ clipboard }) => clipboard.readText());
-    pairingSecret = secret;
-    await pageB.evaluate((input) => window.scope.pairScope(input), {
-      url: invitation.url,
-      secret,
-      name: "Receiver desktop",
-    });
-    peerId = (await pageA.evaluate(() => window.scope.transferDevices())).peers[0]!.id;
-    for (const page of [pageA, pageB])
-      await page.evaluate((id) => window.scope.setGuestAccess(id, true), peerId);
-    await pageA.evaluate((id) => window.scope.copyGuestLink(id), peerId);
-    const link = await left.evaluate(({ clipboard }) => clipboard.readText());
-    const endpoint = JSON.parse(Buffer.from(link.split("#")[1], "base64url").toString()).endpoint;
-    responses.target(endpoint.port);
-    await writeFile(routes, JSON.stringify({ [endpoint.port]: responses.port }));
-    await right.evaluate(({ clipboard }, link) => clipboard.writeText(link), link);
-    await pageB.evaluate((id) => window.scope.connectGuestLink(id), peerId);
+    const paired = await pairGuests(
+      left,
+      right,
+      pageA,
+      pageB,
+      ["Owner desktop", "Receiver desktop"],
+      async (invitation) => {
+        responses.target(invitation.endpoint.port);
+        await writeFile(routes, JSON.stringify({ [invitation.endpoint.port]: responses.port }));
+      },
+    );
+    peerId = paired.id;
+    pairingSecret = paired.key;
     await expect
       .poll(
         () => pageB.evaluate(() => window.scope.guestCatalog()).then((v) => v.available.length),
@@ -592,18 +591,27 @@ export async function guestPlanChecks() {
       await pageB.evaluate((id) => window.scope.setGuestAccess(id, true), peerId);
       await expect
         .poll(
+          () => pageB.evaluate(() => window.scope.guestStatus()).then((s) => s.peers[0]?.state),
+          { timeout: 25000 },
+        )
+        .toBe("connected");
+      await expect
+        .poll(
           () => pageB.evaluate(() => window.scope.guestCatalog()).then((v) => v.available.length),
           { timeout: 30000 },
         )
         .toBe(1);
       await expect
-        .poll(async () => {
-          try {
-            return (await read()).artifact.id;
-          } catch {
-            return "";
-          }
-        })
+        .poll(
+          async () => {
+            try {
+              return (await read()).artifact.id;
+            } catch (error) {
+              return error instanceof Error ? error.message : String(error);
+            }
+          },
+          { timeout: 30000 },
+        )
         .toBe("shared-id");
     }
     responses.offline(true);
@@ -624,7 +632,7 @@ export async function guestPlanChecks() {
       .toBe(1);
     await pageA.evaluate((id) => window.scope.setGuestAccess(id, false), peerId);
     await expect(read()).rejects.toThrow();
-    await pageB.evaluate((id) => window.scope.forgetScope(id), peerId);
+    await pageB.evaluate((id) => window.scope.forgetGuest(id), peerId);
     await expect(read()).rejects.toThrow(/paired|unavailable/i);
     expect((await cb.get("shared-id")).revision).toBe(1);
   } finally {

@@ -55,24 +55,17 @@ follow its active build. Open a new terminal after installing the CLI.
 See [installation and recovery](docs/development.md#installed-app) for paths,
 build requirements, and removal.
 
-## Send a tab to another Scope
+## Open another Scope's tabs
 
-Install Tailcat separately on each device. In **Settings → Other Scopes**,
-create a pairing invitation. Send its link to the other device and exchange
-the separately copied pairing secret through another channel. On that device,
-choose **Enter pairing link** and enter both values. Pairing credentials use
-the desktop's protected credential store. Either device can forget the pairing.
+In **Settings → Other Scopes**, create a guest invitation and paste it into the
+other desktop. Review the named peer and approve sharing on both desktops.
+Scope uses the installed Tailscale network and saves the pair in protected storage.
 
-Choose **Send to another Scope…** under **Current tab** in search, select the
-paired Scope, then copy the link or scan its QR code. On the target, open the link
-or choose **Import from link…** in search. Review the authenticated tab details
-before importing. Each invitation expires after fifteen minutes.
-
-Both apps must be running and awake. Transfers create independent copies of
-ordinary artifacts, including Excalidraw files. The source keeps its tab. Plans,
-PR inboxes, and the Sketchpad cannot be transferred through this flow.
-See [tab transfer](docs/architecture.md#tab-transfer) for connection and security
-limits.
+Eligible artifacts, native plans and folders appear as guest tabs. Content stays
+with its owner; each desktop keeps its own navigation. Both apps must be running
+and awake. Disable sharing or forget a peer in Other Scopes. See
+[guest connections](docs/architecture.md#guest-peer-connections) for permissions
+and connection requirements.
 
 ## Install on a remote
 

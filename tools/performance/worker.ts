@@ -22,8 +22,6 @@ import {
   memorySync,
   relay,
   settings,
-  transfer,
-  transferRenderer,
   voice,
 } from "./integrations.ts";
 import { desktopFixture } from "../../tests/desktop-fixture.ts";
@@ -87,8 +85,6 @@ async function main() {
     "workspace.groups",
     "workspace.restart",
     "settings",
-    "transfer.service",
-    "transfer.renderer",
     "publication.hub-offline-reconnect",
     "voice.receipts-audio",
     "maintenance",
@@ -103,8 +99,6 @@ async function main() {
     "platform.native-dialogs",
     "platform.macos-windows",
     "external.live-services",
-    "transfer.native-tailcat",
-    "transfer.renderer-import",
     "workspace.drag-groups",
     "maintenance.scheduled-expiry",
   ])
@@ -192,8 +186,6 @@ async function main() {
       await scenario("sketchpad.edit-autosave-present", () => sketchpad(s));
       await scenario("workspace", () => tabs(s));
       await scenario("settings", () => settings(s));
-      await scenario("transfer.service", () => transfer(s));
-      await scenario("transfer.renderer", () => transferRenderer(s));
       await scenario("publication.hub-offline-reconnect", () => relay(s, hub!));
       await scenario("voice.receipts-audio", () => voice(s));
       await scenario("maintenance", () => maintenance(s, hub!));

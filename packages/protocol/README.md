@@ -1,35 +1,5 @@
 # Artifact protocol
 
-`src/transfer.ts` defines portable manifests and signed fifteen-minute
-`scope-transfer://v2/` invitations for paired desktop copies. These contracts
-also define the agent link-import request and receipt. Transfers support ordinary
-artifact bytes, including Excalidraw files, which import as file tabs; they carry
-no credentials, unique tab names, or plan and PR inbox records. Main validates
-content sizes, media types, checksums, and Excalidraw document structure before
-import. Invitations include a validated TCP port, signed together with the
-connection address and lifetime. Version 1 transfer links are rejected.
-Authentication and supervision of the user-installed Tailcat CLI belong to
-desktop main; saved pairings are independent of invitation versions.
-
-`POST /v1/transfers/import` accepts `{ "url": "scope-transfer://v2/#..." }`
-with the normal receiver publishing token. Only tab links are accepted.
-Main authenticates and inspects the manifest, downloads and validates its
-content, then commits an independent copy. The reply is
-`{ "artifact": Artifact, "alreadyImported": boolean }`; a same-link retry
-returns the existing copy. The endpoint supports no pairing or link creation.
-Browser-origin requests are rejected. Requests are limited to 16 KiB and
-receipts to 32 KiB. The CLI, client and hubs allow a bounded 300,000 ms import
-request; the signed invitation still expires after exactly fifteen minutes.
-Imports require the receiving desktop online and are never buffered. A timeout
-can occur after commit; retry the same link rather than requesting another copy.
-Older desktops or hubs lack this additive endpoint and must be updated for
-agent imports. Invitation versions, saved pairings and existing UI flows remain
-compatible.
-
-The receiver's agent runs `irudd-scope import-link 'scope-transfer://v2/#...'`
-using its normal discovery or explicit authenticated endpoint. This command is
-the explicit import action; it does not open a desktop confirmation dialog.
-
 `src/index.ts` owns the validated wire types and limits. `src/client.ts` is the HTTP client used by CLI and desktop main. TypeScript types derive from Effect Schema definitions.
 
 An artifact is the latest content and metadata for one stable ID. A revision is an increasing integer for that ID. A blob is immutable content addressed by its SHA-256 digest. An absent source field means unknown; it never blocks publication.
@@ -978,16 +948,34 @@ text and handle revision conflicts explicitly. Agent commands never navigate
 the selected desktop tab. Paired hubs forward these routes only while the
 desktop is connected; prompt commands and exports are never queued offline.
 
-Guest connections use the versioned schemas in `src/guest.ts`: signed setup links,
+Guest connections use the versioned schemas in `src/guest.ts`: one-use invitations,
 fresh server challenges, paired device proofs, and session capability replies.
-Endpoint addresses include transport credentials and stay in protected desktop
-storage. The peer listener exposes only registered owner operations; these
+Endpoints contain a canonical Tailscale IPv4 address in 100.64.0.0/10 and a
+port from 1 through 65535. They stay in protected desktop storage. Desktop
+discovery validates the exact address against current Tailscale peer records
+before opening a direct HTTP connection; redirects and DNS names are rejected. The peer listener exposes only registered owner operations; these
 contracts do not grant publishing or arbitrary desktop IPC access.
+
+## Guest pairing
+
+Guest protocol version 2 owns device IDs, peer names, one-use invitations and pair
+credentials. A `scope-guest://v2/` invitation contains the issuing device, its
+validated tailnet endpoint, a five-minute expiry and a random bearer secret.
+Desktop main copies and reads it. It is not a publishing or browser credential.
+
+The receiver reviews and consents before claiming. The issuer verifies the
+receiver endpoint and obtains its own named consent. HMAC-authenticated claim,
+verification, status and commit requests bind the invitation and exact attempt.
+Both peers protect their credentials before enabling sessions. Expired, cancelled,
+forged or differently claimed invitations fail. Incomplete pairing requires
+explicit repair; it cannot silently authorize access or replay an owner write.
+Saved peers reconnect with fresh challenges and bounded sessions. Session hellos
+must match saved endpoints.
 
 ## Guest catalogs
 
 Paired desktop guest sessions negotiate `catalog-v1`, `artifact-read-v1` and
-`plan-read-v1` independently of transfer-copy support. These routes use the peer
+`plan-read-v1`. These routes use the peer
 session credential in desktop main, never the publishing token or renderer
 credentials. They are not general publication or plugin forwarding routes.
 

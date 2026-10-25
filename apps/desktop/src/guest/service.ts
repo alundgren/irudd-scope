@@ -1,46 +1,29 @@
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { decode } from "@irudd-scope/protocol";
 import {
   GUEST_VERSION,
   GuestChallenge,
-  GuestLink,
   GuestProof,
   GuestReply,
   type GuestEndpoint,
   type GuestHello,
 } from "@irudd-scope/protocol/guest";
-import type { ScopePeer } from "../transfer/contract.ts";
+import type { GuestPeer } from "@irudd-scope/protocol/guest";
 import type { DesktopStore } from "../desktop-store.ts";
 import type { GuestPeerStatus, GuestStatus } from "./contract.ts";
 import { GuestTransport, type PeerRequest, type PeerResponse } from "./transport.ts";
+import { GuestNetworkError } from "./tailscale.ts";
 
-const secret = () => randomBytes(32).toString("base64url");
-function sign(key: string, purpose: string, value: unknown) {
-  return createHmac("sha256", Buffer.from(key, "base64url"))
-    .update("scope-guest:" + purpose + ":" + JSON.stringify(value))
-    .digest("base64url");
-}
-function verify(key: string, purpose: string, value: unknown, mac: string) {
-  const expected = Buffer.from(sign(key, purpose, value));
-  const actual = Buffer.from(mac);
-  if (expected.length !== actual.length || !timingSafeEqual(expected, actual))
-    throw new Error("The guest connection could not be authenticated.");
-}
-async function json(stream: AsyncIterable<Uint8Array>) {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of stream) {
-    size += chunk.length;
-    if (size > 16384) throw new Error("Guest message is too large.");
-    chunks.push(Buffer.from(chunk));
-  }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
-}
-function reply(response: ServerResponse, status: number, value: unknown) {
-  response.writeHead(status, { "Content-Type": "application/json", Connection: "close" });
-  response.end(JSON.stringify(value));
-}
+import {
+  guestSecret as secret,
+  signGuest as sign,
+  verifyGuest as verify,
+  guestJson as json,
+  guestReply as reply,
+} from "./auth.ts";
+import { GuestPairing } from "./pairing.ts";
+
 type Session = {
   peerId: string;
   token: string;
@@ -50,7 +33,7 @@ type Session = {
 };
 type Outgoing = Session & { endpoint: GuestEndpoint };
 export type GuestOwnerRequest = {
-  peer: ScopePeer;
+  peer: GuestPeer;
   request: IncomingMessage;
   response: ServerResponse;
   signal: AbortSignal;
@@ -64,7 +47,6 @@ type OwnerRoute = {
 };
 
 export class GuestConnections {
-  private transport = new GuestTransport(() => this.transportLost());
   private server?: Server;
   private endpoint?: GuestEndpoint;
   private epoch = randomUUID();
@@ -85,11 +67,48 @@ export class GuestConnections {
   private retry = new Map<string, { failures: number; at: number }>();
   private operations = Promise.resolve();
 
-  constructor(private readonly store: DesktopStore) {}
+  readonly pairing: GuestPairing;
+  constructor(
+    private readonly store: DesktopStore,
+    private readonly transport = new GuestTransport(),
+  ) {
+    this.pairing = new GuestPairing(
+      store,
+      this.transport,
+      async () => {
+        await this.ensureTransport(true);
+        return this.endpoint!;
+      },
+      (id, enabled) => this.changeAccess(id, enabled),
+      (id) => this.revokePairing(id),
+    );
+  }
+  async devices() {
+    return {
+      ...(await this.store.guestDevice()),
+      peers: await this.store.guestPeers(),
+      credentialStorage: this.store.credentialStorage,
+    };
+  }
+  cancelPairing(id: string) {
+    return this.pairing.cancel(id);
+  }
+  private async revokePairing(id: string) {
+    // Try both stores: either durable denial blocks restart if the other write fails.
+    const writes = await Promise.allSettled([
+      this.changeAccess(id, false),
+      this.store.revokeGuestPair(id),
+    ]);
+    if (writes.some((write) => write.status === "rejected"))
+      throw new Error(
+        "Could not save cancellation. Sharing is blocked while this app stays open. Retry cancellation before restarting.",
+      );
+  }
 
   register(route: string, definition: OwnerRoute) {
     if (
       !/^[a-z][a-z0-9-]{0,63}$/.test(route) ||
+      route.startsWith("pair-") ||
       ["hello", "challenge", "identity", "revoke"].includes(route) ||
       this.routes.has(route) ||
       ![definition.idleMs, definition.deadlineMs].every(
@@ -107,13 +126,26 @@ export class GuestConnections {
   }
   async start() {
     const settings = await this.store.guestSettings();
-    this.enabled = new Map(Object.entries(settings.enabled));
+    for (const [id, enabled] of Object.entries(settings.enabled)) {
+      // A stale enabled preference cannot restore a revoked or incomplete protected pair.
+      this.enabled.set(id, false);
+      if (!enabled) continue;
+      try {
+        this.enabled.set(id, !!(await this.store.guestKey(id)));
+      } catch {
+        this.state(
+          id,
+          "disabled",
+          "Could not read protected guest credentials. Retry enabling sharing when storage is available.",
+        );
+      }
+    }
     this.schedule(0);
   }
   async status(): Promise<GuestStatus> {
     return {
       credentialStorage: this.store.credentialStorage,
-      peers: (await this.store.scopePeers()).map(
+      peers: (await this.store.guestPeers()).map(
         (peer) =>
           this.states.get(peer.id) ?? {
             peerId: peer.id,
@@ -132,9 +164,10 @@ export class GuestConnections {
     });
   }
   private async peer(id: string) {
-    const peer = (await this.store.scopePeers()).find((item) => item.id === id);
-    const key = peer && (await this.store.transferKey(id));
-    if (!peer || !key) throw new Error("Pair this Scope before enabling guests.");
+    const peer = (await this.store.guestPeers()).find((item) => item.id === id);
+    const key = peer && (await this.store.guestKey(id));
+    if (!peer || !key)
+      throw new Error("Guest pairing is incomplete. Forget this Scope and pair again.");
     return { peer, key };
   }
   private allowed(id: string) {
@@ -142,6 +175,14 @@ export class GuestConnections {
       throw new Error("Guest sharing is disabled for this Scope.");
   }
   setEnabled(peerId: string, enabled: boolean) {
+    if (this.pairing.incomplete(peerId)) {
+      if (enabled)
+        return Promise.reject(new Error("Finish or cancel guest pairing before enabling sharing."));
+      return this.pairing.cancel(peerId);
+    }
+    return this.changeAccess(peerId, enabled);
+  }
+  private changeAccess(peerId: string, enabled: boolean) {
     const generation = (this.generations.get(peerId) ?? 0) + 1;
     this.generations.set(peerId, generation);
     // Revoke synchronously, before waiting for credential or preference writes.
@@ -151,7 +192,15 @@ export class GuestConnections {
       this.state(peerId, "disabled");
     }
     const result = this.operations.then(async () => {
-      await this.peer(peerId);
+      if (enabled && (this.closed || this.generations.get(peerId) !== generation)) return;
+      if (enabled) await this.peer(peerId);
+      else if (!(await this.store.guestPeers()).some((peer) => peer.id === peerId)) {
+        this.enabled.delete(peerId);
+        this.states.delete(peerId);
+        if (!this.handshakes.has(peerId)) this.generations.delete(peerId);
+        return;
+      }
+      if (enabled && (this.closed || this.generations.get(peerId) !== generation)) return;
       await this.store.updateGuestSettings({ peerId, enabled });
       if (this.closed || this.generations.get(peerId) !== generation) return;
       this.enabled.set(peerId, enabled);
@@ -163,11 +212,16 @@ export class GuestConnections {
     return result;
   }
   forget(peerId: string) {
+    const cancellation = this.pairing.incomplete(peerId)
+      ? this.pairing.cancel(peerId)
+      : Promise.resolve();
     this.generations.set(peerId, (this.generations.get(peerId) ?? 0) + 1);
     this.enabled.set(peerId, false);
     this.revoke(peerId);
     const result = this.operations.then(async () => {
+      await cancellation;
       await this.store.updateGuestSettings({ peerId, enabled: false });
+      await this.store.removeGuestPeer(peerId);
       this.states.delete(peerId);
       this.retry.delete(peerId);
     });
@@ -199,13 +253,26 @@ export class GuestConnections {
   private transportLost() {
     if (this.closed) return;
     this.endpoint = undefined;
+    void this.transport.close();
+    this.server?.closeAllConnections();
+    this.server?.close();
+    this.server = undefined;
     for (const id of this.enabled.keys()) this.revoke(id);
     this.epoch = randomUUID();
     this.challenges.clear();
     this.schedule(1000);
   }
-  private async ensureTransport() {
-    if (this.endpoint) return;
+  private async ensureTransport(repairAddress = false) {
+    if (this.endpoint) {
+      try {
+        const local = await this.transport.network.discover(this.lifetime.signal);
+        if (local.address === this.endpoint.address) return;
+        this.transportLost();
+      } catch (error) {
+        this.transportLost();
+        throw error;
+      }
+    }
     if (this.starting) return this.starting;
     this.starting = (async () => {
       await this.transport.close();
@@ -215,6 +282,11 @@ export class GuestConnections {
         this.server = undefined;
       }
       const settings = await this.store.guestSettings();
+      const local = await this.transport.network.discover(this.lifetime.signal);
+      if (settings.address && settings.address !== local.address && !repairAddress)
+        throw new GuestNetworkError(
+          "The local Tailscale address changed. Forget the peer and create a new guest invitation to repair the connection.",
+        );
       const server = createServer(
         { maxHeaderSize: 16384, connectionsCheckingInterval: 1000 },
         (request, response) => {
@@ -231,24 +303,23 @@ export class GuestConnections {
       server.timeout = 0;
       this.server = server;
       await new Promise<void>((resolve, reject) => {
-        server.once("error", () =>
+        server.once("error", (error: NodeJS.ErrnoException) =>
           reject(
-            new Error(
-              "The saved guest connection port is in use. Close the other app using it, then retry.",
+            new GuestNetworkError(
+              error.code === "EADDRINUSE"
+                ? "The saved guest connection port is in use. Close the other app using it, then retry."
+                : error.code === "EADDRNOTAVAIL"
+                  ? "The local Tailscale IPv4 interface is unavailable. Reconnect Tailscale, then retry."
+                  : "The guest listener could not open on the Tailscale interface. Check access to its port, then retry.",
             ),
           ),
         );
-        server.listen(settings.port ?? 0, "127.0.0.1", resolve);
+        server.listen(settings.port ?? 0, local.address, resolve);
       });
       const port = (server.address() as { port: number }).port;
-      if (!settings.port) await this.store.updateGuestSettings({ port });
-      let key = await this.store.guestKey();
-      if (!key) {
-        key = await this.transport.generate();
-        await this.store.saveGuestKey(key);
-      }
+      await this.store.updateGuestSettings({ port, address: local.address });
       if (this.closed) throw new Error("Guest connections are closing.");
-      this.endpoint = await this.transport.start(key, port);
+      this.endpoint = { address: local.address, port };
       this.epoch = randomUUID();
       this.challenges.clear();
       if (this.closed) throw new Error("Guest connections are closing.");
@@ -272,8 +343,8 @@ export class GuestConnections {
     if (this.closed || this.ticking) return;
     this.ticking = true;
     try {
-      const peers = (await this.store.scopePeers()).filter((peer) => this.enabled.get(peer.id));
-      if (!peers.length) {
+      const peers = (await this.store.guestPeers()).filter((peer) => this.enabled.get(peer.id));
+      if (!peers.length && !this.pairing.active) {
         await this.transport.close();
         this.endpoint = undefined;
         if (this.server) {
@@ -289,11 +360,7 @@ export class GuestConnections {
         if (this.attempts.has(peer.id) || (this.retry.get(peer.id)?.at ?? 0) > Date.now()) continue;
         const endpoint = await this.store.guestEndpoint(peer.id);
         if (!endpoint) {
-          this.state(
-            peer.id,
-            "setup",
-            "Copy a guest connection link, or connect one copied from this Scope.",
-          );
+          this.state(peer.id, "setup", "Pairing is incomplete. Forget this Scope and pair again.");
           continue;
         }
         try {
@@ -307,7 +374,7 @@ export class GuestConnections {
             if (response.status !== 200) throw new Error("Guest connection ended.");
           } else await this.connectPeer(peer.id, endpoint);
           this.retry.delete(peer.id);
-        } catch {
+        } catch (error) {
           this.revoke(peer.id);
           if (!this.enabled.get(peer.id)) continue;
           const failures = (this.retry.get(peer.id)?.failures ?? 0) + 1;
@@ -322,7 +389,9 @@ export class GuestConnections {
             this.state(
               peer.id,
               "offline",
-              "Waiting for the other Scope. Both apps must be open with guest sharing enabled.",
+              error instanceof GuestNetworkError
+                ? error.message
+                : "Waiting for the other Scope. Both apps must be open with guest sharing enabled.",
             );
         }
       }
@@ -340,10 +409,10 @@ export class GuestConnections {
     }
   }
   private async hello(
-    peer: ScopePeer,
+    peer: GuestPeer,
     challenge: { epoch: string; challenge: string },
   ): Promise<GuestHello> {
-    const device = await this.store.transferDevice();
+    const device = await this.store.guestDevice();
     if (!this.endpoint) throw new Error("Guest connection is not ready.");
     return {
       version: GUEST_VERSION,
@@ -412,7 +481,7 @@ export class GuestConnections {
       const result = decode(GuestReply, replyData);
       const { mac, ...unsigned } = result;
       verify(key, "reply", unsigned, mac);
-      const local = await this.store.transferDevice();
+      const local = await this.store.guestDevice();
       if (
         result.requestNonce !== hello.nonce ||
         result.hello.deviceId !== peer.deviceId ||
@@ -441,10 +510,17 @@ export class GuestConnections {
         signal.aborted ||
         generation !== (this.generations.get(peerId) ?? 0) ||
         epoch !== this.epoch ||
-        (await this.store.transferKey(peerId)) !== key
+        (await this.store.guestKey(peerId)) !== key
       )
         throw new Error("Guest connection changed while connecting.");
-      await this.store.saveGuestEndpoint(peerId, result.hello.endpoint);
+      if (
+        result.hello.endpoint.address !== endpoint.address ||
+        result.hello.endpoint.port !== endpoint.port
+      )
+        throw new GuestNetworkError(
+          "The guest endpoint changed. Forget this Scope and pair again to repair the connection.",
+        );
+
       this.allowed(peerId);
       signal.throwIfAborted();
       this.outgoing.get(peerId)?.controller.abort();
@@ -457,8 +533,9 @@ export class GuestConnections {
         controller,
       });
       this.state(peerId, "connected");
-    } catch {
+    } catch (error) {
       controller.abort();
+      if (error instanceof GuestNetworkError) throw error;
       throw new Error(
         ["update-required", "access-denied"].includes(this.states.get(peerId)?.state ?? "")
           ? this.states.get(peerId)!.message
@@ -468,54 +545,6 @@ export class GuestConnections {
       this.handshakes.delete(peerId);
       this.attempts.delete(peerId);
     }
-  }
-  async connectionLink(peerId: string) {
-    this.allowed(peerId);
-    await this.ensureTransport();
-    this.allowed(peerId);
-    const { peer, key } = await this.peer(peerId);
-    const device = await this.store.transferDevice();
-    const value = {
-      version: 1 as const,
-      pairId: peerId,
-      deviceId: device.deviceId,
-      targetId: peer.deviceId,
-      endpoint: this.endpoint!,
-      expiresAt: Date.now() + 15 * 60000,
-    };
-    return (
-      "scope-guest://v1/#" +
-      Buffer.from(JSON.stringify({ ...value, mac: sign(key, "link", value) })).toString("base64url")
-    );
-  }
-  async connectLink(peerId: string, text: string) {
-    this.allowed(peerId);
-    const { peer, key } = await this.peer(peerId);
-    const local = await this.store.transferDevice();
-    if (!/^scope-guest:\/\/v1\/#[-_A-Za-z0-9]{1,8192}$/.test(text))
-      throw new Error("Copy a guest connection link from the paired Scope first.");
-    let link: typeof GuestLink.Type;
-    try {
-      link = decode(
-        GuestLink,
-        JSON.parse(Buffer.from(text.split("#")[1]!, "base64url").toString()),
-      );
-    } catch {
-      throw new Error("This guest connection link is invalid.");
-    }
-    const { mac, ...unsigned } = link;
-    verify(key, "link", unsigned, mac);
-    if (
-      link.pairId !== peerId ||
-      link.deviceId !== peer.deviceId ||
-      link.targetId !== local.deviceId ||
-      link.expiresAt < Date.now() ||
-      link.expiresAt > Date.now() + 15 * 60000
-    )
-      throw new Error("This link expired or belongs to a different paired Scope.");
-    await this.ensureTransport();
-    await this.connectPeer(peerId, link.endpoint);
-    this.retry.delete(peerId);
   }
   supports(peerId: string, capability: string): boolean {
     return this.outgoing.get(peerId)?.capabilities.includes(capability) === true;
@@ -565,6 +594,8 @@ export class GuestConnections {
     });
     if (this.closed || !this.endpoint || request.headers.origin !== undefined)
       return reply(response, 403, { error: "Guest access rejected." });
+    if (request.method === "POST" && request.url?.startsWith("/guest/pair-"))
+      return this.pairing.accept(request.url.slice("/guest/pair-".length), request, response);
     if (request.method === "GET" && request.url === "/guest/challenge") {
       for (const [nonce, expires] of this.challenges)
         if (expires < Date.now()) this.challenges.delete(nonce);
@@ -584,7 +615,7 @@ export class GuestConnections {
       const { peer, key } = await this.peer(hello.pairId);
       verify(key, "hello", hello, proof.mac);
       this.allowed(peer.id);
-      const device = await this.store.transferDevice();
+      const device = await this.store.guestDevice();
       if (
         hello.targetId !== device.deviceId ||
         hello.deviceId !== peer.deviceId ||
@@ -600,9 +631,18 @@ export class GuestConnections {
       const unsigned = { hello: own, requestNonce: hello.nonce, session: token };
       if (hello.version === GUEST_VERSION && hello.capabilities.includes("session")) {
         this.allowed(peer.id);
-        if ((await this.store.transferKey(peer.id)) !== key) throw new Error("Pairing changed.");
+        if ((await this.store.guestKey(peer.id)) !== key) throw new Error("Pairing changed.");
         operation.signal.throwIfAborted();
-        await this.store.saveGuestEndpoint(peer.id, hello.endpoint);
+        await this.transport.network.peer(hello.endpoint, operation.signal);
+        const savedEndpoint = await this.store.guestEndpoint(peer.id);
+        if (
+          !savedEndpoint ||
+          savedEndpoint.address !== hello.endpoint.address ||
+          savedEndpoint.port !== hello.endpoint.port
+        )
+          throw new Error(
+            "The guest endpoint changed. Forget this Scope and pair again to repair it.",
+          );
         this.allowed(peer.id);
         if (epoch !== this.epoch || generation !== (this.generations.get(peer.id) ?? 0))
           throw new Error("Guest access changed.");
@@ -634,7 +674,7 @@ export class GuestConnections {
     if (session.controller.signal.aborted) throw new Error("Guest session ended.");
     if (request.method === "GET" && request.url === "/guest/identity")
       return reply(response, 200, {
-        deviceId: (await this.store.transferDevice()).deviceId,
+        deviceId: (await this.store.guestDevice()).deviceId,
         version: GUEST_VERSION,
       });
     const route = this.routes.get(request.url?.replace(/^\/guest\//, "") ?? "");
@@ -660,6 +700,7 @@ export class GuestConnections {
   }
   async close() {
     this.closed = true;
+    const pairing = Promise.allSettled([this.pairing.close()]);
     clearTimeout(this.timer);
     this.lifetime.abort();
     for (const peerId of this.enabled.keys()) this.revoke(peerId);
@@ -670,5 +711,7 @@ export class GuestConnections {
       await new Promise<void>((resolve) => this.server!.close(() => resolve()));
     }
     await this.operations;
+    const [result] = await pairing;
+    if (result.status === "rejected") throw result.reason;
   }
 }

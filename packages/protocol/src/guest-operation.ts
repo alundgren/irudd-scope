@@ -7,7 +7,7 @@ import {
   PublicationTabId,
   Revision,
 } from "./index.ts";
-import { TransferId } from "./transfer.ts";
+import { GuestId } from "./guest.ts";
 import { GuestSource } from "./guest.ts";
 import { PlanDocument } from "./plan.ts";
 
@@ -16,7 +16,7 @@ export const GUEST_OPERATION_RETENTION_MS = 48 * 60 * 60_000;
 export const MAX_GUEST_OPERATIONS = 4096;
 export const MAX_GUEST_OPERATION_BYTES = 34 * 1024 * 1024;
 export const GuestTarget = Schema.Struct({
-  ownerDeviceId: TransferId,
+  ownerDeviceId: GuestId,
   sourceTabId: PublicationTabId,
 });
 export type GuestTarget = typeof GuestTarget.Type;
@@ -43,7 +43,7 @@ export const GuestChange = Schema.Struct({
 });
 export type GuestChange = typeof GuestChange.Type;
 export const GuestOperationIdentity = Schema.Struct({
-  operationId: TransferId,
+  operationId: GuestId,
   digest: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
 });
 export type GuestOperationIdentity = typeof GuestOperationIdentity.Type;

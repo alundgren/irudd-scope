@@ -64,7 +64,7 @@ export async function guestWorkspaceChecks({
   expect(await pane.locator(".guest-view").getAttribute("inert")).not.toBeNull();
   await capture("workspace-offline-light.png");
   responses.offline(false);
-  const peer = (await pageB.evaluate(() => window.scope.transferDevices())).peers[0]!.id;
+  const peer = (await pageB.evaluate(() => window.scope.guestDevices())).peers[0]!.id;
   await pageB.evaluate((id) => window.scope.retryGuest(id), peer);
   await expect
     .poll(

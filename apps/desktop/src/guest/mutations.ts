@@ -52,7 +52,7 @@ export class GuestMutations {
   }
   private async serve(route: string, { request, response, peer, signal }: GuestOwnerRequest) {
     const input = JSON.parse((await bytes(request)).toString());
-    const ownerId = (await this.desktop.transferDevice()).deviceId;
+    const ownerId = (await this.desktop.guestDevice()).deviceId;
     let result: unknown;
     if (route === "status")
       result = await this.artifacts.guestOperations.status(
@@ -87,7 +87,7 @@ export class GuestMutations {
     response.end(JSON.stringify(result));
   }
   private async peer(target: GuestTarget) {
-    const peer = (await this.desktop.scopePeers()).find(
+    const peer = (await this.desktop.guestPeers()).find(
       (peer) => peer.deviceId === target.ownerDeviceId,
     );
     if (!peer) throw new Error("The owner is no longer paired.");

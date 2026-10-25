@@ -1,3 +1,5 @@
+import { pairGuests } from "./guest-pairing-fixture.ts";
+import { guestNetworkFixture } from "./guest-network-fixture.ts";
 import { guestFolderRecoveryChecks } from "./guest-folder-recovery-checks.ts";
 import { createHash } from "node:crypto";
 import { folderNetwork } from "./guest-folder-network.ts";
@@ -5,11 +7,9 @@ import { folderCommand } from "./folder-operation-checks.ts";
 import { expect } from "vite-plus/test";
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, delimiter } from "node:path";
+import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 import { spawnedHub } from "./hub-fixture.ts";
-import { syntheticCli } from "./synthetic-cli.ts";
-import { guestCli } from "./guest-cli.ts";
 import type { Page } from "@playwright/test";
 
 async function prepare(page: Page, tabId: string, paths: string[]) {
@@ -39,14 +39,22 @@ export async function guestFolderChecks() {
   const directory = await mkdtemp(join(tmpdir(), "scope-guest-folders-"));
   const routes = join(directory, "routes.json");
   await writeFile(routes, "{}");
-  await syntheticCli(directory, "tailcat", guestCli);
+  const network = await guestNetworkFixture(directory);
   const env = {
-    PATH: directory + delimiter + process.env.PATH,
+    ...network.env,
     SCOPE_GUEST_FIXTURE_EVENTS: join(directory, "events.jsonl"),
     SCOPE_GUEST_FIXTURE_ROUTES: routes,
   };
-  const a = await desktopFixture({ hideInitialPrompts: true, env });
-  const b = await desktopFixture({ hideInitialPrompts: true, env });
+  const a = await desktopFixture({
+    hideInitialPrompts: true,
+    entry: network.entry,
+    env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.1" },
+  });
+  const b = await desktopFixture({
+    hideInitialPrompts: true,
+    entry: network.entry,
+    env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.2" },
+  });
   const ha = await spawnedHub(join(directory, "hub-a"));
   const hb = await spawnedHub(join(directory, "hub-b"));
   const hubProxy = await folderNetwork();
@@ -68,28 +76,18 @@ export async function guestFolderChecks() {
     await symlink(directory, join(root, "outside"));
   }
   async function pair() {
-    for (const page of [pageA, pageB]) {
-      for (const peer of (await page.evaluate(() => window.scope.transferDevices())).peers)
-        await page.evaluate((id) => window.scope.forgetScope(id), peer.id);
-    }
-    const invitation = await pageA.evaluate(() => window.scope.createPairing("Owner laptop"));
-    await pageA.evaluate((id) => window.scope.copyPairingSecret(id), invitation.id);
-    const secret = await left.evaluate(({ clipboard }) => clipboard.readText());
-    await pageB.evaluate((input) => window.scope.pairScope(input), {
-      url: invitation.url,
-      secret,
-      name: "Guest laptop",
-    });
-    const peer = (await pageA.evaluate(() => window.scope.transferDevices())).peers.at(-1)!;
-    for (const page of [pageA, pageB])
-      await page.evaluate((id) => window.scope.setGuestAccess(id, true), peer.id);
-    await pageA.evaluate((id) => window.scope.copyGuestLink(id), peer.id);
-    const link = await left.evaluate(({ clipboard }) => clipboard.readText());
-    const endpoint = JSON.parse(Buffer.from(link.split("#")[1]!, "base64url").toString()).endpoint;
-    peerProxy.target(endpoint.port);
-    await writeFile(routes, JSON.stringify({ [endpoint.port]: peerProxy.port }));
-    await right.evaluate(({ clipboard }, link) => clipboard.writeText(link), link);
-    await pageB.evaluate((id) => window.scope.connectGuestLink(id), peer.id);
+    const paired = await pairGuests(
+      left,
+      right,
+      pageA,
+      pageB,
+      ["Owner laptop", "Guest laptop"],
+      async (invitation) => {
+        peerProxy.target(invitation.endpoint.port);
+        await writeFile(routes, JSON.stringify({ [invitation.endpoint.port]: peerProxy.port }));
+      },
+    );
+    const peer = { id: paired.id };
     for (const page of [pageA, pageB])
       await expect
         .poll(
@@ -204,11 +202,14 @@ export async function guestFolderChecks() {
       await folderPane.getByLabel("New folder path", { exact: true }).fill("created");
       await folderPane.getByRole("button", { name: "Create", exact: true }).click();
       await expect.poll(() => readdir(root)).toContain("created");
+      await expect
+        .poll(() => page.evaluate((id) => window.scope.guestFolderRecovery(id), id))
+        .toBeUndefined();
 
       const upload = join(directory, "large-file.bin");
       await writeFile(upload, Buffer.alloc(33 * 1024 * 1024, 71));
       const plan = await prepare(page, id, [upload]);
-      expect(plan.status).toBe("ok");
+      expect(plan.status, JSON.stringify(plan)).toBe("ok");
       if (plan.status !== "ok") throw new Error(plan.message);
       if (page === pageB) hubProxy.pauseNextUpload(3000);
       const copying = page.evaluate(
@@ -518,9 +519,7 @@ export async function guestFolderChecks() {
       35_000,
     );
     await new Promise((resolve) => setTimeout(resolve, 200));
-    const currentPeer = (await pageA.evaluate(() => window.scope.transferDevices())).peers.at(
-      -1,
-    )!.id;
+    const currentPeer = (await pageA.evaluate(() => window.scope.guestDevices())).peers.at(-1)!.id;
     await pageA.evaluate((id) => window.scope.setGuestAccess(id, false), currentPeer);
     expect((await duringRevoke).status).toBe(0);
     await expect

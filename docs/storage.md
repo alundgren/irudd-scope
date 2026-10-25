@@ -32,21 +32,6 @@ never falls back to plaintext. This optional preference row does not change
 the desktop database schema version. Mac and Windows profiles are independent;
 Scope does not migrate or share them between platforms.
 
-Tab transfer stores local identity and peer metadata in the `transfer-device`
-and `scope-peers` preference rows in `desktop.db`. Pairing keys live in the
-profile's Keychain entry on macOS or encrypted Windows credential record,
-alongside provider and remote credentials. Linux and
-explicit session-credential profiles retain keys only in memory, so pairing
-lasts until that app closes. Forget removes the selected pairing key and
-preserves provider and hub credentials.
-
-The additive `transfer_receipts` table in `scope.db` stores source and invitation
-IDs, expiry, and imported metadata in the same transaction as copied bytes.
-Receipts survive removal of the copied tab to prevent recreation by retry.
-Maintenance reclaims receipts after expiry. Existing artifact and desktop rows
-are preserved; these additions do not change their formats. Source snapshots
-and request records stay in memory for at most fifteen minutes.
-
 On Unix, Scope creates database directories with mode `0700` and database files
 with mode `0600`. Windows uses the current user's profile directories and
 their Windows access permissions. Treat the whole profile and discovery file as private. Explicit
@@ -541,14 +526,31 @@ workspace and all other Scope content. Separately authored example-scene
 metadata belongs to its library item. Export refuses an existing output path
 and libraries above the 128 MiB export bound. There is no ZIP import.
 
-Guest connection consent and the reserved listener port use the `guest-settings`
-preference in `desktop.db`. Missing consent means disabled, including for existing
-transfer pairings. `guestKey` and `guestEndpoints` extend the existing credential
-document: Keychain on macOS, DPAPI-encrypted storage on Windows, and process memory
-on Linux development profiles. Peer endpoints contain a WireGuard preshared key
-and never appear in ordinary preferences. Forget removes that peer's endpoint;
-the local transport key remains available for other pairings. Session tokens and
-server challenges are memory-only and invalid after restart.
+Guest identity and peer display metadata use the `guest-device` and `guest-peers`
+preferences in `desktop.db`. Guest consent, the reserved listener port and local
+Tailscale address use `guest-settings`. Guest pair secrets and peer endpoints use
+`guestPairs` in the protected credential document. Protected storage succeeds
+before a peer record can be saved, and pairing leaves access disabled until both
+sides confirm consent and credential storage. At most 32 guest peers are retained.
+Forget removes only the selected guest credentials and peer metadata; provider
+keys, hub tokens, ordinary artifacts and guest recovery data remain intact.
+
+Invitations, attempts, challenges and session tokens are memory-only. Invitations
+expire after five minutes and admit one claimant. Session tokens are invalid after
+restart; compatible saved peers negotiate fresh sessions using the same identity,
+address and port. Changed endpoints require explicit fresh pairing. Session-only
+credential profiles require pairing again after restart.
+
+Cancelling an incomplete pair saves consent off and sets its protected confirmation
+to false, retaining the key, endpoint, peer metadata and recovery data until Forget.
+Success requires both writes. A failed cancellation stays retryable and must be
+resolved before restarting; it does not claim durable revocation when storage is
+unavailable. A stale enabled preference alone cannot authorize an unconfirmed pair.
+
+Protected credential reads discard obsolete pairing key and endpoint fields before
+strictly validating retained provider keys, hub tokens and current guest pairs.
+Reading leaves protected bytes unchanged. The next successful credential update
+writes retained fields only. Invalid retained credentials still fail explicitly.
 
 ## Guest references
 
@@ -567,8 +569,8 @@ keeps its last valid records after failed or incomplete refreshes. Restoring an
 older owner database can roll back its revision and requires resolving that
 mismatch before the receiver accepts it.
 
-Guest records and content never enter the receiver's `scope.db`, blob tables,
-retention records or transfer receipts. There is no persistent guest content
+Guest records and content never enter the receiver's `scope.db`, blob tables or
+retention records. There is no persistent guest content
 cache. Published bytes remain in the owner's `scope.db`; folder files remain on
 their existing filesystem. Credential storage remains separate from these
 metadata records. Exported guest downloads are ordinary user-selected files.

@@ -244,67 +244,6 @@ renames it only when every byte arrived. Remote saves read
 `GET /v1/relay/folders/read` without an end. Saves and drops report progress to
 the tab, can be cancelled, and stop when the tab closes.
 
-## Tab transfer
-
-`apps/desktop/src/transfer/` owns desktop pairing, temporary invitations,
-authentication, and transport cleanup. `packages/protocol/src/transfer.ts`
-defines the versioned invitation and portable artifact manifest. Desktop main
-exposes named IPC for Settings, Send, and Import. The renderer receives metadata
-and status, never saved pairing keys. Copying a generated secret uses a named
-main-process clipboard operation.
-
-Each pair has an independently generated random secret in the credential store
-and peer identity and name in `desktop.db`. Signed invitations bind the source,
-connection address, and fifteen-minute lifetime. Receivers verify signatures
-before connecting. AES-256-GCM messages use HKDF-derived directional keys,
-fresh nonces, and invitation-bound authenticated data. Responses identify the
-source and originating request. Repeated requests do not repeat mutations;
-live invitations bound accepted request counts.
-
-Tab transfer requires a user-installed Tailcat CLI on each desktop. Scope searches
-PATH, including native executables on Windows, and the standard Mac Homebrew locations, and reports a missing CLI when a
-transfer starts. Scope does not install, download, or bundle Tailcat.
-
-Desktop main runs a TypeScript transport supervisor using its existing runtime.
-The supervisor owns one loopback HTTP listener and a Tailcat process serving
-only that listener's port, with ephemeral keys. Version 2 invitations sign the
-port alongside the address and lifetime. Version 1 transfer links are rejected;
-both desktops must use version 2 links. Existing saved pairings remain valid.
-
-The supervisor stops Tailcat before releasing its HTTP port on cancellation,
-expiry, main-process disconnect, or CLI failure. Requests and responses have
-size limits, deadlines, and bounded concurrency. The target uses the CLI's
-loopback port forwarding and sends encrypted messages over HTTP. Pairing secrets
-and payloads never enter CLI arguments; the invitation's connection address does.
-Tailcat is experimental; its hosted relays can observe connection metadata and
-provide rate-limited service without uptime guarantees.
-
-Send freezes an ordinary artifact, including an Excalidraw file, as published.
-Sharing links and Scope-to-Scope pairings are created only in the desktop app.
-The receiver can give an agent a tab sharing link and authorize
-`irudd-scope import-link LINK`. The authenticated publication API exposes only
-`POST /v1/transfers/import` for this operation. Desktop main performs Inspect
-then Import without a renderer confirmation; pairing keys stay in the desktop credential store.
-The CLI uses normal receiver discovery or a connected paired hub. Imports are
-never queued, and the import request has a bounded five-minute deadline.
-Conversations, proposals, credentials, and agent sessions remain local. Inspect
-authenticates and retains the approved manifest in main. Import validates the
-download against that manifest and requests final source authorization.
-Authorization is serialized against Cancel and Forget. Cancel stops imports
-not yet authorized; closing or forgetting the source cannot retract previously
-authorized bytes.
-
-`library/transfer-import.ts` commits the new tab, artifact, bytes, and retry
-receipt together in `scope.db`. New local identities and omission of the
-original unique name prevent overwrites. Repeated imports return the existing
-copy. Removing that copy retains its receipt until expiry and prevents
-recreation. Explicit desktop Import or an authorized agent command precedes HTML execution under the existing trusted
-content behavior. Both apps must be online and awake. Invitations and snapshots
-exist only in memory, with no offline queue or continuing synchronization.
-Only ordinary file tabs transfer. Plans, PR inboxes, and retros are excluded;
-PR inboxes and retros keep additional records that are not in the portable
-manifest.
-
 ## Structured plans
 
 A named `plan` artifact stores one versioned JSON document in existing SQLite
@@ -555,7 +494,7 @@ Keychain. No app imports build-tool code at runtime.
 The root `install.ps1` builds and packages native Windows 11 x64. Windows keeps
 each app build immutable and selects it through `current`, `previous`, and
 `prepared` junctions. A stable per-user launcher selects the active build for
-the Start Menu and transfer protocol. The native CLI launcher and bundled skill
+the Start Menu. The native CLI launcher and bundled skill
 junctions select that same build. Activation changes these references without
 replacing an executing binary and restores them on failure. Windows credentials
 and desktop data remain in the independent Electron profile. Windows has no
@@ -921,28 +860,49 @@ invalidate clean editor state and visible picker reads without navigation.
 ## Guest peer connections
 
 `apps/desktop/src/guest/` owns explicit guest consent, authenticated peer sessions,
-reconnection and a dedicated peer HTTP listener. Transfer pairing remains in
-`transfer/`; enabling guests does not import tabs or grant access through the
-publishing API. `packages/protocol/src/guest.ts` defines validated handshakes and
-connection setup links. Named desktop IPC exposes status, consent, retry, and
-main-process clipboard setup operations.
+reconnection and a dedicated peer HTTP listener. Guest identity, peers, invitations
+and protected pair credentials belong to this module. Pairing grants no
+access through the publishing API. `packages/protocol/src/guest.ts` defines the
+validated guest contracts. Named desktop IPC exposes invitation review, consent,
+cancel, forget and retry; main owns clipboard invitation access.
 
-Each desktop retains a Tailcat key in its existing credential store and reserves
-one loopback port on first guest setup. Later starts reuse that port; a conflict
-reports an error instead of silently changing the saved endpoint. The transport
-supervisor uses transient private FIFOs on Unix and a protected named pipe made
-by Windows PowerShell on Windows. Keys never become regular files. The Windows
-pipe has a protected logon-session ACL, denies network access, and has a bounded
-lifetime tied to its supervisor. Tailcat's destination-free loopback SOCKS proxy
-receives peer addresses through SOCKS bytes, preserving the WireGuard PSK without
-placing it in process arguments. Scope still uses the separately installed CLI.
+Desktop-owned Tailscale discovery reads the installed CLI's status JSON and
+verifies the local IPv4 address against OS interfaces. The dedicated guest HTTP
+listener binds only that address and saves its port and address in desktop.db.
+Later starts reuse the port; missing interfaces and occupied ports fail explicitly.
+A changed local address requires explicitly forgetting the peer and pairing again.
+The shared guest endpoint contract permits only canonical IPv4 addresses in
+100.64.0.0/10 and a port. Before each direct HTTP request, the desktop verifies
+that the exact destination appears in Tailscale's peer records and binds the
+outgoing socket to its local Tailscale address. DNS destinations, URLs, redirects
+and publishing routes are rejected. Scope does not configure Serve, Funnel,
+ACLs or Tailscale installation. Pair authentication still supplies application
+consent; presence in the tailnet alone grants no guest access.
 
-A one-time signed setup link exchanges endpoints for an existing pairing. Both
-users explicitly enable guest sharing before the session can start. A fresh
-server challenge, paired secret, device IDs and runtime epochs authenticate the
-handshake. Session tokens stay in main-process memory. Disabling or forgetting
-revokes active requests and blocks new ones; reconnect negotiates a new session.
-Saved peer endpoints containing PSKs are credentials, not workspace metadata.
+One five-minute bearer invitation connects a fresh pair. The receiver reviews the
+issuer and approves; the issuer verifies the reciprocal endpoint, reviews the
+claimant and approves. HMAC proofs bind the complete invitation, both identities,
+both endpoints and one attempt. One active invitation per desktop, bounded requests
+and deadlines limit pending work. Creating an invitation alone grants no access.
+Protected credentials and peer metadata are saved before the completion exchange
+permits sessions. A failed or cancelled exchange keeps sharing disabled locally;
+partial pairs can be forgotten and paired again without deleting guest references.
+
+Cancellation aborts live requests immediately, then saves consent off and revokes
+the protected pair confirmation. It reports success only after both writes finish.
+A failed write leaves a visible cancellation failure with an explicit retry;
+starting another invitation or enabling the incomplete pair is blocked. Either
+persisted denial prevents restart authorization if the other write fails. If both
+stores are unavailable, access remains off in the current process and Scope asks
+the person to retry cancellation before restarting. Startup requires both saved
+consent and a confirmed protected pair. Late completion cannot restore live access.
+
+Fresh challenges, pair secrets, device IDs and runtime epochs authenticate each
+session. Tokens remain in main memory, with at most one incoming and one outgoing
+session for each of the 32 allowed peers. Requests retain their route deadlines,
+including long folder transfers. Restart invalidates every session.
+Disabling or forgetting cancels active requests and handshakes; reconnect obtains
+fresh sessions and catalogs. Saved endpoints cannot be changed by a session hello.
 
 Owner operations register explicit method/capability handlers with required idle
 and total deadlines in milliseconds. Headers have a ten-second limit and
@@ -960,7 +920,7 @@ The process-independent plugin registry explicitly allows ordinary files,
 structured plans and folders. Hidden bookmarked sources remain eligible.
 Built-ins, unsupported kinds, incomplete publications and trash do not appear.
 Guest references have their own desktop preferences records and cannot become
-local artifacts or transfer sources.
+local artifacts.
 
 Catalog replies are complete snapshots with increasing persisted revisions.
 A bounded long poll returns the next snapshot or the current snapshot after

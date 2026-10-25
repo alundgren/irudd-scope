@@ -1,3 +1,4 @@
+import { pairGuests } from "./guest-pairing-fixture.ts";
 import { guestCloseLocalState } from "./guest-close-local-state.ts";
 import { guestCloseFailureChecks, guestWorkspaceChecks } from "./guest-workspace-checks.ts";
 import { spawnedHub } from "./hub-fixture.ts";
@@ -406,7 +407,6 @@ export async function guestCatalogChecks({
             .get()?.n,
         ).toBe(0);
         expect(receiver.prepare("SELECT count(*) AS n FROM artifacts").get()?.n).toBe(1);
-        expect(receiver.prepare("SELECT count(*) AS n FROM transfer_receipts").get()?.n).toBe(0);
       } finally {
         receiver.close();
       }
@@ -697,21 +697,7 @@ export async function guestCatalogChecks({
       );
       expect((await (await b.connect()).list()).map((item) => item.id)).toEqual(["same-id"]);
       // Linux credentials are session-only. Pair again explicitly, then restore the saved reader.
-      const invitation = await pageA.evaluate(() => window.scope.createPairing("Source Scope"));
-      await pageA.evaluate((id) => window.scope.copyPairingSecret(id), invitation.id);
-      const secret = await left.evaluate(({ clipboard }) => clipboard.readText());
-      await page.evaluate((input) => window.scope.pairScope(input), {
-        url: invitation.url,
-        secret,
-        name: "Guest Scope",
-      });
-      const peer = (await page.evaluate(() => window.scope.transferDevices())).peers[0]!.id;
-      await pageA.evaluate((id) => window.scope.setGuestAccess(id, true), peer);
-      await page.evaluate((id) => window.scope.setGuestAccess(id, true), peer);
-      await pageA.evaluate((id) => window.scope.copyGuestLink(id), peer);
-      const link = await left.evaluate(({ clipboard }) => clipboard.readText());
-      await restartedApp.evaluate(({ clipboard }, link) => clipboard.writeText(link), link);
-      await page.evaluate((id) => window.scope.connectGuestLink(id), peer);
+      await pairGuests(left, restartedApp, pageA, page, ["Source Scope", "Guest Scope"]);
       await expect
         .poll(
           async () =>
@@ -740,14 +726,14 @@ export async function guestCatalogChecks({
         .waitFor();
       await capture("guest-owner-unavailable.png");
       await select(guestId);
-      const peer = (await pageB.evaluate(() => window.scope.transferDevices())).peers[0]!.id;
+      const peer = (await pageB.evaluate(() => window.scope.guestDevices())).peers[0]!.id;
       await pageB.evaluate((id) => window.scope.setGuestAccess(id, false), peer);
       await pageB
         .locator(`#pane-${guestId}`)
         .getByText(/Guest sharing with Source Scope is off on this Scope/)
         .waitFor();
       await capture("workspace-disabled-dark-narrow.png");
-      await pageB.evaluate((id) => window.scope.forgetScope(id), peer);
+      await pageB.evaluate((id) => window.scope.forgetGuest(id), peer);
       await pageB
         .locator(`#pane-${guestId}`)
         .getByText(/This owner is no longer paired/)

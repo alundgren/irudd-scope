@@ -16,10 +16,6 @@ export default defineConfig({
       name: "local-excalidraw-fonts",
       closeBundle: async () => {
         await cp(
-          resolve(directory, "src/guest/key-pipe.ps1"),
-          resolve(directory, "dist/key-pipe.ps1"),
-        );
-        await cp(
           resolve(directory, "node_modules/@excalidraw/excalidraw/dist/prod/fonts"),
           resolve(directory, "dist/renderer/fonts"),
           { recursive: true },
@@ -53,24 +49,6 @@ export default defineConfig({
       target: "node24",
       platform: "node",
       deps: { alwaysBundle: [/.*/] },
-      outExtensions: () => ({ js: ".mjs" }),
-    },
-    {
-      entry: { "cli-process": "src/transfer/cli-process.ts" },
-      outDir: "dist",
-      clean: false,
-      format: "esm",
-      target: "node24",
-      platform: "node",
-      outExtensions: () => ({ js: ".mjs" }),
-    },
-    {
-      entry: { "guest-process": "src/guest/process.ts" },
-      outDir: "dist",
-      clean: false,
-      format: "esm",
-      target: "node24",
-      platform: "node",
       outExtensions: () => ({ js: ".mjs" }),
     },
     {

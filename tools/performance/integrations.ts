@@ -3,7 +3,6 @@ import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Session, check, until } from "./session.ts";
 import { pressureHub } from "../../tests/pressure-fixture.ts";
-import { transferFixture } from "../../tests/transfer-fixture.ts";
 import type { Fixtures } from "./artifacts.ts";
 import { desktopFixture } from "../../tests/desktop-fixture.ts";
 import { rows } from "./report.ts";
@@ -67,41 +66,6 @@ export async function relay(s: Session, hub: Awaited<ReturnType<typeof pressureH
     "measured",
     "Real paired hub, explicit offline queue and reconnect delivery to visible Electron viewer; local loopback only",
   );
-}
-export async function transfer(s: Session) {
-  s.feature = "transfer.service";
-  const f = await transferFixture();
-  try {
-    const published = await f.publish();
-    await s.run("pair-send-import-retry", "integration", async () => {
-      const { peerId } = await f.pair();
-      const invitation = await f.source.service.send({ tabId: published.tab.id, peerId });
-      check(
-        (await f.target.service.inspect(invitation.url)).title === "Fixture tab",
-        "Transfer metadata mismatch",
-      );
-      const result = await f.target.service.import(invitation.url);
-      check(
-        Buffer.from(await f.target.artifacts.content(result.artifact.blob)).equals(published.bytes),
-        "Transferred bytes mismatch",
-      );
-      check(
-        (await f.target.service.import(invitation.url)).alreadyImported,
-        "Transfer retry duplicated tab",
-      );
-      check(
-        f.source.service.status(invitation.id).state === "delivered",
-        "Transfer receipt not delivered",
-      );
-    });
-    s.status(
-      s.feature,
-      "measured",
-      "Real transfer services, crypto, SQLite and retry receipts; synthetic in-process transport. Native Tailcat and transfer UI are unmeasured.",
-    );
-  } finally {
-    await f.close();
-  }
 }
 export async function settings(s: Session) {
   s.feature = "settings";
@@ -357,65 +321,5 @@ export async function legacyRecovery(s: Session, f: Fixtures) {
   } finally {
     await legacy.close();
     if (!s.stopping) await s.launch();
-  }
-}
-
-export async function transferRenderer(s: Session) {
-  s.feature = "transfer.renderer";
-  const f = await transferFixture();
-  try {
-    const published = await f.publish();
-    const { peerId } = await f.pair();
-    const invitation = await f.source.service.send({ tabId: published.tab.id, peerId });
-    await s.application.evaluate(
-      ({ ipcMain }, { invitation, peerId }) => {
-        const devices = {
-          deviceId: "11111111-1111-4111-8111-111111111111",
-          name: "Synthetic sender",
-          credentialStorage: "session",
-          peers: [
-            {
-              id: peerId,
-              deviceId: "22222222-2222-4222-8222-222222222222",
-              name: "Synthetic receiver",
-              createdAt: Date.now(),
-            },
-          ],
-        };
-        const handlers = {
-          "transfer-devices": () => devices,
-          "send-tab": () => invitation,
-          "transfer-status": () => invitation,
-          "cancel-transfer": () => {
-            invitation.state = "cancelled";
-          },
-        };
-        for (const [name, handler] of Object.entries(handlers)) {
-          ipcMain.removeHandler(`scope:${name}`);
-          ipcMain.handle(`scope:${name}`, handler);
-        }
-      },
-      { invitation, peerId },
-    );
-    await s.run("send-link-qr-cancel", "interaction", async () => {
-      await s.open("Performance text");
-      await s.page.getByRole("button", { name: "Search and controls" }).click();
-      await s.page.getByRole("button", { name: "Send tab", exact: true }).click();
-      await s.page.getByRole("button", { name: "Create transfer link", exact: true }).click();
-      await s.page.getByRole("img", { name: "Transfer QR code" }).waitFor();
-      check(
-        (await s.page.getByLabel("Transfer link", { exact: true }).inputValue()) === invitation.url,
-        "Transfer UI changed link",
-      );
-      await s.page.getByRole("button", { name: "Cancel transfer", exact: true }).click();
-      await s.page.getByRole("tabpanel", { name: "Performance text" }).locator("pre").waitFor();
-    });
-    s.status(
-      s.feature,
-      "measured",
-      "Real send-link QR/cancel UI fed by synthetic IPC responses using a real service-generated invitation. Native transport and renderer import flow unmeasured.",
-    );
-  } finally {
-    await f.close();
   }
 }

@@ -249,34 +249,6 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
       "apps/desktop/src/workspace/retention.ts",
     ],
   },
-  "tests/tab-transfer.test.ts": {
-    tests: 10,
-    imports: ["apps/desktop/src/library/store.ts", "apps/desktop/src/transfer/crypto.ts"],
-  },
-  "tests/transfer-fixture.ts": {
-    imports: [
-      "apps/desktop/src/credentials.ts",
-      "apps/desktop/src/desktop-store.ts",
-      "apps/desktop/src/library/store.ts",
-      "apps/desktop/src/lifecycle.ts",
-      "apps/desktop/src/transfer/service.ts",
-      "apps/desktop/src/transfer/transport.ts",
-    ],
-  },
-  "tests/transfer-link-import.test.ts": {
-    tests: 2,
-    imports: [
-      "apps/desktop/src/library/server.ts",
-      "apps/desktop/src/remotes.ts",
-      "apps/hub/src/paired-server.ts",
-      "apps/hub/src/server.ts",
-      "apps/hub/src/state.ts",
-    ],
-  },
-  "tests/transfer-transport.test.ts": {
-    tests: 1,
-    imports: ["apps/desktop/src/transfer/transport.ts"],
-  },
   "tests/voice.test.ts": {
     tests: 6,
     imports: [
