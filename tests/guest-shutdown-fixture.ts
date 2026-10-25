@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 import { guestNetworkFixture } from "./guest-network-fixture.ts";
+import { guestShutdownFailure } from "./guest-shutdown-error-fixture.ts";
 
 export async function guestShutdownChecks() {
   const directory = await mkdtemp(join(tmpdir(), "scope-guest-shutdown-"));
@@ -76,6 +77,7 @@ export async function guestShutdownChecks() {
     )
       .getByRole("tab", { name: "Prompts", exact: true })
       .waitFor();
+    await guestShutdownFailure(application, fixture.settingsDirectory);
   } finally {
     await application.close();
     await Promise.all(

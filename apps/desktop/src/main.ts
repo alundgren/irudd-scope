@@ -279,30 +279,49 @@ async function main() {
         }
       }
     }
+    let executable: string | undefined;
     if (restart) {
       try {
-        const executable = await updates.activate();
-        app.relaunch({ execPath: executable, args: [] });
+        executable = await updates.activate();
       } catch (error) {
         closing = false;
         await desktopIpc.resumePending();
         throw error;
       }
     }
-    await Promise.all([updates.cancel(), agentTools.cancel()]);
-    desktopIpc.dispose();
-    externalLinks.dispose();
-    library.close();
-    await guestMutations?.close();
-    await guestCatalogs.close();
-    await guests.close();
-    await remotes.close();
-    await librarian?.close();
-    await memory?.close();
-    await voice.close();
-    await Promise.all([artifacts.close(), store.close()]);
-    closed = true;
-    app.quit();
+    try {
+      await Promise.all([updates.cancel(), agentTools.cancel()]);
+      desktopIpc.dispose();
+      externalLinks.dispose();
+      library.close();
+      await guestMutations?.close();
+      await guestCatalogs.close();
+      await guests.close();
+      await remotes.close();
+      await librarian?.close();
+      await memory?.close();
+      await voice.close();
+      await Promise.all([artifacts.close(), store.close()]);
+      closed = true;
+      if (executable) app.relaunch({ execPath: executable, args: [] });
+      app.quit();
+    } catch {
+      console.error("Scope could not finish shutting down.");
+      try {
+        await dialog.showMessageBox(window, {
+          type: "error",
+          message: "Scope could not finish closing.",
+          detail: restart
+            ? "Scope will quit without restarting. Reopen it to continue."
+            : "Scope will quit. Reopen it to continue.",
+          buttons: ["Quit Scope"],
+          defaultId: 0,
+          cancelId: 0,
+        });
+      } finally {
+        app.exit(1);
+      }
+    }
   }
   function requestClose(event: { preventDefault: () => void }) {
     if (closed) return;
