@@ -451,6 +451,24 @@ test(
       await expect(activateWindowsBuild(f.root, next)).rejects.toThrow("timed out");
       expect(calls.mock.calls.map((call) => call[1].at(-1))).toEqual(["apply", "restore"]);
       expect(await readFile(registration, "utf8")).toBe("Previous registration");
+      const powershell =
+        process.env.SCOPE_TEST_POWERSHELL ??
+        (process.platform === "win32" ? installationProcess.windowsPowerShell() : undefined);
+      if (powershell) {
+        const result = await exec(powershell, [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          resolve("tests/windows-integration-fixture.ps1"),
+          "-Integration",
+          resolve("tools/windows-integration.ps1"),
+          "-Directory",
+          f.directory,
+        ]);
+        expect(result.stdout).toContain("Windows integration fixture passed:");
+      }
       expect(await readlink(join(f.root, "current"))).toBe(f.first);
       await expect(lstat(join(f.root, "previous"))).rejects.toMatchObject({ code: "ENOENT" });
     } finally {

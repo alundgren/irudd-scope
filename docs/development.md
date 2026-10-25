@@ -184,6 +184,12 @@ vp run test tests/artifacts.test.ts
 
 The test runner supplies the display environment for Electron. A test that
 does not use Electron can also run directly with `vp test run tests/artifact-storage.test.ts`.
+The Windows installation test executes its isolated PowerShell registry fixture
+on Windows. On other platforms, set `SCOPE_TEST_POWERSHELL` to a PowerShell
+executable to include it in `vp run test tests/windows-installation.test.ts`.
+The fixture intercepts registry, shortcut, and launcher operations; it does not
+change the host's registrations.
+
 Passing Linux tests does not establish Mac signing, native Keychain access,
 Windows installation, DPAPI access, or live OpenRouter behavior. Validate those separately on their real platform
 when changing the relevant integration. `vp run check:credentials` verifies the
@@ -449,6 +455,10 @@ version pinned in Scope's workspace catalog.
 
 `SCOPE_INSTALL_ROOT` can select another absolute local installation directory.
 The installer creates the per-user Start Menu shortcut against the stable launcher.
+Activation also removes the retired `scope-transfer` URL registration when its
+open command points to this installation's stable launcher. Other registrations
+remain untouched. Failed activation restores the removed registration from its
+backup along with the shortcut.
 App updates prepare a separate build, then **Restart to update** flushes pending saves and selects
 that build. Activation keeps the running executable in its original directory
 and restores the previous selection if it fails. Desktop launching, the CLI,
