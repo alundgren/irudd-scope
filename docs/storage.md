@@ -541,19 +541,26 @@ workspace and all other Scope content. Separately authored example-scene
 metadata belongs to its library item. Export refuses an existing output path
 and libraries above the 128 MiB export bound. There is no ZIP import.
 
-Guest connection consent, the reserved listener port and the discovered local
-Tailscale address use the `guest-settings` preference in `desktop.db`. Missing
-consent means disabled, including for existing transfer pairings. `guestEndpoints`
-retains paired IPv4 addresses and ports in the existing protected credential
-document. Forget removes that peer's endpoint. Session tokens and server
-challenges are memory-only and invalid after restart. If the local address
-changes, automatic connection fails until the person copies and exchanges new
-guest connection links. Guest endpoint formats from earlier unreleased builds
-are unsupported; fresh guest setup is required. Credential reads discard the
-retired guest transport key and unusable guest endpoints while preserving and
-validating provider keys, hub tokens and pairing keys. Reading leaves the
-protected record unchanged; the next credential update writes only retained
-fields.
+Guest identity and peer display metadata use the `guest-device` and `guest-peers`
+preferences in `desktop.db`. Guest consent, the reserved listener port and local
+Tailscale address use `guest-settings`. Guest pair secrets and peer endpoints use
+`guestPairs` in the protected credential document. Protected storage succeeds
+before a peer record can be saved, and pairing leaves access disabled until both
+sides confirm consent and credential storage. At most 32 guest peers are retained.
+Forget removes only the selected guest credentials and peer metadata; provider
+keys, hub tokens, ordinary artifacts and guest recovery data remain intact.
+
+Invitations, attempts, challenges and session tokens are memory-only. Invitations
+expire after five minutes and admit one claimant. Session tokens are invalid after
+restart; compatible saved peers negotiate fresh sessions using the same identity,
+address and port. Changed endpoints require explicit fresh pairing. Session-only
+credential profiles require pairing again after restart.
+
+There is no conversion of earlier guest or casting pairs. Protected credential
+reads discard obsolete guest-only key and endpoint fields before strictly
+validating retained provider keys, hub tokens, casting keys and current guest pairs.
+Reading leaves protected bytes unchanged. The next successful credential update
+writes retained fields only. Invalid retained credentials still fail explicitly.
 
 ## Guest references
 

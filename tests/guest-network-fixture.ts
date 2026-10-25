@@ -46,7 +46,15 @@ http.request = function(...args) {
     if (process.env.SCOPE_GUEST_FIXTURE_EVENTS) fs.appendFileSync(process.env.SCOPE_GUEST_FIXTURE_EVENTS, JSON.stringify({ kind: options.path, port })+'\\n');
     args[0] = { ...options, host: '127.0.0.1', localAddress: '127.0.0.1', port: routes[port] ?? port };
   }
-  return request.apply(this, args);
+  const pending = request.apply(this, args);
+  if (options?.path === '/guest/pair-claim') {
+    const end = pending.end;
+    pending.end = function(body, ...rest) {
+      globalThis.scopeGuestClaim = JSON.parse(Buffer.from(body).toString()).claim;
+      return end.call(this, body, ...rest);
+    };
+  }
+  return pending;
 };
 require('node:module').syncBuiltinESMExports();
 import(${JSON.stringify(pathToFileURL(resolve("apps/desktop/dist/main.mjs")).href)});

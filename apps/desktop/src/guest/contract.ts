@@ -1,9 +1,14 @@
 import { Schema } from "effect";
-import { GuestAddress, GuestSource } from "@irudd-scope/protocol/guest";
+import {
+  GuestAddress,
+  GuestSource,
+  GuestId,
+  type GuestDevice,
+  type GuestPeer,
+} from "@irudd-scope/protocol/guest";
 import { Tab } from "../workspace/contract.ts";
-import { TransferId } from "@irudd-scope/protocol/transfer";
 
-export const GuestAccess = Schema.Struct({ peerId: TransferId, enabled: Schema.Boolean });
+export const GuestAccess = Schema.Struct({ peerId: GuestId, enabled: Schema.Boolean });
 export type GuestPeerStatus = {
   peerId: string;
   enabled: boolean;
@@ -31,7 +36,7 @@ export type GuestSettings = typeof GuestSettings.Type;
 
 export const GuestTabState = Schema.Struct({ version: Schema.Literal(1), data: Schema.JsonObject });
 export const GuestRecord = Schema.Struct({
-  ownerDeviceId: TransferId,
+  ownerDeviceId: GuestId,
   source: GuestSource,
   tab: Tab,
 });
@@ -46,4 +51,25 @@ export type GuestCatalogView = {
     message?: string;
   }[];
   available: readonly string[];
+};
+
+export type GuestDevices = GuestDevice & {
+  peers: GuestPeer[];
+  credentialStorage: GuestStatus["credentialStorage"];
+};
+export type GuestPairingStatus = {
+  id: string;
+  direction: "invite" | "join";
+  state:
+    | "waiting"
+    | "review"
+    | "pending"
+    | "saving"
+    | "complete"
+    | "cancelled"
+    | "expired"
+    | "failed";
+  peerName?: string;
+  expiresAt: number;
+  message?: string;
 };

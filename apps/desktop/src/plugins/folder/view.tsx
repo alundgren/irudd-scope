@@ -3,7 +3,7 @@ import { Copy } from "lucide-react";
 import { decode } from "@irudd-scope/protocol";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { useRemotes } from "../../renderer/remote-names.ts";
-import { transferError } from "../../renderer/transfer-invitation.tsx";
+import { operationError } from "../../renderer/operation-error.ts";
 import type { TabContext } from "../api.ts";
 import type { Tab } from "../../workspace/contract.ts";
 import { FolderTabState, folderTabState, folderAncestors, type FolderTabData } from "./contract.ts";
@@ -262,7 +262,7 @@ export function FolderView({
                   setDirectory(undefined);
                   void load([""]);
                 },
-                (error) => setDirectoryError(transferError(error)),
+                (error) => setDirectoryError(operationError(error)),
               )
               .finally(() => setDirectoryBusy(false));
           }}

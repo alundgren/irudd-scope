@@ -978,13 +978,30 @@ text and handle revision conflicts explicitly. Agent commands never navigate
 the selected desktop tab. Paired hubs forward these routes only while the
 desktop is connected; prompt commands and exports are never queued offline.
 
-Guest connections use the versioned schemas in `src/guest.ts`: signed setup links,
+Guest connections use the versioned schemas in `src/guest.ts`: one-use invitations,
 fresh server challenges, paired device proofs, and session capability replies.
 Endpoints contain a canonical Tailscale IPv4 address in 100.64.0.0/10 and a
 port from 1 through 65535. They stay in protected desktop storage. Desktop
 discovery validates the exact address against current Tailscale peer records
 before opening a direct HTTP connection; redirects and DNS names are rejected. The peer listener exposes only registered owner operations; these
 contracts do not grant publishing or arbitrary desktop IPC access.
+
+## Guest pairing
+
+Guest protocol version 2 owns device IDs, peer names, one-use invitations and pair
+credentials. A `scope-guest://v2/` invitation contains the issuing device, its
+validated tailnet endpoint, a five-minute expiry and a random bearer secret.
+Desktop main copies and reads it. It is not a publishing or browser credential.
+
+The receiver reviews and consents before claiming. The issuer verifies the
+receiver endpoint and obtains its own named consent. HMAC-authenticated claim,
+verification, status and commit requests bind the invitation and exact attempt.
+Both peers protect their credentials before enabling sessions. Expired, cancelled,
+forged or differently claimed invitations fail. Incomplete pairing requires
+explicit repair; it cannot silently authorize access or replay an owner write.
+Saved peers reconnect with fresh challenges and bounded sessions. Session hellos
+must match saved endpoints. Older guest setup links and casting pairs are not
+converted.
 
 ## Guest catalogs
 

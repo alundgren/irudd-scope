@@ -1,3 +1,4 @@
+import type { GuestDevices, GuestPairingStatus } from "./guest/contract.ts";
 import type {
   GuestFolderRecoveryView,
   GuestFolderRelease,
@@ -208,8 +209,14 @@ export type ScopeBridge = {
   guestStatus: () => Promise<GuestStatus>;
   setGuestAccess: (peerId: string, enabled: boolean) => Promise<void>;
   retryGuest: (peerId: string) => Promise<void>;
-  copyGuestLink: (peerId: string) => Promise<void>;
-  connectGuestLink: (peerId: string) => Promise<void>;
+  guestDevices: () => Promise<GuestDevices>;
+  createGuestInvitation: (name: string) => Promise<GuestPairingStatus>;
+  copyGuestInvitation: (id: string) => Promise<void>;
+  inspectGuestInvitation: (name: string) => Promise<GuestPairingStatus>;
+  approveGuestPairing: (id: string) => Promise<void>;
+  cancelGuestPairing: (id: string) => Promise<void>;
+  guestPairingStatus: () => Promise<GuestPairingStatus | undefined>;
+  forgetGuest: (id: string) => Promise<void>;
   transferDevices: () => Promise<TransferDevices>;
   createPairing: (name: string) => Promise<TransferStatus>;
   copyPairingSecret: (id: string) => Promise<void>;

@@ -106,13 +106,13 @@ export class GuestNetwork {
       validated = decode(GuestEndpoint, endpoint);
     } catch {
       throw new GuestNetworkError(
-        "Invalid guest destination. Copy a new connection link from the paired Scope.",
+        "Invalid guest destination. Create a new guest invitation in Other Scopes.",
       );
     }
     const network = await this.discover(signal);
     if (validated.address === network.address || !network.peers.has(validated.address))
       throw new GuestNetworkError(
-        "Invalid guest destination: this address is not a Tailscale peer. Copy a new connection link from the paired Scope.",
+        "Invalid guest destination: this address is not a Tailscale peer. Create a new guest invitation in Other Scopes.",
       );
     return { endpoint: validated, localAddress: network.address };
   }

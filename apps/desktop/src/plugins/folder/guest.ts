@@ -106,7 +106,7 @@ export class GuestFolders {
       : remoteFolderSource(this.context.remotes, identity);
   }
   private async current(target: GuestTarget, version: number) {
-    if (target.ownerDeviceId !== (await this.context.store.transferDevice()).deviceId)
+    if (target.ownerDeviceId !== (await this.context.store.guestDevice()).deviceId)
       throw new Error("Wrong folder owner.");
     const source = await this.context.guestCatalogs.resolveSource(target.sourceTabId);
     if (source.kind !== "folder" || source.sourceVersion !== version)
@@ -135,7 +135,7 @@ export class GuestFolders {
     try {
       if (route === "status") {
         const status = metadata(GuestFolderStatus, request);
-        if (status.target.ownerDeviceId !== (await this.context.store.transferDevice()).deviceId)
+        if (status.target.ownerDeviceId !== (await this.context.store.guestDevice()).deviceId)
           throw new Error("Wrong folder owner.");
         const binding = await this.context.store.guestRecovery.folderBinding(
           peer.deviceId,
@@ -389,7 +389,7 @@ export class GuestFolders {
     body?: Readable,
   ) {
     try {
-      const peer = (await this.context.store.scopePeers()).find(
+      const peer = (await this.context.store.guestPeers()).find(
         (peer) => peer.deviceId === target.ownerDeviceId,
       );
       if (!peer) throw new RemoteUnavailableError("The owner is no longer paired.");

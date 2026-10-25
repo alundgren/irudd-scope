@@ -1,3 +1,4 @@
+import { GuestId, GuestName } from "@irudd-scope/protocol/guest";
 import type { GuestMutations } from "./guest/mutations.ts";
 import { GuestInput } from "./guest/recovery-contract.ts";
 import type { GuestCatalogs } from "./guest/catalog.ts";
@@ -245,7 +246,6 @@ export function registerDesktopIpc({
   handle("scope:pair-scope", (input) => transfers.pair(input));
   handle("scope:forget-scope", async (input) => {
     const id = decode(TransferId, input);
-    await guests.forget(id);
     await transfers.forget(id);
   });
   handle("scope:guest-prepare", (input) => guestMutations.command("prepare", input));
@@ -282,13 +282,21 @@ export function registerDesktopIpc({
     const value = decode(GuestAccess, input);
     return guests.setEnabled(value.peerId, value.enabled);
   });
-  handle("scope:retry-guest", (input) => guests.reconnect(decode(TransferId, input)));
-  handle("scope:copy-guest-link", async (input) =>
-    clipboard.writeText(await guests.connectionLink(decode(TransferId, input))),
+  handle("scope:retry-guest", (input) => guests.reconnect(decode(GuestId, input)));
+  handle("scope:guest-devices", () => guests.devices());
+  handle("scope:create-guest-invitation", (input) =>
+    guests.pairing.create(decode(GuestName, input)),
   );
-  handle("scope:connect-guest-link", async (input) =>
-    guests.connectLink(decode(TransferId, input), await clipboard.readText()),
+  handle("scope:copy-guest-invitation", async (input) =>
+    clipboard.writeText(guests.pairing.invitation(decode(GuestId, input))),
   );
+  handle("scope:inspect-guest-invitation", async (input) =>
+    guests.pairing.inspect(await clipboard.readText(), decode(GuestName, input)),
+  );
+  handle("scope:approve-guest-pairing", (input) => guests.pairing.approve(decode(GuestId, input)));
+  handle("scope:cancel-guest-pairing", (input) => guests.cancelPairing(decode(GuestId, input)));
+  handle("scope:guest-pairing-status", () => guests.pairing.status());
+  handle("scope:forget-guest", (input) => guests.forget(decode(GuestId, input)));
   handle("scope:send-tab", (input) => transfers.send(input));
   handle("scope:transfer-status", (input) => transfers.status(decode(TransferId, input)));
   handle("scope:cancel-transfer", (input) => transfers.cancel(decode(TransferId, input)));

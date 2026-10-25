@@ -1,17 +1,22 @@
 # UI decisions
 
-Other Scopes enables guest sharing separately for each paired desktop. Existing
-pairs remain transfer-only until both sides consent. Setup uses a fifteen-minute
-guest connection link copied and read by main, so endpoint details do not
-appear in renderer state. After the initial exchange, saved connections retry
-automatically on startup, wake and outages. Status distinguishes setup, offline,
-connected and incompatible versions. Disable revokes guests while preserving
-transfer pairing; Forget removes the pairing too. A saved listener port conflict
-asks the user to close the conflicting app and retry. Guest sharing uses the
-installed Tailscale network. Missing local interfaces, invalid peer destinations
-and denied connections have separate errors. A changed local address requires
-copying and exchanging new guest connection links; retry never changes the saved
-address silently.
+Other Scopes pairs guest desktops through one five-minute, one-use invitation.
+Main copies and reads the invitation through the clipboard; secrets and endpoints
+never appear in renderer state. The receiving person reviews the named Scope and
+allows sharing, then the issuer reviews the requesting Scope and approves.
+Both endpoints are verified and both sides protect their pair credentials before
+access begins. Cancel and expiry leave access off. Partial pairing reports a
+failure and asks the person to forget any incomplete pair before starting again.
+Guest pairing uses the installed Tailscale network and is independent of tab copying.
+
+Saved compatible pairs retry automatically on startup, wake and outages without
+another invitation. Status distinguishes setup, offline, denied access, connected
+and incompatible versions. Disable revokes guest requests and sessions; Forget
+removes guest credentials while preserving local references and recovery input.
+A saved listener port conflict asks the person to close the conflicting app and
+retry. Missing local interfaces, invalid destinations and denied connections have
+separate errors. Changed endpoints require forgetting the peer and pairing again;
+retry never silently changes the saved endpoint.
 
 Eligible owner tabs appear automatically after guest sharing connects, including
 hidden bookmarked files, plans and folders. A guest names its owner above the

@@ -111,7 +111,7 @@ export class GuestCatalogs {
   private async publish() {
     const generation = ++this.viewGeneration;
     const records = await this.desktop.guestRecords();
-    const peers = await this.desktop.scopePeers();
+    const peers = await this.desktop.guestPeers();
     for (const owner of this.available.keys()) {
       const peer = peers.find((peer) => peer.deviceId === owner);
       try {
@@ -144,7 +144,7 @@ export class GuestCatalogs {
         this.closed.signal.throwIfAborted();
         const generation = this.generation;
         const sources = await this.artifacts.guestSources();
-        const ownerDeviceId = (await this.desktop.transferDevice()).deviceId;
+        const ownerDeviceId = (await this.desktop.guestDevice()).deviceId;
         const revision = await this.desktop.guestCatalogRevision(sources);
         if (generation !== this.generation) continue;
         const catalog = decode(GuestCatalog, { version: 1, ownerDeviceId, revision, sources });
@@ -244,7 +244,7 @@ export class GuestCatalogs {
     if (this.ticking || this.closed.signal.aborted) return;
     this.ticking = true;
     try {
-      const peers = await this.desktop.scopePeers();
+      const peers = await this.desktop.guestPeers();
       const status = await this.connections.status();
       for (const peer of peers) {
         const state = status.peers.find((state) => state.peerId === peer.id);
@@ -380,7 +380,7 @@ export class GuestCatalogs {
       throw new Error("Update Scope to open this guest tab type.");
     if (artifact.revision !== revision)
       throw new Error("This source changed. Refresh the guest tab.");
-    const peer = (await this.desktop.scopePeers()).find(
+    const peer = (await this.desktop.guestPeers()).find(
       (peer) => peer.deviceId === record.ownerDeviceId,
     );
     if (!peer) throw new Error("The owner is no longer paired.");

@@ -124,17 +124,33 @@ test(
     const second = new DesktopStore(directory, credentials);
     try {
       await first.load();
-      const device = await first.transferDevice("Private Mac");
-      await first.saveScopePeer(peer, secret);
-      await first.saveGuestEndpoint(peer.id, { address: "100.64.0.2", port: 41234 });
+      const device = await first.guestDevice("Private Mac");
+      const failure = vi
+        .spyOn(credentials, "write")
+        .mockRejectedValueOnce(new Error("Synthetic protection failure"));
+      await expect(
+        first.saveGuestPeer(peer, secret, { address: "100.64.0.2", port: 41234 }),
+      ).rejects.toThrow("protection failure");
+      expect(await first.guestPeers()).toEqual([]);
+      expect(await first.guestKey(peer.id)).toBeUndefined();
+      failure.mockRestore();
+      await first.saveGuestPeer(peer, secret, { address: "100.64.0.2", port: 41234 });
+      await expect(
+        first.saveGuestPeer({ ...peer, deviceId: randomUUID() }, secret, {
+          address: "100.64.0.2",
+          port: 41234,
+        }),
+      ).rejects.toThrow("conflicts");
+      expect(await first.guestPeers()).toEqual([peer]);
+      await first.confirmGuestPeer(peer.id);
       await first.updateGuestSettings({ peerId: peer.id, enabled: true });
       await first.updateGuestSettings({ port: 41235, address: "100.64.0.1" });
       await first.saveSettings({ apiKey: "synthetic-provider-key" });
       await first.close();
       await second.load();
-      expect(await second.transferDevice()).toEqual(device);
-      expect(await second.scopePeers()).toEqual([peer]);
-      expect(await second.transferKey(peer.id)).toBe(secret);
+      expect(await second.guestDevice()).toEqual(device);
+      expect(await second.guestPeers()).toEqual([peer]);
+      expect(await second.guestKey(peer.id)).toBe(secret);
       expect(await second.guestEndpoint(peer.id)).toEqual({
         address: "100.64.0.2",
         port: 41234,
@@ -144,12 +160,11 @@ test(
         port: 41235,
         address: "100.64.0.1",
       });
-      await second.removeScopePeer(peer.id);
-      expect(await second.scopePeers()).toEqual([]);
+      await second.removeGuestPeer(peer.id);
+      expect(await second.guestPeers()).toEqual([]);
       expect(await credentials.read()).toEqual({
         apiKey: "synthetic-provider-key",
-        guestEndpoints: {},
-        transferKeys: {},
+        guestPairs: {},
       });
     } finally {
       await second.close();
@@ -171,6 +186,7 @@ test.for(['{"apiKey":"synthetic-key"', '{"apiKey":42}', "null"])(
       { apiKey: 42 },
       { remoteTokens: { hub: 42 } },
       { transferKeys: { peer: 42 } },
+      { guestPairs: { peer: { key: "invalid" } } },
       { hubToken: 42 },
     ]) {
       const retained = keychainCredentials(

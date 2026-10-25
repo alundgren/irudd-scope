@@ -935,15 +935,20 @@ h2 {
   flex-wrap: wrap;
   gap: var(--scope-space-2);
 }
-.transfer-form {
+.transfer-form,
+.guest-form {
+  min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--scope-space-3);
 }
+.guest-form label,
 .transfer-form label,
 .transfer-dialog > label {
   display: grid;
   gap: var(--scope-space-2);
 }
+.guest-form > button,
 .transfer-form > button,
 .transfer-dialog > button:not([aria-label="Close"]) {
   justify-self: start;

@@ -44,8 +44,8 @@ const settingsSections = [
   {
     id: "transfers",
     title: "Other Scopes",
-    description: "Pair another Scope to send and import tabs",
-    terms: "tab transfer devices pairing sharing qr code invitation",
+    description: "Pair another Scope for guest sharing",
+    terms: "guest tabs devices pairing sharing tailscale invitation",
   },
   {
     id: "updates",

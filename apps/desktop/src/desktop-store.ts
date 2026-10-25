@@ -33,7 +33,13 @@ import {
 import { Remote, Remotes } from "./remote-contract.ts";
 import { RemoteToken } from "@irudd-scope/protocol/remote";
 import { TransferName, TransferSecret } from "@irudd-scope/protocol/transfer";
-import { GuestEndpoint } from "@irudd-scope/protocol/guest";
+import {
+  GuestEndpoint,
+  GuestDevice,
+  GuestPeer,
+  GuestName,
+  GuestPairCredential,
+} from "@irudd-scope/protocol/guest";
 import { GuestRecord, GuestSettings } from "./guest/contract.ts";
 import { ScopeDevice, ScopePeer, ScopePeers } from "./transfer/contract.ts";
 import { machineRetroConfiguration } from "./retro-configuration.ts";
@@ -731,12 +737,9 @@ export class DesktopStore {
       const secrets = await this.credentials.read();
       const transferKeys = { ...secrets.transferKeys };
       delete transferKeys[id];
-      const guestEndpoints = { ...secrets.guestEndpoints };
-      delete guestEndpoints[id];
       await this.credentials.write({
         ...secrets,
         transferKeys,
-        ...(secrets.guestEndpoints ? { guestEndpoints } : {}),
       });
       await this.run(
         this
@@ -926,20 +929,122 @@ export class DesktopStore {
     });
   }
 
-  async guestEndpoint(id: string): Promise<GuestEndpoint | undefined> {
-    await this.pending;
-    return (await this.credentials.read()).guestEndpoints?.[id];
+  guestDevice(name?: string): Promise<GuestDevice> {
+    if (name !== undefined) decode(GuestName, name);
+    return this.enqueue(async () => {
+      const [row] = await this.run(
+        this.sql!<{
+          document: string;
+        }>`SELECT document FROM preferences WHERE name = 'guest-device'`,
+      );
+      const device = row
+        ? decode(GuestDevice, JSON.parse(row.document))
+        : { deviceId: randomUUID(), name: "Scope" };
+      if (row && (name === undefined || name === device.name)) return device;
+      const next = { ...device, name: name ?? device.name };
+      await this.run(
+        this
+          .sql!`INSERT INTO preferences(name, document) VALUES ('guest-device', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+      );
+      return next;
+    });
   }
 
-  saveGuestEndpoint(id: string, endpoint: GuestEndpoint): Promise<void> {
-    const validated = decode(GuestEndpoint, endpoint);
+  async guestPeers(): Promise<GuestPeer[]> {
+    await this.pending;
+    const [row] = await this.run(
+      this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'guest-peers'`,
+    );
+    return row
+      ? [...decode(Schema.Array(GuestPeer).check(Schema.isMaxLength(32)), JSON.parse(row.document))]
+      : [];
+  }
+
+  async guestKey(id: string): Promise<string | undefined> {
+    await this.pending;
+    const pair = (await this.credentials.read()).guestPairs?.[id];
+    return pair?.confirmed ? pair.key : undefined;
+  }
+
+  async guestEndpoint(id: string): Promise<GuestEndpoint | undefined> {
+    await this.pending;
+    return (await this.credentials.read()).guestPairs?.[id]?.endpoint;
+  }
+
+  saveGuestPeer(value: GuestPeer, key: string, endpoint: GuestEndpoint): Promise<void> {
+    const peer = decode(GuestPeer, value);
+    const credential = decode(GuestPairCredential, { key, endpoint, confirmed: false });
     return this.enqueue(async () => {
+      const [row] = await this.run(
+        this.sql!<{
+          document: string;
+        }>`SELECT document FROM preferences WHERE name = 'guest-peers'`,
+      );
+      const peers = row ? [...decode(Schema.Array(GuestPeer), JSON.parse(row.document))] : [];
+      if (peers.some((item) => item.deviceId === peer.deviceId && item.id !== peer.id))
+        throw new Error("This Scope is already paired. Forget it before pairing again.");
+      if (peers.length >= 32 && !peers.some((item) => item.id === peer.id))
+        throw new Error("Forget an unused Scope before adding another.");
       const secrets = await this.credentials.read();
-      if (!secrets.transferKeys?.[id]) throw new Error("This Scope is no longer paired.");
+      const existing = peers.find((item) => item.id === peer.id);
+      const saved = secrets.guestPairs?.[peer.id];
+      if (
+        existing &&
+        (existing.deviceId !== peer.deviceId ||
+          existing.name !== peer.name ||
+          saved?.key !== key ||
+          saved.endpoint.address !== endpoint.address ||
+          saved.endpoint.port !== endpoint.port)
+      )
+        throw new Error(
+          "This invitation conflicts with an existing guest pair. Create a new invitation.",
+        );
       await this.credentials.write({
         ...secrets,
-        guestEndpoints: { ...secrets.guestEndpoints, [id]: validated },
+        guestPairs: { ...secrets.guestPairs, [peer.id]: credential },
       });
+      try {
+        const next = [...peers.filter((item) => item.id !== peer.id), peer];
+        await this.run(
+          this
+            .sql!`INSERT INTO preferences(name, document) VALUES ('guest-peers', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+        );
+      } catch (error) {
+        // An orphan protected key cannot authorize a session without its peer record.
+        await this.credentials.write(secrets).catch(() => {});
+        throw error;
+      }
+    });
+  }
+
+  confirmGuestPeer(id: string): Promise<void> {
+    return this.enqueue(async () => {
+      const secrets = await this.credentials.read();
+      const pair = secrets.guestPairs?.[id];
+      if (!pair) throw new Error("Guest pairing is incomplete. Forget this Scope and pair again.");
+      await this.credentials.write({
+        ...secrets,
+        guestPairs: { ...secrets.guestPairs, [id]: { ...pair, confirmed: true } },
+      });
+    });
+  }
+
+  removeGuestPeer(id: string): Promise<void> {
+    return this.enqueue(async () => {
+      const [row] = await this.run(
+        this.sql!<{
+          document: string;
+        }>`SELECT document FROM preferences WHERE name = 'guest-peers'`,
+      );
+      const peers = row ? [...decode(Schema.Array(GuestPeer), JSON.parse(row.document))] : [];
+      const secrets = await this.credentials.read();
+      const guestPairs = { ...secrets.guestPairs };
+      delete guestPairs[id];
+      await this.credentials.write({ ...secrets, guestPairs });
+      await this.run(
+        this
+          .sql!`UPDATE preferences SET document = ${JSON.stringify(peers.filter((peer) => peer.id !== id))} WHERE name = 'guest-peers'`,
+      );
     });
   }
 

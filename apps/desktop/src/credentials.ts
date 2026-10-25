@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import { Schema } from "effect";
-import { GuestEndpoint } from "@irudd-scope/protocol/guest";
+import { GuestPairCredential } from "@irudd-scope/protocol/guest";
 import { decode } from "@irudd-scope/protocol";
 import { credentialHelperEntry } from "./credential-helper.ts";
 
 const Secrets = Schema.Struct({
   apiKey: Schema.optionalKey(Schema.String),
-  guestEndpoints: Schema.optionalKey(Schema.Record(Schema.String, GuestEndpoint)),
+  guestPairs: Schema.optionalKey(Schema.Record(Schema.String, GuestPairCredential)),
   remoteTokens: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   transferKeys: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
@@ -45,25 +45,12 @@ const EncryptedCredentials = Schema.Struct({
 // Retained fields still pass through the strict credential decoder below.
 function retainedCredentials(input: unknown): unknown {
   if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
-  const { guestKey: _retired, guestEndpoints, ...retained } = input as Record<string, unknown>;
-  if (
-    typeof guestEndpoints !== "object" ||
-    guestEndpoints === null ||
-    Array.isArray(guestEndpoints)
-  )
-    return retained;
-  return {
-    ...retained,
-    guestEndpoints: Object.fromEntries(
-      Object.entries(guestEndpoints).flatMap(([id, endpoint]) => {
-        try {
-          return [[id, decode(GuestEndpoint, endpoint)]];
-        } catch {
-          return [];
-        }
-      }),
-    ),
-  };
+  const {
+    guestKey: _key,
+    guestEndpoints: _endpoints,
+    ...retained
+  } = input as Record<string, unknown>;
+  return retained;
 }
 
 export function windowsCredentials(protection: WindowsProtection): CredentialFactory {
@@ -92,7 +79,7 @@ export function windowsCredentials(protection: WindowsProtection): CredentialFac
         const next = decode(Secrets, secrets);
         if (
           !next.apiKey &&
-          !Object.keys(next.guestEndpoints ?? {}).length &&
+          !Object.keys(next.guestPairs ?? {}).length &&
           !Object.keys(next.remoteTokens ?? {}).length &&
           !Object.keys(next.transferKeys ?? {}).length
         ) {
@@ -150,9 +137,7 @@ export function keychainCredentials(entry: KeychainEntry): CredentialStore {
       try {
         const secrets = decode(LegacySecrets, retainedCredentials(JSON.parse(value)));
         return {
-          ...(secrets.guestEndpoints === undefined
-            ? {}
-            : { guestEndpoints: secrets.guestEndpoints }),
+          ...(secrets.guestPairs === undefined ? {} : { guestPairs: secrets.guestPairs }),
           ...(secrets.apiKey === undefined ? {} : { apiKey: secrets.apiKey }),
           ...(secrets.remoteTokens === undefined ? {} : { remoteTokens: secrets.remoteTokens }),
           ...(secrets.transferKeys === undefined ? {} : { transferKeys: secrets.transferKeys }),
@@ -165,7 +150,7 @@ export function keychainCredentials(entry: KeychainEntry): CredentialStore {
       try {
         if (
           secrets.apiKey ||
-          Object.keys(secrets.guestEndpoints ?? {}).length ||
+          Object.keys(secrets.guestPairs ?? {}).length ||
           Object.keys(secrets.remoteTokens ?? {}).length ||
           Object.keys(secrets.transferKeys ?? {}).length
         )

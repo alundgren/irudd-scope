@@ -1,14 +1,13 @@
-import { createServer } from "node:http";
+import type { Page, ElectronApplication } from "@playwright/test";
+import { pairGuests } from "./guest-pairing-fixture.ts";
 import { guestNetworkFixture } from "./guest-network-fixture.ts";
-import { guestCli } from "./guest-cli.ts";
 import { guestResponseFixture } from "./guest-response-fixture.ts";
 import { guestCatalogChecks } from "./guest-catalog-checks.ts";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "vite-plus/test";
-import { syntheticCli } from "./synthetic-cli.ts";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 export async function guestConnectionChecks() {
@@ -16,7 +15,6 @@ export async function guestConnectionChecks() {
   const events = join(directory, "events.jsonl");
   const routes = join(directory, "routes.json");
   await writeFile(routes, "{}");
-  await syntheticCli(directory, "tailcat", guestCli);
   const network = await guestNetworkFixture(directory);
   const env = {
     ...network.env,
@@ -33,16 +31,6 @@ export async function guestConnectionChecks() {
     entry: network.entry,
     env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.2" },
   });
-  let trapStatus = 403;
-  let trapRequests = 0;
-  const trap = createServer((_request, response) => {
-    trapRequests++;
-    response
-      .writeHead(trapStatus, { "Content-Type": "application/json", Location: "http://example.com" })
-      .end('{"error":"Synthetic access denied"}');
-  });
-  await new Promise<void>((resolve) => trap.listen(0, "127.0.0.1", resolve));
-  const trapPort = (trap.address() as { port: number }).port;
   const responses = await guestResponseFixture();
   const left = await a.launch();
   let right: typeof left | undefined;
@@ -51,78 +39,185 @@ export async function guestConnectionChecks() {
     const pageA = await left.firstWindow();
     const pageB = await right.firstWindow();
     const catalog = await guestCatalogChecks({ a, b, left, right, pageA, pageB, responses });
-    const invitation = await pageA.evaluate(() => window.scope.createPairing("Source Scope"));
-    await pageA.evaluate((id) => window.scope.copyPairingSecret(id), invitation.id);
-    const pairingSecret = await left.evaluate(({ clipboard }) => clipboard.readText());
-    await pageB.evaluate((input) => window.scope.pairScope(input), {
-      url: invitation.url,
-      secret: pairingSecret,
-      name: "Guest Scope",
-    });
-    const id = (await pageA.evaluate(() => window.scope.transferDevices())).peers[0]!.id;
-    expect((await pageB.evaluate(() => window.scope.guestStatus())).peers[0]).toMatchObject({
-      enabled: false,
-      state: "disabled",
-    });
-    await writeFile(network.state, JSON.stringify({ "100.64.0.1": { stopped: true } }));
-    await pageA.evaluate((id) => window.scope.setGuestAccess(id, true), id);
-    await expect(pageA.evaluate((id) => window.scope.copyGuestLink(id), id)).rejects.toThrow(
-      "Tailscale is unavailable",
-    );
-    await writeFile(network.state, JSON.stringify({ "100.64.0.1": { interfaceMissing: true } }));
-    await expect(pageA.evaluate((id) => window.scope.copyGuestLink(id), id)).rejects.toThrow(
-      "interface is unavailable",
-    );
-    await writeFile(network.state, JSON.stringify({ "100.64.0.1": { occupied: true } }));
-    await expect(pageA.evaluate((id) => window.scope.copyGuestLink(id), id)).rejects.toThrow(
-      "port is in use",
-    );
-    await writeFile(network.state, "{}");
-    await pageA.evaluate((id) => window.scope.copyGuestLink(id), id);
-    const link = await left.evaluate(({ clipboard }) => clipboard.readText());
-    const decoded = JSON.parse(Buffer.from(link.split("#")[1]!, "base64url").toString());
-    responses.target(decoded.endpoint.port);
-    await writeFile(routes, JSON.stringify({ [decoded.endpoint.port]: responses.port }));
-    expect(decoded.endpoint.address).toBe("100.64.0.1");
-    await right.evaluate(({ clipboard }, link) => clipboard.writeText(link), link);
-    await expect(pageB.evaluate((id) => window.scope.connectGuestLink(id), id)).rejects.toThrow(
-      "disabled",
-    );
-    await pageB.evaluate((id) => window.scope.setGuestAccess(id, true), id);
-    const { mac: _mac, ...unsigned } = decoded;
-    async function invalidDestination(address: string, port: number, expected: string) {
-      const value = { ...unsigned, endpoint: { address, port } };
-      const mac = createHmac("sha256", Buffer.from(pairingSecret, "base64url"))
-        .update("scope-guest:link:" + JSON.stringify(value))
-        .digest("base64url");
-      const invalid =
-        "scope-guest://v1/#" + Buffer.from(JSON.stringify({ ...value, mac })).toString("base64url");
-      await right!.evaluate(({ clipboard }, text) => clipboard.writeText(text), invalid);
-      await expect(pageB.evaluate((id) => window.scope.connectGuestLink(id), id)).rejects.toThrow(
-        expected,
+    async function settings(page: Page) {
+      await page.getByRole("button", { name: "Search and controls" }).click();
+      await page.getByLabel("Search artifacts", { exact: true }).fill("other scopes");
+      await page.getByRole("button", { name: "Other Scopes Setting" }).click();
+    }
+    async function capture(page: Page, app: ElectronApplication, label: string) {
+      if (!process.env.SCOPE_REVIEW_DIR) return;
+      await mkdir(process.env.SCOPE_REVIEW_DIR, { recursive: true });
+      for (const appearance of ["light", "dark"]) {
+        await page.getByLabel("Search settings").fill("appearance");
+        await page.getByLabel("Appearance", { exact: true }).selectOption(appearance);
+        await page.getByLabel("Search settings").fill("other scopes");
+        for (const width of [1280, 640]) {
+          await app.evaluate(
+            ({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 820),
+            width,
+          );
+          await page.screenshot({
+            animations: "disabled",
+            path: join(
+              process.env.SCOPE_REVIEW_DIR!,
+              `pairing-${label}-${appearance}-${width}.png`,
+            ),
+          });
+        }
+      }
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0].setSize(1280, 820),
       );
     }
-    await invalidDestination("8.8.8.8", trapPort, "invalid");
-    await invalidDestination("http://100.64.0.1", trapPort, "invalid");
-    await invalidDestination("100.64.0.99", trapPort, "not a Tailscale peer");
-    expect(trapRequests).toBe(0);
-    await invalidDestination("100.64.0.1", trapPort, "rejected guest access");
-    trapStatus = 302;
-    await invalidDestination("100.64.0.1", trapPort, "redirects are not allowed");
-    expect(trapRequests).toBe(2);
-    await right.evaluate(({ clipboard }, text) => clipboard.writeText(text), link);
-    await pageB.evaluate((id) => window.scope.connectGuestLink(id), id);
+    await settings(pageA);
+    await settings(pageB);
+    await pageA.getByLabel("This Scope's guest name").fill("Source Scope");
+    await writeFile(network.state, JSON.stringify({ "100.64.0.1": { stopped: true } }));
+    await pageA.getByRole("button", { name: "Create guest invitation", exact: true }).click();
+    await pageA.getByRole("alert").filter({ hasText: "Tailscale is unavailable" }).waitFor();
+    await capture(pageA, left, "unavailable");
+    for (const fault of [{ stopped: true }, { interfaceMissing: true }, { occupied: true }]) {
+      await writeFile(network.state, JSON.stringify({ "100.64.0.1": fault }));
+      await expect(
+        pageA.evaluate(() => window.scope.createGuestInvitation("Source Scope")),
+      ).rejects.toThrow();
+    }
+    await writeFile(network.state, "{}");
+    await pageA.getByRole("button", { name: "Create guest invitation", exact: true }).focus();
+    await pageA.keyboard.press("Enter");
+    await pageA.getByRole("button", { name: "Copy guest invitation", exact: true }).waitFor();
+    const cancelled = (await pageA.evaluate(() => window.scope.guestPairingStatus()))!;
+    await capture(pageA, left, "invitation");
+    await pageA.getByRole("button", { name: "Copy guest invitation", exact: true }).click();
+    await expect
+      .poll(() => left.evaluate(({ clipboard }) => clipboard.readText()))
+      .toMatch(/^scope-guest:\/\/v2/);
+    const cancelledLink = await left.evaluate(({ clipboard }) => clipboard.readText());
+    await pageA.getByRole("button", { name: "Cancel guest pairing", exact: true }).click();
+    await pageA.getByText("Guest pairing cancelled.", { exact: true }).waitFor();
+    await right.evaluate(({ clipboard }, link) => clipboard.writeText(link), cancelledLink);
+    await pageB.getByLabel("This Scope's guest name").fill("Guest Scope");
+    await pageB.getByRole("button", { name: "Paste guest invitation", exact: true }).click();
+    await pageB
+      .getByRole("button", { name: "Allow guest sharing with Source Scope", exact: true })
+      .waitFor();
+    await expect(
+      pageB.evaluate((id) => window.scope.approveGuestPairing(id), cancelled.id),
+    ).rejects.toThrow();
+    expect((await pageB.evaluate(() => window.scope.guestDevices())).peers).toHaveLength(0);
+    const expired = JSON.parse(Buffer.from(cancelledLink.split("#")[1]!, "base64url").toString());
+    expired.expiresAt = Date.now() - 1;
+    await right.evaluate(
+      ({ clipboard }, link) => clipboard.writeText(link),
+      "scope-guest://v2/#" + Buffer.from(JSON.stringify(expired)).toString("base64url"),
+    );
+    await expect(
+      pageB.evaluate(() => window.scope.inspectGuestInvitation("Guest Scope")),
+    ).rejects.toThrow("expired");
+    for (const address of ["8.8.8.8", "http://100.64.0.1", "127.0.0.1"]) {
+      const invalid = {
+        ...expired,
+        expiresAt: Date.now() + 60000,
+        endpoint: { address, port: 12345 },
+      };
+      await right.evaluate(
+        ({ clipboard }, link) => clipboard.writeText(link),
+        "scope-guest://v2/#" + Buffer.from(JSON.stringify(invalid)).toString("base64url"),
+      );
+      await expect(
+        pageB.evaluate(() => window.scope.inspectGuestInvitation("Guest Scope")),
+      ).rejects.toThrow("invalid");
+    }
+    const longName =
+      "Guest Scope for a travelling design team with a long device name used for keyboard and narrow window checks";
+    const expiring = await pageA.evaluate(() => window.scope.createGuestInvitation("Source Scope"));
+    await left.evaluate(() => {
+      const clock = Date.now;
+      (globalThis as unknown as { scopeOriginalClock: typeof Date.now }).scopeOriginalClock = clock;
+      Date.now = () => clock() + 5 * 60_000 + 1;
+    });
+    expect((await pageA.evaluate(() => window.scope.guestPairingStatus()))?.state).toBe("expired");
+    await expect(
+      pageA.evaluate((id) => window.scope.copyGuestInvitation(id), expiring.id),
+    ).rejects.toThrow();
+    await left.evaluate(() => {
+      Date.now = (
+        globalThis as unknown as { scopeOriginalClock: typeof Date.now }
+      ).scopeOriginalClock;
+    });
+    const paired = await pairGuests(
+      left,
+      right,
+      pageA,
+      pageB,
+      ["Source Scope", longName],
+      async (invitation) => {
+        responses.target(invitation.endpoint.port);
+        await writeFile(routes, JSON.stringify({ [invitation.endpoint.port]: responses.port }));
+      },
+      async (page, peerName) => {
+        const app = page === pageA ? left : right!;
+        const button = page.getByRole("button", {
+          name: "Allow guest sharing with " + peerName,
+          exact: true,
+        });
+        await button.waitFor();
+        if (page === pageA) await capture(pageB, right!, "pending");
+        await capture(page, app, page === pageA ? "issuer-consent-long-name" : "receiver-consent");
+        await button.focus();
+        await page.keyboard.press("Enter");
+      },
+    );
+    await pageA.getByRole("button", { name: "Close", exact: true }).click();
+    await pageB.getByRole("button", { name: "Close", exact: true }).click();
+    const id = paired.id;
+    const decoded = paired.invitation;
+    const pairingSecret = paired.key;
+    const receiverEndpoint = paired.claim.endpoint;
+    expect(decoded.endpoint.address).toBe("100.64.0.1");
+    const rendererStatus = await pageA.evaluate(async () =>
+      JSON.stringify({
+        devices: await window.scope.guestDevices(),
+        status: await window.scope.guestPairingStatus(),
+      }),
+    );
+    expect(rendererStatus).not.toContain(pairingSecret);
+    expect(rendererStatus).not.toContain(decoded.secret);
+    expect(rendererStatus).not.toContain(decoded.endpoint.address);
+
+    const pairMessage = { claim: paired.claim, nonce: randomBytes(32).toString("base64url") };
+    const { secret: invitationSecret, ...publicInvitation } = paired.invitation;
+    const pairMac = createHmac("sha256", Buffer.from(invitationSecret, "base64url"))
+      .update(
+        "scope-guest:pair-claim:" +
+          JSON.stringify({ invitation: publicInvitation, value: pairMessage }),
+      )
+      .digest("base64url");
+    for (const headers of [
+      { "Content-Type": "application/json" },
+      { "Content-Type": "application/json", Origin: "https://example.test" },
+    ] as Record<string, string>[]) {
+      expect(
+        (
+          await fetch(`http://127.0.0.1:${decoded.endpoint.port}/guest/pair-claim`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ ...pairMessage, mac: pairMac }),
+          })
+        ).status,
+      ).toBe(403);
+    }
+    // The consumed invitation cannot create another pair, including after successful consent.
+    await right.evaluate(({ clipboard }, link) => clipboard.writeText(link), paired.link);
+    await expect(
+      pageB.evaluate(() => window.scope.inspectGuestInvitation("Guest Scope")),
+    ).rejects.toThrow("already paired");
     const stateA = () =>
       pageA.evaluate(() => window.scope.guestStatus()).then((status) => status.peers[0]?.state);
     const stateB = () =>
       pageB.evaluate(() => window.scope.guestStatus()).then((status) => status.peers[0]?.state);
     await expect.poll(stateA, { timeout: 20000 }).toBe("connected");
     await expect.poll(stateB).toBe("connected");
-    await right.evaluate(({ clipboard }) => clipboard.writeText("scope-guest://v1/#invalid"));
-    await expect(pageB.evaluate((id) => window.scope.connectGuestLink(id), id)).rejects.toThrow(
-      "invalid",
-    );
-    expect(await stateB()).toBe("connected");
     const rows = (await readFile(events, "utf8"))
       .trim()
       .split("\n")
@@ -156,24 +251,14 @@ export async function guestConnectionChecks() {
     await pageB.evaluate((id) => window.scope.retryGuest(id), id);
     await expect.poll(stateA, { timeout: 30000 }).toBe("connected");
     await expect.poll(stateB, { timeout: 30000 }).toBe("connected");
-    await pageA.evaluate((id) => window.scope.copyGuestLink(id), id);
-    const restarted = await left.evaluate(({ clipboard }) => clipboard.readText());
-    expect(
-      JSON.parse(Buffer.from(restarted.split("#")[1]!, "base64url").toString()).endpoint,
-    ).toEqual(endpoint);
     await catalog.reconnected();
-    // A session-only older client cannot call a capability it did not negotiate.
-    await pageB.evaluate((id) => window.scope.copyGuestLink(id), id);
-    const receiverLink = await right.evaluate(({ clipboard }) => clipboard.readText());
-    const receiverEndpoint = JSON.parse(
-      Buffer.from(receiverLink.split("#")[1]!, "base64url").toString(),
-    ).endpoint;
+    // A session-only client cannot call a capability it did not negotiate.
     const challenge = await fetch(`http://127.0.0.1:${endpoint.port}/guest/challenge`).then(
       (response) => response.json(),
     );
-    const devices = await pageB.evaluate(() => window.scope.transferDevices());
+    const devices = await pageB.evaluate(() => window.scope.guestDevices());
     const hello = {
-      version: 1,
+      version: 2,
       pairId: id,
       deviceId: devices.deviceId,
       targetId: devices.peers[0]!.deviceId,
@@ -213,22 +298,37 @@ export async function guestConnectionChecks() {
       ).status,
     ).toBe(404);
     expect(await unsupported.json()).toEqual({ error: "Unsupported guest operation." });
-    await pageA.evaluate((id) => window.scope.setGuestAccess(id, false), id);
-    expect(await stateA()).toBe("disabled");
+    await settings(pageA);
+    await pageA.getByRole("button", { name: "Disable guest sharing", exact: true }).click();
+    await expect.poll(stateA).toBe("disabled");
+    await capture(pageA, left, "disabled");
+    const revoked = await fetch(`http://127.0.0.1:${endpoint.port}/guest/identity`, {
+      headers: { Authorization: "Bearer " + session },
+    })
+      .then((response) => response.status)
+      .catch((error: unknown) => (error as { cause?: { code?: string } }).cause?.code);
+    expect([403, "ECONNREFUSED", "ECONNRESET", "UND_ERR_SOCKET"]).toContain(revoked);
     await pageB.evaluate((id) => window.scope.retryGuest(id), id);
     await expect.poll(stateB, { timeout: 20000 }).toBe("offline");
     await catalog.revoked();
-    expect((await pageA.evaluate(() => window.scope.transferDevices())).peers).toHaveLength(1);
-    await pageA.evaluate((id) => window.scope.forgetScope(id), id);
-    expect((await pageA.evaluate(() => window.scope.transferDevices())).peers).toHaveLength(0);
+    expect((await pageA.evaluate(() => window.scope.guestDevices())).peers).toHaveLength(1);
+    await pageA.getByRole("button", { name: "Forget guest " + longName, exact: true }).click();
+    await pageA.getByRole("button", { name: "Keep paired", exact: true }).waitFor();
+    await capture(pageA, left, "forget-confirmation");
+    await pageA.getByRole("button", { name: "Keep paired", exact: true }).click();
+    expect((await pageA.evaluate(() => window.scope.guestDevices())).peers).toHaveLength(1);
+    await pageA.getByRole("button", { name: "Forget guest " + longName, exact: true }).click();
+    await pageA.getByRole("button", { name: "Forget guest Scope", exact: true }).click();
+    await expect
+      .poll(() => pageA.evaluate(() => window.scope.guestDevices()).then((d) => d.peers.length))
+      .toBe(0);
+    await pageA.getByRole("button", { name: "Close", exact: true }).click();
     await right.close();
     right = await b.launch();
     await catalog.restarted(await right.firstWindow(), right);
   } finally {
     await right?.close();
     await responses.close();
-    trap.closeAllConnections();
-    await new Promise<void>((resolve) => trap.close(() => resolve()));
     await left.close();
     await Promise.all(
       [directory, a.directory, b.directory].map((path) =>

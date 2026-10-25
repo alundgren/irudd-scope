@@ -1,3 +1,4 @@
+import { pairGuests } from "./guest-pairing-fixture.ts";
 import { guestNetworkFixture } from "./guest-network-fixture.ts";
 import { guestPlanDeadlines } from "./guest-plan-deadlines.ts";
 import { decodeLocalConnection } from "@irudd-scope/protocol";
@@ -11,8 +12,6 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { readPlan, type PlanDocument } from "@irudd-scope/protocol/plan";
 import { desktopFixture } from "./desktop-fixture.ts";
-import { syntheticCli } from "./synthetic-cli.ts";
-import { guestCli } from "./guest-cli.ts";
 import { guestResponseFixture } from "./guest-response-fixture.ts";
 import { cliMain, spawnedHub } from "./hub-fixture.ts";
 
@@ -60,7 +59,6 @@ export async function guestPlanChecks() {
   await guestPlanNetwork(directory);
   const routes = join(directory, "routes.json");
   await writeFile(routes, "{}");
-  await syntheticCli(directory, "tailcat", guestCli);
   const network = await guestNetworkFixture(directory);
   const env = {
     ...network.env,
@@ -96,28 +94,19 @@ export async function guestPlanChecks() {
   let peerId = "";
   let pairingSecret = "";
   async function pair() {
-    for (const page of [pageA, pageB])
-      for (const peer of (await page.evaluate(() => window.scope.transferDevices())).peers)
-        await page.evaluate((id) => window.scope.forgetScope(id), peer.id);
-    const invitation = await pageA.evaluate(() => window.scope.createPairing("Owner desktop"));
-    await pageA.evaluate((id) => window.scope.copyPairingSecret(id), invitation.id);
-    const secret = await left.evaluate(({ clipboard }) => clipboard.readText());
-    pairingSecret = secret;
-    await pageB.evaluate((input) => window.scope.pairScope(input), {
-      url: invitation.url,
-      secret,
-      name: "Receiver desktop",
-    });
-    peerId = (await pageA.evaluate(() => window.scope.transferDevices())).peers[0]!.id;
-    for (const page of [pageA, pageB])
-      await page.evaluate((id) => window.scope.setGuestAccess(id, true), peerId);
-    await pageA.evaluate((id) => window.scope.copyGuestLink(id), peerId);
-    const link = await left.evaluate(({ clipboard }) => clipboard.readText());
-    const endpoint = JSON.parse(Buffer.from(link.split("#")[1], "base64url").toString()).endpoint;
-    responses.target(endpoint.port);
-    await writeFile(routes, JSON.stringify({ [endpoint.port]: responses.port }));
-    await right.evaluate(({ clipboard }, link) => clipboard.writeText(link), link);
-    await pageB.evaluate((id) => window.scope.connectGuestLink(id), peerId);
+    const paired = await pairGuests(
+      left,
+      right,
+      pageA,
+      pageB,
+      ["Owner desktop", "Receiver desktop"],
+      async (invitation) => {
+        responses.target(invitation.endpoint.port);
+        await writeFile(routes, JSON.stringify({ [invitation.endpoint.port]: responses.port }));
+      },
+    );
+    peerId = paired.id;
+    pairingSecret = paired.key;
     await expect
       .poll(
         () => pageB.evaluate(() => window.scope.guestCatalog()).then((v) => v.available.length),
@@ -643,7 +632,7 @@ export async function guestPlanChecks() {
       .toBe(1);
     await pageA.evaluate((id) => window.scope.setGuestAccess(id, false), peerId);
     await expect(read()).rejects.toThrow();
-    await pageB.evaluate((id) => window.scope.forgetScope(id), peerId);
+    await pageB.evaluate((id) => window.scope.forgetGuest(id), peerId);
     await expect(read()).rejects.toThrow(/paired|unavailable/i);
     expect((await cb.get("shared-id")).revision).toBe(1);
   } finally {

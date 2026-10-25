@@ -1,4 +1,4 @@
-import { GuestSettings } from "./guest-settings.tsx";
+import { GuestPairingSettings } from "./guest-pairing-settings.tsx";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./components/ui/button.tsx";
 import { Input } from "./components/ui/input.tsx";
@@ -116,7 +116,11 @@ export function PairScopeForm({
 export function TransferSettings({ query }: { query: string }) {
   return (
     <SettingsSection id="transfers" query={query}>
-      <TransferDevices />
+      <GuestPairingSettings />
+      <details>
+        <summary>Tab copying</summary>
+        <TransferDevices />
+      </details>
     </SettingsSection>
   );
 }
@@ -261,7 +265,6 @@ function TransferDevices() {
         devices?.peers.map((peer) => (
           <div className="installation-tool" key={peer.id}>
             <strong>{peer.name}</strong>
-            <GuestSettings peerId={peer.id} name={peer.name} />
             {forget === peer.id ? (
               <>
                 <p>Forget {peer.name}? You will need to pair again to exchange tabs.</p>

@@ -921,17 +921,17 @@ invalidate clean editor state and visible picker reads without navigation.
 ## Guest peer connections
 
 `apps/desktop/src/guest/` owns explicit guest consent, authenticated peer sessions,
-reconnection and a dedicated peer HTTP listener. Transfer pairing remains in
-`transfer/`; enabling guests does not import tabs or grant access through the
-publishing API. `packages/protocol/src/guest.ts` defines validated handshakes and
-connection setup links. Named desktop IPC exposes status, consent, retry, and
-main-process clipboard setup operations.
+reconnection and a dedicated peer HTTP listener. Guest identity, peers, invitations
+and protected pair credentials are independent of `transfer/`. Pairing grants no
+access through the publishing API. `packages/protocol/src/guest.ts` defines the
+validated guest contracts. Named desktop IPC exposes invitation review, consent,
+cancel, forget and retry; main owns clipboard invitation access.
 
 Desktop-owned Tailscale discovery reads the installed CLI's status JSON and
 verifies the local IPv4 address against OS interfaces. The dedicated guest HTTP
 listener binds only that address and saves its port and address in desktop.db.
 Later starts reuse the port; missing interfaces and occupied ports fail explicitly.
-A changed local address requires copying and exchanging new connection links.
+A changed local address requires explicitly forgetting the peer and pairing again.
 The shared guest endpoint contract permits only canonical IPv4 addresses in
 100.64.0.0/10 and a port. Before each direct HTTP request, the desktop verifies
 that the exact destination appears in Tailscale's peer records and binds the
@@ -940,12 +940,21 @@ and publishing routes are rejected. Scope does not configure Serve, Funnel,
 ACLs or Tailscale installation. Pair authentication still supplies application
 consent; presence in the tailnet alone grants no guest access.
 
-A one-time signed setup link exchanges endpoints for an existing pairing. Both
-users explicitly enable guest sharing before the session can start. A fresh
-server challenge, paired secret, device IDs and runtime epochs authenticate the
-handshake. Session tokens stay in main-process memory. Disabling or forgetting
-revokes active requests and blocks new ones; reconnect negotiates a new session.
-Saved peer endpoints remain in protected desktop storage.
+One five-minute bearer invitation connects a fresh pair. The receiver reviews the
+issuer and approves; the issuer verifies the reciprocal endpoint, reviews the
+claimant and approves. HMAC proofs bind the complete invitation, both identities,
+both endpoints and one attempt. One active invitation per desktop, bounded requests
+and deadlines limit pending work. Creating an invitation alone grants no access.
+Protected credentials and peer metadata are saved before the completion exchange
+permits sessions. A failed or cancelled exchange keeps sharing disabled locally;
+partial pairs can be forgotten and paired again without deleting guest references.
+
+Fresh challenges, pair secrets, device IDs and runtime epochs authenticate each
+session. Tokens remain in main memory, with at most one incoming and one outgoing
+session for each of the 32 allowed peers. Requests retain their route deadlines,
+including long folder transfers. Restart invalidates every session.
+Disabling or forgetting cancels active requests and handshakes; reconnect obtains
+fresh sessions and catalogs. Saved endpoints cannot be changed by a session hello.
 
 Owner operations register explicit method/capability handlers with required idle
 and total deadlines in milliseconds. Headers have a ten-second limit and
