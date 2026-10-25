@@ -82,8 +82,16 @@ export async function guestConnectionChecks() {
     await pageA.getByLabel("This Scope's guest name").fill("Source Scope");
     await writeFile(network.state, JSON.stringify({ "100.64.0.1": { stopped: true } }));
     await pageA.getByRole("button", { name: "Create guest invitation", exact: true }).click();
-    await pageA.getByRole("alert").filter({ hasText: "Tailscale is unavailable" }).waitFor();
+    await pageA.getByRole("alert").filter({ hasText: "Tailscale is not connected" }).waitFor();
     await capture(pageA, left, "unavailable");
+    for (const [fault, message] of [
+      [{ invalidStatus: true }, "Scope could not read Tailscale's status response"],
+      [{ commandFailed: true }, "Scope could not run Tailscale's status command"],
+    ] as const) {
+      await writeFile(network.state, JSON.stringify({ "100.64.0.1": fault }));
+      await pageA.getByRole("button", { name: "Create guest invitation", exact: true }).click();
+      await pageA.getByRole("alert").filter({ hasText: message }).waitFor();
+    }
     for (const fault of [{ stopped: true }, { interfaceMissing: true }, { occupied: true }]) {
       await writeFile(network.state, JSON.stringify({ "100.64.0.1": fault }));
       await expect(
