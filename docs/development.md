@@ -28,6 +28,14 @@ you change, for example `vp run test tests/folder-local.test.ts`. Run
 again only after it fails. Edits made after a passing full run need only
 `vp run check` and the tests that cover them. Documentation-only changes need
 `vp run check`.
+
+When the covering file holds several slow Electron journeys, run only the one
+you changed by name, for example
+`vp run test tests/guest-sharing.test.ts -t "pairs explicitly"`. When an
+Electron test fails, the desktop fixture writes each window's accessibility
+tree to `scope-test-failures` under `SCOPE_REVIEW_DIR`, or under the system
+temporary directory when that is unset. It adds a screenshot when the window
+was still open. Read those files before changing code or rerunning the test.
 Validation does not rewrite source or the lockfile. Do not install validation hooks.
 
 `vp run test` selects the `standard` Vitest project, which excludes the

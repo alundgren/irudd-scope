@@ -1,16 +1,55 @@
 import { _electron as electron, type ElectronApplication } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
+import { onTestFailed } from "vite-plus/test";
 import { decodeLocalConnection } from "@irudd-scope/protocol";
 import { ScopeClient } from "@irudd-scope/protocol/client";
 import { testDisplay } from "../tools/test-display.ts";
 
 const require = createRequire(new URL("../apps/desktop/package.json", import.meta.url));
 const exec = promisify(execFile);
+let launches = 0;
+
+function openWindows(application: ElectronApplication) {
+  return application.windows().filter((page) => !page.isClosed());
+}
+
+function accessibilityTrees(application: ElectronApplication) {
+  return Promise.all(
+    openWindows(application).map((page) =>
+      page
+        .locator("body")
+        .ariaSnapshot({ timeout: 2_000 })
+        .catch((error: Error) => `Accessibility tree unavailable: ${error.message}`),
+    ),
+  );
+}
+
+// Tests close their apps in `finally` before Vitest reports a failure, so keep each
+// window's accessibility tree from close time and write it only when the test fails.
+function saveWindowsOnFailure(application: ElectronApplication, closedTrees: () => string[]) {
+  const launch = ++launches;
+  onTestFailed(async ({ task }) => {
+    const windows = openWindows(application);
+    const trees = windows.length > 0 ? await accessibilityTrees(application) : closedTrees();
+    if (trees.length === 0) return;
+    const target = join(process.env.SCOPE_REVIEW_DIR ?? tmpdir(), "scope-test-failures");
+    const name = `${task.name.replace(/[^a-z0-9]+/gi, "-").slice(0, 60)}-launch-${launch}`;
+    await mkdir(target, { recursive: true });
+    await Promise.all(
+      trees.map(async (tree, index) => {
+        const file = join(target, `${name}-window-${index + 1}`);
+        await writeFile(`${file}.aria.yml`, tree);
+        await windows[index]?.screenshot({ path: `${file}.png`, timeout: 2_000 }).catch(() => {});
+      }),
+    );
+    console.error(`Electron window state at failure: ${join(target, name)}-window-*`);
+  });
+}
 
 export async function desktopFixture(
   options: {
@@ -71,10 +110,13 @@ export async function desktopFixture(
       diagnostics.push(data.toString());
       if (diagnostics.length > 100) diagnostics.shift();
     });
+    let closedTrees: string[] = [];
+    saveWindowsOnFailure(application, () => closedTrees);
     const close = application.close.bind(application);
     application.close = async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       let succeeded = false;
+      closedTrees = await accessibilityTrees(application);
       try {
         await Promise.race([
           close(),
