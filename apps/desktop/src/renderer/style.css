@@ -1020,6 +1020,10 @@ h2 {
   background: white;
   color-scheme: light;
 }
+.html-preview.html-document {
+  background: var(--scope-canvas);
+  color-scheme: inherit;
+}
 .image-preview {
   display: grid;
   place-items: center;

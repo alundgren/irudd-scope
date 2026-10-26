@@ -11,7 +11,9 @@ const FolderView = lazy(() =>
 
 export const folderPlugin: TabPlugin = {
   type: FOLDER_TAB_TYPE,
-  View: ({ tab, context, active }) => <FolderView tab={tab} context={context} active={active} />,
+  View: ({ tab, context, active, theme }) => (
+    <FolderView tab={tab} context={context} active={active} theme={theme} />
+  ),
   label(tab, { remoteName, platform }) {
     const { machineId, path } = decode(FolderTabState, tab.state).data;
     const machine = machineId === "local" ? undefined : (remoteName(machineId) ?? "Removed remote");

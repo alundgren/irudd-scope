@@ -80,10 +80,14 @@ remain as authored.
 
 System, Light, and Dark are supported because Scope sits alongside other desktop
 apps and follows native appearance. Excalidraw follows the selected appearance;
-artifact data, images, and HTML keep their authored content. The
-appearance picker uses a styled native select to retain desktop keyboard and
-platform behavior. Provider and model are plain text because each has one
-supported value.
+artifact data and images keep their authored content. HTML tabs and Folder
+HTML previews without their own `color-scheme` meta get the selected appearance
+as their default color scheme, so a plain page reads dark in Dark mode and
+switches without reloading. Colors and `color-scheme` the page sets itself still
+win, so a page that sets dark text without a background is hard to read in
+Dark mode. The appearance picker uses a styled native select to retain desktop
+keyboard and platform behavior. Provider and model are plain text because each
+has one supported value.
 
 [Visual design](docs/visual-design.md) describes token roles and controls.
 The [repo UX skill](.agents/skills/ux-guidance/SKILL.md) guides implementation
