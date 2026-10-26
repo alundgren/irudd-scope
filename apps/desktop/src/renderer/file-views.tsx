@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
+import type { Theme } from "./appearance.ts";
 import { colorBlocks, languageFor, MAX_COLORED_BYTES, type ColoredText } from "./code-colors.ts";
 
 /** What the file viewers need: bytes, the kind of content, and a title. */
@@ -25,7 +26,7 @@ export type FileContent = {
 };
 /** Lines to scroll to and mark, numbered from 1, both ends included. */
 export type MarkedLines = { start: number; end: number };
-type ViewerProps = { content: FileContent; lines?: MarkedLines };
+type ViewerProps = { content: FileContent; lines?: MarkedLines; theme: Theme };
 
 const decodeText = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
@@ -224,9 +225,43 @@ function MarkdownView({ content }: ViewerProps) {
     </article>
   );
 }
-function HtmlView({ content }: ViewerProps) {
+const authoredColorScheme = /<meta[^>]+name\s*=\s*["']?color-scheme/i;
+
+/**
+ * Gives pages without their own color-scheme meta Scope's appearance, so plain HTML reads
+ * dark in Dark mode. Author CSS `color-scheme` and explicit colors still win. The meta
+ * goes after any doctype so the page keeps standards mode.
+ */
+function withColorScheme(html: string, theme: Theme) {
+  if (authoredColorScheme.test(html)) return html;
+  const doctype = /^\s*<!doctype[^>]*>/i.exec(html)?.[0] ?? "";
+  const meta = `<meta name="color-scheme" content="${theme}" data-scope-color-scheme>`;
+  return doctype + meta + html.slice(doctype.length);
+}
+function showTheme(frame: HTMLIFrameElement | null, theme: Theme) {
+  frame?.contentDocument
+    ?.querySelector("meta[data-scope-color-scheme]")
+    ?.setAttribute("content", theme);
+}
+function HtmlView({ content, theme }: ViewerProps) {
+  const frame = useRef<HTMLIFrameElement>(null);
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+  // Built from the theme at load time only; later theme changes edit the meta in place so
+  // the page keeps its scroll position and script state.
+  const srcDoc = useMemo(
+    () => withColorScheme(decodeText(content.bytes), themeRef.current),
+    [content.bytes],
+  );
+  useEffect(() => showTheme(frame.current, theme), [theme]);
   return (
-    <iframe title={content.title} className="html-preview" srcDoc={decodeText(content.bytes)} />
+    <iframe
+      ref={frame}
+      title={content.title}
+      className="html-preview html-document"
+      srcDoc={srcDoc}
+      onLoad={(event) => showTheme(event.currentTarget, themeRef.current)}
+    />
   );
 }
 function ImageView({ content }: ViewerProps) {
@@ -254,11 +289,12 @@ const viewers = { text: TextView, markdown: MarkdownView, html: HtmlView, image:
 export const FileViews = memo(function FileViews({
   content,
   lines,
+  theme,
   fallback,
 }: ViewerProps & { fallback: ReactNode }) {
   const Viewer = Object.hasOwn(viewers, content.kind)
     ? viewers[content.kind as keyof typeof viewers]
     : undefined;
   if (!Viewer) return fallback;
-  return <Viewer content={content} {...(lines ? { lines } : {})} />;
+  return <Viewer content={content} theme={theme} {...(lines ? { lines } : {})} />;
 });

@@ -138,6 +138,20 @@ test(
       await preview.getByRole("link", { name: "Export prototype" }).click();
       await expect.poll(() => readFile(download, "utf8")).toBe("Prototype export");
 
+      const textColor = () =>
+        preview.locator("#result").evaluate((element) => getComputedStyle(element).color);
+      expect(await textColor()).toBe("rgb(0, 0, 0)");
+      await page.getByRole("button", { name: "Search and controls" }).click();
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByLabel("Search settings").fill("appearance");
+      await page.getByLabel("Appearance", { exact: true }).selectOption("dark");
+      await page
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      await expect.poll(textColor).toBe("rgb(255, 255, 255)");
+      await preview.getByRole("button", { name: "Count 1" }).waitFor();
+
       await page.getByRole("button", { name: "Search and controls" }).click();
       await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
       await page.getByRole("combobox", { name: "Fullscreen HTML mode" }).waitFor();

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Maximize2, Minimize2 } from "lucide-react";
+import type { Theme } from "../../renderer/appearance.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { FileViews, type FileContent, type MarkedLines } from "../../renderer/file-views.tsx";
 import type { FolderViewEvent } from "./contract.ts";
@@ -125,6 +126,7 @@ export function FolderPreview({
   edits,
   expanded,
   onExpand,
+  theme,
 }: {
   tabId: string;
   path: string;
@@ -134,6 +136,7 @@ export function FolderPreview({
   /** Whether the preview fills the tab, with the tree hidden. */
   expanded: boolean;
   onExpand: (expanded: boolean) => void;
+  theme: Theme;
 }) {
   const start = lines?.start;
   const end = lines?.end;
@@ -271,6 +274,7 @@ export function FolderPreview({
                 : loaded.content
             }
             {...(start && end ? { lines: { start, end } } : {})}
+            theme={theme}
             fallback={null}
           />
         )}

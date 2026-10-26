@@ -4,6 +4,7 @@ import { decode } from "@irudd-scope/protocol";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { useRemotes } from "../../renderer/remote-names.ts";
 import { operationError } from "../../renderer/operation-error.ts";
+import type { Theme } from "../../renderer/appearance.ts";
 import type { TabContext } from "../api.ts";
 import type { Tab } from "../../workspace/contract.ts";
 import { FolderTabState, folderTabState, folderAncestors, type FolderTabData } from "./contract.ts";
@@ -56,10 +57,12 @@ export function FolderView({
   tab,
   context,
   active,
+  theme,
 }: {
   tab: Tab;
   context: TabContext;
   active: boolean;
+  theme: Theme;
 }) {
   const guest = tab.type === "guest";
   const data = decode(
@@ -433,6 +436,7 @@ export function FolderView({
               edits={edits}
               expanded={fullPreview}
               onExpand={setFullPreview}
+              theme={theme}
             />
           ) : (
             <p className="folder-preview folder-state">Select a file to preview it.</p>

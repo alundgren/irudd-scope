@@ -18,7 +18,7 @@ function FileView({ artifact }: { artifact: Artifact }) {
 export const filePlugin: TabPlugin = {
   type: "file",
   publication: { accepts: () => true, artifactId: publishedArtifactId, state: publishedTabState },
-  View: ({ artifact, context, tab, active }) =>
+  View: ({ artifact, context, tab, active, theme }) =>
     artifact?.kind === "file" ? (
       <FileView artifact={artifact} />
     ) : (
@@ -34,6 +34,7 @@ export const filePlugin: TabPlugin = {
                 fileName: item.artifact.fileName,
                 version: item.artifact.blob,
               }}
+              theme={theme}
               fallback={<FileView artifact={item.artifact} />}
             />
           );
