@@ -1,4 +1,5 @@
 import {
+  guestDrawerTab,
   guestControls,
   openGuestControls,
   closeGuestControls,
@@ -129,9 +130,7 @@ export async function guestMutationChecks() {
     else {
       await pageB.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
       await pageB.getByLabel("Search tabs", { exact: true }).fill((await record()).tab.title);
-      await pageB
-        .getByRole("button", { name: (await record()).tab.title + " guest", exact: true })
-        .click();
+      await guestDrawerTab(pageB, (await record()).tab.title).click();
     }
   }
   async function capture(name: string) {

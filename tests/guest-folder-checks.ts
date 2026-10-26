@@ -1,3 +1,4 @@
+import { guestDrawerTab } from "./guest-controls-fixture.ts";
 import { pairGuests } from "./guest-pairing-fixture.ts";
 import { guestNetworkFixture } from "./guest-network-fixture.ts";
 import { guestFolderRecoveryChecks } from "./guest-folder-recovery-checks.ts";
@@ -110,7 +111,7 @@ export async function guestFolderChecks() {
       const record = (await page.evaluate(() => window.scope.guestCatalog())).records.find(
         (record) => record.tab.id === id,
       )!;
-      await page.getByRole("button", { name: record.tab.title + " guest", exact: true }).click();
+      await guestDrawerTab(page, record.tab.title).click();
     }
   };
   const capture = async (name: string) => {

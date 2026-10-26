@@ -1,6 +1,12 @@
 import { expect } from "vite-plus/test";
 import type { ElectronApplication, Page } from "@playwright/test";
 
+export function guestDrawerTab(page: Page, title: string) {
+  return page.getByRole("button", {
+    name: new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} .+ · Shared by `),
+  });
+}
+
 export function guestControls(page: Page) {
   return page.getByRole("dialog", { name: "Search and controls", exact: true });
 }

@@ -29,6 +29,7 @@ export async function guestConnectionChecks() {
   });
   const b = await desktopFixture({
     hideInitialPrompts: true,
+    showWindow: process.platform === "darwin",
     entry: network.entry,
     env: { ...env, SCOPE_GUEST_TEST_ADDRESS: "100.64.0.2" },
   });

@@ -1,3 +1,4 @@
+import { guestDrawerTab } from "./guest-controls-fixture.ts";
 import { expect } from "vite-plus/test";
 import type { ElectronApplication, Page } from "@playwright/test";
 
@@ -84,7 +85,9 @@ export async function guestCloseLocalState(page: Page, app: ElectronApplication,
     await page.getByRole("button", { name: title, exact: true }).click({ force: true });
   };
   try {
-    await select(guest.title + " guest");
+    await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click({ force: true });
+    await page.getByLabel("Search tabs", { exact: true }).fill(guest.title);
+    await guestDrawerTab(page, guest.title).click({ force: true });
     await expect
       .poll(() =>
         app.evaluate(

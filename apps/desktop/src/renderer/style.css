@@ -1509,6 +1509,33 @@ h2 {
   height: 14px;
   margin-right: var(--scope-space-2);
 }
+.guest-indicator {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--scope-accent);
+}
+.guest-focus-indicator {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--scope-space-1);
+}
+.scope-tooltip-positioner {
+  z-index: 100;
+}
+.scope-tooltip {
+  max-width: min(360px, calc(100vw - 32px));
+  padding: var(--scope-space-2) var(--scope-space-3);
+  border: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-control);
+  background: var(--scope-panel);
+  color: var(--scope-text);
+  box-shadow: var(--scope-shadow);
+  font-size: var(--scope-text-detail);
+  line-height: var(--scope-leading-detail);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
 .tab-machine {
   flex: none;
   color: var(--scope-accent);
@@ -1952,10 +1979,4 @@ h2 {
   flex-wrap: wrap;
   padding: 0;
   border: 0;
-}
-.folder-tab[data-guest] .folder-machine {
-  max-width: 40%;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }

@@ -8,6 +8,7 @@ import {
   Download,
   Maximize2,
   Minimize2,
+  Monitor,
   Settings,
   X,
   Info,
@@ -15,6 +16,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
+import { Tooltip } from "../renderer/components/ui/tooltip.tsx";
+import { tabLabel } from "./tab-label.ts";
 import { NativeSelect, NativeSelectOption } from "../renderer/components/ui/native-select.tsx";
 import {
   Dialog,
@@ -79,13 +82,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const { snapshot, unread, arrivals, queueArrivals, acknowledgeArrivals, markRead } =
     useArtifactLibrary(setError);
   const remotes = useRemotes();
-  const labels = useMemo(
-    () => ({
-      remoteName: (id: string) => remotes.get(id)?.name,
-      platform: window.scope.platform,
-    }),
-    [remotes],
-  );
   const {
     workspace,
     guests,
@@ -102,6 +98,14 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     updateState,
     updateOverlayPosition,
   } = useWorkspace(setError);
+  const labels = useMemo(
+    () => ({
+      remoteName: (id: string) => remotes.get(id)?.name,
+      platform: window.scope.platform,
+      guests,
+    }),
+    [remotes, guests],
+  );
   const retention = useTabRetention(workspaceReady, setError);
   // Moving an iframe resets its document, so panel order must be independent of tab order.
   const paneTabs = useMemo(
@@ -139,6 +143,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const artifacts = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const active = workspace.tabs.find((tab) => tab.id === workspace.selected);
   const activeGuest = guests.records.find((record) => record.tab.id === active?.id);
+  const activeGuestLabel = active?.type === "guest" ? tabLabel(active, labels) : undefined;
   const activeArtifact =
     activeGuest?.source.artifact ??
     (active ? artifacts.get(tabArtifactId(active) ?? "") : undefined);
@@ -453,12 +458,24 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           position={active.overlayPositions?.fullscreen}
           onPosition={(position) => updateOverlayPosition(active.id, "fullscreen", position)}
         >
+          {activeGuestLabel && (
+            <Tooltip content={activeGuestLabel.tooltip}>
+              <span
+                className="guest-focus-indicator"
+                role="img"
+                aria-label={activeGuestLabel.tooltip}
+              >
+                <Monitor className="guest-indicator" aria-hidden />
+              </span>
+            </Tooltip>
+          )}
           {hasModes ? (
             <NativeSelect
               size="sm"
               className="fullscreen-mode-select"
               ref={modeSelect}
               aria-label={html ? "Fullscreen HTML mode" : "Fullscreen Sketchpad mode"}
+              aria-description={activeGuestLabel?.sharedBy}
               value={html && fullscreenMode === "edit" ? "view" : fullscreenMode}
               onChange={(event) => {
                 if (event.target.value === "tabs") toggleFocus();
@@ -476,6 +493,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
               size="icon-xs"
               ref={controlsButton}
               aria-label="Exit focus mode"
+              aria-description={activeGuestLabel?.sharedBy}
               title="Exit fullscreen · Escape"
               onClick={toggleFocus}
             >
