@@ -255,8 +255,8 @@ export function FolderView({
         </p>
       )}
       <header className="folder-bar" hidden={fullPreview}>
-        {(remote || guest) && <span className="folder-machine">{machine}</span>}
-        <code className="folder-path" title={guest ? tab.title : data.path}>
+        {remote && !guest && <span className="folder-machine">{machine}</span>}
+        <code className="folder-path" title={guest ? `${tab.title}\n${machine}` : data.path}>
           {guest ? tab.title : data.path}
         </code>
         <label className="folder-ignored">

@@ -25,8 +25,12 @@ retry never silently changes the saved endpoint. Retry connection is hidden whil
 connected or connecting.
 
 Eligible owner tabs appear automatically after guest sharing connects, including
-hidden bookmarked files, plans and folders. Healthy guest content starts directly
-below navigation. Search and controls names the owner in its current-tab area
+hidden bookmarked files, plans and folders. Guest tabs show one small accent monitor
+icon before the title, without an owner-name prefix or an extra button. Hover or
+keyboard focus shows the full title, owning Scope and connection status when unavailable.
+The drawer's existing detail line names the kind and owner, and search matches the owner.
+Fullscreen moves the indicator to the existing controls, keeping one marker visible.
+Healthy guest content starts directly below navigation. Search and controls names the owner in its current-tab area
 and contains source actions. File guests use the existing viewers and Download action. Plans and
 folders use their registered native views and preserve their kind. Older builds
 without the required capability show an update requirement. Unavailable sources show a status message and hide the document
@@ -443,9 +447,10 @@ it, for example because it was replaced while Scope asked, it is not copied and
 the row says to drop it again. Edits to the same file are copied.
 
 Guest folders use the same tree, filter, search, previews, replacement questions,
-save dialog and progress controls through their owner. Their header identifies
-the owning Scope and its remote, without showing the owner's root as a local
-path. Copy path on a guest file copies its relative path. New folder creates a
+save dialog and progress controls through their owner. The tab indicator identifies
+the owning Scope; hovering the folder title also names its remote. The folder bar
+does not repeat the owner or show the owner's root as a local path.
+Copy path on a guest file copies its relative path. New folder creates a
 relative directory through the owner. Reading and selection stay local to the
 receiver and survive restart independently of the owner's navigation.
 

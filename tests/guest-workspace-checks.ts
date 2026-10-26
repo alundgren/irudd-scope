@@ -1,3 +1,4 @@
+import { guestDrawerTab } from "./guest-controls-fixture.ts";
 import { expect } from "vite-plus/test";
 import type { ElectronApplication, Page } from "@playwright/test";
 import { DatabaseSync } from "node:sqlite";
@@ -26,6 +27,24 @@ export async function guestWorkspaceChecks({
   const pane = pageB.locator(`#pane-${guestId}`);
   const frame = pane.locator("iframe").contentFrame();
   const tab = pageB.locator(`#tab-${guestId}`);
+  await tab.press("Tab");
+  await pageB.keyboard.press("Shift+Tab");
+  const tooltip = pageB.getByRole("tooltip");
+  await tooltip.waitFor();
+  expect(await tooltip.innerText()).toContain("Shared by Source Scope");
+  expect(await tab.getAttribute("aria-describedby")).toBe(await tooltip.getAttribute("id"));
+  await capture("guest-owner-keyboard-tooltip.png");
+  await pageB.keyboard.press("Escape");
+  await tooltip.waitFor({ state: "hidden" });
+  await pageB.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
+  await pageB.getByLabel("Search tabs", { exact: true }).fill("Source Scope");
+  await guestDrawerTab(pageB, "Same title").click();
+  await pageB.keyboard.press("ControlOrMeta+Shift+f");
+  await pageB.getByRole("img", { name: /Shared by Source Scope/ }).waitFor();
+  expect(await pageB.getByRole("tablist").count()).toBe(0);
+  await capture("guest-fullscreen-indicator.png");
+  await pageB.keyboard.press("ControlOrMeta+Shift+f");
+  await tab.waitFor();
   // A guest can sit before a local tab, and later catalog updates must leave it there.
   await tab.focus();
   for (let i = 0; i < 3; i++) await pageB.keyboard.press("Alt+ArrowLeft");
@@ -235,7 +254,7 @@ export async function guestCloseFailureChecks(
       (tab) => tab.id === id,
     )!;
     await page.getByLabel("Search tabs", { exact: true }).fill(saved.title);
-    await page.getByRole("button", { name: saved.title + " guest", exact: true }).click();
+    await guestDrawerTab(page, saved.title).click();
     await expect
       .poll(async () => (await page.evaluate(() => window.scope.workspace()))?.selected)
       .toBe(id);
@@ -286,7 +305,7 @@ async function guestCloseOrderingChecks(
   const select = async (title: string) => {
     await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
     await page.getByLabel("Search tabs", { exact: true }).fill(title);
-    await page.getByRole("button", { name: title + " guest", exact: true }).click();
+    await guestDrawerTab(page, title).click();
   };
   for (const mode of ["select-other", "reopen", "reopen-failed"] as const) {
     await app.evaluate(({ ipcMain }) => {

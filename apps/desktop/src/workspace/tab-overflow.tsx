@@ -4,8 +4,8 @@ import { ArrowLeft, ChevronDown, RotateCcw, Search, Trash2, X } from "lucide-rea
 import type { Artifact } from "@irudd-scope/protocol";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { Input } from "../renderer/components/ui/input.tsx";
-import { tabArtifactId, tabLabel } from "../plugins/registry.renderer.ts";
-import type { TabLabelContext } from "../plugins/api.ts";
+import { tabArtifactId } from "../plugins/registry.renderer.ts";
+import { tabLabel, type TabLabels } from "./tab-label.ts";
 import { isBuiltinTab } from "../plugins/registry.ts";
 import type { Tab } from "./contract.ts";
 import { TRASH_RETENTION_MS, type RetainedTab } from "./retention.ts";
@@ -36,7 +36,7 @@ export function TabOverflow({
   artifacts: ReadonlyMap<string, Artifact>;
   unread: ReadonlySet<string>;
   unreadTabs: ReadonlySet<string>;
-  labels: TabLabelContext;
+  labels: TabLabels;
   tabButtons: RefObject<Map<string, HTMLButtonElement>>;
   onSelect: (id: string) => void;
   onPermanent: (id: string, permanent: boolean) => Promise<void>;

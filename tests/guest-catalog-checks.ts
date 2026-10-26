@@ -1,4 +1,4 @@
-import { openGuestControls, closeGuestControls } from "./guest-controls-fixture.ts";
+import { guestDrawerTab, openGuestControls, closeGuestControls } from "./guest-controls-fixture.ts";
 import { pairGuests } from "./guest-pairing-fixture.ts";
 import { guestCloseLocalState } from "./guest-close-local-state.ts";
 import { guestCloseFailureChecks, guestWorkspaceChecks } from "./guest-workspace-checks.ts";
@@ -153,7 +153,7 @@ export async function guestCatalogChecks({
     }
     await pageB.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
     const record = (await source()).records.find((record) => record.tab.id === id)!;
-    await pageB.getByRole("button", { name: record.tab.title + " guest", exact: true }).click();
+    await guestDrawerTab(pageB, record.tab.title).click();
   }
   async function capture(name: string, page = pageB) {
     if (!process.env.SCOPE_REVIEW_DIR) return;
@@ -252,6 +252,14 @@ export async function guestCatalogChecks({
         capture,
       });
       await frame.locator("body").evaluate(() => window.scrollTo(0, 0));
+      await pageB.getByRole("button", { name: "Search and controls" }).click();
+      await pageB.getByRole("button", { name: "Settings", exact: true }).click();
+      await pageB.getByLabel("Search settings").fill("appearance");
+      await pageB.getByLabel("Appearance", { exact: true }).selectOption("light");
+      await pageB
+        .getByRole("dialog", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
       await capture("guest-html-light.png");
       await pageB.getByRole("button", { name: "Search and controls" }).click();
       await pageB.getByRole("button", { name: "Settings", exact: true }).click();
@@ -679,7 +687,7 @@ export async function guestCatalogChecks({
         .waitFor();
       await page.getByRole("button", { name: /^Tabs and Trashcan,/ }).click();
       await page.getByLabel("Search tabs", { exact: true }).fill(hidden.title);
-      await page.getByRole("button", { name: hidden.title + " guest", exact: true }).click();
+      await guestDrawerTab(page, hidden.title).click();
       await expect
         .poll(async () => (await page.evaluate(() => window.scope.workspace()))?.selected)
         .toBe(guestId);

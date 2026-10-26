@@ -9,9 +9,10 @@ import {
 import type { Artifact } from "@irudd-scope/protocol";
 import { Search, X } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
+import { Tooltip } from "../renderer/components/ui/tooltip.tsx";
 import { primaryShortcut } from "../renderer/shortcuts.ts";
-import { tabArtifactId, tabLabel } from "../plugins/registry.renderer.ts";
-import type { TabLabelContext } from "../plugins/api.ts";
+import { tabArtifactId } from "../plugins/registry.renderer.ts";
+import { tabLabel, type TabLabels } from "./tab-label.ts";
 import { isBuiltinTab } from "../plugins/registry.ts";
 import type { Tab } from "./contract.ts";
 import type { RetainedTab } from "./retention.ts";
@@ -51,7 +52,7 @@ export function TabBar({
   artifacts: ReadonlyMap<string, Artifact>;
   unread: ReadonlySet<string>;
   unreadTabs: ReadonlySet<string>;
-  labels: TabLabelContext;
+  labels: TabLabels;
   tabButtons: RefObject<Map<string, HTMLButtonElement>>;
   controlsButton: RefObject<HTMLButtonElement | null>;
   searchOpen: boolean;
@@ -152,51 +153,58 @@ export function TabBar({
                 key={id}
                 {...drag.row(id, "horizontal")}
               >
-                <button
-                  ref={(element) => {
-                    if (element) tabButtons.current.set(id, element);
-                    else tabButtons.current.delete(id);
-                  }}
-                  className="tab-title"
-                  id={`tab-${id}`}
-                  role="tab"
-                  aria-selected={isSelected}
-                  aria-controls={`pane-${id}`}
-                  tabIndex={id === selectedId ? 0 : -1}
-                  title={label?.tooltip ?? title}
-                  aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight Delete"
-                  aria-description={
-                    tab.type === "guest"
-                      ? "Drag or Alt and arrow keys to reorder. Delete closes this guest locally."
-                      : builtin
-                        ? "Drag or Alt and arrow keys to reorder. Delete closes this built-in tab."
-                        : "Drag to reorder. Hold over Tabs and Trashcan to open the drawer and drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
-                  }
-                  onKeyDown={(event) =>
-                    drag.keyboard(
-                      event,
-                      id,
-                      availableTabs.map((entry) => entry.id),
-                      "horizontal",
-                    )
-                  }
-                  onClick={() => onSelect(id)}
-                >
-                  {label?.icon || label?.machine ? (
-                    <>
-                      {label.icon && <label.icon className="tab-icon" aria-hidden />}
-                      {label.machine && (
-                        <>
-                          <span className="tab-machine">{label.machine}</span>
-                          <span className="tab-machine-separator"> · </span>
-                        </>
-                      )}
-                      <span className="tab-label-title">{title}</span>
-                    </>
-                  ) : (
-                    title
-                  )}
-                </button>
+                <Tooltip content={label?.sharedBy ? label.tooltip : undefined}>
+                  <button
+                    ref={(element) => {
+                      if (element) tabButtons.current.set(id, element);
+                      else tabButtons.current.delete(id);
+                    }}
+                    className="tab-title"
+                    id={`tab-${id}`}
+                    role="tab"
+                    aria-selected={isSelected}
+                    aria-controls={`pane-${id}`}
+                    tabIndex={id === selectedId ? 0 : -1}
+                    title={label?.sharedBy ? undefined : (label?.tooltip ?? title)}
+                    aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight Delete"
+                    aria-description={
+                      tab.type === "guest"
+                        ? `${label?.sharedBy}. Drag or Alt and arrow keys to reorder. Delete closes this guest locally.`
+                        : builtin
+                          ? "Drag or Alt and arrow keys to reorder. Delete closes this built-in tab."
+                          : "Drag to reorder. Hold over Tabs and Trashcan to open the drawer and drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
+                    }
+                    onKeyDown={(event) =>
+                      drag.keyboard(
+                        event,
+                        id,
+                        availableTabs.map((entry) => entry.id),
+                        "horizontal",
+                      )
+                    }
+                    onClick={() => onSelect(id)}
+                  >
+                    {label?.icon || label?.machine ? (
+                      <>
+                        {label.icon && (
+                          <label.icon
+                            className={label.sharedBy ? "tab-icon guest-indicator" : "tab-icon"}
+                            aria-hidden
+                          />
+                        )}
+                        {label.machine && (
+                          <>
+                            <span className="tab-machine">{label.machine}</span>
+                            <span className="tab-machine-separator"> · </span>
+                          </>
+                        )}
+                        <span className="tab-label-title">{title}</span>
+                      </>
+                    ) : (
+                      title
+                    )}
+                  </button>
+                </Tooltip>
                 {((artifactId && unread.has(artifactId)) || unreadTabs.has(id)) && (
                   <span
                     className="unread-dot"
