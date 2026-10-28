@@ -243,9 +243,14 @@ const definitions: Definition[] = [
     facts: async ({ home }) => {
       const bundled = [".grok", "bundled"];
       const config = await parsed(home, [".grok", "config.toml"], parseTomlObject);
-      const signedIn = await isRegularFile(home, [".grok", "auth.json"]);
+      // Grok's sign-in is the presence of auth.json; a link or other entry there is unknown.
+      const auth = (await entryBelowHome(home, [".grok", "auth.json"]))?.info;
+      const authUnreadable = auth && !auth.isFile() ? [display(".grok", "auth.json")] : [];
       return {
-        signIn: { state: signedIn ? "signed-in" : "not-signed-in", method: null },
+        signIn: {
+          state: !auth ? "not-signed-in" : auth.isFile() ? "signed-in" : "unknown",
+          method: null,
+        },
         mcpServers: mcpServers(config.value?.mcp_servers),
         skills: [
           ...(await skillsIn(home, [".grok", "skills"], "own")),
@@ -258,7 +263,7 @@ const definitions: Definition[] = [
           ...(await agentsIn(home, [...bundled, "roles"], "bundled", "role", ".toml")),
         ],
         instructions: await instructions(home, [[".grok", "AGENTS.md"]]),
-        unreadable: config.unreadable,
+        unreadable: [...authUnreadable, ...config.unreadable],
       };
     },
   },

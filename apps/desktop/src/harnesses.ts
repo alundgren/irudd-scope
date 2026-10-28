@@ -54,6 +54,8 @@ export class HarnessesService {
       path: this.path,
       signal: this.closing.signal,
     });
+    // Quitting stops version calls early, so this scan's versions may be wrong.
+    if (this.closing.signal.aborted) return run.scan;
     this.sizes?.controller.abort();
     await this.sizes?.done;
     this.latest = run.scan;

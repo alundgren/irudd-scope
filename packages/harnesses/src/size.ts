@@ -5,6 +5,7 @@ import { compareNames, lstatOrNull } from "./files.ts";
 
 const largestPartCount = 5;
 const statBatch = 64;
+const MAX_PART_NAME = 255;
 
 /**
  * Totals the regular files below `root`, which the caller checked is a real directory below
@@ -64,7 +65,9 @@ export async function measureFolder(
       }
     }
   }
+  // Bytes under a name too long for the scan still count in the total, not as a part.
   const largest = [...parts]
+    .filter(([name]) => name.length <= MAX_PART_NAME)
     .map(([name, size]) => ({ name, bytes: size }))
     .sort((left, right) => right.bytes - left.bytes || compareNames(left.name, right.name))
     .slice(0, largestPartCount);

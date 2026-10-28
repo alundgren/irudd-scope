@@ -470,8 +470,10 @@ Parse errors are swallowed because their messages quote the file.
 
 Versions come from install link targets read with `readlink`. When no such link
 exists, the scanner runs the binary found on PATH once with `--version` and a
-five-second limit, in its own process group so a timeout or quitting Scope
-stops it and anything it started. On Windows only `NAME.exe` runs; a `.cmd`
+five-second limit. A timeout or quitting Scope stops it: on macOS and Linux
+the binary runs in its own process group, which is stopped with anything it
+started; on Windows only the binary itself is stopped. On Windows only
+`NAME.exe` runs; a `.cmd`
 launcher needs a shell, so its version is null. Update-check caches are never
 read. `apps/desktop/src/harnesses.ts`
 passes PATH with the folders a macOS GUI launch omits and `~/.local/bin`.
@@ -479,7 +481,8 @@ passes PATH with the folders a macOS GUI launch omits and `~/.local/bin`.
 `apps/desktop/src/harnesses.ts` scans at startup and on `harnesses scan`; there
 is no periodic scan. A scan answers once every fact except folder sizes is
 known. Sizes are counted afterwards in the background and the result reports
-`size: {state: "pending"}` until they finish. The scanner validates every scan
+`size: {state: "pending"}` until they finish. A scan interrupted by quitting is
+neither kept nor saved. The scanner validates every scan
 before the desktop uses it. Lists keep at most 1,000 skills or agents and 500
 MCP servers per harness, and a scan's JSON at most 256 KiB; the longest lists
 are shortened first and their reports say `truncated: true`. Concurrent scan requests share
