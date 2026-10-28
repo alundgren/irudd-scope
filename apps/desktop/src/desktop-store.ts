@@ -1,4 +1,5 @@
 import { GuestRecoveryStore } from "./guest/recovery.ts";
+import { HarnessScanStore } from "./harness-scans.ts";
 import { GuestCatalog, type GuestSource } from "@irudd-scope/protocol/guest";
 import { FolderOperations } from "@irudd-scope/folder";
 import {
@@ -74,6 +75,7 @@ const databaseRuntime = (filename: string) => ManagedRuntime.make(SqliteClient.l
 export class DesktopStore {
   maintenance!: DatabaseMaintenance;
   guestRecovery!: GuestRecoveryStore;
+  harnessScans!: HarnessScanStore;
   readonly folderOperations = new FolderOperations({
     read: async () => {
       await this.pending;
@@ -154,6 +156,12 @@ export class DesktopStore {
         enqueue: (action) => this.enqueue(action),
       });
       await this.guestRecovery.initialize();
+      this.harnessScans = new HarnessScanStore({
+        sql,
+        run: (effect) => this.run(effect),
+        enqueue: (action) => this.enqueue(action),
+      });
+      await this.harnessScans.initialize();
       await this.run(sql`CREATE TABLE IF NOT EXISTS guest_tabs (
         id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, source_id TEXT NOT NULL,
         source TEXT NOT NULL CHECK(json_valid(source)), tab TEXT NOT NULL CHECK(json_valid(tab)),

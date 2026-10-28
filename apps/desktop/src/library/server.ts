@@ -6,6 +6,7 @@ import {
 } from "@irudd-scope/protocol/guest-operation";
 import { httpInputDeadline } from "@irudd-scope/protocol/http-input";
 import { handlePromptHttp } from "./prompt-http.ts";
+import { handleHarnessesHttp, type HarnessesHttp } from "./harnesses-http.ts";
 import { RetroCommand, RetroReply, MAX_RETRO_REQUEST_BYTES } from "@irudd-scope/protocol/retro";
 import type { RetroConfiguration } from "@irudd-scope/protocol/retro";
 import { MemoryConnectRequest, MemoryStatus } from "@irudd-scope/protocol/memory";
@@ -64,6 +65,8 @@ export async function startArtifactServer(options: {
     connect: (repository: string) => Promise<MemoryStatus>;
   };
   voice?: VoiceService;
+  /** Reads and starts harness scans for agents on this computer. */
+  harnesses?: HarnessesHttp;
   directory: string;
   token: string;
   port?: number;
@@ -215,6 +218,7 @@ export async function startArtifactServer(options: {
       return;
     }
     if (await handlePromptHttp(request, response, url, store.prompts)) return;
+    if (await handleHarnessesHttp(request, response, url, options.harnesses)) return;
     if (await handlePullRequestsHttp(request, response, url, store.pullRequests)) return;
 
     if (route === "POST /v1/voice" && !url.search) {

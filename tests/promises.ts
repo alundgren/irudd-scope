@@ -97,6 +97,11 @@ export const promises = [
     description:
       "An agent's shared folder shows live files from its machine, never reads or writes outside that folder, and Scope keeps no copy of its files.",
   },
+  {
+    name: "harnesses-look-dont-touch",
+    description:
+      "Harnesses reports agent tools on each machine without changing them or revealing secrets, and guests share them only after opting in.",
+  },
 ] as const;
 
 export type PromiseName = (typeof promises)[number]["name"];

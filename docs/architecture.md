@@ -14,7 +14,7 @@ flowchart LR
     Hub -->|requests on existing relay| Desktop
     Hub --> HubSettings[hub.db: configuration, credential hashes, and buffered publications]
     Desktop --> Artifacts[scope.db: tabs, artifacts, drafts, and bytes]
-    Desktop --> Preferences[desktop.db: settings, workspace layout, and speech requests]
+    Desktop --> Preferences[desktop.db: settings, workspace layout, speech requests, and harness scans]
     Desktop --> Keychain[macOS Keychain]
     Desktop --> DPAPI[Windows DPAPI]
     DPAPI -->|encrypted credentials| Preferences
@@ -444,6 +444,42 @@ CLI request files are private temporary files removed after each operation.
 Scope verifies bundle identity and format before mutations; version mismatch
 reports migration instructions without changing an existing bundle.
 
+## Harnesses
+
+Harnesses reports the coding agent tools installed for the account on this
+computer: Codex, Claude Code, Cursor and Grok Build, plus the shared skill
+folder `~/.agents/skills`. It reads each harness's own default folders under
+the home folder (`%USERPROFILE%` on Windows) and never writes, moves or deletes
+anything there.
+
+`packages/harnesses` owns detection and scanning and depends only on
+`@irudd-scope/protocol`. Each harness lists skills, agents and MCP servers from
+its own folders (location `own`) and the folders it ships with (`bundled`).
+Scope makes no claim about which harness loads another harness's folders or the
+shared folder. The scanner uses `lstat` and never follows a symbolic link: a
+linked skill is listed by its link name with `linked: true` and its target is
+not read. It reads sign-in presence and only non-secret fields, MCP server
+names and transports, and fingerprints of global instruction files. It never
+reads session or chat contents, and it never returns tokens, keys, MCP
+commands, URLs, headers or environment values, or account emails and names.
+Parse errors are swallowed because their messages quote the file.
+
+Versions come from install link targets read with `readlink`. When no such link
+exists, the scanner runs the binary found on PATH once with `--version` and a
+five-second limit. Update-check caches are never read. `apps/desktop/src/harnesses.ts`
+passes PATH with the folders a macOS GUI launch omits and `~/.local/bin`.
+
+`apps/desktop/src/harnesses.ts` scans at startup and on `harnesses scan`; there
+is no periodic scan. A scan answers once every fact except folder sizes is
+known. Sizes are counted afterwards in the background and the result reports
+`size: {state: "pending"}` until they finish. Concurrent scan requests share
+one scan, a new scan cancels a running count, and quitting cancels it.
+`apps/desktop/src/harness-scans.ts` keeps the latest scan per machine in the
+`harness_scans` table of `desktop.db`. `packages/protocol/src/harnesses.ts`
+owns the scan document, the CLI guide and the routes; the CLI reaches them
+through the loopback artifact API with the publishing token. This version reads
+only `--machine local`; hubs do not forward harness routes.
+
 ## Names and ownership
 
 Use the same names in code, documentation, diagrams, issues, and reviews.
@@ -464,6 +500,7 @@ formats are compatibility contracts.
 | Sketchpad draft  | Local Excalidraw serialization and view position, stored only while the canvas is not empty.     | `apps/desktop/src/plugins/sketchpad/contract.ts`; `library/store.ts` stores drafts.                       |
 | Publishing token | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                   | Desktop discovery file; CLI and optional hub use it.                                                      |
 | Folder tab       | A live tree of one folder on one machine, keyed by machine ID and canonical path.                | `packages/folder` reads files; `plugins/folder` shows them; `folder_tabs` in `scope.db` keeps the key.    |
+| Harness scan     | One machine's coding agent harnesses at one time, without secrets.                               | `packages/harnesses` scans; `packages/protocol/src/harnesses.ts` defines it; `harness_scans` keeps it.    |
 
 `packages/protocol` owns shared schemas, wire formats, limits, the discovery
 contract, and the HTTP client. It imports no app, filesystem, Electron, or

@@ -7,7 +7,7 @@ to select separate directories for development.
 | Data                | Location                                                       | Contents                                                                                                                                                                                           |
 | ------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, the Sketchpad drawing, retro reports and independent session tracking.                      |
-| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, remote, retro and memory configuration, and retained speech receipts/audio.                                                         |
+| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, remote, retro and memory configuration, retained speech receipts/audio, and the latest harness scan per machine.                    |
 | Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                                                                                                                          |
 | Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                                                                                                      |
 | CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                                                                                                                     |
@@ -295,6 +295,25 @@ not by automatically issuing another write. Removing the database or restoring
 an older backup also removes its newer operation evidence; clients must treat
 missing status as uncertain. Folder files remain authoritative on their original
 filesystem and are not replicated into SQLite.
+
+## Harness scans
+
+The desktop's `harness_scans` table in `desktop.db` keeps the latest harness
+scan for each machine: one row per machine key (`local`, and later
+`remote:ID` and `guest:ID`) with a JSON document that SQLite checks with
+`json_valid` and a 262,144-byte limit. The document is the scan that
+`irudd-scope harnesses read` returns, including `scannedAt`. It holds names,
+versions, sign-in state, folder sizes and instruction file fingerprints; it
+never holds tokens, keys, MCP commands, URLs, headers or environment values,
+account emails or names, or instruction text. A scan larger than the limit is
+not saved and the previous one stays.
+
+The table is created with `CREATE TABLE IF NOT EXISTS` and does not change the
+desktop database schema version, so older Scope versions open the database and
+ignore it. A saved scan that no longer validates is ignored and replaced by the
+next scan. The desktop scans at every start, so deleting the table or its rows
+loses nothing that a scan cannot rebuild. Scope never writes in the harness
+folders it reads.
 
 ## Speech requests
 

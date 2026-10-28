@@ -31,6 +31,7 @@ import { AgentTools } from "./agent-tools.ts";
 import { Remotes } from "./remotes.ts";
 import { MemoryService } from "./memory.ts";
 import { LibrarianService } from "./librarian.ts";
+import { HarnessesService } from "./harnesses.ts";
 import { createApplicationMenu } from "./menu.ts";
 import { GuestConnections } from "./guest/service.ts";
 import { registerExternalLinks } from "./external-links.ts";
@@ -77,12 +78,17 @@ async function main() {
   let lifecycle: DesktopLifecycle;
   let memory: MemoryService | undefined;
   let librarian: LibrarianService | undefined;
+  let harnesses: HarnessesService | undefined;
   let guestMutations: GuestMutations | undefined;
   let folderCommand: ReturnType<typeof registerDesktopIpc>["folderCommand"] | undefined;
   let watchFolder: ReturnType<typeof registerDesktopIpc>["watchFolder"] | undefined;
   const startedMemory = () => {
     if (!memory) throw new ScopeError(503, "Scope is still starting. Retry shortly.");
     return memory;
+  };
+  const startedHarnesses = () => {
+    if (!harnesses) throw new ScopeError(503, "Scope is still starting. Retry shortly.");
+    return harnesses;
   };
   const artifacts = await startLocalArtifacts({
     librarian: (command) => {
@@ -94,6 +100,10 @@ async function main() {
       return guestMutations.command(route, input);
     },
     voice,
+    harnesses: {
+      read: () => startedHarnesses().read(),
+      scan: async () => ({ machines: [await startedHarnesses().scan()] }),
+    },
     memory: {
       status: () => startedMemory().read(),
       connect: (repository) => startedMemory().connect(repository),
@@ -186,6 +196,8 @@ async function main() {
     if (!window.isDestroyed()) window.webContents.send("scope:librarian-changed", state);
   });
   await librarian.start();
+  harnesses = new HarnessesService(store.harnessScans);
+  await harnesses.start();
   await remotes.start();
   powerMonitor.on("resume", () => {
     void store.maintenance.check();
@@ -300,6 +312,7 @@ async function main() {
       await remotes.close();
       await librarian?.close();
       await memory?.close();
+      await harnesses?.close();
       await voice.close();
       await Promise.all([artifacts.close(), store.close()]);
       closed = true;

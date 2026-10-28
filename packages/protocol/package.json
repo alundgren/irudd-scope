@@ -20,7 +20,8 @@
     "./guest": "./src/guest.ts",
     "./folder-operation": "./src/folder-operation.ts",
     "./guest-operation": "./src/guest-operation.ts",
-    "./guest-folder": "./src/guest-folder.ts"
+    "./guest-folder": "./src/guest-folder.ts",
+    "./harnesses": "./src/harnesses.ts"
   },
   "dependencies": {
     "effect": "catalog:"
