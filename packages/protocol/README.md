@@ -814,6 +814,34 @@ contains the operational workflow. Live retro commands require an awake,
 connected desktop, including through a paired hub. Initial HTML publication
 uses the ordinary publication queue.
 
+## Harnesses
+
+`src/harnesses.ts` defines the harness scan, its limits and the guide printed by
+`irudd-scope harnesses guide`. `GET /v1/harnesses?machine=local` returns
+`{ machines: [HarnessScan] }` with the latest scan; `machine` defaults to
+`local`. `POST /v1/harnesses/scan` with `{ "machine": "local" }` starts a scan
+and returns the same reply once every fact except folder sizes is known. Other
+machine values answer 400. Both routes need the publishing token and a running
+desktop; hubs do not forward them and nothing is queued.
+
+A `HarnessScan` holds `machine`, `scannedAt`, one `HarnessReport` per supported
+harness (`codex`, `claude-code`, `cursor`, `grok`) and `sharedSkills` for
+`~/.agents/skills`. A report has `found`, `home`, `version`, `signIn`
+(`state` and an optional non-secret `method`), `size`, `skills`, `agents`,
+`mcpServers`, `instructions` and `unreadable`. Paths are written from `~` with
+`/`. `size` is `{ state: "pending" }` while the desktop counts and
+`{ state: "done", bytes, files, parts }` when it finishes; `null` when the
+harness is not found. Skills and agents carry `location` (`own` or `bundled`)
+and `linked`; MCP servers carry only `name`, `transport` and `location`.
+Instruction files carry `path`, `linked`, `bytes`, `lines` and `sha256`; a
+linked file has null `bytes`, `lines` and `sha256` because its target is never
+read. `sharedSkills` carries `found`, `linked`, `skills` and `truncated`; a
+linked shared folder lists nothing. A scan's JSON is at most 256 KiB: lists
+keep at most 1,000 skills or agents and 500 MCP servers, the scanner shortens
+the longest lists until the scan fits, and each shortened report has
+`truncated: true`. The client validates replies but keeps fields a newer
+desktop adds.
+
 ## Personal memory
 
 `src/memory.ts` defines the memory configuration, per-machine status, and the

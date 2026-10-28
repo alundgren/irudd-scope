@@ -21,6 +21,7 @@ only what differs from its parents.
 | `packages/sqlite/`            | SQLite shrinking and maintenance scheduling.                         |
 | `packages/memory-sync/`       | Personal memory repository clone, git sync, and irudd-okf upgrades.  |
 | `packages/folder/`            | Folder tab file access, containment, ignore rules, and watching.     |
+| `packages/harnesses/`         | Read-only coding agent harness detection and scanning.               |
 | `packages/protocol/`          | Shared validated artifact contracts and HTTP client.                 |
 | `tests/`                      | User journeys, integration tests, and synthetic fixtures.            |
 | `tools/`                      | Development commands and test process setup.                         |
