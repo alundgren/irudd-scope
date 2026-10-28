@@ -7,15 +7,20 @@ depend only on `@irudd-scope/protocol`.
 
 - Read only each harness's own default folders under home, and the install
   links named in the guide. Never write, move, rename or delete anything.
-- Use `lstat` and `readlink`; never follow a symbolic link. List a linked
-  skill or agent by its link name and do not read its target. Open files with
-  `O_NOFOLLOW` and check the handle is a regular file before reading.
+- Use `lstat` and `readlink`; never follow a symbolic link. Reach every path
+  through `belowHome`, which checks that each folder between home and the
+  target is a real directory. List a linked skill, agent or instruction file
+  by its name and do not read its target. Open files with `O_NOFOLLOW` and
+  check the handle is a regular file before reading.
 - Copy out only the facts in the contract. Never return or log token values,
   keys, MCP commands, URLs, headers or environment values, or account emails
   and names. Swallow parse errors: JSON and TOML messages quote the input.
 - Never read session or chat contents; they only add to folder sizes.
 - Take versions from install link targets. Run `--version` only when no link
-  names the version, once, with a short time limit. Never read update caches.
+  names the version, once, with a short time limit, in its own process group,
+  and stop it when the caller's signal aborts. Never read update caches.
+- Validate each scan and keep its JSON within `MAX_HARNESS_SCAN_BYTES` by
+  shortening lists and marking them truncated.
 
 Test through the built CLI and the desktop in `../../tests/harnesses-*.test.ts`
 with synthetic homes that contain secret markers.

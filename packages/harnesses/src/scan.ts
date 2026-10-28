@@ -2,6 +2,7 @@ import { join } from "node:path";
 import {
   HARNESS_NAMES,
   MAX_HARNESS_ITEMS,
+  MAX_HARNESS_MCP_SERVERS,
   type HarnessAgent,
   type HarnessId,
   type HarnessInstructionFile,
@@ -12,6 +13,8 @@ import {
   type SharedSkillsReport,
 } from "@irudd-scope/protocol/harnesses";
 import {
+  belowHome,
+  entryBelowHome,
   fingerprintFile,
   isRealDirectory,
   isRegularFile,
@@ -36,9 +39,12 @@ const CLAUDE_JSON_LIMIT = 16 * 1024 * 1024;
 /** Paths are written from `~` with `/`, so reports never contain the account's folder name. */
 const display = (...names: string[]) => ["~", ...names].join("/");
 
-type Context = { home: string; path: string };
+type Context = { home: string; path: string; signal: AbortSignal };
 type Parsed = { value: Record<string, unknown> | null; unreadable: string[] };
-type Facts = Omit<HarnessReport, "id" | "name" | "found" | "home" | "size" | "version">;
+type Facts = Pick<
+  HarnessReport,
+  "signIn" | "skills" | "agents" | "mcpServers" | "instructions" | "unreadable"
+>;
 
 type Definition = {
   id: HarnessId;
@@ -50,7 +56,8 @@ type Definition = {
 
 export type HarnessScanTarget = {
   id: HarnessId;
-  root: string;
+  /** The main folder, checked to be a real directory below home, or null when not found. */
+  root: string | null;
   report: HarnessReport;
 };
 
@@ -61,16 +68,15 @@ export type HarnessScanTarget = {
 export async function scanHarnesses(context: Context): Promise<HarnessScanTarget[]> {
   return Promise.all(
     definitions.map(async (definition): Promise<HarnessScanTarget> => {
-      const root = join(context.home, ...definition.folder);
       const base = {
         id: definition.id,
         name: HARNESS_NAMES[definition.id],
         home: display(...definition.folder),
       };
-      if (!(await isRealDirectory(root)))
+      if (!(await isRealDirectory(context.home, definition.folder)))
         return {
           id: definition.id,
-          root,
+          root: null,
           report: {
             ...base,
             found: false,
@@ -82,27 +88,52 @@ export async function scanHarnesses(context: Context): Promise<HarnessScanTarget
             mcpServers: [],
             instructions: [],
             unreadable: [],
+            truncated: false,
           },
         };
       const [facts, version] = await Promise.all([
         definition.facts(context),
-        detectVersion(definition.version(context), context.path),
+        detectVersion(definition.version(context), context.path, context.signal),
       ]);
+      const skills = facts.skills.slice(0, MAX_HARNESS_ITEMS);
+      const agents = facts.agents.slice(0, MAX_HARNESS_ITEMS);
+      const servers = facts.mcpServers.slice(0, MAX_HARNESS_MCP_SERVERS);
       return {
         id: definition.id,
-        root,
-        report: { ...base, found: true, version, size: { state: "pending" }, ...facts },
+        root: join(context.home, ...definition.folder),
+        report: {
+          ...base,
+          found: true,
+          version,
+          size: { state: "pending" },
+          ...facts,
+          skills,
+          agents,
+          mcpServers: servers,
+          truncated:
+            skills.length < facts.skills.length ||
+            agents.length < facts.agents.length ||
+            servers.length < facts.mcpServers.length,
+        },
       };
     }),
   );
 }
 
+/** A linked shared folder is reported as linked and its target is not listed. */
 export async function scanSharedSkills(home: string): Promise<SharedSkillsReport> {
-  const folder = join(home, ".agents", "skills");
+  const folder = [".agents", "skills"];
+  const entry = await entryBelowHome(home, folder);
+  const skills = (await skillsIn(home, folder, "own")).map(({ name, linked }) => ({
+    name,
+    linked,
+  }));
   return {
-    found: await isRealDirectory(folder),
-    home: display(".agents", "skills"),
-    skills: (await skillsIn(folder, "own")).map(({ name, linked }) => ({ name, linked })),
+    found: entry !== null && (entry.info.isDirectory() || entry.info.isSymbolicLink()),
+    linked: entry?.info.isSymbolicLink() ?? false,
+    home: display(...folder),
+    skills: skills.slice(0, MAX_HARNESS_ITEMS),
+    truncated: skills.length > MAX_HARNESS_ITEMS,
   };
 }
 
@@ -113,16 +144,16 @@ const definitions: Definition[] = [
     version: ({ home }) => ({
       binary: "codex",
       fromLinks: async () =>
-        versionFromName(
-          await linkTarget(join(home, ".codex", "packages", "standalone", "current")),
-        ),
+        versionFromName(await linkBelowHome(home, [".codex", "packages", "standalone", "current"])),
     }),
     facts: async ({ home }) => {
-      const root = join(home, ".codex");
       const [auth, config] = await Promise.all([
-        parsed(join(root, "auth.json"), display(".codex", "auth.json"), parseJsonObject),
-        parsed(join(root, "config.toml"), display(".codex", "config.toml"), parseTomlObject),
+        parsed(home, [".codex", "auth.json"], parseJsonObject),
+        parsed(home, [".codex", "config.toml"], parseTomlObject),
       ]);
+      const own = await listFolder(home, [".codex", "skills"]);
+      // Codex keeps its bundled skills in a hidden folder inside the person's own skills.
+      const system = own?.some((entry) => entry.name === ".system" && entry.kind === "directory");
       return {
         signIn: signInFrom(auth, (value) => {
           const mode = value.auth_mode;
@@ -130,10 +161,10 @@ const definitions: Definition[] = [
         }),
         mcpServers: mcpServers(config.value?.mcp_servers),
         skills: [
-          ...(await skillsIn(join(root, "skills"), "own")),
-          ...(await skillsIn(join(root, "skills", ".system"), "bundled")),
+          ...(await skillsIn(home, [".codex", "skills"], "own")),
+          ...(system ? await skillsIn(home, [".codex", "skills", ".system"], "bundled") : []),
         ],
-        agents: await agentsIn(join(root, "agents"), "own", "agent", ".toml"),
+        agents: await agentsIn(home, [".codex", "agents"], "own", "agent", ".toml"),
         instructions: await instructions(home, [
           [".codex", "AGENTS.md"],
           [".codex", "AGENTS.override.md"],
@@ -148,17 +179,11 @@ const definitions: Definition[] = [
     version: ({ home, path }) => ({
       binary: "claude",
       fromLinks: async () =>
-        versionAfterVersionsFolder(await linkTarget(join(home, ".local", "bin", "claude"))) ??
+        versionAfterVersionsFolder(await linkBelowHome(home, [".local", "bin", "claude"])) ??
         versionAfterVersionsFolder(await pathLink("claude", path)),
     }),
     facts: async ({ home }) => {
-      const root = join(home, ".claude");
-      const state = await parsed(
-        join(home, ".claude.json"),
-        display(".claude.json"),
-        parseJsonObject,
-        CLAUDE_JSON_LIMIT,
-      );
+      const state = await parsed(home, [".claude.json"], parseJsonObject, CLAUDE_JSON_LIMIT);
       return {
         signIn: signInFrom(
           state,
@@ -166,8 +191,8 @@ const definitions: Definition[] = [
           (value) => typeof value.oauthAccount === "object" && value.oauthAccount !== null,
         ),
         mcpServers: mcpServers(state.value?.mcpServers),
-        skills: await skillsIn(join(root, "skills"), "own"),
-        agents: await agentsIn(join(root, "agents"), "own", "agent", ".md"),
+        skills: await skillsIn(home, [".claude", "skills"], "own"),
+        agents: await agentsIn(home, [".claude", "agents"], "own", "agent", ".md"),
         instructions: await instructions(home, [[".claude", "CLAUDE.md"]]),
         unreadable: state.unreadable,
       };
@@ -181,18 +206,13 @@ const definitions: Definition[] = [
       fromLinks: async () =>
         versionAfterVersionsFolder(
           (await pathLink("cursor-agent", path)) ??
-            (await linkTarget(join(home, ".local", "bin", "cursor-agent"))),
+            (await linkBelowHome(home, [".local", "bin", "cursor-agent"])),
         ),
     }),
     facts: async ({ home }) => {
-      const root = join(home, ".cursor");
       const [config, mcp] = await Promise.all([
-        parsed(
-          join(root, "cli-config.json"),
-          display(".cursor", "cli-config.json"),
-          parseJsonObject,
-        ),
-        parsed(join(root, "mcp.json"), display(".cursor", "mcp.json"), parseJsonObject),
+        parsed(home, [".cursor", "cli-config.json"], parseJsonObject),
+        parsed(home, [".cursor", "mcp.json"], parseJsonObject),
       ]);
       return {
         signIn: signInFrom(
@@ -202,8 +222,8 @@ const definitions: Definition[] = [
         ),
         mcpServers: mcpServers(mcp.value?.mcpServers),
         skills: [
-          ...(await skillsIn(join(root, "skills"), "own")),
-          ...(await skillsIn(join(root, "skills-cursor"), "bundled")),
+          ...(await skillsIn(home, [".cursor", "skills"], "own")),
+          ...(await skillsIn(home, [".cursor", "skills-cursor"], "bundled")),
         ],
         agents: [],
         instructions: [],
@@ -218,30 +238,25 @@ const definitions: Definition[] = [
       binary: "grok",
       extraPath: [join(home, ".grok", "bin")],
       fromLinks: async () =>
-        versionFromName(await linkTarget(join(home, ".grok", "bin", "grok")), "grok-"),
+        versionFromName(await linkBelowHome(home, [".grok", "bin", "grok"]), "grok-"),
     }),
     facts: async ({ home }) => {
-      const root = join(home, ".grok");
-      const bundled = join(root, "bundled");
-      const config = await parsed(
-        join(root, "config.toml"),
-        display(".grok", "config.toml"),
-        parseTomlObject,
-      );
-      const signedIn = await isRegularFile(join(root, "auth.json"));
+      const bundled = [".grok", "bundled"];
+      const config = await parsed(home, [".grok", "config.toml"], parseTomlObject);
+      const signedIn = await isRegularFile(home, [".grok", "auth.json"]);
       return {
         signIn: { state: signedIn ? "signed-in" : "not-signed-in", method: null },
         mcpServers: mcpServers(config.value?.mcp_servers),
         skills: [
-          ...(await skillsIn(join(root, "skills"), "own")),
-          ...(await skillsIn(join(bundled, "skills"), "bundled")),
+          ...(await skillsIn(home, [".grok", "skills"], "own")),
+          ...(await skillsIn(home, [...bundled, "skills"], "bundled")),
         ],
         agents: [
-          ...(await agentsIn(join(root, "agents"), "own", "agent", ".md")),
-          ...(await agentsIn(join(bundled, "agents"), "bundled", "agent", ".md")),
-          ...(await agentsIn(join(bundled, "personas"), "bundled", "persona", ".toml")),
-          ...(await agentsIn(join(bundled, "roles"), "bundled", "role", ".toml")),
-        ].slice(0, MAX_HARNESS_ITEMS),
+          ...(await agentsIn(home, [".grok", "agents"], "own", "agent", ".md")),
+          ...(await agentsIn(home, [...bundled, "agents"], "bundled", "agent", ".md")),
+          ...(await agentsIn(home, [...bundled, "personas"], "bundled", "persona", ".toml")),
+          ...(await agentsIn(home, [...bundled, "roles"], "bundled", "role", ".toml")),
+        ],
         instructions: await instructions(home, [[".grok", "AGENTS.md"]]),
         unreadable: config.unreadable,
       };
@@ -254,16 +269,21 @@ async function pathLink(name: string, path: string): Promise<string | null> {
   return binary ? linkTarget(binary) : null;
 }
 
+async function linkBelowHome(home: string, names: string[]): Promise<string | null> {
+  const path = await belowHome(home, names);
+  return path ? linkTarget(path) : null;
+}
+
 async function parsed(
-  file: string,
-  shown: string,
+  home: string,
+  names: string[],
   parse: (text: string) => Record<string, unknown> | null,
   limit = CONFIG_LIMIT,
 ): Promise<Parsed> {
-  const read = await readSmallFile(file, limit);
+  const read = await readSmallFile(home, names, limit);
   if (read.kind === "missing") return { value: null, unreadable: [] };
   const value = read.kind === "text" ? parse(read.text) : null;
-  return { value, unreadable: value ? [] : [shown] };
+  return { value, unreadable: value ? [] : [display(...names)] };
 }
 
 /**
@@ -283,30 +303,36 @@ function signInFrom(
 /**
  * A skill is a folder holding SKILL.md, or a link, which is listed by name without reading
  * its target. Hidden entries such as Codex's bundled `.system` folder are not skills here.
+ * One more than the limit is kept so the caller can tell the list was cut.
  */
-async function skillsIn(folder: string, location: HarnessLocation): Promise<HarnessSkill[]> {
-  const entries = (await listFolder(folder)) ?? [];
+async function skillsIn(
+  home: string,
+  folder: string[],
+  location: HarnessLocation,
+): Promise<HarnessSkill[]> {
+  const entries = (await listFolder(home, folder)) ?? [];
   const skills: HarnessSkill[] = [];
   for (const entry of entries) {
     if (entry.name.startsWith(".") || entry.name.length > 255) continue;
     if (entry.kind === "link") skills.push({ name: entry.name, location, linked: true });
     else if (
       entry.kind === "directory" &&
-      (await isRegularFile(join(folder, entry.name, "SKILL.md")))
+      (await isRegularFile(home, [...folder, entry.name, "SKILL.md"]))
     )
       skills.push({ name: entry.name, location, linked: false });
-    if (skills.length >= MAX_HARNESS_ITEMS) break;
+    if (skills.length > MAX_HARNESS_ITEMS) break;
   }
   return skills;
 }
 
 async function agentsIn(
-  folder: string,
+  home: string,
+  folder: string[],
   location: HarnessLocation,
   kind: HarnessAgent["kind"],
   extension: string,
 ): Promise<HarnessAgent[]> {
-  const entries = (await listFolder(folder)) ?? [];
+  const entries = (await listFolder(home, folder)) ?? [];
   return entries
     .filter(
       (entry) =>
@@ -321,14 +347,19 @@ async function agentsIn(
       linked: entry.kind === "link",
       kind,
     }))
-    .slice(0, MAX_HARNESS_ITEMS);
+    .slice(0, MAX_HARNESS_ITEMS + 1);
 }
 
+/** A linked instruction file is reported without reading its target. */
 async function instructions(home: string, files: string[][]): Promise<HarnessInstructionFile[]> {
   const found: HarnessInstructionFile[] = [];
   for (const names of files) {
-    const fingerprint = await fingerprintFile(join(home, ...names));
-    if (fingerprint) found.push({ path: display(...names), ...fingerprint });
+    const path = display(...names);
+    const entry = await entryBelowHome(home, names);
+    if (entry?.info.isSymbolicLink())
+      found.push({ path, linked: true, bytes: null, lines: null, sha256: null });
+    const fingerprint = entry?.info.isFile() ? await fingerprintFile(home, names) : null;
+    if (fingerprint) found.push({ path, linked: false, ...fingerprint });
   }
   return found;
 }

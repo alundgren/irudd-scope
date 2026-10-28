@@ -305,8 +305,9 @@ scan for each machine: one row per machine key (`local`, and later
 `irudd-scope harnesses read` returns, including `scannedAt`. It holds names,
 versions, sign-in state, folder sizes and instruction file fingerprints; it
 never holds tokens, keys, MCP commands, URLs, headers or environment values,
-account emails or names, or instruction text. A scan larger than the limit is
-not saved and the previous one stays.
+account emails or names, or instruction text. The scanner shortens long lists
+so a scan fits the limit and marks them `truncated`; a document over the limit
+is never saved.
 
 The table is created with `CREATE TABLE IF NOT EXISTS` and does not change the
 desktop database schema version, so older Scope versions open the database and

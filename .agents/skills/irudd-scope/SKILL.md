@@ -126,7 +126,9 @@ Run `irudd-scope harnesses scan` first when the person wants current facts. The
 JSON lists Codex, Claude Code, Cursor and Grok Build with version, sign-in
 state, folder size, skills, agents, MCP server names and instruction file
 fingerprints, plus the shared `~/.agents/skills` folder. A size of
-`{"state":"pending"}` means the desktop is still counting; read again. Scope
+`{"state":"pending"}` means the desktop is still counting; read again. `truncated: true` means
+some entries were left out to keep the scan small, and `linked: true` means
+Scope saw a link and did not read its target. Scope
 only reads these folders and never returns secrets. It reports skills by
 folder and makes no claim about which harness loads another harness's folders.
 Only `--machine local` works in this version and the desktop must be open.

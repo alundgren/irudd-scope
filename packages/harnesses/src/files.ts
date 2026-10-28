@@ -14,12 +14,33 @@ export async function lstatOrNull(path: string): Promise<Stats | null> {
   }
 }
 
-export async function isRealDirectory(path: string): Promise<boolean> {
-  return (await lstatOrNull(path))?.isDirectory() ?? false;
+/**
+ * The path of `names` below `home`, or null when a folder between home and the last name is
+ * missing, a link or not a directory. Every read starts here, so a linked parent such as a
+ * `~/.codex/skills` link is never followed.
+ */
+export async function belowHome(home: string, names: readonly string[]): Promise<string | null> {
+  let path = home;
+  for (const name of names.slice(0, -1)) {
+    path = join(path, name);
+    if (!(await lstatOrNull(path))?.isDirectory()) return null;
+  }
+  return join(home, ...names);
 }
 
-export async function isRegularFile(path: string): Promise<boolean> {
-  return (await lstatOrNull(path))?.isFile() ?? false;
+/** The entry itself, without following it, when its parent folders are real directories. */
+export async function entryBelowHome(home: string, names: readonly string[]) {
+  const path = await belowHome(home, names);
+  const info = path ? await lstatOrNull(path) : null;
+  return path && info ? { path, info } : null;
+}
+
+export async function isRealDirectory(home: string, names: readonly string[]): Promise<boolean> {
+  return (await entryBelowHome(home, names))?.info.isDirectory() ?? false;
+}
+
+export async function isRegularFile(home: string, names: readonly string[]): Promise<boolean> {
+  return (await entryBelowHome(home, names))?.info.isFile() ?? false;
 }
 
 export type SmallRead =
@@ -27,10 +48,14 @@ export type SmallRead =
   | { kind: "unreadable" }
   | { kind: "text"; text: string };
 
-/** Opens a regular file without following a final link; anything else gives null. */
-async function openRegular(path: string): Promise<{ handle: FileHandle; size: number } | null> {
-  if (!(await isRegularFile(path))) return null;
-  const handle = await open(path, readFlags).catch(() => null);
+/** Opens a regular file without following a link; anything else gives null. */
+async function openRegular(
+  home: string,
+  names: readonly string[],
+): Promise<{ handle: FileHandle; size: number } | null> {
+  const entry = await entryBelowHome(home, names);
+  if (!entry?.info.isFile()) return null;
+  const handle = await open(entry.path, readFlags).catch(() => null);
   if (!handle) return null;
   const info = await handle.stat().catch(() => null);
   if (info?.isFile()) return { handle, size: info.size };
@@ -42,9 +67,13 @@ async function openRegular(path: string): Promise<{ handle: FileHandle; size: nu
  * Reads a regular file up to `limit` bytes. Links, other file types, larger files and read
  * errors are unreadable, so a caller never parses a partial document.
  */
-export async function readSmallFile(path: string, limit: number): Promise<SmallRead> {
-  if (!(await lstatOrNull(path))) return { kind: "missing" };
-  const opened = await openRegular(path);
+export async function readSmallFile(
+  home: string,
+  names: readonly string[],
+  limit: number,
+): Promise<SmallRead> {
+  if (!(await entryBelowHome(home, names))) return { kind: "missing" };
+  const opened = await openRegular(home, names);
   if (!opened) return { kind: "unreadable" };
   try {
     if (opened.size > limit) return { kind: "unreadable" };
@@ -79,8 +108,11 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 export type Fingerprint = { bytes: number; lines: number; sha256: string };
 
 /** Hashes a regular file and counts its lines while streaming, without following a link. */
-export async function fingerprintFile(path: string): Promise<Fingerprint | null> {
-  const opened = await openRegular(path);
+export async function fingerprintFile(
+  home: string,
+  names: readonly string[],
+): Promise<Fingerprint | null> {
+  const opened = await openRegular(home, names);
   if (!opened) return null;
   const hash = createHash("sha256");
   let bytes = 0;
@@ -105,8 +137,12 @@ export async function fingerprintFile(path: string): Promise<Fingerprint | null>
 export type FolderEntry = { name: string; kind: "directory" | "file" | "link" | "other" };
 
 /** Lists a real directory's entries without following links. A linked folder lists nothing. */
-export async function listFolder(path: string): Promise<FolderEntry[] | null> {
-  if (!(await isRealDirectory(path))) return null;
+export async function listFolder(
+  home: string,
+  names: readonly string[],
+): Promise<FolderEntry[] | null> {
+  const path = await belowHome(home, names);
+  if (!path || !(await isRealDirectory(home, names))) return null;
   try {
     const entries = await readdir(path, { withFileTypes: true });
     const listed = await Promise.all(

@@ -1,22 +1,22 @@
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { HarnessFolderSize } from "@irudd-scope/protocol/harnesses";
-import { compareNames, isRealDirectory } from "./files.ts";
+import { compareNames, lstatOrNull } from "./files.ts";
 
 const largestPartCount = 5;
 const statBatch = 64;
 
 /**
- * Totals the regular files below a real directory with `lstat`. Links are never followed and
- * add nothing, so a link to a large folder elsewhere cannot change the total. Directories
- * and other entries add nothing either, which keeps totals the same on every file system.
- * Parts are the folder's top-level entries, largest first.
+ * Totals the regular files below `root`, which the caller checked is a real directory below
+ * home, with `lstat`. Links are never followed and add nothing, so a link to a large folder
+ * elsewhere cannot change the total. Directories and other entries add nothing either, which
+ * keeps totals the same on every file system. Parts are the top-level entries, largest first.
  */
 export async function measureFolder(
   root: string,
   signal: AbortSignal,
 ): Promise<HarnessFolderSize | null> {
-  if (!(await isRealDirectory(root))) return null;
+  if (!(await lstatOrNull(root))?.isDirectory()) return null;
   const parts = new Map<string, number>();
   let bytes = 0;
   let files = 0;

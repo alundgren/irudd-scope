@@ -1,4 +1,5 @@
 import type { HarnessScan } from "@irudd-scope/protocol/harnesses";
+import { fitScan } from "./fit.ts";
 import { scanHarnesses, scanSharedSkills } from "./scan.ts";
 import { measureFolder } from "./size.ts";
 
@@ -7,10 +8,12 @@ export type HarnessScanOptions = {
   home: string;
   /** PATH for finding harness binaries, including folders a GUI launch omits. */
   path: string;
+  /** Stops a running `--version` call, for example when Scope quits. */
+  signal: AbortSignal;
 };
 
 export type HarnessScanRun = {
-  /** Every fact, with each found harness's size pending. */
+  /** Every fact, validated, with each found harness's size pending. */
   scan: HarnessScan;
   /**
    * Counts folder sizes in the background and resolves with the completed scan. Rejects when
@@ -26,25 +29,23 @@ export async function scanMachine(options: HarnessScanOptions): Promise<HarnessS
     scanHarnesses(options),
     scanSharedSkills(options.home),
   ]);
-  const scan: HarnessScan = {
+  const scan = fitScan({
     machine: "local",
     scannedAt,
     harnesses: targets.map((target) => target.report),
     sharedSkills,
-  };
+  });
   return {
     scan,
     sizes: async (signal) => {
       const harnesses = [];
-      for (const target of targets) {
-        if (!target.report.found) {
-          harnesses.push(target.report);
-          continue;
-        }
-        const size = await measureFolder(target.root, signal);
-        harnesses.push({ ...target.report, size });
+      for (const [index, target] of targets.entries()) {
+        const report = scan.harnesses[index]!;
+        harnesses.push(
+          target.root ? { ...report, size: await measureFolder(target.root, signal) } : report,
+        );
       }
-      return { ...scan, harnesses };
+      return fitScan({ ...scan, harnesses });
     },
   };
 }

@@ -456,9 +456,13 @@ anything there.
 `@irudd-scope/protocol`. Each harness lists skills, agents and MCP servers from
 its own folders (location `own`) and the folders it ships with (`bundled`).
 Scope makes no claim about which harness loads another harness's folders or the
-shared folder. The scanner uses `lstat` and never follows a symbolic link: a
-linked skill is listed by its link name with `linked: true` and its target is
-not read. It reads sign-in presence and only non-secret fields, MCP server
+shared folder. The scanner uses `lstat` and never follows a symbolic link. Every
+folder between home and a file it reads or lists must be a real directory, so a
+linked `~/.codex/skills` or `~/.grok/bundled` is not listed. A linked skill or
+agent is listed by its link name with `linked: true`, a linked instruction file
+is reported with `linked: true` and no size or hash, and a linked
+`~/.agents/skills` is reported as linked with nothing listed. Targets are never
+read. It reads sign-in presence and only non-secret fields, MCP server
 names and transports, and fingerprints of global instruction files. It never
 reads session or chat contents, and it never returns tokens, keys, MCP
 commands, URLs, headers or environment values, or account emails and names.
@@ -466,13 +470,19 @@ Parse errors are swallowed because their messages quote the file.
 
 Versions come from install link targets read with `readlink`. When no such link
 exists, the scanner runs the binary found on PATH once with `--version` and a
-five-second limit. Update-check caches are never read. `apps/desktop/src/harnesses.ts`
+five-second limit, in its own process group so a timeout or quitting Scope
+stops it and anything it started. On Windows only `NAME.exe` runs; a `.cmd`
+launcher needs a shell, so its version is null. Update-check caches are never
+read. `apps/desktop/src/harnesses.ts`
 passes PATH with the folders a macOS GUI launch omits and `~/.local/bin`.
 
 `apps/desktop/src/harnesses.ts` scans at startup and on `harnesses scan`; there
 is no periodic scan. A scan answers once every fact except folder sizes is
 known. Sizes are counted afterwards in the background and the result reports
-`size: {state: "pending"}` until they finish. Concurrent scan requests share
+`size: {state: "pending"}` until they finish. The scanner validates every scan
+before the desktop uses it. Lists keep at most 1,000 skills or agents and 500
+MCP servers per harness, and a scan's JSON at most 256 KiB; the longest lists
+are shortened first and their reports say `truncated: true`. Concurrent scan requests share
 one scan, a new scan cancels a running count, and quitting cancels it.
 `apps/desktop/src/harness-scans.ts` keeps the latest scan per machine in the
 `harness_scans` table of `desktop.db`. `packages/protocol/src/harnesses.ts`

@@ -13,7 +13,7 @@ export class HarnessesService {
   private latest: HarnessScan | null = null;
   private running: Promise<HarnessScan> | null = null;
   private sizes: { controller: AbortController; done: Promise<void> } | null = null;
-  private closed = false;
+  private readonly closing = new AbortController();
 
   constructor(
     private readonly store: HarnessScanStore,
@@ -33,7 +33,7 @@ export class HarnessesService {
 
   /** Concurrent requests share one scan. A new scan replaces a size count still running. */
   scan(): Promise<HarnessScan> {
-    if (this.closed) return Promise.reject(new Error("Scope is closing."));
+    if (this.closing.signal.aborted) return Promise.reject(new Error("Scope is closing."));
     this.running ??= this.run().finally(() => {
       this.running = null;
     });
@@ -41,19 +41,24 @@ export class HarnessesService {
   }
 
   async close(): Promise<void> {
-    this.closed = true;
+    this.closing.abort();
     this.sizes?.controller.abort();
     await this.running?.catch(() => {});
     await this.sizes?.done;
   }
 
+  /** The scanner validates each scan, so an invalid scan never replaces the latest one. */
   private async run(): Promise<HarnessScan> {
-    const run = await scanMachine({ home: this.home, path: this.path });
+    const run = await scanMachine({
+      home: this.home,
+      path: this.path,
+      signal: this.closing.signal,
+    });
     this.sizes?.controller.abort();
     await this.sizes?.done;
     this.latest = run.scan;
     await this.save(run.scan);
-    if (this.closed) return run.scan;
+    if (this.closing.signal.aborted) return run.scan;
     const controller = new AbortController();
     const sizes = {
       controller,

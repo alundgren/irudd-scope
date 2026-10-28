@@ -19,7 +19,7 @@ import {
   withoutSize,
 } from "./harnesses-fixture.ts";
 
-const codex = (): Omit<HarnessReport, "size"> => ({
+const codex = (linkedOverride = false): Omit<HarnessReport, "size"> => ({
   id: "codex",
   name: "Codex",
   found: true,
@@ -35,29 +35,37 @@ const codex = (): Omit<HarnessReport, "size"> => ({
     { name: "docs", transport: "stdio", location: "own" },
     { name: "remote", transport: "http", location: "own" },
   ],
-  instructions: [instruction("~/.codex/AGENTS.md", instructions.codex)],
+  instructions: [
+    instruction("~/.codex/AGENTS.md", instructions.codex),
+    ...(linkedOverride ? [linkedInstruction("~/.codex/AGENTS.override.md")] : []),
+  ],
   unreadable: [],
+  truncated: false,
 });
-const claude = (version: string | null): Omit<HarnessReport, "size"> => ({
+const claude = (version: string | null, broken = false): Omit<HarnessReport, "size"> => ({
   id: "claude-code",
   name: "Claude Code",
   found: true,
   home: "~/.claude",
   version,
-  signIn: { state: "signed-in", method: "oauth" },
+  signIn: broken ? { state: "unknown", method: null } : { state: "signed-in", method: "oauth" },
   skills: [
     { name: "notes", location: "own", linked: false },
     { name: "outside", location: "own", linked: true },
   ],
   agents: [{ name: "reviewer", location: "own", linked: false, kind: "agent" }],
-  mcpServers: [
-    { name: "github", transport: "http", location: "own" },
-    { name: "local", transport: "stdio", location: "own" },
-  ],
+  mcpServers: broken
+    ? []
+    : [
+        { name: "github", transport: "http", location: "own" },
+        { name: "local", transport: "stdio", location: "own" },
+      ],
   instructions: [instruction("~/.claude/CLAUDE.md", instructions.claude)],
-  unreadable: [],
+  unreadable: broken ? ["~/.claude.json"] : [],
+  truncated: false,
 });
-const grok = (version: string): Omit<HarnessReport, "size"> => ({
+/** With a linked ~/.grok/bundled, nothing bundled is listed. */
+const grok = (version: string, linkedBundled = false): Omit<HarnessReport, "size"> => ({
   id: "grok",
   name: "Grok Build",
   found: true,
@@ -66,13 +74,19 @@ const grok = (version: string): Omit<HarnessReport, "size"> => ({
   signIn: { state: "signed-in", method: null },
   skills: [
     { name: "own-skill", location: "own", linked: false },
-    { name: "code-review", location: "bundled", linked: false },
+    ...(linkedBundled
+      ? []
+      : [{ name: "code-review", location: "bundled", linked: false } as const]),
   ],
   agents: [
     { name: "scout", location: "own", linked: false, kind: "agent" },
-    { name: "explore", location: "bundled", linked: false, kind: "agent" },
-    { name: "reviewer", location: "bundled", linked: false, kind: "persona" },
-    { name: "plan", location: "bundled", linked: false, kind: "role" },
+    ...(linkedBundled
+      ? []
+      : ([
+          { name: "explore", location: "bundled", linked: false, kind: "agent" },
+          { name: "reviewer", location: "bundled", linked: false, kind: "persona" },
+          { name: "plan", location: "bundled", linked: false, kind: "role" },
+        ] as const)),
   ],
   mcpServers: [
     { name: "events", transport: "sse", location: "own" },
@@ -80,6 +94,7 @@ const grok = (version: string): Omit<HarnessReport, "size"> => ({
   ],
   instructions: [instruction("~/.grok/AGENTS.md", instructions.grok)],
   unreadable: [],
+  truncated: false,
 });
 const cursor = (): Omit<HarnessReport, "size"> => ({
   id: "cursor",
@@ -99,15 +114,28 @@ const cursor = (): Omit<HarnessReport, "size"> => ({
   ],
   instructions: [],
   unreadable: [],
+  truncated: false,
 });
-const sharedSkills = {
+/** A linked ~/.agents/skills is reported as linked with nothing listed inside it. */
+const sharedSkills = (linked = false) => ({
   found: true,
+  linked,
   home: "~/.agents/skills",
-  skills: [
-    { name: "linked-shared", linked: true },
-    { name: "shared-one", linked: false },
-  ],
-};
+  skills: linked
+    ? []
+    : [
+        { name: "linked-shared", linked: true },
+        { name: "shared-one", linked: false },
+      ],
+  truncated: false,
+});
+const linkedInstruction = (path: string) => ({
+  path,
+  linked: true,
+  bytes: null,
+  lines: null,
+  sha256: null,
+});
 
 /** Reads until every found harness has its final size; the test timeout bounds the wait. */
 async function readUntilSized(cli: (...args: string[]) => Promise<{ stdout: string }>) {
@@ -126,12 +154,13 @@ async function expectReport(
   home: string,
   expected: Array<Omit<HarnessReport, "size">>,
   missing: HarnessReport[],
+  linkedShared = false,
 ) {
   const machine = reply.machines[0]!;
   expect(reply.machines).toHaveLength(1);
   expect(machine.machine).toBe("local");
   expect(Date.parse(machine.scannedAt)).not.toBeNaN();
-  expect(machine.sharedSkills).toEqual(sharedSkills);
+  expect(machine.sharedSkills).toEqual(sharedSkills(linkedShared));
   expect(machine.harnesses.map((report) => report.id).sort()).toEqual(
     ["claude-code", "codex", "cursor", "grok"].sort(),
   );
@@ -147,9 +176,13 @@ test(
   "harnesses read reports each harness on this computer from its own folders",
   { tags: ["harnesses-look-dont-touch"], timeout: 120_000 },
   async () => {
-    const fixture = await harnessHome({ cursor: false });
-    const { launch, cli } = await desktopFixture({ hideInitialPrompts: true, env: fixture.env });
+    const fixture = await harnessHome({ cursor: false, brokenClaudeJson: true });
+    const { launch, cli, stderr } = await desktopFixture({
+      hideInitialPrompts: true,
+      env: fixture.env,
+    });
     const application = await launch();
+    const seen: string[] = [];
     try {
       const guide = JSON.parse((await cli("harnesses", "guide")).stdout) as typeof HarnessesGuide;
       expect(Object.keys(guide.commands).sort()).toEqual(["guide", "read", "scan"]);
@@ -170,13 +203,17 @@ test(
       expect(guide.folders.shared).toContain("~/.agents/skills");
       expect(guide.rules.join(" ")).toContain("makes no claim");
 
-      const scanned = JSON.parse((await cli("harnesses", "scan")).stdout) as HarnessesReply;
+      const output = (await cli("harnesses", "scan")).stdout;
+      seen.push(output);
+      const scanned = JSON.parse(output) as HarnessesReply;
       expect(withoutSize(harness(scanned, "codex"))).toEqual({ ...codex(), size: undefined });
       const reply = await readUntilSized(cli);
+      seen.push(JSON.stringify(reply));
+      // An invalid ~/.claude.json is reported as unreadable and its sign-in as unknown.
       await expectReport(
         reply,
         fixture.home,
-        [codex(), claude(null), grok("1.2.3")],
+        [codex(), claude(null, true), grok("1.2.3")],
         [notFound("cursor", "Cursor", "~/.cursor")],
       );
 
@@ -185,6 +222,11 @@ test(
       });
     } finally {
       await application.close();
+    }
+    try {
+      const searched = [...seen, stderr()].join("\n");
+      for (const marker of fixture.markers) expect(searched).not.toContain(marker);
+    } finally {
       await rm(fixture.root, { recursive: true, force: true });
     }
   },
@@ -197,7 +239,7 @@ test(
     timeout: 180_000,
   },
   async () => {
-    const fixture = await harnessHome({ cursor: true, grokStub: true });
+    const fixture = await harnessHome({ cursor: true, grokStub: true, linkedFolders: true });
     const { launch, cli, connectionFile, settingsDirectory, stderr } = await desktopFixture({
       hideInitialPrompts: true,
       env: fixture.env,
@@ -213,8 +255,9 @@ test(
       await expectReport(
         reply,
         fixture.home,
-        [codex(), claude("2.2.0"), grok("1.3.0"), cursor()],
+        [codex(true), claude("2.2.0"), grok("1.3.0", true), cursor()],
         [],
+        true,
       );
       // The linked skill's folder outside home holds a 777 KB file that no total includes.
       expect(harness(reply, "claude-code").size).toEqual(
@@ -291,11 +334,11 @@ test(
       const first = JSON.parse(
         (await cli("harnesses", "read", "--machine", "local")).stdout,
       ) as HarnessesReply;
-      for (const reply of [scanned, first]) {
-        const report = harness(reply, "codex");
-        expect(withoutSize(report)).toEqual({ ...codex(), size: undefined });
-        expect([{ state: "pending" }, expected]).toContainEqual(report.size);
-      }
+      // A scan answers before counting; the first read may already have the final size.
+      expect(harness(scanned, "codex").size).toEqual({ state: "pending" });
+      for (const reply of [scanned, first])
+        expect(withoutSize(harness(reply, "codex"))).toEqual({ ...codex(), size: undefined });
+      expect([{ state: "pending" }, expected]).toContainEqual(harness(first, "codex").size);
       expect(harness(await readUntilSized(cli), "codex").size).toEqual(expected);
     } finally {
       await application.close();

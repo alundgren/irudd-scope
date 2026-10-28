@@ -23,7 +23,17 @@ type Writer = {
 };
 
 /** Synthetic harness folders under a temporary home, with secrets that must never leak. */
-export async function harnessHome(options: { cursor: boolean; grokStub?: boolean }) {
+export async function harnessHome(options: {
+  cursor: boolean;
+  grokStub?: boolean;
+  /** ~/.claude.json is invalid JSON that still holds a secret. */
+  brokenClaudeJson?: boolean;
+  /**
+   * ~/.grok/bundled, ~/.agents/skills and ~/.codex/AGENTS.override.md are links to folders
+   * outside home whose entries are named with secrets.
+   */
+  linkedFolders?: boolean;
+}) {
   const root = await mkdtemp(join(tmpdir(), "scope-harnesses-"));
   const home = join(root, "home");
   const outside = join(root, "outside");
@@ -51,13 +61,19 @@ export async function harnessHome(options: { cursor: boolean; grokStub?: boolean
     join(outside, "linked-skill", "SKILL.md"),
     `${w.secret("outside-file")}\n${"x".repeat(777_777)}`,
   );
-  await writeCodex(w);
-  await writeClaude(w, outside);
-  await writeGrok(w, options.grokStub ?? false);
+  const linked = options.linkedFolders ? outside : null;
+  await writeCodex(w, linked);
+  await writeClaude(w, outside, options.brokenClaudeJson ?? false);
+  await writeGrok(w, options.grokStub ?? false, linked);
   if (options.cursor) await writeCursor(w);
   else await w.file(".local/bin/claude", stub("exit 3"), 0o755);
-  await w.file(".agents/skills/shared-one/SKILL.md", "# Shared\n");
-  await w.link(".agents/skills/linked-shared", "../../.claude/skills/notes");
+  if (linked) {
+    await outsideFile(w, join(linked, "shared", w.secret("shared-skill"), "SKILL.md"));
+    await w.link(".agents/skills", join(linked, "shared"));
+  } else {
+    await w.file(".agents/skills/shared-one/SKILL.md", "# Shared\n");
+    await w.link(".agents/skills/linked-shared", "../../.claude/skills/notes");
+  }
   const env: NodeJS.ProcessEnv = {
     HOME: home,
     USERPROFILE: home,
@@ -71,7 +87,13 @@ export async function harnessHome(options: { cursor: boolean; grokStub?: boolean
   return { root, home, outside, markers, env };
 }
 
-async function writeCodex(w: Writer) {
+/** A file outside home whose contents are a secret. */
+async function outsideFile(w: Writer, path: string) {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${w.secret("outside-content")}\n`);
+}
+
+async function writeCodex(w: Writer, linked: string | null) {
   await w.file(
     ".codex/auth.json",
     JSON.stringify({
@@ -95,6 +117,10 @@ async function writeCodex(w: Writer) {
     ].join("\n"),
   );
   await w.file(".codex/AGENTS.md", instructions.codex);
+  if (linked) {
+    await outsideFile(w, join(linked, "override.md"));
+    await w.link(".codex/AGENTS.override.md", join(linked, "override.md"));
+  }
   await w.file(".codex/skills/review/SKILL.md", "# Review\n");
   await w.file(".codex/skills/.system/imagegen/SKILL.md", "# Image generation\n");
   await w.file(".codex/agents/helper.toml", 'name = "helper"\n');
@@ -104,28 +130,34 @@ async function writeCodex(w: Writer) {
   await w.link(".codex/packages/standalone/current", join(w.home, release));
 }
 
-async function writeClaude(w: Writer, outside: string) {
-  await w.file(
-    ".claude.json",
-    JSON.stringify({
-      numStartups: 3,
-      oauthAccount: {
-        emailAddress: `${w.secret("claude-email")}@example.test`,
-        displayName: w.secret("claude-display"),
-        fullName: w.secret("claude-full"),
-        organizationName: w.secret("claude-org"),
-      },
-      mcpServers: {
-        github: {
-          type: "http",
-          url: `https://${w.secret("claude-url")}.example.test/mcp`,
-          headers: { Authorization: `Bearer ${w.secret("claude-header")}` },
+async function writeClaude(w: Writer, outside: string, broken: boolean) {
+  if (broken)
+    await w.file(
+      ".claude.json",
+      `{"oauthAccount":{"emailAddress":"${w.secret("broken-claude-email")}@example.test"`,
+    );
+  else
+    await w.file(
+      ".claude.json",
+      JSON.stringify({
+        numStartups: 3,
+        oauthAccount: {
+          emailAddress: `${w.secret("claude-email")}@example.test`,
+          displayName: w.secret("claude-display"),
+          fullName: w.secret("claude-full"),
+          organizationName: w.secret("claude-org"),
         },
-        local: { command: "local-server", env: { LOCAL_KEY: w.secret("claude-env") } },
-      },
-      projects: { "/work": { history: [w.secret("claude-history")] } },
-    }),
-  );
+        mcpServers: {
+          github: {
+            type: "http",
+            url: `https://${w.secret("claude-url")}.example.test/mcp`,
+            headers: { Authorization: `Bearer ${w.secret("claude-header")}` },
+          },
+          local: { command: "local-server", env: { LOCAL_KEY: w.secret("claude-env") } },
+        },
+        projects: { "/work": { history: [w.secret("claude-history")] } },
+      }),
+    );
   await w.file(".claude/CLAUDE.md", instructions.claude);
   await w.file(".claude/skills/notes/SKILL.md", "# Notes\n");
   await w.link(".claude/skills/outside", join(outside, "linked-skill"));
@@ -138,7 +170,7 @@ async function writeClaude(w: Writer, outside: string) {
 }
 
 /** Grok's version comes from its binary link, or from a `--version` stub when there is none. */
-async function writeGrok(w: Writer, grokStub: boolean) {
+async function writeGrok(w: Writer, grokStub: boolean, linked: string | null) {
   await w.file(
     ".grok/auth.json",
     JSON.stringify({ "https://auth.example.test": w.secret("grok-token") }),
@@ -158,10 +190,16 @@ async function writeGrok(w: Writer, grokStub: boolean) {
   await w.file(".grok/AGENTS.md", instructions.grok);
   await w.file(".grok/skills/own-skill/SKILL.md", "# Own\n");
   await w.file(".grok/agents/scout.md", "# Scout\n");
-  await w.file(".grok/bundled/skills/code-review/SKILL.md", "# Code review\n");
-  await w.file(".grok/bundled/agents/explore.md", "# Explore\n");
-  await w.file(".grok/bundled/personas/reviewer.toml", 'instructions = "Review."\n');
-  await w.file(".grok/bundled/roles/plan.toml", 'model = "synthetic"\n');
+  if (linked) {
+    await outsideFile(w, join(linked, "bundled", "skills", w.secret("bundled-skill"), "SKILL.md"));
+    await outsideFile(w, join(linked, "bundled", "agents", `${w.secret("bundled-agent")}.md`));
+    await w.link(".grok/bundled", join(linked, "bundled"));
+  } else {
+    await w.file(".grok/bundled/skills/code-review/SKILL.md", "# Code review\n");
+    await w.file(".grok/bundled/agents/explore.md", "# Explore\n");
+    await w.file(".grok/bundled/personas/reviewer.toml", 'instructions = "Review."\n');
+    await w.file(".grok/bundled/roles/plan.toml", 'model = "synthetic"\n');
+  }
   await w.file(".grok/sessions/one/chat.jsonl", `${w.secret("grok-session")}\n`);
   if (grokStub) await w.file(".grok/bin/grok", stub("echo 'grok-build 1.3.0 (synthetic)'"), 0o755);
   else {
@@ -219,6 +257,7 @@ export function instruction(path: string, text: string) {
   const newlines = text.split("\n").length - 1;
   return {
     path,
+    linked: false,
     bytes,
     lines: bytes === 0 ? 0 : newlines + (text.endsWith("\n") ? 0 : 1),
     sha256: createHash("sha256").update(text).digest("hex"),
@@ -306,6 +345,7 @@ export function notFound(id: HarnessReport["id"], name: string, home: string): H
     mcpServers: [],
     instructions: [],
     unreadable: [],
+    truncated: false,
   };
 }
 

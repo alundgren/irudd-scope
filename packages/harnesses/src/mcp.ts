@@ -14,7 +14,7 @@ export function mcpServers(table: unknown): HarnessMcpServer[] {
     .filter(([name]) => name.length > 0 && name.length <= 255)
     .map(([name, server]) => ({ name, transport: transport(server), location: "own" as const }))
     .sort((left, right) => compareNames(left.name, right.name))
-    .slice(0, MAX_HARNESS_MCP_SERVERS);
+    .slice(0, MAX_HARNESS_MCP_SERVERS + 1);
 }
 
 function transport(server: unknown): Transport {
