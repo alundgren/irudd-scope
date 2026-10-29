@@ -86,6 +86,8 @@ export async function desktopFixture(
     ...((options.disableGpu ?? true) ? ["--disable-gpu"] : []),
   ];
   let firstLaunch = true;
+  // Every stderr chunk from every launch, so a test can search all of it for secrets.
+  const stderr: string[] = [];
   const launch = async () => {
     // Parallel Linux windows can steal focus and release another test's pointer capture.
     const display = process.platform === "linux" && !showWindow ? await testDisplay() : undefined;
@@ -108,6 +110,7 @@ export async function desktopFixture(
     const child = application.process();
     child.stderr?.on("data", (data: Buffer) => {
       diagnostics.push(data.toString());
+      stderr.push(data.toString());
       if (diagnostics.length > 100) diagnostics.shift();
     });
     let closedTrees: string[] = [];
@@ -195,5 +198,6 @@ export async function desktopFixture(
       maxBuffer: 2 * 1024 * 1024,
       timeout: 15_000,
     });
-  return { directory, settingsDirectory, connectionFile, launch, connect, cli };
+  const allStderr = () => stderr.join("");
+  return { directory, settingsDirectory, connectionFile, launch, connect, cli, stderr: allStderr };
 }

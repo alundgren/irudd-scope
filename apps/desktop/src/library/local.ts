@@ -10,6 +10,7 @@ export async function startLocalArtifacts(options: {
   guestCommand?: Parameters<typeof startArtifactServer>[0]["guestCommand"];
   memory?: Parameters<typeof startArtifactServer>[0]["memory"];
   voice?: Parameters<typeof startArtifactServer>[0]["voice"];
+  harnesses?: Parameters<typeof startArtifactServer>[0]["harnesses"];
   directory: string;
   connectionFile: string;
   port?: number;

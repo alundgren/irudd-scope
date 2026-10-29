@@ -60,6 +60,13 @@ import {
   folderQuery,
 } from "./folder.ts";
 import {
+  HARNESSES_ROUTES,
+  HarnessesReply,
+  HarnessesScanRequest,
+  MAX_HARNESSES_REPLY_BYTES,
+  type HarnessesTarget,
+} from "./harnesses.ts";
+import {
   MemoryConnectRequest,
   MemoryMachineStatus,
   MemoryStatus,
@@ -566,6 +573,22 @@ export class ScopeClient {
     return decode(DeleteReceipt, await response.json());
   }
 
+  /** Reads the latest harness scan. Fields a newer desktop adds pass through unchanged. */
+  async harnesses(machine: HarnessesTarget = "local"): Promise<HarnessesReply> {
+    const query = new URLSearchParams({ machine });
+    return harnessesReply(await this.request(`${HARNESSES_ROUTES.read}?${query.toString()}`));
+  }
+  /** Starts a scan and returns once every fact except folder sizes is known. */
+  async scanHarnesses(machine: HarnessesTarget = "local"): Promise<HarnessesReply> {
+    return harnessesReply(
+      await this.request(HARNESSES_ROUTES.scan, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(decode(HarnessesScanRequest, { machine })),
+      }),
+    );
+  }
+
   async memory(): Promise<MemoryStatus> {
     return decode(
       MemoryStatus,
@@ -725,4 +748,10 @@ export class ScopeClient {
     }
     if (!signal.aborted) throw new Error("Scope disconnected.");
   }
+}
+
+async function harnessesReply(response: Response): Promise<HarnessesReply> {
+  const reply = await readRemoteJson(response, MAX_HARNESSES_REPLY_BYTES);
+  Schema.decodeUnknownSync(HarnessesReply)(reply);
+  return reply as HarnessesReply;
 }

@@ -35,6 +35,7 @@ catalog:
   image-size: 2.0.4
   ignore: 7.0.13
   shiki: 4.5.0
+  smol-toml: 1.9.1
 
 overrides:
   vite@*: "catalog:"

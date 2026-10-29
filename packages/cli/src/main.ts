@@ -37,6 +37,8 @@ import { checkSkill, installSkill, syncSkill } from "./skill.ts";
 import { PlanGuide, planCommand } from "./plan.ts";
 import { folderCommand, watchFolderCommand } from "./folder.ts";
 import { FolderGuide } from "@irudd-scope/protocol/folder";
+import { HarnessesGuide } from "@irudd-scope/protocol/harnesses";
+import { harnessesCommand } from "./harnesses.ts";
 
 const help = `irudd-scope add FILE [--title TITLE] [--id ID] [--named | --name NAME] [--plan | --pull-requests | --retro]
 irudd-scope text TEXT [--title TITLE] [--id ID] [--kind text|markdown]
@@ -59,6 +61,7 @@ irudd-scope folder find [PATH]
 irudd-scope folder select PATH FILE [--lines START[-END]] [--title TITLE]
 irudd-scope folder watch [PATH]
 irudd-scope folder guide
+irudd-scope harnesses guide|scan|read [--machine local]
 irudd-scope voice generate|status|result|cancel|guide [FILE_OR_ID]
 irudd-scope list
 irudd-scope get ID
@@ -82,6 +85,7 @@ Queued publications return an expiry receipt. Use hub queue to inspect them or h
 Folder open shows a folder on this machine as a Folder tab in Scope, once per folder. It is never queued.
 Folder find reports whether the folder's tab is open. Folder select opens the tab if needed and selects FILE, a path relative to PATH; --lines highlights lines in it.
 Folder watch prints one JSON line per event and exits 0 when the tab closes.
+Harnesses scan and read report agent harnesses on this computer without changing them. Never queued.
 `;
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -196,6 +200,7 @@ function parseOptions() {
       help: { type: "boolean", short: "h" },
       title: { type: "string" },
       lines: { type: "string" },
+      machine: { type: "string" },
       id: { type: "string" },
       kind: { type: "string" },
       endpoint: { type: "string" },
@@ -547,6 +552,16 @@ async function main() {
       };
     });
     console.log(JSON.stringify(status, null, 2));
+    return;
+  }
+  if (command === "harnesses") {
+    if (argument === "guide") {
+      console.log(JSON.stringify(HarnessesGuide, null, 2));
+      return;
+    }
+    const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"]));
+    const reply = await harnessesCommand(() => connect(values, signal), argument, values.machine);
+    console.log(JSON.stringify(reply, null, 2));
     return;
   }
   if (command === "folder") {
