@@ -9,12 +9,19 @@ import {
 } from "@irudd-scope/protocol/harnesses";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { localMachineName } from "../../renderer/remote-names.ts";
+import { operationError } from "../../renderer/operation-error.ts";
 import type { HarnessesState } from "./contract.ts";
 import { HarnessCell, HarnessDetails, SharedCell, SharedDetails, scanTime } from "./details.tsx";
 import "./style.css";
 
 /** One machine column. Remote and guest columns add their own name and connection status. */
-type MachineColumn = { machine: HarnessMachine; label: string; scan: HarnessScan | null };
+type MachineColumn = {
+  machine: HarnessMachine;
+  label: string;
+  scan: HarnessScan | null;
+  /** Sizes still pending in `scan` will not finish. */
+  countFailed: boolean;
+};
 type Row = HarnessId | "shared";
 const ROWS: readonly Row[] = [...HARNESS_IDS, "shared"];
 const rowName = (row: Row) => (row === "shared" ? "Shared skills" : HARNESS_NAMES[row]);
@@ -82,7 +89,11 @@ function Cell({
       aria-controls={expanded ? details : undefined}
       onClick={() => onToggle(expanded ? null : { machine: column.machine, row })}
     >
-      {"id" in report ? <HarnessCell report={report} /> : <SharedCell report={report} />}
+      {"id" in report ? (
+        <HarnessCell report={report} countFailed={column.countFailed} />
+      ) : (
+        <SharedCell report={report} />
+      )}
     </button>
   );
 }
@@ -114,7 +125,11 @@ function DetailsRow({
               Copy as JSON
             </Button>
           </div>
-          {"id" in report ? <HarnessDetails report={report} /> : <SharedDetails report={report} />}
+          {"id" in report ? (
+            <HarnessDetails report={report} countFailed={column.countFailed} />
+          ) : (
+            <SharedDetails report={report} />
+          )}
         </div>
       </td>
     </tr>
@@ -223,8 +238,7 @@ export function HarnessesView() {
   function copy(action: Promise<void>, done: string) {
     action.then(
       () => announce(done),
-      (error: unknown) =>
-        announce(error instanceof Error ? error.message : "Could not copy. Retry."),
+      (error: unknown) => announce(operationError(error, "Could not copy. Retry.")),
     );
   }
   const rescan = () =>
@@ -235,6 +249,7 @@ export function HarnessesView() {
       machine: "local",
       label: localMachineName(window.scope.platform),
       scan: state?.reply.machines.find((scan) => scan.machine === "local") ?? null,
+      countFailed: state?.countFailed ?? false,
     },
   ];
   const scanned = columns.filter((column) => column.scan);
@@ -270,11 +285,11 @@ export function HarnessesView() {
   }
 
   return (
-    <div className="harnesses-view" aria-label="Harnesses">
+    <div className="harnesses-view">
       <div className="harnesses-toolbar">
         <h2>Harnesses</h2>
         <span className="harnesses-muted" role="status">
-          {state?.scanning ? "Scanning…" : ""}
+          {state?.scanning && scanned.length > 0 ? "Scanning…" : ""}
         </span>
         <span className="harnesses-notice" role="status">
           {notice}

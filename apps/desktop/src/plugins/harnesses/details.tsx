@@ -40,12 +40,19 @@ export function SignIn({ signIn, method = false }: { signIn: HarnessSignIn; meth
   );
 }
 
-function sizeText(report: HarnessReport) {
+function sizeText(report: HarnessReport, countFailed: boolean) {
   if (!report.size) return null;
-  return report.size.state === "pending" ? "counting…" : formatSize(report.size.bytes);
+  if (report.size.state === "done") return formatSize(report.size.bytes);
+  return countFailed ? "size unknown" : "counting…";
 }
 
-export function HarnessCell({ report }: { report: HarnessReport }) {
+export function HarnessCell({
+  report,
+  countFailed,
+}: {
+  report: HarnessReport;
+  countFailed: boolean;
+}) {
   const own = report.skills.filter((skill) => skill.location === "own").length;
   return (
     <>
@@ -56,7 +63,7 @@ export function HarnessCell({ report }: { report: HarnessReport }) {
       </span>
       <span className="harnesses-cell-detail">
         {[
-          sizeText(report),
+          sizeText(report, countFailed),
           count(own, "skill"),
           `${report.mcpServers.length} MCP`,
           ...report.instructions.map((file) => fileName(file.path)),
@@ -111,13 +118,19 @@ function Section({
 }) {
   return (
     <section className={wide ? "harnesses-wide" : undefined}>
-      <h3>{title}</h3>
+      <h4>{title}</h4>
       {children}
     </section>
   );
 }
 
-export function HarnessDetails({ report }: { report: HarnessReport }) {
+export function HarnessDetails({
+  report,
+  countFailed,
+}: {
+  report: HarnessReport;
+  countFailed: boolean;
+}) {
   const own = report.skills.filter((skill) => skill.location === "own");
   const bundled = report.skills.filter((skill) => skill.location === "bundled");
   const skill = (entry: HarnessReport["skills"][number]) => ({
@@ -158,7 +171,9 @@ export function HarnessDetails({ report }: { report: HarnessReport }) {
             )}
           </>
         ) : (
-          <p className="harnesses-muted">Counting…</p>
+          <p className="harnesses-muted">
+            {countFailed ? "Scope could not count this folder. Rescan to retry." : "Counting…"}
+          </p>
         )}
       </Section>
       <Section title="Instructions">

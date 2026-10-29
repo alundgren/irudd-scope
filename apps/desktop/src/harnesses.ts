@@ -6,6 +6,7 @@ import type { HarnessScanStore } from "./harness-scans.ts";
 import type { HarnessesState } from "./plugins/harnesses/contract.ts";
 
 const SCAN_FAILED = "Scope could not scan this computer's harnesses.";
+const COUNT_FAILED = "Scope could not count this computer's harness folders.";
 
 /**
  * Scans this computer's harnesses at startup and on request, and keeps the latest scan in
@@ -18,6 +19,7 @@ export class HarnessesService {
   private running: Promise<HarnessScan> | null = null;
   private sizes: { controller: AbortController; done: Promise<void> } | null = null;
   private error: string | null = null;
+  private countFailed = false;
   private readonly closing = new AbortController();
 
   constructor(
@@ -39,7 +41,12 @@ export class HarnessesService {
 
   /** Answers at once, without waiting for a running scan. */
   state(): HarnessesState {
-    return { reply: this.reply(), scanning: this.running !== null, error: this.error };
+    return {
+      reply: this.reply(),
+      scanning: this.running !== null,
+      error: this.error,
+      countFailed: this.countFailed,
+    };
   }
 
   /** The latest scan of one machine. This desktop scans only its own computer. */
@@ -52,6 +59,7 @@ export class HarnessesService {
     if (this.closing.signal.aborted) return Promise.reject(new Error("Scope is closing."));
     if (this.running) return this.running;
     this.error = null;
+    this.countFailed = false;
     this.running = this.run().then(
       (scan) => {
         this.running = null;
@@ -102,7 +110,12 @@ export class HarnessesService {
           await this.save(scan);
         })
         .catch(() => {
-          if (!controller.signal.aborted) console.error("Scope could not count harness folders.");
+          if (controller.signal.aborted) return;
+          // The saved scan keeps its pending sizes; the next scan counts again.
+          console.error("Scope could not count harness folders.");
+          this.error = COUNT_FAILED;
+          this.countFailed = true;
+          this.changed();
         })
         .finally(() => {
           if (this.sizes === sizes) this.sizes = null;
@@ -120,9 +133,14 @@ export class HarnessesService {
     if (!this.closing.signal.aborted) this.onChange(this.state());
   }
 
+  /** A scan that cannot be saved is still shown; the next scan tries again. */
   private async save(scan: HarnessScan): Promise<void> {
-    if (!(await this.store.save(scan)))
-      console.error("The harness scan exceeds 256 KiB and was not saved.");
+    try {
+      if (!(await this.store.save(scan)))
+        console.error("The harness scan exceeds 256 KiB and was not saved.");
+    } catch {
+      console.error("Scope could not save the harness scan.");
+    }
   }
 }
 

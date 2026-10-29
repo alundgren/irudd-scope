@@ -528,7 +528,9 @@ The toolbar has Copy agent request and Rescan. The request asks the person's
 agent to run `irudd-scope harnesses guide` and then `harnesses read`; Scope does
 not run agents. Rescan shows Scanning… while it runs and updates the scan time.
 Folder sizes fill in by themselves when counting finishes. A failed scan keeps
-the last scan visible and shows an error with Retry. The first open without a
+the last scan visible and shows an error with Retry. If counting fails, sizes
+show as unknown with the same error and Retry; a scan that cannot be saved is
+still shown. The first open without a
 saved scan shows Scanning…; a scan that finds nothing names the folders it
 checked. After a restart the saved scan shows at once and is replaced when the
 startup scan finishes. There is no periodic scan and no action that opens or

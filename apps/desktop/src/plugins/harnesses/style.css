@@ -8,6 +8,7 @@
 }
 .harnesses-view h2,
 .harnesses-view h3,
+.harnesses-view h4,
 .harnesses-view p {
   margin: 0;
 }
@@ -143,7 +144,7 @@
   gap: var(--scope-space-1);
   min-width: 0;
 }
-.harnesses-details h3 {
+.harnesses-details h4 {
   color: var(--scope-muted);
   font-size: var(--scope-text-detail);
   line-height: var(--scope-leading-detail);
@@ -162,6 +163,7 @@
 }
 .harnesses-details-head h3 {
   color: var(--scope-text);
+  font-weight: var(--scope-weight-strong);
   font-size: var(--scope-text-ui);
   line-height: var(--scope-leading-ui);
 }

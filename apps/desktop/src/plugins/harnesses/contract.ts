@@ -19,6 +19,8 @@ export type HarnessesState = {
   scanning: boolean;
   /** A fixed message without file contents or paths, or null after a successful scan. */
   error: string | null;
+  /** Counting folder sizes failed, so sizes still marked pending will not finish. */
+  countFailed: boolean;
 };
 
 /** One harness, or the shared skill folder, on one machine. */

@@ -495,12 +495,13 @@ only `--machine local`; hubs do not forward harness routes.
 
 The built-in Harnesses tab lives in `apps/desktop/src/plugins/harnesses/`. Its
 main entry registers named IPC operations on the desktop's `HarnessesService`:
-`scope:harnesses` returns the latest scans with whether a scan runs and a fixed
-error message, `scope:scan-harnesses` starts a scan, `scope:copy-harnesses-request`
+`scope:harnesses` returns the latest scans with whether a scan runs, a fixed
+error message and whether counting folder sizes failed, `scope:scan-harnesses` starts a scan, `scope:copy-harnesses-request`
 copies the agent request, and `scope:copy-harness-json` copies one harness's or
 the shared folder's report from the latest scan. The service reports each
 started, finished or failed scan and each finished size count, and main sends
-that state as `scope:harnesses-changed`. The view subscribes before it reads,
+that state as `scope:harnesses-changed`. A failed count leaves the saved
+sizes pending until the next scan, and a failed save keeps the new scan shown. The view subscribes before it reads,
 so a tab opened during or after the startup scan shows the current state.
 
 ## Names and ownership

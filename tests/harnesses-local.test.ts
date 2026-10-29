@@ -474,6 +474,7 @@ test(
       ).toEqual(harness(latest, "claude-code"));
 
       await page.getByRole("button", { name: "Copy agent request" }).click();
+      await page.getByText("Copied the agent request.").waitFor();
       const request = await application.evaluate(({ clipboard }) => clipboard.readText());
       expect(request.indexOf("irudd-scope harnesses guide")).toBeGreaterThanOrEqual(0);
       expect(request.indexOf("irudd-scope harnesses read")).toBeGreaterThan(
