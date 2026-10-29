@@ -1,24 +1,22 @@
+import { X } from "lucide-react";
 import {
+  HARNESS_FILE_FOLDERS,
   HARNESS_NAMES,
   type HarnessId,
   type HarnessInstructionFile,
   type HarnessScan,
 } from "@irudd-scope/protocol/harnesses";
+import { Button } from "../../renderer/components/ui/button.tsx";
 import type { MachineColumn } from "./contract.ts";
+import {
+  CopyText,
+  FileBody,
+  count,
+  formatSize,
+  useHarnessFile,
+  type CopyFile,
+} from "./file-text.tsx";
 import { HARNESS_ROWS, LinkMark } from "./skills.tsx";
-
-const UNITS = ["KB", "MB", "GB", "TB"];
-/** Decimal units like a file manager: one decimal below 100, none from 100 up, so 405 MB and 11.6 GB. */
-function formatSize(size: number) {
-  if (size < 1000) return count(size, "byte");
-  for (const [index, unit] of UNITS.entries()) {
-    const value = size / 1000 ** (index + 1);
-    const text = value < 99.95 ? value.toFixed(1) : value.toFixed(0);
-    if (Number(text) < 1000 || index === UNITS.length - 1) return `${text} ${unit}`;
-  }
-  return count(size, "byte");
-}
-const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 export type InstructionRow = { harness: HarnessId; path: string };
 
@@ -26,6 +24,14 @@ const reportOf = (scan: HarnessScan | null, harness: HarnessId) =>
   scan?.harnesses.find((report) => report.id === harness && report.found);
 const fileOf = (scan: HarnessScan | null, row: InstructionRow) =>
   reportOf(scan, row.harness)?.instructions.find((file) => file.path === row.path);
+/** A file the scan fingerprinted, so its text can be read; linked files are never read. */
+export const readable = (scan: HarnessScan | null, row: InstructionRow) => {
+  const file = fileOf(scan, row);
+  return Boolean(file && !file.linked && file.sha256);
+};
+
+/** The fingerprint button that opens a file's text below its row. */
+export type TextToggle = { id: string; expanded: boolean; controls: string; onToggle: () => void };
 
 /** One row per instruction file path that any machine has, in harness order. */
 export function instructionRows(columns: MachineColumn[]): InstructionRow[] {
@@ -71,25 +77,58 @@ export function InstructionCell({
   row,
   columns,
   index,
+  toggle,
 }: {
   row: InstructionRow;
   columns: MachineColumn[];
   index: number;
+  toggle?: TextToggle;
 }) {
   const column = columns[index]!;
   if (!column.scan) return <span className="harnesses-muted">No scan</span>;
   const file = fileOf(column.scan, row);
   const local = index > 0 ? fileOf(columns[0]!.scan, row) : undefined;
   if (!file) return <MissingFile column={column} row={row} local={local !== undefined} />;
-  return <FileFacts file={file} local={local} />;
+  return <FileFacts file={file} local={local} toggle={toggle} />;
+}
+
+/** A quiet button that opens the file's text when it can be read, otherwise plain text. */
+function Fingerprint({
+  sha256,
+  different,
+  toggle,
+}: {
+  sha256: string;
+  different: boolean;
+  toggle?: TextToggle;
+}) {
+  if (!toggle || !sha256)
+    return (
+      <code className={different ? "harnesses-differs" : undefined}>{sha256.slice(0, 8)}</code>
+    );
+  return (
+    <button
+      type="button"
+      id={toggle.id}
+      className="harnesses-cell"
+      aria-expanded={toggle.expanded}
+      aria-controls={toggle.expanded ? toggle.controls : undefined}
+      onClick={toggle.onToggle}
+    >
+      <code className={different ? "harnesses-differs" : undefined}>{sha256.slice(0, 8)}</code>
+      <span className="sr-only"> Show text</span>
+    </button>
+  );
 }
 
 function FileFacts({
   file,
   local,
+  toggle,
 }: {
   file: HarnessInstructionFile;
   local?: HarnessInstructionFile;
+  toggle?: TextToggle;
 }) {
   if (file.linked)
     return (
@@ -102,12 +141,57 @@ function FileFacts({
   return (
     <>
       <span className="harnesses-cell-line">
-        <code className={different ? "harnesses-differs" : undefined}>{sha256.slice(0, 8)}</code>
+        <Fingerprint sha256={sha256} different={different} toggle={toggle} />
         {different && <span className="harnesses-differs">· Different</span>}
       </span>
       <span className="harnesses-cell-detail">
         {formatSize(file.bytes ?? 0)} · {count(file.lines ?? 0, "line")}
       </span>
     </>
+  );
+}
+
+/** One instruction file's text below its row, read when the panel opens. */
+export function InstructionText({
+  row,
+  column,
+  id,
+  onCopy,
+  onClose,
+}: {
+  row: InstructionRow;
+  column: MachineColumn;
+  id: string;
+  onCopy: CopyFile;
+  onClose: () => void;
+}) {
+  const path = row.path.slice(HARNESS_FILE_FOLDERS[row.harness].length + 1);
+  const file = useHarnessFile(row.harness, path);
+  const name = row.path.split("/").at(-1)!;
+  const fingerprint =
+    file.state === "loaded" ? file.reply.sha256 : fileOf(column.scan, row)?.sha256;
+  return (
+    <div
+      id={id}
+      className="harnesses-panel"
+      role="region"
+      aria-label={`${name} on ${column.label}`}
+    >
+      <div className="harnesses-panel-head">
+        <h4>{name}</h4>
+        <code className="harnesses-muted">
+          {[row.path, column.label, fingerprint?.slice(0, 8)].filter(Boolean).join(" · ")}
+        </code>
+        <span className="harnesses-panel-actions">
+          <CopyText file={file} onCopy={() => onCopy(row.harness, path, name)} />
+          <Button variant="ghost" size="icon-sm" aria-label="Close text" onClick={onClose}>
+            <X aria-hidden="true" />
+          </Button>
+        </span>
+      </div>
+      <div className="harnesses-panel-body">
+        <FileBody file={file} label={`Text of ${name}`} />
+      </div>
+    </div>
   );
 }

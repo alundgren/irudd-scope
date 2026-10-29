@@ -498,20 +498,34 @@ owns the scan document, the CLI guide and the routes; the CLI reaches them
 through the loopback artifact API with the publishing token. This version reads
 only `--machine local`; hubs do not forward harness routes.
 
+`packages/harnesses/src/file.ts` reads the text of one allowed file for both the
+CLI and the tab. Allowed files are the global instruction files and the
+`SKILL.md` inside each own, non-linked skill folder, including the shared
+`~/.agents/skills`, as listed by the latest scan. It refuses before opening a
+file: paths not on that list, which covers auth, config and session files and
+bundled skills; paths with `..`, `~` or backslashes; absolute paths; linked files
+and files below a linked folder. After opening without following a link it
+refuses files over 256 KiB without reading them, and text that is not valid
+UTF-8. `HarnessesService.file` passes the latest scan and home folder to it; the
+text goes only to the caller and is never saved or logged.
+
 The built-in Harnesses tab lives in `apps/desktop/src/plugins/harnesses/`. Its
 main entry registers named IPC operations on the desktop's `HarnessesService`:
 `scope:harnesses` returns the latest scans with whether a scan runs and a fixed
 error message, `scope:scan-harnesses` starts a scan, `scope:copy-harnesses-request`
-copies the agent request, and `scope:copy-harness-json` copies one harness's or
-the shared folder's report from the latest scan. The service reports each
+copies the agent request, `scope:copy-harness-json` copies one harness's or
+the shared folder's report from the latest scan, `scope:harness-file` returns
+one allowed file's text, and `scope:copy-harness-file` reads it again and copies
+it. The service reports each
 started, finished or failed scan and each finished size count, and main sends
 that state as `scope:harnesses-changed`. A failed count is only logged
 and leaves the saved sizes pending until the next scan, because the tab shows no sizes.
 A failed save keeps the new scan shown. The view subscribes before it reads,
 so a tab opened during or after the startup scan shows the current state. The
 tab shows only skills and instruction files from each scan: `skills.tsx`
-compares own skill names with this computer's column, and `instructions.tsx`
-compares instruction file fingerprints. Other facts stay in the scan, the CLI
+compares own skill names with this computer's column and shows a selected
+skill's `SKILL.md`, `instructions.tsx` compares instruction file fingerprints
+and shows a file's text, and `file-text.tsx` reads and draws that text. Other facts stay in the scan, the CLI
 and Copy as JSON.
 
 ## Names and ownership

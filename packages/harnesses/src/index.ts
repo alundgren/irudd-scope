@@ -3,6 +3,8 @@ import { fitScan } from "./fit.ts";
 import { scanHarnesses, scanSharedSkills } from "./scan.ts";
 import { measureFolder } from "./size.ts";
 
+export { readHarnessFile, type HarnessFileOptions } from "./file.ts";
+
 export type HarnessScanOptions = {
   /** The account's home folder: `HOME` on macOS and Linux, `%USERPROFILE%` on Windows. */
   home: string;

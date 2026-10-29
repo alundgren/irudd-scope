@@ -4,6 +4,7 @@ import { Schema } from "effect";
 export const HARNESSES_ROUTES = {
   read: "/v1/harnesses",
   scan: "/v1/harnesses/scan",
+  file: "/v1/harnesses/file",
 } as const;
 /**
  * One machine's scan as JSON, as returned and as saved in desktop.db. The scanner shortens the
@@ -13,6 +14,10 @@ export const MAX_HARNESS_SCAN_BYTES = 256 * 1024;
 /** A read can later hold several machines; each is bounded by MAX_HARNESS_SCAN_BYTES. */
 export const MAX_HARNESSES_REPLY_BYTES = 16 * 1024 * 1024;
 export const MAX_HARNESSES_REQUEST_BYTES = 4096;
+/** The largest instruction file or SKILL.md that `harnesses file` returns. */
+export const MAX_HARNESS_FILE_BYTES = 256 * 1024;
+/** The file text as JSON can double in size through escapes. */
+export const MAX_HARNESS_FILE_REPLY_BYTES = 2 * MAX_HARNESS_FILE_BYTES + 4096;
 export const MAX_HARNESS_ITEMS = 1000;
 export const MAX_HARNESS_MCP_SERVERS = 500;
 
@@ -147,18 +152,53 @@ export type HarnessesTarget = typeof HarnessesTarget.Type;
 export const HarnessesScanRequest = Schema.Struct({ machine: HarnessesTarget });
 export type HarnessesScanRequest = typeof HarnessesScanRequest.Type;
 
+/** A harness, or `shared` for the shared skill folder ~/.agents/skills. */
+export const HarnessFileOwner = Schema.Union([HarnessId, Schema.Literal("shared")]);
+export type HarnessFileOwner = typeof HarnessFileOwner.Type;
+/** The folder each owner's file paths are relative to. */
+export const HARNESS_FILE_FOLDERS: Record<HarnessFileOwner, string> = {
+  codex: "~/.codex",
+  "claude-code": "~/.claude",
+  cursor: "~/.cursor",
+  grok: "~/.grok",
+  shared: "~/.agents/skills",
+};
+
+/**
+ * One instruction file or SKILL.md. `path` is relative to the owner's folder, for example
+ * `CLAUDE.md` or `skills/review/SKILL.md` for Claude Code and `review/SKILL.md` for shared.
+ */
+export const HarnessFileRequest = Schema.Struct({
+  machine: HarnessesTarget,
+  harness: HarnessFileOwner,
+  path: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024)),
+});
+export type HarnessFileRequest = typeof HarnessFileRequest.Type;
+
+export const HarnessFileReply = Schema.Struct({
+  harness: HarnessFileOwner,
+  path: HomePath,
+  bytes: Count.check(Schema.isLessThanOrEqualTo(MAX_HARNESS_FILE_BYTES)),
+  lines: Count,
+  sha256: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+  text: Schema.String,
+});
+export type HarnessFileReply = typeof HarnessFileReply.Type;
+
 export const HarnessesGuide = {
   purpose:
     "Report the coding agent harnesses installed for this account: Codex, Claude Code, Cursor and Grok Build, plus the shared skill folder ~/.agents/skills. Scope only reads. It never changes, moves or deletes a harness file, never runs an agent and never returns secrets.",
   commands: {
     scan: "irudd-scope harnesses scan [--machine local]",
     read: "irudd-scope harnesses read [--machine local]",
+    file: "irudd-scope harnesses file [--machine local] HARNESS PATH",
     guide: "irudd-scope harnesses guide",
   },
   machines:
     "--machine defaults to local, the computer running the Scope desktop. Other values fail. The command needs the desktop open; it is never queued.",
   output:
-    "Both commands print JSON {machines:[{machine, scannedAt, harnesses, sharedSkills}]}. scan starts a new scan and returns as soon as every fact except folder sizes is known. read returns the latest scan; the desktop also scans when it starts. The desktop saves the latest scan per machine.",
+    "scan and read print JSON {machines:[{machine, scannedAt, harnesses, sharedSkills}]}. scan starts a new scan and returns as soon as every fact except folder sizes is known. read returns the latest scan; the desktop also scans when it starts. The desktop saves the latest scan per machine. file prints JSON {harness, path, bytes, lines, sha256, text}.",
+  file: "file returns the text of one global instruction file or one own skill's SKILL.md that the latest scan lists. HARNESS is codex, claude-code, cursor, grok, or shared for ~/.agents/skills. PATH is relative to that folder (~/.codex, ~/.claude, ~/.cursor, ~/.grok or ~/.agents/skills) with / between names: for example claude-code CLAUDE.md, codex AGENTS.md, codex skills/review/SKILL.md, shared review/SKILL.md. Scope refuses everything else before reading it: other files such as auth, config and session files, bundled skills, paths with .. or ~, absolute paths, linked files or folders, files over 256 KiB, and text that is not UTF-8. Run scan first when a file is new.",
   fields: {
     id: "codex, claude-code, cursor or grok.",
     name: "Codex, Claude Code, Cursor or Grok Build.",

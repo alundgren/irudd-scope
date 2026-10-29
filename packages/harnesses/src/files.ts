@@ -88,6 +88,69 @@ export async function readSmallFile(
   }
 }
 
+export type TextRead =
+  | {
+      kind: "missing" | "linked-folder" | "linked" | "not-file" | "too-large" | "not-text";
+    }
+  | { kind: "unreadable" }
+  | { kind: "text"; bytes: Buffer; text: string };
+
+/**
+ * Reads a regular file below home as UTF-8 text. A linked folder on the way, a linked or
+ * other final entry, and a file over `limit` bytes are refused without reading any content.
+ */
+export async function readTextFile(
+  home: string,
+  names: readonly string[],
+  limit: number,
+): Promise<TextRead> {
+  const path = await belowHome(home, names);
+  if (!path) return { kind: (await missingFolder(home, names)) ? "missing" : "linked-folder" };
+  const info = await lstatOrNull(path);
+  if (!info) return { kind: "missing" };
+  if (info.isSymbolicLink()) return { kind: "linked" };
+  if (!info.isFile()) return { kind: "not-file" };
+  const opened = await openRegular(home, names);
+  if (!opened) return { kind: "not-file" };
+  try {
+    return opened.size > limit ? { kind: "too-large" } : await readText(opened.handle, limit);
+  } catch {
+    return { kind: "unreadable" };
+  } finally {
+    await opened.handle.close().catch(() => {});
+  }
+}
+
+/** A file can grow after its size was checked, so reading stops one byte past the limit. */
+async function readText(handle: FileHandle, limit: number): Promise<TextRead> {
+  const buffer = Buffer.alloc(limit + 1);
+  let length = 0;
+  for (;;) {
+    const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length);
+    length += bytesRead;
+    if (bytesRead === 0 || length === buffer.length) break;
+  }
+  if (length > limit) return { kind: "too-large" };
+  const bytes = buffer.subarray(0, length);
+  try {
+    return { kind: "text", bytes, text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+  } catch {
+    return { kind: "not-text" };
+  }
+}
+
+/** True when a folder on the way is missing; false when one is a link or another entry. */
+async function missingFolder(home: string, names: readonly string[]): Promise<boolean> {
+  let path = home;
+  for (const name of names.slice(0, -1)) {
+    path = join(path, name);
+    const info = await lstatOrNull(path);
+    if (!info) return true;
+    if (!info.isDirectory()) return false;
+  }
+  return false;
+}
+
 /**
  * Parses JSON without letting a parse error escape. V8 error messages quote part of the
  * input, and these files hold tokens.

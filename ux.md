@@ -533,22 +533,41 @@ open at a time. A rescan that removes the opened harness or folder closes its pa
 Linked" key when a listed skill is a link, and Copy as JSON for that harness on
 that machine. Names that differ between machines come first, one row each with
 a check or Missing per machine; names every machine has fold behind "N matching
-skills". With one machine column the panel lists every name. A linked skill has
-one ↪ after its name, with the accessible name linked; Scope never reads its
-target. Bundled skills are not listed.
+skills". With one machine column the panel lists every name as a button on the
+left. Selecting a name shows that skill's `SKILL.md` on the right with its size,
+line count and Copy text; the selected name stays highlighted and keeps focus.
+A narrow tab stacks the text below the names. A linked skill has one ↪ after
+its name, with the accessible name linked, and selecting it shows "Linked.
+Scope does not follow it." instead of text; Scope never reads its target.
+Bundled skills are not listed.
 
 Instruction files has one row per harness and file path that any machine has,
 labeled with the harness name and the path. A cell shows a short fingerprint,
 then size and line count; the same fingerprint means the same text. Another
 machine shows Different beside a fingerprint that differs from this computer's,
 and Missing when this computer has the file and it does not. A linked file shows
-Linked file. A line below names harnesses that are found but have no
+Linked file. On this computer the fingerprint is a quiet button like the skill
+counts. Selecting it opens the file's text in a panel below the row and keeps
+focus on the fingerprint; selecting it again or the panel's close button closes
+it and returns focus. The panel shows the file name, then its path, machine and
+fingerprint, Copy text and close. Text panels and skill name panels share the
+one-panel-at-a-time rule, and a rescan that removes the file closes its panel.
+A line below names harnesses that are found but have no
 instruction files, for example "Cursor has no instruction files.", and the
 shared skill folder path. Sizes use decimal units like a file manager. The CLI
 and Copy as JSON keep exact bytes.
 
+File text is read-only and read when its panel opens, with "Reading…" until it
+arrives. It sits in a bordered box at most 300 px tall that scrolls and takes
+keyboard focus, with line numbers that copying leaves out. A file Scope refuses
+or cannot read shows the reason instead, such as a file over 256 KiB or text
+that is not UTF-8. Copy text reads the file again and copies the same allowed
+text. The tab reads only what `irudd-scope harnesses file` allows and has no
+action that opens, edits or reveals a harness folder.
+
 The toolbar has Copy agent request and Rescan. The request asks the person's
-agent to run `irudd-scope harnesses guide` and then `harnesses read`; Scope does
+agent to run `irudd-scope harnesses guide` and then `harnesses read`, and to
+use `harnesses file` for instruction file or `SKILL.md` text; Scope does
 not run agents. Rescan shows Scanning… while it runs and updates the scan time.
 A failed scan keeps the last scan visible and shows an error with Retry. The tab shows no folder sizes, so a failed size count shows no error. A scan
 that cannot be saved is still shown. The first open without a saved scan shows

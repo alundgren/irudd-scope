@@ -5,7 +5,16 @@ import { Button } from "../../renderer/components/ui/button.tsx";
 import { localMachineName } from "../../renderer/remote-names.ts";
 import { operationError } from "../../renderer/operation-error.ts";
 import type { HarnessesState, MachineColumn } from "./contract.ts";
-import { InstructionCell, instructionRows, withoutInstructions } from "./instructions.tsx";
+import type { CopyFile } from "./file-text.tsx";
+import {
+  InstructionCell,
+  InstructionText,
+  instructionRows,
+  readable,
+  withoutInstructions,
+  type InstructionRow,
+  type TextToggle,
+} from "./instructions.tsx";
 import { ScanTime } from "./scan-time.tsx";
 import {
   SKILL_ROWS,
@@ -47,7 +56,11 @@ function useHarnesses() {
   return { state, failed };
 }
 
-type Open = { machine: HarnessMachine; row: SkillRow } | null;
+/** One panel at a time: a row's skill names, or an instruction file's text. */
+type Open =
+  | { kind: "skills"; machine: HarnessMachine; row: SkillRow }
+  | { kind: "file"; machine: HarnessMachine; file: InstructionRow }
+  | null;
 
 /** A quiet button with the own skill count; other machines add how they differ from this one. */
 function SkillCount({
@@ -70,7 +83,7 @@ function SkillCount({
   if (list.state !== "listed")
     return <span className="harnesses-muted">{unlisted(list, row)}</span>;
   const compared = index > 0 ? difference(skillList(columns[0]!.scan, row), list) : null;
-  const expanded = open?.machine === column.machine && open.row === row;
+  const expanded = open?.kind === "skills" && open.machine === column.machine && open.row === row;
   const skills = list.skills.length;
   return (
     <button
@@ -79,7 +92,7 @@ function SkillCount({
       className="harnesses-cell"
       aria-expanded={expanded}
       aria-controls={expanded ? panel : undefined}
-      onClick={() => onToggle(expanded ? null : { machine: column.machine, row })}
+      onClick={() => onToggle(expanded ? null : { kind: "skills", machine: column.machine, row })}
     >
       {skills}
       <span className="sr-only">{skills === 1 ? " skill" : " skills"}</span>
@@ -106,22 +119,88 @@ function BlockHead({ title, note, span }: { title: string; note: string; span: n
   );
 }
 
+/** Instruction file rows; the open file's text shows below its row. */
+function InstructionBlock({
+  files,
+  columns,
+  open,
+  opened,
+  panel,
+  toggle,
+  onCopyText,
+  onClose,
+}: {
+  files: InstructionRow[];
+  columns: MachineColumn[];
+  open: Open;
+  opened: MachineColumn | null | undefined;
+  panel: string;
+  toggle: (file: InstructionRow, column: MachineColumn, index: number) => TextToggle | undefined;
+  onCopyText: CopyFile;
+  onClose: () => void;
+}) {
+  const span = columns.length + 2;
+  return (
+    <tbody>
+      <BlockHead title="Instruction files" note="Same fingerprint, same text" span={span - 1} />
+      {files.map((file) => (
+        <Fragment key={file.path}>
+          <tr>
+            <th scope="row">
+              {rowName(file.harness)} <code className="harnesses-cell-detail">{file.path}</code>
+            </th>
+            {columns.map((column, index) => (
+              <td key={column.machine}>
+                <InstructionCell
+                  row={file}
+                  columns={columns}
+                  index={index}
+                  toggle={toggle(file, column, index)}
+                />
+              </td>
+            ))}
+            <td aria-hidden="true" />
+          </tr>
+          {opened && open?.kind === "file" && open.file.path === file.path && (
+            <tr className="harnesses-panel-row">
+              <td colSpan={span}>
+                <InstructionText
+                  row={file}
+                  column={opened}
+                  id={panel}
+                  onCopy={onCopyText}
+                  onClose={onClose}
+                />
+              </td>
+            </tr>
+          )}
+        </Fragment>
+      ))}
+    </tbody>
+  );
+}
+
+/** Whether the opened panel's skill list or file is still in its machine's latest scan. */
+function stillListed(open: NonNullable<Open>, column: MachineColumn) {
+  if (column.machine !== open.machine) return false;
+  return open.kind === "skills"
+    ? skillList(column.scan, open.row).state === "listed"
+    : readable(column.scan, open.file);
+}
+
 function Matrix({
   columns,
   onCopyJson,
+  onCopyText,
 }: {
   columns: MachineColumn[];
   onCopyJson: (machine: HarnessMachine, row: SkillRow) => void;
+  onCopyText: CopyFile;
 }) {
   const [open, setOpen] = useState<Open>(null);
   const panel = `${useId()}-skills`;
-  // A rescan can remove the opened harness or folder; its panel then closes.
-  const opened =
-    open &&
-    columns.find(
-      (column) =>
-        column.machine === open.machine && skillList(column.scan, open.row).state === "listed",
-    );
+  // A rescan can remove the opened harness, folder or file; its panel then closes.
+  const opened = open && columns.find((column) => stillListed(open, column));
   const stale = Boolean(open && !opened);
   useEffect(() => {
     if (stale) setOpen(null);
@@ -131,11 +210,32 @@ function Matrix({
   const footnote = withoutInstructions(columns);
   const sharedFolder = columns.find((column) => column.scan)?.scan?.sharedSkills;
   const shared = columns.some((column) => column.scan?.sharedSkills.found);
+  const fileButton = (file: InstructionRow, index: number) => `${panel}-file-${file.path}-${index}`;
+  /** Only this computer's files can be read for now. */
+  function fileToggle(
+    file: InstructionRow,
+    column: MachineColumn,
+    index: number,
+  ): TextToggle | undefined {
+    if (column.machine !== "local") return undefined;
+    const expanded =
+      open?.kind === "file" && open.machine === column.machine && open.file.path === file.path;
+    return {
+      id: fileButton(file, index),
+      expanded,
+      controls: `${panel}-file`,
+      onToggle: () => setOpen(expanded ? null : { kind: "file", machine: column.machine, file }),
+    };
+  }
   function close() {
     if (!open) return;
     const index = columns.findIndex((column) => column.machine === open.machine);
     setOpen(null);
-    document.getElementById(`${panel}-${open.row}-${index}`)?.focus();
+    document
+      .getElementById(
+        open.kind === "skills" ? `${panel}-${open.row}-${index}` : fileButton(open.file, index),
+      )
+      ?.focus();
   }
   const colgroup = (
     <colgroup>
@@ -198,7 +298,7 @@ function Matrix({
                   ))}
                   <td aria-hidden="true" />
                 </tr>
-                {opened && open.row === row && (
+                {opened && open.kind === "skills" && open.row === row && (
                   <tr className="harnesses-panel-row">
                     <td colSpan={span}>
                       <SkillNames
@@ -207,6 +307,7 @@ function Matrix({
                         opened={opened}
                         id={panel}
                         onCopy={() => onCopyJson(opened.machine, row)}
+                        onCopyText={onCopyText}
                         onClose={close}
                       />
                     </td>
@@ -216,27 +317,16 @@ function Matrix({
             ))}
           </tbody>
           {files.length > 0 && (
-            <tbody>
-              <BlockHead
-                title="Instruction files"
-                note="Same fingerprint, same text"
-                span={span - 1}
-              />
-              {files.map((file) => (
-                <tr key={file.path}>
-                  <th scope="row">
-                    {rowName(file.harness)}{" "}
-                    <code className="harnesses-cell-detail">{file.path}</code>
-                  </th>
-                  {columns.map((column, index) => (
-                    <td key={column.machine}>
-                      <InstructionCell row={file} columns={columns} index={index} />
-                    </td>
-                  ))}
-                  <td aria-hidden="true" />
-                </tr>
-              ))}
-            </tbody>
+            <InstructionBlock
+              files={files}
+              columns={columns}
+              open={open}
+              opened={opened}
+              panel={`${panel}-file`}
+              toggle={fileToggle}
+              onCopyText={onCopyText}
+              onClose={close}
+            />
           )}
         </table>
       </div>
@@ -321,6 +411,12 @@ export function HarnessesView() {
           copy(
             window.scope.copyHarnessJson({ machine, harness: row }),
             `Copied ${rowName(row)} as JSON.`,
+          )
+        }
+        onCopyText={(harness, path, name) =>
+          copy(
+            window.scope.copyHarnessFile({ machine: "local", harness, path }),
+            `Copied the text of ${name}.`,
           )
         }
       />

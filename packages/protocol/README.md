@@ -821,8 +821,17 @@ uses the ordinary publication queue.
 `{ machines: [HarnessScan] }` with the latest scan; `machine` defaults to
 `local`. `POST /v1/harnesses/scan` with `{ "machine": "local" }` starts a scan
 and returns the same reply once every fact except folder sizes is known. Other
-machine values answer 400. Both routes need the publishing token and a running
-desktop; hubs do not forward them and nothing is queued.
+machine values answer 400. `GET /v1/harnesses/file?machine=local&harness=HARNESS&path=PATH`
+returns `HarnessFileReply` `{ harness, path, bytes, lines, sha256, text }` for one
+global instruction file or own skill's `SKILL.md` that the latest scan lists.
+`harness` is a harness id or `shared` for `~/.agents/skills`, and `path` is
+relative to that folder (`~/.codex`, `~/.claude`, `~/.cursor`, `~/.grok` or
+`~/.agents/skills`), for example `CLAUDE.md` or `skills/review/SKILL.md`. Paths
+with `..` or `~` and absolute paths answer 400; files the scan does not list,
+links, files over 256 KiB and text that is not UTF-8 answer 403 without
+returning content; a listed file that is gone answers 404, and no scan yet 409.
+All routes need the publishing token and a running desktop; hubs do not forward
+them and nothing is queued.
 
 A `HarnessScan` holds `machine`, `scannedAt`, one `HarnessReport` per supported
 harness (`codex`, `claude-code`, `cursor`, `grok`) and `sharedSkills` for
