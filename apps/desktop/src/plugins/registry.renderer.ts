@@ -10,6 +10,7 @@ import { planPlugin } from "./plan/renderer.tsx";
 import { pullRequestsPlugin } from "./pull-requests/renderer.tsx";
 import { retroPlugin } from "./retro/renderer.tsx";
 import { folderPlugin } from "./folder/renderer.tsx";
+import { harnessesPlugin } from "./harnesses/renderer.tsx";
 
 export const tabPlugins = [
   promptsPlugin,
@@ -19,6 +20,7 @@ export const tabPlugins = [
   pullRequestsPlugin,
   retroPlugin,
   folderPlugin,
+  harnessesPlugin,
   filePlugin,
 ];
 export const findPlugin = (type: string) => tabPlugins.find((plugin) => plugin.type === type);

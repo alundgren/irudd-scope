@@ -1,6 +1,7 @@
 import { promptsTabState } from "../plugins/prompts/contract.ts";
 import { memoryTabState } from "../plugins/memory/contract.ts";
 import { sketchpadTabState } from "../plugins/sketchpad/contract.ts";
+import { harnessesTabState } from "../plugins/harnesses/contract.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
@@ -13,6 +14,7 @@ import {
   X,
   Info,
   Bookmark,
+  Bot,
   Trash2,
 } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
@@ -626,6 +628,14 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             keywords: "draw drawing sketch whiteboard scratchpad canvas excalidraw ideas",
             icon: PencilLine,
             onSelect: () => void openBuiltinTab("sketchpad", "Sketchpad", sketchpadTabState()),
+          },
+          {
+            id: "harnesses",
+            title: "Harnesses",
+            keywords:
+              "coding agents codex claude code cursor grok skills mcp servers instructions versions",
+            icon: Bot,
+            onSelect: () => void openBuiltinTab("harnesses", "Harnesses", harnessesTabState()),
           },
           {
             id: "settings",

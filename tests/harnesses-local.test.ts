@@ -1,4 +1,6 @@
 import { expect, test } from "vite-plus/test";
+import type { Page } from "@playwright/test";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { decodeLocalConnection } from "@irudd-scope/protocol";
@@ -149,6 +151,17 @@ async function readUntilSized(cli: (...args: string[]) => Promise<{ stdout: stri
   }
 }
 
+async function openHarnessesTab(page: Page) {
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByLabel("Search artifacts", { exact: true }).fill("harnesses");
+  await page.getByRole("button", { name: "Harnesses", exact: true }).click();
+  await page.getByRole("tab", { name: "Harnesses", selected: true }).waitFor();
+  // Closing search returns focus to its button.
+  await page.getByRole("dialog").waitFor({ state: "detached" });
+}
+
+const scanTime = (page: Page) => page.locator(".harnesses-matrix time").getAttribute("dateTime");
+
 async function expectReport(
   reply: HarnessesReply,
   home: string,
@@ -279,11 +292,15 @@ test(
         expect(response.status).toBe(200);
         seen.push(await response.text());
       }
-      await readUntilSized(cli);
+      const before = (await readUntilSized(cli)).machines[0]!.scannedAt;
       await application.close();
 
       // The saved scan answers after a restart, before or while the new scan runs.
       application = await launch();
+      const page = await application.firstWindow();
+      await openHarnessesTab(page);
+      await page.getByRole("row", { name: /^Cursor Signed in/ }).waitFor();
+      expect(Date.parse((await scanTime(page))!)).toBeGreaterThanOrEqual(Date.parse(before));
       const saved = JSON.parse(
         (await cli("harnesses", "read", "--machine", "local")).stdout,
       ) as HarnessesReply;
@@ -340,6 +357,144 @@ test(
         expect(withoutSize(harness(reply, "codex"))).toEqual({ ...codex(), size: undefined });
       expect([{ state: "pending" }, expected]).toContainEqual(harness(first, "codex").size);
       expect(harness(await readUntilSized(cli), "codex").size).toEqual(expected);
+    } finally {
+      await application.close();
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  },
+);
+
+const LONG_SKILL = `a-skill-with-a-very-long-name-that-${"keeps-going-".repeat(6)}end`;
+
+/** Saves the expanded matrix in both appearances and widths when SCOPE_TEST_SCREENSHOTS names a folder. */
+async function saveScreenshots(page: Page) {
+  const folder = process.env.SCOPE_TEST_SCREENSHOTS;
+  if (!folder) return;
+  await mkdir(folder, { recursive: true });
+  const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+  for (const appearance of ["light", "dark"] as const) {
+    await page.keyboard.press("ControlOrMeta+,");
+    await settings.getByLabel("Search settings").fill("color scheme");
+    await settings.getByLabel("Appearance", { exact: true }).selectOption(appearance);
+    await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe(appearance);
+    await page.keyboard.press("Escape");
+    await settings.waitFor({ state: "detached" });
+    for (const [width, size] of [
+      [1366, "laptop"],
+      [600, "narrow"],
+    ] as const) {
+      await page.setViewportSize({ width, height: 860 });
+      await page.screenshot({ path: join(folder, `harnesses-${appearance}-${size}.png`) });
+    }
+  }
+}
+
+test(
+  "the Harnesses tab shows this computer's harnesses, their details and copies them",
+  { tags: ["harnesses-look-dont-touch"], timeout: 180_000 },
+  async () => {
+    const fixture = await harnessHome({ cursor: true, brokenClaudeJson: true });
+    await mkdir(join(fixture.home, ".codex", "skills", LONG_SKILL));
+    await writeFile(join(fixture.home, ".codex", "skills", LONG_SKILL, "SKILL.md"), "# Long\n");
+    const { launch, cli } = await desktopFixture({ hideInitialPrompts: true, env: fixture.env });
+    const application = await launch();
+    try {
+      const page = await application.firstWindow();
+      // Harnesses is not created at startup; search opens it once.
+      expect(await page.getByRole("tab", { name: "Harnesses" }).count()).toBe(0);
+      await openHarnessesTab(page);
+      await page.getByRole("img", { name: "Built-in tab: Harnesses", exact: true }).waitFor();
+
+      const cell = (name: string) =>
+        page
+          .getByRole("row")
+          .filter({ has: page.getByRole("rowheader", { name, exact: true }) })
+          .getByRole("button");
+      const sized = async () => {
+        for (const name of ["Codex", "Claude Code", "Cursor", "Grok Build"])
+          await expect.poll(() => cell(name).textContent()).not.toContain("counting");
+      };
+      await sized();
+      expect(await cell("Codex").textContent()).toMatch(
+        /^Signed in·0\.200\.0.* · 2 skills · 2 MCP · AGENTS\.md$/,
+      );
+      expect(await cell("Claude Code").textContent()).toMatch(
+        /^Sign-in unknown·2\.2\.0.* · 2 skills · 0 MCP · CLAUDE\.md$/,
+      );
+      expect(await cell("Cursor").textContent()).toMatch(
+        /^Signed in·2026\.11\.02-abc1234.* · 1 skill · 2 MCP$/,
+      );
+      expect(await cell("Grok Build").textContent()).toMatch(
+        /^Signed in·1\.2\.3.* · 1 skill · 2 MCP · AGENTS\.md$/,
+      );
+      expect(await cell("Shared skills").textContent()).toBe("2 skills");
+
+      // Enter and Space open and close the details in the next row; focus stays on the cell.
+      const codex = page.getByRole("region", { name: "Codex on This computer" });
+      await cell("Codex").focus();
+      await page.keyboard.press("Enter");
+      await codex.waitFor();
+      expect(await cell("Codex").getAttribute("aria-expanded")).toBe("true");
+      expect(await cell("Codex").evaluate((button) => button === document.activeElement)).toBe(
+        true,
+      );
+      const size = await folderSize(join(fixture.home, ".codex"));
+      const fingerprint = createHash("sha256").update(instructions.codex).digest("hex");
+      for (const text of [
+        "Signed in with ChatGPT",
+        `${size.files} files`,
+        "~/.codex/AGENTS.md",
+        `4 lines`,
+        fingerprint.slice(0, 8),
+        "helper",
+        LONG_SKILL,
+        "imagegen",
+      ])
+        await codex.getByText(text, { exact: false }).first().waitFor();
+      await codex.getByText("docs", { exact: true }).locator("..").getByText("stdio").waitFor();
+      await page.keyboard.press("Space");
+      await codex.waitFor({ state: "detached" });
+      expect(await cell("Codex").getAttribute("aria-expanded")).toBe("false");
+
+      await cell("Claude Code").click();
+      const claude = page.getByRole("region", { name: "Claude Code on This computer" });
+      await claude.getByText("~/.claude.json").waitFor();
+      await claude
+        .getByText("outside", { exact: true })
+        .locator("..")
+        .getByText("linked")
+        .waitFor();
+      await claude.getByRole("button", { name: "Copy as JSON" }).click();
+      await page.getByText("Copied Claude Code as JSON.").waitFor();
+      const latest = JSON.parse(
+        (await cli("harnesses", "read", "--machine", "local")).stdout,
+      ) as HarnessesReply;
+      expect(
+        JSON.parse(await application.evaluate(({ clipboard }) => clipboard.readText())),
+      ).toEqual(harness(latest, "claude-code"));
+
+      await page.getByRole("button", { name: "Copy agent request" }).click();
+      await page.getByText("Copied the agent request.").waitFor();
+      const request = await application.evaluate(({ clipboard }) => clipboard.readText());
+      expect(request.indexOf("irudd-scope harnesses guide")).toBeGreaterThanOrEqual(0);
+      expect(request.indexOf("irudd-scope harnesses read")).toBeGreaterThan(
+        request.indexOf("irudd-scope harnesses guide"),
+      );
+
+      // Rescan replaces the scan time and the sizes fill in again by themselves.
+      const before = (await scanTime(page))!;
+      await page.getByRole("button", { name: "Rescan" }).click();
+      await expect.poll(() => scanTime(page)).not.toBe(before);
+      expect(Date.parse((await scanTime(page))!)).toBeGreaterThan(Date.parse(before));
+      await sized();
+
+      // A narrow window scrolls the matrix inside the tab, not the whole page.
+      await cell("Codex").click();
+      await page.setViewportSize({ width: 600, height: 860 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
+        false,
+      );
+      await saveScreenshots(page);
     } finally {
       await application.close();
       await rm(fixture.root, { recursive: true, force: true });

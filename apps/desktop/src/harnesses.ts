@@ -1,22 +1,29 @@
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { scanMachine } from "@irudd-scope/harnesses";
-import type { HarnessScan, HarnessesReply } from "@irudd-scope/protocol/harnesses";
+import type { HarnessMachine, HarnessScan, HarnessesReply } from "@irudd-scope/protocol/harnesses";
 import type { HarnessScanStore } from "./harness-scans.ts";
+import type { HarnessesState } from "./plugins/harnesses/contract.ts";
+
+const SCAN_FAILED = "Scope could not scan this computer's harnesses.";
+const COUNT_FAILED = "Scope could not count this computer's harness folders.";
 
 /**
  * Scans this computer's harnesses at startup and on request, and keeps the latest scan in
  * desktop.db. A scan answers once every fact except folder sizes is known; sizes are counted
- * afterwards and saved when they finish. There is no periodic scan.
+ * afterwards and saved when they finish. There is no periodic scan. `onChange` reports each
+ * started, finished or failed scan and each finished size count.
  */
 export class HarnessesService {
   private latest: HarnessScan | null = null;
   private running: Promise<HarnessScan> | null = null;
   private sizes: { controller: AbortController; done: Promise<void> } | null = null;
+  private error: string | null = null;
   private readonly closing = new AbortController();
 
   constructor(
     private readonly store: HarnessScanStore,
+    private readonly onChange: (state: HarnessesState) => void = () => {},
     private readonly home = homedir(),
     private readonly path = harnessPath(),
   ) {}
@@ -28,15 +35,43 @@ export class HarnessesService {
 
   async read(): Promise<HarnessesReply> {
     if (!this.latest && this.running) await this.running.catch(() => {});
-    return { machines: this.latest ? [this.latest] : [] };
+    return this.reply();
+  }
+
+  /** Answers at once, without waiting for a running scan. */
+  state(): HarnessesState {
+    return {
+      reply: this.reply(),
+      scanning: this.running !== null,
+      error: this.error,
+      counting: this.sizes !== null,
+    };
+  }
+
+  /** The latest scan of one machine. This desktop scans only its own computer. */
+  latestScan(machine: HarnessMachine): HarnessScan | null {
+    return machine === "local" ? this.latest : null;
   }
 
   /** Concurrent requests share one scan. A new scan replaces a size count still running. */
   scan(): Promise<HarnessScan> {
     if (this.closing.signal.aborted) return Promise.reject(new Error("Scope is closing."));
-    this.running ??= this.run().finally(() => {
-      this.running = null;
-    });
+    if (this.running) return this.running;
+    this.error = null;
+    this.running = this.run().then(
+      (scan) => {
+        this.running = null;
+        this.changed();
+        return scan;
+      },
+      (error: unknown) => {
+        this.running = null;
+        if (!this.closing.signal.aborted) this.error = SCAN_FAILED;
+        this.changed();
+        throw error;
+      },
+    );
+    this.changed();
     return this.running;
   }
 
@@ -69,10 +104,18 @@ export class HarnessesService {
         .then(async (scan) => {
           if (controller.signal.aborted) return;
           this.latest = scan;
+          this.changed();
           await this.save(scan);
         })
         .catch(() => {
-          if (!controller.signal.aborted) console.error("Scope could not count harness folders.");
+          if (controller.signal.aborted) return;
+          console.error("Scope could not count harness folders.");
+          // A newer scan counts again, so this failure must not mark it.
+          if (this.sizes !== sizes || this.running) return;
+          // The saved scan keeps its pending sizes until the next scan.
+          this.sizes = null;
+          this.error = COUNT_FAILED;
+          this.changed();
         })
         .finally(() => {
           if (this.sizes === sizes) this.sizes = null;
@@ -82,9 +125,22 @@ export class HarnessesService {
     return run.scan;
   }
 
+  private reply(): HarnessesReply {
+    return { machines: this.latest ? [this.latest] : [] };
+  }
+
+  private changed() {
+    if (!this.closing.signal.aborted) this.onChange(this.state());
+  }
+
+  /** A scan that cannot be saved is still shown; the next scan tries again. */
   private async save(scan: HarnessScan): Promise<void> {
-    if (!(await this.store.save(scan)))
-      console.error("The harness scan exceeds 256 KiB and was not saved.");
+    try {
+      if (!(await this.store.save(scan)))
+        console.error("The harness scan exceeds 256 KiB and was not saved.");
+    } catch {
+      console.error("Scope could not save the harness scan.");
+    }
   }
 }
 

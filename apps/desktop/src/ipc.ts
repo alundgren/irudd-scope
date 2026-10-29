@@ -20,6 +20,7 @@ import type { AppUpdates } from "./updates.ts";
 import type { Remotes } from "./remotes.ts";
 import type { MemoryService } from "./memory.ts";
 import type { LibrarianService } from "./librarian.ts";
+import type { HarnessesService } from "./harnesses.ts";
 import { RemoteId } from "@irudd-scope/protocol/remote";
 import { openKeychainAccess } from "./signing.ts";
 import { SketchpadMenuState } from "./menu-contract.ts";
@@ -38,6 +39,7 @@ export function registerDesktopIpc({
   remotes,
   memory,
   librarian,
+  harnesses,
   guests,
   guestCatalogs,
   guestMutations,
@@ -55,6 +57,7 @@ export function registerDesktopIpc({
   remotes: Remotes;
   memory: MemoryService;
   librarian: LibrarianService;
+  harnesses: HarnessesService;
   guests: GuestConnections;
   guestCatalogs: GuestCatalogs;
   guestMutations: GuestMutations;
@@ -101,6 +104,7 @@ export function registerDesktopIpc({
     store,
     client,
     memory,
+    harnesses,
     lifecycle,
     remotes,
     artifacts: lifecycle.artifacts,

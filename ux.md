@@ -496,6 +496,50 @@ English text, keyboard navigation, visible focus, labeled icon controls, and
 readable contrast apply throughout the workspace. Check long titles and more
 tabs than fit on a laptop or external monitor.
 
+## Harnesses
+
+Harnesses is a permanent built-in tab that shows the coding agent tools on this
+computer. Search offers Harnesses, matching words such as Codex, Claude Code,
+Cursor, Grok, skills and MCP. It opens the existing tab or creates it once, like
+the Sketchpad, and closing hides it for reopening from the drawer or search.
+It is not created at startup: most people check their harnesses now and then,
+and a startup tab would take strip space from artifacts.
+
+The matrix has one row for each of Codex, Claude Code, Cursor and Grok Build,
+then a Shared skills row for `~/.agents/skills`, and one column for this
+computer, named This Mac, This PC or This computer. The column heading shows
+when the shown scan was made. A harness cell shows its sign-in state in words,
+version, main folder size (counting… until the background count finishes), own
+skill count, MCP server count and instruction file names. The Shared skills cell
+shows the skill count, Linked folder when the folder itself is a link, or Not
+found. Missing harnesses show Not found and cannot be selected.
+
+Each found cell is a button. Selecting it with the mouse, Enter or Space opens
+its details in the row below and keeps focus on the cell; selecting it again
+closes them. One cell is open at a time. Details show the version, sign-in state
+and method, the main folder with its size, file count and largest parts,
+instruction files with lines, size and a short fingerprint, MCP servers with
+their transport, agents, own and bundled skills, files Scope could not read, and
+a note when lists were shortened. Linked entries are marked linked and never
+read. Copy as JSON copies that harness's, or the shared folder's, data from the
+latest scan.
+
+The toolbar has Copy agent request and Rescan. The request asks the person's
+agent to run `irudd-scope harnesses guide` and then `harnesses read`; Scope does
+not run agents. Rescan shows Scanning… while it runs and updates the scan time.
+Folder sizes fill in by themselves when counting finishes. A failed scan keeps
+the last scan visible and shows an error with Retry. If counting fails, sizes
+show as unknown with an error and Retry. A saved size that never finished
+counting also shows as unknown until a scan counts it. A scan that cannot be
+saved is still shown. The first open without a
+saved scan shows Scanning…; a scan that finds nothing names the folders it
+checked. After a restart the saved scan shows at once and is replaced when the
+startup scan finishes. There is no periodic scan and no action that opens or
+changes a harness folder.
+
+At narrow widths the matrix scrolls inside the tab and the details become one
+column. Long skill names wrap.
+
 ## Structured plans
 
 Plans have an immutable unique name and start permanent. Later updates respect

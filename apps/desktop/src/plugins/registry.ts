@@ -11,6 +11,7 @@ import { planTabContract } from "./plan/contract.ts";
 import { pullRequestsTabContract } from "./pull-requests/contract.ts";
 import { retroTabContract } from "./retro/contract.ts";
 import { folderTabContract } from "./folder/contract.ts";
+import { harnessesTabContract } from "./harnesses/contract.ts";
 
 const contracts = [
   { type: "guest", version: 1, state: GuestTabState },
@@ -22,6 +23,7 @@ const contracts = [
   pullRequestsTabContract,
   retroTabContract,
   folderTabContract,
+  harnessesTabContract,
 ];
 export function validateTabState(tab: Tab, preserveFuture = false): void {
   const contract = contracts.find((entry) => entry.type === tab.type);
