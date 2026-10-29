@@ -830,7 +830,8 @@ relative to that folder (`~/.codex`, `~/.claude`, `~/.cursor`, `~/.grok` or
 with `..` or `~` and absolute paths answer 400; files the scan does not list,
 links, files with more than one hard link, files over 256 KiB and text that is
 not UTF-8 answer 403 without returning content; a listed file or folder that is
-gone answers 404; no scan yet, or a file replaced while it was opened, answers 409.
+gone answers 404; no scan yet, or a file or folder that changed while it was
+opened, answers 409.
 All routes need the publishing token and a running desktop; hubs do not forward
 them and nothing is queued.
 

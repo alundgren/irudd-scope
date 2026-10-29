@@ -96,6 +96,7 @@ export type TextRead =
         | "not-folder"
         | "linked"
         | "not-file"
+        | "denied"
         | "unopened"
         | "changed"
         | "hard-linked"
@@ -115,17 +116,17 @@ export async function readTextFile(
   names: readonly string[],
   limit: number,
 ): Promise<TextRead> {
-  const folders = await checkFolders(home, names);
-  if (folders) return { kind: folders };
+  const folders = await walkFolders(home, names);
+  if ("problem" in folders) return { kind: folders.problem };
   const path = join(home, ...names);
   const info = await lstatOrNull(path);
   if (!info) return { kind: "missing" };
   if (info.isSymbolicLink()) return { kind: "linked" };
   if (!info.isFile()) return { kind: "not-file" };
-  const handle = await open(path, readFlags).catch(() => null);
-  if (!handle) return { kind: "unopened" };
+  const handle = await open(path, readFlags).catch((error: unknown) => openFailure(error));
+  if (!("fd" in handle)) return handle;
   try {
-    return await readOpened(handle, home, names, limit);
+    return await readOpened(handle, home, names, folders.ids, limit);
   } catch {
     return { kind: "unreadable" };
   } finally {
@@ -133,22 +134,42 @@ export async function readTextFile(
   }
 }
 
+function openFailure(error: unknown): TextRead {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  if (code === "ENOENT") return { kind: "missing" };
+  if (code === "ELOOP") return { kind: "linked" };
+  return { kind: code === "EACCES" || code === "EPERM" ? "denied" : "unopened" };
+}
+
 /**
- * O_NOFOLLOW covers only the last name and is missing on Windows, so after opening, the
- * folders are checked again and the opened file must be the one at the path.
+ * O_NOFOLLOW covers only the last name and is missing on Windows, so a folder swapped for a
+ * link while the file opens would be followed. After opening, the folders are walked again,
+ * the file at the path must be the opened file, and the folders are walked once more; any
+ * folder that is not the one seen before the open refuses the read. This narrows a swap
+ * during the read to a small window rather than closing it.
  */
 async function readOpened(
   handle: FileHandle,
   home: string,
   names: readonly string[],
+  before: readonly string[],
   limit: number,
 ): Promise<TextRead> {
   const opened = await handle.stat({ bigint: true });
   if (!opened.isFile()) return { kind: "not-file" };
-  const now = (await checkFolders(home, names))
-    ? null
-    : await lstat(join(home, ...names), { bigint: true }).catch(() => null);
-  if (!now?.isFile() || now.dev !== opened.dev || now.ino !== opened.ino)
+  const same = async () => {
+    const folders = await walkFolders(home, names);
+    return "ids" in folders && folders.ids.join("\n") === before.join("\n");
+  };
+  const unchanged = await same();
+  const now = await lstat(join(home, ...names), { bigint: true }).catch(() => null);
+  if (
+    !unchanged ||
+    !now?.isFile() ||
+    now.dev !== opened.dev ||
+    now.ino !== opened.ino ||
+    !(await same())
+  )
     return { kind: "changed" };
   // Another name for the same file could be anything, for example an auth file.
   if (opened.nlink > 1n) return { kind: "hard-linked" };
@@ -174,20 +195,25 @@ async function readText(handle: FileHandle, limit: number): Promise<TextRead> {
   }
 }
 
-/** Why a folder between home and the last name cannot be used, or null when all are real. */
-async function checkFolders(
+/**
+ * The device and inode of each folder between home and the last name, or why one cannot be
+ * used. Folders are never followed.
+ */
+async function walkFolders(
   home: string,
   names: readonly string[],
-): Promise<"missing" | "linked-folder" | "not-folder" | null> {
+): Promise<{ problem: "missing" | "linked-folder" | "not-folder" } | { ids: string[] }> {
+  const ids: string[] = [];
   let path = home;
   for (const name of names.slice(0, -1)) {
     path = join(path, name);
-    const info = await lstatOrNull(path);
-    if (!info) return "missing";
-    if (info.isSymbolicLink()) return "linked-folder";
-    if (!info.isDirectory()) return "not-folder";
+    const info = await lstat(path, { bigint: true }).catch(() => null);
+    if (!info) return { problem: "missing" };
+    if (info.isSymbolicLink()) return { problem: "linked-folder" };
+    if (!info.isDirectory()) return { problem: "not-folder" };
+    ids.push(`${info.dev}:${info.ino}`);
   }
-  return null;
+  return { ids };
 }
 
 /**

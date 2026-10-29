@@ -565,7 +565,9 @@ more than one hard link, a file over 256 KiB, or text that is not UTF-8. Copy
 text reads the file again and copies the same allowed text; when the file
 changed since it was shown, the confirmation says "The file changed since it
 was shown; copied the current text." A rescan that finds a new fingerprint, or
-any rescan for a `SKILL.md`, reads the open text again. The tab reads only what `irudd-scope harnesses file` allows and has no
+any rescan for a `SKILL.md`, reads the open text again; the text shown stays
+until the new text arrives. A file or folder that changes while Scope opens it is
+refused with a short reason. The tab reads only what `irudd-scope harnesses file` allows and has no
 action that opens, edits or reveals a harness folder.
 
 The toolbar has Copy agent request and Rescan. The request asks the person's

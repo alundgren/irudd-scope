@@ -504,10 +504,16 @@ CLI and the tab. Allowed files are the global instruction files and the
 `~/.agents/skills`, as listed by the latest scan. It refuses before opening a
 file: paths not on that list, which covers auth, config and session files and
 bundled skills; paths with `..`, `~` or backslashes; absolute paths; linked files
-and files below a linked folder. It opens without following a last link. Because
-that flag covers only the last name and does not exist on Windows, it then
-checks every folder again and refuses the file unless the opened file has the
-same device and inode as the entry at the path. It refuses a file with more than
+and files below a linked folder. It opens without following a last link. That
+flag covers only the last name and does not exist on Windows, so a folder swapped
+for a link while the file opens would be followed. After opening, it walks the
+folders again, checks that the file at the path has the opened file's device
+and inode, and walks the folders once more. It refuses the read when any folder
+or the file is not the one it saw before opening. This makes a swap during the
+read much harder but does not rule it out: code already running as the person
+that swaps a folder back and forth at the right moments can still get a file
+with an allowed name, such as `SKILL.md`, `AGENTS.md` or `CLAUDE.md`, read from
+outside the harness folder. It refuses a file with more than
 one hard link, because another name for it could be an auth file, and files
 over 256 KiB, all without reading them. Text that is not valid UTF-8 is not
 returned. `HarnessesService.file` passes the latest scan and home folder to it; the

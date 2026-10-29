@@ -30,24 +30,28 @@ export type FileText =
  * `version` changes when a rescan may have found new text, which reads the file again.
  */
 export function useHarnessFile(harness: HarnessFileOwner, path: string, version: string): FileText {
-  const [text, setText] = useState<{ key: string; text: FileText }>();
-  const key = `${harness}\n${path}\n${version}`;
+  const [text, setText] = useState<{ file: string; version: string; text: FileText }>();
+  const file = `${harness}\n${path}`;
   useEffect(() => {
     let current = true;
     window.scope.harnessFile({ machine: "local", harness, path }).then(
-      (reply) => current && setText({ key, text: { state: "loaded", reply } }),
+      (reply) => current && setText({ file, version, text: { state: "loaded", reply } }),
       (error: unknown) =>
         current &&
         setText({
-          key,
+          file,
+          version,
           text: { state: "failed", message: operationError(error, "Could not read the file.") },
         }),
     );
     return () => {
       current = false;
     };
-  }, [key, harness, path]);
-  return text?.key === key ? text.text : { state: "loading" };
+  }, [file, version, harness, path]);
+  // While a rescan's read runs, the text already shown stays instead of Reading….
+  if (text?.file === file && (text.version === version || text.text.state === "loaded"))
+    return text.text;
+  return { state: "loading" };
 }
 
 /** Lines with numbers that copying leaves out, in a scrollable box. */

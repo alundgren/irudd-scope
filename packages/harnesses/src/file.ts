@@ -74,7 +74,8 @@ const REFUSED: Record<
   ],
   linked: (path) => [403, `${path} is linked. Scope does not follow links.`],
   "not-file": (path) => [403, `${path} is not a regular file.`],
-  unopened: (path) => [403, `Scope could not open ${path}. Check its permissions.`],
+  denied: (path) => [403, `Scope could not open ${path}. Check its permissions.`],
+  unopened: (path) => [403, `Scope could not open ${path}.`],
   changed: (path) => [409, `${path} changed while Scope opened it. Retry.`],
   "hard-linked": (path) => [
     403,
