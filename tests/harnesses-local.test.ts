@@ -1,5 +1,4 @@
 import { expect, test } from "vite-plus/test";
-import type { Page } from "@playwright/test";
 import { createHash, randomUUID } from "node:crypto";
 import { link, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -11,6 +10,7 @@ import {
   type HarnessesReply,
 } from "@irudd-scope/protocol/harnesses";
 import { desktopFixture } from "./desktop-fixture.ts";
+import { expectTextKept, openHarnessesTab, saveScreenshots, scanTime } from "./harnesses-page.ts";
 import {
   expected,
   folderSize,
@@ -34,17 +34,6 @@ async function readUntilSized(cli: (...args: string[]) => Promise<{ stdout: stri
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
 }
-
-async function openHarnessesTab(page: Page) {
-  await page.keyboard.press("ControlOrMeta+k");
-  await page.getByLabel("Search artifacts", { exact: true }).fill("harnesses");
-  await page.getByRole("button", { name: "Harnesses", exact: true }).click();
-  await page.getByRole("tab", { name: "Harnesses", selected: true }).waitFor();
-  // Closing search returns focus to its button.
-  await page.getByRole("dialog").waitFor({ state: "detached" });
-}
-
-const scanTime = (page: Page) => page.locator(".harnesses-matrix time").getAttribute("dateTime");
 
 async function expectReport(
   reply: HarnessesReply,
@@ -348,29 +337,6 @@ test(
 
 const LONG_SKILL = `a-skill-with-a-very-long-name-that-${"keeps-going-".repeat(6)}end`;
 
-/** Saves the tab in both appearances and widths when SCOPE_TEST_SCREENSHOTS names a folder. */
-async function saveScreenshots(page: Page, name: string) {
-  const folder = process.env.SCOPE_TEST_SCREENSHOTS;
-  if (!folder) return;
-  await mkdir(folder, { recursive: true });
-  const settings = page.getByRole("dialog", { name: "Settings", exact: true });
-  for (const appearance of ["light", "dark"] as const) {
-    await page.keyboard.press("ControlOrMeta+,");
-    await settings.getByLabel("Search settings").fill("color scheme");
-    await settings.getByLabel("Appearance", { exact: true }).selectOption(appearance);
-    await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe(appearance);
-    await page.keyboard.press("Escape");
-    await settings.waitFor({ state: "detached" });
-    for (const [width, size] of [
-      [1366, "laptop"],
-      [600, "narrow"],
-    ] as const) {
-      await page.setViewportSize({ width, height: 860 });
-      await page.screenshot({ path: join(folder, `harnesses-${name}-${appearance}-${size}.png`) });
-    }
-  }
-}
-
 test(
   "the Harnesses tab shows this computer's skills and instruction files and copies them",
   { tags: ["harnesses-look-dont-touch"], timeout: 180_000 },
@@ -487,10 +453,10 @@ test(
         join(fixture.home, ".claude", "skills", "notes", "SKILL.md"),
         "---\nname: Note taking\n---\n\n# Notes\n\nKeep them shorter.\n",
       );
-      await page.getByRole("button", { name: "Rescan" }).click();
-      expect(await pane.getByText("Keep them short.", { exact: true }).count()).toBe(1);
-      expect(await pane.getByText("Reading…").count()).toBe(0);
-      await pane.getByText("Keep them shorter.", { exact: true }).waitFor();
+      await expectTextKept(pane, "Keep them short", async () => {
+        await page.getByRole("button", { name: "Rescan" }).click();
+        await pane.getByText("Keep them shorter.", { exact: true }).waitFor();
+      });
       expect(await pane.getByText("Writes short notes for later.").count()).toBe(0);
       expect(
         await claudeFiles

@@ -21,7 +21,10 @@ export function Markdown({
 }: {
   text: string;
   className?: string;
-  /** Extra element overrides; keep the object stable so the text is not parsed again. */
+  /**
+   * Extra element overrides, except links and images; keep the object stable so the text is
+   * not parsed again.
+   */
   components?: Components;
 }) {
   return useMemo(
@@ -31,9 +34,10 @@ export function Markdown({
           key={textKey(text)}
           skipHtml
           components={{
+            ...components,
+            // Last, so no caller can make links or images live.
             a: ({ children }) => <span>{children}</span>,
             img: ({ alt }) => <span>{alt}</span>,
-            ...components,
           }}
         >
           {text}

@@ -302,7 +302,7 @@
   font-size: var(--scope-text-reading);
 }
 .harnesses-markdown h6 {
-  font-size: var(--scope-text-ui);
+  font-size: var(--scope-text-reading);
 }
 .harnesses-markdown > :first-child {
   margin-top: 0;
