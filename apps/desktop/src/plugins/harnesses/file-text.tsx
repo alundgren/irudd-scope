@@ -1,21 +1,6 @@
-import { useEffect, useState, type CSSProperties } from "react";
-import { Copy } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { HarnessFileOwner, HarnessFileReply } from "@irudd-scope/protocol/harnesses";
-import { Button } from "../../renderer/components/ui/button.tsx";
 import { operationError } from "../../renderer/operation-error.ts";
-
-const UNITS = ["KB", "MB", "GB", "TB"];
-/** Decimal units like a file manager: one decimal below 100, none from 100 up, so 405 MB and 11.6 GB. */
-export function formatSize(size: number) {
-  if (size < 1000) return count(size, "byte");
-  for (const [index, unit] of UNITS.entries()) {
-    const value = size / 1000 ** (index + 1);
-    const text = value < 99.95 ? value.toFixed(1) : value.toFixed(0);
-    if (Number(text) < 1000 || index === UNITS.length - 1) return `${text} ${unit}`;
-  }
-  return count(size, "byte");
-}
-export const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Copies an allowed file's text; `name` names it in the confirmation. */
 export type CopyFile = (file: HarnessFileReply, name: string) => void;
@@ -54,58 +39,43 @@ export function useHarnessFile(harness: HarnessFileOwner, path: string, version:
   return { state: "loading" };
 }
 
-/** Lines with numbers that copying leaves out, in a scrollable box. */
-export function TextLines({ text, label }: { text: string; label: string }) {
-  const lines = text.endsWith("\n") ? text.slice(0, -1).split("\n") : text.split("\n");
-  return (
-    // The box scrolls, so it takes keyboard focus for arrow-key scrolling.
-    <div
-      className="harnesses-text"
-      role="region"
-      aria-label={label}
-      tabIndex={0}
-      style={{ "--harnesses-digits": String(lines.length).length } as CSSProperties}
-    >
-      {lines.map((line, index) => (
-        <div key={index} className="harnesses-text-line">
-          <span className="harnesses-line-number" aria-hidden="true">
-            {index + 1}
-          </span>
-          <span>{line}</span>
-        </div>
-      ))}
-    </div>
-  );
+export type Frontmatter = { name: string | null; description: string | null; body: string };
+
+/**
+ * Splits YAML frontmatter from Markdown and keeps only `name` and `description`, which skills
+ * use as their title and summary. Folded and literal block values become one line. Other keys
+ * are not shown. Text without frontmatter is all body.
+ */
+export function splitFrontmatter(text: string): Frontmatter {
+  const lines = text.split(/\r?\n/);
+  const end =
+    lines[0] === "---" ? lines.findIndex((line, index) => index > 0 && line === "---") : -1;
+  if (end < 0) return { name: null, description: null, body: text };
+  const header = lines.slice(1, end);
+  return {
+    name: frontmatterValue(header, "name"),
+    description: frontmatterValue(header, "description"),
+    body: lines.slice(end + 1).join("\n"),
+  };
 }
 
-/** Reading…, the reason a read failed, or the text. */
-export function FileBody({ file, label }: { file: FileText; label: string }) {
-  if (file.state === "loading")
-    return (
-      <p className="harnesses-muted" role="status">
-        Reading…
-      </p>
-    );
-  if (file.state === "failed") return <p role="alert">{file.message}</p>;
-  if (!file.reply.text) return <p className="harnesses-muted">The file is empty.</p>;
-  return <TextLines text={file.reply.text} label={label} />;
+function frontmatterValue(lines: string[], key: string): string | null {
+  const index = lines.findIndex((line) => line.startsWith(`${key}:`));
+  if (index < 0) return null;
+  const value = lines[index]!.slice(key.length + 1).trim();
+  if (value && !/^[>|][+-]?$/.test(value)) return unquote(value) || null;
+  // A block value continues on the indented lines that follow.
+  const block: string[] = [];
+  for (const line of lines.slice(index + 1)) {
+    if (line.trim() && !/^\s/.test(line)) break;
+    if (line.trim()) block.push(line.trim());
+  }
+  return block.join(" ") || null;
 }
 
-export function CopyText({
-  file,
-  name,
-  onCopy,
-}: {
-  file: FileText;
-  name: string;
-  onCopy: CopyFile;
-}) {
-  if (file.state !== "loaded") return null;
-  const { reply } = file;
-  return (
-    <Button variant="ghost" size="sm" onClick={() => onCopy(reply, name)}>
-      <Copy aria-hidden="true" />
-      Copy text
-    </Button>
-  );
+function unquote(value: string) {
+  const quote = value[0];
+  if ((quote === '"' || quote === "'") && value.endsWith(quote) && value.length > 1)
+    return value.slice(1, -1);
+  return value;
 }

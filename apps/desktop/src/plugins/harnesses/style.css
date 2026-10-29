@@ -6,13 +6,11 @@
   font-size: var(--scope-text-ui);
   line-height: var(--scope-leading-ui);
 }
-.harnesses-view h2,
-.harnesses-view h3,
-.harnesses-view h4,
-.harnesses-view p {
+/* Rendered Markdown keeps its own spacing. */
+.harnesses-view :is(h2, h3, h4, p):not(.markdown-document *) {
   margin: 0;
 }
-.harnesses-view code {
+.harnesses-view code:not(.markdown-document *) {
   font-family: var(--scope-font-mono);
   font-size: var(--scope-text-detail);
   overflow-wrap: anywhere;
@@ -61,18 +59,20 @@
   overflow-x: auto;
   container-type: inline-size;
 }
-.harnesses-matrix,
-.harnesses-names {
+.harnesses-matrix {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
 }
 /* Machine columns keep a readable width; the empty last column takes the rest of a wide tab. */
 .harnesses-label-col {
-  width: 12rem;
+  width: 14rem;
 }
-.harnesses-machine-col {
-  width: 22.5rem;
+.harnesses-skills-col {
+  width: 9rem;
+}
+.harnesses-files-col {
+  width: 15rem;
 }
 .harnesses-matrix > * > tr > th,
 .harnesses-matrix > * > tr > td {
@@ -81,26 +81,22 @@
   vertical-align: top;
   font-weight: var(--scope-weight-regular);
 }
-.harnesses-matrix > tbody > tr:not(.harnesses-block-head, .harnesses-panel-row) + tr > * {
+.harnesses-matrix > tbody > tr > * {
   border-top: 1px solid var(--scope-line);
 }
 .harnesses-matrix thead th {
   font-weight: var(--scope-weight-medium);
 }
-.harnesses-matrix thead th,
-.harnesses-matrix thead td {
-  padding-bottom: var(--scope-space-3);
+.harnesses-matrix thead tr:first-child > * {
+  padding-bottom: var(--scope-space-1);
+}
+.harnesses-subhead > th {
+  color: var(--scope-muted);
+  font-size: var(--scope-text-detail);
+  line-height: var(--scope-leading-detail);
 }
 .harnesses-matrix > tbody > tr > th code {
   display: block;
-}
-.harnesses-block-head > * {
-  padding-top: var(--scope-space-4);
-  border-bottom: 1px solid var(--scope-line);
-}
-.harnesses-block-head h3 {
-  font-size: var(--scope-text-ui);
-  font-weight: var(--scope-weight-strong);
 }
 .harnesses-machine,
 .harnesses-cell-line,
@@ -148,92 +144,82 @@
   align-items: baseline;
   gap: var(--scope-space-1);
 }
-.harnesses-matrix > tbody > .harnesses-panel-row > td {
-  padding: 0 0 var(--scope-space-2);
-}
-.harnesses-panel {
+.harnesses-file-names {
   display: grid;
-  gap: var(--scope-space-2);
-  padding: var(--scope-space-3) 0;
-  border-radius: var(--scope-radius-control);
-  background: var(--scope-strip);
-}
-.harnesses-panel > p,
-.harnesses-panel > details > summary {
-  padding: 0 var(--scope-space-3);
-}
-/* With several columns at narrow widths, the heading and its actions stay in the visible area. */
-.harnesses-panel-head {
-  position: sticky;
-  left: 0;
-  max-width: 100cqi;
-  box-sizing: border-box;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--scope-space-2) var(--scope-space-3);
-  padding: 0 var(--scope-space-1) 0 var(--scope-space-3);
-}
-.harnesses-panel-head h4 {
-  font-weight: var(--scope-weight-strong);
-}
-.harnesses-panel-key,
-.harnesses-panel-actions {
-  margin-left: auto;
-}
-.harnesses-panel-actions {
-  display: flex;
-  align-items: center;
   gap: var(--scope-space-1);
-}
-.harnesses-panel-body {
-  padding: 0 var(--scope-space-3);
-}
-.harnesses-panel summary {
-  color: var(--scope-muted);
-  font-size: var(--scope-text-detail);
-  cursor: pointer;
-}
-.harnesses-panel summary:focus-visible {
-  outline: var(--scope-focus-width) solid var(--scope-accent);
-  outline-offset: var(--scope-focus-offset);
-}
-.harnesses-panel details[open] > summary {
-  margin-bottom: var(--scope-space-1);
-}
-.harnesses-names thead > tr > * {
-  height: 0;
-  padding: 0;
-  line-height: 0;
-}
-.harnesses-names th,
-.harnesses-names td {
-  padding: 2px var(--scope-space-3);
-  text-align: left;
-  vertical-align: top;
-  font-weight: var(--scope-weight-regular);
-  font-size: var(--scope-text-detail);
-  line-height: var(--scope-leading-detail);
-}
-/* Names on the left and the selected SKILL.md on the right; a narrow tab stacks them. */
-.harnesses-skill-reader {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: var(--scope-space-3) var(--scope-space-4);
-  padding: 0 var(--scope-space-3);
-}
-.harnesses-skill-names {
-  flex: 0 1 15rem;
-  min-width: 0;
-  max-height: 30rem;
-  overflow-y: auto;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.harnesses-skill-name {
-  display: block;
+.harnesses-file-names li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--scope-space-2);
+}
+.harnesses-cell code {
+  font-size: var(--scope-text-ui);
+}
+
+/* The reader fills the tab below the toolbar; the list and the file scroll on their own. */
+.harnesses-view-reading {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.harnesses-reader {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  container-type: inline-size;
+}
+.harnesses-reader-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--scope-space-2) var(--scope-space-3);
+  padding: var(--scope-space-3) 0;
+}
+.harnesses-reader-bar h2 {
+  font-size: var(--scope-text-ui);
+  font-weight: var(--scope-weight-strong);
+}
+.harnesses-reader-bar h2 .harnesses-muted {
+  font-size: var(--scope-text-ui);
+  font-weight: var(--scope-weight-regular);
+}
+.harnesses-reader-json {
+  margin-left: auto;
+}
+.harnesses-reader-body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(12rem, 16rem) 1fr;
+  min-height: 0;
+  border: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-control);
+}
+.harnesses-reader-list {
+  overflow-y: auto;
+  padding: var(--scope-space-3) var(--scope-space-2);
+  border-right: 1px solid var(--scope-line);
+  background: var(--scope-strip);
+}
+.harnesses-reader-list ul {
+  margin: 0 0 var(--scope-space-3);
+  padding: 0;
+  list-style: none;
+}
+.harnesses-list-label {
+  padding: 0 var(--scope-space-2) var(--scope-space-1);
+  color: var(--scope-muted);
+  font-size: var(--scope-text-detail);
+  line-height: var(--scope-leading-detail);
+}
+.harnesses-reader-item {
+  display: flex;
+  gap: var(--scope-space-1);
   width: 100%;
   padding: 2px var(--scope-space-2);
   border: 0;
@@ -241,69 +227,64 @@
   background: none;
   color: inherit;
   font: inherit;
-  font-size: var(--scope-text-detail);
-  line-height: var(--scope-leading-detail);
   text-align: left;
   cursor: pointer;
 }
-.harnesses-skill-name:hover {
-  background: var(--scope-panel);
-}
-.harnesses-skill-name[aria-current="true"] {
-  background: var(--scope-selected);
-}
-.harnesses-skill-name:focus-visible {
-  outline: var(--scope-focus-width) solid var(--scope-accent);
-  outline-offset: calc(-1 * var(--scope-focus-width));
-}
-.harnesses-skill-text {
-  display: grid;
-  gap: var(--scope-space-2);
-  flex: 1 1 20rem;
-  min-width: 0;
-}
-.harnesses-text-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--scope-space-2) var(--scope-space-3);
-  min-height: 1.75rem;
-}
-/* File text with line numbers that are not selected when copying. */
-.harnesses-text {
-  max-height: 300px;
-  overflow: auto;
-  padding: var(--scope-space-2) 0;
-  border: 1px solid var(--scope-line);
-  border-radius: var(--scope-radius-control);
-  background: var(--scope-canvas);
-  font-family: var(--scope-font-mono);
+.harnesses-reader-item code {
   font-size: var(--scope-text-detail);
   line-height: var(--scope-leading-detail);
 }
-.harnesses-text:focus-visible {
+.harnesses-reader-item:hover {
+  background: var(--scope-panel);
+}
+.harnesses-reader-item[aria-current="true"] {
+  background: var(--scope-selected);
+}
+.harnesses-reader-item:focus-visible {
   outline: var(--scope-focus-width) solid var(--scope-accent);
-  outline-offset: var(--scope-focus-offset);
+  outline-offset: calc(-1 * var(--scope-focus-width));
 }
-.harnesses-text-line {
+.harnesses-reader-pane {
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--scope-space-4) var(--scope-space-6);
+}
+.harnesses-file {
   display: grid;
-  grid-template-columns: calc(var(--harnesses-digits) * 1ch + 2 * var(--scope-space-3)) 1fr;
-  padding-right: var(--scope-space-3);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  gap: var(--scope-space-1);
+  max-width: 78ch;
 }
-.harnesses-line-number {
-  padding-right: var(--scope-space-3);
-  color: var(--scope-muted);
-  text-align: right;
-  user-select: none;
-}
-.harnesses-footer {
+.harnesses-file-head {
   display: flex;
   flex-wrap: wrap;
-  justify-content: space-between;
+  align-items: center;
   gap: var(--scope-space-2) var(--scope-space-4);
-  margin-top: var(--scope-space-2);
-  padding: var(--scope-space-3) var(--scope-space-3) 0;
+}
+.harnesses-view .harnesses-file-head h3 {
+  font-size: var(--scope-text-title);
+  line-height: var(--scope-leading-title);
+  font-weight: var(--scope-weight-strong);
+}
+.harnesses-file-path {
+  display: block;
+}
+.harnesses-markdown.markdown-document {
+  max-width: none;
+  margin: var(--scope-space-3) 0 0;
+  padding: var(--scope-space-4) 0 0;
   border-top: 1px solid var(--scope-line);
+}
+@container (width < 40rem) {
+  .harnesses-reader-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .harnesses-reader-list {
+    max-height: 9rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--scope-line);
+  }
+  .harnesses-reader-pane {
+    padding: var(--scope-space-3);
+  }
 }

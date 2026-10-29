@@ -532,11 +532,16 @@ that state as `scope:harnesses-changed`. A failed count is only logged
 and leaves the saved sizes pending until the next scan, because the tab shows no sizes.
 A failed save keeps the new scan shown. The view subscribes before it reads,
 so a tab opened during or after the startup scan shows the current state. The
-tab shows only skills and instruction files from each scan: `skills.tsx`
-compares own skill names with this computer's column and shows a selected
-skill's `SKILL.md`, `instructions.tsx` compares instruction file fingerprints
-and shows a file's text, and `file-text.tsx` reads and draws that text. Other facts stay in the scan, the CLI
-and Copy as JSON.
+tab shows only skills and instruction files from each scan. `overview.tsx` draws
+the table with a Skills and an Instructions column per machine; `skills.tsx`
+compares own skill names with this computer's column and `instructions.tsx`
+names instruction files and compares their fingerprints without showing them.
+`reader.tsx` replaces the overview with the full-tab reader for one harness or
+the shared folder, and `file-text.tsx` reads the chosen file through
+`scope:harness-file` and splits a `SKILL.md`'s YAML frontmatter into its title
+and description. The file renders through the shared `renderer/markdown.tsx`
+component, which the memory plugin also uses: no raw HTML, and links and images
+as plain text. Other facts stay in the scan, the CLI and Copy as JSON.
 
 ## Names and ownership
 
@@ -559,7 +564,7 @@ formats are compatibility contracts.
 | Publishing token | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                   | Desktop discovery file; CLI and optional hub use it.                                                      |
 | Folder tab       | A live tree of one folder on one machine, keyed by machine ID and canonical path.                | `packages/folder` reads files; `plugins/folder` shows them; `folder_tabs` in `scope.db` keeps the key.    |
 | Harness scan     | One machine's coding agent harnesses at one time, without secrets.                               | `packages/harnesses` scans; `packages/protocol/src/harnesses.ts` defines it; `harness_scans` keeps it.    |
-| Harnesses tab    | The built-in matrix of skills and instruction files, one column per machine.                     | `apps/desktop/src/plugins/harnesses/` shows it; `apps/desktop/src/harnesses.ts` supplies its state.       |
+| Harnesses tab    | The built-in overview of skills and instruction files per machine, with a full-tab file reader.  | `apps/desktop/src/plugins/harnesses/` shows it; `apps/desktop/src/harnesses.ts` supplies its state.       |
 
 `packages/protocol` owns shared schemas, wire formats, limits, the discovery
 contract, and the HTTP client. It imports no app, filesystem, Electron, or
@@ -661,7 +666,7 @@ display an unavailable view.
 Each directory under `plugins/` owns one built-in implementation. `file/`
 keeps the existing image, Markdown, HTML, text, and download fallback views
 together. `sketchpad/` owns the built-in Excalidraw editor, its Reset and
-undo window, and its draft contract. `harnesses/` owns the Harnesses matrix and its
+undo window, and its draft contract. `harnesses/` owns the Harnesses overview, its reader and its
 IPC operations; it keeps no tab data of its own. A plugin can render
 content without referencing a library item. Publication support is an optional
 registration. These are trusted modules in one renderer.
