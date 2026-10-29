@@ -468,8 +468,13 @@ reads session or chat contents, and it never returns tokens, keys, MCP
 commands, URLs, headers or environment values, or account emails and names.
 Parse errors are swallowed because their messages quote the file.
 
-Versions come from install link targets read with `readlink`. When no such link
-exists, the scanner runs the binary found on PATH once with `--version` and a
+Versions come from install link targets read with `readlink`. Cursor's Windows
+installer copies its launchers into `%LOCALAPPDATA%\cursor-agent` instead of
+linking them, so without a link Cursor's version is the newest folder name in its
+own install folder, `~/AppData/Local/cursor-agent/versions` on Windows or
+`~/.local/share/cursor-agent/versions` elsewhere. The installer's `.new` and
+`.previous` update folders are skipped and nothing inside a version folder is
+read. When neither names a version, the scanner runs the binary found on PATH once with `--version` and a
 five-second limit. A timeout or quitting Scope stops it: on macOS and Linux
 the binary runs in its own process group, which is stopped with anything it
 started; on Windows only the binary itself is stopped. On Windows only

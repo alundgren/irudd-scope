@@ -74,6 +74,11 @@
 .harnesses-matrix thead th {
   font-weight: var(--scope-weight-medium);
 }
+/* Machine columns keep a readable width; the empty last column takes the rest of a wide tab. */
+.harnesses-matrix thead th,
+.harnesses-matrix tbody tr:not(.harnesses-details-row) > td:not(.harnesses-filler) {
+  width: 22.5rem;
+}
 .harnesses-matrix tbody th {
   width: 9rem;
   font-weight: var(--scope-weight-strong);
@@ -188,6 +193,29 @@
 }
 .harnesses-files li {
   display: grid;
+}
+.harnesses-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--scope-space-1) var(--scope-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.harnesses-chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--scope-space-1);
+  max-width: 100%;
+  padding: 0 var(--scope-space-2);
+  border: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-control);
+}
+.harnesses-chip-link {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--scope-muted);
 }
 .harnesses-mark {
   color: var(--scope-muted);

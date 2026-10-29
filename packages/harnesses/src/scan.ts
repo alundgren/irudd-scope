@@ -24,6 +24,7 @@ import {
 } from "./files.ts";
 import { mcpServers, parseTomlObject } from "./mcp.ts";
 import {
+  cleanVersion,
   detectVersion,
   findOnPath,
   linkTarget,
@@ -207,7 +208,7 @@ const definitions: Definition[] = [
         versionAfterVersionsFolder(
           (await pathLink("cursor-agent", path)) ??
             (await linkBelowHome(home, [".local", "bin", "cursor-agent"])),
-        ),
+        ) ?? (await newestVersionFolder(home, CURSOR_VERSIONS)),
     }),
     facts: async ({ home }) => {
       const [config, mcp] = await Promise.all([
@@ -268,6 +269,26 @@ const definitions: Definition[] = [
     },
   },
 ];
+
+/**
+ * Cursor's own install folder. Its Windows installer copies launchers into
+ * %LOCALAPPDATA%\cursor-agent instead of linking them, so only the folder names tell the version.
+ */
+const CURSOR_VERSIONS =
+  process.platform === "win32"
+    ? ["AppData", "Local", "cursor-agent", "versions"]
+    : [".local", "share", "cursor-agent", "versions"];
+
+/** The newest version folder, skipping the installer's `.new` and `.previous` update folders. */
+async function newestVersionFolder(home: string, names: string[]): Promise<string | null> {
+  const versions = ((await listFolder(home, names)) ?? [])
+    .filter((entry) => entry.kind === "directory" && !/\.(?:new|previous)$/.test(entry.name))
+    .map((entry) => cleanVersion(entry.name))
+    .filter((version) => version !== null);
+  return (
+    versions.sort((left, right) => right.localeCompare(left, "en", { numeric: true }))[0] ?? null
+  );
+}
 
 async function pathLink(name: string, path: string): Promise<string | null> {
   const binary = await findOnPath(name, path);

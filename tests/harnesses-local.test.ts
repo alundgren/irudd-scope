@@ -396,6 +396,14 @@ test(
     const fixture = await harnessHome({ cursor: true, brokenClaudeJson: true });
     await mkdir(join(fixture.home, ".codex", "skills", LONG_SKILL));
     await writeFile(join(fixture.home, ".codex", "skills", LONG_SKILL, "SKILL.md"), "# Long\n");
+    // 1,234,567 bytes of sessions put Codex's folder in decimal megabytes.
+    await writeFile(join(fixture.home, ".codex", "sessions", "big.jsonl"), "x".repeat(1_234_567));
+    // Without a cursor-agent link, as Cursor's Windows installer leaves it, the newest version
+    // folder names the version; the installer's update folders are not versions.
+    const versions = join(fixture.home, ".local", "share", "cursor-agent", "versions");
+    await rm(join(fixture.home, ".local", "bin", "cursor-agent"));
+    for (const folder of ["2026.10.01-0000000", "2026.12.01-fffffff.new", "pending-launchers"])
+      await mkdir(join(versions, folder));
     const { launch, cli } = await desktopFixture({ hideInitialPrompts: true, env: fixture.env });
     const application = await launch();
     try {
@@ -416,7 +424,7 @@ test(
       };
       await sized();
       expect(await cell("Codex").textContent()).toMatch(
-        /^Signed in·0\.200\.0.* · 2 skills · 2 MCP · AGENTS\.md$/,
+        /^Signed in·0\.200\.0.*1\.2 MB · 2 skills \+ shared skills below · 2 MCP · AGENTS\.md$/,
       );
       expect(await cell("Claude Code").textContent()).toMatch(
         /^Sign-in unknown·2\.2\.0.* · 2 skills · 0 MCP · CLAUDE\.md$/,
@@ -449,9 +457,15 @@ test(
         "helper",
         LONG_SKILL,
         "imagegen",
+        "Own skills · 2",
       ])
         await codex.getByText(text, { exact: false }).first().waitFor();
       await codex.getByText("docs", { exact: true }).locator("..").getByText("stdio").waitFor();
+      await codex
+        .getByText("sessions", { exact: true })
+        .locator("..")
+        .getByText("1.2 MB")
+        .waitFor();
       await page.keyboard.press("Space");
       await codex.waitFor({ state: "detached" });
       expect(await cell("Codex").getAttribute("aria-expanded")).toBe("false");
@@ -459,10 +473,11 @@ test(
       await cell("Claude Code").click();
       const claude = page.getByRole("region", { name: "Claude Code on This computer" });
       await claude.getByText("~/.claude.json").waitFor();
+      await claude.getByRole("heading", { name: "Own skills · 2 · 1 linked" }).waitFor();
       await claude
         .getByText("outside", { exact: true })
         .locator("..")
-        .getByText("linked")
+        .getByRole("img", { name: "linked" })
         .waitFor();
       await claude.getByRole("button", { name: "Copy as JSON" }).click();
       await page.getByText("Copied Claude Code as JSON.").waitFor();
@@ -482,6 +497,9 @@ test(
       );
 
       // Rescan replaces the scan time and the sizes fill in again by themselves.
+      const time = page.locator(".harnesses-matrix time");
+      expect(await time.getAttribute("title")).toBeTruthy();
+      expect(await time.textContent()).toContain("just now");
       const before = (await scanTime(page))!;
       await page.getByRole("button", { name: "Rescan" }).click();
       await expect.poll(() => scanTime(page)).not.toBe(before);
@@ -489,7 +507,8 @@ test(
       await sized();
 
       // A narrow window scrolls the matrix inside the tab, not the whole page.
-      await cell("Codex").click();
+      // Claude Code's details, with a linked skill, stay open from above.
+      await claude.waitFor();
       await page.setViewportSize({ width: 600, height: 860 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
         false,

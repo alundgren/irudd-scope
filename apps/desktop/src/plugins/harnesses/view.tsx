@@ -11,7 +11,8 @@ import { Button } from "../../renderer/components/ui/button.tsx";
 import { localMachineName } from "../../renderer/remote-names.ts";
 import { operationError } from "../../renderer/operation-error.ts";
 import type { HarnessesState } from "./contract.ts";
-import { HarnessCell, HarnessDetails, SharedCell, SharedDetails, scanTime } from "./details.tsx";
+import { HarnessCell, HarnessDetails, SharedCell, SharedDetails } from "./details.tsx";
+import { ScanTime } from "./scan-time.tsx";
 import "./style.css";
 
 /** One machine column. Remote and guest columns add their own name and connection status. */
@@ -90,7 +91,11 @@ function Cell({
       onClick={() => onToggle(expanded ? null : { machine: column.machine, row })}
     >
       {"id" in report ? (
-        <HarnessCell report={report} counting={column.counting} />
+        <HarnessCell
+          report={report}
+          counting={column.counting}
+          shared={column.scan?.sharedSkills.found ?? false}
+        />
       ) : (
         <SharedCell report={report} />
       )}
@@ -159,10 +164,7 @@ function Matrix({
                   <span className="harnesses-cell-detail">
                     {column.scan ? (
                       <>
-                        Scanned{" "}
-                        <time dateTime={column.scan.scannedAt}>
-                          {scanTime(column.scan.scannedAt)}
-                        </time>
+                        Scanned <ScanTime iso={column.scan.scannedAt} />
                       </>
                     ) : (
                       "No scan yet"
@@ -170,6 +172,7 @@ function Matrix({
                   </span>
                 </th>
               ))}
+              <td className="harnesses-filler" aria-hidden="true" />
             </tr>
           </thead>
           <tbody>
@@ -188,12 +191,13 @@ function Matrix({
                       />
                     </td>
                   ))}
+                  <td className="harnesses-filler" aria-hidden="true" />
                 </tr>
                 {opened && open.row === row && (
                   <DetailsRow
                     column={opened}
                     row={row}
-                    span={columns.length + 1}
+                    span={columns.length + 2}
                     details={details}
                     onCopy={() => onCopyJson(opened.machine, row)}
                   />

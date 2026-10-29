@@ -1,21 +1,24 @@
 import type { ReactNode } from "react";
-import { Check, CircleHelp, X } from "lucide-react";
+import { Check, CircleHelp, Link, X } from "lucide-react";
 import type {
   HarnessReport,
   HarnessSignIn,
   SharedSkillsReport,
 } from "@irudd-scope/protocol/harnesses";
 
+const UNITS = ["KB", "MB", "GB", "TB"];
+/** Decimal units like a file manager: one decimal below 100, none from 100 up, so 405 MB and 11.6 GB. */
 export function formatSize(size: number) {
-  if (size < 1024) return `${size} bytes`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`;
-  if (size < 1024 * 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MiB`;
-  return `${(size / 1024 / 1024 / 1024).toFixed(2)} GiB`;
+  if (size < 1000) return count(size, "byte");
+  for (const [index, unit] of UNITS.entries()) {
+    const value = size / 1000 ** (index + 1);
+    const text = value < 99.95 ? value.toFixed(1) : value.toFixed(0);
+    if (Number(text) < 1000 || index === UNITS.length - 1) return `${text} ${unit}`;
+  }
+  return count(size, "byte");
 }
 const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
-export const scanTime = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 const SIGN_IN = {
   "signed-in": { icon: Check, words: "Signed in" },
@@ -46,8 +49,21 @@ function sizeText(report: HarnessReport, counting: boolean) {
   return counting ? "counting…" : "size unknown";
 }
 
-export function HarnessCell({ report, counting }: { report: HarnessReport; counting: boolean }) {
+/**
+ * Codex documents ~/.agents/skills as its user skill folder, so its cell points to the Shared
+ * skills row. Scope says nothing about the folder for other harnesses.
+ */
+export function HarnessCell({
+  report,
+  counting,
+  shared,
+}: {
+  report: HarnessReport;
+  counting: boolean;
+  shared: boolean;
+}) {
   const own = report.skills.filter((skill) => skill.location === "own").length;
+  const skills = count(own, "skill");
   return (
     <>
       <span className="harnesses-cell-line">
@@ -58,7 +74,7 @@ export function HarnessCell({ report, counting }: { report: HarnessReport; count
       <span className="harnesses-cell-detail">
         {[
           sizeText(report, counting),
-          count(own, "skill"),
+          report.id === "codex" && shared ? `${skills} + shared skills below` : skills,
           `${report.mcpServers.length} MCP`,
           ...report.instructions.map((file) => fileName(file.path)),
         ]
@@ -118,13 +134,37 @@ function Section({
   );
 }
 
+type Skill = { name: string; linked: boolean };
+
+/** The heading counts linked skills too, for example "Own skills · 14 · 10 linked". */
+function skillsTitle(label: string, skills: readonly Skill[]) {
+  const linked = skills.filter((skill) => skill.linked).length;
+  return [label, String(skills.length), linked ? `${linked} linked` : ""]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function SkillChips({ skills }: { skills: readonly Skill[] }) {
+  if (!skills.length) return <p className="harnesses-muted">None</p>;
+  return (
+    <ul className="harnesses-chips">
+      {skills.map((skill, index) => (
+        <li key={`${skill.name}-${index}`}>
+          <code>{skill.name}</code>
+          {skill.linked && (
+            <Link role="img" aria-label="linked" className="harnesses-chip-link">
+              <title>Linked. Scope does not read its target.</title>
+            </Link>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function HarnessDetails({ report, counting }: { report: HarnessReport; counting: boolean }) {
   const own = report.skills.filter((skill) => skill.location === "own");
   const bundled = report.skills.filter((skill) => skill.location === "bundled");
-  const skill = (entry: HarnessReport["skills"][number]) => ({
-    name: entry.name,
-    marks: [entry.linked && "linked"],
-  });
   return (
     <>
       <Section title="Version">
@@ -206,12 +246,12 @@ export function HarnessDetails({ report, counting }: { report: HarnessReport; co
           }))}
         />
       </Section>
-      <Section title={`Own skills · ${own.length}`} wide>
-        <Names items={own.map(skill)} />
+      <Section title={skillsTitle("Own skills", own)} wide>
+        <SkillChips skills={own} />
       </Section>
       {bundled.length > 0 && (
-        <Section title={`Bundled skills · ${bundled.length}`} wide>
-          <Names items={bundled.map(skill)} />
+        <Section title={skillsTitle("Bundled skills", bundled)} wide>
+          <SkillChips skills={bundled} />
         </Section>
       )}
       {report.unreadable.length > 0 && (
@@ -242,13 +282,8 @@ export function SharedDetails({ report }: { report: SharedSkillsReport }) {
         </p>
       </Section>
       {!report.linked && (
-        <Section title={`Skills · ${report.skills.length}`} wide>
-          <Names
-            items={report.skills.map((skill) => ({
-              name: skill.name,
-              marks: [skill.linked && "linked"],
-            }))}
-          />
+        <Section title={skillsTitle("Skills", report.skills)} wide>
+          <SkillChips skills={report.skills} />
         </Section>
       )}
       {report.truncated && (

@@ -507,10 +507,19 @@ and a startup tab would take strip space from artifacts.
 
 The matrix has one row for each of Codex, Claude Code, Cursor and Grok Build,
 then a Shared skills row for `~/.agents/skills`, and one column for this
-computer, named This Mac, This PC or This computer. The column heading shows
-when the shown scan was made. A harness cell shows its sign-in state in words,
-version, main folder size (counting… until the background count finishes), own
-skill count, MCP server count and instruction file names. The Shared skills cell
+computer, named This Mac, This PC or This computer. Machine columns stay about
+360 px wide so a cell reads as one block on a wide window; an empty last column
+takes the remaining width, and the open details row spans the whole tab. The
+column heading shows when the shown scan was made as relative time, such as
+just now, 5 min ago or yesterday, refreshed every 30 seconds; the exact date and
+time is its tooltip and screen reader text. A harness cell shows its sign-in
+state in words, version, main folder size (counting… until the background count
+finishes), own skill count, MCP server count and instruction file names. Codex's
+cell adds "+ shared skills below" when `~/.agents/skills` exists, because Codex
+documents that folder as its user skill folder; other cells make no such claim.
+Sizes use decimal units like a file manager: one decimal below 100 and none from
+100 up, for example 11.6 GB and 405 MB. The CLI and Copy as JSON keep exact
+bytes. The Shared skills cell
 shows the skill count, Linked folder when the folder itself is a link, or Not
 found. Missing harnesses show Not found and cannot be selected.
 
@@ -520,8 +529,10 @@ closes them. One cell is open at a time. Details show the version, sign-in state
 and method, the main folder with its size, file count and largest parts,
 instruction files with lines, size and a short fingerprint, MCP servers with
 their transport, agents, own and bundled skills, files Scope could not read, and
-a note when lists were shortened. Linked entries are marked linked and never
-read. Copy as JSON copies that harness's, or the shared folder's, data from the
+a note when lists were shortened. Skills show as outlined chips, and each skill
+heading counts linked skills, for example "Own skills · 14 · 10 linked". A linked
+skill has a small link icon with the accessible name linked; other linked
+entries are marked with the word. Linked entries are never read. Copy as JSON copies that harness's, or the shared folder's, data from the
 latest scan.
 
 The toolbar has Copy agent request and Rescan. The request asks the person's

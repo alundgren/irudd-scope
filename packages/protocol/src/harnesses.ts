@@ -166,7 +166,7 @@ export const HarnessesGuide = {
       "true when the harness's main folder exists as a real folder. A missing or linked main folder gives found false and empty facts. Scope never reads through a linked folder anywhere below home.",
     home: "The main folder, written from ~.",
     version:
-      "From the install link target: Codex ~/.codex/packages/standalone/current -> releases/VERSION-TRIPLE; Claude Code ~/.local/bin/claude -> versions/VERSION; Cursor cursor-agent on PATH -> versions/VERSION/; Grok ~/.grok/bin/grok -> grok-VERSION. Links are read, never followed. Only when no such link exists does Scope run the binary on PATH once with --version and a five-second limit, as a last resort. null when no binary is found, the call fails, or the only launcher is a Windows .cmd file. Update-check caches are never used.",
+      "From the install link target: Codex ~/.codex/packages/standalone/current -> releases/VERSION-TRIPLE; Claude Code ~/.local/bin/claude -> versions/VERSION; Cursor cursor-agent on PATH -> versions/VERSION/, else the newest folder name in Cursor's install folder ~/.local/share/cursor-agent/versions (~/AppData/Local/cursor-agent/versions on Windows, whose installer copies its launchers instead of linking them); Grok ~/.grok/bin/grok -> grok-VERSION. Links are read, never followed. Only when neither names a version does Scope run the binary on PATH once with --version and a five-second limit, as a last resort. null when no binary is found, the call fails, or the only launcher is a Windows .cmd file. Update-check caches are never used.",
     signIn:
       "state is signed-in, not-signed-in or unknown (a sign-in file exists but cannot be read). method comes only from non-secret fields: Codex auth_mode in ~/.codex/auth.json, oauth for Claude Code's oauthAccount in ~/.claude.json, null for Cursor (authInfo in ~/.cursor/cli-config.json) and Grok (~/.grok/auth.json present).",
     size: "pending while Scope counts in the background, then {state: done, bytes, files, parts}. bytes and files total the regular files below the main folder; links are never followed and add nothing. parts are the five largest top-level entries. null when not found. Read again to see the final size.",
@@ -191,7 +191,7 @@ export const HarnessesGuide = {
     "claude-code":
       "~/.claude and ~/.claude.json: oauthAccount and top-level mcpServers in ~/.claude.json, ~/.claude/CLAUDE.md, own skills ~/.claude/skills, own agents ~/.claude/agents/*.md.",
     cursor:
-      "~/.cursor: cli-config.json authInfo, mcp.json mcpServers, own skills ~/.cursor/skills, bundled skills ~/.cursor/skills-cursor. Cursor's install folder ~/.local/share/cursor-agent is used for its version only.",
+      "~/.cursor: cli-config.json authInfo, mcp.json mcpServers, own skills ~/.cursor/skills, bundled skills ~/.cursor/skills-cursor. Cursor's install folder ~/.local/share/cursor-agent, or ~/AppData/Local/cursor-agent on Windows, is used for its version only.",
     grok: "~/.grok: auth.json, config.toml [mcp_servers], AGENTS.md, own skills ~/.grok/skills and agents ~/.grok/agents/*.md, bundled ~/.grok/bundled/skills, agents, personas and roles.",
     shared: "~/.agents/skills.",
   },

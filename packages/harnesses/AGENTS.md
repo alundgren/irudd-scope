@@ -16,8 +16,8 @@ depend only on `@irudd-scope/protocol`.
   keys, MCP commands, URLs, headers or environment values, or account emails
   and names. Swallow parse errors: JSON and TOML messages quote the input.
 - Never read session or chat contents; they only add to folder sizes.
-- Take versions from install link targets. Run `--version` only when no link
-  names the version, once, with a short time limit, and stop it when the
+- Take versions from install link targets, or for Cursor from the names of
+  its own version folders. Run `--version` only when neither names the version, once, with a short time limit, and stop it when the
   caller's signal aborts: the whole process group on macOS and Linux, only the
   binary on Windows. Never read update caches.
 - Validate each scan and keep its JSON within `MAX_HARNESS_SCAN_BYTES` by
