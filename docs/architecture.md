@@ -498,21 +498,51 @@ owns the scan document, the CLI guide and the routes; the CLI reaches them
 through the loopback artifact API with the publishing token. This version reads
 only `--machine local`; hubs do not forward harness routes.
 
+`packages/harnesses/src/file.ts` reads the text of one allowed file for both the
+CLI and the tab. Allowed files are the global instruction files and the
+`SKILL.md` inside each own, non-linked skill folder, including the shared
+`~/.agents/skills`, as listed by the latest scan. It refuses before opening a
+file: paths not on that list, which covers auth, config and session files and
+bundled skills; paths with `..`, `~` or backslashes; absolute paths; linked files
+and files below a linked folder. It opens without following a last link. That
+flag covers only the last name and does not exist on Windows, so a folder swapped
+for a link while the file opens would be followed. After opening, it walks the
+folders again, checks that the file at the path has the opened file's device
+and inode, and walks the folders once more. It refuses the read when any folder
+or the file is not the one it saw before opening. This makes a swap during the
+read much harder but does not rule it out: code already running as the person
+that swaps a folder back and forth at the right moments can still get a file
+with an allowed name, such as `SKILL.md`, `AGENTS.md` or `CLAUDE.md`, read from
+outside the harness folder. It refuses a file with more than
+one hard link, because another name for it could be an auth file, and files
+over 256 KiB, all without reading them. Text that is not valid UTF-8 is not
+returned. `HarnessesService.file` passes the latest scan and home folder to it; the
+text goes only to the caller and is never saved or logged.
+
 The built-in Harnesses tab lives in `apps/desktop/src/plugins/harnesses/`. Its
 main entry registers named IPC operations on the desktop's `HarnessesService`:
 `scope:harnesses` returns the latest scans with whether a scan runs and a fixed
 error message, `scope:scan-harnesses` starts a scan, `scope:copy-harnesses-request`
-copies the agent request, and `scope:copy-harness-json` copies one harness's or
-the shared folder's report from the latest scan. The service reports each
+copies the agent request, `scope:copy-harness-json` copies one harness's or
+the shared folder's report from the latest scan, `scope:harness-file` returns
+one allowed file's text, and `scope:copy-harness-file` reads it again and copies
+it. The service reports each
 started, finished or failed scan and each finished size count, and main sends
 that state as `scope:harnesses-changed`. A failed count is only logged
 and leaves the saved sizes pending until the next scan, because the tab shows no sizes.
 A failed save keeps the new scan shown. The view subscribes before it reads,
 so a tab opened during or after the startup scan shows the current state. The
-tab shows only skills and instruction files from each scan: `skills.tsx`
-compares own skill names with this computer's column, and `instructions.tsx`
-compares instruction file fingerprints. Other facts stay in the scan, the CLI
-and Copy as JSON.
+tab shows only skills and instruction files from each scan. `overview.tsx` draws
+the table with a Skills and an Instructions column per machine; `skills.tsx`
+compares own skill names with this computer's column and `instructions.tsx`
+names instruction files and compares their fingerprints without showing them.
+`reader.tsx` replaces the overview with the full-tab reader for one harness or
+the shared folder, and `file-text.tsx` reads the chosen file through
+`scope:harness-file` and splits a `SKILL.md`'s YAML frontmatter into its title
+and description. The file renders through the shared `renderer/markdown.tsx`
+component, which the memory plugin also uses: no raw HTML, and links and images
+as plain text. The reader passes its own heading components so Markdown
+headings start at `h4` below the file's `h3` title. Other facts stay in the scan, the CLI and Copy as JSON.
 
 ## Names and ownership
 
@@ -535,7 +565,7 @@ formats are compatibility contracts.
 | Publishing token | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                   | Desktop discovery file; CLI and optional hub use it.                                                      |
 | Folder tab       | A live tree of one folder on one machine, keyed by machine ID and canonical path.                | `packages/folder` reads files; `plugins/folder` shows them; `folder_tabs` in `scope.db` keeps the key.    |
 | Harness scan     | One machine's coding agent harnesses at one time, without secrets.                               | `packages/harnesses` scans; `packages/protocol/src/harnesses.ts` defines it; `harness_scans` keeps it.    |
-| Harnesses tab    | The built-in matrix of skills and instruction files, one column per machine.                     | `apps/desktop/src/plugins/harnesses/` shows it; `apps/desktop/src/harnesses.ts` supplies its state.       |
+| Harnesses tab    | The built-in overview of skills and instruction files per machine, with a full-tab file reader.  | `apps/desktop/src/plugins/harnesses/` shows it; `apps/desktop/src/harnesses.ts` supplies its state.       |
 
 `packages/protocol` owns shared schemas, wire formats, limits, the discovery
 contract, and the HTTP client. It imports no app, filesystem, Electron, or
@@ -637,7 +667,7 @@ display an unavailable view.
 Each directory under `plugins/` owns one built-in implementation. `file/`
 keeps the existing image, Markdown, HTML, text, and download fallback views
 together. `sketchpad/` owns the built-in Excalidraw editor, its Reset and
-undo window, and its draft contract. `harnesses/` owns the Harnesses matrix and its
+undo window, and its draft contract. `harnesses/` owns the Harnesses overview, its reader and its
 IPC operations; it keeps no tab data of its own. A plugin can render
 content without referencing a library item. Publication support is an optional
 registration. These are trusted modules in one renderer.

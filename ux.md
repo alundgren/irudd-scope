@@ -505,50 +505,77 @@ the Sketchpad, and closing hides it for reopening from the drawer or search.
 It is not created at startup: most people check their harnesses now and then,
 and a startup tab would take strip space from artifacts.
 
-The tab shows only skills and instruction files. Versions, sign-in, folder
-sizes, MCP servers and agents stay in `irudd-scope harnesses read` and Copy as
-JSON. Machine columns stay about 360 px wide so a cell reads as one block on a
-wide window, and an empty last column takes the remaining width. The first
-column is this computer, named This Mac, This PC or This computer; other machine
-columns are compared with it. With one column nothing is compared. Each column
-heading shows when its scan was made as relative time, such as just now, 5 min
-ago or yesterday, refreshed every 30 seconds; the exact date and time is its
-tooltip and screen reader text.
+The tab shows only skills and instruction files, as names and counts.
+Fingerprints, sizes, line counts, versions, sign-in, MCP servers and agents stay
+in `irudd-scope harnesses read`, `harnesses file` and Copy as JSON for agents.
 
-Skills has one row for each of Claude Code, Codex, Cursor and Grok Build, then
-Shared skills for `~/.agents/skills`. A cell shows the number of the harness's
-own skills as a quiet button without an underline. Codex's label adds "+ Shared
-skills" when `~/.agents/skills` exists, because Codex documents that folder as
-its user skill folder; other rows make no such claim. A harness that is not
-found shows Not installed; a missing shared folder shows Not found, and a linked
-shared folder shows Linked folder. Other machines add how their skill folder
-names differ from this computer's: "2 missing", "1 extra", "1 missing · 1 extra"
-or Same. Differences use the warning text color and Same stays muted, so the
-words carry the meaning without color.
+The overview is one table. Its rows are Claude Code, Codex, Cursor, Grok Build
+and Shared skills, whose label shows `~/.agents/skills` below it. Codex's label
+adds "+ Shared skills" when `~/.agents/skills` exists, because Codex documents
+that folder as its user skill folder; other rows make no such claim. Each
+machine has a heading with when its scan was made as relative time, such as just
+now, 5 min ago or yesterday, refreshed every 30 seconds; the exact date and time
+is its tooltip and screen reader text. Under it, two small column headings say
+Skills and Instructions. The first machine is this computer, named This Mac,
+This PC or This computer; other machines are compared with it. An empty last
+column takes the remaining width of a wide window.
 
-Selecting a count with the mouse, Enter or Space opens the skill names in a
-panel below the row and keeps focus on the count; selecting it again, or the
-panel's close button, closes it and returns focus to the count. One panel is
-open at a time. A rescan that removes the opened harness or folder closes its panel. The panel heading shows the harness, its skill folder, a "↪
-Linked" key when a listed skill is a link, and Copy as JSON for that harness on
-that machine. Names that differ between machines come first, one row each with
-a check or Missing per machine; names every machine has fold behind "N matching
-skills". With one machine column the panel lists every name. A linked skill has
-one ↪ after its name, with the accessible name linked; Scope never reads its
-target. Bundled skills are not listed.
+A Skills cell shows the number of own skills as a quiet button without an
+underline. A harness that is not found shows Not installed; a missing shared
+folder shows Not found, and a linked shared folder shows Linked folder. Other
+machines add how their skill folder names differ from this computer's: "2
+missing", "1 extra", "1 missing · 1 extra" or Same. An Instructions cell lists
+the harness's instruction file names, such as `CLAUDE.md` or `AGENTS.md`, each a
+quiet button, with ↪ after a linked file. A harness without instruction files
+leaves the cell empty. Other machines show Different beside a file whose
+fingerprint differs from this computer's and Missing for a file only this
+computer has; the fingerprint decides but is not shown. Differences use the
+warning text color and Same stays muted, so the words carry the meaning without
+color.
 
-Instruction files has one row per harness and file path that any machine has,
-labeled with the harness name and the path. A cell shows a short fingerprint,
-then size and line count; the same fingerprint means the same text. Another
-machine shows Different beside a fingerprint that differs from this computer's,
-and Missing when this computer has the file and it does not. A linked file shows
-Linked file. A line below names harnesses that are found but have no
-instruction files, for example "Cursor has no instruction files.", and the
-shared skill folder path. Sizes use decimal units like a file manager. The CLI
-and Copy as JSON keep exact bytes.
+Selecting a count or a file name replaces the overview with the reader, which
+fills the tab below the toolbar. A count opens at the first skill and a file
+name at that file. The reader has two levels. Its top bar belongs to the
+harness on that machine: Back, the harness name and machine as a heading, and
+"Copy NAME as JSON" at the far end. Below it, a bordered area holds a narrow
+list on the left and the chosen file on the right. The list shows the
+harness's instruction files under Instructions, then its own skills under
+Skills; Shared skills lists only skills. Bundled skills are not listed. When
+the scan left skills out, the list ends with "Some skills are left out because
+the list is too long." Each item is a button; the chosen one has the selected
+tint and a solid accent bar on its left edge, like the selected tab. A linked
+item has ↪ after its name with the accessible name linked and a tooltip. Focus
+moves to the chosen item when the reader opens. The right side belongs to the
+file: its title as a heading with Copy file text beside it, its `~` path muted
+under the title, then the file rendered as Markdown below a line, with the
+file's headings placed below the title in the heading order. A `SKILL.md` title
+is the `name` from its YAML frontmatter, with `description` as one muted line
+under the path; the frontmatter itself is not shown, and a skill with only
+frontmatter shows nothing more. A skill's title appears once its file is read.
+Instruction files use the file name as the title and show all their text. The
+file side is a scroll area that takes keyboard focus, so Escape still goes back
+after a click in the text. Markdown shows no raw HTML, and links and images appear
+as plain text. A linked item shows "Linked. Scope does not follow it." instead
+of text, and Scope never reads its target. Back or Escape returns to the
+overview and puts focus on the button that opened the reader. A rescan that
+removes the harness or folder being read returns to the overview. At narrow
+widths the list sits above the file and scrolls on its own.
+
+File text is read-only and read when it is chosen, with "Reading…" until it
+arrives. A file Scope refuses or cannot read shows the reason instead: a linked
+file or folder, a file with more than one hard link, a file over 256 KiB, or
+text that is not UTF-8. Copy file text reads the file again and copies the raw
+Markdown that the reader allows; when the file changed since it was shown, the
+confirmation says "The file changed since it was shown; copied the current
+text." A rescan that finds a new fingerprint, or any rescan for a `SKILL.md`,
+reads the chosen file again; the text shown stays until the new text arrives. A
+file or folder that changes while Scope opens it is refused with a short
+reason. The tab reads only what `irudd-scope harnesses file` allows and has no
+action that opens, edits or reveals a harness folder.
 
 The toolbar has Copy agent request and Rescan. The request asks the person's
-agent to run `irudd-scope harnesses guide` and then `harnesses read`; Scope does
+agent to run `irudd-scope harnesses guide` and then `harnesses read`, and to
+use `harnesses file` for instruction file or `SKILL.md` text; Scope does
 not run agents. Rescan shows Scanning… while it runs and updates the scan time.
 A failed scan keeps the last scan visible and shows an error with Retry. The tab shows no folder sizes, so a failed size count shows no error. A scan
 that cannot be saved is still shown. The first open without a saved scan shows
@@ -557,7 +584,7 @@ restart the saved scan shows at once and is replaced when the startup scan
 finishes. There is no periodic scan and no action that opens or changes a
 harness folder.
 
-At narrow widths the matrix scrolls inside the tab. Long skill names wrap.
+At narrow widths the overview scrolls inside the tab. Long skill names wrap.
 
 ## Structured plans
 

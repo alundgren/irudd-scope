@@ -353,3 +353,124 @@ export const harness = (reply: HarnessesReply, id: HarnessReport["id"]) =>
   reply.machines[0]!.harnesses.find((report) => report.id === id)!;
 
 export const withoutSize = (report: HarnessReport) => ({ ...report, size: undefined });
+
+/** The reports a scan of `harnessHome` gives, without sizes. */
+const codex = (linkedOverride = false): Omit<HarnessReport, "size"> => ({
+  id: "codex",
+  name: "Codex",
+  found: true,
+  home: "~/.codex",
+  version: "0.200.0",
+  signIn: { state: "signed-in", method: "chatgpt" },
+  skills: [
+    { name: "review", location: "own", linked: false },
+    { name: "imagegen", location: "bundled", linked: false },
+  ],
+  agents: [{ name: "helper", location: "own", linked: false, kind: "agent" }],
+  mcpServers: [
+    { name: "docs", transport: "stdio", location: "own" },
+    { name: "remote", transport: "http", location: "own" },
+  ],
+  instructions: [
+    instruction("~/.codex/AGENTS.md", instructions.codex),
+    ...(linkedOverride ? [linkedInstruction("~/.codex/AGENTS.override.md")] : []),
+  ],
+  unreadable: [],
+  truncated: false,
+});
+const claude = (version: string | null, broken = false): Omit<HarnessReport, "size"> => ({
+  id: "claude-code",
+  name: "Claude Code",
+  found: true,
+  home: "~/.claude",
+  version,
+  signIn: broken ? { state: "unknown", method: null } : { state: "signed-in", method: "oauth" },
+  skills: [
+    { name: "notes", location: "own", linked: false },
+    { name: "outside", location: "own", linked: true },
+  ],
+  agents: [{ name: "reviewer", location: "own", linked: false, kind: "agent" }],
+  mcpServers: broken
+    ? []
+    : [
+        { name: "github", transport: "http", location: "own" },
+        { name: "local", transport: "stdio", location: "own" },
+      ],
+  instructions: [instruction("~/.claude/CLAUDE.md", instructions.claude)],
+  unreadable: broken ? ["~/.claude.json"] : [],
+  truncated: false,
+});
+/** With a linked ~/.grok/bundled, nothing bundled is listed. */
+const grok = (version: string, linkedBundled = false): Omit<HarnessReport, "size"> => ({
+  id: "grok",
+  name: "Grok Build",
+  found: true,
+  home: "~/.grok",
+  version,
+  signIn: { state: "signed-in", method: null },
+  skills: [
+    { name: "own-skill", location: "own", linked: false },
+    ...(linkedBundled
+      ? []
+      : [{ name: "code-review", location: "bundled", linked: false } as const]),
+  ],
+  agents: [
+    { name: "scout", location: "own", linked: false, kind: "agent" },
+    ...(linkedBundled
+      ? []
+      : ([
+          { name: "explore", location: "bundled", linked: false, kind: "agent" },
+          { name: "reviewer", location: "bundled", linked: false, kind: "persona" },
+          { name: "plan", location: "bundled", linked: false, kind: "role" },
+        ] as const)),
+  ],
+  mcpServers: [
+    { name: "events", transport: "sse", location: "own" },
+    { name: "search", transport: "http", location: "own" },
+  ],
+  instructions: [instruction("~/.grok/AGENTS.md", instructions.grok)],
+  unreadable: [],
+  truncated: false,
+});
+const cursor = (): Omit<HarnessReport, "size"> => ({
+  id: "cursor",
+  name: "Cursor",
+  found: true,
+  home: "~/.cursor",
+  version: "2026.11.02-abc1234",
+  signIn: { state: "signed-in", method: null },
+  skills: [
+    { name: "own-cursor", location: "own", linked: false },
+    { name: "canvas", location: "bundled", linked: false },
+  ],
+  agents: [],
+  mcpServers: [
+    { name: "plan", transport: "http", location: "own" },
+    { name: "tool", transport: "stdio", location: "own" },
+  ],
+  instructions: [],
+  unreadable: [],
+  truncated: false,
+});
+/** A linked ~/.agents/skills is reported as linked with nothing listed inside it. */
+const sharedSkills = (linked = false) => ({
+  found: true,
+  linked,
+  home: "~/.agents/skills",
+  skills: linked
+    ? []
+    : [
+        { name: "linked-shared", linked: true },
+        { name: "shared-one", linked: false },
+      ],
+  truncated: false,
+});
+const linkedInstruction = (path: string) => ({
+  path,
+  linked: true,
+  bytes: null,
+  lines: null,
+  sha256: null,
+});
+
+export const expected = { codex, claude, grok, cursor, sharedSkills };

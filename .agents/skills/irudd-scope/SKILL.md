@@ -131,6 +131,12 @@ some entries were left out to keep the scan small, and `linked: true` means
 Scope saw a link and did not read its target. Scope
 only reads these folders and never returns secrets. It reports skills by
 folder and makes no claim about which harness loads another harness's folders.
+To read an instruction file or a skill's `SKILL.md`, run
+`irudd-scope harnesses file HARNESS PATH`, where HARNESS is a harness id or
+`shared` for `~/.agents/skills` and PATH is relative to that folder, for example
+`claude-code CLAUDE.md`, `codex skills/review/SKILL.md` or
+`shared review/SKILL.md`. Scope returns only files the latest scan lists and
+refuses everything else, including links and files over 256 KiB.
 Only `--machine local` works in this version and the desktop must be open.
 
 ### Native plans

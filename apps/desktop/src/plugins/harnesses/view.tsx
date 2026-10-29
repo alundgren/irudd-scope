@@ -1,23 +1,19 @@
-import { Fragment, useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { RefreshCw, Terminal } from "lucide-react";
-import type { HarnessMachine, HarnessScan } from "@irudd-scope/protocol/harnesses";
+import {
+  HARNESS_FILE_FOLDERS,
+  type HarnessMachine,
+  type HarnessScan,
+} from "@irudd-scope/protocol/harnesses";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { localMachineName } from "../../renderer/remote-names.ts";
 import { operationError } from "../../renderer/operation-error.ts";
 import type { HarnessesState, MachineColumn } from "./contract.ts";
-import { InstructionCell, instructionRows, withoutInstructions } from "./instructions.tsx";
-import { ScanTime } from "./scan-time.tsx";
-import {
-  SKILL_ROWS,
-  SkillNames,
-  difference,
-  rowName,
-  skillList,
-  unlisted,
-  type SkillRow,
-} from "./skills.tsx";
+import type { CopyFile } from "./file-text.tsx";
+import { Overview, type ReaderTarget } from "./overview.tsx";
+import { Reader, readerItems } from "./reader.tsx";
+import { rowName, skillList, type SkillRow } from "./skills.tsx";
 import "./style.css";
-
 function useHarnesses() {
   const [state, setState] = useState<HarnessesState>();
   const [failed, setFailed] = useState(false);
@@ -47,207 +43,6 @@ function useHarnesses() {
   return { state, failed };
 }
 
-type Open = { machine: HarnessMachine; row: SkillRow } | null;
-
-/** A quiet button with the own skill count; other machines add how they differ from this one. */
-function SkillCount({
-  columns,
-  index,
-  row,
-  open,
-  panel,
-  onToggle,
-}: {
-  columns: MachineColumn[];
-  index: number;
-  row: SkillRow;
-  open: Open;
-  panel: string;
-  onToggle: (open: Open) => void;
-}) {
-  const column = columns[index]!;
-  const list = skillList(column.scan, row);
-  if (list.state !== "listed")
-    return <span className="harnesses-muted">{unlisted(list, row)}</span>;
-  const compared = index > 0 ? difference(skillList(columns[0]!.scan, row), list) : null;
-  const expanded = open?.machine === column.machine && open.row === row;
-  const skills = list.skills.length;
-  return (
-    <button
-      type="button"
-      id={`${panel}-${row}-${index}`}
-      className="harnesses-cell"
-      aria-expanded={expanded}
-      aria-controls={expanded ? panel : undefined}
-      onClick={() => onToggle(expanded ? null : { machine: column.machine, row })}
-    >
-      {skills}
-      <span className="sr-only">{skills === 1 ? " skill" : " skills"}</span>
-      {compared && (
-        <span className={compared.differs ? "harnesses-differs" : "harnesses-muted"}>
-          <span className="sr-only">, </span>
-          {compared.words}
-        </span>
-      )}
-    </button>
-  );
-}
-
-function BlockHead({ title, note, span }: { title: string; note: string; span: number }) {
-  return (
-    <tr className="harnesses-block-head">
-      <th scope="rowgroup">
-        <h3>{title}</h3>
-      </th>
-      <td colSpan={span} className="harnesses-muted">
-        {note}
-      </td>
-    </tr>
-  );
-}
-
-function Matrix({
-  columns,
-  onCopyJson,
-}: {
-  columns: MachineColumn[];
-  onCopyJson: (machine: HarnessMachine, row: SkillRow) => void;
-}) {
-  const [open, setOpen] = useState<Open>(null);
-  const panel = `${useId()}-skills`;
-  // A rescan can remove the opened harness or folder; its panel then closes.
-  const opened =
-    open &&
-    columns.find(
-      (column) =>
-        column.machine === open.machine && skillList(column.scan, open.row).state === "listed",
-    );
-  const stale = Boolean(open && !opened);
-  useEffect(() => {
-    if (stale) setOpen(null);
-  }, [stale]);
-  const span = columns.length + 2;
-  const files = instructionRows(columns);
-  const footnote = withoutInstructions(columns);
-  const sharedFolder = columns.find((column) => column.scan)?.scan?.sharedSkills;
-  const shared = columns.some((column) => column.scan?.sharedSkills.found);
-  function close() {
-    if (!open) return;
-    const index = columns.findIndex((column) => column.machine === open.machine);
-    setOpen(null);
-    document.getElementById(`${panel}-${open.row}-${index}`)?.focus();
-  }
-  const colgroup = (
-    <colgroup>
-      <col className="harnesses-label-col" />
-      {columns.map((column) => (
-        <col key={column.machine} className="harnesses-machine-col" />
-      ))}
-      <col />
-    </colgroup>
-  );
-  return (
-    <>
-      <div className="harnesses-scroll">
-        <table className="harnesses-matrix">
-          {colgroup}
-          <thead>
-            <tr>
-              <td className="harnesses-muted">
-                {columns.length > 1 && `Compared with ${columns[0]!.label}`}
-              </td>
-              {columns.map((column) => (
-                <th key={column.machine} scope="col">
-                  <span className="harnesses-machine">{column.label}</span>
-                  <span className="harnesses-cell-detail">
-                    {column.scan ? (
-                      <>
-                        Scanned <ScanTime iso={column.scan.scannedAt} />
-                      </>
-                    ) : (
-                      "No scan yet"
-                    )}
-                  </span>
-                </th>
-              ))}
-              <td aria-hidden="true" />
-            </tr>
-          </thead>
-          <tbody>
-            <BlockHead title="Skills" note="Own folders" span={span - 1} />
-            {SKILL_ROWS.map((row) => (
-              <Fragment key={row}>
-                <tr>
-                  <th scope="row">
-                    {rowName(row)}
-                    {row === "codex" && shared && (
-                      <span className="harnesses-muted"> + Shared skills</span>
-                    )}
-                  </th>
-                  {columns.map((column, index) => (
-                    <td key={column.machine}>
-                      <SkillCount
-                        columns={columns}
-                        index={index}
-                        row={row}
-                        open={open}
-                        panel={panel}
-                        onToggle={setOpen}
-                      />
-                    </td>
-                  ))}
-                  <td aria-hidden="true" />
-                </tr>
-                {opened && open.row === row && (
-                  <tr className="harnesses-panel-row">
-                    <td colSpan={span}>
-                      <SkillNames
-                        row={row}
-                        columns={columns}
-                        opened={opened}
-                        id={panel}
-                        onCopy={() => onCopyJson(opened.machine, row)}
-                        onClose={close}
-                      />
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-          </tbody>
-          {files.length > 0 && (
-            <tbody>
-              <BlockHead
-                title="Instruction files"
-                note="Same fingerprint, same text"
-                span={span - 1}
-              />
-              {files.map((file) => (
-                <tr key={file.path}>
-                  <th scope="row">
-                    {rowName(file.harness)}{" "}
-                    <code className="harnesses-cell-detail">{file.path}</code>
-                  </th>
-                  {columns.map((column, index) => (
-                    <td key={column.machine}>
-                      <InstructionCell row={file} columns={columns} index={index} />
-                    </td>
-                  ))}
-                  <td aria-hidden="true" />
-                </tr>
-              ))}
-            </tbody>
-          )}
-        </table>
-      </div>
-      <footer className="harnesses-footer harnesses-muted">
-        <span>{footnote ?? (files.length ? "" : "No instruction files.")}</span>
-        {sharedFolder && <code>Shared skills · {sharedFolder.home}</code>}
-      </footer>
-    </>
-  );
-}
-
 function NothingFound({ column }: { column: MachineColumn }) {
   const scan = column.scan!;
   const folders = [...scan.harnesses.map((report) => report.home), scan.sharedSkills.home];
@@ -271,6 +66,17 @@ function machineColumns(state: HarnessesState | undefined): MachineColumn[] {
   ];
 }
 
+const FILE_CHANGED = "The file changed since it was shown; copied the current text.";
+
+/** The chosen file, the first skill when opened from a count, or the first file. */
+function chosenItem(items: ReturnType<typeof readerItems>, target: ReaderTarget) {
+  return (
+    items.find((item) => item.key === target.key) ??
+    items.find((item) => item.kind === "skill") ??
+    items[0]
+  );
+}
+
 const nothingFound = (scan: HarnessScan) =>
   !scan.sharedSkills.found && scan.harnesses.every((report) => !report.found);
 
@@ -285,9 +91,10 @@ export function HarnessesView() {
     setNotice(text);
     clearNotice.current = setTimeout(() => setNotice(""), 4000);
   }
-  function copy(action: Promise<void>, done: string) {
+  /** `action` can resolve with a message that replaces `done`. */
+  function copy(action: Promise<string | void>, done: string) {
     action.then(
-      () => announce(done),
+      (message) => announce(message ?? done),
       (error: unknown) => announce(operationError(error, "Could not copy. Retry.")),
     );
   }
@@ -296,6 +103,49 @@ export function HarnessesView() {
 
   const columns = machineColumns(state);
   const scanned = columns.filter((column) => column.scan);
+  const prefix = useId();
+  const [reader, setReader] = useState<ReaderTarget | null>(null);
+  const opener = useRef<string | null>(null);
+  // A rescan that removes the harness or folder being read returns to the overview.
+  const gone =
+    reader !== null &&
+    !columns.some(
+      (column) =>
+        column.machine === reader.machine &&
+        skillList(column.scan, reader.owner).state === "listed",
+    );
+  useEffect(() => {
+    if (gone) setReader(null);
+  }, [gone]);
+  useEffect(() => {
+    if (reader || !opener.current) return;
+    document.getElementById(opener.current)?.focus();
+    opener.current = null;
+  }, [reader]);
+  function open(target: ReaderTarget, id: string) {
+    opener.current = id;
+    setReader(target);
+  }
+  function back() {
+    setReader(null);
+  }
+  const copyJson = (machine: HarnessMachine, row: SkillRow) =>
+    copy(
+      window.scope.copyHarnessJson({ machine, harness: row }),
+      `Copied ${rowName(row)} as JSON.`,
+    );
+  const copyText: CopyFile = ({ harness, path, sha256 }, name) =>
+    copy(
+      window.scope
+        .copyHarnessFile({
+          machine: "local",
+          harness,
+          path: path.slice(HARNESS_FILE_FOLDERS[harness].length + 1),
+          shown: sha256,
+        })
+        .then(({ changed }) => (changed ? FILE_CHANGED : undefined)),
+      `Copied the text of ${name}.`,
+    );
 
   function body() {
     if (!state)
@@ -314,21 +164,27 @@ export function HarnessesView() {
     }
     if (scanned.every((column) => nothingFound(column.scan!)))
       return <NothingFound column={scanned[0]!} />;
-    return (
-      <Matrix
-        columns={columns}
-        onCopyJson={(machine, row) =>
-          copy(
-            window.scope.copyHarnessJson({ machine, harness: row }),
-            `Copied ${rowName(row)} as JSON.`,
-          )
-        }
-      />
-    );
+    const column = reader && columns.find((candidate) => candidate.machine === reader.machine);
+    if (reader && column) {
+      const items = readerItems(column.scan, reader.owner);
+      return (
+        <Reader
+          column={column}
+          owner={reader.owner}
+          items={items}
+          chosen={chosenItem(items, reader)}
+          onChoose={(key) => setReader({ ...reader, key })}
+          onBack={back}
+          onCopyJson={() => copyJson(reader.machine, reader.owner)}
+          onCopyText={copyText}
+        />
+      );
+    }
+    return <Overview columns={columns} prefix={prefix} onOpen={open} />;
   }
 
   return (
-    <div className="harnesses-view">
+    <div className={reader ? "harnesses-view harnesses-view-reading" : "harnesses-view"}>
       <div className="harnesses-toolbar">
         <h2>Harnesses</h2>
         <span className="harnesses-muted" role="status">

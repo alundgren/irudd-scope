@@ -62,6 +62,7 @@ irudd-scope folder select PATH FILE [--lines START[-END]] [--title TITLE]
 irudd-scope folder watch [PATH]
 irudd-scope folder guide
 irudd-scope harnesses guide|scan|read [--machine local]
+irudd-scope harnesses file [--machine local] HARNESS PATH
 irudd-scope voice generate|status|result|cancel|guide [FILE_OR_ID]
 irudd-scope list
 irudd-scope get ID
@@ -86,6 +87,7 @@ Folder open shows a folder on this machine as a Folder tab in Scope, once per fo
 Folder find reports whether the folder's tab is open. Folder select opens the tab if needed and selects FILE, a path relative to PATH; --lines highlights lines in it.
 Folder watch prints one JSON line per event and exits 0 when the tab closes.
 Harnesses scan and read report agent harnesses on this computer without changing them. Never queued.
+Harnesses file prints one instruction file or own skill's SKILL.md from the latest scan; see harnesses guide.
 `;
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -560,7 +562,11 @@ async function main() {
       return;
     }
     const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"]));
-    const reply = await harnessesCommand(() => connect(values, signal), argument, values.machine);
+    const reply = await harnessesCommand(
+      () => connect(values, signal),
+      positionals,
+      values.machine,
+    );
     console.log(JSON.stringify(reply, null, 2));
     return;
   }

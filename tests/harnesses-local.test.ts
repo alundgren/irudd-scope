@@ -1,16 +1,18 @@
 import { expect, test } from "vite-plus/test";
-import type { Page } from "@playwright/test";
-import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { link, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { decodeLocalConnection } from "@irudd-scope/protocol";
 import {
   HarnessesGuide,
+  type HarnessFileReply,
   type HarnessReport,
   type HarnessesReply,
 } from "@irudd-scope/protocol/harnesses";
 import { desktopFixture } from "./desktop-fixture.ts";
+import { expectTextKept, openHarnessesTab, saveScreenshots, scanTime } from "./harnesses-page.ts";
 import {
+  expected,
   folderSize,
   harness,
   harnessHome,
@@ -20,124 +22,6 @@ import {
   snapshot,
   withoutSize,
 } from "./harnesses-fixture.ts";
-
-const codex = (linkedOverride = false): Omit<HarnessReport, "size"> => ({
-  id: "codex",
-  name: "Codex",
-  found: true,
-  home: "~/.codex",
-  version: "0.200.0",
-  signIn: { state: "signed-in", method: "chatgpt" },
-  skills: [
-    { name: "review", location: "own", linked: false },
-    { name: "imagegen", location: "bundled", linked: false },
-  ],
-  agents: [{ name: "helper", location: "own", linked: false, kind: "agent" }],
-  mcpServers: [
-    { name: "docs", transport: "stdio", location: "own" },
-    { name: "remote", transport: "http", location: "own" },
-  ],
-  instructions: [
-    instruction("~/.codex/AGENTS.md", instructions.codex),
-    ...(linkedOverride ? [linkedInstruction("~/.codex/AGENTS.override.md")] : []),
-  ],
-  unreadable: [],
-  truncated: false,
-});
-const claude = (version: string | null, broken = false): Omit<HarnessReport, "size"> => ({
-  id: "claude-code",
-  name: "Claude Code",
-  found: true,
-  home: "~/.claude",
-  version,
-  signIn: broken ? { state: "unknown", method: null } : { state: "signed-in", method: "oauth" },
-  skills: [
-    { name: "notes", location: "own", linked: false },
-    { name: "outside", location: "own", linked: true },
-  ],
-  agents: [{ name: "reviewer", location: "own", linked: false, kind: "agent" }],
-  mcpServers: broken
-    ? []
-    : [
-        { name: "github", transport: "http", location: "own" },
-        { name: "local", transport: "stdio", location: "own" },
-      ],
-  instructions: [instruction("~/.claude/CLAUDE.md", instructions.claude)],
-  unreadable: broken ? ["~/.claude.json"] : [],
-  truncated: false,
-});
-/** With a linked ~/.grok/bundled, nothing bundled is listed. */
-const grok = (version: string, linkedBundled = false): Omit<HarnessReport, "size"> => ({
-  id: "grok",
-  name: "Grok Build",
-  found: true,
-  home: "~/.grok",
-  version,
-  signIn: { state: "signed-in", method: null },
-  skills: [
-    { name: "own-skill", location: "own", linked: false },
-    ...(linkedBundled
-      ? []
-      : [{ name: "code-review", location: "bundled", linked: false } as const]),
-  ],
-  agents: [
-    { name: "scout", location: "own", linked: false, kind: "agent" },
-    ...(linkedBundled
-      ? []
-      : ([
-          { name: "explore", location: "bundled", linked: false, kind: "agent" },
-          { name: "reviewer", location: "bundled", linked: false, kind: "persona" },
-          { name: "plan", location: "bundled", linked: false, kind: "role" },
-        ] as const)),
-  ],
-  mcpServers: [
-    { name: "events", transport: "sse", location: "own" },
-    { name: "search", transport: "http", location: "own" },
-  ],
-  instructions: [instruction("~/.grok/AGENTS.md", instructions.grok)],
-  unreadable: [],
-  truncated: false,
-});
-const cursor = (): Omit<HarnessReport, "size"> => ({
-  id: "cursor",
-  name: "Cursor",
-  found: true,
-  home: "~/.cursor",
-  version: "2026.11.02-abc1234",
-  signIn: { state: "signed-in", method: null },
-  skills: [
-    { name: "own-cursor", location: "own", linked: false },
-    { name: "canvas", location: "bundled", linked: false },
-  ],
-  agents: [],
-  mcpServers: [
-    { name: "plan", transport: "http", location: "own" },
-    { name: "tool", transport: "stdio", location: "own" },
-  ],
-  instructions: [],
-  unreadable: [],
-  truncated: false,
-});
-/** A linked ~/.agents/skills is reported as linked with nothing listed inside it. */
-const sharedSkills = (linked = false) => ({
-  found: true,
-  linked,
-  home: "~/.agents/skills",
-  skills: linked
-    ? []
-    : [
-        { name: "linked-shared", linked: true },
-        { name: "shared-one", linked: false },
-      ],
-  truncated: false,
-});
-const linkedInstruction = (path: string) => ({
-  path,
-  linked: true,
-  bytes: null,
-  lines: null,
-  sha256: null,
-});
 
 /** Reads until every found harness has its final size; the test timeout bounds the wait. */
 async function readUntilSized(cli: (...args: string[]) => Promise<{ stdout: string }>) {
@@ -151,21 +35,10 @@ async function readUntilSized(cli: (...args: string[]) => Promise<{ stdout: stri
   }
 }
 
-async function openHarnessesTab(page: Page) {
-  await page.keyboard.press("ControlOrMeta+k");
-  await page.getByLabel("Search artifacts", { exact: true }).fill("harnesses");
-  await page.getByRole("button", { name: "Harnesses", exact: true }).click();
-  await page.getByRole("tab", { name: "Harnesses", selected: true }).waitFor();
-  // Closing search returns focus to its button.
-  await page.getByRole("dialog").waitFor({ state: "detached" });
-}
-
-const scanTime = (page: Page) => page.locator(".harnesses-matrix time").getAttribute("dateTime");
-
 async function expectReport(
   reply: HarnessesReply,
   home: string,
-  expected: Array<Omit<HarnessReport, "size">>,
+  found: Array<Omit<HarnessReport, "size">>,
   missing: HarnessReport[],
   linkedShared = false,
 ) {
@@ -173,11 +46,11 @@ async function expectReport(
   expect(reply.machines).toHaveLength(1);
   expect(machine.machine).toBe("local");
   expect(Date.parse(machine.scannedAt)).not.toBeNaN();
-  expect(machine.sharedSkills).toEqual(sharedSkills(linkedShared));
+  expect(machine.sharedSkills).toEqual(expected.sharedSkills(linkedShared));
   expect(machine.harnesses.map((report) => report.id).sort()).toEqual(
     ["claude-code", "codex", "cursor", "grok"].sort(),
   );
-  for (const report of expected)
+  for (const report of found)
     expect(harness(reply, report.id)).toEqual({
       ...report,
       size: await folderSize(join(home, report.home.slice(2))),
@@ -198,7 +71,8 @@ test(
     const seen: string[] = [];
     try {
       const guide = JSON.parse((await cli("harnesses", "guide")).stdout) as typeof HarnessesGuide;
-      expect(Object.keys(guide.commands).sort()).toEqual(["guide", "read", "scan"]);
+      expect(Object.keys(guide.commands).sort()).toEqual(["file", "guide", "read", "scan"]);
+      expect(guide.file).toContain("shared for ~/.agents/skills");
       expect(Object.keys(guide.fields)).toEqual(
         expect.arrayContaining([
           "found",
@@ -219,20 +93,97 @@ test(
       const output = (await cli("harnesses", "scan")).stdout;
       seen.push(output);
       const scanned = JSON.parse(output) as HarnessesReply;
-      expect(withoutSize(harness(scanned, "codex"))).toEqual({ ...codex(), size: undefined });
+      expect(withoutSize(harness(scanned, "codex"))).toEqual({
+        ...expected.codex(),
+        size: undefined,
+      });
       const reply = await readUntilSized(cli);
       seen.push(JSON.stringify(reply));
       // An invalid ~/.claude.json is reported as unreadable and its sign-in as unknown.
       await expectReport(
         reply,
         fixture.home,
-        [codex(), claude(null, true), grok("1.2.3")],
+        [expected.codex(), expected.claude(null, true), expected.grok("1.2.3")],
         [notFound("cursor", "Cursor", "~/.cursor")],
       );
 
       await expect(cli("harnesses", "read", "--machine", "all")).rejects.toMatchObject({
         stderr: expect.stringContaining("Unknown machine all. Use --machine local."),
       });
+
+      // harnesses file returns instruction files and own SKILL.md files the latest scan lists.
+      const file = async (...args: string[]) => {
+        const { stdout } = await cli("harnesses", "file", ...args);
+        seen.push(stdout);
+        return JSON.parse(stdout) as HarnessFileReply;
+      };
+      const { linked: _linked, ...agents } = instruction("~/.codex/AGENTS.md", instructions.codex);
+      expect(await file("--machine", "local", "codex", "AGENTS.md")).toEqual({
+        harness: "codex",
+        ...agents,
+        text: instructions.codex,
+      });
+      expect((await file("claude-code", "skills/notes/SKILL.md")).text).toBe("# Notes\n");
+      expect(await file("shared", "shared-one/SKILL.md")).toMatchObject({
+        path: "~/.agents/skills/shared-one/SKILL.md",
+        text: "# Shared\n",
+      });
+
+      // Everything else is refused with a reason; a large or non-UTF-8 SKILL.md is never returned.
+      const unreturned = [`large-${randomUUID()}`, `latin-${randomUUID()}`];
+      fixture.markers.push(...unreturned);
+      const skills = join(fixture.home, ".codex", "skills");
+      await mkdir(join(skills, "large"));
+      await writeFile(
+        join(skills, "large", "SKILL.md"),
+        `${unreturned[0]}\n${"x".repeat(256 * 1024)}`,
+      );
+      await mkdir(join(skills, "latin"));
+      await writeFile(
+        join(skills, "latin", "SKILL.md"),
+        Buffer.concat([Buffer.from(`${unreturned[1]}\n`), Buffer.from([0xe9, 0xff])]),
+      );
+      // A SKILL.md that is another name for auth.json.
+      await mkdir(join(skills, "hard"));
+      await link(join(fixture.home, ".codex", "auth.json"), join(skills, "hard", "SKILL.md"));
+      seen.push((await cli("harnesses", "scan")).stdout);
+      // After the scan, a listed skill folder becomes a link and another becomes a file; the
+      // reader checks the disk itself.
+      await rename(join(skills, "review"), join(fixture.root, "review"));
+      await symlink(join(fixture.outside, "linked-skill"), join(skills, "review"));
+      await rm(join(fixture.home, ".grok", "skills", "own-skill"), { recursive: true });
+      await writeFile(join(fixture.home, ".grok", "skills", "own-skill"), "not a folder\n");
+      const notRead = "Only global instruction files and own skills' SKILL.md files";
+      for (const [reason, ...args] of [
+        [notRead, "codex", "auth.json"],
+        [notRead, "codex", "config.toml"],
+        [notRead, "codex", "sessions/2026/10/rollout.jsonl"],
+        [notRead, "codex", "skills/.system/imagegen/SKILL.md"],
+        [notRead, "grok", "auth.json"],
+        ["Paths with .. are not allowed", "claude-code", "../.claude.json"],
+        ["Absolute paths are not allowed", "claude-code", join(fixture.home, ".claude/CLAUDE.md")],
+        ["is linked. Scope does not follow links", "claude-code", "skills/outside/SKILL.md"],
+        ["is linked. Scope does not follow links", "shared", "linked-shared/SKILL.md"],
+        ["larger than 256 KiB", "codex", "skills/large/SKILL.md"],
+        ["not UTF-8 text", "codex", "skills/latin/SKILL.md"],
+        ["Scope does not read hard-linked files", "codex", "skills/hard/SKILL.md"],
+        [
+          "A folder on the way to ~/.codex/skills/review/SKILL.md is linked",
+          "codex",
+          "skills/review/SKILL.md",
+        ],
+        ["is no longer a folder", "grok", "skills/own-skill/SKILL.md"],
+        ["Unknown harness hub", "hub", "AGENTS.md"],
+      ] as const) {
+        const error = await cli("harnesses", "file", ...args).then(
+          () => {
+            throw new Error(`harnesses file ${args.join(" ")} was not refused.`);
+          },
+          (failure: { stdout: string; stderr: string }) => failure,
+        );
+        seen.push(error.stdout, error.stderr);
+        expect(error.stderr).toContain(reason);
+      }
     } finally {
       await application.close();
     }
@@ -268,7 +219,12 @@ test(
       await expectReport(
         reply,
         fixture.home,
-        [codex(true), claude("2.2.0"), grok("1.3.0", true), cursor()],
+        [
+          expected.codex(true),
+          expected.claude("2.2.0"),
+          expected.grok("1.3.0", true),
+          expected.cursor(),
+        ],
         [],
         true,
       );
@@ -292,6 +248,15 @@ test(
         expect(response.status).toBe(200);
         seen.push(await response.text());
       }
+      // The file route returns allowed text and refuses a linked instruction file.
+      const fileUrl = (harness: string, path: string) =>
+        `${endpoint}/v1/harnesses/file?${new URLSearchParams({ machine: "local", harness, path }).toString()}`;
+      const claudeMd = await fetch(fileUrl("claude-code", "CLAUDE.md"), { headers });
+      expect(claudeMd.status).toBe(200);
+      expect(((await claudeMd.json()) as HarnessFileReply).text).toBe(instructions.claude);
+      const override = await fetch(fileUrl("codex", "AGENTS.override.md"), { headers });
+      expect(override.status).toBe(403);
+      seen.push(await override.text());
       const before = (await readUntilSized(cli)).machines[0]!.scannedAt;
       await application.close();
 
@@ -305,7 +270,10 @@ test(
         (await cli("harnesses", "read", "--machine", "local")).stdout,
       ) as HarnessesReply;
       seen.push(JSON.stringify(saved));
-      expect(withoutSize(harness(saved, "cursor"))).toEqual({ ...cursor(), size: undefined });
+      expect(withoutSize(harness(saved, "cursor"))).toEqual({
+        ...expected.cursor(),
+        size: undefined,
+      });
       await readUntilSized(cli);
     } finally {
       await application.close();
@@ -342,8 +310,8 @@ test(
         ),
       );
     }
-    const expected = await folderSize(join(fixture.home, ".codex"));
-    expect(expected.files).toBeGreaterThan(50_000);
+    const size = await folderSize(join(fixture.home, ".codex"));
+    expect(size.files).toBeGreaterThan(50_000);
     const { launch, cli } = await desktopFixture({ hideInitialPrompts: true, env: fixture.env });
     const application = await launch();
     try {
@@ -354,9 +322,12 @@ test(
       // A scan answers before counting; the first read may already have the final size.
       expect(harness(scanned, "codex").size).toEqual({ state: "pending" });
       for (const reply of [scanned, first])
-        expect(withoutSize(harness(reply, "codex"))).toEqual({ ...codex(), size: undefined });
-      expect([{ state: "pending" }, expected]).toContainEqual(harness(first, "codex").size);
-      expect(harness(await readUntilSized(cli), "codex").size).toEqual(expected);
+        expect(withoutSize(harness(reply, "codex"))).toEqual({
+          ...expected.codex(),
+          size: undefined,
+        });
+      expect([{ state: "pending" }, size]).toContainEqual(harness(first, "codex").size);
+      expect(harness(await readUntilSized(cli), "codex").size).toEqual(size);
     } finally {
       await application.close();
       await rm(fixture.root, { recursive: true, force: true });
@@ -366,29 +337,6 @@ test(
 
 const LONG_SKILL = `a-skill-with-a-very-long-name-that-${"keeps-going-".repeat(6)}end`;
 
-/** Saves the expanded matrix in both appearances and widths when SCOPE_TEST_SCREENSHOTS names a folder. */
-async function saveScreenshots(page: Page) {
-  const folder = process.env.SCOPE_TEST_SCREENSHOTS;
-  if (!folder) return;
-  await mkdir(folder, { recursive: true });
-  const settings = page.getByRole("dialog", { name: "Settings", exact: true });
-  for (const appearance of ["light", "dark"] as const) {
-    await page.keyboard.press("ControlOrMeta+,");
-    await settings.getByLabel("Search settings").fill("color scheme");
-    await settings.getByLabel("Appearance", { exact: true }).selectOption(appearance);
-    await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe(appearance);
-    await page.keyboard.press("Escape");
-    await settings.waitFor({ state: "detached" });
-    for (const [width, size] of [
-      [1366, "laptop"],
-      [600, "narrow"],
-    ] as const) {
-      await page.setViewportSize({ width, height: 860 });
-      await page.screenshot({ path: join(folder, `harnesses-${appearance}-${size}.png`) });
-    }
-  }
-}
-
 test(
   "the Harnesses tab shows this computer's skills and instruction files and copies them",
   { tags: ["harnesses-look-dont-touch"], timeout: 180_000 },
@@ -396,6 +344,10 @@ test(
     const fixture = await harnessHome({ cursor: true, brokenClaudeJson: true });
     await mkdir(join(fixture.home, ".codex", "skills", LONG_SKILL));
     await writeFile(join(fixture.home, ".codex", "skills", LONG_SKILL, "SKILL.md"), "# Long\n");
+    await writeFile(
+      join(fixture.home, ".claude", "skills", "notes", "SKILL.md"),
+      "---\nname: Note taking\ndescription: >-\n  Writes short notes\n  for later.\n---\n\n# Notes\n\nKeep them short.\n",
+    );
     // Without a cursor-agent link, as Cursor's Windows installer leaves it, the newest version
     // folder names the version; the installer's update folders are not versions.
     const versions = join(fixture.home, ".local", "share", "cursor-agent", "versions");
@@ -413,63 +365,107 @@ test(
 
       const row = (name: string) =>
         page.getByRole("row").filter({ has: page.getByRole("rowheader", { name, exact: true }) });
-      const count = (name: string) => row(name).getByRole("button");
+      const count = (name: string) => row(name).getByRole("button", { name: /skills?$/ });
+      const file = (name: string, file: string) =>
+        row(name).getByRole("button", { name: file, exact: true });
+      const focused = (button: ReturnType<typeof count>) =>
+        button.evaluate((element) => element === document.activeElement);
       await count("Codex + Shared skills").waitFor();
       for (const [name, skills] of [
         ["Claude Code", "2 skills"],
         ["Codex + Shared skills", "2 skills"],
         ["Cursor", "1 skill"],
         ["Grok Build", "1 skill"],
-        ["Shared skills", "2 skills"],
+        ["Shared skills ~/.agents/skills", "2 skills"],
       ])
         expect(await count(name).textContent()).toBe(skills);
 
-      // Instruction files show a fingerprint with size and lines; Cursor has none.
+      // Instructions name each harness's files; Cursor and the shared folder have none.
+      await file("Claude Code", "CLAUDE.md").waitFor();
+      await file("Codex + Shared skills", "AGENTS.md").waitFor();
+      await file("Grok Build", "AGENTS.md").waitFor();
+      for (const name of ["Cursor", "Shared skills ~/.agents/skills"])
+        expect(await row(name).getByRole("button").count()).toBe(1);
+      // Fingerprints, sizes, versions, sign-in, MCP servers and agents stay in the CLI and JSON.
       const fingerprint = createHash("sha256").update(instructions.codex).digest("hex");
-      expect(await row("Codex ~/.codex/AGENTS.md").textContent()).toContain(
-        `${fingerprint.slice(0, 8)}${instructions.codex.length} bytes · 4 lines`,
-      );
-      await row("Claude Code ~/.claude/CLAUDE.md").waitFor();
-      await row("Grok Build ~/.grok/AGENTS.md").waitFor();
-      await page.getByText("Cursor has no instruction files.").waitFor();
-      await page.getByText("Shared skills · ~/.agents/skills").waitFor();
-      // Versions, sign-in, sizes, MCP servers and agents stay in the CLI and JSON only.
       const text = (await page.locator(".harnesses-view").textContent())!;
-      for (const dropped of ["Signed in", "Sign-in", "MCP", "0.200.0", "helper", "counting", "MB"])
+      for (const dropped of [
+        fingerprint.slice(0, 8),
+        "bytes",
+        "lines",
+        "fingerprint",
+        "no instruction files",
+        "Signed in",
+        "MCP",
+        "0.200.0",
+        "helper",
+        "MB",
+      ])
         expect(text).not.toContain(dropped);
+      await page.getByRole("columnheader", { name: "Instructions" }).waitFor();
 
-      // Enter and Space open and close the skill names below the row; focus stays on the count.
-      const codex = page.getByRole("region", { name: "Codex skills on This computer" });
+      // A count opens the full-tab reader at the first skill; Escape returns to the count.
       await count("Codex + Shared skills").focus();
       await page.keyboard.press("Enter");
-      await codex.waitFor();
-      expect(await count("Codex + Shared skills").getAttribute("aria-expanded")).toBe("true");
-      expect(
-        await count("Codex + Shared skills").evaluate(
-          (button) => button === document.activeElement,
-        ),
-      ).toBe(true);
-      await codex.getByText("~/.codex/skills", { exact: true }).waitFor();
-      for (const name of ["review", LONG_SKILL])
-        await codex.getByText(name, { exact: true }).waitFor();
+      const codex = page.getByRole("region", { name: "Codex on This computer" });
+      const codexFiles = codex.getByRole("navigation", { name: "Codex files" });
+      await codexFiles.getByRole("button", { name: "AGENTS.md" }).waitFor();
+      await codexFiles.getByRole("button", { name: "review" }).waitFor();
       // Bundled skills are not the person's own.
-      expect(await codex.getByText("imagegen").count()).toBe(0);
-      await page.keyboard.press("Space");
+      expect(await codexFiles.getByText("imagegen").count()).toBe(0);
+      expect(
+        await codexFiles.getByRole("button", { name: LONG_SKILL }).getAttribute("aria-current"),
+      ).toBe("true");
+      // Markdown headings sit below the file title, so # becomes h4.
+      await codex.getByRole("heading", { name: "Long", level: 4 }).click();
+      expect(await page.locator(".harnesses-matrix").count()).toBe(0);
+      // A click in the text keeps focus in the reader, so Escape still goes back.
+      await page.keyboard.press("Escape");
       await codex.waitFor({ state: "detached" });
-      expect(await count("Codex + Shared skills").getAttribute("aria-expanded")).toBe("false");
+      expect(await focused(count("Codex + Shared skills"))).toBe(true);
 
-      // A linked skill carries one link mark after its name; the key names it once.
-      await count("Claude Code").click();
-      const claude = page.getByRole("region", { name: "Claude Code skills on This computer" });
-      await claude.getByText("notes", { exact: true }).waitFor();
-      await claude
-        .getByText("outside", { exact: true })
-        .locator("..")
-        .getByRole("img", { name: "linked" })
-        .waitFor();
-      expect(await claude.getByRole("img", { name: "linked" }).count()).toBe(1);
-      await claude.getByText("↪ Linked", { exact: true }).waitFor();
-      await claude.getByRole("button", { name: "Copy as JSON" }).click();
+      // A file name opens that file rendered as Markdown, with Copy file text beside its title.
+      await file("Claude Code", "CLAUDE.md").click();
+      const claude = page.getByRole("region", { name: "Claude Code on This computer" });
+      const pane = claude.locator(".harnesses-reader-pane");
+      await pane.getByRole("heading", { name: "Claude rules", level: 4 }).waitFor();
+      await pane.getByRole("heading", { name: "CLAUDE.md", level: 3 }).waitFor();
+      await pane.getByText("~/.claude/CLAUDE.md", { exact: true }).waitFor();
+      await pane.getByRole("button", { name: "Copy file text" }).click();
+      await page.getByText("Copied the text of CLAUDE.md.").waitFor();
+      expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+        instructions.claude,
+      );
+
+      // A skill shows its frontmatter name as the title and its description, not raw ---.
+      const claudeFiles = claude.getByRole("navigation", { name: "Claude Code files" });
+      await claudeFiles.getByRole("button", { name: "outside linked" }).click();
+      await claude.getByText("Linked. Scope does not follow it.").waitFor();
+      expect(await claudeFiles.getByRole("img", { name: "linked" }).count()).toBe(1);
+      await claudeFiles.getByRole("button", { name: "notes", exact: true }).click();
+      await pane.getByRole("heading", { name: "Note taking", level: 3 }).waitFor();
+      await pane.getByText("Writes short notes for later.", { exact: true }).waitFor();
+      await pane.getByRole("heading", { name: "Notes", level: 4 }).waitFor();
+      expect(await pane.textContent()).not.toContain("---");
+
+      // A rescan reads the open file again; the old text stays until the new text arrives.
+      await writeFile(
+        join(fixture.home, ".claude", "skills", "notes", "SKILL.md"),
+        "---\nname: Note taking\n---\n\n# Notes\n\nKeep them shorter.\n",
+      );
+      await expectTextKept(pane, "Keep them short", async () => {
+        await page.getByRole("button", { name: "Rescan" }).click();
+        await pane.getByText("Keep them shorter.", { exact: true }).waitFor();
+      });
+      expect(await pane.getByText("Writes short notes for later.").count()).toBe(0);
+      expect(
+        await claudeFiles
+          .getByRole("button", { name: "notes", exact: true })
+          .getAttribute("aria-current"),
+      ).toBe("true");
+
+      // Copy as JSON belongs to the harness in the reader's top bar.
+      await claude.getByRole("button", { name: "Copy Claude Code as JSON" }).click();
       await page.getByText("Copied Claude Code as JSON.").waitFor();
       const latest = JSON.parse(
         (await cli("harnesses", "read", "--machine", "local")).stdout,
@@ -486,6 +482,14 @@ test(
       expect(request.indexOf("irudd-scope harnesses read")).toBeGreaterThan(
         request.indexOf("irudd-scope harnesses guide"),
       );
+      expect(request).toContain("irudd-scope harnesses file");
+      await saveScreenshots(page, "reader");
+
+      // Back returns to the overview and to the file name that opened the reader.
+      await page.setViewportSize({ width: 1366, height: 860 });
+      await claude.getByRole("button", { name: "Back" }).click();
+      await claude.waitFor({ state: "detached" });
+      expect(await focused(file("Claude Code", "CLAUDE.md"))).toBe(true);
 
       // Rescan replaces the scan time.
       const time = page.locator(".harnesses-matrix time");
@@ -497,22 +501,13 @@ test(
       expect(Date.parse((await scanTime(page))!)).toBeGreaterThan(Date.parse(before));
 
       // A narrow window scrolls the matrix inside the tab, not the whole page.
-      // Claude Code's skill names, with a linked skill, stay open from above.
-      await claude.waitFor();
       await page.setViewportSize({ width: 600, height: 860 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
         false,
       );
-      await saveScreenshots(page);
+      await saveScreenshots(page, "overview");
 
-      // Closing the names returns focus to the count that opened them.
-      await claude.getByRole("button", { name: "Close skill names" }).click();
-      await claude.waitFor({ state: "detached" });
-      expect(
-        await count("Claude Code").evaluate((button) => button === document.activeElement),
-      ).toBe(true);
-
-      // A rescan that removes the opened harness closes its panel.
+      // A rescan that removes the harness being read returns to the overview.
       await count("Claude Code").click();
       await claude.waitFor();
       await rm(join(fixture.home, ".claude"), { recursive: true, force: true });

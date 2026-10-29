@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import {
+  HarnessFileRequest,
   HarnessId,
   HarnessMachine,
   type HarnessScan,
@@ -42,3 +43,10 @@ export const HarnessJsonRequest = Schema.Struct({
   harness: Schema.Union([HarnessId, Schema.Literal("shared")]),
 });
 export type HarnessJsonRequest = typeof HarnessJsonRequest.Type;
+
+/** Copies a file's text; `shown` is the fingerprint of the text on screen. */
+export const HarnessFileCopyRequest = Schema.Struct({
+  ...HarnessFileRequest.fields,
+  shown: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+});
+export type HarnessFileCopyRequest = typeof HarnessFileCopyRequest.Type;
