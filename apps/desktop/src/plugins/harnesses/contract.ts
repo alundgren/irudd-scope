@@ -1,5 +1,10 @@
 import { Schema } from "effect";
-import { HarnessId, HarnessMachine, type HarnessesReply } from "@irudd-scope/protocol/harnesses";
+import {
+  HarnessId,
+  HarnessMachine,
+  type HarnessScan,
+  type HarnessesReply,
+} from "@irudd-scope/protocol/harnesses";
 
 export const HarnessesTabState = Schema.Struct({
   version: Schema.Literal(1),
@@ -21,6 +26,16 @@ export type HarnessesState = {
   error: string | null;
   /** Folder sizes are being counted. Pending sizes finish only while this or `scanning` is true. */
   counting: boolean;
+};
+
+/**
+ * One machine column. The first column is this computer; the others are compared with it.
+ * Remote and guest columns add their own name and connection status.
+ */
+export type MachineColumn = {
+  machine: HarnessMachine;
+  label: string;
+  scan: HarnessScan | null;
 };
 
 /** One harness, or the shared skill folder, on one machine. */

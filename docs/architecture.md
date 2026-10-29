@@ -506,10 +506,13 @@ copies the agent request, and `scope:copy-harness-json` copies one harness's or
 the shared folder's report from the latest scan. The service reports each
 started, finished or failed scan and each finished size count, and main sends
 that state as `scope:harnesses-changed`. A failed count leaves the saved
-sizes pending until the next scan, and the tab shows pending sizes as unknown
-while nothing scans or counts. A count replaced by a newer scan cannot report a
+sizes pending until the next scan. A count replaced by a newer scan cannot report a
 failure, and a failed save keeps the new scan shown. The view subscribes before it reads,
-so a tab opened during or after the startup scan shows the current state.
+so a tab opened during or after the startup scan shows the current state. The
+tab shows only skills and instruction files from each scan: `skills.tsx`
+compares own skill names with this computer's column, and `instructions.tsx`
+compares instruction file fingerprints. Other facts stay in the scan, the CLI
+and Copy as JSON.
 
 ## Names and ownership
 
@@ -532,7 +535,7 @@ formats are compatibility contracts.
 | Publishing token | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                   | Desktop discovery file; CLI and optional hub use it.                                                      |
 | Folder tab       | A live tree of one folder on one machine, keyed by machine ID and canonical path.                | `packages/folder` reads files; `plugins/folder` shows them; `folder_tabs` in `scope.db` keeps the key.    |
 | Harness scan     | One machine's coding agent harnesses at one time, without secrets.                               | `packages/harnesses` scans; `packages/protocol/src/harnesses.ts` defines it; `harness_scans` keeps it.    |
-| Harnesses tab    | The built-in matrix of harness scans, one column per machine.                                    | `apps/desktop/src/plugins/harnesses/` shows it; `apps/desktop/src/harnesses.ts` supplies its state.       |
+| Harnesses tab    | The built-in matrix of skills and instruction files, one column per machine.                     | `apps/desktop/src/plugins/harnesses/` shows it; `apps/desktop/src/harnesses.ts` supplies its state.       |
 
 `packages/protocol` owns shared schemas, wire formats, limits, the discovery
 contract, and the HTTP client. It imports no app, filesystem, Electron, or

@@ -299,7 +299,7 @@ test(
       application = await launch();
       const page = await application.firstWindow();
       await openHarnessesTab(page);
-      await page.getByRole("row", { name: /^Cursor Signed in/ }).waitFor();
+      await page.getByRole("row", { name: /^Cursor 1 skill$/ }).waitFor();
       expect(Date.parse((await scanTime(page))!)).toBeGreaterThanOrEqual(Date.parse(before));
       const saved = JSON.parse(
         (await cli("harnesses", "read", "--machine", "local")).stdout,
@@ -390,14 +390,12 @@ async function saveScreenshots(page: Page) {
 }
 
 test(
-  "the Harnesses tab shows this computer's harnesses, their details and copies them",
+  "the Harnesses tab shows this computer's skills and instruction files and copies them",
   { tags: ["harnesses-look-dont-touch"], timeout: 180_000 },
   async () => {
     const fixture = await harnessHome({ cursor: true, brokenClaudeJson: true });
     await mkdir(join(fixture.home, ".codex", "skills", LONG_SKILL));
     await writeFile(join(fixture.home, ".codex", "skills", LONG_SKILL, "SKILL.md"), "# Long\n");
-    // 1,234,567 bytes of sessions put Codex's folder in decimal megabytes.
-    await writeFile(join(fixture.home, ".codex", "sessions", "big.jsonl"), "x".repeat(1_234_567));
     // Without a cursor-agent link, as Cursor's Windows installer leaves it, the newest version
     // folder names the version; the installer's update folders are not versions.
     const versions = join(fixture.home, ".local", "share", "cursor-agent", "versions");
@@ -413,72 +411,64 @@ test(
       await openHarnessesTab(page);
       await page.getByRole("img", { name: "Built-in tab: Harnesses", exact: true }).waitFor();
 
-      const cell = (name: string) =>
-        page
-          .getByRole("row")
-          .filter({ has: page.getByRole("rowheader", { name, exact: true }) })
-          .getByRole("button");
-      const sized = async () => {
-        for (const name of ["Codex", "Claude Code", "Cursor", "Grok Build"])
-          await expect.poll(() => cell(name).textContent()).not.toContain("counting");
-      };
-      await sized();
-      expect(await cell("Codex").textContent()).toMatch(
-        /^Signed in·0\.200\.0.*1\.2 MB · 2 skills \+ shared skills below · 2 MCP · AGENTS\.md$/,
-      );
-      expect(await cell("Claude Code").textContent()).toMatch(
-        /^Sign-in unknown·2\.2\.0.* · 2 skills · 0 MCP · CLAUDE\.md$/,
-      );
-      expect(await cell("Cursor").textContent()).toMatch(
-        /^Signed in·2026\.11\.02-abc1234.* · 1 skill · 2 MCP$/,
-      );
-      expect(await cell("Grok Build").textContent()).toMatch(
-        /^Signed in·1\.2\.3.* · 1 skill · 2 MCP · AGENTS\.md$/,
-      );
-      expect(await cell("Shared skills").textContent()).toBe("2 skills");
+      const row = (name: string) =>
+        page.getByRole("row").filter({ has: page.getByRole("rowheader", { name, exact: true }) });
+      const count = (name: string) => row(name).getByRole("button");
+      await count("Codex + Shared skills").waitFor();
+      for (const [name, skills] of [
+        ["Claude Code", "2 skills"],
+        ["Codex + Shared skills", "2 skills"],
+        ["Cursor", "1 skill"],
+        ["Grok Build", "1 skill"],
+        ["Shared skills", "2 skills"],
+      ])
+        expect(await count(name).textContent()).toBe(skills);
 
-      // Enter and Space open and close the details in the next row; focus stays on the cell.
-      const codex = page.getByRole("region", { name: "Codex on This computer" });
-      await cell("Codex").focus();
+      // Instruction files show a fingerprint with size and lines; Cursor has none.
+      const fingerprint = createHash("sha256").update(instructions.codex).digest("hex");
+      expect(await row("Codex ~/.codex/AGENTS.md").textContent()).toContain(
+        `${fingerprint.slice(0, 8)}${instructions.codex.length} bytes · 4 lines`,
+      );
+      await row("Claude Code ~/.claude/CLAUDE.md").waitFor();
+      await row("Grok Build ~/.grok/AGENTS.md").waitFor();
+      await page.getByText("Cursor has no instruction files.").waitFor();
+      await page.getByText("Shared skills · ~/.agents/skills").waitFor();
+      // Versions, sign-in, sizes, MCP servers and agents stay in the CLI and JSON only.
+      const text = (await page.locator(".harnesses-view").textContent())!;
+      for (const dropped of ["Signed in", "Sign-in", "MCP", "0.200.0", "helper", "counting", "MB"])
+        expect(text).not.toContain(dropped);
+
+      // Enter and Space open and close the skill names below the row; focus stays on the count.
+      const codex = page.getByRole("region", { name: "Codex skills on This computer" });
+      await count("Codex + Shared skills").focus();
       await page.keyboard.press("Enter");
       await codex.waitFor();
-      expect(await cell("Codex").getAttribute("aria-expanded")).toBe("true");
-      expect(await cell("Codex").evaluate((button) => button === document.activeElement)).toBe(
-        true,
-      );
-      const size = await folderSize(join(fixture.home, ".codex"));
-      const fingerprint = createHash("sha256").update(instructions.codex).digest("hex");
-      for (const text of [
-        "Signed in with ChatGPT",
-        `${size.files} files`,
-        "~/.codex/AGENTS.md",
-        `4 lines`,
-        fingerprint.slice(0, 8),
-        "helper",
-        LONG_SKILL,
-        "imagegen",
-        "Own skills · 2",
-      ])
-        await codex.getByText(text, { exact: false }).first().waitFor();
-      await codex.getByText("docs", { exact: true }).locator("..").getByText("stdio").waitFor();
-      await codex
-        .getByText("sessions", { exact: true })
-        .locator("..")
-        .getByText("1.2 MB")
-        .waitFor();
+      expect(await count("Codex + Shared skills").getAttribute("aria-expanded")).toBe("true");
+      expect(
+        await count("Codex + Shared skills").evaluate(
+          (button) => button === document.activeElement,
+        ),
+      ).toBe(true);
+      await codex.getByText("~/.codex/skills", { exact: true }).waitFor();
+      for (const name of ["review", LONG_SKILL])
+        await codex.getByText(name, { exact: true }).waitFor();
+      // Bundled skills are not the person's own.
+      expect(await codex.getByText("imagegen").count()).toBe(0);
       await page.keyboard.press("Space");
       await codex.waitFor({ state: "detached" });
-      expect(await cell("Codex").getAttribute("aria-expanded")).toBe("false");
+      expect(await count("Codex + Shared skills").getAttribute("aria-expanded")).toBe("false");
 
-      await cell("Claude Code").click();
-      const claude = page.getByRole("region", { name: "Claude Code on This computer" });
-      await claude.getByText("~/.claude.json").waitFor();
-      await claude.getByRole("heading", { name: "Own skills · 2 · 1 linked" }).waitFor();
+      // A linked skill carries one link mark after its name; the key names it once.
+      await count("Claude Code").click();
+      const claude = page.getByRole("region", { name: "Claude Code skills on This computer" });
+      await claude.getByText("notes", { exact: true }).waitFor();
       await claude
         .getByText("outside", { exact: true })
         .locator("..")
         .getByRole("img", { name: "linked" })
         .waitFor();
+      expect(await claude.getByRole("img", { name: "linked" }).count()).toBe(1);
+      await claude.getByText("↪ Linked", { exact: true }).waitFor();
       await claude.getByRole("button", { name: "Copy as JSON" }).click();
       await page.getByText("Copied Claude Code as JSON.").waitFor();
       const latest = JSON.parse(
@@ -487,6 +477,7 @@ test(
       expect(
         JSON.parse(await application.evaluate(({ clipboard }) => clipboard.readText())),
       ).toEqual(harness(latest, "claude-code"));
+      expect(harness(latest, "cursor").version).toBe("2026.11.02-abc1234");
 
       await page.getByRole("button", { name: "Copy agent request" }).click();
       await page.getByText("Copied the agent request.").waitFor();
@@ -496,7 +487,7 @@ test(
         request.indexOf("irudd-scope harnesses guide"),
       );
 
-      // Rescan replaces the scan time and the sizes fill in again by themselves.
+      // Rescan replaces the scan time.
       const time = page.locator(".harnesses-matrix time");
       expect(await time.getAttribute("title")).toBeTruthy();
       expect(await time.textContent()).toContain("just now");
@@ -504,16 +495,22 @@ test(
       await page.getByRole("button", { name: "Rescan" }).click();
       await expect.poll(() => scanTime(page)).not.toBe(before);
       expect(Date.parse((await scanTime(page))!)).toBeGreaterThan(Date.parse(before));
-      await sized();
 
       // A narrow window scrolls the matrix inside the tab, not the whole page.
-      // Claude Code's details, with a linked skill, stay open from above.
+      // Claude Code's skill names, with a linked skill, stay open from above.
       await claude.waitFor();
       await page.setViewportSize({ width: 600, height: 860 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
         false,
       );
       await saveScreenshots(page);
+
+      // Closing the names returns focus to the count that opened them.
+      await claude.getByRole("button", { name: "Close skill names" }).click();
+      await claude.waitFor({ state: "detached" });
+      expect(
+        await count("Claude Code").evaluate((button) => button === document.activeElement),
+      ).toBe(true);
     } finally {
       await application.close();
       await rm(fixture.root, { recursive: true, force: true });
