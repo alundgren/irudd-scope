@@ -40,19 +40,13 @@ export function SignIn({ signIn, method = false }: { signIn: HarnessSignIn; meth
   );
 }
 
-function sizeText(report: HarnessReport, countFailed: boolean) {
+function sizeText(report: HarnessReport, counting: boolean) {
   if (!report.size) return null;
   if (report.size.state === "done") return formatSize(report.size.bytes);
-  return countFailed ? "size unknown" : "counting…";
+  return counting ? "counting…" : "size unknown";
 }
 
-export function HarnessCell({
-  report,
-  countFailed,
-}: {
-  report: HarnessReport;
-  countFailed: boolean;
-}) {
+export function HarnessCell({ report, counting }: { report: HarnessReport; counting: boolean }) {
   const own = report.skills.filter((skill) => skill.location === "own").length;
   return (
     <>
@@ -63,7 +57,7 @@ export function HarnessCell({
       </span>
       <span className="harnesses-cell-detail">
         {[
-          sizeText(report, countFailed),
+          sizeText(report, counting),
           count(own, "skill"),
           `${report.mcpServers.length} MCP`,
           ...report.instructions.map((file) => fileName(file.path)),
@@ -124,13 +118,7 @@ function Section({
   );
 }
 
-export function HarnessDetails({
-  report,
-  countFailed,
-}: {
-  report: HarnessReport;
-  countFailed: boolean;
-}) {
+export function HarnessDetails({ report, counting }: { report: HarnessReport; counting: boolean }) {
   const own = report.skills.filter((skill) => skill.location === "own");
   const bundled = report.skills.filter((skill) => skill.location === "bundled");
   const skill = (entry: HarnessReport["skills"][number]) => ({
@@ -172,7 +160,7 @@ export function HarnessDetails({
           </>
         ) : (
           <p className="harnesses-muted">
-            {countFailed ? "Scope could not count this folder. Rescan to retry." : "Counting…"}
+            {counting ? "Counting…" : "Size unknown. Rescan to count it."}
           </p>
         )}
       </Section>

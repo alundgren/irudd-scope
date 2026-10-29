@@ -19,7 +19,6 @@ export class HarnessesService {
   private running: Promise<HarnessScan> | null = null;
   private sizes: { controller: AbortController; done: Promise<void> } | null = null;
   private error: string | null = null;
-  private countFailed = false;
   private readonly closing = new AbortController();
 
   constructor(
@@ -45,7 +44,7 @@ export class HarnessesService {
       reply: this.reply(),
       scanning: this.running !== null,
       error: this.error,
-      countFailed: this.countFailed,
+      counting: this.sizes !== null,
     };
   }
 
@@ -59,7 +58,6 @@ export class HarnessesService {
     if (this.closing.signal.aborted) return Promise.reject(new Error("Scope is closing."));
     if (this.running) return this.running;
     this.error = null;
-    this.countFailed = false;
     this.running = this.run().then(
       (scan) => {
         this.running = null;
@@ -111,10 +109,12 @@ export class HarnessesService {
         })
         .catch(() => {
           if (controller.signal.aborted) return;
-          // The saved scan keeps its pending sizes; the next scan counts again.
           console.error("Scope could not count harness folders.");
+          // A newer scan counts again, so this failure must not mark it.
+          if (this.sizes !== sizes || this.running) return;
+          // The saved scan keeps its pending sizes until the next scan.
+          this.sizes = null;
           this.error = COUNT_FAILED;
-          this.countFailed = true;
           this.changed();
         })
         .finally(() => {

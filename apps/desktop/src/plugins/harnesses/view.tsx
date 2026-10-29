@@ -19,8 +19,8 @@ type MachineColumn = {
   machine: HarnessMachine;
   label: string;
   scan: HarnessScan | null;
-  /** Sizes still pending in `scan` will not finish. */
-  countFailed: boolean;
+  /** A scan or size count is running, so pending sizes in `scan` will still finish. */
+  counting: boolean;
 };
 type Row = HarnessId | "shared";
 const ROWS: readonly Row[] = [...HARNESS_IDS, "shared"];
@@ -90,7 +90,7 @@ function Cell({
       onClick={() => onToggle(expanded ? null : { machine: column.machine, row })}
     >
       {"id" in report ? (
-        <HarnessCell report={report} countFailed={column.countFailed} />
+        <HarnessCell report={report} counting={column.counting} />
       ) : (
         <SharedCell report={report} />
       )}
@@ -126,7 +126,7 @@ function DetailsRow({
             </Button>
           </div>
           {"id" in report ? (
-            <HarnessDetails report={report} countFailed={column.countFailed} />
+            <HarnessDetails report={report} counting={column.counting} />
           ) : (
             <SharedDetails report={report} />
           )}
@@ -221,6 +221,17 @@ function NothingFound({ column }: { column: MachineColumn }) {
   );
 }
 
+function machineColumns(state: HarnessesState | undefined): MachineColumn[] {
+  return [
+    {
+      machine: "local",
+      label: localMachineName(window.scope.platform),
+      scan: state?.reply.machines.find((scan) => scan.machine === "local") ?? null,
+      counting: Boolean(state?.scanning || state?.counting),
+    },
+  ];
+}
+
 const nothingFound = (scan: HarnessScan) =>
   !scan.sharedSkills.found && scan.harnesses.every((report) => !report.found);
 
@@ -244,14 +255,7 @@ export function HarnessesView() {
   const rescan = () =>
     void window.scope.scanHarnesses().catch(() => announce("Could not start a scan. Retry."));
 
-  const columns: MachineColumn[] = [
-    {
-      machine: "local",
-      label: localMachineName(window.scope.platform),
-      scan: state?.reply.machines.find((scan) => scan.machine === "local") ?? null,
-      countFailed: state?.countFailed ?? false,
-    },
-  ];
+  const columns = machineColumns(state);
   const scanned = columns.filter((column) => column.scan);
 
   function body() {
@@ -264,7 +268,7 @@ export function HarnessesView() {
     if (!scanned.length) {
       if (state.error) return null;
       return (
-        <p className="harnesses-empty">
+        <p className="harnesses-empty" role="status">
           {state.scanning ? `Scanning ${columns[0]!.label}…` : "No scan yet. Select Rescan."}
         </p>
       );
