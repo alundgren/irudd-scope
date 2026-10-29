@@ -192,9 +192,10 @@
 .harnesses-panel details[open] > summary {
   margin-bottom: var(--scope-space-1);
 }
-.harnesses-names thead th {
+.harnesses-names thead > tr > * {
   height: 0;
   padding: 0;
+  line-height: 0;
 }
 .harnesses-names th,
 .harnesses-names td {
