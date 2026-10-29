@@ -529,7 +529,7 @@ words carry the meaning without color.
 Selecting a count with the mouse, Enter or Space opens the skill names in a
 panel below the row and keeps focus on the count; selecting it again, or the
 panel's close button, closes it and returns focus to the count. One panel is
-open at a time. The panel heading shows the harness, its skill folder, a "↪
+open at a time. A rescan that removes the opened harness or folder closes its panel. The panel heading shows the harness, its skill folder, a "↪
 Linked" key when a listed skill is a link, and Copy as JSON for that harness on
 that machine. Names that differ between machines come first, one row each with
 a check or Missing per machine; names every machine has fold behind "N matching
@@ -550,7 +550,7 @@ and Copy as JSON keep exact bytes.
 The toolbar has Copy agent request and Rescan. The request asks the person's
 agent to run `irudd-scope harnesses guide` and then `harnesses read`; Scope does
 not run agents. Rescan shows Scanning… while it runs and updates the scan time.
-A failed scan keeps the last scan visible and shows an error with Retry. A scan
+A failed scan keeps the last scan visible and shows an error with Retry. The tab shows no folder sizes, so a failed size count shows no error. A scan
 that cannot be saved is still shown. The first open without a saved scan shows
 Scanning…; a scan that finds nothing names the folders it checked. After a
 restart the saved scan shows at once and is replaced when the startup scan

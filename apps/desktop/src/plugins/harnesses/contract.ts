@@ -24,8 +24,6 @@ export type HarnessesState = {
   scanning: boolean;
   /** A fixed message without file contents or paths, or null after a successful scan. */
   error: string | null;
-  /** Folder sizes are being counted. Pending sizes finish only while this or `scanning` is true. */
-  counting: boolean;
 };
 
 /**

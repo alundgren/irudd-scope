@@ -9,7 +9,7 @@ import { HARNESS_ROWS, LinkMark } from "./skills.tsx";
 
 const UNITS = ["KB", "MB", "GB", "TB"];
 /** Decimal units like a file manager: one decimal below 100, none from 100 up, so 405 MB and 11.6 GB. */
-export function formatSize(size: number) {
+function formatSize(size: number) {
   if (size < 1000) return count(size, "byte");
   for (const [index, unit] of UNITS.entries()) {
     const value = size / 1000 ** (index + 1);
@@ -91,19 +91,18 @@ function FileFacts({
   file: HarnessInstructionFile;
   local?: HarnessInstructionFile;
 }) {
-  if (!file.sha256)
+  if (file.linked)
     return (
       <span className="harnesses-muted">
         <LinkMark /> Linked file
       </span>
     );
-  const different = Boolean(local?.sha256) && local!.sha256 !== file.sha256;
+  const sha256 = file.sha256 ?? "";
+  const different = Boolean(local?.sha256) && local!.sha256 !== sha256;
   return (
     <>
       <span className="harnesses-cell-line">
-        <code className={different ? "harnesses-differs" : undefined}>
-          {file.sha256.slice(0, 8)}
-        </code>
+        <code className={different ? "harnesses-differs" : undefined}>{sha256.slice(0, 8)}</code>
         {different && <span className="harnesses-differs">· Different</span>}
       </span>
       <span className="harnesses-cell-detail">

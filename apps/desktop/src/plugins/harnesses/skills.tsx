@@ -50,13 +50,15 @@ export function unlisted(list: SkillList, row: SkillRow) {
 
 const namesOf = (list: SkillList) =>
   new Set(list.state === "listed" ? list.skills.map((skill) => skill.name) : []);
+/** A listed folder, or a harness or shared folder that is not there and so has no skills. */
+const compared = (list: SkillList) => list.state === "listed" || list.state === "missing";
 
 /**
  * "2 missing", "1 extra", "1 missing · 1 extra" or "Same" by skill folder name, compared with
  * this computer's list. Null when this computer has no list to compare with.
  */
 export function difference(local: SkillList, other: SkillList) {
-  if (local.state !== "listed" && local.state !== "missing") return null;
+  if (!compared(local)) return null;
   const mine = namesOf(local);
   const theirs = namesOf(other);
   const missing = [...mine].filter((name) => !theirs.has(name)).length;
@@ -99,12 +101,14 @@ function NameTable({
   names,
   row,
   lists,
+  machines,
   linked,
   label,
 }: {
   names: string[];
   row: SkillRow;
   lists: SkillList[];
+  machines: string[];
   linked: Set<string>;
   label: string;
 }) {
@@ -137,6 +141,20 @@ function NameTable({
         ))}
         <col />
       </colgroup>
+      {/* The machine headings above the panel label these columns; screen readers get them here. */}
+      <thead>
+        <tr>
+          <th scope="col">
+            <span className="sr-only">Skill</span>
+          </th>
+          {machines.map((machine) => (
+            <th key={machine} scope="col">
+              <span className="sr-only">{machine}</span>
+            </th>
+          ))}
+          <td aria-hidden="true" />
+        </tr>
+      </thead>
       <tbody>
         {names.map((skill) => (
           <tr key={skill}>
@@ -172,6 +190,7 @@ export function SkillNames({
   const lists = columns.map((column) => skillList(column.scan, row));
   const own = skillList(opened.scan, row);
   const listed = lists.filter((list) => list.state === "listed");
+  const comparable = lists.filter(compared);
   const names = [...new Set(listed.flatMap((list) => [...namesOf(list)]))].sort((a, b) =>
     a.localeCompare(b),
   );
@@ -180,14 +199,15 @@ export function SkillNames({
       list.skills.filter((skill) => skill.linked).map((skill) => skill.name),
     ),
   );
-  const shared = (name: string) => listed.every((list) => namesOf(list).has(name));
+  const shared = (name: string) => comparable.every((list) => namesOf(list).has(name));
   const differing = names.filter((name) => !shared(name));
   const matching = names.filter(shared);
+  const machines = columns.map((column) => column.label);
   const title = `${rowName(row)} skills on ${opened.label}`;
   return (
     <div id={id} className="harnesses-panel" role="region" aria-label={title}>
       <div className="harnesses-panel-head">
-        <h3>{rowName(row)}</h3>
+        <h4>{rowName(row)}</h4>
         {own.state === "listed" && <code className="harnesses-muted">{own.folder}</code>}
         <span className="harnesses-muted harnesses-panel-key">
           {[
@@ -208,11 +228,19 @@ export function SkillNames({
       {names.length === 0 ? (
         <p className="harnesses-muted">No skills</p>
       ) : differing.length === 0 ? (
-        <NameTable row={row} names={matching} lists={lists} linked={linked} label="Skill names" />
+        <NameTable
+          row={row}
+          machines={machines}
+          names={matching}
+          lists={lists}
+          linked={linked}
+          label="Skill names"
+        />
       ) : (
         <>
           <NameTable
             row={row}
+            machines={machines}
             names={differing}
             lists={lists}
             linked={linked}
@@ -225,6 +253,7 @@ export function SkillNames({
               </summary>
               <NameTable
                 row={row}
+                machines={machines}
                 names={matching}
                 lists={lists}
                 linked={linked}

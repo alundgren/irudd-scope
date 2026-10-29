@@ -59,6 +59,7 @@
 }
 .harnesses-scroll {
   overflow-x: auto;
+  container-type: inline-size;
 }
 .harnesses-matrix,
 .harnesses-names {
@@ -161,14 +162,19 @@
 .harnesses-panel > details > summary {
   padding: 0 var(--scope-space-3);
 }
+/* With several columns at narrow widths, the heading and its actions stay in the visible area. */
 .harnesses-panel-head {
+  position: sticky;
+  left: 0;
+  max-width: 100cqi;
+  box-sizing: border-box;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--scope-space-2) var(--scope-space-3);
   padding: 0 var(--scope-space-1) 0 var(--scope-space-3);
 }
-.harnesses-panel-head h3 {
+.harnesses-panel-head h4 {
   font-weight: var(--scope-weight-strong);
 }
 .harnesses-panel-key {
@@ -185,6 +191,10 @@
 }
 .harnesses-panel details[open] > summary {
   margin-bottom: var(--scope-space-1);
+}
+.harnesses-names thead th {
+  height: 0;
+  padding: 0;
 }
 .harnesses-names th,
 .harnesses-names td {

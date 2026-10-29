@@ -6,7 +6,6 @@ import type { HarnessScanStore } from "./harness-scans.ts";
 import type { HarnessesState } from "./plugins/harnesses/contract.ts";
 
 const SCAN_FAILED = "Scope could not scan this computer's harnesses.";
-const COUNT_FAILED = "Scope could not count this computer's harness folders.";
 
 /**
  * Scans this computer's harnesses at startup and on request, and keeps the latest scan in
@@ -44,7 +43,6 @@ export class HarnessesService {
       reply: this.reply(),
       scanning: this.running !== null,
       error: this.error,
-      counting: this.sizes !== null,
     };
   }
 
@@ -107,15 +105,10 @@ export class HarnessesService {
           this.changed();
           await this.save(scan);
         })
+        // The saved scan keeps its pending sizes until the next scan. The tab shows no sizes,
+        // so a failed count is only logged.
         .catch(() => {
-          if (controller.signal.aborted) return;
-          console.error("Scope could not count harness folders.");
-          // A newer scan counts again, so this failure must not mark it.
-          if (this.sizes !== sizes || this.running) return;
-          // The saved scan keeps its pending sizes until the next scan.
-          this.sizes = null;
-          this.error = COUNT_FAILED;
-          this.changed();
+          if (!controller.signal.aborted) console.error("Scope could not count harness folders.");
         })
         .finally(() => {
           if (this.sizes === sizes) this.sizes = null;

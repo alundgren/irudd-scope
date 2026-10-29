@@ -511,6 +511,14 @@ test(
       expect(
         await count("Claude Code").evaluate((button) => button === document.activeElement),
       ).toBe(true);
+
+      // A rescan that removes the opened harness closes its panel.
+      await count("Claude Code").click();
+      await claude.waitFor();
+      await rm(join(fixture.home, ".claude"), { recursive: true, force: true });
+      await page.getByRole("button", { name: "Rescan" }).click();
+      await claude.waitFor({ state: "detached" });
+      await row("Claude Code").getByText("Not installed").waitFor();
     } finally {
       await application.close();
       await rm(fixture.root, { recursive: true, force: true });

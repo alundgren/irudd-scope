@@ -115,7 +115,17 @@ function Matrix({
 }) {
   const [open, setOpen] = useState<Open>(null);
   const panel = `${useId()}-skills`;
-  const opened = open && columns.find((column) => column.machine === open.machine);
+  // A rescan can remove the opened harness or folder; its panel then closes.
+  const opened =
+    open &&
+    columns.find(
+      (column) =>
+        column.machine === open.machine && skillList(column.scan, open.row).state === "listed",
+    );
+  const stale = Boolean(open && !opened);
+  useEffect(() => {
+    if (stale) setOpen(null);
+  }, [stale]);
   const span = columns.length + 2;
   const files = instructionRows(columns);
   const footnote = withoutInstructions(columns);
