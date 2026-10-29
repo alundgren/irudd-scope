@@ -1,5 +1,4 @@
 import { expect, test } from "vite-plus/test";
-import type { Page } from "@playwright/test";
 import { createHash, randomUUID } from "node:crypto";
 import { link, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -11,6 +10,7 @@ import {
   type HarnessesReply,
 } from "@irudd-scope/protocol/harnesses";
 import { desktopFixture } from "./desktop-fixture.ts";
+import { expectTextKept, openHarnessesTab, saveScreenshots, scanTime } from "./harnesses-page.ts";
 import {
   expected,
   folderSize,
@@ -34,17 +34,6 @@ async function readUntilSized(cli: (...args: string[]) => Promise<{ stdout: stri
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
 }
-
-async function openHarnessesTab(page: Page) {
-  await page.keyboard.press("ControlOrMeta+k");
-  await page.getByLabel("Search artifacts", { exact: true }).fill("harnesses");
-  await page.getByRole("button", { name: "Harnesses", exact: true }).click();
-  await page.getByRole("tab", { name: "Harnesses", selected: true }).waitFor();
-  // Closing search returns focus to its button.
-  await page.getByRole("dialog").waitFor({ state: "detached" });
-}
-
-const scanTime = (page: Page) => page.locator(".harnesses-matrix time").getAttribute("dateTime");
 
 async function expectReport(
   reply: HarnessesReply,
@@ -348,29 +337,6 @@ test(
 
 const LONG_SKILL = `a-skill-with-a-very-long-name-that-${"keeps-going-".repeat(6)}end`;
 
-/** Saves the tab in both appearances and widths when SCOPE_TEST_SCREENSHOTS names a folder. */
-async function saveScreenshots(page: Page, name: string) {
-  const folder = process.env.SCOPE_TEST_SCREENSHOTS;
-  if (!folder) return;
-  await mkdir(folder, { recursive: true });
-  const settings = page.getByRole("dialog", { name: "Settings", exact: true });
-  for (const appearance of ["light", "dark"] as const) {
-    await page.keyboard.press("ControlOrMeta+,");
-    await settings.getByLabel("Search settings").fill("color scheme");
-    await settings.getByLabel("Appearance", { exact: true }).selectOption(appearance);
-    await expect.poll(() => page.locator("html").getAttribute("data-theme")).toBe(appearance);
-    await page.keyboard.press("Escape");
-    await settings.waitFor({ state: "detached" });
-    for (const [width, size] of [
-      [1366, "laptop"],
-      [600, "narrow"],
-    ] as const) {
-      await page.setViewportSize({ width, height: 860 });
-      await page.screenshot({ path: join(folder, `harnesses-${name}-${appearance}-${size}.png`) });
-    }
-  }
-}
-
 test(
   "the Harnesses tab shows this computer's skills and instruction files and copies them",
   { tags: ["harnesses-look-dont-touch"], timeout: 180_000 },
@@ -378,6 +344,10 @@ test(
     const fixture = await harnessHome({ cursor: true, brokenClaudeJson: true });
     await mkdir(join(fixture.home, ".codex", "skills", LONG_SKILL));
     await writeFile(join(fixture.home, ".codex", "skills", LONG_SKILL, "SKILL.md"), "# Long\n");
+    await writeFile(
+      join(fixture.home, ".claude", "skills", "notes", "SKILL.md"),
+      "---\nname: Note taking\ndescription: >-\n  Writes short notes\n  for later.\n---\n\n# Notes\n\nKeep them short.\n",
+    );
     // Without a cursor-agent link, as Cursor's Windows installer leaves it, the newest version
     // folder names the version; the installer's update folders are not versions.
     const versions = join(fixture.home, ".local", "share", "cursor-agent", "versions");
@@ -395,63 +365,107 @@ test(
 
       const row = (name: string) =>
         page.getByRole("row").filter({ has: page.getByRole("rowheader", { name, exact: true }) });
-      const count = (name: string) => row(name).getByRole("button");
+      const count = (name: string) => row(name).getByRole("button", { name: /skills?$/ });
+      const file = (name: string, file: string) =>
+        row(name).getByRole("button", { name: file, exact: true });
+      const focused = (button: ReturnType<typeof count>) =>
+        button.evaluate((element) => element === document.activeElement);
       await count("Codex + Shared skills").waitFor();
       for (const [name, skills] of [
         ["Claude Code", "2 skills"],
         ["Codex + Shared skills", "2 skills"],
         ["Cursor", "1 skill"],
         ["Grok Build", "1 skill"],
-        ["Shared skills", "2 skills"],
+        ["Shared skills ~/.agents/skills", "2 skills"],
       ])
         expect(await count(name).textContent()).toBe(skills);
 
-      // Instruction files show a fingerprint with size and lines; Cursor has none.
+      // Instructions name each harness's files; Cursor and the shared folder have none.
+      await file("Claude Code", "CLAUDE.md").waitFor();
+      await file("Codex + Shared skills", "AGENTS.md").waitFor();
+      await file("Grok Build", "AGENTS.md").waitFor();
+      for (const name of ["Cursor", "Shared skills ~/.agents/skills"])
+        expect(await row(name).getByRole("button").count()).toBe(1);
+      // Fingerprints, sizes, versions, sign-in, MCP servers and agents stay in the CLI and JSON.
       const fingerprint = createHash("sha256").update(instructions.codex).digest("hex");
-      const agents = row("Codex ~/.codex/AGENTS.md");
-      expect(await agents.getByRole("button").textContent()).toContain(fingerprint.slice(0, 8));
-      expect(await agents.textContent()).toContain(`${instructions.codex.length} bytes · 4 lines`);
-      await row("Claude Code ~/.claude/CLAUDE.md").waitFor();
-      await row("Grok Build ~/.grok/AGENTS.md").waitFor();
-      await page.getByText("Cursor has no instruction files.").waitFor();
-      await page.getByText("Shared skills · ~/.agents/skills").waitFor();
-      // Versions, sign-in, sizes, MCP servers and agents stay in the CLI and JSON only.
       const text = (await page.locator(".harnesses-view").textContent())!;
-      for (const dropped of ["Signed in", "Sign-in", "MCP", "0.200.0", "helper", "counting", "MB"])
+      for (const dropped of [
+        fingerprint.slice(0, 8),
+        "bytes",
+        "lines",
+        "fingerprint",
+        "no instruction files",
+        "Signed in",
+        "MCP",
+        "0.200.0",
+        "helper",
+        "MB",
+      ])
         expect(text).not.toContain(dropped);
+      await page.getByRole("columnheader", { name: "Instructions" }).waitFor();
 
-      // Enter and Space open and close the skill names below the row; focus stays on the count.
-      const codex = page.getByRole("region", { name: "Codex skills on This computer" });
+      // A count opens the full-tab reader at the first skill; Escape returns to the count.
       await count("Codex + Shared skills").focus();
       await page.keyboard.press("Enter");
-      await codex.waitFor();
-      expect(await count("Codex + Shared skills").getAttribute("aria-expanded")).toBe("true");
-      expect(
-        await count("Codex + Shared skills").evaluate(
-          (button) => button === document.activeElement,
-        ),
-      ).toBe(true);
-      await codex.getByText("~/.codex/skills", { exact: true }).waitFor();
-      for (const name of ["review", LONG_SKILL])
-        await codex.getByText(name, { exact: true }).waitFor();
+      const codex = page.getByRole("region", { name: "Codex on This computer" });
+      const codexFiles = codex.getByRole("navigation", { name: "Codex files" });
+      await codexFiles.getByRole("button", { name: "AGENTS.md" }).waitFor();
+      await codexFiles.getByRole("button", { name: "review" }).waitFor();
       // Bundled skills are not the person's own.
-      expect(await codex.getByText("imagegen").count()).toBe(0);
-      await page.keyboard.press("Space");
+      expect(await codexFiles.getByText("imagegen").count()).toBe(0);
+      expect(
+        await codexFiles.getByRole("button", { name: LONG_SKILL }).getAttribute("aria-current"),
+      ).toBe("true");
+      // Markdown headings sit below the file title, so # becomes h4.
+      await codex.getByRole("heading", { name: "Long", level: 4 }).click();
+      expect(await page.locator(".harnesses-matrix").count()).toBe(0);
+      // A click in the text keeps focus in the reader, so Escape still goes back.
+      await page.keyboard.press("Escape");
       await codex.waitFor({ state: "detached" });
-      expect(await count("Codex + Shared skills").getAttribute("aria-expanded")).toBe("false");
+      expect(await focused(count("Codex + Shared skills"))).toBe(true);
 
-      // A linked skill carries one link mark after its name; the key names it once.
-      await count("Claude Code").click();
-      const claude = page.getByRole("region", { name: "Claude Code skills on This computer" });
-      await claude.getByText("notes", { exact: true }).waitFor();
-      await claude
-        .getByText("outside", { exact: true })
-        .locator("..")
-        .getByRole("img", { name: "linked" })
-        .waitFor();
-      expect(await claude.getByRole("img", { name: "linked" }).count()).toBe(1);
-      await claude.getByText("↪ Linked", { exact: true }).waitFor();
-      await claude.getByRole("button", { name: "Copy as JSON" }).click();
+      // A file name opens that file rendered as Markdown, with Copy file text beside its title.
+      await file("Claude Code", "CLAUDE.md").click();
+      const claude = page.getByRole("region", { name: "Claude Code on This computer" });
+      const pane = claude.locator(".harnesses-reader-pane");
+      await pane.getByRole("heading", { name: "Claude rules", level: 4 }).waitFor();
+      await pane.getByRole("heading", { name: "CLAUDE.md", level: 3 }).waitFor();
+      await pane.getByText("~/.claude/CLAUDE.md", { exact: true }).waitFor();
+      await pane.getByRole("button", { name: "Copy file text" }).click();
+      await page.getByText("Copied the text of CLAUDE.md.").waitFor();
+      expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+        instructions.claude,
+      );
+
+      // A skill shows its frontmatter name as the title and its description, not raw ---.
+      const claudeFiles = claude.getByRole("navigation", { name: "Claude Code files" });
+      await claudeFiles.getByRole("button", { name: "outside linked" }).click();
+      await claude.getByText("Linked. Scope does not follow it.").waitFor();
+      expect(await claudeFiles.getByRole("img", { name: "linked" }).count()).toBe(1);
+      await claudeFiles.getByRole("button", { name: "notes", exact: true }).click();
+      await pane.getByRole("heading", { name: "Note taking", level: 3 }).waitFor();
+      await pane.getByText("Writes short notes for later.", { exact: true }).waitFor();
+      await pane.getByRole("heading", { name: "Notes", level: 4 }).waitFor();
+      expect(await pane.textContent()).not.toContain("---");
+
+      // A rescan reads the open file again; the old text stays until the new text arrives.
+      await writeFile(
+        join(fixture.home, ".claude", "skills", "notes", "SKILL.md"),
+        "---\nname: Note taking\n---\n\n# Notes\n\nKeep them shorter.\n",
+      );
+      await expectTextKept(pane, "Keep them short", async () => {
+        await page.getByRole("button", { name: "Rescan" }).click();
+        await pane.getByText("Keep them shorter.", { exact: true }).waitFor();
+      });
+      expect(await pane.getByText("Writes short notes for later.").count()).toBe(0);
+      expect(
+        await claudeFiles
+          .getByRole("button", { name: "notes", exact: true })
+          .getAttribute("aria-current"),
+      ).toBe("true");
+
+      // Copy as JSON belongs to the harness in the reader's top bar.
+      await claude.getByRole("button", { name: "Copy Claude Code as JSON" }).click();
       await page.getByText("Copied Claude Code as JSON.").waitFor();
       const latest = JSON.parse(
         (await cli("harnesses", "read", "--machine", "local")).stdout,
@@ -469,6 +483,13 @@ test(
         request.indexOf("irudd-scope harnesses guide"),
       );
       expect(request).toContain("irudd-scope harnesses file");
+      await saveScreenshots(page, "reader");
+
+      // Back returns to the overview and to the file name that opened the reader.
+      await page.setViewportSize({ width: 1366, height: 860 });
+      await claude.getByRole("button", { name: "Back" }).click();
+      await claude.waitFor({ state: "detached" });
+      expect(await focused(file("Claude Code", "CLAUDE.md"))).toBe(true);
 
       // Rescan replaces the scan time.
       const time = page.locator(".harnesses-matrix time");
@@ -479,58 +500,14 @@ test(
       await expect.poll(() => scanTime(page)).not.toBe(before);
       expect(Date.parse((await scanTime(page))!)).toBeGreaterThan(Date.parse(before));
 
-      // A skill name shows its SKILL.md beside the names; a linked skill is not read.
-      await claude.waitFor();
-      await claude.getByRole("button", { name: "outside linked" }).click();
-      await claude.getByText("Linked. Scope does not follow it.").waitFor();
-      await claude.getByRole("button", { name: "notes", exact: true }).click();
-      const notes = claude.getByRole("region", { name: "Text of notes/SKILL.md" });
-      expect(await notes.textContent()).toBe("1# Notes");
-      expect(
-        await claude
-          .getByRole("button", { name: "notes", exact: true })
-          .getAttribute("aria-current"),
-      ).toBe("true");
-
       // A narrow window scrolls the matrix inside the tab, not the whole page.
       await page.setViewportSize({ width: 600, height: 860 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(
         false,
       );
-      await saveScreenshots(page, "skill-text");
+      await saveScreenshots(page, "overview");
 
-      // Closing the names returns focus to the count that opened them.
-      await claude.getByRole("button", { name: "Close skill names" }).click();
-      await claude.waitFor({ state: "detached" });
-      expect(
-        await count("Claude Code").evaluate((button) => button === document.activeElement),
-      ).toBe(true);
-
-      // The fingerprint opens the file's text below its row, replacing any other open panel.
-      const fingerprintButton = agents.getByRole("button");
-      await fingerprintButton.focus();
-      await page.keyboard.press("Enter");
-      const agentsText = page.getByRole("region", { name: "AGENTS.md on This computer" });
-      await agentsText
-        .getByText(`~/.codex/AGENTS.md · This computer · ${fingerprint.slice(0, 8)}`)
-        .waitFor();
-      expect(
-        await agentsText.getByRole("region", { name: "Text of AGENTS.md" }).textContent(),
-      ).toBe("1# Codex rules23Keep changes small.4Run the tests.");
-      expect(await fingerprintButton.getAttribute("aria-expanded")).toBe("true");
-      await agentsText.getByRole("button", { name: "Copy text" }).click();
-      await page.getByText("Copied the text of AGENTS.md.").waitFor();
-      expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(
-        instructions.codex,
-      );
-      await saveScreenshots(page, "file-text");
-      await agentsText.getByRole("button", { name: "Close text" }).click();
-      await agentsText.waitFor({ state: "detached" });
-      expect(await fingerprintButton.evaluate((button) => button === document.activeElement)).toBe(
-        true,
-      );
-
-      // A rescan that removes the opened harness closes its panel.
+      // A rescan that removes the harness being read returns to the overview.
       await count("Claude Code").click();
       await claude.waitFor();
       await rm(join(fixture.home, ".claude"), { recursive: true, force: true });
