@@ -504,9 +504,13 @@ CLI and the tab. Allowed files are the global instruction files and the
 `~/.agents/skills`, as listed by the latest scan. It refuses before opening a
 file: paths not on that list, which covers auth, config and session files and
 bundled skills; paths with `..`, `~` or backslashes; absolute paths; linked files
-and files below a linked folder. After opening without following a link it
-refuses files over 256 KiB without reading them, and text that is not valid
-UTF-8. `HarnessesService.file` passes the latest scan and home folder to it; the
+and files below a linked folder. It opens without following a last link. Because
+that flag covers only the last name and does not exist on Windows, it then
+checks every folder again and refuses the file unless the opened file has the
+same device and inode as the entry at the path. It refuses a file with more than
+one hard link, because another name for it could be an auth file, and files
+over 256 KiB, all without reading them. Text that is not valid UTF-8 is not
+returned. `HarnessesService.file` passes the latest scan and home folder to it; the
 text goes only to the caller and is never saved or logged.
 
 The built-in Harnesses tab lives in `apps/desktop/src/plugins/harnesses/`. Its

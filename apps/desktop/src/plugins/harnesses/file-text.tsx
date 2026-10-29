@@ -18,17 +18,20 @@ export function formatSize(size: number) {
 export const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Copies an allowed file's text; `name` names it in the confirmation. */
-export type CopyFile = (harness: HarnessFileOwner, path: string, name: string) => void;
+export type CopyFile = (file: HarnessFileReply, name: string) => void;
 
 export type FileText =
   | { state: "loading" }
   | { state: "failed"; message: string }
   | { state: "loaded"; reply: HarnessFileReply };
 
-/** Reads one allowed file through the desktop; a newer request replaces an older answer. */
-export function useHarnessFile(harness: HarnessFileOwner, path: string): FileText {
+/**
+ * Reads one allowed file through the desktop; a newer request replaces an older answer.
+ * `version` changes when a rescan may have found new text, which reads the file again.
+ */
+export function useHarnessFile(harness: HarnessFileOwner, path: string, version: string): FileText {
   const [text, setText] = useState<{ key: string; text: FileText }>();
-  const key = `${harness}\n${path}`;
+  const key = `${harness}\n${path}\n${version}`;
   useEffect(() => {
     let current = true;
     window.scope.harnessFile({ machine: "local", harness, path }).then(
@@ -84,10 +87,19 @@ export function FileBody({ file, label }: { file: FileText; label: string }) {
   return <TextLines text={file.reply.text} label={label} />;
 }
 
-export function CopyText({ file, onCopy }: { file: FileText; onCopy: () => void }) {
+export function CopyText({
+  file,
+  name,
+  onCopy,
+}: {
+  file: FileText;
+  name: string;
+  onCopy: CopyFile;
+}) {
   if (file.state !== "loaded") return null;
+  const { reply } = file;
   return (
-    <Button variant="ghost" size="sm" onClick={onCopy}>
+    <Button variant="ghost" size="sm" onClick={() => onCopy(reply, name)}>
       <Copy aria-hidden="true" />
       Copy text
     </Button>

@@ -68,8 +68,18 @@ const REFUSED: Record<
     403,
     `A folder on the way to ${path} is linked. Scope does not follow links.`,
   ],
+  "not-folder": (path) => [
+    404,
+    `A folder on the way to ${path} is no longer a folder. Rescan and retry.`,
+  ],
   linked: (path) => [403, `${path} is linked. Scope does not follow links.`],
   "not-file": (path) => [403, `${path} is not a regular file.`],
+  unopened: (path) => [403, `Scope could not open ${path}. Check its permissions.`],
+  changed: (path) => [409, `${path} changed while Scope opened it. Retry.`],
+  "hard-linked": (path) => [
+    403,
+    `${path} has more than one name. Scope does not read hard-linked files.`,
+  ],
   "too-large": (path) => [403, `${path} is larger than 256 KiB. Scope does not read it.`],
   "not-text": (path) => [403, `${path} is not UTF-8 text. Scope does not return it.`],
   unreadable: (path) => [403, `Scope could not read ${path}.`],

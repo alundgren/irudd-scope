@@ -560,9 +560,12 @@ and Copy as JSON keep exact bytes.
 File text is read-only and read when its panel opens, with "Reading…" until it
 arrives. It sits in a bordered box at most 300 px tall that scrolls and takes
 keyboard focus, with line numbers that copying leaves out. A file Scope refuses
-or cannot read shows the reason instead, such as a file over 256 KiB or text
-that is not UTF-8. Copy text reads the file again and copies the same allowed
-text. The tab reads only what `irudd-scope harnesses file` allows and has no
+or cannot read shows the reason instead: a linked file or folder, a file with
+more than one hard link, a file over 256 KiB, or text that is not UTF-8. Copy
+text reads the file again and copies the same allowed text; when the file
+changed since it was shown, the confirmation says "The file changed since it
+was shown; copied the current text." A rescan that finds a new fingerprint, or
+any rescan for a `SKILL.md`, reads the open text again. The tab reads only what `irudd-scope harnesses file` allows and has no
 action that opens, edits or reveals a harness folder.
 
 The toolbar has Copy agent request and Rescan. The request asks the person's

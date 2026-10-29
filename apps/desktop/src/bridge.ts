@@ -30,7 +30,11 @@ import type { SketchpadDraft } from "./plugins/sketchpad/contract.ts";
 import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 import type { MemoryStatus } from "@irudd-scope/protocol/memory";
-import type { HarnessJsonRequest, HarnessesState } from "./plugins/harnesses/contract.ts";
+import type {
+  HarnessFileCopyRequest,
+  HarnessJsonRequest,
+  HarnessesState,
+} from "./plugins/harnesses/contract.ts";
 import type { HarnessFileReply, HarnessFileRequest } from "@irudd-scope/protocol/harnesses";
 import type { LibrarianView, LibrarianHumanCommand } from "@irudd-scope/protocol/librarian";
 import type { SketchpadMenuAction, SketchpadMenuState } from "./menu-contract.ts";
@@ -215,7 +219,8 @@ export type ScopeBridge = {
   copyHarnessJson: (request: HarnessJsonRequest) => Promise<void>;
   /** Reads one instruction file or SKILL.md that the latest scan lists. */
   harnessFile: (request: HarnessFileRequest) => Promise<HarnessFileReply>;
-  copyHarnessFile: (request: HarnessFileRequest) => Promise<void>;
+  /** Copies the current text; `changed` is true when it differs from the text shown. */
+  copyHarnessFile: (request: HarnessFileCopyRequest) => Promise<{ changed: boolean }>;
   onHarnessesChange: (listener: (state: HarnessesState) => void) => () => void;
   memory: () => Promise<MemoryStatus>;
   setMemorySyncEnabled: (enabled: boolean) => Promise<MemoryStatus>;

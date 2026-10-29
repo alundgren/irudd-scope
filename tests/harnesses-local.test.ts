@@ -1,7 +1,7 @@
 import { expect, test } from "vite-plus/test";
 import type { Page } from "@playwright/test";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { decodeLocalConnection } from "@irudd-scope/protocol";
 import {
@@ -154,7 +154,16 @@ test(
         join(skills, "latin", "SKILL.md"),
         Buffer.concat([Buffer.from(`${unreturned[1]}\n`), Buffer.from([0xe9, 0xff])]),
       );
+      // A SKILL.md that is another name for auth.json.
+      await mkdir(join(skills, "hard"));
+      await link(join(fixture.home, ".codex", "auth.json"), join(skills, "hard", "SKILL.md"));
       seen.push((await cli("harnesses", "scan")).stdout);
+      // After the scan, a listed skill folder becomes a link and another becomes a file; the
+      // reader checks the disk itself.
+      await rename(join(skills, "review"), join(fixture.root, "review"));
+      await symlink(join(fixture.outside, "linked-skill"), join(skills, "review"));
+      await rm(join(fixture.home, ".grok", "skills", "own-skill"), { recursive: true });
+      await writeFile(join(fixture.home, ".grok", "skills", "own-skill"), "not a folder\n");
       const notRead = "Only global instruction files and own skills' SKILL.md files";
       for (const [reason, ...args] of [
         [notRead, "codex", "auth.json"],
@@ -168,6 +177,13 @@ test(
         ["is linked. Scope does not follow links", "shared", "linked-shared/SKILL.md"],
         ["larger than 256 KiB", "codex", "skills/large/SKILL.md"],
         ["not UTF-8 text", "codex", "skills/latin/SKILL.md"],
+        ["Scope does not read hard-linked files", "codex", "skills/hard/SKILL.md"],
+        [
+          "A folder on the way to ~/.codex/skills/review/SKILL.md is linked",
+          "codex",
+          "skills/review/SKILL.md",
+        ],
+        ["is no longer a folder", "grok", "skills/own-skill/SKILL.md"],
         ["Unknown harness hub", "hub", "AGENTS.md"],
       ] as const) {
         const error = await cli("harnesses", "file", ...args).then(

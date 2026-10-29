@@ -828,8 +828,9 @@ global instruction file or own skill's `SKILL.md` that the latest scan lists.
 relative to that folder (`~/.codex`, `~/.claude`, `~/.cursor`, `~/.grok` or
 `~/.agents/skills`), for example `CLAUDE.md` or `skills/review/SKILL.md`. Paths
 with `..` or `~` and absolute paths answer 400; files the scan does not list,
-links, files over 256 KiB and text that is not UTF-8 answer 403 without
-returning content; a listed file that is gone answers 404, and no scan yet 409.
+links, files with more than one hard link, files over 256 KiB and text that is
+not UTF-8 answer 403 without returning content; a listed file or folder that is
+gone answers 404; no scan yet, or a file replaced while it was opened, answers 409.
 All routes need the publishing token and a running desktop; hubs do not forward
 them and nothing is queued.
 

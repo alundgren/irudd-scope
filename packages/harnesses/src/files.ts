@@ -90,35 +90,70 @@ export async function readSmallFile(
 
 export type TextRead =
   | {
-      kind: "missing" | "linked-folder" | "linked" | "not-file" | "too-large" | "not-text";
+      kind:
+        | "missing"
+        | "linked-folder"
+        | "not-folder"
+        | "linked"
+        | "not-file"
+        | "unopened"
+        | "changed"
+        | "hard-linked"
+        | "too-large"
+        | "not-text"
+        | "unreadable";
     }
-  | { kind: "unreadable" }
   | { kind: "text"; bytes: Buffer; text: string };
 
 /**
- * Reads a regular file below home as UTF-8 text. A linked folder on the way, a linked or
- * other final entry, and a file over `limit` bytes are refused without reading any content.
+ * Reads a regular file below home as UTF-8 text. A linked or missing folder on the way, a
+ * linked, hard-linked or other final entry, and a file over `limit` bytes are refused
+ * without reading any content.
  */
 export async function readTextFile(
   home: string,
   names: readonly string[],
   limit: number,
 ): Promise<TextRead> {
-  const path = await belowHome(home, names);
-  if (!path) return { kind: (await missingFolder(home, names)) ? "missing" : "linked-folder" };
+  const folders = await checkFolders(home, names);
+  if (folders) return { kind: folders };
+  const path = join(home, ...names);
   const info = await lstatOrNull(path);
   if (!info) return { kind: "missing" };
   if (info.isSymbolicLink()) return { kind: "linked" };
   if (!info.isFile()) return { kind: "not-file" };
-  const opened = await openRegular(home, names);
-  if (!opened) return { kind: "not-file" };
+  const handle = await open(path, readFlags).catch(() => null);
+  if (!handle) return { kind: "unopened" };
   try {
-    return opened.size > limit ? { kind: "too-large" } : await readText(opened.handle, limit);
+    return await readOpened(handle, home, names, limit);
   } catch {
     return { kind: "unreadable" };
   } finally {
-    await opened.handle.close().catch(() => {});
+    await handle.close().catch(() => {});
   }
+}
+
+/**
+ * O_NOFOLLOW covers only the last name and is missing on Windows, so after opening, the
+ * folders are checked again and the opened file must be the one at the path.
+ */
+async function readOpened(
+  handle: FileHandle,
+  home: string,
+  names: readonly string[],
+  limit: number,
+): Promise<TextRead> {
+  const opened = await handle.stat({ bigint: true });
+  if (!opened.isFile()) return { kind: "not-file" };
+  const now = (await checkFolders(home, names))
+    ? null
+    : await lstat(join(home, ...names), { bigint: true }).catch(() => null);
+  if (!now?.isFile() || now.dev !== opened.dev || now.ino !== opened.ino)
+    return { kind: "changed" };
+  // Another name for the same file could be anything, for example an auth file.
+  if (opened.nlink > 1n) return { kind: "hard-linked" };
+  if (opened.size > BigInt(limit)) return { kind: "too-large" };
+  return readText(handle, limit);
 }
 
 /** A file can grow after its size was checked, so reading stops one byte past the limit. */
@@ -139,16 +174,20 @@ async function readText(handle: FileHandle, limit: number): Promise<TextRead> {
   }
 }
 
-/** True when a folder on the way is missing; false when one is a link or another entry. */
-async function missingFolder(home: string, names: readonly string[]): Promise<boolean> {
+/** Why a folder between home and the last name cannot be used, or null when all are real. */
+async function checkFolders(
+  home: string,
+  names: readonly string[],
+): Promise<"missing" | "linked-folder" | "not-folder" | null> {
   let path = home;
   for (const name of names.slice(0, -1)) {
     path = join(path, name);
     const info = await lstatOrNull(path);
-    if (!info) return true;
-    if (!info.isDirectory()) return false;
+    if (!info) return "missing";
+    if (info.isSymbolicLink()) return "linked-folder";
+    if (!info.isDirectory()) return "not-folder";
   }
-  return false;
+  return null;
 }
 
 /**

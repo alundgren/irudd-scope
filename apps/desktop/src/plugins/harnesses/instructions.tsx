@@ -166,10 +166,10 @@ export function InstructionText({
   onClose: () => void;
 }) {
   const path = row.path.slice(HARNESS_FILE_FOLDERS[row.harness].length + 1);
-  const file = useHarnessFile(row.harness, path);
+  const scanned = fileOf(column.scan, row)?.sha256 ?? "";
+  const file = useHarnessFile(row.harness, path, scanned);
   const name = row.path.split("/").at(-1)!;
-  const fingerprint =
-    file.state === "loaded" ? file.reply.sha256 : fileOf(column.scan, row)?.sha256;
+  const fingerprint = file.state === "loaded" ? file.reply.sha256 : scanned;
   return (
     <div
       id={id}
@@ -183,7 +183,7 @@ export function InstructionText({
           {[row.path, column.label, fingerprint?.slice(0, 8)].filter(Boolean).join(" · ")}
         </code>
         <span className="harnesses-panel-actions">
-          <CopyText file={file} onCopy={() => onCopy(row.harness, path, name)} />
+          <CopyText file={file} name={name} onCopy={onCopy} />
           <Button variant="ghost" size="icon-sm" aria-label="Close text" onClick={onClose}>
             <X aria-hidden="true" />
           </Button>

@@ -1,6 +1,10 @@
 import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { RefreshCw, Terminal } from "lucide-react";
-import type { HarnessMachine, HarnessScan } from "@irudd-scope/protocol/harnesses";
+import {
+  HARNESS_FILE_FOLDERS,
+  type HarnessMachine,
+  type HarnessScan,
+} from "@irudd-scope/protocol/harnesses";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { localMachineName } from "../../renderer/remote-names.ts";
 import { operationError } from "../../renderer/operation-error.ts";
@@ -361,6 +365,8 @@ function machineColumns(state: HarnessesState | undefined): MachineColumn[] {
   ];
 }
 
+const FILE_CHANGED = "The file changed since it was shown; copied the current text.";
+
 const nothingFound = (scan: HarnessScan) =>
   !scan.sharedSkills.found && scan.harnesses.every((report) => !report.found);
 
@@ -375,9 +381,10 @@ export function HarnessesView() {
     setNotice(text);
     clearNotice.current = setTimeout(() => setNotice(""), 4000);
   }
-  function copy(action: Promise<void>, done: string) {
+  /** `action` can resolve with a message that replaces `done`. */
+  function copy(action: Promise<string | void>, done: string) {
     action.then(
-      () => announce(done),
+      (message) => announce(message ?? done),
       (error: unknown) => announce(operationError(error, "Could not copy. Retry.")),
     );
   }
@@ -413,9 +420,16 @@ export function HarnessesView() {
             `Copied ${rowName(row)} as JSON.`,
           )
         }
-        onCopyText={(harness, path, name) =>
+        onCopyText={({ harness, path, sha256 }, name) =>
           copy(
-            window.scope.copyHarnessFile({ machine: "local", harness, path }),
+            window.scope
+              .copyHarnessFile({
+                machine: "local",
+                harness,
+                path: path.slice(HARNESS_FILE_FOLDERS[harness].length + 1),
+                shown: sha256,
+              })
+              .then(({ changed }) => (changed ? FILE_CHANGED : undefined)),
             `Copied the text of ${name}.`,
           )
         }
