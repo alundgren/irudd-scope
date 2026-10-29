@@ -493,6 +493,16 @@ owns the scan document, the CLI guide and the routes; the CLI reaches them
 through the loopback artifact API with the publishing token. This version reads
 only `--machine local`; hubs do not forward harness routes.
 
+The built-in Harnesses tab lives in `apps/desktop/src/plugins/harnesses/`. Its
+main entry registers named IPC operations on the desktop's `HarnessesService`:
+`scope:harnesses` returns the latest scans with whether a scan runs and a fixed
+error message, `scope:scan-harnesses` starts a scan, `scope:copy-harnesses-request`
+copies the agent request, and `scope:copy-harness-json` copies one harness's or
+the shared folder's report from the latest scan. The service reports each
+started, finished or failed scan and each finished size count, and main sends
+that state as `scope:harnesses-changed`. The view subscribes before it reads,
+so a tab opened during or after the startup scan shows the current state.
+
 ## Names and ownership
 
 Use the same names in code, documentation, diagrams, issues, and reviews.
@@ -514,6 +524,7 @@ formats are compatibility contracts.
 | Publishing token | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                   | Desktop discovery file; CLI and optional hub use it.                                                      |
 | Folder tab       | A live tree of one folder on one machine, keyed by machine ID and canonical path.                | `packages/folder` reads files; `plugins/folder` shows them; `folder_tabs` in `scope.db` keeps the key.    |
 | Harness scan     | One machine's coding agent harnesses at one time, without secrets.                               | `packages/harnesses` scans; `packages/protocol/src/harnesses.ts` defines it; `harness_scans` keeps it.    |
+| Harnesses tab    | The built-in matrix of harness scans, one column per machine.                                    | `apps/desktop/src/plugins/harnesses/` shows it; `apps/desktop/src/harnesses.ts` supplies its state.       |
 
 `packages/protocol` owns shared schemas, wire formats, limits, the discovery
 contract, and the HTTP client. It imports no app, filesystem, Electron, or
@@ -615,7 +626,8 @@ display an unavailable view.
 Each directory under `plugins/` owns one built-in implementation. `file/`
 keeps the existing image, Markdown, HTML, text, and download fallback views
 together. `sketchpad/` owns the built-in Excalidraw editor, its Reset and
-undo window, and its draft contract. A plugin can render
+undo window, and its draft contract. `harnesses/` owns the Harnesses matrix and its
+IPC operations; it keeps no tab data of its own. A plugin can render
 content without referencing a library item. Publication support is an optional
 registration. These are trusted modules in one renderer.
 Published HTML is trusted agent output and runs in an iframe without added restrictions.

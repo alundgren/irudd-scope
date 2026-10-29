@@ -30,6 +30,7 @@ import type { SketchpadDraft } from "./plugins/sketchpad/contract.ts";
 import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 import type { MemoryStatus } from "@irudd-scope/protocol/memory";
+import type { HarnessJsonRequest, HarnessesState } from "./plugins/harnesses/contract.ts";
 import type { LibrarianView, LibrarianHumanCommand } from "@irudd-scope/protocol/librarian";
 import type { SketchpadMenuAction, SketchpadMenuState } from "./menu-contract.ts";
 import type {
@@ -204,6 +205,14 @@ export type ScopeBridge = {
   librarianRead: () => Promise<LibrarianView>;
   librarianHuman: (command: LibrarianHumanCommand) => Promise<LibrarianView>;
   onLibrarianChange: (listener: (state: LibrarianView) => void) => () => void;
+  /** Answers at once; a scan still running is reported as `scanning`. */
+  harnesses: () => Promise<HarnessesState>;
+  /** Starts a scan of this computer; progress and failure arrive through onHarnessesChange. */
+  scanHarnesses: () => Promise<void>;
+  copyHarnessesRequest: () => Promise<void>;
+  /** Copies one harness's, or the shared skill folder's, report from the latest scan. */
+  copyHarnessJson: (request: HarnessJsonRequest) => Promise<void>;
+  onHarnessesChange: (listener: (state: HarnessesState) => void) => () => void;
   memory: () => Promise<MemoryStatus>;
   setMemorySyncEnabled: (enabled: boolean) => Promise<MemoryStatus>;
   chooseMemoryFolder: () => Promise<MemoryStatus>;

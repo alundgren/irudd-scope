@@ -191,6 +191,11 @@ const bridge: ScopeBridge = {
     ipcRenderer.on("scope:librarian-changed", receive);
     return () => ipcRenderer.removeListener("scope:librarian-changed", receive);
   },
+  harnesses: () => ipcRenderer.invoke("scope:harnesses"),
+  scanHarnesses: () => ipcRenderer.invoke("scope:scan-harnesses"),
+  copyHarnessesRequest: () => ipcRenderer.invoke("scope:copy-harnesses-request"),
+  copyHarnessJson: (request) => ipcRenderer.invoke("scope:copy-harness-json", request),
+  onHarnessesChange: (listener) => subscribe("scope:harnesses-changed", listener),
   memory: () => ipcRenderer.invoke("scope:memory"),
   setMemorySyncEnabled: (enabled) => ipcRenderer.invoke("scope:set-memory-sync-enabled", enabled),
   chooseMemoryFolder: () => ipcRenderer.invoke("scope:choose-memory-folder"),
