@@ -468,8 +468,13 @@ reads session or chat contents, and it never returns tokens, keys, MCP
 commands, URLs, headers or environment values, or account emails and names.
 Parse errors are swallowed because their messages quote the file.
 
-Versions come from install link targets read with `readlink`. When no such link
-exists, the scanner runs the binary found on PATH once with `--version` and a
+Versions come from install link targets read with `readlink`. Cursor's Windows
+installer copies its launchers into `%LOCALAPPDATA%\cursor-agent` instead of
+linking them, so without a link Cursor's version is the newest folder name in its
+own install folder, `~/AppData/Local/cursor-agent/versions` on Windows or
+`~/.local/share/cursor-agent/versions` elsewhere. The installer's `.new` and
+`.previous` update folders are skipped and nothing inside a version folder is
+read. When neither names a version, the scanner runs the binary found on PATH once with `--version` and a
 five-second limit. A timeout or quitting Scope stops it: on macOS and Linux
 the binary runs in its own process group, which is stopped with anything it
 started; on Windows only the binary itself is stopped. On Windows only
@@ -493,6 +498,22 @@ owns the scan document, the CLI guide and the routes; the CLI reaches them
 through the loopback artifact API with the publishing token. This version reads
 only `--machine local`; hubs do not forward harness routes.
 
+The built-in Harnesses tab lives in `apps/desktop/src/plugins/harnesses/`. Its
+main entry registers named IPC operations on the desktop's `HarnessesService`:
+`scope:harnesses` returns the latest scans with whether a scan runs and a fixed
+error message, `scope:scan-harnesses` starts a scan, `scope:copy-harnesses-request`
+copies the agent request, and `scope:copy-harness-json` copies one harness's or
+the shared folder's report from the latest scan. The service reports each
+started, finished or failed scan and each finished size count, and main sends
+that state as `scope:harnesses-changed`. A failed count is only logged
+and leaves the saved sizes pending until the next scan, because the tab shows no sizes.
+A failed save keeps the new scan shown. The view subscribes before it reads,
+so a tab opened during or after the startup scan shows the current state. The
+tab shows only skills and instruction files from each scan: `skills.tsx`
+compares own skill names with this computer's column, and `instructions.tsx`
+compares instruction file fingerprints. Other facts stay in the scan, the CLI
+and Copy as JSON.
+
 ## Names and ownership
 
 Use the same names in code, documentation, diagrams, issues, and reviews.
@@ -514,6 +535,7 @@ formats are compatibility contracts.
 | Publishing token | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                   | Desktop discovery file; CLI and optional hub use it.                                                      |
 | Folder tab       | A live tree of one folder on one machine, keyed by machine ID and canonical path.                | `packages/folder` reads files; `plugins/folder` shows them; `folder_tabs` in `scope.db` keeps the key.    |
 | Harness scan     | One machine's coding agent harnesses at one time, without secrets.                               | `packages/harnesses` scans; `packages/protocol/src/harnesses.ts` defines it; `harness_scans` keeps it.    |
+| Harnesses tab    | The built-in matrix of skills and instruction files, one column per machine.                     | `apps/desktop/src/plugins/harnesses/` shows it; `apps/desktop/src/harnesses.ts` supplies its state.       |
 
 `packages/protocol` owns shared schemas, wire formats, limits, the discovery
 contract, and the HTTP client. It imports no app, filesystem, Electron, or
@@ -615,7 +637,8 @@ display an unavailable view.
 Each directory under `plugins/` owns one built-in implementation. `file/`
 keeps the existing image, Markdown, HTML, text, and download fallback views
 together. `sketchpad/` owns the built-in Excalidraw editor, its Reset and
-undo window, and its draft contract. A plugin can render
+undo window, and its draft contract. `harnesses/` owns the Harnesses matrix and its
+IPC operations; it keeps no tab data of its own. A plugin can render
 content without referencing a library item. Publication support is an optional
 registration. These are trusted modules in one renderer.
 Published HTML is trusted agent output and runs in an iframe without added restrictions.

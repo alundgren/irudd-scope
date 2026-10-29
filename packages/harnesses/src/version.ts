@@ -103,7 +103,7 @@ function versionEnvironment(path: string): NodeJS.ProcessEnv {
 }
 
 export type VersionSource = {
-  /** Reads the version from install links, or returns null when none applies. */
+  /** Reads the version from install links or folder names, or returns null when none applies. */
   fromLinks: () => Promise<string | null>;
   binary: string;
   /** Folders searched before PATH for the `--version` fallback. */

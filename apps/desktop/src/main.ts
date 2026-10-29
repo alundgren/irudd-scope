@@ -196,7 +196,9 @@ async function main() {
     if (!window.isDestroyed()) window.webContents.send("scope:librarian-changed", state);
   });
   await librarian.start();
-  harnesses = new HarnessesService(store.harnessScans);
+  harnesses = new HarnessesService(store.harnessScans, (state) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:harnesses-changed", state);
+  });
   await harnesses.start();
   await remotes.start();
   powerMonitor.on("resume", () => {
@@ -233,6 +235,7 @@ async function main() {
     remotes,
     memory,
     librarian,
+    harnesses,
     guests,
     guestCatalogs,
     guestMutations,
