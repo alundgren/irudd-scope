@@ -541,7 +541,8 @@ the shared folder, and `file-text.tsx` reads the chosen file through
 `scope:harness-file` and splits a `SKILL.md`'s YAML frontmatter into its title
 and description. The file renders through the shared `renderer/markdown.tsx`
 component, which the memory plugin also uses: no raw HTML, and links and images
-as plain text. Other facts stay in the scan, the CLI and Copy as JSON.
+as plain text. The reader passes its own heading components so Markdown
+headings start at `h4` below the file's `h3` title. Other facts stay in the scan, the CLI and Copy as JSON.
 
 ## Names and ownership
 

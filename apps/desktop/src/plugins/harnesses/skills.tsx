@@ -8,7 +8,7 @@ export const rowName = (row: SkillRow) => (row === "shared" ? "Shared skills" : 
 export type Skill = { name: string; linked: boolean };
 /** A harness's own skills or the shared folder's skills on one machine. */
 export type SkillList =
-  | { state: "listed"; folder: string; skills: readonly Skill[]; truncated: boolean }
+  | { state: "listed"; skills: readonly Skill[]; truncated: boolean }
   | { state: "missing" | "linked-folder" | "no-scan" };
 
 export function skillList(scan: HarnessScan | null, row: SkillRow): SkillList {
@@ -19,7 +19,6 @@ export function skillList(scan: HarnessScan | null, row: SkillRow): SkillList {
     if (shared.linked) return { state: "linked-folder" };
     return {
       state: "listed",
-      folder: shared.home,
       skills: shared.skills,
       truncated: shared.truncated,
     };
@@ -28,7 +27,6 @@ export function skillList(scan: HarnessScan | null, row: SkillRow): SkillList {
   if (!report?.found) return { state: "missing" };
   return {
     state: "listed",
-    folder: `${report.home}/skills`,
     skills: report.skills.filter((skill) => skill.location === "own"),
     truncated: report.truncated,
   };

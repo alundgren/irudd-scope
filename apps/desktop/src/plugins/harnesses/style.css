@@ -99,14 +99,13 @@
   display: block;
 }
 .harnesses-machine,
-.harnesses-cell-line,
 .harnesses-cell-detail {
   display: block;
 }
 .harnesses-machine {
   font-weight: var(--scope-weight-strong);
 }
-/* A quiet button: no underline or fill until hover, focus or open. */
+/* A quiet button: no underline or fill until hover or focus. */
 .harnesses-cell {
   display: inline-flex;
   align-items: baseline;
@@ -125,10 +124,6 @@
 .harnesses-cell:hover {
   border-color: var(--scope-outline);
 }
-.harnesses-cell[aria-expanded="true"] {
-  border-color: var(--scope-line);
-  background: var(--scope-strip);
-}
 .harnesses-cell:focus-visible {
   outline: var(--scope-focus-width) solid var(--scope-accent);
   outline-offset: var(--scope-focus-offset);
@@ -137,12 +132,6 @@
   color: var(--scope-warning);
   font-size: var(--scope-text-detail);
   line-height: var(--scope-leading-detail);
-}
-.harnesses-cell-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--scope-space-1);
 }
 .harnesses-file-names {
   display: grid;
@@ -237,8 +226,10 @@
 .harnesses-reader-item:hover {
   background: var(--scope-panel);
 }
+/* Tint alone does not mark a choice; a solid accent bar does, like the selected tab. */
 .harnesses-reader-item[aria-current="true"] {
   background: var(--scope-selected);
+  box-shadow: inset 2px 0 var(--scope-accent);
 }
 .harnesses-reader-item:focus-visible {
   outline: var(--scope-focus-width) solid var(--scope-accent);
@@ -248,6 +239,13 @@
   min-width: 0;
   overflow-y: auto;
   padding: var(--scope-space-4) var(--scope-space-6);
+}
+.harnesses-reader-pane:focus-visible {
+  outline: var(--scope-focus-width) solid var(--scope-accent);
+  outline-offset: calc(-1 * var(--scope-focus-width));
+}
+.harnesses-reader-list .harnesses-list-note {
+  padding: 0 var(--scope-space-2);
 }
 .harnesses-file {
   display: grid;
@@ -259,11 +257,14 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--scope-space-2) var(--scope-space-4);
+  min-height: var(--scope-leading-title);
 }
 .harnesses-view .harnesses-file-head h3 {
+  min-width: 0;
   font-size: var(--scope-text-title);
   line-height: var(--scope-leading-title);
   font-weight: var(--scope-weight-strong);
+  overflow-wrap: anywhere;
 }
 .harnesses-file-path {
   display: block;
@@ -287,4 +288,22 @@
   .harnesses-reader-pane {
     padding: var(--scope-space-3);
   }
+}
+/* The reader shifts Markdown headings to h4–h6 below the file title; they keep heading sizes. */
+.harnesses-markdown :is(h4, h5, h6) {
+  margin: var(--scope-space-6) 0 var(--scope-space-3);
+  font-weight: var(--scope-weight-strong);
+}
+.harnesses-markdown h4 {
+  font-size: var(--scope-text-title);
+  line-height: var(--scope-leading-title);
+}
+.harnesses-markdown h5 {
+  font-size: var(--scope-text-reading);
+}
+.harnesses-markdown h6 {
+  font-size: var(--scope-text-ui);
+}
+.harnesses-markdown > :first-child {
+  margin-top: 0;
 }

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 
 /** A short FNV-1a digest used only as a React key. */
 function textKey(text: string) {
@@ -14,7 +14,16 @@ function textKey(text: string) {
  * when the text changes; theme, focus and tab switches re-render the workspace. A changed
  * text remounts the document so inserted blocks do not re-key every sibling.
  */
-export function Markdown({ text, className }: { text: string; className?: string }) {
+export function Markdown({
+  text,
+  className,
+  components,
+}: {
+  text: string;
+  className?: string;
+  /** Extra element overrides; keep the object stable so the text is not parsed again. */
+  components?: Components;
+}) {
   return useMemo(
     () => (
       <article className={className ? `${className} markdown-document` : "markdown-document"}>
@@ -24,12 +33,13 @@ export function Markdown({ text, className }: { text: string; className?: string
           components={{
             a: ({ children }) => <span>{children}</span>,
             img: ({ alt }) => <span>{alt}</span>,
+            ...components,
           }}
         >
           {text}
         </ReactMarkdown>
       </article>
     ),
-    [text, className],
+    [text, className, components],
   );
 }

@@ -50,8 +50,10 @@ export function splitFrontmatter(text: string): Frontmatter {
   const lines = text.split(/\r?\n/);
   const end =
     lines[0] === "---" ? lines.findIndex((line, index) => index > 0 && line === "---") : -1;
-  if (end < 0) return { name: null, description: null, body: text };
-  const header = lines.slice(1, end);
+  const header = lines.slice(1, Math.max(end, 1));
+  // A block without `key:` lines is a Markdown rule pair, not frontmatter.
+  if (end < 0 || !header.some((line) => /^[A-Za-z_][\w-]*:/.test(line)))
+    return { name: null, description: null, body: text };
   return {
     name: frontmatterValue(header, "name"),
     description: frontmatterValue(header, "description"),
@@ -63,7 +65,7 @@ function frontmatterValue(lines: string[], key: string): string | null {
   const index = lines.findIndex((line) => line.startsWith(`${key}:`));
   if (index < 0) return null;
   const value = lines[index]!.slice(key.length + 1).trim();
-  if (value && !/^[>|][+-]?$/.test(value)) return unquote(value) || null;
+  if (value && !/^[>|][0-9]?[+-]?[0-9]?$/.test(value)) return unquote(value) || null;
   // A block value continues on the indented lines that follow.
   const block: string[] = [];
   for (const line of lines.slice(index + 1)) {

@@ -450,8 +450,10 @@ test(
       expect(
         await codexFiles.getByRole("button", { name: LONG_SKILL }).getAttribute("aria-current"),
       ).toBe("true");
-      await codex.getByRole("heading", { name: "Long", level: 1 }).waitFor();
+      // Markdown headings sit below the file title, so # becomes h4.
+      await codex.getByRole("heading", { name: "Long", level: 4 }).click();
       expect(await page.locator(".harnesses-matrix").count()).toBe(0);
+      // A click in the text keeps focus in the reader, so Escape still goes back.
       await page.keyboard.press("Escape");
       await codex.waitFor({ state: "detached" });
       expect(await focused(count("Codex + Shared skills"))).toBe(true);
@@ -460,7 +462,7 @@ test(
       await file("Claude Code", "CLAUDE.md").click();
       const claude = page.getByRole("region", { name: "Claude Code on This computer" });
       const pane = claude.locator(".harnesses-reader-pane");
-      await pane.getByRole("heading", { name: "Claude rules", level: 1 }).waitFor();
+      await pane.getByRole("heading", { name: "Claude rules", level: 4 }).waitFor();
       await pane.getByRole("heading", { name: "CLAUDE.md", level: 3 }).waitFor();
       await pane.getByText("~/.claude/CLAUDE.md", { exact: true }).waitFor();
       await pane.getByRole("button", { name: "Copy file text" }).click();
@@ -477,8 +479,19 @@ test(
       await claudeFiles.getByRole("button", { name: "notes", exact: true }).click();
       await pane.getByRole("heading", { name: "Note taking", level: 3 }).waitFor();
       await pane.getByText("Writes short notes for later.", { exact: true }).waitFor();
-      await pane.getByRole("heading", { name: "Notes", level: 1 }).waitFor();
+      await pane.getByRole("heading", { name: "Notes", level: 4 }).waitFor();
       expect(await pane.textContent()).not.toContain("---");
+
+      // A rescan reads the open file again; the old text stays until the new text arrives.
+      await writeFile(
+        join(fixture.home, ".claude", "skills", "notes", "SKILL.md"),
+        "---\nname: Note taking\n---\n\n# Notes\n\nKeep them shorter.\n",
+      );
+      await page.getByRole("button", { name: "Rescan" }).click();
+      expect(await pane.getByText("Keep them short.", { exact: true }).count()).toBe(1);
+      expect(await pane.getByText("Reading…").count()).toBe(0);
+      await pane.getByText("Keep them shorter.", { exact: true }).waitFor();
+      expect(await pane.getByText("Writes short notes for later.").count()).toBe(0);
       expect(
         await claudeFiles
           .getByRole("button", { name: "notes", exact: true })

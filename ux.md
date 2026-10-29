@@ -540,15 +540,21 @@ harness on that machine: Back, the harness name and machine as a heading, and
 "Copy NAME as JSON" at the far end. Below it, a bordered area holds a narrow
 list on the left and the chosen file on the right. The list shows the
 harness's instruction files under Instructions, then its own skills under
-Skills; Shared skills lists only skills. Bundled skills are not listed. Each
-item is a button, the chosen one is marked like a selected row, and a linked
+Skills; Shared skills lists only skills. Bundled skills are not listed. When
+the scan left skills out, the list ends with "Some skills are left out because
+the list is too long." Each item is a button; the chosen one has the selected
+tint and a solid accent bar on its left edge, like the selected tab. A linked
 item has ↪ after its name with the accessible name linked and a tooltip. Focus
 moves to the chosen item when the reader opens. The right side belongs to the
 file: its title as a heading with Copy file text beside it, its `~` path muted
-under the title, then the file rendered as Markdown below a line. A `SKILL.md`
-title is the `name` from its YAML frontmatter, with `description` as one muted
-line under the path; the frontmatter itself is not shown. Other files use the
-file name as the title. Markdown shows no raw HTML, and links and images appear
+under the title, then the file rendered as Markdown below a line, with the
+file's headings placed below the title in the heading order. A `SKILL.md` title
+is the `name` from its YAML frontmatter, with `description` as one muted line
+under the path; the frontmatter itself is not shown, and a skill with only
+frontmatter shows nothing more. A skill's title appears once its file is read.
+Instruction files use the file name as the title and show all their text. The
+file side is a scroll area that takes keyboard focus, so Escape still goes back
+after a click in the text. Markdown shows no raw HTML, and links and images appear
 as plain text. A linked item shows "Linked. Scope does not follow it." instead
 of text, and Scope never reads its target. Back or Escape returns to the
 overview and puts focus on the button that opened the reader. A rescan that
