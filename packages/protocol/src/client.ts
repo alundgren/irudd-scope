@@ -61,8 +61,11 @@ import {
 } from "./folder.ts";
 import {
   HARNESSES_ROUTES,
+  HarnessFileReply,
+  HarnessFileRequest,
   HarnessesReply,
   HarnessesScanRequest,
+  MAX_HARNESS_FILE_REPLY_BYTES,
   MAX_HARNESSES_REPLY_BYTES,
   type HarnessesTarget,
 } from "./harnesses.ts";
@@ -586,6 +589,18 @@ export class ScopeClient {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(decode(HarnessesScanRequest, { machine })),
       }),
+    );
+  }
+  /** Reads one instruction file or SKILL.md that the latest scan lists. */
+  async harnessFile(request: HarnessFileRequest): Promise<HarnessFileReply> {
+    const { machine, harness, path } = decode(HarnessFileRequest, request);
+    const query = new URLSearchParams({ machine, harness, path });
+    return decode(
+      HarnessFileReply,
+      await readRemoteJson(
+        await this.request(`${HARNESSES_ROUTES.file}?${query.toString()}`),
+        MAX_HARNESS_FILE_REPLY_BYTES,
+      ),
     );
   }
 

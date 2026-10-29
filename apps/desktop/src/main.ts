@@ -103,6 +103,7 @@ async function main() {
     harnesses: {
       read: () => startedHarnesses().read(),
       scan: async () => ({ machines: [await startedHarnesses().scan()] }),
+      file: (request) => startedHarnesses().file(request),
     },
     memory: {
       status: () => startedMemory().read(),

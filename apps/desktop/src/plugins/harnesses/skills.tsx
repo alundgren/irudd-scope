@@ -1,7 +1,16 @@
+import { useState } from "react";
 import { Copy, X } from "lucide-react";
 import { HARNESS_NAMES, type HarnessId, type HarnessScan } from "@irudd-scope/protocol/harnesses";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import type { MachineColumn } from "./contract.ts";
+import {
+  CopyText,
+  FileBody,
+  count,
+  formatSize,
+  useHarnessFile,
+  type CopyFile,
+} from "./file-text.tsx";
 
 export type SkillRow = HarnessId | "shared";
 export const HARNESS_ROWS: readonly HarnessId[] = ["claude-code", "codex", "cursor", "grok"];
@@ -123,15 +132,6 @@ function NameTable({
       )}
     </>
   );
-  // With one machine nothing can differ, so the names wrap in columns without presence marks.
-  if (lists.length === 1)
-    return (
-      <ul className="harnesses-name-list" aria-label={label}>
-        {names.map((skill) => (
-          <li key={skill}>{name(skill)}</li>
-        ))}
-      </ul>
-    );
   return (
     <table className="harnesses-names" aria-label={label}>
       <colgroup>
@@ -178,6 +178,7 @@ export function SkillNames({
   opened,
   id,
   onCopy,
+  onCopyText,
   onClose,
 }: {
   row: SkillRow;
@@ -185,12 +186,12 @@ export function SkillNames({
   opened: MachineColumn;
   id: string;
   onCopy: () => void;
+  onCopyText: CopyFile;
   onClose: () => void;
 }) {
   const lists = columns.map((column) => skillList(column.scan, row));
   const own = skillList(opened.scan, row);
   const listed = lists.filter((list) => list.state === "listed");
-  const comparable = lists.filter(compared);
   const names = [...new Set(listed.flatMap((list) => [...namesOf(list)]))].sort((a, b) =>
     a.localeCompare(b),
   );
@@ -199,10 +200,6 @@ export function SkillNames({
       list.skills.filter((skill) => skill.linked).map((skill) => skill.name),
     ),
   );
-  const shared = (name: string) => comparable.every((list) => namesOf(list).has(name));
-  const differing = names.filter((name) => !shared(name));
-  const matching = names.filter(shared);
-  const machines = columns.map((column) => column.label);
   const title = `${rowName(row)} skills on ${opened.label}`;
   return (
     <div id={id} className="harnesses-panel" role="region" aria-label={title}>
@@ -227,45 +224,166 @@ export function SkillNames({
       </div>
       {names.length === 0 ? (
         <p className="harnesses-muted">No skills</p>
-      ) : differing.length === 0 ? (
-        <NameTable
+      ) : opened.machine === "local" && own.state === "listed" ? (
+        // This computer's names open their SKILL.md; other machines' files cannot be read yet.
+        <SkillReader
           row={row}
-          machines={machines}
-          names={matching}
-          lists={lists}
-          linked={linked}
-          label="Skill names"
+          skills={own.skills}
+          version={opened.scan?.scannedAt ?? ""}
+          onCopyText={onCopyText}
         />
       ) : (
-        <>
-          <NameTable
-            row={row}
-            machines={machines}
-            names={differing}
-            lists={lists}
-            linked={linked}
-            label="Skills that differ"
-          />
-          {matching.length > 0 && (
-            <details>
-              <summary>
-                {matching.length} matching {matching.length === 1 ? "skill" : "skills"}
-              </summary>
-              <NameTable
-                row={row}
-                machines={machines}
-                names={matching}
-                lists={lists}
-                linked={linked}
-                label="Matching skills"
-              />
-            </details>
-          )}
-        </>
+        <ComparedNames row={row} columns={columns} lists={lists} names={names} linked={linked} />
       )}
       {listed.some((list) => list.truncated) && (
         <p className="harnesses-muted">Some skills are left out because the list is too long.</p>
       )}
     </div>
+  );
+}
+
+/** Names that differ first, one row each; names every machine has fold behind a disclosure. */
+function ComparedNames({
+  row,
+  columns,
+  lists,
+  names,
+  linked,
+}: {
+  row: SkillRow;
+  columns: MachineColumn[];
+  lists: SkillList[];
+  names: string[];
+  linked: Set<string>;
+}) {
+  const comparable = lists.filter(compared);
+  const shared = (name: string) => comparable.every((list) => namesOf(list).has(name));
+  const differing = names.filter((name) => !shared(name));
+  const matching = names.filter(shared);
+  const machines = columns.map((column) => column.label);
+  if (differing.length === 0)
+    return (
+      <NameTable
+        row={row}
+        machines={machines}
+        names={matching}
+        lists={lists}
+        linked={linked}
+        label="Skill names"
+      />
+    );
+  return (
+    <>
+      <NameTable
+        row={row}
+        machines={machines}
+        names={differing}
+        lists={lists}
+        linked={linked}
+        label="Skills that differ"
+      />
+      {matching.length > 0 && (
+        <details>
+          <summary>
+            {matching.length} matching {matching.length === 1 ? "skill" : "skills"}
+          </summary>
+          <NameTable
+            row={row}
+            machines={machines}
+            names={matching}
+            lists={lists}
+            linked={linked}
+            label="Matching skills"
+          />
+        </details>
+      )}
+    </>
+  );
+}
+
+/** Skill names as buttons; the selected skill's SKILL.md shows beside them. */
+function SkillReader({
+  row,
+  skills,
+  version,
+  onCopyText,
+}: {
+  row: SkillRow;
+  skills: readonly Skill[];
+  /** The scan time; a rescan reads the selected SKILL.md again. */
+  version: string;
+  onCopyText: CopyFile;
+}) {
+  const names = skills.map((skill) => skill.name).sort((a, b) => a.localeCompare(b));
+  const linked = new Set(skills.filter((skill) => skill.linked).map((skill) => skill.name));
+  const [selected, setSelected] = useState<string | null>(null);
+  // A rescan can remove the selected skill.
+  const current = selected !== null && names.includes(selected) ? selected : null;
+  return (
+    <div className="harnesses-skill-reader">
+      <ul className="harnesses-skill-names" aria-label="Skill names">
+        {names.map((skill) => (
+          <li key={skill}>
+            <button
+              type="button"
+              className="harnesses-skill-name"
+              aria-current={skill === current ? "true" : undefined}
+              onClick={() => setSelected(skill)}
+            >
+              <code>{skill}</code>
+              {linked.has(skill) && (
+                <>
+                  {" "}
+                  <LinkMark />
+                </>
+              )}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="harnesses-skill-text">
+        {current === null ? (
+          <p className="harnesses-muted">Select a skill to read its SKILL.md.</p>
+        ) : linked.has(current) ? (
+          <p className="harnesses-muted">
+            <code>{current}</code> Linked. Scope does not follow it.
+          </p>
+        ) : (
+          <SkillText key={current} row={row} name={current} version={version} onCopy={onCopyText} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SkillText({
+  row,
+  name,
+  version,
+  onCopy,
+}: {
+  row: SkillRow;
+  name: string;
+  version: string;
+  onCopy: CopyFile;
+}) {
+  const path = row === "shared" ? `${name}/SKILL.md` : `skills/${name}/SKILL.md`;
+  const file = useHarnessFile(row, path, version);
+  const label = `${name}/SKILL.md`;
+  return (
+    <>
+      <div className="harnesses-text-head">
+        <code>{label}</code>
+        {file.state === "loaded" && (
+          <span className="harnesses-muted">
+            {formatSize(file.reply.bytes)} · {count(file.reply.lines, "line")}
+          </span>
+        )}
+        <span className="harnesses-panel-actions">
+          <CopyText file={file} name={label} onCopy={onCopy} />
+        </span>
+      </div>
+      <FileBody file={file} label={`Text of ${label}`} />
+    </>
   );
 }

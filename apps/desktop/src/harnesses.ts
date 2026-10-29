@@ -1,7 +1,13 @@
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
-import { scanMachine } from "@irudd-scope/harnesses";
-import type { HarnessMachine, HarnessScan, HarnessesReply } from "@irudd-scope/protocol/harnesses";
+import { readHarnessFile, scanMachine } from "@irudd-scope/harnesses";
+import type {
+  HarnessFileReply,
+  HarnessFileRequest,
+  HarnessMachine,
+  HarnessScan,
+  HarnessesReply,
+} from "@irudd-scope/protocol/harnesses";
 import type { HarnessScanStore } from "./harness-scans.ts";
 import type { HarnessesState } from "./plugins/harnesses/contract.ts";
 
@@ -49,6 +55,20 @@ export class HarnessesService {
   /** The latest scan of one machine. This desktop scans only its own computer. */
   latestScan(machine: HarnessMachine): HarnessScan | null {
     return machine === "local" ? this.latest : null;
+  }
+
+  /**
+   * Reads one instruction file or SKILL.md that the latest scan lists. The text is returned
+   * only to the caller; it is never saved or logged.
+   */
+  async file(request: HarnessFileRequest): Promise<HarnessFileReply> {
+    if (!this.latest && this.running) await this.running.catch(() => {});
+    return readHarnessFile({
+      home: this.home,
+      scan: this.latestScan(request.machine),
+      harness: request.harness,
+      path: request.path,
+    });
   }
 
   /** Concurrent requests share one scan. A new scan replaces a size count still running. */

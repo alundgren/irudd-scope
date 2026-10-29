@@ -498,20 +498,44 @@ owns the scan document, the CLI guide and the routes; the CLI reaches them
 through the loopback artifact API with the publishing token. This version reads
 only `--machine local`; hubs do not forward harness routes.
 
+`packages/harnesses/src/file.ts` reads the text of one allowed file for both the
+CLI and the tab. Allowed files are the global instruction files and the
+`SKILL.md` inside each own, non-linked skill folder, including the shared
+`~/.agents/skills`, as listed by the latest scan. It refuses before opening a
+file: paths not on that list, which covers auth, config and session files and
+bundled skills; paths with `..`, `~` or backslashes; absolute paths; linked files
+and files below a linked folder. It opens without following a last link. That
+flag covers only the last name and does not exist on Windows, so a folder swapped
+for a link while the file opens would be followed. After opening, it walks the
+folders again, checks that the file at the path has the opened file's device
+and inode, and walks the folders once more. It refuses the read when any folder
+or the file is not the one it saw before opening. This makes a swap during the
+read much harder but does not rule it out: code already running as the person
+that swaps a folder back and forth at the right moments can still get a file
+with an allowed name, such as `SKILL.md`, `AGENTS.md` or `CLAUDE.md`, read from
+outside the harness folder. It refuses a file with more than
+one hard link, because another name for it could be an auth file, and files
+over 256 KiB, all without reading them. Text that is not valid UTF-8 is not
+returned. `HarnessesService.file` passes the latest scan and home folder to it; the
+text goes only to the caller and is never saved or logged.
+
 The built-in Harnesses tab lives in `apps/desktop/src/plugins/harnesses/`. Its
 main entry registers named IPC operations on the desktop's `HarnessesService`:
 `scope:harnesses` returns the latest scans with whether a scan runs and a fixed
 error message, `scope:scan-harnesses` starts a scan, `scope:copy-harnesses-request`
-copies the agent request, and `scope:copy-harness-json` copies one harness's or
-the shared folder's report from the latest scan. The service reports each
+copies the agent request, `scope:copy-harness-json` copies one harness's or
+the shared folder's report from the latest scan, `scope:harness-file` returns
+one allowed file's text, and `scope:copy-harness-file` reads it again and copies
+it. The service reports each
 started, finished or failed scan and each finished size count, and main sends
 that state as `scope:harnesses-changed`. A failed count is only logged
 and leaves the saved sizes pending until the next scan, because the tab shows no sizes.
 A failed save keeps the new scan shown. The view subscribes before it reads,
 so a tab opened during or after the startup scan shows the current state. The
 tab shows only skills and instruction files from each scan: `skills.tsx`
-compares own skill names with this computer's column, and `instructions.tsx`
-compares instruction file fingerprints. Other facts stay in the scan, the CLI
+compares own skill names with this computer's column and shows a selected
+skill's `SKILL.md`, `instructions.tsx` compares instruction file fingerprints
+and shows a file's text, and `file-text.tsx` reads and draws that text. Other facts stay in the scan, the CLI
 and Copy as JSON.
 
 ## Names and ownership

@@ -177,8 +177,17 @@
 .harnesses-panel-head h4 {
   font-weight: var(--scope-weight-strong);
 }
-.harnesses-panel-key {
+.harnesses-panel-key,
+.harnesses-panel-actions {
   margin-left: auto;
+}
+.harnesses-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--scope-space-1);
+}
+.harnesses-panel-body {
+  padding: 0 var(--scope-space-3);
 }
 .harnesses-panel summary {
   color: var(--scope-muted);
@@ -206,16 +215,88 @@
   font-size: var(--scope-text-detail);
   line-height: var(--scope-leading-detail);
 }
-.harnesses-name-list {
-  columns: 16rem;
-  column-gap: var(--scope-space-6);
-  margin: 0;
+/* Names on the left and the selected SKILL.md on the right; a narrow tab stacks them. */
+.harnesses-skill-reader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--scope-space-3) var(--scope-space-4);
   padding: 0 var(--scope-space-3);
+}
+.harnesses-skill-names {
+  flex: 0 1 15rem;
+  min-width: 0;
+  max-height: 30rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
   list-style: none;
 }
-.harnesses-name-list li {
-  break-inside: avoid;
+.harnesses-skill-name {
+  display: block;
+  width: 100%;
+  padding: 2px var(--scope-space-2);
+  border: 0;
+  border-radius: var(--scope-radius-control);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--scope-text-detail);
   line-height: var(--scope-leading-detail);
+  text-align: left;
+  cursor: pointer;
+}
+.harnesses-skill-name:hover {
+  background: var(--scope-panel);
+}
+.harnesses-skill-name[aria-current="true"] {
+  background: var(--scope-selected);
+}
+.harnesses-skill-name:focus-visible {
+  outline: var(--scope-focus-width) solid var(--scope-accent);
+  outline-offset: calc(-1 * var(--scope-focus-width));
+}
+.harnesses-skill-text {
+  display: grid;
+  gap: var(--scope-space-2);
+  flex: 1 1 20rem;
+  min-width: 0;
+}
+.harnesses-text-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--scope-space-2) var(--scope-space-3);
+  min-height: 1.75rem;
+}
+/* File text with line numbers that are not selected when copying. */
+.harnesses-text {
+  max-height: 300px;
+  overflow: auto;
+  padding: var(--scope-space-2) 0;
+  border: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-control);
+  background: var(--scope-canvas);
+  font-family: var(--scope-font-mono);
+  font-size: var(--scope-text-detail);
+  line-height: var(--scope-leading-detail);
+}
+.harnesses-text:focus-visible {
+  outline: var(--scope-focus-width) solid var(--scope-accent);
+  outline-offset: var(--scope-focus-offset);
+}
+.harnesses-text-line {
+  display: grid;
+  grid-template-columns: calc(var(--harnesses-digits) * 1ch + 2 * var(--scope-space-3)) 1fr;
+  padding-right: var(--scope-space-3);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.harnesses-line-number {
+  padding-right: var(--scope-space-3);
+  color: var(--scope-muted);
+  text-align: right;
+  user-select: none;
 }
 .harnesses-footer {
   display: flex;
