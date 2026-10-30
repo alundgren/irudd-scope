@@ -600,7 +600,10 @@
   font-size: 24px;
 }
 .sessions-page section {
-  margin-top: 28px;
+  margin-top: 20px;
+}
+.sessions-sections {
+  margin-top: 20px;
 }
 .sessions-page h3 {
   margin: 0 0 10px;
