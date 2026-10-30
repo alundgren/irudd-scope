@@ -102,6 +102,11 @@ export const promises = [
     description:
       "Harnesses reports agent tools on each machine without changing them or revealing secrets, and guests share them only after opting in.",
   },
+  {
+    name: "sessions-look-dont-touch",
+    description:
+      "Agent sessions shows this computer's T3 threads, tool calls and their causes without changing any session data.",
+  },
 ] as const;
 
 export type PromiseName = (typeof promises)[number]["name"];

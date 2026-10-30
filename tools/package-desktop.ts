@@ -66,7 +66,13 @@ try {
     }),
   );
   await mkdir(join(source, "dist"));
-  for (const entry of ["main.mjs", "preload.cjs", "folder-writer.mjs", "renderer"])
+  for (const entry of [
+    "main.mjs",
+    "preload.cjs",
+    "folder-writer.mjs",
+    "sessions-reader.mjs",
+    "renderer",
+  ])
     await cp(join(desktop, "dist", entry), join(source, "dist", entry), { recursive: true });
   await cp(join(desktop, "resources"), join(source, "resources"), { recursive: true });
   await cp(join(root, "packages/cli/dist"), join(source, "cli"), { recursive: true });

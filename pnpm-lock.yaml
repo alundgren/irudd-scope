@@ -322,6 +322,9 @@ importers:
       '@irudd-scope/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@irudd-scope/sessions':
+        specifier: workspace:*
+        version: link:../../packages/sessions
       '@irudd-scope/sqlite':
         specifier: workspace:*
         version: link:../../packages/sqlite
@@ -446,6 +449,8 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.117
+
+  packages/sessions: {}
 
   packages/sqlite:
     dependencies:

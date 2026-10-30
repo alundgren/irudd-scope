@@ -198,6 +198,7 @@ const bridge: ScopeBridge = {
   harnessFile: (request) => ipcRenderer.invoke("scope:harness-file", request),
   copyHarnessFile: (request) => ipcRenderer.invoke("scope:copy-harness-file", request),
   onHarnessesChange: (listener) => subscribe("scope:harnesses-changed", listener),
+  readSessions: (request) => ipcRenderer.invoke("scope:sessions-read", request),
   memory: () => ipcRenderer.invoke("scope:memory"),
   setMemorySyncEnabled: (enabled) => ipcRenderer.invoke("scope:set-memory-sync-enabled", enabled),
   chooseMemoryFolder: () => ipcRenderer.invoke("scope:choose-memory-folder"),
