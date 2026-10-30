@@ -57,7 +57,7 @@ export function* allCalls({ threads, logs }) {
       source: l.source,
     };
     for (const it of l.toolCalls || [])
-      yield { t, it, model: [].concat(l.models || [])[0], harness: l.harness };
+      yield { t, it, model: Object.keys(l.models || {})[0], harness: l.harness };
   }
 }
 
