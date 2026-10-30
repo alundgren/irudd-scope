@@ -604,8 +604,10 @@ it. Reading shows "Reading T3 Code history on this computer…"; a later read
 keeps the current data and shows Reading… beside the button. A failed read
 shows its reason with Retry.
 
-Threads lists top-level threads, newest first, in one card. Each row shows the
-title with its project and child thread count, model chips, when it started,
+Threads lists top-level threads in one card, most recently active first: the
+latest message, reply or tool call in the thread or any thread below it. Each
+row shows the title with its project and child thread count, model chips, that
+last activity as a weekday and 24-hour time,
 Took (first request to last reply), Agent time (time agents worked, added up),
 a token bar split into uncached input, cache read, the two cache writes and
 output, list-price cost, tool calls and failed calls. Every number covers the
