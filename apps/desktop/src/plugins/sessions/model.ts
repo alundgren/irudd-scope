@@ -16,10 +16,6 @@ export type ThreadNode = SessionThread & {
   end: number | null;
   /** Sum of this thread's message durations. */
   agentMs: number;
-  /** The latest request, reply or tool call in this thread. */
-  lastActive: number | null;
-  /** The same, over this thread and every thread below it. */
-  treeLastActive: number | null;
 };
 
 /** Totals over a thread and every thread below it. */
@@ -41,11 +37,6 @@ export type SessionsModel = {
   projects: string[];
 };
 
-const latest = (times: Array<number | null>) => {
-  const known = times.filter((at) => at !== null);
-  return known.length ? Math.max(...known) : null;
-};
-
 const time = (value: string | null) => {
   const parsed = value ? Date.parse(value) : Number.NaN;
   return Number.isNaN(parsed) ? null : parsed;
@@ -63,31 +54,16 @@ export function buildModel(reply: SessionsReply): SessionsModel {
       start: starts.length ? Math.min(...starts) : time(thread.createdAt),
       end: ends.length ? Math.max(...ends) : null,
       agentMs: thread.messages.reduce((sum, m) => sum + (m.durationMs ?? 0), 0),
-      lastActive: latest([
-        time(thread.createdAt),
-        ...thread.messages.flatMap((m) => [time(m.requestedAt), time(m.completedAt)]),
-      ]),
-      treeLastActive: null,
     });
   }
-  for (const call of reply.calls) {
-    const node = byId.get(call.threadId);
-    if (!node) continue;
-    node.calls.push(call);
-    node.lastActive = latest([node.lastActive, time(call.startedAt)]);
-  }
+  for (const call of reply.calls) byId.get(call.threadId)?.calls.push(call);
   const roots: ThreadNode[] = [];
   for (const node of byId.values()) {
     const parent = node.parentId ? byId.get(node.parentId) : undefined;
     if (parent) parent.children.push(node);
     else roots.push(node);
   }
-  // A thread is as recent as its most recent child.
-  const spread = (node: ThreadNode): number | null =>
-    (node.treeLastActive = latest([node.lastActive, ...node.children.map(spread)]));
-  roots.forEach(spread);
-  const newest = (a: ThreadNode, b: ThreadNode) =>
-    (b.treeLastActive ?? 0) - (a.treeLastActive ?? 0);
+  const newest = (a: ThreadNode, b: ThreadNode) => (b.start ?? 0) - (a.start ?? 0);
   const oldest = (a: ThreadNode, b: ThreadNode) => (a.start ?? 0) - (b.start ?? 0);
   roots.sort(newest);
   for (const node of byId.values()) node.children.sort(oldest);
