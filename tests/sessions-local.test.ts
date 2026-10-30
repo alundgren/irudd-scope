@@ -24,10 +24,10 @@ test(
       const open = (title: string) => view.getByRole("button", { name: new RegExp(`^${title}`) });
       await open("Build the slice").waitFor();
       await open("Fix the site check").waitFor();
-      // The most recently active thread comes first, even though the site thread started later.
+      // The newest thread comes first, even though the build thread was active more recently.
       expect(await view.locator(".sessions-threads .sessions-title").allTextContents()).toEqual([
-        "Build the slice",
         "Fix the site check",
+        "Build the slice",
       ]);
       expect(await open("Ancient thread").count()).toBe(0);
       expect(await open("Review the slice").count()).toBe(0);

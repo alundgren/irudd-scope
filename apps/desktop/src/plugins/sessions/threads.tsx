@@ -80,7 +80,6 @@ export function ThreadTable({
     const open = expanded.has(node.id);
     const isOwn = node === own;
     const sum: TreeTotals = isOwn ? ownTotals(node) : totals(node);
-    const lastActive = isOwn ? node.lastActive : node.treeLastActive;
     return (
       <Fragment key={node.id}>
         <tr
@@ -122,7 +121,7 @@ export function ThreadTable({
               </span>
             ))}
           </td>
-          <td className="sessions-muted sessions-nowrap">{when(lastActive)}</td>
+          <td className="sessions-muted sessions-nowrap">{when(sum.start)}</td>
           <td className="num">
             {sum.start !== null && sum.end !== null ? duration(sum.end - sum.start) : "–"}
           </td>
@@ -148,9 +147,7 @@ export function ThreadTable({
             <th />
             <th>Thread</th>
             <th>Models</th>
-            <th title="The latest message, reply or tool call in the thread or its child threads">
-              Last active
-            </th>
+            <th>Started</th>
             <th className="num" title="From the first request to the last reply">
               Took
             </th>
