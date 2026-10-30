@@ -9,22 +9,23 @@ in the affected area and expand to callers and contracts as needed. Add local
 instructions only when an area has distinct ownership or rules, and write
 only what differs from its parents.
 
-| Area                          | Responsibility                                                       |
-| ----------------------------- | -------------------------------------------------------------------- |
-| `apps/desktop/src/library/`   | Artifact HTTP API, discovery, and SQLite tab content storage.        |
-| `apps/desktop/src/plugins/`   | Built-in tab views, state contracts, and main-process handlers.      |
-| `apps/desktop/src/workspace/` | Tab lifecycle, groups, event routing, and workspace navigation.      |
-| `apps/desktop/src/renderer/`  | Renderer startup, shared controls, settings, and design tokens.      |
-| `apps/desktop/src/`           | Electron lifecycle, named IPC, desktop preferences, and credentials. |
-| `apps/hub/`                   | Optional authenticated forwarding to the desktop.                    |
-| `packages/cli/`               | File detection, provenance, and publication commands.                |
-| `packages/sqlite/`            | SQLite shrinking and maintenance scheduling.                         |
-| `packages/memory-sync/`       | Personal memory repository clone, git sync, and irudd-okf upgrades.  |
-| `packages/folder/`            | Folder tab file access, containment, ignore rules, and watching.     |
-| `packages/harnesses/`         | Read-only coding agent harness detection and scanning.               |
-| `packages/protocol/`          | Shared validated artifact contracts and HTTP client.                 |
-| `tests/`                      | User journeys, integration tests, and synthetic fixtures.            |
-| `tools/`                      | Development commands and test process setup.                         |
+| Area                          | Responsibility                                                        |
+| ----------------------------- | --------------------------------------------------------------------- |
+| `apps/desktop/src/library/`   | Artifact HTTP API, discovery, and SQLite tab content storage.         |
+| `apps/desktop/src/plugins/`   | Built-in tab views, state contracts, and main-process handlers.       |
+| `apps/desktop/src/workspace/` | Tab lifecycle, groups, event routing, and workspace navigation.       |
+| `apps/desktop/src/renderer/`  | Renderer startup, shared controls, settings, and design tokens.       |
+| `apps/desktop/src/`           | Electron lifecycle, named IPC, desktop preferences, and credentials.  |
+| `apps/hub/`                   | Optional authenticated forwarding to the desktop.                     |
+| `packages/cli/`               | File detection, provenance, and publication commands.                 |
+| `packages/sqlite/`            | SQLite shrinking and maintenance scheduling.                          |
+| `packages/memory-sync/`       | Personal memory repository clone, git sync, and irudd-okf upgrades.   |
+| `packages/folder/`            | Folder tab file access, containment, ignore rules, and watching.      |
+| `packages/harnesses/`         | Read-only coding agent harness detection and scanning.                |
+| `packages/sessions/`          | Read-only T3 Code history and harness log reading for Agent sessions. |
+| `packages/protocol/`          | Shared validated artifact contracts and HTTP client.                  |
+| `tests/`                      | User journeys, integration tests, and synthetic fixtures.             |
+| `tools/`                      | Development commands and test process setup.                          |
 
 Read documents for the task that needs them:
 

@@ -586,6 +586,61 @@ harness folder.
 
 At narrow widths the overview scrolls inside the tab. Long skill names wrap.
 
+## Agent sessions
+
+Agent sessions is a permanent built-in tab that shows where this computer's T3
+Code threads spent their time, tokens and money, and how their tool calls went.
+Search offers it as Agent sessions, matching words such as T3 Code, threads,
+tool calls, tokens, cost and failures. Like Harnesses it is not created at
+startup. It shows facts only; the person asks an agent to explain a pattern.
+
+The tab keeps the look agreed for it rather than Scope's palette: a warm grey
+page, white cards with rounded corners, a blue accent, and dark equivalents.
+Its top bar has Threads and Tool calls, then on the right one button naming
+what is shown, such as "This computer · All projects · last 3 days ▾", and
+Reload. The button opens a small panel with Machine (only this computer for
+now), Project and Time span (1, 3 or 7 days, 3 by default). Every view follows
+it. Reading shows "Reading T3 Code history on this computer…"; a later read
+keeps the current data and shows Reading… beside the button. A failed read
+shows its reason with Retry.
+
+Threads lists top-level threads, newest first, in one card. Each row shows the
+title with its project and child thread count, model chips, when it started,
+Took (first request to last reply), Agent time (time agents worked, added up),
+a token bar split into uncached input, cache read, the two cache writes and
+output, list-price cost, tool calls and failed calls. Every number covers the
+thread and all threads below it. The narrow left column is the only expand
+control and folds child threads in and out; the rest of the row opens the
+thread. A legend for the token bar sits under the card. A search field above
+searches Titles, What they were told (each thread's first message) or What
+they reported (its last reply). Searching messages lists matching threads with
+the match highlighted; choosing one opens it.
+
+A thread page replaces the list. Breadcrumbs start at Threads and name every
+parent, each one opening that thread. The title has its project and how many
+child threads the totals include. On the right, large numbers show cost, Took,
+Agent time, tool calls and failed calls for the whole tree, above its token
+bar. Threads then lists the thread itself first, tinted and tagged This
+thread, with only its own numbers, followed by its child threads in the list's
+row format. Messages in this thread lists each message with model, effort,
+result, time, output tokens, context used, cost and tool calls. Tool calls
+covers the thread and its child threads.
+
+Tool calls, on the top bar or a thread page, has Group by: Nothing, Program and
+Failure cause. Nothing lists calls slowest first, up to 300, with search, a
+Failed only switch, and bars for time and output size; a row opens its input
+and the first and last 2 KB of its output. Program shows shell time, shell
+calls, programs and the share of time not matched to a program as large
+numbers, then one row per program sorted by total time, with the total drawn
+as a bar behind the number, average, slowest, failed, cold builds and lock
+waits. Failure cause shows failed calls, the failure rate and the share not
+recognized, then one row per cause with a bar and the split by model. The
+unmatched or unrecognized row is tinted amber and stays in the list. Opening a
+program shows calls and time per model beside its slowest commands; opening a
+cause shows example calls, each with the output line or last step that decided
+it on a red stripe. Both end with Show all, which returns to Nothing filtered
+to those calls with a removable filter chip.
+
 ## Structured plans
 
 Plans have an immutable unique name and start permanent. Later updates respect

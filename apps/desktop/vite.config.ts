@@ -52,6 +52,16 @@ export default defineConfig({
       outExtensions: () => ({ js: ".mjs" }),
     },
     {
+      entry: { "sessions-reader": "src/sessions-reader.ts" },
+      outDir: "dist",
+      clean: false,
+      format: "esm",
+      target: "node24",
+      platform: "node",
+      deps: { alwaysBundle: [/.*/] },
+      outExtensions: () => ({ js: ".mjs" }),
+    },
+    {
       entry: { preload: "src/preload.ts" },
       outDir: "dist",
       clean: false,

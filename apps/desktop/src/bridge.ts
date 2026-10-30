@@ -36,6 +36,8 @@ import type {
   HarnessesState,
 } from "./plugins/harnesses/contract.ts";
 import type { HarnessFileReply, HarnessFileRequest } from "@irudd-scope/protocol/harnesses";
+import type { SessionsReply } from "@irudd-scope/sessions/contract";
+import type { SessionsReadRequest } from "./plugins/sessions/contract.ts";
 import type { LibrarianView, LibrarianHumanCommand } from "@irudd-scope/protocol/librarian";
 import type { SketchpadMenuAction, SketchpadMenuState } from "./menu-contract.ts";
 import type {
@@ -222,6 +224,8 @@ export type ScopeBridge = {
   /** Copies the current text; `changed` is true when it differs from the text shown. */
   copyHarnessFile: (request: HarnessFileCopyRequest) => Promise<{ changed: boolean }>;
   onHarnessesChange: (listener: (state: HarnessesState) => void) => () => void;
+  /** Reads this computer's T3 Code threads and harness logs; nothing is stored. */
+  readSessions: (request: SessionsReadRequest) => Promise<SessionsReply>;
   memory: () => Promise<MemoryStatus>;
   setMemorySyncEnabled: (enabled: boolean) => Promise<MemoryStatus>;
   chooseMemoryFolder: () => Promise<MemoryStatus>;

@@ -11,6 +11,7 @@ import { pullRequestsPlugin } from "./pull-requests/renderer.tsx";
 import { retroPlugin } from "./retro/renderer.tsx";
 import { folderPlugin } from "./folder/renderer.tsx";
 import { harnessesPlugin } from "./harnesses/renderer.tsx";
+import { sessionsPlugin } from "./sessions/renderer.tsx";
 
 export const tabPlugins = [
   promptsPlugin,
@@ -21,6 +22,7 @@ export const tabPlugins = [
   retroPlugin,
   folderPlugin,
   harnessesPlugin,
+  sessionsPlugin,
   filePlugin,
 ];
 export const findPlugin = (type: string) => tabPlugins.find((plugin) => plugin.type === type);

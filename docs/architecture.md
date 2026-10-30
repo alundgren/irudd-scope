@@ -355,8 +355,9 @@ ordinary coding session and asks its agent to review earlier sessions. Scope
 never launches that agent. The agent discovers native Claude and Codex history
 locally or with its existing SSH access, using the public `irudd-scope-retro`
 skill and native collection helper maintained in this repository. The desktop
-accepts normalized inventories and findings; it does not parse or archive
-native transcripts.
+accepts normalized inventories and findings; it does not archive native
+transcripts. The Agent sessions tab reads this computer's T3 Code history and
+harness logs on demand, read-only, and keeps nothing.
 
 `packages/protocol/src/retro.ts` owns public configuration, report, command,
 tracking, history and event contracts. `library/retro-store.ts` owns review
@@ -544,6 +545,37 @@ component, which the memory plugin also uses: no raw HTML, and links and images
 as plain text. The reader passes its own heading components so Markdown
 headings start at `h4` below the file's `h3` title. Other facts stay in the scan, the CLI and Copy as JSON.
 
+## Agent sessions
+
+The Agent sessions tab shows this computer's T3 Code threads from the last 1, 3
+or 7 days, with their child threads, messages, tokens, list-price cost and tool
+calls. It reports facts; the person asks an agent when they suspect a problem.
+Scope keeps none of it: each open, Reload or time span change reads again.
+
+`packages/sessions` owns the reading. `readSessionsInProcess` starts the
+bundled `sessions-reader.mjs` with `ELECTRON_RUN_AS_NODE`, because `node:sqlite`
+reads block and T3's database can be several gigabytes. The process opens
+`~/.t3/userdata/statev2.sqlite` read-only, prices tokens with T3's own
+`usage-model-rates.json`, and reads the Claude Code logs under
+`~/.claude/projects` and Codex logs under `~/.codex/sessions` that belong to
+those threads and changed in the time span. It replies once and exits; a newer
+read stops an older one. T3 records no tokens for Claude Code's own subagents,
+and no tool calls for some of them, so their logs supply those. A log's tool
+calls are used only when T3 has none for that thread.
+
+Each tool call keeps its input and output as text with secret-looking values
+hidden; text longer than 4 KB keeps its first and last 2 KB. Each thread keeps
+the first message from the person and the agent's last reply for search.
+`packages/sessions/src/groups.ts` groups shell calls by the program that ran,
+read through wrapper shells, and failed calls by a cause read from their output
+or, for a chained command, from its last step. Both keep an "other" group that
+the tab always shows. The tab imports these rules; they have no Node imports.
+
+`apps/desktop/src/plugins/sessions/` owns the tab and its one IPC operation,
+`scope:sessions-read`. Machine, project and time span filter the reply in the
+renderer. The tab reads only this computer; paired remotes and guests are not
+read.
+
 ## Names and ownership
 
 Use the same names in code, documentation, diagrams, issues, and reviews.
@@ -566,6 +598,7 @@ formats are compatibility contracts.
 | Folder tab       | A live tree of one folder on one machine, keyed by machine ID and canonical path.                | `packages/folder` reads files; `plugins/folder` shows them; `folder_tabs` in `scope.db` keeps the key.    |
 | Harness scan     | One machine's coding agent harnesses at one time, without secrets.                               | `packages/harnesses` scans; `packages/protocol/src/harnesses.ts` defines it; `harness_scans` keeps it.    |
 | Harnesses tab    | The built-in overview of skills and instruction files per machine, with a full-tab file reader.  | `apps/desktop/src/plugins/harnesses/` shows it; `apps/desktop/src/harnesses.ts` supplies its state.       |
+| Agent sessions   | This computer's T3 Code threads, messages, tokens, cost and tool calls, read on demand.          | `packages/sessions` reads them in a separate process; `apps/desktop/src/plugins/sessions/` shows them.    |
 
 `packages/protocol` owns shared schemas, wire formats, limits, the discovery
 contract, and the HTTP client. It imports no app, filesystem, Electron, or

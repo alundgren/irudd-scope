@@ -16,6 +16,7 @@
     "@irudd-scope/harnesses": "workspace:*",
     "@irudd-scope/memory-sync": "workspace:*",
     "@irudd-scope/protocol": "workspace:*",
+    "@irudd-scope/sessions": "workspace:*",
     "@irudd-scope/sqlite": "workspace:*",
     "@napi-rs/keyring": "catalog:",
     "class-variance-authority": "catalog:",

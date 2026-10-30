@@ -8,6 +8,7 @@ import { registerPullRequestsIpc } from "./pull-requests/main.ts";
 import type { MainPluginContext } from "./main-api.ts";
 import { registerFolderIpc } from "./folder/main.ts";
 import { registerHarnessesIpc } from "./harnesses/main.ts";
+import { registerSessionsIpc } from "./sessions/main.ts";
 
 export function registerMainPlugins(context: MainPluginContext) {
   registerPromptsIpc(context);
@@ -16,6 +17,7 @@ export function registerMainPlugins(context: MainPluginContext) {
   const retros = registerRetroIpc(context);
   registerSketchpadIpc(context);
   registerHarnessesIpc(context);
+  const sessions = registerSessionsIpc(context);
   const pullRequests = registerPullRequestsIpc(context);
   const folders = registerFolderIpc(context);
   return {
@@ -31,6 +33,7 @@ export function registerMainPlugins(context: MainPluginContext) {
     dispose: () => {
       folders.dispose();
       retros.dispose();
+      sessions.dispose();
       pullRequests.dispose();
     },
   };

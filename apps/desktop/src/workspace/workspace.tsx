@@ -2,6 +2,7 @@ import { promptsTabState } from "../plugins/prompts/contract.ts";
 import { memoryTabState } from "../plugins/memory/contract.ts";
 import { sketchpadTabState } from "../plugins/sketchpad/contract.ts";
 import { harnessesTabState } from "../plugins/harnesses/contract.ts";
+import { sessionsTabState } from "../plugins/sessions/contract.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
@@ -14,6 +15,7 @@ import {
   X,
   Info,
   Bookmark,
+  Activity,
   Bot,
   Trash2,
 } from "lucide-react";
@@ -636,6 +638,14 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
               "coding agents codex claude code cursor grok skills mcp servers instructions versions",
             icon: Bot,
             onSelect: () => void openBuiltinTab("harnesses", "Harnesses", harnessesTabState()),
+          },
+          {
+            id: "sessions",
+            title: "Agent sessions",
+            keywords:
+              "t3 code threads tool calls tokens cost models failures commands audit time claude codex",
+            icon: Activity,
+            onSelect: () => void openBuiltinTab("sessions", "Agent sessions", sessionsTabState()),
           },
           {
             id: "settings",
