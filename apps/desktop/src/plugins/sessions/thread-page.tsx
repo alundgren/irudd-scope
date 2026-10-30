@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SessionCall } from "@irudd-scope/sessions/contract";
 import { ToolCalls } from "./calls.tsx";
 import {
@@ -31,6 +31,16 @@ export function ThreadPage({
   const tree = descendants(node);
   const titles = new Map(tree.map((thread) => [thread.id, thread.title || "Untitled thread"]));
   const calls: SessionCall[] = tree.flatMap((thread) => thread.calls);
+  // A thread with a hundred child threads would push the rest far down, so one section shows at a time.
+  const sections = (
+    [
+      ["calls", "Tool calls", calls.length],
+      ["threads", "Threads", node.children.length ? node.children.length + 1 : 0],
+      ["messages", "Messages", node.messages.length],
+    ] as const
+  ).filter(([value, , size]) => value === "calls" || size > 0);
+  const [chosen, setChosen] = useState<(typeof sections)[number][0]>("calls");
+  const section = sections.some(([value]) => value === chosen) ? chosen : "calls";
   return (
     <div className="sessions-page">
       <nav className="sessions-crumbs" aria-label="Thread path">
@@ -85,14 +95,27 @@ export function ThreadPage({
         </div>
       </div>
 
-      {node.children.length > 0 && (
+      <div className="sessions-seg sessions-sections" role="group" aria-label="Show">
+        {sections.map(([value, label, size]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={section === value}
+            onClick={() => setChosen(value)}
+          >
+            {label} ({count(size)})
+          </button>
+        ))}
+      </div>
+
+      {section === "threads" && (
         <section>
           <h3>Threads</h3>
           <ThreadTable rows={[node, ...node.children]} onOpen={onOpen} own={node} />
         </section>
       )}
 
-      {node.messages.length > 0 && (
+      {section === "messages" && (
         <section>
           <h3>Messages in this thread</h3>
           <div className="sessions-card">
@@ -146,17 +169,19 @@ export function ThreadPage({
         </section>
       )}
 
-      <section>
-        <h3>Tool calls{sum.threads > 1 ? " in this thread and its child threads" : ""}</h3>
-        {calls.length ? (
-          <ToolCalls
-            calls={calls}
-            title={sum.threads > 1 ? (call) => titles.get(call.threadId) ?? "" : undefined}
-          />
-        ) : (
-          <p className="sessions-empty">This thread made no tool calls.</p>
-        )}
-      </section>
+      {section === "calls" && (
+        <section>
+          <h3>Tool calls{sum.threads > 1 ? " in this thread and its child threads" : ""}</h3>
+          {calls.length ? (
+            <ToolCalls
+              calls={calls}
+              title={sum.threads > 1 ? (call) => titles.get(call.threadId) ?? "" : undefined}
+            />
+          ) : (
+            <p className="sessions-empty">This thread made no tool calls.</p>
+          )}
+        </section>
+      )}
     </div>
   );
 }

@@ -621,8 +621,10 @@ A thread page replaces the list. Breadcrumbs start at Threads and name every
 parent, each one opening that thread. The title has its project and how many
 child threads the totals include. On the right, large numbers show cost, Took,
 Agent time, tool calls and failed calls for the whole tree, above its token
-bar. Threads then lists the thread itself first, tinted and tagged This
-thread, with only its own numbers, followed by its child threads in the list's
+bar. Below them, a switch shows one section at a time: Tool calls (the
+default), Threads and Messages, each with its count, so a thread with many
+child threads does not push the rest out of sight. Threads lists the thread
+itself first, tinted and tagged This thread, with only its own numbers, followed by its child threads in the list's
 row format. Messages in this thread lists each message with model, effort,
 result, time, output tokens, context used, cost and tool calls. Tool calls
 covers the thread and its child threads.

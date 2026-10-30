@@ -49,7 +49,10 @@ test(
         view.locator(".sessions-top .sessions-stat").filter({ hasText: label });
       expect(await stat("Tool calls").locator(".sessions-stat-value").textContent()).toBe("5");
       expect(await stat("Failed").locator(".sessions-stat-value").textContent()).toBe("2");
+      // Tool calls show first; the thread list is one click away.
+      await view.getByRole("button", { name: "Threads (3)" }).click();
       await view.getByText("This thread", { exact: true }).waitFor();
+      await view.getByRole("button", { name: "Tool calls (5)" }).click();
 
       await view.getByRole("button", { name: "Program" }).click();
       await view.getByRole("row", { name: "cargo test", exact: true }).waitFor();
