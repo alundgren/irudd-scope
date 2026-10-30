@@ -14,6 +14,26 @@ We investigated one T3 thread: an orchestrated overnight build of a Rust game. I
 
 Every one of those findings needed ad-hoc scripts. The viewer showed none of them. The suggestions below are what survived review with the owner. Each was built and run on real data, and the owner saw the output.
 
+## UI still to build: start here
+
+The classifier scripts feed two new views. **The scripts are not the deliverable; the views are.** As of commit `2a73e09` the viewer still has only the Threads and Tool calls tabs.
+
+Open the mockups in `mockups/` in a browser. They are the views the owner approved, rendered from the investigated run with local paths replaced by `<path>`. `commands-view.mjs` and `failures-view.mjs` are the render code behind them (input: the JSON that `commands.mjs` and `failures.mjs` write).
+
+| Build                                      | Mockup                         | What the owner should see                                                                                                                                                                                                                              |
+| ------------------------------------------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Commands tab** (or a mode of Tool calls) | `mockups/commands-mockup.html` | Summary line (shell time, calls, groups, "other" share). One row per program group, sorted by total time: total bar, avg, max, failed, cold builds, lock waits. Click a row to expand: split by model, then the slowest calls with their command text. |
+| **Failures tab** (or a mode of Tool calls) | `mockups/failures-mockup.html` | Summary line (failed of total, %). One row per cause, sorted by count, with a bar and the split by model. Click a row to expand: example calls, each with the **output line that decided its cause**.                                                  |
+
+Requirements for both:
+
+- They respect the existing scope picker (machine, time span) and the thread filter, like the other tabs.
+- Clicking a row also offers "show these calls", which opens Tool calls filtered to that group or cause.
+- The "other" share is always visible, never hidden in a footnote.
+- Match the viewer's existing look. The mockups carry their own theme only so they open standalone.
+
+Done means the owner can open `viewer.html`, click Commands and Failures, and get the same answers as the mockups, without running a script.
+
 ## Collector changes (done)
 
 1. **Stop cutting tool inputs at 400 characters.** `collect.py` does `input=clean(text(...))[:400]` in three places (T3 items, Claude logs, Codex logs).
