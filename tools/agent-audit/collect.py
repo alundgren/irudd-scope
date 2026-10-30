@@ -63,6 +63,12 @@ def output_fields(v):
     return {'outChars': len(s), 'outHead': clean(s[:KEEP]), 'outTail': clean(s[-KEEP:])}
 
 
+def input_text(v):
+    # Long commands keep their tail: that is often where the real program runs (`...; cargo test`).
+    s = text(v)
+    return clean(s) if len(s) <= 2 * KEEP else clean(s[:KEEP]) + '\n[…]\n' + clean(s[-KEEP:])
+
+
 def ms(a, b):
     try:
         x = datetime.fromisoformat(a.replace('Z', '+00:00'))
@@ -132,6 +138,16 @@ for tid, pid, title, created, updated, pj in q(
     threads[tid] = dict(id=tid, title=title, project=projects.get(pid, pid), createdAt=created, updatedAt=updated,
                         branch=p.get('branch'), parentId=None, origin=None, runs=[], items=[], events={}, logs=[])
 
+# First user message is what the thread was told; last assistant message is what it reported.
+for tid in threads:
+    said = [(r, (json.loads(pj).get('text') or '').strip()) for r, pj in q(
+        'select role, payload_json from orchestration_v2_projection_messages '
+        'where thread_id = ? and streaming = 0 order by created_at', tid)]
+    user = [x for r, x in said if r == 'user' and x]
+    reply = [x for r, x in said if r == 'assistant' and x]
+    threads[tid]['instructions'] = clean(user[0]) if user else ''
+    threads[tid]['outcome'] = clean(reply[-1]) if reply else ''
+
 w, a = scope(['updated_at'])
 for parent, child, origin, prov, pj in q(
         'select thread_id, child_thread_id, origin, provider, payload_json from orchestration_v2_projection_subagents '
@@ -197,7 +213,7 @@ for tid, ptid, rid, ordn, ty, status, pj in q(
     name = {'command_execution': 'shell'}.get(ty) or p.get('toolName') or ty
     name = re.sub(r'^mcp__(.+?)__', r'\1.', name)
     s, e = p.get('startedAt'), p.get('completedAt')
-    item = dict(kind=ty, name=name, input=clean(text(p.get('input')))[:400], status=status, exit=p.get('exitCode'),
+    item = dict(kind=ty, name=name, input=input_text(p.get('input')), status=status, exit=p.get('exitCode'),
                 start=s, durMs=ms(s, e) if s and e else None)
     item.update(output_fields(p.get('output')))
     owner.setdefault('items', []).append(item)
@@ -261,7 +277,7 @@ def claude_log(path):
                 if isinstance(b, dict) and b.get('type') == 'tool_result' and b.get('tool_use_id') in pending:
                     name, s, inp = pending.pop(b['tool_use_id'])
                     item = dict(kind='tool', name=re.sub(r'^mcp__(.+?)__', r'\1.', name or '?'),
-                                input=clean(text(inp))[:400], status='failed' if b.get('is_error') else 'completed',
+                                input=input_text(inp), status='failed' if b.get('is_error') else 'completed',
                                 exit=None, start=s, durMs=ms(s, ts) if s and ts else None)
                     item.update(output_fields(b.get('content')))
                     log['toolCalls'].append(item)
@@ -312,7 +328,7 @@ def codex_log(path):
             pending[p.get('call_id')] = (p.get('name'), ts, p.get('arguments') or p.get('input'))
         elif ty == 'response_item' and pt in ('function_call_output', 'custom_tool_call_output') and p.get('call_id') in pending:
             name, s, inp = pending.pop(p['call_id'])
-            item = dict(kind='tool', name=name or '?', input=clean(text(inp))[:400], status='completed', exit=None,
+            item = dict(kind='tool', name=name or '?', input=input_text(inp), status='completed', exit=None,
                         start=s, durMs=ms(s, ts) if s and ts else None)
             item.update(output_fields(p.get('output')))
             log['toolCalls'].append(item)

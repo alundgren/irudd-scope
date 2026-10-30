@@ -14,13 +14,40 @@ We investigated one T3 thread: an orchestrated overnight build of a Rust game. I
 
 Every one of those findings needed ad-hoc scripts. The viewer showed none of them. The suggestions below are what survived review with the owner. Each was built and run on real data, and the owner saw the output.
 
-## Collector changes (needed first)
+## Collector changes (done)
 
 1. **Stop cutting tool inputs at 400 characters.** `collect.py` does `input=clean(text(...))[:400]` in three places (T3 items, Claude logs, Codex logs).
    - In the investigated run this cut 2,184 of 7,353 commands (30%).
    - Long commands lose their tail, which is often where the real program is (`…; cargo xtask check`, `… | node`, `git push`).
    - Fix: keep the full text, or keep head and tail like outputs do (`outHead`/`outTail`). Head plus tail is enough for program matching.
 2. **Export each thread's instructions and outcome.** Add `instructions` (first user message) and `outcome` (last assistant message) per thread, from `orchestration_v2_projection_messages` (`role`, `payload_json.text`, `streaming = 0`). See `messages.py`. All 131 threads in the test run had both. This costs a few KB per thread.
+
+## Benchmark across machines
+
+Both scripts take any number of exports and print the "other" share per machine, harness and project:
+
+```
+python3 -I build.py --days 7     # on each machine, writes data.json
+vp exec node viewer-handoff/failures.mjs vm.json mac.json /tmp/failures.json
+vp exec node viewer-handoff/commands.mjs vm.json mac.json /tmp/commands.json
+```
+
+Results on cloudbox (Linux VM, TS/Go/Python projects, 7 days, 9,559 calls, after the changes below):
+
+|                              | Before | After |
+| ---------------------------- | ------ | ----- |
+| Failures left in "Other"     | 42%    | 10%   |
+| Shell time left in "(other)" | 0.8%   | 0.6%  |
+
+What closed the gap, all generic:
+
+- **The last step decides the exit code.** In `rg foo src; cat notes.md 2>/dev/null` the output comes from earlier steps. If the last step is a search that exited 1, it is "Search found nothing". If it is a read with stderr hidden, it is "File not found (error hidden)". These rules run before output matching, so printed source lines (`TypeError:` inside a grep hit) no longer misfire.
+- **Exit 130, 137 and 143 are signals:** "Stopped by a signal", usually a dev server or long job stopped on purpose.
+- **Last step writes to a file** (`> run.log 2>&1`): "Output went to a file". The cause is in that log, not in the call.
+- New causes: lint or format, package manager, service not reachable, API or HTTP error (before path errors). Compile errors now cover `error TS`, Go and C#.
+- Commands: interpreters name their script (`vp exec node loader.mjs`, `python3 (inline)`). Value flags such as `go -C native build` are skipped. Programs run by path are named after the file.
+
+Still to do: the Mac history (other harness mix and projects). Aim for under ~15% "Other" on each machine.
 
 ## Keep: Commands grouped by program (`commands.mjs`)
 
