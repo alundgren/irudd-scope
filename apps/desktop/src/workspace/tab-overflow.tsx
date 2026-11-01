@@ -4,8 +4,8 @@ import { ArrowLeft, ChevronDown, RotateCcw, Search, Trash2, X } from "lucide-rea
 import type { Artifact } from "@irudd-scope/protocol";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { Input } from "../renderer/components/ui/input.tsx";
-import { tabArtifactId } from "../plugins/registry.renderer.ts";
-import { tabLabel, type TabLabels } from "./tab-label.ts";
+import { tabArtifactId, tabLabel } from "../plugins/registry.renderer.ts";
+import type { TabLabelContext } from "../plugins/api.ts";
 import { isBuiltinTab } from "../plugins/registry.ts";
 import type { Tab } from "./contract.ts";
 import { TRASH_RETENTION_MS, type RetainedTab } from "./retention.ts";
@@ -36,7 +36,7 @@ export function TabOverflow({
   artifacts: ReadonlyMap<string, Artifact>;
   unread: ReadonlySet<string>;
   unreadTabs: ReadonlySet<string>;
-  labels: TabLabels;
+  labels: TabLabelContext;
   tabButtons: RefObject<Map<string, HTMLButtonElement>>;
   onSelect: (id: string) => void;
   onPermanent: (id: string, permanent: boolean) => Promise<void>;
@@ -75,11 +75,7 @@ export function TabOverflow({
     const kind = label?.detail ?? artifact?.kind ?? tab.type;
     const name = artifact?.name;
     const permanent = isBuiltinTab(tab) || (entry?.permanent ?? false);
-    if (
-      section === "active" &&
-      filter !== "all" &&
-      (tab.type === "guest" || permanent !== (filter === "permanent"))
-    )
+    if (section === "active" && filter !== "all" && permanent !== (filter === "permanent"))
       return [];
     if (
       needle &&
@@ -270,11 +266,9 @@ export function TabOverflow({
                         aria-label={`${title} ${name ? `${name} · ` : ""}${kind}`}
                         aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Delete"
                         aria-description={
-                          tab.type === "guest"
-                            ? "Drag or Alt and arrow keys to reorder. Delete closes this guest locally."
-                            : isBuiltinTab(tab)
-                              ? "Drag or Alt and arrow keys to reorder. Delete closes this built-in tab."
-                              : "Drag to reorder or drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
+                          isBuiltinTab(tab)
+                            ? "Drag or Alt and arrow keys to reorder. Delete closes this built-in tab."
+                            : "Drag to reorder or drop onto Trashcan. Alt and arrow keys reorder; Delete moves to Trashcan."
                         }
                         title={title}
                         onKeyDown={(event) =>

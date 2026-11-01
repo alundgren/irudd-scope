@@ -1,67 +1,5 @@
 # UI decisions
 
-Other Scopes pairs guest desktops through one five-minute, one-use invitation.
-Main copies and reads the invitation through the clipboard; secrets and endpoints
-never appear in renderer state. The receiving person reviews the named Scope and
-allows sharing, then the issuer reviews the requesting Scope and approves.
-Both endpoints are verified and both sides protect their pair credentials before
-access begins. Cancel and expiry leave access off. Partial pairing reports a
-failure and asks the person to forget any incomplete pair before starting again.
-Guest pairing uses the installed Tailscale network.
-
-Cancellation shows progress until consent and protected confirmation are revoked.
-If either write fails, Other Scopes shows Retry cancellation and asks the person
-to resolve it before restarting. It does not show cancellation as complete or
-allow a new invitation to replace that failure. Local access stops immediately.
-
-Saved compatible pairs retry automatically on startup, wake and outages without
-another invitation. Status distinguishes setup, offline, denied access, connected
-and incompatible versions. Disable revokes guest requests and sessions; Forget
-removes guest credentials while preserving local references and recovery input.
-A saved listener port conflict asks the person to close the conflicting app and
-retry. Missing local interfaces, invalid destinations and denied connections have
-separate errors. Changed endpoints require forgetting the peer and pairing again;
-retry never silently changes the saved endpoint. Retry connection is hidden while
-connected or connecting.
-
-Eligible owner tabs appear automatically after guest sharing connects, including
-hidden bookmarked files, plans and folders. Guest tabs show one small accent monitor
-icon before the title, without an owner-name prefix or an extra button. Hover or
-keyboard focus shows the full title, owning Scope and connection status when unavailable.
-The drawer's existing detail line names the kind and owner, and search matches the owner.
-Fullscreen moves the indicator to the existing controls, keeping one marker visible.
-Healthy guest content starts directly below navigation. Search and controls names the owner in its current-tab area
-and contains source actions. File guests use the existing viewers and Download action. Plans and
-folders use their registered native views and preserve their kind. Older builds
-without the required capability show an update requirement. Unavailable sources show a status message and hide the document
-from interaction. Offline, disabled, unpaired and incompatible connections have
-distinct recovery advice. An absent source may have expired, moved to Trashcan,
-or become ineligible; checking the source belongs on its owner.
-Close hides a guest locally; guests have no local bookmark or Trashcan action.
-Source actions name the owner and separately offer source title changes, retention
-and moving the source to the owner’s Trashcan. Stale changes retain entered input
-and show the current owner revision. Uncertain operations block further source
-changes until status and current source are reviewed; reconnect does not resend writes.
-Failed guest content reads offer Retry content in the tab. Retrying does not
-require closing the tab or changing the source revision. Successfully loaded
-views retain their interactive state when hidden and reopened. Mixed local/guest
-order, selection, hidden state, unread revisions and file reading position survive
-restart in receiver SQLite. Catalog refreshes preserve navigation and never take
-selection from the current tab. Guest visibility does not extend owner retention.
-
-During temporary unavailability, loaded HTML stays mounted but hidden and inert.
-A current accepted catalog for the same owner, source, revision and blob is required
-before showing it again. A changed revision loads current owner bytes. Hidden HTML
-is still trusted executable content; hiding does not suspend scripts. Runtime state remains in memory only. Supported edited form fields have separate
-bounded receiver recovery records and survive restart. Form input recovery appears
-in Search and controls only when saved or working input exists or recovery fails.
-Real failures show a compact action to review recovery; editing never opens the
-panel automatically. Opening or closing the panel preserves the document and drafts. Restore saved fields is
-explicit and requires the same owner, source, revision and blob. Changed documents
-keep old input available for copy or discard. Passwords, files, sensitive fields,
-ambiguous identifiers and arbitrary script state are excluded; unsupported fields
-never promise persistence. Scope stores no persistent guest HTML snapshot.
-
 Scope is a macOS and Windows 11 x64 workspace for inspecting artifacts left by coding agents and
 reviewing structured plans, with a personal Sketchpad for ideas. The selected artifact gets the window. One compact strip
 contains open tabs and a search button on the right. Search opens a roomy
@@ -411,12 +349,12 @@ folder is renamed or deleted, says `This file was deleted.` Published text files
 show line numbers too, and Select All copies the whole text.
 
 Text, Markdown, and HTML files up to 2 MiB have Edit in the preview bar, on this
-computer, on remotes, and in guest folders. Edit replaces the preview with the
+computer and on remotes. Edit replaces the preview with the
 file's text; Save, or Ctrl+S (Command-S on macOS), writes it to the folder's
 machine, keeping the file's line endings and byte order mark. Done returns to the
 preview, and becomes Discard while there are unsaved changes. Unsaved text stays
 only in the open tab, across switching files and tabs, and the tree marks such
-files Edited. Closing a permanent or guest tab to the drawer keeps them. Moving
+files Edited. Closing a permanent tab to the drawer keeps them. Moving
 the tab to Trashcan or quitting Scope with unsaved changes is refused, with a
 note naming the files, until they are saved or discarded. A file that
 changes on its machine while unedited reloads in the editor. With unsaved
@@ -445,27 +383,6 @@ cancelled or failed transfer leaves no partial file, and a failure stays shown
 until dismissed. If a dropped file's path leads to a different file by the time Scope copies
 it, for example because it was replaced while Scope asked, it is not copied and
 the row says to drop it again. Edits to the same file are copied.
-
-Guest folders use the same tree, filter, search, previews, replacement questions,
-save dialog and progress controls through their owner. The tab indicator identifies
-the owning Scope; hovering the folder title also names its remote. The folder bar
-does not repeat the owner or show the owner's root as a local path.
-Copy path on a guest file copies its relative path. New folder creates a
-relative directory through the owner. Reading and selection stay local to the
-receiver and survive restart independently of the owner's navigation.
-
-A pending or interrupted guest write retains its original file reference and
-shows Check upload status. It never retries automatically. Conflicts preserve
-the original input. A recorded outcome can be cleared after refreshing the
-folder; an unknown outcome requires checking the destination and an explicit
-acknowledgement. Recovery remains visible while the owner is unavailable.
-Status can be checked while an upload or directory request runs, but its recovery
-cannot be cleared until the request and cleanup stop. If a recorded result has
-expired or becomes unknown when clearing, Scope keeps recovery and requires the
-new destination-inspection action; the previous normal clear action does not
-authorize that decision.
-Updating an older peer or hub is required for unsupported operations. A hub-only
-outage does not make other folders or owner artifacts unavailable.
 
 ## Sketchpad
 
@@ -662,12 +579,6 @@ whole-scenario boundaries and visual checks where useful. Native controls follow
 Scope appearance. Each full check procedure remains accessible. Tab switching and
 hiding retain the document; current overview position and selected work view/item
 survive restart. Updates retain the current reading position where content permits.
-A plan guest uses this same native presentation. Its selected work item, retained
-proposal and reading positions belong to the receiving desktop and survive restart.
-Copy work item and the displayed retrieval command identify the owner device,
-source tab and artifact, even when another desktop has the same plan name or ID.
-These controls only navigate, inspect and copy. Owner writes remain agent CLI
-commands in the existing conversation.
 Legacy HTML plans become ordinary HTML tabs with their content and lifecycle intact.
 
 ## Pull request inboxes

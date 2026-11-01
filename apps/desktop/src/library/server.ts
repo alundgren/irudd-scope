@@ -1,9 +1,3 @@
-import {
-  GUEST_PLANS_CAPABILITY,
-  GUEST_COMMAND_TIMEOUT_MS,
-  guestCommandRequest,
-  MAX_GUEST_OPERATION_BYTES,
-} from "@irudd-scope/protocol/guest-operation";
 import { httpInputDeadline } from "@irudd-scope/protocol/http-input";
 import { handlePromptHttp } from "./prompt-http.ts";
 import { handleHarnessesHttp, type HarnessesHttp } from "./harnesses-http.ts";
@@ -59,7 +53,6 @@ export async function startArtifactServer(options: {
       command: Extract<RetroCommand, { action: "configure" }>,
     ) => Promise<RetroConfiguration>;
   };
-  guestCommand?: (route: string, input: unknown) => Promise<unknown>;
   memory?: {
     status: () => MemoryStatus | Promise<MemoryStatus>;
     connect: (repository: string) => Promise<MemoryStatus>;
@@ -120,7 +113,7 @@ export async function startArtifactServer(options: {
   };
 
   const server = createServer(
-    { requestTimeout: GUEST_COMMAND_TIMEOUT_MS, headersTimeout: 10_000, maxHeaderSize: 16 * 1024 },
+    { requestTimeout: 30_000, headersTimeout: 10_000, maxHeaderSize: 16 * 1024 },
     (request, response) => {
       const task = handle(request, response)
         .catch((error: unknown) => {
@@ -141,7 +134,7 @@ export async function startArtifactServer(options: {
   );
 
   async function handle(request: IncomingMessage, response: ServerResponse) {
-    const inputDeadline = httpInputDeadline(request, response);
+    httpInputDeadline(request, response);
     const url = new URL(request.url ?? "/", "http://localhost");
     const route = `${request.method} ${url.pathname}`;
     if (route === "GET /health") {
@@ -149,41 +142,6 @@ export async function startArtifactServer(options: {
       return;
     }
     authenticate(request, options.token);
-    if (options.guestCommand && guestCommandRequest(request.method ?? "", request.url ?? ""))
-      inputDeadline(GUEST_COMMAND_TIMEOUT_MS);
-    if (route === "GET /v1/guests/capabilities" && !url.search) {
-      json(response, 200, { capabilities: options.guestCommand ? [GUEST_PLANS_CAPABILITY] : [] });
-      return;
-    }
-    const guestRoute =
-      /^\/v1\/guests\/(prepare|execute|status|reconcile|read|source|pending)$/.exec(url.pathname);
-    if (guestRoute && request.method === "POST" && !url.search) {
-      if (!options.guestCommand)
-        throw new ScopeError(503, "Guest operations require an open desktop.");
-      const input = await readJson(
-        request,
-        MAX_GUEST_OPERATION_BYTES,
-        "Guest operation exceeds its input limit.",
-      );
-      try {
-        json(response, 200, await options.guestCommand(guestRoute[1], input));
-      } catch (error) {
-        if (error instanceof ScopeError) throw error;
-        const message = error instanceof Error ? error.message : "";
-        if (/^Update (Scope|the other Scope)/.test(message)) throw new ScopeError(501, message);
-        if (
-          /^(The (owner|other Scope|source outcome)|This (source|operation)|No (guest for|matching saved)|Resolve the previous)/.test(
-            message,
-          )
-        )
-          throw new ScopeError(409, message);
-        throw new ScopeError(
-          409,
-          "The owner or source is unavailable. Check the guest tab and saved operation status before making another change.",
-        );
-      }
-      return;
-    }
     if (route === "POST /v1/retros" && !url.search) {
       const body = await readJson(
         request,

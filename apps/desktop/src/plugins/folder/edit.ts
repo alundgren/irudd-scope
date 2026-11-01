@@ -10,12 +10,11 @@ import {
 import { FolderError } from "@irudd-scope/folder";
 import { Uuid } from "../../workspace/contract.ts";
 import { RemoteUnavailableError } from "../../remotes.ts";
-import type { GuestRecoveryStore } from "../../guest/recovery.ts";
 import type { FolderFileSaveResult } from "./contract.ts";
 import { FolderUpdateNeeded } from "./source.ts";
 import type { Folder, FolderTransfers } from "./transfer.ts";
 
-/** Saves made in this desktop's editor. Guests are recorded under their own device. */
+/** Saves made in this desktop's editor. */
 const EDITOR_CALLER = "scope-editor";
 /** The editor holds at most a 2 MiB preview; UTF-8 needs at most three bytes per unit. */
 const MAX_TEXT_LENGTH = 2 * 1024 * 1024;
@@ -50,14 +49,11 @@ function failure(error: unknown): string {
 export function registerFolderEdits({
   handle,
   folder,
-  recovery,
   exclusive,
-  guestOperation,
 }: {
   handle: (channel: string, action: (input: unknown) => unknown) => void;
   folder: (tabId: string) => Promise<Folder>;
-  recovery: GuestRecoveryStore;
-} & Pick<FolderTransfers, "exclusive" | "guestOperation">) {
+} & Pick<FolderTransfers, "exclusive">) {
   async function version(tabId: string, path: string) {
     const { source } = await folder(tabId);
     return source.operations.version(path, AbortSignal.timeout(60_000));
@@ -77,13 +73,7 @@ export function registerFolderEdits({
     const bytes = Buffer.from(request.text, "utf8");
     try {
       return await exclusive(request.tabId, async () => {
-        const current = await folder(request.tabId);
-        if (
-          current.guest &&
-          ((await recovery.folderRead(request.tabId)) ||
-            (await recovery.read(request.tabId)).pending)
-        )
-          throw new Error("Check the saved folder operation before saving again.");
+        const { source } = await folder(request.tabId);
         const operation: FolderOperationRequest = {
           version: 1,
           requestId: `${Date.now()}:${randomUUID()}`,
@@ -97,34 +87,22 @@ export function registerFolderEdits({
           },
         };
         const signal = AbortSignal.timeout(120_000);
-        const outcome = current.guest
-          ? await guestOperation(
-              current,
-              request.tabId,
-              operation,
-              () => Readable.from([bytes]),
-              signal,
-            )
-          : await current.source.operations.execute(
-              EDITOR_CALLER,
-              operation,
-              Readable.from([bytes]),
-              signal,
-            );
+        const outcome = await source.operations.execute(
+          EDITOR_CALLER,
+          operation,
+          Readable.from([bytes]),
+          signal,
+        );
         if (outcome.state === "completed")
           return { status: "saved", version: await version(request.tabId, request.path) };
-        if (outcome.error?.code === "conflict") {
-          // A conflict proves nothing was written; the editor still has the text.
-          if (current.guest) await recovery.folderClear(request.tabId, operation.requestId);
+        // A conflict proves nothing was written; the editor still has the text.
+        if (outcome.error?.code === "conflict")
           return { status: "conflict", version: await version(request.tabId, request.path) };
-        }
         if (outcome.state === "failed")
           return { status: "failed", message: outcome.error?.error ?? "The file was not saved." };
         return {
           status: "failed",
-          message: current.guest
-            ? "Scope could not confirm the save. Check its status before saving again."
-            : "Scope could not confirm the save. Reload the file to check it.",
+          message: "Scope could not confirm the save. Reload the file to check it.",
         };
       });
     } catch (error) {

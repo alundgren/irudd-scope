@@ -55,18 +55,6 @@ follow its active build. Open a new terminal after installing the CLI.
 See [installation and recovery](docs/development.md#installed-app) for paths,
 build requirements, and removal.
 
-## Open another Scope's tabs
-
-In **Settings → Other Scopes**, create a guest invitation and paste it into the
-other desktop. Review the named peer and approve sharing on both desktops.
-Scope uses the installed Tailscale network and saves the pair in protected storage.
-
-Eligible artifacts, native plans and folders appear as guest tabs. Content stays
-with its owner; each desktop keeps its own navigation. Both apps must be running
-and awake. Disable sharing or forget a peer in Other Scopes. See
-[guest connections](docs/architecture.md#guest-peer-connections) for permissions
-and connection requirements.
-
 ## Install on a remote
 
 On a Linux remote already connected to your tailnet:

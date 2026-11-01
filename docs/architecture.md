@@ -65,8 +65,7 @@ contained write, payload and version checks, host write queue, and journal
 execution. It accepts persistence callbacks without importing SQLite. The
 local `DesktopStore` and remote `HubState` retain the journal in their own
 existing database. Hub operation routes authenticate the desktop and bind
-caller identity there. Legacy folder writes share the host queue; guest
-transport does not own filesystem commits or receipts.
+caller identity there. Legacy folder writes share the host queue.
 
 A Folder tab's identity is its machine and canonical path. The machine is
 `local` or the desktop's remote ID and always comes from the connection that
@@ -264,8 +263,6 @@ controls use Scope tokens; authored content keeps its presentation.
 The CLI assembles JSON and HTML and uses ordinary artifact reads and revision-checked
 publication for local plans. The paired hub can queue opted-in local plan publication
 through the artifact protocol. Reads and basis capture need the desktop online.
-Explicit owner commands use the receiver guest API and existing peer mutation
-receipts. These commands require a live connection and are never queued by the hub.
 Scope neither orchestrates agents nor infers agreement or verification.
 
 Legacy HTML plans convert to ordinary HTML artifacts and file tabs, preserving
@@ -573,8 +570,7 @@ the tab always shows. The tab imports these rules; they have no Node imports.
 
 `apps/desktop/src/plugins/sessions/` owns the tab and its one IPC operation,
 `scope:sessions-read`. Machine, project and time span filter the reply in the
-renderer. The tab reads only this computer; paired remotes and guests are not
-read.
+renderer. The tab reads only this computer; paired remotes are not read.
 
 ## Names and ownership
 
@@ -995,133 +991,3 @@ retain the latest local document separately from an uncertain dispatched write.
 The plugin registry creates the singleton at startup while preserving existing
 selection and stored hidden state. Library event and reconnect subscriptions
 invalidate clean editor state and visible picker reads without navigation.
-
-## Guest peer connections
-
-`apps/desktop/src/guest/` owns explicit guest consent, authenticated peer sessions,
-reconnection and a dedicated peer HTTP listener. Guest identity, peers, invitations
-and protected pair credentials belong to this module. Pairing grants no
-access through the publishing API. `packages/protocol/src/guest.ts` defines the
-validated guest contracts. Named desktop IPC exposes invitation review, consent,
-cancel, forget and retry; main owns clipboard invitation access.
-
-Desktop-owned Tailscale discovery reads the installed CLI's status JSON and
-verifies the local IPv4 address against OS interfaces. The dedicated guest HTTP
-listener binds only that address and saves its port and address in desktop.db.
-Later starts reuse the port; missing interfaces and occupied ports fail explicitly.
-A changed local address requires explicitly forgetting the peer and pairing again.
-The shared guest endpoint contract permits only canonical IPv4 addresses in
-100.64.0.0/10 and a port. Before each direct HTTP request, the desktop verifies
-that the exact destination appears in Tailscale's peer records and binds the
-outgoing socket to its local Tailscale address. DNS destinations, URLs, redirects
-and publishing routes are rejected. Scope does not configure Serve, Funnel,
-ACLs or Tailscale installation. Pair authentication still supplies application
-consent; presence in the tailnet alone grants no guest access.
-
-One five-minute bearer invitation connects a fresh pair. The receiver reviews the
-issuer and approves; the issuer verifies the reciprocal endpoint, reviews the
-claimant and approves. HMAC proofs bind the complete invitation, both identities,
-both endpoints and one attempt. One active invitation per desktop, bounded requests
-and deadlines limit pending work. Creating an invitation alone grants no access.
-Protected credentials and peer metadata are saved before the completion exchange
-permits sessions. A failed or cancelled exchange keeps sharing disabled locally;
-partial pairs can be forgotten and paired again without deleting guest references.
-
-Cancellation aborts live requests immediately, then saves consent off and revokes
-the protected pair confirmation. It reports success only after both writes finish.
-A failed write leaves a visible cancellation failure with an explicit retry;
-starting another invitation or enabling the incomplete pair is blocked. Either
-persisted denial prevents restart authorization if the other write fails. If both
-stores are unavailable, access remains off in the current process and Scope asks
-the person to retry cancellation before restarting. Startup requires both saved
-consent and a confirmed protected pair. Late completion cannot restore live access.
-
-Fresh challenges, pair secrets, device IDs and runtime epochs authenticate each
-session. Tokens remain in main memory, with at most one incoming and one outgoing
-session for each of the 32 allowed peers. Requests retain their route deadlines,
-including long folder transfers. Restart invalidates every session.
-Disabling or forgetting cancels active requests and handshakes; reconnect obtains
-fresh sessions and catalogs. Saved endpoints cannot be changed by a session hello.
-
-Owner operations register explicit method/capability handlers with required idle
-and total deadlines in milliseconds. Headers have a ten-second limit and
-unauthenticated handshakes a thirty-second total limit. After authentication,
-each handler's limits govern both uploads and responses; progress resets only
-the idle limit. Expiry, disconnect, revocation and shutdown abort the handler's
-signal and close its streams. Handlers must observe that signal and release
-resources on cancellation. The connection API carries byte streams with
-backpressure and caller cancellation. It does not forward arbitrary publishing routes or desktop IPC.
-
-Guest catalogs and artifact reads are named routes on those sessions.
-`guest/catalog.ts` obtains an authoritative projection from `library/store.ts`,
-joining active tab lifecycle with complete publications or folder identities.
-The process-independent plugin registry explicitly allows ordinary files,
-structured plans and folders. Hidden bookmarked sources remain eligible.
-Built-ins, unsupported kinds, incomplete publications and trash do not appear.
-Guest references have their own desktop preferences records and cannot become
-local artifacts.
-
-Catalog replies are complete snapshots with increasing persisted revisions.
-A bounded long poll returns the next snapshot or the current snapshot after
-20 seconds. Reconnect requests a full snapshot. Limits reject the entire
-refresh; partial catalogs never remove entries. Source changes wake waiting
-catalog readers and invalidate affected in-flight artifact reads. Every owner
-read resolves the source tab again and checks its lifecycle and revision.
-
-The receiver stores source metadata and local guest navigation in desktop.db.
-The workspace host selects the registered file view and supplies an explicit
-owner content reader. Bytes remain in memory only and downloads are explicit
-exports. HTML keeps its interactive trusted-content behavior. Folder references use the registered Folder presentation and an owner-qualified
-FolderSource. Plan references use the registered PlanView with the owner content
-reader and receiver-local reading state. Closing a guest hides the receiver
-reference and never changes source retention or enters the local Trashcan.
-
-Receiver workspace layout orders local and guest UUIDs together. Guest navigation,
-file reading positions and last-read revisions persist in `desktop.db`; source
-metadata refresh never replaces that navigation. The host keeps unavailable HTML
-hidden and inert, retaining in-memory input only for an unchanged document. Owner
-content reads and catalog acceptance are tied to the authenticated session;
-revocation invalidates late replies. Rendering also checks owner, source, revision
-and blob before presenting retained content. Visibility reports only affect local
-source retention, never the other desktop's records.
-
-Guest mutation routes live in `guest/mutations.ts`. They validate explicit owner
-targets and named actions, bind operation identity to the authenticated caller,
-and save receiver dispatch/input records before network execution. The owner
-`library/guest-operations.ts` commits each SQLite-owned source change and terminal
-receipt in one `scope.db` transaction. Source versions observe publication and
-lifecycle writes, including local API writes, without observing reading state.
-`guest/recovery.ts` owns separately bounded receiver recovery records in
-`desktop.db`; `guest/actions.tsx` and `guest/html-recovery.tsx` use the existing
-workspace flush barrier. Recovery notifications update mounted controls without
-marking an entire workspace saved after a partial write. Filesystem mutation
-receipts remain owned by the actual folder host.
-
-Guest folders register named read, search, watch, version, upload, directory and
-status routes in the Folder plugin. The owner resolves the source tab's current
-eligibility and version before accessing its local or paired-hub FolderSource.
-Guest requests never select a root or hub. Source changes and revoked sessions
-cancel active requests; interrupted feeds cause fresh listings. Streams retain
-backpressure across both connections and use the folder transfer limits rather
-than artifact body limits. A disconnected hub affects its folders independently
-of other owner content.
-
-Receiver upload recovery uses GuestRecoveryStore in desktop.db. It stores the
-original local file reference and exact operation input before dispatch, not file
-bytes. Owner routing bindings in that same database retain the authenticated
-caller and original filesystem host for status after source removal or restart.
-Only FolderOperations at that host records filesystem outcomes. No desktop
-binding claims to commit a remote write atomically. Status never replays a write.
-
-Guest plan CLI requests use explicit owner device, source tab and artifact identity.
-The protocol client reads owner content through the receiver's authenticated API;
-the CLI never obtains peer credentials. Existing-plan writes use owner source
-versions and artifact revisions, immutable history validation and durable mutation
-receipts. A receiver pending read exposes saved operation input without dispatching
-or clearing it. Status and reconciliation never resend a write.
-
-Paired hubs forward guest commands only to desktops advertising `guest-plans-v1`.
-Authenticated capability discovery reports an update requirement for an older hub
-or desktop. Guest commands are live-only and bypass publication buffering. The
-32 MiB content bound remains independent of the 34 MiB operation budget and the
-larger JSON-escaped content reply allowance.

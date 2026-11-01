@@ -1,4 +1,3 @@
-import { guestFolderChecks } from "./guest-folder-checks.ts";
 import { expect, test } from "vite-plus/test";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createServer, request as httpRequest } from "node:http";
@@ -718,6 +717,5 @@ test(
       await exhausted.stop();
       await rm(f.directory, { recursive: true, force: true });
     }
-    await guestFolderChecks();
   },
 );

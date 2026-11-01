@@ -56,12 +56,7 @@ test(
       endpoint: "https://remote.example.test",
       enabled: true,
     };
-    const peer = {
-      id: randomUUID(),
-      deviceId: randomUUID(),
-      name: "Personal PC",
-      createdAt: Date.now(),
-    };
+    const peerId = randomUUID();
     const guestKey = randomBytes(32).toString("base64url");
     try {
       await store.load();
@@ -69,18 +64,16 @@ test(
       await Promise.all([
         store.saveSettings({ apiKey: providerKey }),
         store.saveRemote(remote, token),
-        store.saveGuestPeer(peer, guestKey, { address: "100.64.0.2", port: 41234 }),
       ]);
       const persisted = JSON.stringify(preferences(directory));
-      for (const secret of [providerKey, token, guestKey, "100.64.0.2"])
-        expect(persisted).not.toContain(secret);
+      for (const secret of [providerKey, token]) expect(persisted).not.toContain(secret);
       expect(persisted).toContain("ciphertext");
       await store.close();
       const saved = {
         apiKey: providerKey,
         remoteTokens: { [remote.id]: token },
         guestPairs: {
-          [peer.id]: {
+          [peerId]: {
             key: guestKey,
             endpoint: { address: "100.64.0.2", port: 41234 },
             confirmed: true,
@@ -89,7 +82,7 @@ test(
         transferKeys: { retired: 42 },
         guestKey: "synthetic-retired-guest-key",
         guestEndpoints: {
-          [peer.id]: { address: "100.64.0.2", port: 41234 },
+          [peerId]: { address: "100.64.0.2", port: 41234 },
           retired: { address: "tc" + "z".repeat(80), port: 41234 },
           invalid: { address: "8.8.8.8", port: 41234 },
         },
@@ -114,13 +107,6 @@ test(
       expect(JSON.stringify(store.settings())).not.toContain(providerKey);
       expect(await store.secret("apiKey")).toBe(providerKey);
       expect(await store.remoteToken(remote.id)).toBe(token);
-      expect(await store.guestKey(peer.id)).toBe(guestKey);
-      expect(await store.guestEndpoint(peer.id)).toEqual({
-        address: "100.64.0.2",
-        port: 41234,
-      });
-      expect(await store.guestEndpoint("retired")).toBeUndefined();
-      expect(await store.guestEndpoint("invalid")).toBeUndefined();
       expect(preferences(directory).find((row) => row.name === "windows-credentials")).toEqual(
         beforeRead,
       );
@@ -134,16 +120,15 @@ test(
       expect(plaintext.result).not.toContain("transferKeys");
       expect(plaintext.result).not.toContain("guestKey");
       expect(plaintext.result).not.toContain("guestEndpoints");
+      expect(plaintext.result).not.toContain("guestPairs");
+      expect(plaintext.result).not.toContain(guestKey);
+      expect(plaintext.result).not.toContain("100.64.0.2");
       expect(plaintext.result).not.toContain("retired");
       expect(plaintext.result).not.toContain("8.8.8.8");
       await store.saveSettings({ removeApiKey: true });
       expect(await store.remoteToken(remote.id)).toBe(token);
-      expect(await store.guestKey(peer.id)).toBe(guestKey);
       await store.removeRemote(remote.id);
-      await store.removeGuestPeer(peer.id);
       expect(await store.secret("apiKey")).toBeUndefined();
-      expect(await store.guestEndpoint(peer.id)).toBeUndefined();
-      expect(JSON.stringify(preferences(directory))).not.toContain("synthetic-guest-key");
     } finally {
       await store.close();
       await rm(directory, { recursive: true, force: true });
@@ -212,11 +197,7 @@ test(
         "protected by Windows",
       );
       expect(preferences(directory)).toEqual(saved);
-      for (const invalid of [
-        { apiKey: 42 },
-        { remoteTokens: { hub: 42 } },
-        { guestPairs: { peer: { key: "invalid" } } },
-      ]) {
+      for (const invalid of [{ apiKey: 42 }, { remoteTokens: { hub: 42 } }]) {
         const ciphertext = await encryption.encryptStringAsync(
           JSON.stringify({ guestKey: "retired", guestEndpoints: null, ...invalid }),
         );

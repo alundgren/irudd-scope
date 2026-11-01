@@ -35,7 +35,6 @@ export const Tab = Schema.Struct({
   state: TabState,
   overlayPositions: Schema.optionalKey(OverlayPositions),
   hidden: Schema.optionalKey(Schema.Boolean),
-  guestReadRevision: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 export type Tab = typeof Tab.Type;
 export const Workspace = Schema.Struct({

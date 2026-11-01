@@ -86,16 +86,7 @@ function Records({ plan, inspect }: { plan: PlanDocument; inspect: (id: string) 
 
 function PlanContent({ content, ...props }: TabProps & { content: ArtifactContent }) {
   const plan = useMemo(() => readPlan(content.bytes), [content.bytes]);
-  const owner = props.context.content;
-  const state = decode(
-    PlanTabState,
-    owner
-      ? {
-          version: 1,
-          data: { ...(props.tab.state.data.plan as object), artifactId: content.artifact.id },
-        }
-      : props.tab.state,
-  ).data;
+  const state = decode(PlanTabState, props.tab.state).data;
   const stateRef = useRef(state);
   stateRef.current = state;
   const iframe = useRef<HTMLIFrameElement>(null);
@@ -106,32 +97,15 @@ function PlanContent({ content, ...props }: TabProps & { content: ArtifactConten
   const html = useMemo(() => planHtml(basis?.proposal ?? plan), [plan, basis]);
   const item = plan.items?.find((x) => x.id === state.itemId) ?? plan.items?.[0];
   const packet = useMemo(
-    () =>
-      item
-        ? planItemPacket(
-            plan,
-            item.id,
-            content.artifact,
-            owner
-              ? {
-                  ownerDeviceId: owner.ownerDeviceId,
-                  sourceTabId: owner.sourceTabId,
-                  sourceVersion: owner.sourceVersion,
-                }
-              : undefined,
-          )
-        : undefined,
-    [plan, item, content.artifact, owner],
+    () => (item ? planItemPacket(plan, item.id, content.artifact) : undefined),
+    [plan, item, content.artifact],
   );
   const update = (patch: Partial<typeof state>) => {
     const data = Object.fromEntries(
       Object.entries({ ...stateRef.current, ...patch }).filter(([, value]) => value !== undefined),
     );
     stateRef.current = decode(PlanTabState, { version: 1, data }).data;
-    if (owner) {
-      const { artifactId: _artifact, ...reading } = data;
-      props.context.updateState({ version: 1, data: { ...props.tab.state.data, plan: reading } });
-    } else props.context.updateState({ version: 1, data });
+    props.context.updateState({ version: 1, data });
   };
   const observe = useDocumentScroll(
     iframe,
@@ -301,7 +275,7 @@ function PlanContent({ content, ...props }: TabProps & { content: ArtifactConten
 }
 export function PlanView(props: TabProps) {
   return (
-    <PublishedContent artifact={props.artifact} content={props.context.content}>
+    <PublishedContent artifact={props.artifact}>
       {(content) => <PlanContent {...props} content={content} />}
     </PublishedContent>
   );

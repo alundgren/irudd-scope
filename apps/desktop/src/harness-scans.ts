@@ -19,10 +19,19 @@ export class HarnessScanStore {
 
   // Older Scope versions ignore this table, so it needs no schema version. The length limit
   // is MAX_HARNESS_SCAN_BYTES; SQLite does not accept parameters in a table definition.
+  // Tables from builds that shared tabs with other desktops also accepted `guest:` machines.
+  // The desktop scans again at every start, so such a table is dropped and recreated.
   async initialize() {
-    await this.storage.run(this.storage.sql`CREATE TABLE IF NOT EXISTS harness_scans (
+    const { sql, run } = this.storage;
+    const [table] = await run(
+      sql<{
+        sql: string;
+      }>`SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'harness_scans'`,
+    );
+    if (table?.sql.includes("guest:")) await run(sql`DROP TABLE harness_scans`);
+    await run(sql`CREATE TABLE IF NOT EXISTS harness_scans (
       machine TEXT PRIMARY KEY
-        CHECK (machine = 'local' OR machine LIKE 'remote:%' OR machine LIKE 'guest:%'),
+        CHECK (machine = 'local' OR machine LIKE 'remote:%'),
       document TEXT NOT NULL
         CHECK (json_valid(document) AND length(document) <= 262144)
     ) STRICT`);

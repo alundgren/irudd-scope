@@ -28,15 +28,6 @@ Use `text TEXT` for plain text, or `text TEXT --kind markdown` for Markdown. Tex
 
 Direct publication commands print a JSON artifact record with its ID and revision. Paired hubs return a queue receipt with `id`, `queued: true`, and `expiresAt`, including while the desktop is connected. Treat the returned JSON as the receipt; run `list` or `get ID` only when you need to locate or inspect a record. `get` returns metadata, not artifact bytes.
 
-## Guest sharing between desktops
-
-Guest pairing happens in Other Scopes on the two desktops. Both computers need
-their installed Tailscale connected to the same tailnet and Scope running.
-Create a guest invitation on one desktop, paste it into the other, and review
-the named peer and approve sharing on both. Guest tabs keep their source owner;
-the receiving desktop stores its own reading position. Scope uses direct guest
-HTTP connections over Tailscale. Pairing does not expose the publishing API.
-
 ## Choose input the desktop can display
 
 `add` accepts files up to 32 MiB and selects a kind from the file extension:
