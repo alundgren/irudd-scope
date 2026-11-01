@@ -1,5 +1,3 @@
-import { guestSources } from "./guest-source.ts";
-import { GuestOperations } from "./guest-operations.ts";
 import { readPlan, validatePlanUpdate } from "@irudd-scope/protocol/plan";
 import { PromptDraft } from "../plugins/prompts/contract.ts";
 import { PromptStore } from "./prompt-store.ts";
@@ -73,7 +71,6 @@ export type LiveTab = {
 
 export class ArtifactStore {
   maintenance!: DatabaseMaintenance;
-  guestOperations!: GuestOperations;
   prompts!: PromptStore;
   retros!: RetroStore;
   pullRequests!: PullRequestStore;
@@ -137,15 +134,7 @@ export class ArtifactStore {
       await store.removePlanFeedback();
       await store.convertLegacyPlans();
       await store.pullRequests.recoverInterruptedSync();
-      store.guestOperations = new GuestOperations({
-        sql,
-        run: (effect) => store.run(effect),
-        mutate: (effect, events) => store.mutate(effect, events),
-        changed: () => {
-          for (const listener of store.listeners) listener();
-        },
-      });
-      await store.guestOperations.initialize();
+      await store.removeGuestSharing();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -395,6 +384,25 @@ export class ArtifactStore {
     );
   }
 
+  // Sharing tabs with another desktop kept change receipts and a version counter
+  // updated by triggers on every tab and artifact write. The counter column stays
+  // in upgraded databases so an older Scope can still open them at schema 17.
+  private async removeGuestSharing(): Promise<void> {
+    const sql = this.sql;
+    await this.run(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`DROP TRIGGER IF EXISTS guest_tab_version`;
+          yield* sql`DROP TRIGGER IF EXISTS guest_artifact_version`;
+          yield* sql`DROP TABLE IF EXISTS guest_operations`;
+          yield* sql`DELETE FROM lifecycle WHERE name = 'guest_clock'`;
+          const [{ user_version }] = yield* sql<{ user_version: number }>`PRAGMA user_version`;
+          if (user_version < 17) yield* sql`PRAGMA user_version = 17`;
+        }),
+      ),
+    );
+  }
+
   async convertLegacyPlans(): Promise<void> {
     const sql = this.sql;
     await this.run(
@@ -621,10 +629,6 @@ export class ArtifactStore {
     return removed.map((row) => row.id);
   }
 
-  guestSources() {
-    return this.run(guestSources(this.sql));
-  }
-
   async tabs(): Promise<readonly LiveTab[]> {
     return this.run(this.sql<LiveTab>`SELECT * FROM live_tabs ORDER BY position, rowid`);
   }
@@ -642,8 +646,6 @@ export class ArtifactStore {
           for (const id of closed)
             if (!openArtifacts.has(id)) yield* sql`DELETE FROM live_tabs WHERE artifact_id = ${id}`;
           for (const [position, tab] of tabs.entries()) {
-            if (tab.type === "guest")
-              throw new Error("Guest references belong to desktop preferences.");
             const artifactId = tabArtifactId(tab);
             const [artifact] = artifactId
               ? yield* sql<{
@@ -706,7 +708,6 @@ export class ArtifactStore {
 
   async openTab(value: Tab, artifactRevision?: number): Promise<Tab | null> {
     const tab = decode(Tab, value);
-    if (tab.type === "guest") throw new Error("Guest references belong to desktop preferences.");
     if (artifactRevision !== undefined) decode(Revision, artifactRevision);
     const artifactId = tabArtifactId(tab);
     const sql = this.sql;
@@ -780,8 +781,6 @@ export class ArtifactStore {
       sql.withTransaction(
         Effect.gen(function* () {
           for (const [position, tab] of tabs.entries()) {
-            if (tab.type === "guest")
-              throw new Error("Guest references belong to desktop preferences.");
             const [saved] = yield* sql<{
               document: string | null;
             }>`SELECT document FROM live_tabs WHERE id = ${tab.id}`;

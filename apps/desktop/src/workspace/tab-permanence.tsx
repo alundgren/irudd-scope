@@ -14,7 +14,6 @@ export function TabPermanence({
   permanent: boolean;
   onPermanent: (id: string, permanent: boolean) => Promise<void>;
 }) {
-  if (tab.type === "guest") return null;
   if (isBuiltinTab(tab))
     return (
       <span

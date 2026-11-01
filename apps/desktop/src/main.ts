@@ -1,5 +1,3 @@
-import { GuestMutations } from "./guest/mutations.ts";
-import { GuestCatalogs } from "./guest/catalog.ts";
 import { initializeBuiltinPlugins } from "./plugins/registry.main.ts";
 import { VoiceService } from "./voice/service.ts";
 import {
@@ -33,7 +31,6 @@ import { MemoryService } from "./memory.ts";
 import { LibrarianService } from "./librarian.ts";
 import { HarnessesService } from "./harnesses.ts";
 import { createApplicationMenu } from "./menu.ts";
-import { GuestConnections } from "./guest/service.ts";
 import { registerExternalLinks } from "./external-links.ts";
 
 app.setName("irudd-scope");
@@ -79,7 +76,6 @@ async function main() {
   let memory: MemoryService | undefined;
   let librarian: LibrarianService | undefined;
   let harnesses: HarnessesService | undefined;
-  let guestMutations: GuestMutations | undefined;
   let folderCommand: ReturnType<typeof registerDesktopIpc>["folderCommand"] | undefined;
   let watchFolder: ReturnType<typeof registerDesktopIpc>["watchFolder"] | undefined;
   const startedMemory = () => {
@@ -94,10 +90,6 @@ async function main() {
     librarian: (command) => {
       if (!librarian) throw new ScopeError(503, "Scope is still starting. Retry shortly.");
       return librarian.command(command);
-    },
-    guestCommand: (route, input) => {
-      if (!guestMutations) throw new Error("Guest operations are not ready.");
-      return guestMutations.command(route, input);
     },
     voice,
     harnesses: {
@@ -170,14 +162,6 @@ async function main() {
       relaunchCommand: `"${join(installation.root, "Scope.exe")}"`,
       relaunchDisplayName: "Scope",
     });
-  store.guestRecovery.onChanged = (id) => {
-    if (!window.isDestroyed()) window.webContents.send("scope:guest-recovery-changed", id);
-  };
-  const guests = new GuestConnections(store);
-  const guestCatalogs = new GuestCatalogs(guests, store, artifacts.store, (view) => {
-    if (!window.isDestroyed()) window.webContents.send("scope:guest-catalog-changed", view);
-  });
-  guestMutations = new GuestMutations(guests, store, artifacts.store, guestCatalogs, lifecycle!);
   if (process.platform === "darwin") window.setWindowButtonVisibility(false);
   const client = new ScopeClient(artifacts.url, artifacts.token);
   const setSketchpadMenu = createApplicationMenu(window);
@@ -205,7 +189,6 @@ async function main() {
   powerMonitor.on("resume", () => {
     void store.maintenance.check();
     void artifacts.store.maintenance.check();
-    void guests.reconnect();
     void remotes.resume().catch(() => console.error("Could not reconnect remotes after waking."));
     void memory?.retry().catch(() => console.error("Could not sync memory after waking."));
   });
@@ -237,9 +220,6 @@ async function main() {
     memory,
     librarian,
     harnesses,
-    guests,
-    guestCatalogs,
-    guestMutations,
     setSketchpadMenu,
     onRestartToUpdate: async () => {
       if (updates.snapshot().phase !== "ready") throw new Error("No update is ready.");
@@ -247,8 +227,6 @@ async function main() {
       await close(true);
     },
   });
-  await guests.start();
-  await guestCatalogs.start();
   folderCommand = desktopIpc.folderCommand;
   watchFolder = desktopIpc.watchFolder;
   const externalLinks = registerExternalLinks(window);
@@ -310,9 +288,6 @@ async function main() {
       desktopIpc.dispose();
       externalLinks.dispose();
       library.close();
-      await guestMutations?.close();
-      await guestCatalogs.close();
-      await guests.close();
       await remotes.close();
       await librarian?.close();
       await memory?.close();

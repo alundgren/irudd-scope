@@ -1,7 +1,3 @@
-import { GuestId, GuestName } from "@irudd-scope/protocol/guest";
-import type { GuestMutations } from "./guest/mutations.ts";
-import { GuestInput } from "./guest/recovery-contract.ts";
-import type { GuestCatalogs } from "./guest/catalog.ts";
 import { clipboard, dialog, ipcMain, nativeTheme, type BrowserWindow } from "electron";
 import { writeFile } from "node:fs/promises";
 import { Schema } from "effect";
@@ -24,8 +20,6 @@ import type { HarnessesService } from "./harnesses.ts";
 import { RemoteId } from "@irudd-scope/protocol/remote";
 import { openKeychainAccess } from "./signing.ts";
 import { SketchpadMenuState } from "./menu-contract.ts";
-import type { GuestConnections } from "./guest/service.ts";
-import { GuestAccess } from "./guest/contract.ts";
 
 export function registerDesktopIpc({
   window,
@@ -40,9 +34,6 @@ export function registerDesktopIpc({
   memory,
   librarian,
   harnesses,
-  guests,
-  guestCatalogs,
-  guestMutations,
   onRestartToUpdate,
   setSketchpadMenu,
 }: {
@@ -58,9 +49,6 @@ export function registerDesktopIpc({
   memory: MemoryService;
   librarian: LibrarianService;
   harnesses: HarnessesService;
-  guests: GuestConnections;
-  guestCatalogs: GuestCatalogs;
-  guestMutations: GuestMutations;
   onRestartToUpdate: () => Promise<void>;
   setSketchpadMenu: (state: SketchpadMenuState) => void;
 }) {
@@ -97,8 +85,6 @@ export function registerDesktopIpc({
   window.on("leave-full-screen", leftFullscreen);
 
   const plugins = registerMainPlugins({
-    guests,
-    guestCatalogs,
     window,
     handle,
     store,
@@ -221,10 +207,6 @@ export function registerDesktopIpc({
     const { id, hidden } = decode(Schema.Struct({ id: Uuid, hidden: Schema.Boolean }), input);
     return lifecycle.setTabHidden(id, hidden);
   });
-  handle("scope:defer-guest-tab", (input) => {
-    const { id, workspace } = decode(Schema.Struct({ id: Uuid, workspace: Schema.Unknown }), input);
-    return lifecycle.deferGuestTab(id, workspace);
-  });
   handle("scope:restore-tab", (input) => lifecycle.restoreTab(decode(Uuid, input)));
   handle("scope:empty-trash", (input) =>
     lifecycle.emptyTrash(decode(Schema.Array(TrashEntry), input)),
@@ -238,55 +220,6 @@ export function registerDesktopIpc({
   handle("scope:close-tab", async (input) => {
     await lifecycle.closeTab(decode(Uuid, input));
   });
-  handle("scope:guest-prepare", (input) => guestMutations.command("prepare", input));
-  handle("scope:guest-execute", (input) => guestMutations.command("execute", input));
-  handle("scope:guest-operation-status", (input) => guestMutations.command("status", input));
-  handle("scope:guest-reconcile", (input) => guestMutations.command("reconcile", input));
-  handle("scope:guest-recovery", (input) => store.guestRecovery.read(decode(Uuid, input)));
-  handle("scope:save-guest-input", (input) => store.guestRecovery.save(decode(GuestInput, input)));
-  handle("scope:discard-guest-input", (input) => {
-    const { id, kind, revision } = decode(
-      Schema.Struct({ id: Uuid, kind: Schema.Literals(["html", "action"]), revision: Revision }),
-      input,
-    );
-    return store.guestRecovery.discard(id, kind, revision);
-  });
-  const guestRead = Schema.Struct({ id: Uuid, revision: Revision });
-  handle("scope:guest-catalog", () => guestCatalogs.snapshot());
-  handle("scope:guest-content", (input) => {
-    const { id, revision } = decode(guestRead, input);
-    return guestCatalogs.content(id, revision);
-  });
-  handle("scope:guest-download", async (input) => {
-    const { id, revision } = decode(guestRead, input);
-    const item = await guestCatalogs.content(id, revision);
-    const result = await dialog.showSaveDialog(window, { defaultPath: item.artifact.fileName });
-    if (result.canceled || !result.filePath) return false;
-    // Recheck after the human leaves the save dialog; source access may have been revoked.
-    const current = await guestCatalogs.content(id, revision);
-    await writeFile(result.filePath, current.bytes);
-    return true;
-  });
-  handle("scope:guest-status", () => guests.status());
-  handle("scope:set-guest-access", (input) => {
-    const value = decode(GuestAccess, input);
-    return guests.setEnabled(value.peerId, value.enabled);
-  });
-  handle("scope:retry-guest", (input) => guests.reconnect(decode(GuestId, input)));
-  handle("scope:guest-devices", () => guests.devices());
-  handle("scope:create-guest-invitation", (input) =>
-    guests.pairing.create(decode(GuestName, input)),
-  );
-  handle("scope:copy-guest-invitation", async (input) =>
-    clipboard.writeText(guests.pairing.invitation(decode(GuestId, input))),
-  );
-  handle("scope:inspect-guest-invitation", async (input) =>
-    guests.pairing.inspect(await clipboard.readText(), decode(GuestName, input)),
-  );
-  handle("scope:approve-guest-pairing", (input) => guests.pairing.approve(decode(GuestId, input)));
-  handle("scope:cancel-guest-pairing", (input) => guests.cancelPairing(decode(GuestId, input)));
-  handle("scope:guest-pairing-status", () => guests.pairing.status());
-  handle("scope:forget-guest", (input) => guests.forget(decode(GuestId, input)));
   handle("scope:workspace", () => lifecycle.workspace());
   handle("scope:save-workspace", (input) => lifecycle.saveWorkspace(input));
   handle("scope:close-ready", (input) => onCloseReady(decode(Schema.Boolean, input)));

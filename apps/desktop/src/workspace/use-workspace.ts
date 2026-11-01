@@ -1,4 +1,3 @@
-import type { GuestCatalogView } from "../guest/contract.ts";
 import { useEffect, useRef, useState } from "react";
 import {
   decodeWorkspace,
@@ -33,11 +32,6 @@ export function useWorkspace(onError: (message: string) => void) {
   const current = useRef(workspace);
   const [ready, setReady] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [guests, setGuests] = useState<GuestCatalogView>({
-    records: [],
-    owners: [],
-    available: [],
-  });
   const opening = useRef(Promise.resolve());
   const pendingOpens = useRef(new Set<{ closed: Set<string> }>());
   const hiding = useRef(new Map<string, Promise<void>>());
@@ -151,63 +145,6 @@ export function useWorkspace(onError: (message: string) => void) {
     }
     replace(decodeWorkspace({ ...latest, tabs: [...latest.tabs, tab] }));
   }
-
-  useEffect(() => {
-    if (!loaded) return;
-    let live = true;
-    let received = false;
-    const accept = (view: GuestCatalogView) => {
-      if (!live) return;
-      setGuests(view);
-      const previous = current.current;
-      const known = new Set(previous.tabs.map((tab) => tab.id));
-      const sources = new Map(view.records.map((record) => [record.tab.id, record.tab]));
-      const tabs = previous.tabs.map((tab) =>
-        tab.type === "guest" && sources.has(tab.id)
-          ? { ...tab, title: sources.get(tab.id)!.title }
-          : tab,
-      );
-      tabs.push(
-        ...view.records.filter((record) => !known.has(record.tab.id)).map((record) => record.tab),
-      );
-      const groups = [...previous.groups];
-      for (const tab of tabs)
-        if (!groups.some((group) => group.id === tab.groupId))
-          groups.push({ id: tab.groupId, owner: { kind: "workspace", id: tab.groupId } });
-      if (JSON.stringify(tabs) !== JSON.stringify(previous.tabs))
-        replace(decodeWorkspace({ ...previous, tabs, groups }));
-    };
-    const remove = window.scope.onGuestCatalogChanged((view) => {
-      received = true;
-      accept(view);
-    });
-    void window.scope
-      .guestCatalog()
-      .then((view) => {
-        if (!received) accept(view);
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-      remove();
-    };
-  }, [loaded]);
-
-  useEffect(() => {
-    const selected = current.current.selected;
-    if (!selected || !guests.available.includes(selected)) return;
-    const record = guests.records.find((record) => record.tab.id === selected);
-    const tab = current.current.tabs.find((tab) => tab.id === selected);
-    if (!record || !tab) return;
-    const revision = record.source.artifact?.revision ?? 0;
-    if (tab.guestReadRevision === revision) return;
-    replace({
-      ...current.current,
-      tabs: current.current.tabs.map((tab) =>
-        tab.id === selected ? { ...tab, guestReadRevision: revision } : tab,
-      ),
-    });
-  }, [guests, workspace.selected]);
 
   function createGroup(owner: TabGroup["owner"], id = crypto.randomUUID()): TabGroup {
     const previous = current.current;
@@ -338,15 +275,13 @@ export function useWorkspace(onError: (message: string) => void) {
     // Reopening also wins over a close that main has not finished.
     const closing = hiding.current.delete(id);
     const tab = current.current.tabs.find((tab) => tab.id === id);
-    if (tab?.type !== "guest" && (closing || tab?.hidden))
-      void window.scope.setTabHidden(id, false).catch(() => {});
+    if (closing || tab?.hidden) void window.scope.setTabHidden(id, false).catch(() => {});
     const previous = current.current;
     replace({
       ...previous,
       tabs: previous.tabs.map((tab) => (tab.id === id ? { ...tab, hidden: false } : tab)),
       selected: id,
     });
-    if (tab?.type === "guest") void save.flush().catch(() => {});
   }
 
   async function deferTab(id: string): Promise<string | null> {
@@ -378,23 +313,10 @@ export function useWorkspace(onError: (message: string) => void) {
       // A reopen while persistence was pending wins over this UI close.
       if (hiding.current.get(id) === hide) replace(deferred(current.current));
     };
-    const guest = current.current.tabs.find((tab) => tab.id === id)?.type === "guest";
-    const hide: Promise<void> = guest
-      ? save.commit(
-          () => (hiding.current.get(id) === hide ? deferred(current.current) : current.current),
-          async (value) => {
-            if (value.tabs.find((tab) => tab.id === id)?.hidden) {
-              await window.scope.deferGuestTab(id, value);
-              return undefined;
-            }
-            await window.scope.saveWorkspace(value);
-            return value;
-          },
-          apply,
-        )
-      : Promise.all([window.scope.setTabHidden(id, true), window.scope.saveWorkspace(next)]).then(
-          apply,
-        );
+    const hide: Promise<void> = Promise.all([
+      window.scope.setTabHidden(id, true),
+      window.scope.saveWorkspace(next),
+    ]).then(apply);
     hiding.current.set(id, hide);
     try {
       await hide;
@@ -448,16 +370,7 @@ export function useWorkspace(onError: (message: string) => void) {
   const updateState = (id: string, state: TabState) => updateTab(id, { state });
   return {
     workspace,
-    guests,
-    unreadTabs: new Set([
-      ...unreadTabs,
-      ...guests.records
-        .filter((record) => {
-          const tab = workspace.tabs.find((tab) => tab.id === record.tab.id);
-          return tab && tab.guestReadRevision !== (record.source.artifact?.revision ?? 0);
-        })
-        .map((record) => record.tab.id),
-    ]),
+    unreadTabs,
     ready,
     save,
     openTab,

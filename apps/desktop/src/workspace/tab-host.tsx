@@ -1,13 +1,9 @@
-import { GuestFolderRecovery } from "../guest/folder-recovery.tsx";
-import { GuestActions } from "../guest/actions.tsx";
-import { GuestHtmlRecovery } from "../guest/html-recovery.tsx";
-import type { GuestCatalogView, GuestRecord } from "../guest/contract.ts";
 import { Component, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { OverlayName, OverlayPosition, Tab, TabState } from "./contract.ts";
 import type { TabEventRouter } from "./events.ts";
 import { beforeClose } from "./persistence.ts";
-import { findPlugin, guestPlugin } from "../plugins/registry.renderer.ts";
+import { findPlugin } from "../plugins/registry.renderer.ts";
 import { validateTabState } from "../plugins/registry.ts";
 import type { Theme } from "../renderer/appearance.ts";
 
@@ -34,11 +30,6 @@ export function TabHost({
   updateOverlayPosition,
   active,
   onClose,
-  guest,
-  guestOwner,
-  guestAvailable,
-  guestControls,
-  onGuestControls,
   ...display
 }: {
   tab: Tab;
@@ -51,11 +42,6 @@ export function TabHost({
   ) => void;
   active: boolean;
   onClose: (id: string) => void;
-  guest?: GuestRecord;
-  guestOwner?: GuestCatalogView["owners"][number];
-  guestAvailable?: boolean;
-  guestControls: HTMLDivElement | null;
-  onGuestControls: () => void;
   artifact?: Artifact;
   theme: Theme;
   focus: boolean;
@@ -75,82 +61,26 @@ export function TabHost({
     },
     [events, saves],
   );
-  const content = useMemo(
-    () =>
-      guest
-        ? {
-            ownerName: guestOwner?.name,
-            available: guestAvailable === true,
-            ownerDeviceId: guest.ownerDeviceId,
-            sourceTabId: guest.source.sourceTabId,
-            sourceVersion: guest.source.sourceVersion,
-            read: (artifact: Artifact) => window.scope.guestContent(tab.id, artifact.revision),
-          }
-        : undefined,
-    [
-      tab.id,
-      guest?.ownerDeviceId,
-      guest?.source.sourceTabId,
-      guest?.source.sourceVersion,
-      guestAvailable,
-      guestOwner?.name,
-    ],
-  );
-  const plugin =
-    tab.type === "guest" ? guestPlugin(guest?.source.kind ?? "") : findPlugin(tab.type);
-  const unavailable = tab.type === "guest" && (!guestAvailable || !guest);
-  const notice = unavailable
-    ? guestOwner?.state === "connected"
-      ? `This source is no longer shared by ${guestOwner.name}. It may have expired, moved to Trashcan, or become ineligible. Restore or check the source on that Scope. Viewing here does not extend its retention.`
-      : (guestOwner?.message ??
-        "Checking the owner's current catalog. Your local tab position is saved.")
-    : tab.type === "guest" && (!plugin || guest?.source.version !== 1)
-      ? `Update Scope to open shared ${guest?.source.kind === "plan" ? "plans" : "folders"} from ${guestOwner?.name ?? "the owner"}.`
-      : undefined;
-  if (["file", "retro", "sketchpad", "folder", "guest"].includes(tab.type) && !active && !visited)
+  const plugin = findPlugin(tab.type);
+  if (["file", "retro", "sketchpad", "folder"].includes(tab.type) && !active && !visited)
     return null;
-  const withRecovery = (view: ReactNode) =>
-    tab.type === "guest" && guest ? (
-      <>
-        {guest.source.kind === "folder" && <GuestFolderRecovery tabId={tab.id} />}
-        {guest.source.kind !== "folder" && (
-          <GuestActions
-            record={guest}
-            owner={guestOwner}
-            available={guestAvailable === true}
-            controls={guestControls}
-            onOpenControls={onGuestControls}
-          />
-        )}
-        <GuestHtmlRecovery
-          record={guest}
-          available={guestAvailable === true}
-          controls={guestControls}
-          onOpenControls={onGuestControls}
-        >
-          {view}
-        </GuestHtmlRecovery>
-      </>
-    ) : (
-      view
-    );
   if (!plugin)
-    return withRecovery(
+    return (
       <p role="status" className="empty-state">
-        {notice ?? "This tab type is unavailable. Its saved data is still available."}
-      </p>,
+        This tab type is unavailable. Its saved data is still available.
+      </p>
     );
   try {
     validateTabState(tab);
   } catch {
-    return withRecovery(
+    return (
       <p role="alert" className="empty-state">
         This tab's saved state cannot be opened by this version of Scope.
-      </p>,
+      </p>
     );
   }
   const View = plugin.View;
-  const view = (
+  return (
     <TabErrorBoundary key={tab.type}>
       <Suspense
         fallback={
@@ -161,12 +91,9 @@ export function TabHost({
       >
         <View
           tab={tab}
-          active={active && !unavailable}
+          active={active}
           {...display}
-          viewing={display.viewing && !unavailable}
-          artifact={guest?.source.artifact ?? display.artifact}
           context={{
-            content,
             tabId: tab.id,
             groupId: tab.groupId,
             events,
@@ -187,18 +114,4 @@ export function TabHost({
       </Suspense>
     </TabErrorBoundary>
   );
-  if (tab.type !== "guest") return view;
-  const guestView = (
-    <>
-      {notice && (
-        <p role="status" className="empty-state">
-          {notice}
-        </p>
-      )}
-      <div className="guest-view" hidden={Boolean(notice)} inert={Boolean(notice)}>
-        {view}
-      </div>
-    </>
-  );
-  return withRecovery(guestView);
 }

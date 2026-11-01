@@ -137,7 +137,7 @@ test(
     const operation = folderCommand("through-remotes.txt", bytesForRemote);
     const response = await f.remotes.request(
       f.remotes.snapshot()[0].id,
-      `/v1/relay/folders/operations?${new URLSearchParams({ root: await realpath(f.directory), caller: "guest-adapter" })}`,
+      `/v1/relay/folders/operations?${new URLSearchParams({ root: await realpath(f.directory), caller: "relay-adapter" })}`,
       {
         method: "PUT",
         body: Readable.from([bytesForRemote]),

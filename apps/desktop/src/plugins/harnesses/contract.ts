@@ -29,7 +29,7 @@ export type HarnessesState = {
 
 /**
  * One machine column. The first column is this computer; the others are compared with it.
- * Remote and guest columns add their own name and connection status.
+ * Remote columns add their own name and connection status.
  */
 export type MachineColumn = {
   machine: HarnessMachine;

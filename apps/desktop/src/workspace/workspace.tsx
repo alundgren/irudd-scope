@@ -10,7 +10,6 @@ import {
   Download,
   Maximize2,
   Minimize2,
-  Monitor,
   Settings,
   X,
   Info,
@@ -20,8 +19,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
-import { Tooltip } from "../renderer/components/ui/tooltip.tsx";
-import { tabLabel } from "./tab-label.ts";
 import { NativeSelect, NativeSelectOption } from "../renderer/components/ui/native-select.tsx";
 import {
   Dialog,
@@ -64,7 +61,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const [settings, setSettings] = useState(false);
   const [settingsQuery, setSettingsQuery] = useState("");
   const [search, setSearch] = useState(false);
-  const [guestControls, setGuestControls] = useState<HTMLDivElement | null>(null);
   const [overflow, setOverflow] = useState(false);
   const [query, setQuery] = useState("");
   const [focus, setFocus] = useState(false);
@@ -88,7 +84,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const remotes = useRemotes();
   const {
     workspace,
-    guests,
     unreadTabs,
     ready: workspaceReady,
     save: workspaceSave,
@@ -106,9 +101,8 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     () => ({
       remoteName: (id: string) => remotes.get(id)?.name,
       platform: window.scope.platform,
-      guests,
     }),
-    [remotes, guests],
+    [remotes],
   );
   const retention = useTabRetention(workspaceReady, setError);
   // Moving an iframe resets its document, so panel order must be independent of tab order.
@@ -146,11 +140,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const modeSelect = useRef<HTMLSelectElement>(null);
   const artifacts = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const active = workspace.tabs.find((tab) => tab.id === workspace.selected);
-  const activeGuest = guests.records.find((record) => record.tab.id === active?.id);
-  const activeGuestLabel = active?.type === "guest" ? tabLabel(active, labels) : undefined;
-  const activeArtifact =
-    activeGuest?.source.artifact ??
-    (active ? artifacts.get(tabArtifactId(active) ?? "") : undefined);
+  const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
   const html = ["html", "plan", "pull-requests"].includes(activeArtifact?.kind ?? "");
   const hasModes = active?.type === "sketchpad" || html;
   const returnFocus = focus && hasModes ? modeSelect : controlsButton;
@@ -173,7 +163,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     if (focus) retention.reportVisible(workspace.selected ? [workspace.selected] : []);
   }, [focus, workspace.selected, retention.reportVisible]);
   useEffect(() => {
-    if (activeArtifact && !activeGuest) markRead(activeArtifact.id);
+    if (activeArtifact) markRead(activeArtifact.id);
   }, [activeArtifact?.id, activeArtifact?.revision]);
   const [events] = useState(
     () => new TabEventRouter(() => setError("A tab could not handle an event.")),
@@ -313,9 +303,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     const tab = workspace.tabs.find((entry) => entry.id === id);
     if (
       tab &&
-      (tab.type === "guest" ||
-        isBuiltinTab(tab) ||
-        retention.tabs.find((entry) => entry.tab.id === id)?.permanent)
+      (isBuiltinTab(tab) || retention.tabs.find((entry) => entry.tab.id === id)?.permanent)
     ) {
       try {
         await flushWorkspace("save", id);
@@ -332,7 +320,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   }
   async function trash(id: string) {
     const tab = workspace.tabs.find((entry) => entry.id === id);
-    if (tab && (tab.type === "guest" || isBuiltinTab(tab))) {
+    if (tab && isBuiltinTab(tab)) {
       await close(id);
       return;
     }
@@ -380,9 +368,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     if (!activeArtifact) return;
     setSearch(false);
     try {
-      if (activeGuest)
-        await window.scope.guestDownload(activeGuest.tab.id, activeArtifact.revision);
-      else await window.scope.download(activeArtifact.id, activeArtifact.revision);
+      await window.scope.download(activeArtifact.id, activeArtifact.revision);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Download failed.");
     }
@@ -462,24 +448,12 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           position={active.overlayPositions?.fullscreen}
           onPosition={(position) => updateOverlayPosition(active.id, "fullscreen", position)}
         >
-          {activeGuestLabel && (
-            <Tooltip content={activeGuestLabel.tooltip}>
-              <span
-                className="guest-focus-indicator"
-                role="img"
-                aria-label={activeGuestLabel.tooltip}
-              >
-                <Monitor className="guest-indicator" aria-hidden />
-              </span>
-            </Tooltip>
-          )}
           {hasModes ? (
             <NativeSelect
               size="sm"
               className="fullscreen-mode-select"
               ref={modeSelect}
               aria-label={html ? "Fullscreen HTML mode" : "Fullscreen Sketchpad mode"}
-              aria-description={activeGuestLabel?.sharedBy}
               value={html && fullscreenMode === "edit" ? "view" : fullscreenMode}
               onChange={(event) => {
                 if (event.target.value === "tabs") toggleFocus();
@@ -497,7 +471,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
               size="icon-xs"
               ref={controlsButton}
               aria-label="Exit focus mode"
-              aria-description={activeGuestLabel?.sharedBy}
               title="Exit fullscreen · Escape"
               onClick={toggleFocus}
             >
@@ -542,7 +515,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           const artifact = artifacts.get(tabArtifactId(tab) ?? "");
           return (
             <div
-              className={tab.type === "guest" ? "artifact-pane guest-pane" : "artifact-pane"}
+              className="artifact-pane"
               role="tabpanel"
               id={`pane-${id}`}
               aria-labelledby={focus ? undefined : `tab-${id}`}
@@ -550,20 +523,11 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
               key={id}
               hidden={id !== workspace.selected}
             >
-              <div className={tab.type === "guest" ? "guest-content" : "contents"}>
+              <div className="contents">
                 <TabHost
                   tab={tab}
                   active={id === workspace.selected}
                   artifact={artifact}
-                  guest={guests.records.find((record) => record.tab.id === tab.id)}
-                  guestOwner={guests.owners.find(
-                    (owner) =>
-                      owner.deviceId ===
-                      guests.records.find((record) => record.tab.id === tab.id)?.ownerDeviceId,
-                  )}
-                  guestAvailable={guests.available.includes(tab.id)}
-                  guestControls={id === workspace.selected && search ? guestControls : null}
-                  onGuestControls={openSearch}
                   router={events}
                   updateState={updateState}
                   updateOverlayPosition={updateOverlayPosition}
@@ -601,7 +565,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       </div>
       <WorkspaceSearch
         open={search}
-        guestControlsRef={setGuestControls}
         onOpenChange={setSearch}
         query={query}
         setQuery={setQuery}
@@ -676,10 +639,6 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
           active
             ? {
                 title: activeArtifact?.title ?? active.title,
-                guestOwner: activeGuest
-                  ? (guests.owners.find((owner) => owner.deviceId === activeGuest.ownerDeviceId)
-                      ?.name ?? "another Scope")
-                  : undefined,
                 actions: [
                   ...(activeArtifact
                     ? [
@@ -702,7 +661,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                         },
                       ]
                     : []),
-                  ...(!activeBuiltin && !activeGuest
+                  ...(!activeBuiltin
                     ? [
                         {
                           id: "permanent",
@@ -716,12 +675,9 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                     : []),
                   {
                     id: "close",
-                    title: activeBuiltin || activeGuest ? "Close tab" : "Move to Trashcan",
-                    keywords:
-                      activeBuiltin || activeGuest
-                        ? "close hide built-in"
-                        : "close trash delete remove",
-                    icon: activeBuiltin || activeGuest ? X : Trash2,
+                    title: activeBuiltin ? "Close tab" : "Move to Trashcan",
+                    keywords: activeBuiltin ? "close hide built-in" : "close trash delete remove",
+                    icon: activeBuiltin ? X : Trash2,
                     shortcut: activeBuiltin || !activePermanent ? primaryShortcut("W") : undefined,
                     onSelect: () => {
                       setSearch(false);

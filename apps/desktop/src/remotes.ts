@@ -1,4 +1,3 @@
-import { GUEST_PLANS_CAPABILITY } from "@irudd-scope/protocol/guest-operation";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { hostname } from "node:os";
@@ -355,7 +354,7 @@ export class Remotes {
         const response = await fetch(`${endpoint}/v1/relay/events`, {
           headers: {
             Authorization: `Bearer ${token}`,
-            [RELAY_CAPABILITIES_HEADER]: `${FOLDER_CAPABILITY},${GUEST_PLANS_CAPABILITY}`,
+            [RELAY_CAPABILITIES_HEADER]: FOLDER_CAPABILITY,
             ...(waking ? { [RELAY_WAKE_HEADER]: "1" } : {}),
           },
           redirect: "error",

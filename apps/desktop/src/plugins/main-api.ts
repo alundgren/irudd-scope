@@ -1,5 +1,3 @@
-import type { GuestConnections } from "../guest/service.ts";
-import type { GuestCatalogs } from "../guest/catalog.ts";
 import type { MemoryService } from "../memory.ts";
 import type { HarnessesService } from "../harnesses.ts";
 import type { DesktopStore } from "../desktop-store.ts";
@@ -23,6 +21,4 @@ export type MainPluginContext = {
   harnesses: HarnessesService;
   lifecycle: DesktopLifecycle;
   remotes: Remotes;
-  guests: GuestConnections;
-  guestCatalogs: GuestCatalogs;
 };

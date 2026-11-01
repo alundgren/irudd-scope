@@ -1,4 +1,4 @@
-import { useRef, type Ref, type RefObject } from "react";
+import { useRef, type RefObject } from "react";
 import { File, Search, Settings, X, type LucideIcon } from "lucide-react";
 import type { Artifact } from "@irudd-scope/protocol";
 import { Button } from "../renderer/components/ui/button.tsx";
@@ -49,7 +49,6 @@ export function WorkspaceSearch({
   currentTab,
   onOpenSettings,
   finalFocus,
-  guestControlsRef,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -58,8 +57,7 @@ export function WorkspaceSearch({
   artifacts: readonly Artifact[];
   onOpenArtifact: (id: string) => void;
   actions: readonly WorkspaceAction[];
-  currentTab?: { title: string; actions: readonly WorkspaceAction[]; guestOwner?: string };
-  guestControlsRef: Ref<HTMLDivElement>;
+  currentTab?: { title: string; actions: readonly WorkspaceAction[] };
   onOpenSettings: (filter?: string) => void;
   finalFocus: boolean | RefObject<HTMLElement | null>;
 }) {
@@ -111,17 +109,8 @@ export function WorkspaceSearch({
   const controls = matchingActions(actions);
   const tabActions = matchingActions(currentTab?.actions ?? []);
   const settingMatches = needle ? matchingSettings(needle) : [];
-  const guestControls =
-    !!currentTab?.guestOwner &&
-    `guest owner source actions rename title retention trash form input recovery shared ${currentTab.guestOwner}`
-      .toLowerCase()
-      .includes(needle);
   const hasResults =
-    matches.length ||
-    controls.length ||
-    tabActions.length ||
-    settingMatches.length ||
-    guestControls;
+    matches.length || controls.length || tabActions.length || settingMatches.length;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -130,7 +119,6 @@ export function WorkspaceSearch({
         finalFocus={finalFocus}
         ref={(element) => {
           if (!element) return;
-          // Guest controls are React portals owned by their tabs; keyboard navigation follows the dialog DOM.
           element.addEventListener("keydown", navigateResults);
           return () => element.removeEventListener("keydown", navigateResults);
         }}
@@ -165,7 +153,7 @@ export function WorkspaceSearch({
           </div>
         </div>
         <div className={`search-body${needle ? " searching" : ""}`} ref={results}>
-          {(controls.length > 0 || tabActions.length > 0 || guestControls) && (
+          {(controls.length > 0 || tabActions.length > 0) && (
             <div className="workspace-controls">
               {controls.length > 0 && (
                 <section className="app-controls" aria-label="Workspace controls">
@@ -177,17 +165,15 @@ export function WorkspaceSearch({
                   </div>
                 </section>
               )}
-              {currentTab && (tabActions.length > 0 || guestControls) && (
+              {currentTab && tabActions.length > 0 && (
                 <section className="current-tab-controls" aria-label="Current tab">
                   <h2>Current tab</h2>
                   <p className="current-tab-title">{currentTab.title}</p>
-                  {guestControls && <p className="secondary">Shared by {currentTab.guestOwner}</p>}
                   <div className="control-grid">
                     {tabActions.map((action) => (
                       <ActionButton key={action.id} action={action} />
                     ))}
                   </div>
-                  {guestControls && <div ref={guestControlsRef} />}
                 </section>
               )}
             </div>

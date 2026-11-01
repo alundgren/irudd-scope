@@ -31,7 +31,7 @@ again only after it fails. Edits made after a passing full run need only
 
 When the covering file holds several slow Electron journeys, run only the one
 you changed by name, for example
-`vp run test tests/guest-sharing.test.ts -t "pairs explicitly"`. When an
+`vp run test tests/remotes.test.ts -t "expired pairing links"`. When an
 Electron test fails, the desktop fixture writes each window's accessibility
 tree to `scope-test-failures` under `SCOPE_REVIEW_DIR`, or under the system
 temporary directory when that is unset. It adds a screenshot when the window
@@ -269,7 +269,7 @@ checks that an injected GitHub command delay appears in external timing data.
 Read coverage reasons before interpreting a report. Linux uses software
 rendering on isolated Xvfb displays. Synthetic providers, GitHub and local hub connections
 establish integration behavior; they do not measure live services. Native
-platform dialogs, macOS/Windows behavior and live Tailscale guest latency remain
+platform dialogs and macOS/Windows behavior remain
 unmeasured. External durations can overlap application work. Remaining elapsed
 time is unattributed, and rising RSS alone does not establish a memory leak.
 
@@ -947,21 +947,3 @@ older hubs reject JSON plans until their CLI/hub protocol is updated separately.
 Use direct local discovery for the first trial. Same-version hub queues keep the
 normal receipt and revision-conflict behavior. A queued write is not a delivered
 plan. Reads and basis capture require the desktop connected.
-
-### Native guest connection transport check
-
-`vp exec node tools/check-guest-transport.ts` is an optional native check using
-installed Tailscale status, the actual local IPv4 interface and a temporary
-HTTP listener bound exclusively to that address. It sends authenticated and
-rejected local requests without changing Tailscale configuration. Run it in an
-authorized isolated environment. It does not establish peer connectivity,
-protected credential storage or restart and sleep/wake behavior; those need
-separate macOS and Windows checks.
-
-`vp exec node tools/check-guest-request.ts` is a bounded offline adapter probe.
-Synthetic discovery and local HTTP sockets exercise exact destination and route
-validation, upload ownership before discovery, cancellation, deadlines, redirects,
-connection failures and response streaming. Standard Electron guest journeys
-inject OS discovery and socket routing from test fixtures outside the product.
-They need no installed Tailscale or live tailnet and preserve production
-endpoint validation.

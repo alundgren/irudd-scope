@@ -1,12 +1,10 @@
 import { createHash } from "node:crypto";
 import { Schema } from "effect";
-import { GuestPairCredential } from "@irudd-scope/protocol/guest";
 import { decode } from "@irudd-scope/protocol";
 import { credentialHelperEntry } from "./credential-helper.ts";
 
 const Secrets = Schema.Struct({
   apiKey: Schema.optionalKey(Schema.String),
-  guestPairs: Schema.optionalKey(Schema.Record(Schema.String, GuestPairCredential)),
   remoteTokens: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
 const LegacySecrets = Schema.Struct({
@@ -48,6 +46,7 @@ function retainedCredentials(input: unknown): unknown {
     transferKeys: _transferKeys,
     guestKey: _key,
     guestEndpoints: _endpoints,
+    guestPairs: _pairs,
     ...retained
   } = input as Record<string, unknown>;
   return retained;
@@ -77,11 +76,7 @@ export function windowsCredentials(protection: WindowsProtection): CredentialFac
       },
       write: async (secrets) => {
         const next = decode(Secrets, secrets);
-        if (
-          !next.apiKey &&
-          !Object.keys(next.guestPairs ?? {}).length &&
-          !Object.keys(next.remoteTokens ?? {}).length
-        ) {
+        if (!next.apiKey && !Object.keys(next.remoteTokens ?? {}).length) {
           await document.write(undefined);
           return;
         }
@@ -136,7 +131,6 @@ export function keychainCredentials(entry: KeychainEntry): CredentialStore {
       try {
         const secrets = decode(LegacySecrets, retainedCredentials(JSON.parse(value)));
         return {
-          ...(secrets.guestPairs === undefined ? {} : { guestPairs: secrets.guestPairs }),
           ...(secrets.apiKey === undefined ? {} : { apiKey: secrets.apiKey }),
           ...(secrets.remoteTokens === undefined ? {} : { remoteTokens: secrets.remoteTokens }),
         };
@@ -146,11 +140,7 @@ export function keychainCredentials(entry: KeychainEntry): CredentialStore {
     },
     write: async (secrets) => {
       try {
-        if (
-          secrets.apiKey ||
-          Object.keys(secrets.guestPairs ?? {}).length ||
-          Object.keys(secrets.remoteTokens ?? {}).length
-        )
+        if (secrets.apiKey || Object.keys(secrets.remoteTokens ?? {}).length)
           await entry.setPassword(JSON.stringify(decode(Secrets, secrets)));
         else await entry.deleteCredential();
       } catch (cause) {

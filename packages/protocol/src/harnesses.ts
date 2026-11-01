@@ -31,11 +31,9 @@ export const HARNESS_NAMES: Record<HarnessId, string> = {
   grok: "Grok Build",
 };
 
-/** `local`, `remote:ID` for a paired remote, or `guest:ID` for a guest desktop that shares. */
+/** `local`, or `remote:ID` for a paired remote. */
 export const HarnessMachine = Schema.String.check(
-  Schema.isPattern(
-    /^(?:local|remote:[a-f0-9-]{36}|guest:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/,
-  ),
+  Schema.isPattern(/^(?:local|remote:[a-f0-9-]{36})$/),
 );
 export type HarnessMachine = typeof HarnessMachine.Type;
 
