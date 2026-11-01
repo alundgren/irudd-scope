@@ -52,8 +52,12 @@ irudd-scope prompts export --output NEW_FILE.zip
 irudd-scope plan guide
 irudd-scope plan publish NAME PLAN.json OVERVIEW.html [--expected-revision REVISION]
 irudd-scope plan read NAME
+irudd-scope plan items NAME
+irudd-scope plan next NAME
 irudd-scope plan item NAME ITEM_ID
-irudd-scope plan capture-basis NAME BASIS_ID --expected-revision REVISION
+irudd-scope plan evidence NAME CHECK_ID --result passed|failed|blocked --observed TEXT --implementation TEXT --conditions TEXT [--reference TEXT]
+irudd-scope plan done NAME ITEM_ID
+irudd-scope plan reopen NAME ITEM_ID
 irudd-scope plan content NAME --output NEW_FILE.html
 irudd-scope folder open [PATH] [--title TITLE]
 irudd-scope folder find [PATH]
@@ -189,6 +193,11 @@ function parseOptions() {
       "codex-url": { type: "string" },
       output: { type: "string" },
       "expected-revision": { type: "string" },
+      result: { type: "string" },
+      observed: { type: "string" },
+      implementation: { type: "string" },
+      conditions: { type: "string" },
+      reference: { type: "string", multiple: true },
       receipt: { type: "string" },
       "request-id": { type: "string" },
       instructions: { type: "string" },

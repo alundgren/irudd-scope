@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { decode, MAX_CONTENT_BYTES, Revision, ScopeError } from "./index.ts";
+import { decode, MAX_CONTENT_BYTES, ScopeError } from "./index.ts";
 
 const Id = Schema.String.check(Schema.isPattern(/^[A-Za-z][A-Za-z0-9_-]{0,127}$/));
 const Text = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(262144));
@@ -42,31 +42,28 @@ export const PlanProposal = Schema.Struct({
   items: Schema.optionalKey(List(Item)),
 });
 export type PlanProposal = typeof PlanProposal.Type;
-const Basis = Schema.Struct({ id: Id, revision: Revision, proposal: PlanProposal });
-const Agreement = Schema.Struct({ id: Id, basisId: Id, targetIds: Ids, note: Text });
+const Fingerprint = Schema.String.check(Schema.isPattern(/^[a-f0-9]{16}$/));
 const Evidence = Schema.Struct({
   id: Id,
-  basisId: Id,
   checkId: Id,
-  expected: Text,
+  checkFingerprint: Fingerprint,
+  result: Schema.Literals(["passed", "failed", "blocked"]),
   observed: Text,
   implementation: Text,
   conditions: Text,
-  result: Schema.Literals(["passed", "failed", "blocked"]),
   references: Schema.optionalKey(Strings),
 });
 export const PlanDocument = Schema.Struct({
-  version: Schema.Literal(1),
+  version: Schema.Literal(2),
   ...PlanProposal.fields,
-  bases: Schema.optionalKey(List(Basis)),
-  agreements: Schema.optionalKey(List(Agreement)),
+  doneItemIds: Schema.optionalKey(Ids),
   evidence: Schema.optionalKey(List(Evidence)),
-  removedRecordIds: Schema.optionalKey(Ids),
 });
 export type PlanDocument = typeof PlanDocument.Type;
 export type PlanCheck = typeof Check.Type;
 export type PlanItem = typeof Item.Type;
-export type PlanBasis = typeof Basis.Type;
+export type PlanEvidence = typeof Evidence.Type;
+export type EvidenceState = PlanEvidence["result"] | "stale" | "none";
 
 function invalid(message: string): never {
   throw new ScopeError(400, message);
@@ -126,36 +123,18 @@ function validateProposal(plan: PlanProposal) {
 }
 
 export function decodePlan(input: unknown): PlanDocument {
+  if (input && typeof input === "object" && "version" in input && input.version === 1)
+    invalid("This plan uses format version 1. Update the irudd-scope CLI and publish again.");
   try {
     const plan = decode(PlanDocument, input);
     if (new TextEncoder().encode(JSON.stringify(plan)).byteLength > MAX_CONTENT_BYTES)
-      invalid("Plan exceeds 32 MiB. Retained records were not discarded.");
+      invalid("Plan exceeds 32 MiB.");
     validateProposal(plan);
-    const bases = plan.bases ?? [],
-      agreements = plan.agreements ?? [],
-      evidence = plan.evidence ?? [];
+    unique(plan.doneItemIds ?? [], "done item");
     unique(
-      [...bases, ...agreements, ...evidence].map((x) => x.id),
-      "record ID",
+      (plan.evidence ?? []).map((x) => x.id),
+      "evidence ID",
     );
-    unique(plan.removedRecordIds ?? [], "removed record ID");
-    const targets = new Map(
-      bases.map((basis) => {
-        if (basis.revision < 1) invalid("A basis must identify a published revision.");
-        return [basis.id, validateProposal(basis.proposal)] as const;
-      }),
-    );
-    for (const record of [...agreements, ...evidence]) {
-      const basis = bases.find((x) => x.id === record.basisId);
-      if (!basis) invalid(`Unknown basis: ${record.basisId}.`);
-      if ("targetIds" in record) {
-        if (!record.targetIds.length) invalid("Agreement needs at least one target.");
-        references(record.targetIds, targets.get(basis.id)!, "agreement target");
-      } else if (!basis.proposal.checks?.some((x) => x.id === record.checkId))
-        invalid(`Unknown evidence check in basis ${basis.id}: ${record.checkId}.`);
-    }
-    if ([...bases, ...agreements, ...evidence].some((x) => plan.removedRecordIds?.includes(x.id)))
-      invalid("A removed record ID cannot also name a retained record.");
     return plan;
   } catch (error) {
     if (error instanceof ScopeError) throw error;
@@ -167,170 +146,164 @@ export function decodePlan(input: unknown): PlanDocument {
 }
 export function readPlan(bytes: Uint8Array): PlanDocument {
   if (bytes.byteLength > MAX_CONTENT_BYTES) invalid("Plan exceeds 32 MiB.");
+  let input: unknown;
   try {
-    return decodePlan(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
-  } catch (error) {
-    if (error instanceof ScopeError) throw error;
+    input = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
     throw new ScopeError(400, "Plan content must be valid UTF-8 JSON.");
   }
+  return decodePlan(input);
 }
 export function proposalOf(plan: PlanDocument): PlanProposal {
-  const {
-    version: _version,
-    bases: _bases,
-    agreements: _agreements,
-    evidence: _evidence,
-    removedRecordIds: _removed,
-    ...proposal
-  } = plan;
+  const { version: _version, doneItemIds: _done, evidence: _evidence, ...proposal } = plan;
   return proposal;
 }
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object")
-    return `{${Object.entries(value)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, v]) => `${JSON.stringify(key)}:${canonical(v)}`)
-      .join(",")}}`;
-  return JSON.stringify(value);
-}
-export function validatePlanUpdate(next: PlanDocument, previous?: PlanDocument, revision = 0) {
-  for (const basis of next.bases ?? []) {
-    const old = previous?.bases?.find((x) => x.id === basis.id);
-    if (
-      old
-        ? canonical(old) !== canonical(basis)
-        : !previous ||
-          basis.revision !== revision ||
-          canonical(basis.proposal) !== canonical(proposalOf(previous))
-    )
-      throw new ScopeError(
-        409,
-        "A basis must preserve the exact proposal at its source revision. Capture it from a current read.",
-      );
-  }
-  for (const basis of previous?.bases ?? [])
-    if (!next.bases?.some((x) => x.id === basis.id))
-      throw new ScopeError(409, "Retained bases cannot be removed.");
-  for (const key of ["agreements", "evidence"] as const) {
-    for (const record of previous?.[key] ?? []) {
-      const replacement = next[key]?.find((x) => x.id === record.id);
-      if (
-        replacement
-          ? canonical(record) !== canonical(replacement)
-          : !next.removedRecordIds?.includes(record.id)
-      )
-        throw new ScopeError(
-          409,
-          "Preserve recorded agreement and evidence. Explicitly list removedRecordIds to remove a record; use a new ID for a correction.",
-        );
-    }
-  }
-  for (const id of previous?.removedRecordIds ?? []) {
-    if (!next.removedRecordIds?.includes(id))
-      throw new ScopeError(409, "Preserve removed record IDs.");
-  }
-}
-export function capturePlanBasis(plan: PlanDocument, revision: number, id: string): PlanDocument {
-  if (plan.bases?.some((x) => x.id === id)) throw new ScopeError(409, "Choose a new basis ID.");
-  return decodePlan({
-    ...plan,
-    bases: [...(plan.bases ?? []), { id, revision, proposal: proposalOf(plan) }],
-  });
+
+/** Detects changed check wording; it is not a security hash. Runs in the renderer too. */
+export function checkFingerprint(
+  check: Pick<PlanCheck, "expectation" | "conditions" | "method" | "kind">,
+) {
+  const text = JSON.stringify([check.expectation, check.conditions, check.method, check.kind]);
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(text))
+    hash = ((hash ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn;
+  return hash.toString(16).padStart(16, "0");
 }
 
-export function planItemPacket(
-  plan: PlanDocument,
-  itemId: string,
-  artifact: { name?: string; id: string; revision: number },
-) {
-  const item = plan.items?.find((x) => x.id === itemId);
-  if (!item) throw new ScopeError(404, "Work item not found.");
-  const prerequisites = new Set<string>();
-  const pending = [...item.dependsOn];
-  while (pending.length) {
-    const id = pending.pop()!;
-    if (prerequisites.has(id)) continue;
-    prerequisites.add(id);
-    pending.push(...plan.items!.find((x) => x.id === id)!.dependsOn);
-  }
-  const evidenceFor = (ids: readonly string[]) =>
-    (plan.evidence ?? []).filter((x) => ids.includes(x.checkId));
-  const prerequisiteItems = (plan.items ?? [])
-    .filter((x) => prerequisites.has(x.id))
-    .map((entry) => ({
-      item: entry,
-      checks: (plan.checks ?? []).filter((x) => entry.checkIds.includes(x.id)),
-      recordedEvidence: evidenceFor(entry.checkIds),
-    }));
-  const goals = new Set([...item.goalIds, ...prerequisiteItems.flatMap((x) => x.item.goalIds)]);
-  const ownedChecks = (plan.checks ?? []).filter((x) => item.checkIds.includes(x.id));
-  const relevantItems = new Set([item.id, ...prerequisites]);
-  const relevantChecks = new Set([
-    ...item.checkIds,
-    ...prerequisiteItems.flatMap((x) => x.item.checkIds),
-  ]);
-  const visuals = (plan.visuals ?? []).filter(
-    (x) => x.checkIds.some((id) => relevantChecks.has(id)) || x.goalIds.some((id) => goals.has(id)),
-  );
-  const targets = new Set([
-    ...goals,
-    ...relevantItems,
-    ...relevantChecks,
-    ...visuals.map((x) => x.id),
-  ]);
-  const historicalBasisIds = new Set(
-    (plan.bases ?? [])
-      .filter((x) => x.proposal.items?.some((old) => relevantItems.has(old.id)))
-      .map((x) => x.id),
-  );
-  const agreements = (plan.agreements ?? []).filter(
-    (x) => x.targetIds.some((id) => targets.has(id)) || historicalBasisIds.has(x.basisId),
-  );
-  // Historical checks may have been removed or renamed in the current proposal.
-  const bases = (plan.bases ?? []).filter(
-    (x) =>
-      x.proposal.items?.some((old) => relevantItems.has(old.id)) ||
-      agreements.some((a) => a.basisId === x.id),
-  );
-  const basisIds = new Set(bases.map((x) => x.id));
-  const evidence = (plan.evidence ?? []).filter(
-    (x) => relevantChecks.has(x.checkId) || basisIds.has(x.basisId),
-  );
-  for (const basis of plan.bases ?? [])
-    if (evidence.some((x) => x.basisId === basis.id) && !basisIds.has(basis.id)) bases.push(basis);
+/** The newest record for a check decides its state; a changed check makes it stale. */
+export function checkEvidence(plan: PlanDocument, check: PlanCheck) {
+  const latest = (plan.evidence ?? []).findLast((x) => x.checkId === check.id);
+  const state: EvidenceState = !latest
+    ? "none"
+    : latest.checkFingerprint === checkFingerprint(check)
+      ? latest.result
+      : "stale";
+  return { state, evidence: state === "stale" || state === "none" ? undefined : latest };
+}
+
+/**
+ * Applied when a plan is stored. Progress for removed items and checks is dropped, and an item
+ * whose outcome or owned checks changed is no longer done.
+ */
+export function settlePlan(next: PlanDocument, previous?: PlanDocument): PlanDocument {
+  const items = new Map((next.items ?? []).map((x) => [x.id, x]));
+  const checks = new Set((next.checks ?? []).map((x) => x.id));
+  const definition = (plan: PlanDocument, item: PlanItem) =>
+    JSON.stringify([
+      item.outcome,
+      [...item.checkIds].sort().map((id) => {
+        const check = plan.checks?.find((x) => x.id === id);
+        return check ? checkFingerprint(check) : id;
+      }),
+    ]);
+  const doneItemIds = [...new Set(next.doneItemIds)].filter((id) => {
+    const item = items.get(id);
+    if (!item) return false;
+    const before = previous?.items?.find((x) => x.id === id);
+    return !before || definition(previous!, before) === definition(next, item);
+  });
+  const evidence = (next.evidence ?? []).filter((x) => checks.has(x.checkId));
+  const { doneItemIds: _done, evidence: _evidence, ...rest } = next;
   return {
-    version: 1,
-    artifact,
-    item,
-    ownedChecks,
-    prerequisites: prerequisiteItems,
-    relatedContext: {
-      context: plan.context ?? "",
-      constraints: plan.constraints ?? [],
-      questions: plan.questions ?? [],
-      goals: (plan.goals ?? []).filter((x) => goals.has(x.id)),
-      visuals,
-      checks: (plan.checks ?? []).filter(
-        (x) => !relevantChecks.has(x.id) && x.goalIds.some((id) => goals.has(id)),
-      ),
-    },
-    recorded: {
-      agreements,
-      evidence,
-      bases,
-      applicability:
-        "Records refer to retained proposals. Assess applicability explicitly; they do not verify the current proposal automatically.",
-    },
-    overviewHtml: plan.overviewHtml,
-    retrieval: {
-      item: `${planRetrieval("item", artifact)} ${item.id}`,
-      read: planRetrieval("read", artifact),
-      content: `${planRetrieval("content", artifact)} --output overview.html`,
-    },
+    ...rest,
+    ...(doneItemIds.length ? { doneItemIds } : {}),
+    ...(evidence.length ? { evidence } : {}),
   };
 }
 
-export function planRetrieval(action: string, artifact: { id: string; name?: string }) {
-  return `irudd-scope plan ${action} ${artifact.name ?? artifact.id}`;
+export function setItemDone(plan: PlanDocument, itemId: string, done: boolean): PlanDocument {
+  if (!plan.items?.some((x) => x.id === itemId)) throw new ScopeError(404, "Work item not found.");
+  const others = (plan.doneItemIds ?? []).filter((id) => id !== itemId);
+  return settlePlan({ ...plan, doneItemIds: done ? [...others, itemId] : others });
 }
+
+export function addEvidence(
+  plan: PlanDocument,
+  record: Omit<PlanEvidence, "id" | "checkFingerprint">,
+): PlanDocument {
+  const check = plan.checks?.find((x) => x.id === record.checkId);
+  if (!check) throw new ScopeError(404, "Check not found.");
+  let n = (plan.evidence?.length ?? 0) + 1;
+  while (plan.evidence?.some((x) => x.id === `evidence-${n}`)) n++;
+  return decodePlan({
+    ...plan,
+    evidence: [
+      ...(plan.evidence ?? []),
+      { id: `evidence-${n}`, checkFingerprint: checkFingerprint(check), ...record },
+    ],
+  });
+}
+
+type PlanArtifact = { name?: string; id: string; revision: number };
+const planRef = (artifact: { id: string; name?: string }) => artifact.name ?? artifact.id;
+
+export function planCommands(artifact: { id: string; name?: string }, itemId = "ITEM_ID") {
+  const plan = planRef(artifact);
+  return {
+    items: `irudd-scope plan items ${plan}`,
+    next: `irudd-scope plan next ${plan}`,
+    item: `irudd-scope plan item ${plan} ${itemId}`,
+    evidence: `irudd-scope plan evidence ${plan} CHECK_ID --result passed|failed|blocked --observed TEXT --implementation TEXT --conditions TEXT`,
+    done: `irudd-scope plan done ${plan} ${itemId}`,
+    reopen: `irudd-scope plan reopen ${plan} ${itemId}`,
+  };
+}
+
+export function itemInstruction(artifact: { id: string; name?: string }, item: PlanItem) {
+  const commands = planCommands(artifact, item.id);
+  return `Implement work item "${item.title}" from Scope plan ${planRef(artifact)}. Read it with: ${commands.item}. Record evidence for each of its checks with: ${commands.evidence}. When it is finished, mark it done with: ${commands.done}`;
+}
+
+export function nextItemInstruction(artifact: { id: string; name?: string }) {
+  const commands = planCommands(artifact);
+  return `Implement the next work item from Scope plan ${planRef(artifact)}. Find and read it with: ${commands.next}. Record evidence for each of its checks with: ${commands.evidence}. When it is finished, mark it done with: ${commands.done}`;
+}
+
+export function planItemList(plan: PlanDocument) {
+  const done = new Set(plan.doneItemIds);
+  return (plan.items ?? []).map((item) => ({
+    id: item.id,
+    title: item.title,
+    done: done.has(item.id),
+    dependsOn: item.dependsOn,
+  }));
+}
+
+/** The first item in plan order that is not done and whose dependencies are done. */
+export function nextPlanItem(plan: PlanDocument) {
+  const done = new Set(plan.doneItemIds);
+  return plan.items?.find((x) => !done.has(x.id) && x.dependsOn.every((id) => done.has(id)));
+}
+
+export function planItemPacket(plan: PlanDocument, itemId: string, artifact: PlanArtifact) {
+  const item = plan.items?.find((x) => x.id === itemId);
+  if (!item) throw new ScopeError(404, "Work item not found.");
+  const done = new Set(plan.doneItemIds);
+  return {
+    version: 2,
+    artifact: {
+      id: artifact.id,
+      ...(artifact.name ? { name: artifact.name } : {}),
+      revision: artifact.revision,
+    },
+    item: { ...item, done: done.has(item.id) },
+    checks: (plan.checks ?? [])
+      .filter((x) => item.checkIds.includes(x.id))
+      .map((check) => ({ ...check, ...checkEvidence(plan, check) })),
+    goals: (plan.goals ?? []).filter((x) => item.goalIds.includes(x.id)),
+    context: plan.context ?? "",
+    constraints: plan.constraints ?? [],
+    questions: plan.questions ?? [],
+    dependencies: item.dependsOn.map((id) => ({
+      id,
+      title: plan.items!.find((x) => x.id === id)!.title,
+      done: done.has(id),
+    })),
+    visuals: (plan.visuals ?? []).filter((x) =>
+      x.checkIds.some((id) => item.checkIds.includes(id)),
+    ),
+    overviewHtml: plan.overviewHtml,
+    commands: planCommands(artifact, item.id),
+  };
+}
+export type PlanItemPacket = ReturnType<typeof planItemPacket>;

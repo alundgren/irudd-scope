@@ -946,4 +946,4 @@ The native Overview and Work items views require this version's desktop. Install
 older hubs reject JSON plans until their CLI/hub protocol is updated separately.
 Use direct local discovery for the first trial. Same-version hub queues keep the
 normal receipt and revision-conflict behavior. A queued write is not a delivered
-plan. Reads and basis capture require the desktop connected.
+plan. Reads and progress commands require the desktop connected.

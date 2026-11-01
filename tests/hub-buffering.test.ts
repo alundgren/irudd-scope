@@ -184,7 +184,7 @@ test(
     const plan = await f.cli("plan", "read", "queued-plan");
     expect(plan.artifact.mediaType).toBe("application/json");
     expect(plan.document.overviewHtml).toBe(await readFile(join(source, "overview.html"), "utf8"));
-    expect((await f.cli("plan", "item", "queued-plan", "recover")).ownedChecks).toHaveLength(1);
+    expect((await f.cli("plan", "item", "queued-plan", "recover")).checks).toHaveLength(1);
     expect(new TextDecoder().decode(await f.direct.content("offline-report"))).toBe(
       "Buffered finding",
     );

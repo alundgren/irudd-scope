@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "title": "Retry a daily export",
   "context": "A fictional command-line export of public sample records. No provider or production data is required.",
   "constraints": ["Use synthetic fixtures and the real application entry points."],

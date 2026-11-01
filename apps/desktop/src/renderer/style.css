@@ -1409,11 +1409,6 @@ h2 {
   max-width: 70rem;
   margin-inline: auto;
 }
-.plan-item-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--scope-space-2);
-}
 .plan-work h1 {
   font-size: var(--scope-text-title);
   margin-block: var(--scope-space-6);
@@ -1457,16 +1452,79 @@ h2 {
 .plan-muted {
   color: var(--scope-muted);
 }
-.plan-records > section {
-  margin-block: var(--scope-space-6);
+.plan-work-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--scope-space-3);
 }
-.plan-item-list button {
-  max-width: 100%;
-  height: auto;
-  min-height: var(--scope-control);
-  white-space: normal;
-  overflow-wrap: anywhere;
+.plan-items {
+  width: 100%;
+  border-collapse: collapse;
+  margin-block: var(--scope-space-4);
+}
+.plan-items th {
   text-align: left;
+  color: var(--scope-muted);
+  font-size: var(--scope-text-ui);
+  font-weight: var(--scope-weight-medium);
+  padding: var(--scope-space-2) var(--scope-space-3);
+  border-bottom: 1px solid var(--scope-line);
+}
+.plan-items td {
+  vertical-align: top;
+  padding: var(--scope-space-2) var(--scope-space-3);
+  border-bottom: 1px solid var(--scope-line);
+  overflow-wrap: anywhere;
+}
+.plan-items tr[data-waiting] > td {
+  color: var(--scope-muted);
+}
+.plan-items tr[data-expanded] > td,
+.plan-item-detail > td {
+  background: var(--scope-strip);
+}
+.plan-item-detail > td {
+  padding: var(--scope-space-2) var(--scope-space-6) var(--scope-space-4);
+}
+.plan-done {
+  width: 4rem;
+  text-align: center;
+  color: var(--scope-accent);
+}
+.plan-item-toggle {
+  text-align: left;
+  font-weight: var(--scope-weight-medium);
+  color: inherit;
+  cursor: pointer;
+}
+.plan-item-toggle:hover {
+  text-decoration: underline;
+}
+.plan-item-toggle:focus-visible {
+  outline: 2px solid var(--scope-accent);
+  outline-offset: 2px;
+}
+.plan-evidence {
+  margin-left: var(--scope-space-3);
+  padding: 0 var(--scope-space-2);
+  border-radius: var(--scope-radius-control);
+  border: 1px solid var(--scope-line);
+  font-size: var(--scope-text-detail);
+  color: var(--scope-muted);
+}
+.plan-evidence[data-result="passed"] {
+  color: var(--scope-accent);
+  border-color: currentColor;
+}
+.plan-evidence[data-result="failed"] {
+  color: var(--scope-danger);
+  border-color: currentColor;
+}
+.plan-evidence[data-result="blocked"],
+.plan-evidence[data-result="stale"] {
+  color: var(--scope-warning);
+  background: var(--scope-warning-surface);
 }
 
 .tab-title:has(.tab-machine, .tab-icon) {

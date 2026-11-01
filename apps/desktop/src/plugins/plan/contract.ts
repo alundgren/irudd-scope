@@ -8,17 +8,18 @@ export const PlanTabState = Schema.Struct({
     artifactId: ArtifactId,
     view: Schema.optionalKey(Schema.Literals(["overview", "work"])),
     itemId: Schema.optionalKey(Schema.String),
-    basisId: Schema.optionalKey(Schema.String),
     scrollY: Schema.optionalKey(
-      Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0)),
-    ),
-    basisScrollY: Schema.optionalKey(
       Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0)),
     ),
     workScrollY: Schema.optionalKey(
       Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0)),
     ),
-    // Saved by older plan tabs, which had a feedback panel and version picker.
+    // Saved by older plan tabs, which had a feedback panel, version picker and retained
+    // proposal inspection.
+    basisId: Schema.optionalKey(Schema.String),
+    basisScrollY: Schema.optionalKey(
+      Schema.Number.check(Schema.isFinite(), Schema.isGreaterThanOrEqualTo(0)),
+    ),
     reviewOpen: Schema.optionalKey(Schema.Boolean),
     revision: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
   }),

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "title": "Save a reading list",
   "context": "A fictional reading app. Examples propose behavior, not a final screen design.",
   "constraints": ["Use synthetic fixtures and the real application entry points."],

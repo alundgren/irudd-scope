@@ -349,12 +349,21 @@ Older desktops reject this newer database; restore a compatible backup to downgr
 
 ## Plans
 
-Structured plans store their versioned JSON in the artifact/blob tables. Exact
-proposal bases, including authored HTML, remain inside the current document so
-normal reclamation cannot erase the meaning of recorded agreement or evidence.
-Bases cannot be redefined or removed. Record correction requires explicit removal
-IDs and new record IDs. The 32 MiB artifact limit includes all retained material;
-publication fails instead of discarding old records.
+Structured plans store their versioned JSON in the artifact/blob tables. The
+document holds the current proposal, the IDs of done items and evidence. Each
+evidence record stores a fingerprint of its check's expectation, conditions, method
+and kind; a changed check makes that evidence stale. Publication may store a settled
+copy instead of the uploaded bytes when it drops progress for removed or changed items.
+
+Artifact schema 18 converts every stored format version 1 plan to version 2 and
+advances its revision. It removes full copies of earlier proposals (bases),
+agreements and `removedRecordIds`. Evidence is kept only when the check it was
+recorded against reads the same as the current check. No item starts done. Tabs and
+their saved reading state stay. Desktops and CLIs that know only version 1 reject the
+converted plans, and older builds reject schema 18. Back up both databases before
+upgrading if the removed records matter; restore that backup to downgrade. A version 1
+publication queued in a hub before the upgrade fails on delivery and stays in
+`hub queue` until discarded or expired.
 
 Artifact schema 16 converts legacy HTML plans to ordinary HTML, preserving bytes, artifact
 IDs, names, titles, permanence, tab order, hidden/trashed state and saved workspace

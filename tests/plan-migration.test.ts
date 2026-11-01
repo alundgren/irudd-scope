@@ -71,7 +71,7 @@ test(
         const client = await f.connect();
         const recovered = new DatabaseSync(join(f.settingsDirectory, "artifacts", "scope.db"));
         try {
-          expect(recovered.prepare("PRAGMA user_version").get()).toEqual({ user_version: 17 });
+          expect(recovered.prepare("PRAGMA user_version").get()).toEqual({ user_version: 18 });
         } finally {
           recovered.close();
         }
