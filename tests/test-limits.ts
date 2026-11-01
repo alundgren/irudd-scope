@@ -2,15 +2,13 @@
 export const maxTests = 247;
 
 // Test files written before tests were limited to Scope's public entry points.
-// Each keeps exactly these product imports and test count. Remove imports and
-// tests over time and lower the entry to match. Never add an entry.
-export const frontDoorExceptions: Record<string, { tests?: number; imports: string[] }> = {
+// Each keeps only these product imports. Remove entries as imports disappear.
+// Never add an entry.
+export const frontDoorExceptions: Record<string, { imports: string[] }> = {
   "tests/artifact-storage.test.ts": {
-    tests: 1,
     imports: ["apps/desktop/src/library/server.ts"],
   },
   "tests/artifacts.test.ts": {
-    tests: 7,
     imports: [
       "apps/desktop/src/library/local.ts",
       "apps/desktop/src/library/server.ts",
@@ -18,15 +16,12 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/credential-helper.test.ts": {
-    tests: 3,
     imports: ["apps/desktop/src/credentials.ts"],
   },
   "tests/credentials.test.ts": {
-    tests: 6,
     imports: ["apps/desktop/src/credentials.ts", "apps/desktop/src/desktop-store.ts"],
   },
   "tests/desktop-storage.test.ts": {
-    tests: 3,
     imports: [
       "apps/desktop/src/credentials.ts",
       "apps/desktop/src/desktop-store.ts",
@@ -37,7 +32,6 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/hub-buffering.test.ts": {
-    tests: 11,
     imports: [
       "apps/desktop/src/credentials.ts",
       "apps/desktop/src/desktop-store.ts",
@@ -48,11 +42,9 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/hub-relay.test.ts": {
-    tests: 2,
     imports: ["apps/hub/src/paired-server.ts", "apps/hub/src/state.ts"],
   },
   "tests/installation.test.ts": {
-    tests: 16,
     imports: [
       "apps/desktop/src/agent-tools.ts",
       "apps/desktop/src/installation-files.ts",
@@ -69,7 +61,6 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/lifecycle.test.ts": {
-    tests: 8,
     imports: [
       "apps/desktop/src/desktop-store.ts",
       "apps/desktop/src/library/library.ts",
@@ -79,7 +70,6 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/maintenance.test.ts": {
-    tests: 2,
     imports: [
       "apps/desktop/src/desktop-store.ts",
       "apps/desktop/src/library/server.ts",
@@ -88,11 +78,9 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/memory-commands.test.ts": {
-    tests: 2,
     imports: ["packages/memory-sync/src/commands.ts"],
   },
   "tests/memory-remotes.test.ts": {
-    tests: 1,
     imports: [
       "@irudd-scope/memory-sync",
       "apps/desktop/src/credentials.ts",
@@ -106,7 +94,6 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/memory-service.test.ts": {
-    tests: 2,
     imports: [
       "apps/desktop/src/desktop-store.ts",
       "apps/desktop/src/memory.ts",
@@ -114,15 +101,12 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/memory-sync.test.ts": {
-    tests: 10,
     imports: ["@irudd-scope/memory-sync"],
   },
   "tests/memory-ui.test.ts": {
-    tests: 1,
     imports: ["@irudd-scope/memory-sync"],
   },
   "tests/plan-cli.test.ts": {
-    tests: 1,
     imports: ["apps/desktop/src/library/server.ts"],
   },
   "tests/pressure-fixture.ts": {
@@ -132,7 +116,6 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     imports: ["apps/desktop/src/library/server.ts"],
   },
   "tests/prompts-remotes.test.ts": {
-    tests: 1,
     imports: [
       "apps/desktop/src/credentials.ts",
       "apps/desktop/src/desktop-store.ts",
@@ -142,7 +125,6 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/pull-requests-scheduler.test.ts": {
-    tests: 4,
     imports: [
       "apps/desktop/src/library/server.ts",
       "apps/desktop/src/plugins/pull-requests/gh-process.ts",
@@ -151,18 +133,15 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/pull-requests-stack.test.ts": {
-    tests: 4,
     imports: [
       "apps/desktop/src/plugins/pull-requests/gh-process.ts",
       "apps/desktop/src/plugins/pull-requests/gh.ts",
     ],
   },
   "tests/pull-requests-state-sdk.test.ts": {
-    tests: 2,
     imports: ["apps/desktop/src/plugins/pull-requests/frame-sdk.ts"],
   },
   "tests/pull-requests-sync.test.ts": {
-    tests: 2,
     imports: [
       "apps/desktop/src/library/server.ts",
       "apps/desktop/src/library/store.ts",
@@ -172,11 +151,9 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/pull-requests.test.ts": {
-    tests: 18,
     imports: ["apps/desktop/src/library/server.ts"],
   },
   "tests/remote-cancellation.test.ts": {
-    tests: 1,
     imports: [
       "apps/desktop/src/credentials.ts",
       "apps/desktop/src/desktop-store.ts",
@@ -193,15 +170,12 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/remote-updates.test.ts": {
-    tests: 6,
     imports: ["apps/desktop/src/remote-updates.ts"],
   },
   "tests/remotes-ui.test.ts": {
-    tests: 1,
     imports: ["apps/hub/src/paired-server.ts", "apps/hub/src/state.ts"],
   },
   "tests/remotes.test.ts": {
-    tests: 5,
     imports: [
       "apps/desktop/src/credentials.ts",
       "apps/desktop/src/desktop-store.ts",
@@ -213,7 +187,6 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/retro-api.test.ts": {
-    tests: 26,
     imports: [
       "apps/desktop/src/desktop-store.ts",
       "apps/desktop/src/library/server.ts",
@@ -224,15 +197,12 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/retro-machines.test.ts": {
-    tests: 3,
     imports: ["apps/desktop/src/desktop-store.ts"],
   },
   "tests/retro-sdk.test.ts": {
-    tests: 3,
     imports: ["apps/desktop/src/plugins/retro/frame-sdk.ts"],
   },
   "tests/tab-events.test.ts": {
-    tests: 3,
     imports: [
       "apps/desktop/src/plugins/events.ts",
       "apps/desktop/src/workspace/contract.ts",
@@ -240,7 +210,6 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/tab-retention.test.ts": {
-    tests: 4,
     imports: [
       "apps/desktop/src/desktop-store.ts",
       "apps/desktop/src/library/server.ts",
@@ -250,7 +219,6 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/voice.test.ts": {
-    tests: 6,
     imports: [
       "apps/desktop/src/credentials.ts",
       "apps/desktop/src/desktop-store.ts",
@@ -263,11 +231,9 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/windows-credentials.test.ts": {
-    tests: 3,
     imports: ["apps/desktop/src/credentials.ts", "apps/desktop/src/desktop-store.ts"],
   },
   "tests/windows-installation.test.ts": {
-    tests: 10,
     imports: [
       "apps/desktop/src/agent-tools.ts",
       "apps/desktop/src/installation-files.ts",
@@ -277,7 +243,6 @@ export const frontDoorExceptions: Record<string, { tests?: number; imports: stri
     ],
   },
   "tests/workspace-persistence.test.ts": {
-    tests: 1,
     imports: [
       "apps/desktop/src/workspace/contract.ts",
       "apps/desktop/src/workspace/persistence.ts",
