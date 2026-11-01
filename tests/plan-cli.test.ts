@@ -1,6 +1,6 @@
 import { expect, test } from "vite-plus/test";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -36,7 +36,7 @@ async function fixture() {
 }
 
 test(
-  "publication preserves exact bases and records after changed and removed criteria, rejecting bypasses atomically",
+  "agents read one work item, record evidence and progress, and plan revisions keep progress honest",
   { tags: ["publish", "no-lost-updates", "bad-requests-change-nothing"] },
   async () => {
     const f = await fixture();
@@ -45,134 +45,109 @@ test(
       const first = await f.cli(
         "plan",
         "publish",
-        "recorded-plan",
+        "work-plan",
         join(examples, "ui", "plan.json"),
         html,
       );
       const output = join(f.directory, "exported.html");
-      await f.cli("plan", "content", "recorded-plan", "--output", output);
+      await f.cli("plan", "content", "work-plan", "--output", output);
       expect(await readFile(output, "utf8")).toBe(await readFile(html, "utf8"));
-      await expect(f.cli("plan", "content", "recorded-plan", "--output", output)).rejects.toThrow();
-      await expect(f.cli("update", "recorded-plan", html)).rejects.toThrow("plan publish");
-      await f.cli(
-        "plan",
-        "capture-basis",
-        "recorded-plan",
-        "discussed",
-        "--expected-revision",
-        "1",
+      await expect(f.cli("plan", "content", "work-plan", "--output", output)).rejects.toThrow();
+      await expect(f.cli("update", "work-plan", html)).rejects.toThrow("plan publish");
+
+      // The next item comes with only its own checks and its dependencies' titles.
+      let next = await f.cli("plan", "next", "work-plan");
+      expect(next.items).toEqual([
+        { id: "persist", title: expect.any(String), done: false, dependsOn: [] },
+        { id: "recover", title: expect.any(String), done: false, dependsOn: ["persist"] },
+      ]);
+      expect(next.next.item.id).toBe("persist");
+      expect(next.next.checks.map((x: { id: string }) => x.id)).toEqual(["save", "repeat"]);
+      expect(next.next.checks.every((x: { state: string }) => x.state === "none")).toBe(true);
+      expect(next.next.overviewHtml).toBe(await readFile(html, "utf8"));
+      expect(JSON.stringify(next.next)).not.toContain('"remove"');
+
+      const evidence = (check: string, result: string) =>
+        f.cli(
+          "plan",
+          "evidence",
+          "work-plan",
+          check,
+          "--result",
+          result,
+          "--observed",
+          `Observed ${check}`,
+          "--implementation",
+          "Synthetic build",
+          "--conditions",
+          "Empty list",
+          "--reference",
+          "synthetic-run.txt",
+        );
+      expect(await evidence("save", "passed")).toMatchObject({ check: "save", result: "passed" });
+      await evidence("repeat", "failed");
+      await evidence("repeat", "passed");
+      await expect(evidence("missing", "passed")).rejects.toThrow("Check not found");
+      await expect(evidence("save", "maybe")).rejects.toThrow("--result");
+      const done = await f.cli("plan", "done", "work-plan", "persist");
+      expect(done).toMatchObject({ item: "persist", done: true });
+      expect(Object.keys(done.receipt)).toEqual(["revision"]);
+      await expect(f.cli("plan", "done", "work-plan", "missing")).rejects.toThrow(
+        "Work item not found",
       );
-      let current = await f.client.get(first.id);
-      let plan = readPlan(await f.client.content(first.id));
-      const proposal = plan.bases![0].proposal;
-      plan = {
-        ...plan,
-        agreements: [
-          {
-            id: "agreed",
-            basisId: "discussed",
-            targetIds: ["save"],
-            note: "The reader explicitly agreed to keeping one saved entry.",
-          },
-        ],
-        evidence: [
-          {
-            id: "tested",
-            basisId: "discussed",
-            checkId: "save",
-            expected: "One saved entry",
-            observed: "One entry after restart",
-            implementation: "Synthetic build",
-            conditions: "Empty list",
-            result: "passed",
-            references: ["synthetic-run.txt"],
-          },
-        ],
-      };
-      const publish = (next: PlanDocument, revision = current.revision) =>
+
+      const item = await f.cli("plan", "item", "work-plan", "persist");
+      expect(item.item.done).toBe(true);
+      expect(item.checks.map((x: { state: string }) => x.state)).toEqual(["passed", "passed"]);
+      expect(item.checks[0].evidence.references).toEqual(["synthetic-run.txt"]);
+      next = await f.cli("plan", "next", "work-plan");
+      expect(next.next.item.id).toBe("recover");
+      expect(next.next.dependencies).toEqual([
+        { id: "persist", title: next.items[0].title, done: true },
+      ]);
+
+      // A planning agent republishes the whole document; changing a done item's check reopens it.
+      const read = await f.cli("plan", "read", "work-plan");
+      const plan: PlanDocument = read.document;
+      const publish = (body: unknown, revision: number) =>
         f.client.publish(
           first.id,
           {
-            name: "recorded-plan",
-            title: next.title,
+            name: "work-plan",
+            title: plan.title,
             kind: "plan",
             mediaType: "application/json",
             fileName: "plan.json",
             expectedRevision: revision,
           },
-          new TextEncoder().encode(JSON.stringify(next)),
+          new TextEncoder().encode(JSON.stringify(body)),
         );
-      current = await publish(plan);
       const before = Buffer.from(await f.client.content(first.id));
-      for (const bad of [
-        { ...plan, bases: [] },
-        {
-          ...plan,
-          bases: [
-            {
-              ...plan.bases![0],
-              proposal: { ...proposal, overviewHtml: proposal.overviewHtml + "<!-- changed -->" },
-            },
-          ],
-        },
-        { ...plan, checks: plan.checks!.map((x) => ({ ...x, expectation: "x".repeat(262145) })) },
-        { ...plan, checks: plan.checks!.map((x) => ({ ...x, goalIds: ["missing"] })) },
-        {
-          ...plan,
-          items: [],
-          checks: plan.checks!.map((x) => ({ ...x, placement: "work" as const })),
-          visuals: [],
-        },
-        { ...plan, visuals: plan.visuals!.map((x) => ({ ...x, anchor: "absent" })) },
-        { ...plan, agreements: [] },
-        { ...plan, evidence: [] },
-        { ...plan, checks: [...plan.checks!, plan.checks![0]] },
-        { ...plan, items: plan.items!.map((x) => ({ ...x, dependsOn: [x.id] })) },
-        { ...plan, items: plan.items!.map((x) => ({ ...x, checkIds: ["missing"] })) },
-        { ...plan, evidence: [{ ...plan.evidence![0], checkId: "missing" }] },
-        {
-          ...plan,
-          bases: [
-            ...plan.bases!,
-            {
-              id: "invented",
-              revision: 1,
-              proposal: {
-                ...proposal,
-                overviewHtml: proposal.overviewHtml + "<!-- fabricated -->",
-              },
-            },
-          ],
-        },
-      ]) {
-        await expect(publish(bad)).rejects.toThrow();
-        expect(Buffer.from(await f.client.content(first.id))).toEqual(before);
-        expect((await f.client.get(first.id)).revision).toBe(current.revision);
-      }
-      await expect(publish(plan, 1)).rejects.toThrow();
-      const changed = {
-        ...plan,
-        overviewHtml: '<h1 id="ordinary-case">New visual</h1><div id="recovery-case"></div>',
-        checks: plan.checks!.filter((x) => x.id !== "save"),
-        visuals: plan.visuals!.map((x) => ({
-          ...x,
-          checkIds: x.checkIds.filter((id) => id !== "save"),
-        })),
-        items: plan.items!.map((x) => ({
-          ...x,
-          checkIds: x.checkIds.filter((id) => id !== "save"),
-        })),
-      };
-      current = await publish(changed);
-      const packet = await f.cli("plan", "item", "recorded-plan", "persist");
-      expect(packet.ownedChecks.map((x: { id: string }) => x.id)).not.toContain("save");
-      expect(packet.recorded.bases[0].proposal).toEqual(proposal);
-      expect(packet.recorded.evidence[0].checkId).toBe("save");
-      expect(packet.overviewHtml).toBe(
-        '<h1 id="ordinary-case">New visual</h1><div id="recovery-case"></div>',
+      await expect(publish({ ...plan, version: 1 }, read.artifact.revision)).rejects.toThrow(
+        "Update the irudd-scope CLI",
       );
-      current = await publish({ ...changed, agreements: [], removedRecordIds: ["agreed"] });
-      expect(readPlan(await f.client.content(first.id)).bases![0].proposal).toEqual(proposal);
+      await expect(
+        publish({ ...plan, context: "Older read" }, read.artifact.revision - 1),
+      ).rejects.toThrow();
+      expect(Buffer.from(await f.client.content(first.id))).toEqual(before);
+      const revised = {
+        ...plan,
+        context: "Revised after review",
+        checks: plan.checks!.map((check) =>
+          check.id === "repeat" ? { ...check, method: `${check.method} Twice.` } : check,
+        ),
+      };
+      await publish(revised, read.artifact.revision);
+      const settled = readPlan(await f.client.content(first.id));
+      expect(settled.context).toBe("Revised after review");
+      expect(settled.doneItemIds ?? []).toEqual([]);
+      const reopened = await f.cli("plan", "item", "work-plan", "persist");
+      expect(reopened.item.done).toBe(false);
+      expect(reopened.checks.map((x: { state: string }) => x.state)).toEqual(["passed", "stale"]);
+
+      await f.cli("plan", "done", "work-plan", "persist");
+      await f.cli("plan", "reopen", "work-plan", "persist");
+      expect((await f.cli("plan", "items", "work-plan")).items[0].done).toBe(false);
     } finally {
       await f.close();
     }

@@ -249,21 +249,28 @@ the tab, can be cancelled, and stop when the tab closes.
 ## Structured plans
 
 A named `plan` artifact stores one versioned JSON document in existing SQLite
-artifact bytes. The document contains authored overview HTML, goals, visuals,
-checks, work items, exact retained proposal bases, agreement and evidence.
-`packages/protocol/src/plan.ts` owns schemas, reference and dependency validation,
-update preservation rules and the pure selected-item projection. The library
-validates uploaded bytes and revision/basis rules inside the publication transaction.
+artifact bytes. The document contains the proposal (authored overview HTML, goals,
+visuals, checks and work items) and progress: the IDs of done items and evidence
+recorded against checks. `packages/protocol/src/plan.ts` owns schemas, reference and
+dependency validation, check fingerprints, progress settling, the item list, next-item
+selection and the selected-item packet. The library validates uploaded bytes inside
+the publication transaction and stores the settled document: progress for removed
+items and checks is dropped, and an item whose outcome or owned checks changed is no
+longer done. A hub-queued publish cannot see the stored plan, so settling happens there.
 
 `plugins/plan` renders Overview and Work items. Overview receives validated proposal
-data before authored scripts run. Inspecting a retained basis uses its original
-HTML and records. Reading state persists with the workspace in SQLite. Native
-controls use Scope tokens; authored content keeps its presentation.
+data before authored scripts run; progress is not part of it, so recording progress
+does not reload the document. Work items is a table of done state, title, outcome
+and dependencies whose rows expand to the item's text and per-check evidence state.
+Its copy buttons copy short instructions naming CLI commands. Reading state persists
+with the workspace in SQLite. Native controls use Scope tokens; authored content
+keeps its presentation.
 
 The CLI assembles JSON and HTML and uses ordinary artifact reads and revision-checked
-publication for local plans. The paired hub can queue opted-in local plan publication
-through the artifact protocol. Reads and basis capture need the desktop online.
-Scope neither orchestrates agents nor infers agreement or verification.
+publication. Progress commands read the current document, change only their target and
+publish against the revision they read. The paired hub can queue opted-in plan
+publication through the artifact protocol. Reads and progress commands need the
+desktop online. Scope neither orchestrates agents nor infers agreement or verification.
 
 Legacy HTML plans convert to ordinary HTML artifacts and file tabs, preserving
 bytes and lifecycle state. Late legacy publication follows the same conversion;

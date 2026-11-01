@@ -710,43 +710,47 @@ HTML is limited to 32 MiB. Each inbox supports eight simultaneous windows.
 ## Native structured plans
 
 Publish `kind: "plan"`, `mediaType: "application/json"`, an immutable name and
-version 1 JSON through the ordinary artifact publication API. New plans start
+version 2 JSON through the ordinary artifact publication API. Version 1 documents are
+rejected with a request to update the CLI. New plans start
 permanent. Replacements require the explicit artifact revision. The shared
 [plan contract](src/plan.ts) validates UTF-8 bytes, bounded records, unique IDs,
 references, visual anchors, goal consistency and acyclic item dependencies.
-Desktop publication validates bytes and preservation inside its transaction.
-Invalid or stale replacement leaves the stored content and revision unchanged.
+Desktop publication validates bytes inside its transaction and stores the settled
+document. Invalid or stale replacement leaves the stored content and revision unchanged.
 
 The proposal has title, overviewHtml, optional context, constraints, questions,
-goals, visuals, checks and items. A basis contains ID, source artifact revision
-and the exact proposal, excluding nested bases and records. New bases must match
-the current stored proposal and revision. Agreements identify a basis and its
-targets; evidence identifies a basis and its check, expected/observed behavior,
-implementation, conditions, result and references. Existing bases cannot change
-or disappear. Existing records cannot change. Deliberate record removal requires
-its ID in `removedRecordIds`; prior removal IDs remain and cannot be reused.
-No check or visual update automatically carries old evidence forward.
+goals, visuals, checks and items. Progress is optional `doneItemIds` and `evidence`.
+Evidence has an ID, check ID, check fingerprint, result (`passed`, `failed` or
+`blocked`), observed behavior, implementation, conditions and optional references.
+The newest record for a check decides its state; a fingerprint that no longer matches
+the check makes it `stale`. Settling drops done IDs for removed items, evidence for
+removed checks, and done for any item whose outcome or owned check fingerprints changed.
 
 The CLI field guide is `plan guide`. Commands are `plan publish NAME PLAN.json
-OVERVIEW.html [--expected-revision N]`, `plan read NAME`, `plan item NAME ITEM_ID`,
-`plan content NAME --output NEW_FILE.html`, and `plan capture-basis NAME BASIS_ID
---expected-revision N`. Omitted revision on publish means create only. Capture
-adds the exact current basis through guarded publication and records no agreement.
-Read again before adding records and use the new artifact revision. Generic
-`update` rejects structured plans. `read` returns artifact and document; selected
-packets separate owned checks, prerequisites and related context and retain exact
-recorded proposals. Content export preserves the authored HTML bytes as UTF-8.
+OVERVIEW.html [--expected-revision N]`, `plan read NAME`, `plan items NAME`,
+`plan next NAME`, `plan item NAME ITEM_ID`, `plan evidence NAME CHECK_ID --result R
+--observed TEXT --implementation TEXT --conditions TEXT [--reference TEXT]`,
+`plan done NAME ITEM_ID`, `plan reopen NAME ITEM_ID` and `plan content NAME --output
+NEW_FILE.html`. Omitted revision on publish means create only. Generic `update`
+rejects structured plans. `read` returns artifact and document. `items` returns ID,
+title, done and dependencies for every item; `next` adds the packet for the first
+item in plan order that is not done and whose dependencies are done. A packet holds
+the item, its checks with evidence state, its goals, plan context, constraints and
+questions, dependencies as ID, title and done, visuals tied to its checks, the
+overview HTML and the commands to record progress. Progress commands publish only
+their change against the revision they read and return a short receipt. Content
+export preserves the authored HTML bytes as UTF-8.
 
 Overview receives `window.scopePlan.data` before authored scripts. Declarative
 `data-plan-goal`, `data-plan-check`, `data-plan-procedure` and `data-plan-checks`
 bindings provide goal text, expectations, complete procedures and ordered visual
-check lists. A recorded view injects that basis's data. No sandbox or content policy
-is added to trusted authored HTML.
+check lists. Progress is not injected. No sandbox or content policy is added to
+trusted authored HTML.
 
-The total byte limit is 32 MiB, including bases. Collections are limited to 2,000
+The total byte limit is 32 MiB. Collections are limited to 2,000
 records, text fields to 262,144 characters, labels to 512, titles to 160 and IDs
-to 128. Early drafts may omit empty collections. Reads and basis capture need the
-desktop online. Same-version hubs forward reads and queue JSON publications through
+to 128. Early drafts may omit empty collections. Reads and progress commands need
+the desktop online. Same-version hubs forward reads and queue JSON publications through
 existing routes. A queued receipt confirms storage at the hub, not delivery.
 Installed older hubs reject JSON until updated separately. Legacy `text/html`
 plan publications become ordinary HTML and cannot downgrade a structured plan.

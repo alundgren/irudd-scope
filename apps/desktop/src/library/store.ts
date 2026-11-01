@@ -1,4 +1,5 @@
-import { readPlan, validatePlanUpdate } from "@irudd-scope/protocol/plan";
+import { readPlan, settlePlan } from "@irudd-scope/protocol/plan";
+import { upgradePlanDocuments } from "./plan-upgrade.ts";
 import { PromptDraft } from "../plugins/prompts/contract.ts";
 import { PromptStore } from "./prompt-store.ts";
 import { RetroStore, initializeRetroTab } from "./retro-store.ts";
@@ -135,6 +136,7 @@ export class ArtifactStore {
       await store.convertLegacyPlans();
       await store.pullRequests.recoverInterruptedSync();
       await store.removeGuestSharing();
+      await store.run(upgradePlanDocuments(sql));
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -217,7 +219,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 17) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > 18) throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");
@@ -1014,6 +1016,7 @@ export class ArtifactStore {
           }>`SELECT length(content) AS size FROM blobs JOIN tab_blobs ON tab_blobs.blob_id = blobs.id WHERE blobs.id = ${input.blob} AND tab_blobs.tab_id = ${input.tabId}`;
           if (!blob)
             return yield* Effect.fail(new ScopeError(400, "Upload the content to this tab first."));
+          const stored = { blob: input.blob, size: blob.size };
           const [current] = yield* sql<{
             document: string;
           }>`SELECT document FROM artifacts WHERE id = ${id}`;
@@ -1068,21 +1071,30 @@ export class ArtifactStore {
                   content: Uint8Array;
                 }>`SELECT content FROM blobs WHERE id = ${previous.blob}`
               : [];
-            yield* Effect.try({
+            const settled = yield* Effect.try({
               try: () => {
                 const plan = readPlan(planBlob.content);
                 if (plan.title !== input.title)
                   throw new ScopeError(400, "Plan and artifact titles must match.");
-                validatePlanUpdate(
+                const settled = settlePlan(
                   plan,
                   previous?.kind === "plan" && oldBlob ? readPlan(oldBlob.content) : undefined,
-                  previous?.revision ?? 0,
                 );
+                return JSON.stringify(settled) === JSON.stringify(plan)
+                  ? undefined
+                  : Buffer.from(JSON.stringify(settled));
               },
               catch: (error) => error as ScopeError,
             });
+            // Hub-queued publishes cannot see the stored plan, so progress is settled here.
+            if (settled) {
+              stored.blob = createHash("sha256").update(settled).digest("hex");
+              stored.size = settled.byteLength;
+              yield* sql`INSERT INTO blobs(id, content) VALUES (${stored.blob}, ${settled}) ON CONFLICT(id) DO NOTHING`;
+              yield* sql`INSERT INTO tab_blobs VALUES (${input.tabId}, ${stored.blob}, 0) ON CONFLICT(tab_id, blob_id) DO NOTHING`;
+            }
           }
-          const { expectedRevision, tabId, ...metadata } = input;
+          const { expectedRevision, tabId, ...metadata } = { ...input, blob: stored.blob };
           if (metadata.kind === "plan" && metadata.mediaType === "text/html")
             metadata.kind = "html";
           if (previous?.name && input.name && previous.name !== input.name)
@@ -1105,11 +1117,11 @@ export class ArtifactStore {
             ...(name ? { name } : {}),
             id,
             revision,
-            size: blob.size,
+            size: stored.size,
             createdAt: previous?.createdAt ?? now,
             updatedAt: now,
           });
-          yield* sql`INSERT INTO artifacts(id, revision, document, tab_id, blob_id) VALUES (${id}, ${revision}, ${JSON.stringify(artifact)}, ${tabId}, ${input.blob})
+          yield* sql`INSERT INTO artifacts(id, revision, document, tab_id, blob_id) VALUES (${id}, ${revision}, ${JSON.stringify(artifact)}, ${tabId}, ${stored.blob})
         ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, document = excluded.document, blob_id = excluded.blob_id`;
           yield* initializeRetroTab(sql, tabId, artifact);
           yield* initializePullRequestsTab(sql, tabId, artifact);

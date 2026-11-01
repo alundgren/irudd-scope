@@ -1,8 +1,8 @@
 # Native plans
 
 A plan pairs an authored visual overview with structured goals, checks and work
-items. Scope stores the proposal, actual agreement and verification evidence.
-Conversation and agent execution stay in the coding session.
+items. Scope stores the proposal, which items are done and verification evidence.
+Conversation, agreement and agent execution stay in the coding session.
 
 ## Check feasibility before presenting and building
 
@@ -88,7 +88,8 @@ an uncertainty-resolving prototype if the whole proposal remains hard to follow.
 ## Publish, read and revise
 
 Use `irudd-scope plan guide` for the field guide and limits. Write a JSON object
-with `version: 1`, `title`, optional context/constraints/questions, and records.
+with `version: 2`, `title`, optional context/constraints/questions, goals, visuals,
+checks and items.
 The publish command inserts the supplied HTML as `overviewHtml`.
 
 ```sh
@@ -99,42 +100,16 @@ irudd-scope plan content feature-plan --output overview-copy.html
 irudd-scope plan publish feature-plan revised.json revised.html --expected-revision 1
 ```
 
-Read before editing. Preserve all bases, agreements and evidence in the next JSON.
-A replacement requires the exact revision read; never fetch a newer revision just
-to force an old proposal through. Generic `update` refuses structured plans.
-`plan content` exports the exact authored HTML and refuses to overwrite a file.
+Read before editing. The published document replaces the stored one, including
+`doneItemIds` and `evidence`, so start from a current read. A replacement requires
+the exact revision read; never fetch a newer revision just to force an old proposal
+through. Changing a done item's outcome or owned checks makes it not done, and
+evidence for a changed check becomes stale. Generic `update` refuses structured
+plans. `plan content` exports the exact authored HTML and refuses to overwrite a file.
 
 Two runnable synthetic examples are in [examples/plans](../examples/plans/README.md).
 They cover an interface and a command-line export. Adapt the example to the actual
 relationship rather than treating its layout as mandatory.
-
-## Record actual agreement and evidence
-
-Capture the current discussed proposal without implying approval:
-
-```sh
-irudd-scope plan capture-basis feature-plan discussed --expected-revision 1
-irudd-scope plan read feature-plan
-```
-
-Capture publishes a new artifact revision. Add an agreement with a new `id`, the
-`basisId`, relevant `targetIds` and the actual `note`. Evidence has its own ID,
-basis ID, check ID, expected and observed behavior, implementation, actual
-conditions, result and optional references. Publish using the new read revision.
-Do not infer agreement from publication or evidence from an agent assertion.
-
-A basis retains the exact proposal, including original HTML and checks. Records
-resolve against that basis even after current checks change or disappear. Existing
-basis IDs and records cannot be redefined. To correct a record deliberately,
-remove it, append its ID to `removedRecordIds`, and add a correction under a new
-ID. Preserve previous removal IDs and all bases. Ordinary revisions cannot silently
-drop history. The complete document must fit 32 MiB; oversize fails without pruning.
-
-Recorded evidence does not automatically verify a changed proposal. Assess whether
-it still applies and record the tested implementation and conditions accurately.
-If a valid check exposes a bug, fix the implementation. If the required outcome
-changes or a check cannot be performed, discuss it and pause affected dependent
-work. Do not weaken a criterion or report partial verification as complete.
 
 ## Give a fresh agent one item
 
@@ -142,13 +117,36 @@ Each item has one coherent outcome, context, goals, owned checks, dependency ite
 IDs and constraints. Split by independently assessable outcomes, not PR size or
 implementation layers. Assign integration checks to an explicit owning item.
 
-`plan item` supplies owned completion checks separately from prerequisite checks
-and recorded evidence. Related checks sharing a goal are context, not additional
-completion requirements. It includes applicable goals, constraints, questions,
-visuals, exact retained proposals and instructions for retrieving the full plan.
+## Implement one item
+
+An implementing agent does not need the whole plan. Use only these commands:
+
+```sh
+irudd-scope plan next feature-plan
+irudd-scope plan item feature-plan ITEM_ID
+irudd-scope plan evidence feature-plan CHECK_ID --result passed --observed "..." --implementation "commit abc123" --conditions "..."
+irudd-scope plan done feature-plan ITEM_ID
+```
+
+`plan next` lists every item with its done state and returns the packet for the
+first item that is not done and whose dependencies are done. Asked for a specific
+item, use `plan item`. The packet holds the item, its own checks with their
+current evidence state, its goals, the plan's context and constraints, its
+dependencies as ID, title and done, related visuals and the overview HTML.
+
+Build the item and test each of its checks through real entry points. Record each
+result with `plan evidence`, including failed and blocked results; the newest
+result for a check counts. Mark the item done only when its checks have current
+passing evidence. Do not record evidence for something you did not observe.
+`plan reopen` clears done. These commands publish only their change against the
+revision they read; after a conflict, run the command again.
+
+If a valid check exposes a bug, fix the implementation. If the required outcome
+changes or a check cannot be performed, discuss it and pause affected dependent
+work. Do not weaken a criterion or report partial verification as complete.
 Work-only checks must have an owner and cannot be placed beside a visual.
 
-Reads and basis capture need an online desktop. Same-version paired hubs can queue
+Reads and progress commands need an online desktop. Same-version paired hubs can queue
 publications with explicit revisions; a queue receipt is not desktop delivery.
 Older installed hubs reject JSON plans until updated separately. Use the new CLI
 with a direct isolated desktop for a first local trial. Legacy `add --plan` HTML

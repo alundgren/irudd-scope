@@ -566,12 +566,13 @@ to those calls with a removable filter chip.
 Plans have an immutable unique name and start permanent. Later updates respect
 the person's permanence choice. Overview gives the authored HTML the available
 area beneath compact Overview and Work items controls. Trusted scripts and external
-resources remain supported. Work items exposes outcomes, full owned checks,
-prerequisites, related context and a copyable independent packet. It provides
-inspection of every captured proposal, including those without agreement or evidence.
-Each retained proposal exposes its original HTML and complete checks, with a return
-to the current proposal. Inspection creates no agreement or evidence.
-Recorded results are labeled as results on that proposal, not current verification.
+resources remain supported. Work items is a table in plan order with Done, Work item,
+Outcome and Depends on columns. Done items show a check mark; other items show
+nothing. Items whose dependencies are not done are dimmed. Selecting a title expands
+one row at a time with the item's context, constraints and full checks, each labeled
+Passed, Failed, Blocked, Stale or No evidence. Agents record progress; the table has
+no status controls. Copy work item and Copy next-item instruction copy a short
+instruction naming the plan commands, not the item data.
 
 Discussion stays in the coding session. There is no questionnaire, approval button
 or forced prose sidebar. Authored plans use dark neutral presentation with strong

@@ -127,8 +127,12 @@ export class PublicationDelivery {
   }
   private matches(current: Artifact, input: ArtifactWrite) {
     const { expectedRevision: _revision, tabId: _tabId, ...metadata } = input;
+    // The desktop may store a plan with settled progress instead of the uploaded bytes.
+    const settled = input.kind === "plan" && current.revision === input.expectedRevision + 1;
     return Object.entries(metadata).every(
-      ([key, value]) => JSON.stringify(current[key as keyof Artifact]) === JSON.stringify(value),
+      ([key, value]) =>
+        (settled && (key === "blob" || key === "size")) ||
+        JSON.stringify(current[key as keyof Artifact]) === JSON.stringify(value),
     );
   }
 }

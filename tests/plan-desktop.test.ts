@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test(
-  "native plan reading, recorded bindings, copy, appearance, hide and restart in isolated Electron",
+  "native plan reading, work item progress, copy, appearance, hide and restart in isolated Electron",
   {
     tags: ["publish", "survives-restart", "tabs-stay-put", "html-runs-like-a-page"],
     timeout: 120_000,
@@ -15,16 +15,12 @@ test(
     try {
       let page = await application.firstWindow();
       const example = resolve(".agents/skills/irudd-scope/examples/plans/ui");
-      const first = JSON.parse(
-        (
-          await cli(
-            "plan",
-            "publish",
-            "reading-plan",
-            join(example, "plan.json"),
-            join(example, "overview.html"),
-          )
-        ).stdout,
+      await cli(
+        "plan",
+        "publish",
+        "reading-plan",
+        join(example, "plan.json"),
+        join(example, "overview.html"),
       );
       await page.getByRole("tab", { name: "Save a reading list", exact: true }).click();
       let frame = page.frameLocator('iframe[title="Save a reading list"]');
@@ -68,56 +64,56 @@ test(
         }
       }
       await page.getByRole("button", { name: "Work items", exact: true }).click();
+      const clipboard = () => application.evaluate(({ clipboard }) => clipboard.readText());
+      await page.getByRole("button", { name: "Copy next-item instruction", exact: true }).click();
+      await page.getByText("Next-item instruction copied.", { exact: true }).waitFor();
+      expect(await clipboard()).toContain("irudd-scope plan next reading-plan");
+      const row = (title: string) => page.locator("tbody tr", { hasText: title }).first();
+      expect(await row("Preserve unrelated content").getAttribute("data-waiting")).toBe("true");
       await page.getByRole("button", { name: "Preserve unrelated content", exact: true }).click();
       await page.getByRole("button", { name: "Copy work item", exact: true }).click();
-      await page.getByText("Work item copied.", { exact: true }).waitFor();
-      const copied = JSON.parse(
-        await application.evaluate(({ clipboard }) => clipboard.readText()),
+      await page.getByText("Work item instruction copied.", { exact: true }).waitFor();
+      const copied = await clipboard();
+      expect(copied).toContain("irudd-scope plan item reading-plan recover");
+      expect(copied).toContain("irudd-scope plan done reading-plan recover");
+      expect(copied).not.toContain("{");
+      // Progress recorded by an agent appears in the open tab.
+      await cli(
+        "plan",
+        "evidence",
+        "reading-plan",
+        "remove",
+        "--result",
+        "passed",
+        "--observed",
+        "Other entries stay",
+        "--implementation",
+        "Synthetic build",
+        "--conditions",
+        "Two saved entries",
       );
-      expect(copied.item.id).toBe("recover");
-      expect(copied.ownedChecks.map((x: { id: string }) => x.id)).toEqual(["remove"]);
-      expect(copied.prerequisites[0].checks).toHaveLength(2);
+      await cli("plan", "done", "reading-plan", "persist");
+      await row("Persist the reading list").getByLabel("Done", { exact: true }).waitFor();
+      expect(await row("Preserve unrelated content").getAttribute("data-waiting")).toBeNull();
+      await expect
+        .poll(() =>
+          page
+            .locator("summary", { hasText: "Remove a saved article" })
+            .locator(".plan-evidence")
+            .textContent(),
+        )
+        .toBe("Passed");
       if (process.env.SCOPE_TEST_SCREENSHOTS)
         await page.screenshot({
           path: join(process.env.SCOPE_TEST_SCREENSHOTS, "plan-work-items.png"),
         });
-      await cli(
-        "plan",
-        "capture-basis",
-        "reading-plan",
-        "original",
-        "--expected-revision",
-        String(first.revision),
-      );
       const read = JSON.parse((await cli("plan", "read", "reading-plan")).stdout);
-      const proposal = read.document.bases[0].proposal;
       const changed = {
         ...read.document,
-        title: "Save a reading list",
         checks: read.document.checks.map((x: { id: string; expectation: string }) => ({
           ...x,
           expectation: x.id === "save" ? "A changed current criterion." : x.expectation,
         })),
-        agreements: [
-          {
-            id: "decision",
-            basisId: "original",
-            targetIds: ["save"],
-            note: "Keep exactly one entry.",
-          },
-        ],
-        evidence: [
-          {
-            id: "proof",
-            basisId: "original",
-            checkId: "save",
-            expected: "One entry",
-            observed: "One entry",
-            implementation: "Synthetic build",
-            conditions: "Synthetic fixture",
-            result: "passed",
-          },
-        ],
       };
       const json = join(directory, "changed.json"),
         html = join(directory, "changed.html");
@@ -135,32 +131,28 @@ test(
         "--expected-revision",
         String(read.artifact.revision),
       );
-      await page.getByRole("button", { name: "Inspect proposal from revision 1" }).click();
-      const old = page.frameLocator('iframe[title="Recorded proposal from revision 1"]');
-      await old.getByRole("heading", { name: "The ordinary result" }).waitFor();
-      await old.locator('[data-plan-procedure="save"] summary').click();
-      expect(await old.locator("html").getAttribute("data-expected")).toBe(
-        proposal.checks[0].expectation,
-      );
-      expect(await old.locator('[data-plan-procedure="save"]').textContent()).toContain(
-        proposal.checks[0].expectation,
-      );
-      expect(await old.locator('[data-plan-procedure="save"]').textContent()).not.toContain(
-        "A changed current criterion.",
-      );
-      if (process.env.SCOPE_TEST_SCREENSHOTS)
-        await page.screenshot({
-          path: join(process.env.SCOPE_TEST_SCREENSHOTS, "plan-recorded-basis.png"),
-        });
-      await page.getByRole("button", { name: "Current proposal", exact: true }).click();
-      frame = page.frameLocator('iframe[title="Save a reading list"]');
+      // Changing the done item's check reopens it.
+      await expect
+        .poll(() => row("Persist the reading list").getByLabel("Done", { exact: true }).count())
+        .toBe(0);
+      await page.getByRole("button", { name: "Overview", exact: true }).click();
       await frame.getByText("A changed current criterion.", { exact: true }).waitFor();
       expect(await frame.locator("body").getAttribute("data-expected")).toBe(
         "A changed current criterion.",
       );
       // Restore the long visual to exercise persistence across update and navigation.
       await writeFile(html, await readFile(join(example, "overview.html"), "utf8"));
-      await cli("plan", "publish", "reading-plan", json, html, "--expected-revision", "3");
+      const revision = JSON.parse((await cli("plan", "read", "reading-plan")).stdout).artifact
+        .revision;
+      await cli(
+        "plan",
+        "publish",
+        "reading-plan",
+        json,
+        html,
+        "--expected-revision",
+        String(revision),
+      );
       await frame.getByRole("heading", { name: "Keep existing work safe" }).waitFor();
       // The heading can appear before the iframe finishes restoring its saved position.
       await expect
@@ -173,11 +165,18 @@ test(
           );
         })
         .toBeGreaterThan(400);
+      // Recording progress does not reload the overview.
+      await frame.locator("html").evaluate(() => (document.body.dataset.loaded = "once"));
+      await cli("plan", "done", "reading-plan", "persist");
       await page.getByRole("button", { name: "Work items", exact: true }).click();
-      await page.getByRole("button", { name: "Inspect proposal from revision 1" }).click();
-      await old.getByRole("heading", { name: "The ordinary result" }).waitFor();
-      await page.getByRole("button", { name: "Current proposal", exact: true }).click();
-      await frame.getByRole("heading", { name: "Keep existing work safe" }).waitFor();
+      await row("Persist the reading list").getByLabel("Done", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "Overview", exact: true }).click();
+      expect(await frame.locator("body").getAttribute("data-loaded")).toBe("once");
+      await expect
+        .poll(() => frame.locator("html").evaluate(() => window.scrollY))
+        .toBeGreaterThan(400);
+      await page.getByRole("button", { name: "Work items", exact: true }).click();
+      await page.getByRole("button", { name: "Overview", exact: true }).click();
       await expect
         .poll(() => frame.locator("html").evaluate(() => window.scrollY))
         .toBeGreaterThan(400);
@@ -208,7 +207,7 @@ test(
       expect(
         await page
           .getByRole("button", { name: "Preserve unrelated content", exact: true })
-          .getAttribute("aria-pressed"),
+          .getAttribute("aria-expanded"),
       ).toBe("true");
       const nonUi = resolve(".agents/skills/irudd-scope/examples/plans/non-ui");
       await cli(

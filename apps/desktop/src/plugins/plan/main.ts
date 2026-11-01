@@ -23,7 +23,7 @@ export function registerPlanIpc({ handle, client }: MainPluginContext) {
         fileName: `${input.name}.json`,
         expectedRevision: 0,
       },
-      Buffer.from(JSON.stringify({ version: 1, title: input.title, overviewHtml: input.html })),
+      Buffer.from(JSON.stringify({ version: 2, title: input.title, overviewHtml: input.html })),
     );
   });
 }

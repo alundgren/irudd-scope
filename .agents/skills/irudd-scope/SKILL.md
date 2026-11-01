@@ -135,7 +135,7 @@ Only `--machine local` works in this version and the desktop must be open.
 For feature planning, read [native plans](references/plans.md). Publish an authored
 visual overview with structured goals, checks and independently usable work items.
 Honor an explicitly requested planning tool or format. A planning request does not
-authorize implementation. Keep discussion in chat and record only actual agreement.
+authorize implementation. Keep discussion and agreement in chat.
 
 Before presenting the first proposal, use a scout for a quick feasibility check
 against the code. After agreement, have an independent technical reviewer with
@@ -143,11 +143,12 @@ its own scout check the work item breakdown before implementation. Fix issues
 within the agreed plan; discuss changes with the person when a fix cannot keep
 that agreement. Follow the review and revision steps in the native plans reference.
 
-Use `plan guide`, `plan publish NAME PLAN.json OVERVIEW.html`, `plan read NAME`,
-`plan item NAME ITEM_ID`, `plan content NAME --output FILE.html`, and
-`plan capture-basis NAME BASIS_ID --expected-revision REVISION`.
-Replacements require `--expected-revision`. Preserve retained proposal bases and
-records. Generic `update` rejects structured plans; legacy `add --plan` creates
+Planning agents use `plan guide`, `plan publish NAME PLAN.json OVERVIEW.html`,
+`plan read NAME` and `plan content NAME --output FILE.html`. Replacements require
+`--expected-revision`. To implement the next or a named item, use `plan next NAME`
+or `plan item NAME ITEM_ID`, record each check with `plan evidence`, then run
+`plan done NAME ITEM_ID`; never read the whole plan for that. Generic `update`
+rejects structured plans; legacy `add --plan` creates
 ordinary HTML. A new native plan starts permanent, so closing hides it by default.
 
 ## Show your working folder
