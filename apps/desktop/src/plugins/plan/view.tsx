@@ -66,42 +66,10 @@ function PlanContent({ content, ...props }: TabProps & { content: ArtifactConten
     }
   }
   const title = (id: string) => plan.items?.find((x) => x.id === id)?.title ?? id;
-  return (
-    <div className="plan-view" data-focus={props.focus}>
-      <nav className="plan-toolbar" aria-label="Plan views">
-        <Button
-          variant={view === "overview" ? "secondary" : "ghost"}
-          aria-pressed={view === "overview"}
-          onClick={() => update({ view: "overview" })}
-        >
-          Overview
-        </Button>
-        <Button
-          variant={view === "work" ? "secondary" : "ghost"}
-          aria-pressed={view === "work"}
-          onClick={() => update({ view: "work" })}
-        >
-          Work items
-        </Button>
-      </nav>
-      <div className="plan-page" hidden={view !== "overview"}>
-        <iframe
-          ref={iframe}
-          className="plan-document"
-          title={content.artifact.title}
-          srcDoc={html}
-          onLoad={observe}
-        />
-      </div>
-      <div
-        ref={work}
-        className="plan-work"
-        hidden={view !== "work"}
-        onScroll={() => {
-          if (props.active && view === "work")
-            update({ workScrollY: work.current?.scrollTop ?? 0 });
-        }}
-      >
+  // Scroll position changes must not rebuild the work item and evidence trees.
+  const workItems = useMemo(
+    () => (
+      <>
         {plan.items?.length ? (
           <>
             <div className="plan-work-actions">
@@ -244,6 +212,47 @@ function PlanContent({ content, ...props }: TabProps & { content: ArtifactConten
             <Check key={check.id} check={check} />
           ))}
         </details>
+      </>
+    ),
+    [plan, state.itemId, message, content.artifact],
+  );
+  return (
+    <div className="plan-view" data-focus={props.focus}>
+      <nav className="plan-toolbar" aria-label="Plan views">
+        <Button
+          variant={view === "overview" ? "secondary" : "ghost"}
+          aria-pressed={view === "overview"}
+          onClick={() => update({ view: "overview" })}
+        >
+          Overview
+        </Button>
+        <Button
+          variant={view === "work" ? "secondary" : "ghost"}
+          aria-pressed={view === "work"}
+          onClick={() => update({ view: "work" })}
+        >
+          Work items
+        </Button>
+      </nav>
+      <div className="plan-page" hidden={view !== "overview"}>
+        <iframe
+          ref={iframe}
+          className="plan-document"
+          title={content.artifact.title}
+          srcDoc={html}
+          onLoad={observe}
+        />
+      </div>
+      <div
+        ref={work}
+        className="plan-work"
+        hidden={view !== "work"}
+        onScroll={() => {
+          if (props.active && view === "work")
+            update({ workScrollY: work.current?.scrollTop ?? 0 });
+        }}
+      >
+        {workItems}
       </div>
     </div>
   );

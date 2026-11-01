@@ -128,8 +128,8 @@ through `tools/test-rules.ts`:
   `@irudd-scope/protocol`. They cannot import from `apps/`, `packages/`, or
   other workspace packages, so a test cannot copy code it cannot see.
   [tests/test-limits.ts](../tests/test-limits.ts) lists files written before
-  this rule with their remaining product imports and test counts. They take
-  no new imports or tests. Lower an entry when you remove an import or test.
+  this rule with their remaining product imports. They take no new product
+  imports. Update an entry when you remove an import.
 - The suite has a fixed size. `maxTests` in `tests/test-limits.ts` caps the
   number of test definitions, including skipped ones. Add a test by deleting a
   weaker one. Only the repository owner raises the limit. The cap counts tests

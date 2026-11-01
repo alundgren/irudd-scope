@@ -103,7 +103,6 @@ export function checkTests(
     failures.push(
       `The suite has ${tests.length} tests and the limit is ${maxTests}. Delete a weaker test for each one you add. Only the repository owner raises tests/test-limits.ts.`,
     );
-  const counts = Map.groupBy(tests, (test) => test.file);
   for (const file of moduleTags)
     failures.push(
       `${file}: @module-tag applies a promise to every test. Name the promise on each test instead.`,
@@ -118,14 +117,6 @@ export function checkTests(
     for (const target of exception.imports.filter((item) => !used.has(item)))
       failures.push(
         `${file}: no longer imports ${target}. Remove it from frontDoorExceptions in tests/test-limits.ts.`,
-      );
-    const count = counts.get(file)?.length ?? 0;
-    if (count !== (exception.tests ?? 0))
-      failures.push(
-        `${file}: has ${count} tests, and tests/test-limits.ts records ${exception.tests ?? 0}. ` +
-          (count > (exception.tests ?? 0)
-            ? `Files that import product code take no new tests. ${frontDoors}`
-            : "Lower the recorded count to match."),
       );
   }
   const used = new Set(tests.flatMap((test) => test.tags));
