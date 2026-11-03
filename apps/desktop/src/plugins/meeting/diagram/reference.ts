@@ -104,7 +104,7 @@ User: id pk, email text
 Order: id pk, user_id fk, total money
 User 1--* Order: places
 
-board — columns of cards: kanban, retro, risk register. ## Column [s1…s7], then - card | owner [done|key|s1…s7]
+board — columns of cards: kanban, retro. ## Column [s1…s7], then - card | owner [done|key|s1…s7]
 Example:
 board: Sprint
 ## To do

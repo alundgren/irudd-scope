@@ -445,18 +445,22 @@ transcript, but only requests addressed to the canvas reach the edit model, such
   within three words, or by "please", "can you" or "could you" right after it. Common
   transcription spellings "canvass", "kanvas" and "can vas" count too. "Canvas shoes" in
   the middle of a sentence does nothing.
-- The request runs from after the wake word for at most three clips. It ends at a new
-  wake word, at a pause of 1.5 seconds before the next clip, or when a finished sentence
+- The request runs from after the wake word for at most 15 seconds or eight clips. It
+  ends at a new wake word, at a pause of 1.5 seconds before the next clip, or when a finished sentence
   of at least four words is followed by talk that does not continue it. A sentence that
-  starts with a request word or with also, and, then or with continues it.
+  starts with a request word or with also, and, then or with continues it; "We also
+  need…" does not, because it is usually someone else talking.
 - A request is sent once the room is quiet: nobody speaking, no clip waiting or being
   transcribed, and 1.5 seconds since the last speech. If noise keeps the room sounding
   busy, it is sent 6 seconds after the last clip. A request needs at least three words;
   shorter ones are dropped.
 - "Canvas, undo that" or "Canvas, ångra" undoes the last model change without calling
-  the model. "Canvas, never mind", "cancel" or "glöm det" drops the newest waiting
-  request, or throws away the reply of the call in flight, or undoes a change applied in
-  the last 5 seconds. "Never mind" right after a request that has not been sent drops it.
+  the model; "undo that and make it blue" goes to the model instead.
+- "Canvas, never mind", "glöm det", "never mind adding the refunds" or "never mind,
+  don't add the box" drops the newest waiting request, or throws away the reply of the
+  call in flight, or undoes a change applied in the last 5 seconds. A request that ends
+  with "…, actually never mind" takes back only itself. Buttons called Cancel or Avbryt
+  and requests like "scratch that, make it a sequence" are ordinary requests.
 
 Transcript lines that were part of a request are marked. A request typed into Ask the
 canvas skips the wake word. One edit call runs at a time, and requests wait their turn in

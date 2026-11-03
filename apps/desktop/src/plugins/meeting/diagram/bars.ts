@@ -43,6 +43,7 @@ export function renderBars(header: Header, lines: readonly string[]): string | n
     return [{ label, value, shown, note: detail, series: tags.series }];
   });
   if (bars.length === 0) return null;
+  if (funnel) return renderFunnel(bars);
   const low = Math.min(0, ...bars.map((bar) => bar.value));
   const high = Math.max(0, ...bars.map((bar) => bar.value));
   const span = high - low || 1;
@@ -58,7 +59,6 @@ export function renderBars(header: Header, lines: readonly string[]): string | n
       `<span class="mc-bar-value">${escapeHtml(bar.shown)}</span></li>`
     );
   });
-  if (funnel) return renderFunnel(bars);
   return `<ul class="mc-bars">${rows.join("")}</ul>`;
 }
 

@@ -255,10 +255,16 @@ export class WakeDetector {
     const open = this.open!;
     const clean = text.trim();
     if (clean) open.parts.push(clean);
-    const action = localAction(joined(open));
-    if (action) {
+    const local = localAction(joined(open));
+    if (local) {
       this.open = null;
-      out.push({ text: joined(open), chunks: open.chunks, action, closedBy: "local" });
+      out.push({
+        text: joined(open),
+        chunks: open.chunks,
+        action: local.action,
+        // A request taken back at its end cancels only itself.
+        closedBy: local.self ? "dropped" : "local",
+      });
       return;
     }
     if (ended && words(open) >= SENTENCE_WORDS) open.sentenceDone = true;
@@ -379,27 +385,47 @@ function leadTrimmed(text: string): string[] {
   return list.slice(start);
 }
 
-/** "Never mind", or a request that opens with it ("actually never mind, don't add …"). */
+const NEGATIONS = new Set(["don't", "dont", "do", "not", "no", "skip", "inte", "hoppa"]);
+
+/**
+ * "Never mind" alone, or followed by filler, a negation ("never mind, don't add the
+ * box") or a verb in -ing ("never mind adding it"). "Scratch that, make it a sequence" and "cancel the Friday task" are requests.
+ */
 function isCancel(text: string): boolean {
   const list = leadTrimmed(text);
-  return CANCEL_PHRASES.some((phrase) => phrase.every((word, index) => list[index] === word));
+  return CANCEL_PHRASES.some((phrase) => {
+    if (!phrase.every((word, index) => list[index] === word)) return false;
+    const tail = list.slice(phrase.length);
+    // "Never mind adding the refunds" takes back a request, like "never mind, don't add".
+    const first = tail[0] ?? "";
+    return (
+      tail.every((word) => CANCEL_TAIL.has(word)) ||
+      NEGATIONS.has(first) ||
+      /^\p{L}{3,}ing$/u.test(first)
+    );
+  });
 }
 
-/** "…, actually never mind" at the end takes back the whole request. */
-function endsWithCancel(text: string): boolean {
-  const list = tokenize(text).map((token) => token.word);
-  while (list.length && CANCEL_TAIL.has(list.at(-1)!)) list.pop();
-  return CANCEL_PHRASES.some(
-    (phrase) =>
-      list.length > phrase.length &&
-      phrase.every((word, index) => list[list.length - phrase.length + index] === word),
-  );
-}
+/**
+ * "…, actually never mind" at the end takes back this request only. It needs a
+ * multi-word phrase after a comma, dash or "actually", so "add Save and Cancel" and
+ * "Spara och Avbryt" stay requests.
+ */
+const ENDING_CANCEL =
+  /(?:[,;–—-]|\b(?:actually|no|wait|oh|nej|förresten|äh))\s*(?:never\s*mind|forget\s+(?:it|that)|scratch\s+that|glöm\s+det|strunt\s+i\s+det)[\s.!…]*$/iu;
 
-function localAction(text: string): "undo" | "cancel" | null {
+function localAction(text: string): { action: "undo" | "cancel"; self: boolean } | null {
   const list = leadTrimmed(text);
-  // "Undo that last reporting-line edit" still means the last change; the model cannot
-  // undo better than the change log can.
-  if (list.length > 0 && list.length <= 8 && UNDO_WORDS.has(list[0]!)) return "undo";
-  return isCancel(text) || endsWithCancel(text) ? "cancel" : null;
+  // "Undo that last reporting-line edit" means the last change; "undo that and make it
+  // blue" also asks for something new, so the model gets it.
+  if (
+    list.length > 0 &&
+    list.length <= 8 &&
+    UNDO_WORDS.has(list[0]!) &&
+    !list.slice(1).some((word) => word === "and" || word === "och" || REQUEST_WORDS.has(word))
+  )
+    return { action: "undo", self: false };
+  if (isCancel(text)) return { action: "cancel", self: false };
+  if (ENDING_CANCEL.test(text)) return { action: "cancel", self: true };
+  return null;
 }

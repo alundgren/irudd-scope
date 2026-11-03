@@ -35,6 +35,12 @@ repository. It removes `Name:` speaker labels and times lines at 2.5 words per s
 with a 2 second pause for each blank line. It reads the OpenRouter key only from
 `OPENROUTER_API_KEY`.
 
+`tools/meeting-canvas-wake-bench.ts` replays wake-word transcripts (`Name: text`
+chunks with `.expect.json` files beside them) through the wake detector and the Codex
+backend, several at a time, and writes per-request canvases and a replay player
+(`tools/meeting-canvas-wake-replay.ts`) outside the repository. `--usage-cmd` runs a
+command that prints the weekly Codex usage percent, and `--stop-at` ends the run there.
+
 Test through real Electron with fake provider replies, as `tests/meeting-canvas.test.ts`
 does. Never call live models in standard tests.
 
