@@ -595,7 +595,7 @@ formats are compatibility contracts.
 | Artifact library | Published artifact metadata and the desktop's connection status.                                 | `apps/desktop/src/library/library.ts`; `library/use-library.ts` tracks unread updates.                    |
 | Workspace        | Active, queued, and trashed tab records, retention timestamps, groups, and selection.            | `apps/desktop/src/workspace/contract.ts` defines the contract; `workspace/use-workspace.ts` manages tabs. |
 | Settings         | Appearance, provider configuration, and credential presence.                                     | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.               |
-| Sketchpad        | The built-in Excalidraw canvas the person uses; agents have no access to it.                     | `apps/desktop/src/plugins/sketchpad/view.tsx` owns editing.                                               |
+| Sketchpad        | The built-in Excalidraw canvas with opt-in room listening and model edits.                       | `apps/desktop/src/plugins/sketchpad/view.tsx` owns editing.                                               |
 | Sketchpad draft  | Local Excalidraw serialization and view position, stored only while the canvas is not empty.     | `apps/desktop/src/plugins/sketchpad/contract.ts`; `library/store.ts` stores drafts.                       |
 | Publishing token | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                   | Desktop discovery file; CLI and optional hub use it.                                                      |
 | Folder tab       | A live tree of one folder on one machine, keyed by machine ID and canonical path.                | `packages/folder` reads files; `plugins/folder` shows them; `folder_tabs` in `scope.db` keeps the key.    |
@@ -673,6 +673,14 @@ keys. Trash preserves those rows; permanent deletion removes them in one SQLite
 transaction. Their contracts live in `settings.ts`, `workspace/contract.ts`,
 `workspace/retention.ts`, and
 `plugins/sketchpad/contract.ts`, without filesystem or database dependencies.
+
+Sketchpad listening uses named desktop IPC. `sketchpad/microphone.ts` owns
+renderer microphone capture and bounded 16 kHz WAV clips; `listening-main.ts`
+owns the OpenRouter request, credential lookup, validation and cancellation.
+`listening-canvas.ts` applies small operations to the current Excalidraw scene
+with undo history. Concurrent human edits discard a pending model update.
+Audio and conversation context are transient. Saved drawings keep the existing
+draft format. Listening has no CLI or HTTP endpoint.
 
 `library/library.ts` watches publication events, refreshes metadata on
 connection, and caches content by revision. The sandboxed React renderer

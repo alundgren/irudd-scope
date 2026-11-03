@@ -9,6 +9,37 @@
   min-height: 0;
   overflow: clip;
 }
+.sketchpad-listening {
+  padding: var(--scope-space-2) var(--scope-space-3);
+  color: var(--scope-muted);
+  font-size: var(--scope-text-detail);
+  border-bottom: 1px solid var(--scope-line);
+}
+.sketchpad-listening-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--scope-space-3);
+}
+.sketchpad-listening .setting-switch {
+  gap: var(--scope-space-2);
+  color: var(--scope-text);
+}
+.sketchpad-listening-provider {
+  margin-left: auto;
+}
+.sketchpad-listening [role="alert"] {
+  color: var(--scope-danger);
+}
+.sketchpad-listening-heard {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: var(--scope-space-1);
+}
+.sketchpad-listening-notice {
+  margin-top: var(--scope-space-1);
+}
 .sketchpad-viewing > .content-notice,
 .sketchpad-viewing .excalidraw .layer-ui__wrapper,
 .sketchpad-viewing .excalidraw .App-bottom-bar,

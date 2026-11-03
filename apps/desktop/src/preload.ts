@@ -246,6 +246,10 @@ const bridge: ScopeBridge = {
   workspace: () => ipcRenderer.invoke("scope:workspace"),
   saveWorkspace: (input) => ipcRenderer.invoke("scope:save-workspace", input),
   sketchpadDraft: (id) => ipcRenderer.invoke("scope:sketchpad-draft", id),
+  startSketchpadListening: () => ipcRenderer.invoke("scope:sketchpad-listening-start"),
+  stopSketchpadListening: (id) => ipcRenderer.invoke("scope:sketchpad-listening-stop", id),
+  processSketchpadAudio: (request) =>
+    ipcRenderer.invoke("scope:sketchpad-listening-chunk", request),
   saveSketchpadDraft: (id, draft) =>
     ipcRenderer.invoke("scope:save-sketchpad-draft", { id, draft }),
   deleteSketchpadDraft: (id) => ipcRenderer.invoke("scope:delete-sketchpad-draft", id),
