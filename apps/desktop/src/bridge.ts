@@ -12,7 +12,6 @@ import type { SettingsUpdate, SettingsView } from "./settings.ts";
 import type { RetainedTab, TrashEntry } from "./workspace/retention.ts";
 import type { Tab, Workspace } from "./workspace/contract.ts";
 import type { SketchpadDraft } from "./plugins/sketchpad/contract.ts";
-import type { ListeningRequest, ListeningReply } from "./plugins/sketchpad/listening-contract.ts";
 import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 import type { MemoryStatus } from "@irudd-scope/protocol/memory";
@@ -234,9 +233,6 @@ export type ScopeBridge = {
   workspace: () => Promise<Workspace | null>;
   saveWorkspace: (input: Workspace) => Promise<void>;
   sketchpadDraft: (id: string) => Promise<SketchpadDraft | null>;
-  startSketchpadListening: () => Promise<string>;
-  stopSketchpadListening: (sessionId: string) => Promise<void>;
-  processSketchpadAudio: (request: ListeningRequest) => Promise<ListeningReply>;
   saveSketchpadDraft: (id: string, draft: SketchpadDraft) => Promise<void>;
   deleteSketchpadDraft: (id: string) => Promise<void>;
   onBeforeClose: (listener: () => Promise<void>) => () => void;

@@ -13,7 +13,6 @@ import { SketchpadMenu } from "./menu.tsx";
 import { useSketchpadMenu } from "./native-menu.ts";
 import { useCanvasReset } from "./reset.ts";
 import { useSketchpadViewport } from "./viewport.ts";
-import { SketchpadListening } from "./listening.tsx";
 import "@excalidraw/excalidraw/index.css";
 import "./style.css";
 
@@ -101,10 +100,6 @@ export function SketchpadView({
     );
   return (
     <div className={`sketchpad-view${viewing ? " sketchpad-viewing" : ""}`}>
-      <SketchpadListening
-        api={api}
-        enabled={active && ready && !viewing && !canvasReset.resetting}
-      />
       {draftSave.error && (
         <div className="content-notice" role="alert">
           <span>Could not save the Sketchpad. Keep Scope open and retry.</span>

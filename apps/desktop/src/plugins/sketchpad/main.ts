@@ -3,7 +3,6 @@ import { decode } from "@irudd-scope/protocol";
 import { Uuid } from "../../workspace/contract.ts";
 import { SketchpadDraft } from "./contract.ts";
 import type { MainPluginContext } from "../main-api.ts";
-import { registerSketchpadListening } from "./listening-main.ts";
 
 function validateContent(content: string) {
   const document: unknown = JSON.parse(content);
@@ -19,9 +18,7 @@ function validateContent(content: string) {
     throw new Error("Invalid sketchpad content.");
 }
 
-export function registerSketchpadIpc(context: MainPluginContext) {
-  const { handle, artifacts } = context;
-  registerSketchpadListening(context);
+export function registerSketchpadIpc({ handle, artifacts }: MainPluginContext) {
   handle("scope:sketchpad-draft", (input) => artifacts.sketchpadDraft(decode(Uuid, input)));
   handle("scope:save-sketchpad-draft", (input) => {
     const { id, draft } = decode(Schema.Struct({ id: Uuid, draft: SketchpadDraft }), input);

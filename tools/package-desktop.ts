@@ -113,7 +113,7 @@ try {
     extendInfo: {
       CFBundleIconFile: "icon.icns",
       NSMicrophoneUsageDescription:
-        "Scope listens to room speech to update your Sketchpad when you turn Listening on.",
+        "Scope listens to room speech to update your Meeting canvas when you turn Listening on.",
     },
     platform: windows ? "win32" : "darwin",
     arch: process.arch as "arm64" | "x64",

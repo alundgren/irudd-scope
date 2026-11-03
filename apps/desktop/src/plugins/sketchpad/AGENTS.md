@@ -1,9 +1,8 @@
 # Sketchpad plugin
 
-The Sketchpad is one built-in Excalidraw canvas. Its listening control may send
-room audio and canvas context to OpenRouter and apply validated diagram edits.
-Keep provider calls and credentials in main; microphone capture stays in the
-renderer. Listening starts off and stops when leaving the tab or closing Scope.
+The Sketchpad is one built-in Excalidraw canvas for the person only. Do not add
+CLI commands, HTTP routes, names, events, or skill guidance that let agents read
+or change it.
 
 `view.tsx` owns editing, `load.ts` restores the saved draft, `reset.ts` owns
 Reset canvas and its undo window, and `main.ts` registers the draft IPC

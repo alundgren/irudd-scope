@@ -387,25 +387,12 @@ the row says to drop it again. Edits to the same file are copied.
 ## Sketchpad
 
 The Sketchpad is one built-in Excalidraw canvas for the person's own ideas.
-Listening starts off. Its switch captures mono room audio and sends speech clips
-to OpenRouter using Gemini 2.5 Flash Lite and the saved OpenRouter key. The
-model receives a compact canvas description and running conversation summary;
-it can add notes, boxes and connections, rename text, and remove requested items.
-Updates enter Excalidraw's undo history. A canvas changed during a request keeps
-the person's edits and skips that response. Turning listening off, leaving the
-tab, Reset, or entering View stops capture and cancels pending requests. Restart
-never resumes capture. Audio, transcripts and conversation summaries stay in
-memory; only canvas content is saved. Listening reports microphone, provider
-and processing errors inline and requires an explicit retry with the switch.
-Clips end at a pause or six seconds. Silence is skipped; three queued clips,
-20-second requests and 150 canvas elements bound the session. Listening has no
-spoken replies or named-assistant routing.
-
 Search offers Sketchpad, matching words such as draw, whiteboard, and Excalidraw.
 It opens the existing Sketchpad or creates it once. Like other built-in tabs it
 is always permanent, and closing hides it for reopening from the drawer or
-search. External agents have no command or HTTP route for this canvas. The
-listening model receives canvas context only while Listening is on.
+search. Agents have no command, API route, name, or skill guidance for it. To get
+help with a drawing, the person saves it to a file from the Excalidraw menu,
+hands that file to an agent, and opens the result again.
 
 Its left menu keeps Excalidraw's Open, Save to, Export image, Save as image,
 command palette, Find on canvas, Help, and canvas background, plus Fit to canvas,
