@@ -8,8 +8,8 @@ import {
   CODEX_EFFORT,
   CODEX_MODEL,
   CODEX_SERVICE_TIER,
-  EDIT_REPLY_JSON_SCHEMA,
-  EditReply,
+  CANVAS_REPLY_JSON_SCHEMA,
+  CanvasReply,
 } from "./contract.ts";
 
 // Node only: the bench tool imports this file, so it must not import Electron.
@@ -154,7 +154,7 @@ export async function openRouterEdit(input: {
       temperature: 0.2,
       response_format: {
         type: "json_schema",
-        json_schema: { name: "meeting_edit", strict: true, schema: EDIT_REPLY_JSON_SCHEMA },
+        json_schema: { name: "meeting_canvas", strict: true, schema: CANVAS_REPLY_JSON_SCHEMA },
       },
       messages: [
         { role: "system", content: input.system },
@@ -168,12 +168,12 @@ export async function openRouterEdit(input: {
   } catch {
     throw new MeetingBackendError("OpenRouter sent a reply Scope cannot read.");
   }
-  if (!content) throw new MeetingBackendError("The model returned no page changes.");
+  if (!content) throw new MeetingBackendError("The model returned no canvas changes.");
   return { content, ms: Math.round(performance.now() - started) };
 }
 
 /** Reads the model's JSON reply. Tolerates a Markdown code fence around the object. */
-export function parseEditReply(content: string): EditReply {
+export function parseEditReply(content: string): CanvasReply {
   let value: unknown;
   try {
     value = JSON.parse(content);
@@ -187,9 +187,9 @@ export function parseEditReply(content: string): EditReply {
     }
   }
   try {
-    return Schema.decodeUnknownSync(EditReply)(value);
+    return Schema.decodeUnknownSync(CanvasReply)(value);
   } catch {
-    throw new MeetingBackendError("The model reply does not match the page edit format.");
+    throw new MeetingBackendError("The model reply does not match the canvas edit format.");
   }
 }
 
@@ -224,7 +224,7 @@ export async function codexEdit(input: {
   const last = join(directory, "last.txt");
   try {
     await mkdir(work);
-    await writeFile(schema, JSON.stringify(EDIT_REPLY_JSON_SCHEMA));
+    await writeFile(schema, JSON.stringify(CANVAS_REPLY_JSON_SCHEMA));
     const args = [
       "exec",
       "--ephemeral",

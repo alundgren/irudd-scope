@@ -1,8 +1,9 @@
 import katex from "katex";
 import type { TokenizerAndRendererExtension, Tokens } from "marked";
 import { Marked } from "marked";
-import type { Block, BlockKind, BlockWidth, Page } from "./contract.ts";
-import { BLOCK_KINDS, BLOCK_WIDTHS } from "./contract.ts";
+import type { Block, BlockKind, BlockWidth, Canvas, Section } from "./contract.ts";
+import { BLOCK_KINDS, BLOCK_WIDTHS, SECTION_SIZES } from "./contract.ts";
+import { FLOW_WIDTH } from "./canvas.ts";
 import { renderDiagram } from "./diagram/index.ts";
 import { escapeHtml } from "./html.ts";
 
@@ -13,21 +14,53 @@ const CALLOUT_LABELS: Partial<Record<BlockKind, string>> = {
   question: "Question",
 };
 
-/** HTML for one block. Model text is escaped; callers still sanitize before use. */
-export function renderBlock(block: Block): string {
+/**
+ * HTML for one block. `key` becomes `data-block`; the canvas uses `sectionId/blockId`.
+ * Model text is escaped; callers still sanitize before use.
+ */
+export function renderBlock(block: Block, key = block.id): string {
   const kind = BLOCK_KINDS.find((known) => known === block.kind) ?? "text";
   const width: BlockWidth = BLOCK_WIDTHS.find((known) => known === block.width) ?? "full";
   return (
-    `<section class="mc-block mc-w-${width} mc-k-${kind}" data-block="${escapeHtml(block.id)}">` +
+    `<section class="mc-block mc-w-${width} mc-k-${kind}" data-block="${escapeHtml(key)}">` +
     blockBody(kind, block.source) +
     "</section>"
   );
 }
 
-/** HTML for the title and every block. Each block is a `[data-block="id"]` element. */
-export function renderPage(page: Page): string {
-  const blocks = page.blocks.map(renderBlock).join("");
-  return `<div class="mc-page-inner"><h1 class="mc-title">${escapeHtml(page.title)}</h1><div class="mc-grid">${blocks}</div></div>`;
+/**
+ * One section frame: the name label and its blocks. Pinned sections carry their canvas
+ * position; unpinned ones take their place in the flow.
+ */
+export function renderSection(section: Section): string {
+  const size = SECTION_SIZES.find((known) => known === section.size) ?? "m";
+  const id = escapeHtml(section.id);
+  const name = escapeHtml(section.name);
+  const place = section.pinned
+    ? ` style="left:${Math.round(section.x)}px;top:${Math.round(section.y)}px"`
+    : "";
+  const blocks = section.blocks.length
+    ? section.blocks.map((block) => renderBlock(block, `${section.id}/${block.id}`)).join("")
+    : '<p class="mc-section-empty">Empty section</p>';
+  return (
+    `<section class="mc-section mc-size-${size}${section.pinned ? " is-pinned" : ""}" data-section="${id}" aria-label="${name}"${place}>` +
+    `<h2 class="mc-section-name" data-section-handle="${id}">${name}</h2>` +
+    `<div class="mc-section-body"><div class="mc-grid">${blocks}</div></div></section>`
+  );
+}
+
+/**
+ * The whole canvas at 1:1. Unpinned sections wrap in creation order inside a fixed
+ * 3200 px flow; pinned sections sit on a layer above it at their saved positions.
+ */
+export function renderCanvas(canvas: Canvas): string {
+  const flow = canvas.sections.filter((section) => !section.pinned).map(renderSection);
+  const pinned = canvas.sections.filter((section) => section.pinned).map(renderSection);
+  return (
+    `<div class="mc-canvas-inner"><h1 class="mc-title">${escapeHtml(canvas.title)}</h1>` +
+    `<div class="mc-flow" style="width:${FLOW_WIDTH}px">${flow.join("")}</div>` +
+    `<div class="mc-pinned">${pinned.join("")}</div></div>`
+  );
 }
 
 function blockBody(kind: BlockKind, source: string): string {

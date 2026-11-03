@@ -113,10 +113,7 @@ export const defaultMeetingSettings = (): MeetingSettings => ({
   codexPath: "",
 });
 
-/**
- * One page change. Every field is present so the reply works with strict structured
- * output, which requires all properties; fields an op does not use are null.
- */
+/** One block change inside a section, as `page.ts` applies it; unused fields are null. */
 export const EditOp = Schema.Struct({
   op: Schema.Literals(["add", "replace", "patch", "move", "remove", "title"]),
   id: Schema.NullOr(Schema.String),
@@ -128,39 +125,7 @@ export const EditOp = Schema.Struct({
   text: Schema.NullOr(Schema.String),
 });
 export type EditOp = typeof EditOp.Type;
-export const EditReply = Schema.Struct({
-  ops: Schema.Array(EditOp).check(Schema.isMaxLength(MAX_OPS)),
-});
-export type EditReply = typeof EditReply.Type;
-
 const nullable = (schema: object) => ({ anyOf: [schema, { type: "null" }] });
-/** The JSON Schema both edit backends receive, written out so providers see plain keywords. */
-export const EDIT_REPLY_JSON_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["ops"],
-  properties: {
-    ops: {
-      type: "array",
-      maxItems: MAX_OPS,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["op", "id", "kind", "width", "after", "source", "find", "text"],
-        properties: {
-          op: { type: "string", enum: ["add", "replace", "patch", "move", "remove", "title"] },
-          id: nullable({ type: "string" }),
-          kind: nullable({ type: "string", enum: [...BLOCK_KINDS] }),
-          width: nullable({ type: "string", enum: [...BLOCK_WIDTHS] }),
-          after: nullable({ type: "string" }),
-          source: nullable({ type: "string" }),
-          find: nullable({ type: "string" }),
-          text: nullable({ type: "string" }),
-        },
-      },
-    },
-  },
-} as const;
 
 export const CANVAS_OPS = [
   "create_section",
@@ -259,6 +224,10 @@ export const EditRequest = Schema.Struct({
   /** Id of the section changed last, for requests like "make that one vertical". */
   focus: Schema.NullOr(Schema.String),
   settings: MeetingSettings,
+  /** How the wake detector ended a spoken request, for the debug log. Absent when typed. */
+  closedBy: Schema.optionalKey(
+    Schema.Literals(["pause", "sentence", "chunks", "wake", "quiet", "fallback"]),
+  ),
 });
 export type EditRequest = typeof EditRequest.Type;
 export const EditResult = Schema.Struct({

@@ -1,4 +1,4 @@
-/* Meeting canvas tab controls. The page itself is styled by page.css, which the export shares. */
+/* Meeting canvas tab controls. canvas.css and page.css style the canvas, which the export shares. */
 .mc-view {
   position: relative;
   display: flex;
@@ -81,14 +81,58 @@
   flex: 1;
   min-height: 0;
 }
-.mc-page-scroll {
+.mc-stage {
   position: relative;
+  display: flex;
   flex: 1;
   min-width: 0;
-  overflow: auto;
+  overflow: hidden;
+}
+.mc-stage .mc-viewport {
+  user-select: none;
 }
 .mc-empty {
-  padding: var(--scope-space-6) var(--scope-space-6) 0;
+  position: absolute;
+  top: var(--scope-space-6);
+  left: var(--scope-space-6);
+  max-width: 440px;
+  pointer-events: none;
+}
+.mc-zoom {
+  position: absolute;
+  right: var(--scope-space-3);
+  bottom: var(--scope-space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--scope-space-1);
+  padding: var(--scope-space-1);
+  border: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-tab);
+  background: var(--scope-panel);
+  box-shadow: var(--scope-shadow);
+}
+.mc-zoom span {
+  min-width: 3.5em;
+  font-variant-numeric: tabular-nums;
+}
+.mc-status {
+  position: absolute;
+  bottom: var(--scope-space-4);
+  left: var(--scope-space-4);
+  max-width: min(720px, calc(100% - 2 * var(--scope-space-4)));
+  padding: var(--scope-space-2) var(--scope-space-3);
+  border: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-dialog);
+  background: var(--scope-panel);
+  box-shadow: var(--scope-shadow);
+  font-size: var(--scope-text-reading);
+  overflow-wrap: anywhere;
+}
+.mc-status.is-working {
+  border-color: var(--scope-accent);
+}
+.mc-status.is-failed {
+  color: var(--scope-danger);
 }
 .mc-view:not(.is-present) .mc-page [data-block] {
   cursor: pointer;
@@ -116,11 +160,12 @@
   }
 }
 .mc-editor {
-  position: sticky;
-  bottom: 0;
+  position: absolute;
+  right: var(--scope-space-4);
+  bottom: var(--scope-space-4);
+  left: var(--scope-space-4);
   display: grid;
   gap: var(--scope-space-2);
-  margin: var(--scope-space-4);
   padding: var(--scope-space-3);
   border: 1px solid var(--scope-outline);
   border-radius: var(--scope-radius-dialog);
@@ -162,8 +207,30 @@
 .mc-side-transcript {
   flex: 3;
 }
+.mc-side-sections {
+  flex: 0 1 auto;
+  max-height: 30%;
+}
 .mc-side-activity {
   flex: 2;
+}
+.mc-sections {
+  display: grid;
+  overflow: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mc-section-link {
+  justify-content: flex-start;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mc-section-link.is-fresh {
+  background: var(--scope-selected);
 }
 .mc-side h2 {
   font-size: var(--scope-text-ui);
@@ -180,9 +247,10 @@
   padding: 0;
   list-style: none;
 }
-.mc-transcript li.is-fresh {
+.mc-transcript li.is-wake {
   padding-left: var(--scope-space-2);
   border-left: 3px solid var(--scope-accent);
+  font-weight: var(--scope-weight-medium);
 }
 .mc-ask {
   display: flex;

@@ -416,59 +416,119 @@ tabs than fit on a laptop or external monitor.
 ## Meeting canvas
 
 The Meeting canvas is a test build for one team and is not ready to merge. It is a
-built-in tab that listens to a meeting and keeps a page of blocks up to date. Search
-offers Meeting canvas, matching words such as meeting, whiteboard, transcript and
-diagram. Like other built-in tabs it is always permanent. Its visual style is adapted
-from OpenGhost by ANDRETRIPOL (MIT), https://github.com/ANDRETRIPOL/OpenGhost.
+built-in tab that listens to a meeting and draws what people ask for on an infinite
+canvas of named sections. Search offers Meeting canvas, matching words such as meeting,
+whiteboard, transcript and diagram. Like other built-in tabs it is always permanent. Its
+visual style is adapted from OpenGhost by ANDRETRIPOL (MIT),
+https://github.com/ANDRETRIPOL/OpenGhost.
 
-The header holds the page title, the Listen switch, the edit backend, Undo, Keep as
+The header holds the canvas title, the Listen switch, the edit backend, Undo, Keep as
 HTML, Present and a settings button. The edit backend defaults to Codex (Terra), which
 uses the person's own Codex login; OpenRouter is the other choice. Listen needs an
-OpenRouter key in Settings for transcription and, on macOS, microphone access. While the microphone is on, a pulsing red Listening label
-shows, in Present view too. Listening stops when the person turns it off, switches to
-another tab, closes the tab or quits. Lines already heard stay and go with the next
-edit call.
+OpenRouter key in Settings for transcription and, on macOS, microphone access. While the
+microphone is on, a pulsing red Listening label shows, in Present view too. Listening
+stops when the person turns it off, switches to another tab, closes the tab or quits. A
+request heard before stopping is still sent.
 
-Speech is cut into short clips and transcribed one clip at a time. When transcription
-falls behind by more than three clips, the oldest clip is dropped and the activity list
-says so. The edit model receives the page, the last 40 transcript lines as context and
-the lines it has not seen. One edit call runs at a time. A call starts once 12 new
-words have arrived, or 8 seconds after the previous call when at least one new line
-waits. A request typed into Ask the canvas goes at once, or right after the call in
-flight. If its edit fails, it is retried once after 8 seconds and then dropped. Errors appear in the activity list without stopping; three failed
+### Wake word
+
+Speech is cut into clips that end after 0.65 seconds of silence or at 6 seconds, and
+transcribed one clip at a time. When transcription falls behind by more than three clips,
+the oldest clip is dropped and the activity list says so. Everything heard shows in the
+transcript, but only requests addressed to the canvas reach the edit model, such as
+"Canvas, draw the checkout flow as a sequence diagram."
+
+- "Canvas" counts at the start of a clip or sentence, or after a comma when it is
+  capitalized ("Okay everyone, Canvas, …"). "Hey canvas" and "ok canvas" always count.
+  Otherwise "Canvas" must be followed by punctuation, by a request word such as draw,
+  add, make, show, rename or remove (or rita, lägg, gör, visa, ändra, ta bort, byt)
+  within three words, or by "please", "can you" or "could you" right after it. Common
+  transcription spellings "canvass", "kanvas" and "can vas" count too. "Canvas shoes" in
+  the middle of a sentence does nothing.
+- The request runs from after the wake word for at most three clips. It ends at a new
+  wake word, at a pause of 1.5 seconds before the next clip, or when a finished sentence
+  of at least four words is followed by talk that does not continue it. A sentence that
+  starts with a request word or with also, and, then or with continues it.
+- A request is sent once the room is quiet: nobody speaking, no clip waiting or being
+  transcribed, and 1.5 seconds since the last speech. If noise keeps the room sounding
+  busy, it is sent 6 seconds after the last clip. A request needs at least three words;
+  shorter ones are dropped.
+- "Canvas, undo that" or "Canvas, ångra" undoes the last model change without calling
+  the model. "Canvas, never mind", "cancel" or "glöm det" drops the newest waiting
+  request, or throws away the reply of the call in flight, or undoes a change applied in
+  the last 5 seconds. "Never mind" right after a request that has not been sent drops it.
+
+Transcript lines that were part of a request are marked. A request typed into Ask the
+canvas skips the wake word. One edit call runs at a time, and requests wait their turn in
+the order they were made. The model receives every section in full while the canvas
+source is under 15,000 characters; above that it gets an index of all sections and the
+full source of the focus section and of sections the request names. It also gets the 30
+transcript lines before the request and the id of the section changed last, so "make
+that one vertical" works. If an edit fails, it is retried once after 8 seconds and then
+dropped. Errors appear in the activity list without stopping; three failed
 transcriptions or three failed edits in a row stop listening with a message.
 
-The page is a column of blocks: text, diagrams, notes, decisions, risks and questions,
-each full, half or third width. Model changes apply to the latest page, scroll to the
-last changed block and flash it for about two seconds. When the person edited a block
-after a call started, that call's changes to the block are skipped and listed as
-rejected. Clicking a block, or pressing Enter on it, opens an editor docked at the bottom
-of the page with its source, kind and width, Delete and Done. The page previews each
-keystroke. Escape cancels; Command-Enter or Ctrl+Enter finishes. Links on the page do
-not open from the tab; they work in the kept HTML.
+### Sections
 
-Undo steps back through page changes from the person and the model, up to 50, for
-the current session. Keep as HTML publishes the page as a new standalone HTML artifact
-with a unique name, which opens as its own tab that agents can edit. After a Keep, Clear
-page empties the canvas; Undo brings it back.
+Each request creates one named section or edits the one it names or points at. A
+section is a frame with its name above the top left corner, in one of three widths:
+small, medium or large. Its blocks stack in one column: text, diagrams, notes, decisions,
+risks and questions. Half and third widths apply only in large sections. Sections the
+person has not moved wrap left to right in creation order inside a fixed 3200 pixel
+width, so resizing the window or the side panel never moves them. Dragging a section by
+its name pins it where it is dropped; a pinned section that covers another shows a dashed
+warning outline. Model changes apply to the latest canvas and flash the changed section
+for about two seconds.
 
-Present hides the header and side panel and enlarges the page. A small bar keeps the
-Listening label and Exit present; Escape also exits. Present leaves the window size
-alone and turns off block editing.
+Drag empty space or scroll with two fingers to pan. Command or Ctrl with the scroll
+wheel, or a pinch, zooms around the pointer. Fit all, Zoom out, the zoom percentage
+(which returns to 100%) and Zoom in sit in the bottom right corner. After a model change
+the camera pans to the changed section, or zooms out if it does not fit. It holds still
+for 3 seconds after the person pans, zooms or drags, and while a block editor is open;
+the Sections list flashes the entry instead.
 
-The side panel shows the live transcript, newest at the bottom, with lines the model
-has not seen marked. Ask the canvas sits below it, then the activity list: one row
-per transcription or edit call with backend, model, time, ops applied and rejected
-with reasons, and errors. The settings popover offers the OpenRouter edit model and
-the spoken language, empty for automatic detection. The transcription model and the
-Codex model, effort and service tier are fixed text. Scope looks for the codex program
-when Codex is the backend; a path field appears only when that lookup fails.
+When the person edited a block, or renamed, resized or removed a section, after a call
+started, that call's changes to it are skipped and listed as rejected. Clicking a block,
+or pressing Enter on it, opens an editor docked at the bottom of the canvas with its
+source, kind and width, Delete and Done. The canvas previews each keystroke. Escape
+cancels; Command-Enter or Ctrl+Enter finishes. Links on the canvas do not open from the
+tab; they work in the kept HTML.
 
-Prototype limits: the tab state holds the page and settings, so restart keeps the page
-but not the transcript, activity or undo history. Audio and text go to OpenRouter, and
-Codex edits run through the person's own Codex login. A debug log at
-`meeting-canvas-debug.jsonl` in the desktop data folder records transcripts, edit
-calls, ops and timings, never audio or keys. It rotates once at 5 MB.
+Undo steps back through canvas changes from the person and the model, up to 50, for the
+current session. Voice undo is separate: it restores only the sections the last model
+reply touched and removes the sections it created. It skips sections the person edited
+after that reply, and the activity list says so ("Kept your edits to Login flow"). Keep
+as HTML publishes the canvas as a new standalone HTML artifact with a unique name, laid
+out in the same flow without pan and zoom, which opens as its own tab that agents can
+edit. After a Keep, Clear canvas removes every section; Undo brings them back.
+
+### Present
+
+Present hides the header, side panel and zoom controls. A small bar keeps the Listening
+label and Exit present; Escape also exits. Present leaves the window size alone and
+turns off block editing. It starts by fitting the whole canvas, then follows each change
+by zooming to fit the changed section, never past 140%. A status line in the bottom left
+tells the room what happened: Heard "…", Working on "…", Done with the section name, No
+change, Failed, or Cancelled. Finished states fade after 5 seconds.
+
+### Side panel and settings
+
+The side panel shows the live transcript, newest at the bottom, with request lines
+marked. Ask the canvas sits below it, then the Sections list, where clicking a name
+zooms to that section, then the activity list: one row per transcription, edit call or
+voice command with backend, model, time, ops applied and rejected with reasons, and
+errors. The settings popover offers the OpenRouter edit model and the spoken language,
+empty for automatic detection. The transcription model and the Codex model, effort and
+service tier are fixed text. Scope looks for the codex program when Codex is the
+backend; a path field appears only when that lookup fails.
+
+Prototype limits: the tab state holds the canvas and settings, so restart keeps the
+sections but not the transcript, activity, camera or undo history. A page saved by the
+first test build opens as one section named after its title, and the next save stores it
+as a canvas. Audio and text go to OpenRouter, and Codex edits run through the person's
+own Codex login. A debug log at `meeting-canvas-debug.jsonl` in the desktop data folder
+records transcripts, edit calls, ops, timings and requests sent by the 6 second
+fallback, never audio or keys. It rotates once at 5 MB.
 
 ## Harnesses
 
