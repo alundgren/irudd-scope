@@ -1,1 +1,776 @@
-/* Workstream A writes the Meeting canvas page style. */
+/*
+ * Meeting canvas page style, shared by the tab and the HTML export.
+ * Visual style adapted from OpenGhost by ANDRETRIPOL (MIT), https://github.com/ANDRETRIPOL/OpenGhost
+ *
+ * Drawings are ink on the surface: structure is the text color at low strength in
+ * hairlines, and color stands for data only (series s1 to s7, plus the accent for
+ * key nodes). Light and dark come from light-dark(); the host sets color-scheme.
+ */
+
+.mc-page {
+  --mc-scale: 1;
+  --mc-fg: light-dark(rgb(17 19 24), rgb(240 242 246));
+  --mc-surface: light-dark(rgb(255 255 255), rgb(22 23 26));
+  --mc-ink: light-dark(rgb(17 19 24 / 0.9), rgb(240 242 246 / 0.92));
+  --mc-ink-2: light-dark(rgb(17 19 24 / 0.64), rgb(240 242 246 / 0.64));
+  --mc-ink-3: light-dark(rgb(17 19 24 / 0.5), rgb(240 242 246 / 0.48));
+  --mc-line: color-mix(in srgb, var(--mc-fg) 12%, transparent);
+  --mc-line-soft: color-mix(in srgb, var(--mc-fg) 7%, transparent);
+  --mc-plate: color-mix(in srgb, var(--mc-fg) 4%, var(--mc-surface));
+  --mc-dot: color-mix(in srgb, var(--mc-fg) 8%, transparent);
+
+  --mc-s1: light-dark(rgb(28 101 200), rgb(72 133 223));
+  --mc-s2: light-dark(rgb(202 91 4), rgb(202 103 25));
+  --mc-s3: light-dark(rgb(11 142 127), rgb(9 148 133));
+  --mc-s4: light-dark(rgb(109 60 179), rgb(134 99 198));
+  --mc-s5: light-dark(rgb(191 134 16), rgb(185 137 24));
+  --mc-s6: light-dark(rgb(209 65 134), rgb(215 95 148));
+  --mc-s7: light-dark(rgb(7 120 47), rgb(58 143 76));
+  --mc-accent: var(--mc-s1);
+  --mc-tone: var(--mc-accent);
+
+  --mc-gap: calc(20px * var(--mc-scale));
+  --mc-font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mc-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  container: mc-page / inline-size;
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: calc(32px * var(--mc-scale)) calc(36px * var(--mc-scale)) calc(48px * var(--mc-scale));
+  background: var(--mc-surface);
+  color: var(--mc-ink);
+  font-family: var(--mc-font);
+  font-size: calc(15px * var(--mc-scale));
+  font-weight: 400;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mc-page *,
+.mc-page *::before,
+.mc-page *::after {
+  box-sizing: border-box;
+}
+
+.mc-page.is-present {
+  --mc-scale: 1.5;
+  --mc-gap: 36px;
+}
+
+.mc-page-inner {
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.mc-page .mc-title {
+  margin: 0 0 calc(22px * var(--mc-scale));
+  color: var(--mc-ink);
+  font-size: calc(22px * var(--mc-scale));
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+/* Grid: full spans 6 columns, half 3, third 2. Narrow pages stack every block. */
+.mc-page .mc-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--mc-gap);
+  align-items: start;
+}
+
+.mc-page .mc-block {
+  grid-column: span 6;
+  min-width: 0;
+  padding: calc(16px * var(--mc-scale)) calc(18px * var(--mc-scale));
+  border: 1px solid var(--mc-line-soft);
+  border-radius: 12px;
+  background: var(--mc-surface);
+}
+
+.mc-page .mc-w-half {
+  grid-column: span 3;
+}
+
+.mc-page .mc-w-third {
+  grid-column: span 2;
+}
+
+@container mc-page (max-width: 720px) {
+  .mc-page .mc-block {
+    grid-column: span 6;
+  }
+}
+
+.mc-page .mc-block.is-fresh {
+  animation: mc-fresh 1.8s ease-out;
+}
+
+@keyframes mc-fresh {
+  0% {
+    border-color: color-mix(in srgb, var(--mc-accent) 62%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--mc-accent) 18%, transparent);
+  }
+
+  100% {
+    border-color: var(--mc-line-soft);
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-page .mc-block.is-fresh {
+    animation-duration: 0.01s;
+    border-color: color-mix(in srgb, var(--mc-accent) 62%, transparent);
+  }
+}
+
+/* Shared small type. */
+.mc-page .mc-eyebrow {
+  color: var(--mc-ink-3);
+  font-size: calc(10.5px * var(--mc-scale));
+  font-weight: 650;
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+}
+
+/* Markdown text and callouts. */
+.mc-page .mc-md > :first-child {
+  margin-top: 0;
+}
+
+.mc-page .mc-md > :last-child {
+  margin-bottom: 0;
+}
+
+.mc-page .mc-md :is(p, ul, ol, table, pre, blockquote, .mc-math) {
+  margin: 0 0 0.7em;
+}
+
+.mc-page .mc-md :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1em 0 0.4em;
+  color: var(--mc-ink);
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.mc-page .mc-md h1 {
+  font-size: 1.3em;
+}
+
+.mc-page .mc-md h2 {
+  font-size: 1.15em;
+}
+
+.mc-page .mc-md :is(h3, h4, h5, h6) {
+  font-size: 1em;
+}
+
+.mc-page .mc-md :is(ul, ol) {
+  padding-left: 1.3em;
+}
+
+.mc-page .mc-md li + li {
+  margin-top: 0.2em;
+}
+
+.mc-page .mc-md li::marker {
+  color: var(--mc-ink-3);
+}
+
+.mc-page .mc-md :is(strong, b, th) {
+  font-weight: 600;
+}
+
+.mc-page .mc-md a {
+  color: var(--mc-accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--mc-accent) 40%, transparent);
+  text-underline-offset: 2px;
+}
+
+.mc-page .mc-md :is(code, pre) {
+  font-family: var(--mc-mono);
+  font-size: 0.88em;
+}
+
+.mc-page .mc-md code {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--mc-plate);
+}
+
+.mc-page .mc-md pre {
+  overflow-x: auto;
+  padding: 0.8em 1em;
+  border: 1px solid var(--mc-line-soft);
+  border-radius: 8px;
+  background: var(--mc-plate);
+}
+
+.mc-page .mc-md pre code {
+  padding: 0;
+  background: none;
+}
+
+.mc-page .mc-md blockquote {
+  padding-left: 0.9em;
+  border-left: 2px solid var(--mc-line);
+  color: var(--mc-ink-2);
+}
+
+.mc-page .mc-md hr {
+  margin: 1em 0;
+  border: 0;
+  border-top: 1px solid var(--mc-line);
+}
+
+.mc-page .mc-md table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.93em;
+  font-variant-numeric: tabular-nums;
+}
+
+.mc-page .mc-md :is(th, td) {
+  padding: 0.4em 0.7em;
+  border-bottom: 1px solid var(--mc-line-soft);
+  text-align: left;
+  vertical-align: top;
+}
+
+.mc-page .mc-md th {
+  border-bottom-color: var(--mc-line);
+  color: var(--mc-ink-2);
+}
+
+.mc-page .mc-md .mc-math {
+  overflow-x: auto;
+  text-align: center;
+}
+
+.mc-page .mc-md math {
+  font-size: 1.08em;
+}
+
+/* Callouts: a tone bar on the left and a small label. */
+.mc-page :is(.mc-k-note, .mc-k-decision, .mc-k-risk, .mc-k-question) {
+  --mc-tone: var(--mc-ink-3);
+
+  border-left: 3px solid var(--mc-tone);
+  background: color-mix(in srgb, var(--mc-tone) 5%, var(--mc-surface));
+}
+
+.mc-page .mc-k-decision {
+  --mc-tone: var(--mc-s7);
+}
+
+.mc-page .mc-k-risk {
+  --mc-tone: var(--mc-s2);
+}
+
+.mc-page .mc-k-question {
+  --mc-tone: var(--mc-s4);
+}
+
+.mc-page .mc-callout-label {
+  margin-bottom: 0.3em;
+  color: var(--mc-tone);
+}
+
+.mc-page .mc-k-note .mc-callout-label {
+  color: var(--mc-ink-3);
+}
+
+/* Diagrams. */
+.mc-page .mc-diagram {
+  margin: 0;
+}
+
+.mc-page .mc-d-title {
+  margin-bottom: calc(10px * var(--mc-scale));
+  color: var(--mc-ink);
+  font-size: calc(13.5px * var(--mc-scale));
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.mc-page :is(.mc-d-flow, .mc-d-sequence, .mc-d-tree) {
+  padding: 4px;
+  border-radius: 8px;
+  background-image: radial-gradient(circle, var(--mc-dot) 1px, transparent 1.4px);
+  background-position: 9px 9px;
+  background-size: 18px 18px;
+}
+
+.mc-page :is(.mc-d-flow, .mc-d-sequence, .mc-d-tree) .mc-d-title {
+  padding: 4px 4px 0;
+}
+
+.mc-page .mc-svg {
+  display: block;
+  width: var(--mc-svg-w);
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  overflow: visible;
+  font-family: var(--mc-font);
+}
+
+.mc-page.is-present .mc-svg {
+  width: calc(var(--mc-svg-w) * 1.5);
+}
+
+/* Node plates. Sizes are SVG units that match the layout estimates in diagram/svg.ts. */
+.mc-page .mc-svg .mc-plate {
+  fill: var(--mc-plate);
+  stroke: var(--mc-line);
+  stroke-width: 1;
+}
+
+.mc-page .mc-svg .mc-plate-line {
+  fill: none;
+  stroke: var(--mc-line);
+  stroke-width: 1;
+}
+
+.mc-page .mc-svg :is(.mc-node.is-key, .mc-node.is-toned) .mc-plate {
+  fill: color-mix(in srgb, var(--mc-tone) 9%, var(--mc-surface));
+  stroke: color-mix(in srgb, var(--mc-tone) 62%, transparent);
+}
+
+.mc-page .mc-svg .mc-node.is-key .mc-plate-line,
+.mc-page .mc-svg .mc-node.is-toned .mc-plate-line {
+  stroke: color-mix(in srgb, var(--mc-tone) 62%, transparent);
+}
+
+.mc-page .mc-svg .mc-node.is-muted .mc-plate {
+  fill: none;
+  stroke-dasharray: 3 3;
+}
+
+.mc-page .mc-svg .mc-n-head {
+  fill: var(--mc-ink);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.mc-page .mc-svg .mc-n-head.is-strong {
+  font-weight: 600;
+}
+
+.mc-page .mc-svg .mc-n-detail {
+  fill: var(--mc-ink-2);
+  font-size: 11.5px;
+  font-weight: 450;
+}
+
+.mc-page .mc-svg .mc-node.is-muted :is(.mc-n-head, .mc-n-detail) {
+  fill: var(--mc-ink-3);
+}
+
+.mc-page .mc-svg .mc-edge {
+  fill: none;
+  stroke: var(--mc-ink-3);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mc-page .mc-svg .mc-edge.is-dashed {
+  stroke-dasharray: 4 4;
+}
+
+.mc-page .mc-svg .mc-arrow {
+  fill: var(--mc-ink-3);
+}
+
+.mc-page .mc-svg .mc-label-plate {
+  fill: var(--mc-surface);
+  opacity: 0.92;
+}
+
+.mc-page .mc-svg .mc-e-label {
+  fill: var(--mc-ink-2);
+  font-size: 11.5px;
+  font-weight: 450;
+}
+
+.mc-page .mc-svg .mc-group rect {
+  fill: color-mix(in srgb, var(--mc-fg) 2%, transparent);
+  stroke: var(--mc-line);
+  stroke-dasharray: 2 3;
+}
+
+.mc-page .mc-svg .mc-g-label {
+  fill: var(--mc-ink-3);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mc-page .mc-svg .mc-lifeline {
+  stroke: var(--mc-line);
+  stroke-dasharray: 3 4;
+}
+
+.mc-page .mc-svg .mc-divider {
+  stroke: var(--mc-line);
+}
+
+.mc-page .mc-svg .mc-note .mc-plate {
+  fill: color-mix(in srgb, var(--mc-s5) 8%, var(--mc-surface));
+  stroke: color-mix(in srgb, var(--mc-s5) 40%, transparent);
+}
+
+.mc-page .mc-s1 {
+  --mc-tone: var(--mc-s1);
+}
+
+.mc-page .mc-s2 {
+  --mc-tone: var(--mc-s2);
+}
+
+.mc-page .mc-s3 {
+  --mc-tone: var(--mc-s3);
+}
+
+.mc-page .mc-s4 {
+  --mc-tone: var(--mc-s4);
+}
+
+.mc-page .mc-s5 {
+  --mc-tone: var(--mc-s5);
+}
+
+.mc-page .mc-s6 {
+  --mc-tone: var(--mc-s6);
+}
+
+.mc-page .mc-s7 {
+  --mc-tone: var(--mc-s7);
+}
+
+/* Lists rendered as HTML: steps, timeline, checklist. */
+.mc-page :is(.mc-steps, .mc-timeline, .mc-checklist) {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mc-page .mc-step {
+  position: relative;
+  display: flex;
+  gap: 0.8em;
+  padding-bottom: 0.9em;
+}
+
+.mc-page .mc-step:not(:last-child)::before {
+  position: absolute;
+  top: 1.9em;
+  bottom: 0.15em;
+  left: 0.85em;
+  border-left: 1px solid var(--mc-line);
+  content: "";
+}
+
+.mc-page .mc-step-n {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.7em;
+  height: 1.7em;
+  border: 1px solid var(--mc-line);
+  border-radius: 50%;
+  background: var(--mc-plate);
+  color: var(--mc-ink-2);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.mc-page .mc-step.is-done .mc-step-n {
+  color: var(--mc-ink-3);
+}
+
+.mc-page .mc-step.is-done .mc-step-head {
+  color: var(--mc-ink-2);
+}
+
+.mc-page :is(.mc-step.is-now, .mc-step.is-toned) .mc-step-n {
+  border-color: color-mix(in srgb, var(--mc-tone) 62%, transparent);
+  background: color-mix(in srgb, var(--mc-tone) 9%, var(--mc-surface));
+  color: var(--mc-tone);
+}
+
+.mc-page .mc-step-body {
+  min-width: 0;
+  padding-top: 0.1em;
+}
+
+.mc-page :is(.mc-step-head, .mc-what) {
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.mc-page .mc-step.is-now .mc-step-head {
+  font-weight: 600;
+}
+
+.mc-page :is(.mc-step-detail, .mc-event-detail) {
+  color: var(--mc-ink-2);
+  font-size: 0.88em;
+  line-height: 1.45;
+}
+
+.mc-page .mc-event {
+  position: relative;
+  padding: 0 0 0.9em 1.4em;
+  border-left: 1px solid var(--mc-line);
+  margin-left: 0.35em;
+}
+
+.mc-page .mc-event:last-child {
+  padding-bottom: 0;
+  border-left-color: transparent;
+}
+
+.mc-page .mc-event::before {
+  position: absolute;
+  top: 0.35em;
+  left: calc(-0.35em - 0.5px);
+  width: 0.7em;
+  height: 0.7em;
+  border: 1px solid var(--mc-line);
+  border-radius: 50%;
+  background: var(--mc-surface);
+  content: "";
+}
+
+.mc-page :is(.mc-event.is-now, .mc-event.is-toned)::before {
+  border-color: var(--mc-tone);
+  background: var(--mc-tone);
+}
+
+.mc-page .mc-event.is-done::before {
+  background: var(--mc-ink-3);
+}
+
+.mc-page .mc-when {
+  color: var(--mc-ink-3);
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+}
+
+.mc-page .mc-event.is-now :is(.mc-when, .mc-what) {
+  color: var(--mc-tone);
+}
+
+.mc-page .mc-check-item {
+  display: flex;
+  gap: 0.65em;
+  align-items: baseline;
+  padding: 0.35em 0;
+  border-bottom: 1px solid var(--mc-line-soft);
+}
+
+.mc-page .mc-check-item:last-child {
+  border-bottom: 0;
+}
+
+.mc-page .mc-check {
+  position: relative;
+  top: 0.15em;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  border: 1px solid var(--mc-ink-3);
+  border-radius: 4px;
+}
+
+.mc-page .mc-check-item.is-done .mc-check {
+  border-color: var(--mc-accent);
+  background: var(--mc-accent);
+}
+
+.mc-page .mc-check-item.is-done .mc-check::after {
+  position: absolute;
+  top: 0.12em;
+  left: 0.32em;
+  width: 0.28em;
+  height: 0.5em;
+  border: solid var(--mc-surface);
+  border-width: 0 1.5px 1.5px 0;
+  content: "";
+  transform: rotate(45deg);
+}
+
+.mc-page .mc-check-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.mc-page .mc-check-item.is-done .mc-check-text {
+  color: var(--mc-ink-3);
+  text-decoration: line-through;
+  text-decoration-color: var(--mc-line);
+}
+
+.mc-page .mc-owner {
+  flex: none;
+  padding: 0 0.55em;
+  border: 1px solid var(--mc-line);
+  border-radius: 999px;
+  color: var(--mc-ink-2);
+  font-size: 0.8em;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+/* Compare: option cards side by side. */
+.mc-page .mc-lead {
+  margin: 0 0 0.7em;
+  color: var(--mc-ink-2);
+}
+
+.mc-page .mc-compare {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12em), 1fr));
+  gap: calc(12px * var(--mc-scale));
+}
+
+.mc-page .mc-option {
+  min-width: 0;
+  padding: 0.85em 1em;
+  border: 1px solid var(--mc-line);
+  border-radius: 10px;
+  background: var(--mc-plate);
+}
+
+.mc-page :is(.mc-option.is-key, .mc-option.is-toned) {
+  border-color: color-mix(in srgb, var(--mc-tone) 62%, transparent);
+  background: color-mix(in srgb, var(--mc-tone) 9%, var(--mc-surface));
+}
+
+.mc-page .mc-option-name {
+  margin: 0 0 0.45em;
+  color: var(--mc-ink);
+  font-size: 1em;
+  font-weight: 650;
+}
+
+.mc-page :is(.mc-pros, .mc-cons) {
+  margin: 0 0 0.4em;
+  padding: 0;
+  list-style: none;
+}
+
+.mc-page :is(.mc-pros, .mc-cons) li {
+  position: relative;
+  padding-left: 1.2em;
+  font-size: 0.93em;
+}
+
+.mc-page :is(.mc-pros, .mc-cons) li::before {
+  position: absolute;
+  left: 0;
+  width: 1em;
+  color: var(--mc-ink-3);
+  font-weight: 650;
+  text-align: center;
+}
+
+.mc-page .mc-pros li::before {
+  content: "+";
+}
+
+.mc-page .mc-cons li::before {
+  content: "\2212";
+}
+
+.mc-page .mc-option-note {
+  margin: 0.3em 0 0;
+  color: var(--mc-ink-2);
+  font-size: 0.88em;
+}
+
+/* Metrics: number cards. */
+.mc-page .mc-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9em), 1fr));
+  gap: calc(10px * var(--mc-scale));
+}
+
+.mc-page .mc-metric {
+  min-width: 0;
+  padding: 0.7em 0.9em 0.8em;
+  border: 1px solid var(--mc-line-soft);
+  border-radius: 10px;
+  background: var(--mc-plate);
+}
+
+.mc-page .mc-metric.is-toned {
+  border-top: 2px solid var(--mc-tone);
+}
+
+.mc-page .mc-value {
+  color: var(--mc-ink);
+  font-size: 1.75em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+}
+
+.mc-page .mc-metric-note {
+  margin-top: 0.25em;
+  color: var(--mc-ink-2);
+  font-size: 0.82em;
+}
+
+.mc-page .mc-delta {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.mc-page .mc-delta.is-up::before {
+  content: "\25B2\00A0";
+  font-size: 0.75em;
+}
+
+.mc-page .mc-delta.is-down::before {
+  content: "\25BC\00A0";
+  font-size: 0.75em;
+}
+
+/* A diagram that could not be drawn. */
+.mc-page .mc-error {
+  padding: 0.7em 0.9em;
+  border: 1px dashed color-mix(in srgb, var(--mc-s2) 55%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mc-s2) 5%, var(--mc-surface));
+}
+
+.mc-page .mc-error-head {
+  margin-bottom: 0.4em;
+  color: var(--mc-ink-2);
+  font-size: 0.88em;
+  font-weight: 500;
+}
+
+.mc-page .mc-error-source {
+  max-height: 16em;
+  margin: 0;
+  overflow: auto;
+  color: var(--mc-ink-3);
+  font-family: var(--mc-mono);
+  font-size: 0.8em;
+  white-space: pre-wrap;
+}
