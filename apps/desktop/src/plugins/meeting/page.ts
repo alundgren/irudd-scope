@@ -150,12 +150,15 @@ const HEADER_ARGS: Partial<Record<(typeof DIAGRAM_KINDS)[number], (arg: string) 
   wireframe: (arg) => /^(desktop|mobile)$/i.test(arg),
   state: (arg) => /^(right|down|lr|td|tb|vertical)$/i.test(arg),
   bars: () => true,
+  class: (arg) => /^(right|down|lr|td|tb|vertical)$/i.test(arg),
+  swimlane: (arg) => /^(right|down|lr|td|tb|vertical)$/i.test(arg),
 };
 
 /**
  * "diagram" when the first line is a diagram header whose argument suits its kind, so
- * "Compare options" stays prose. Flow takes a direction, wireframe takes desktop or
- * mobile, bars takes any unit, and the other kinds take no argument.
+ * "Compare options" stays prose. Flow, state, class and swimlane take a direction,
+ * wireframe takes desktop or mobile, bars takes any unit, and the other kinds take no
+ * argument.
  */
 export function guessKind(source: string | null): BlockKind {
   const header = splitSource(source ?? "")?.header;

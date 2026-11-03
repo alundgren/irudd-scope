@@ -314,7 +314,7 @@
   line-height: 1.35;
 }
 
-.mc-page :is(.mc-d-flow, .mc-d-sequence, .mc-d-tree, .mc-d-state, .mc-d-er) {
+.mc-page :is(.mc-d-flow, .mc-d-sequence, .mc-d-tree, .mc-d-state, .mc-d-er, .mc-d-class) {
   padding: 4px;
   border-radius: 8px;
   background-image: radial-gradient(circle, var(--mc-dot) 1px, transparent 1.4px);
@@ -322,7 +322,9 @@
   background-size: 18px 18px;
 }
 
-.mc-page :is(.mc-d-flow, .mc-d-sequence, .mc-d-tree, .mc-d-state, .mc-d-er) .mc-d-title {
+.mc-page
+  :is(.mc-d-flow, .mc-d-sequence, .mc-d-tree, .mc-d-state, .mc-d-er, .mc-d-class)
+  .mc-d-title {
   padding: 4px 4px 0;
 }
 
@@ -826,8 +828,178 @@
   fill: var(--mc-ink-2);
 }
 
-.mc-page .mc-svg .mc-er-card .mc-e-label {
+.mc-page .mc-svg :is(.mc-er-card, .mc-cls-mult) .mc-e-label {
   fill: var(--mc-ink);
+  font-weight: 650;
+}
+
+/* Class diagrams: UML boxes with name, attribute and method compartments. */
+.mc-page .mc-svg .mc-cls-box .mc-plate {
+  fill: var(--mc-surface);
+}
+
+.mc-page .mc-svg .mc-cls-head {
+  fill: color-mix(in srgb, var(--mc-fg) 6%, var(--mc-surface));
+}
+
+.mc-page .mc-svg .mc-cls-box:is(.is-key, .is-toned) .mc-cls-head {
+  fill: color-mix(in srgb, var(--mc-tone) 12%, var(--mc-surface));
+}
+
+.mc-page .mc-svg .mc-cls-stereo {
+  fill: var(--mc-ink-2);
+  font-size: 11px;
+}
+
+.mc-page .mc-svg .mc-cls-italic {
+  font-style: italic;
+}
+
+.mc-page .mc-svg .mc-cls-member {
+  fill: var(--mc-ink);
+  font-size: 11.5px;
+  font-weight: 450;
+}
+
+.mc-page .mc-svg .mc-cls-vis {
+  fill: var(--mc-ink-3);
+  font-family: var(--mc-mono);
+  font-weight: 600;
+}
+
+.mc-page .mc-svg .mc-cls-mark {
+  stroke: var(--mc-ink-3);
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+}
+
+.mc-page .mc-svg .mc-cls-mark.is-hollow {
+  fill: var(--mc-surface);
+}
+
+.mc-page .mc-svg .mc-cls-mark.is-filled {
+  fill: var(--mc-ink-3);
+}
+
+/* Gantt charts: a date axis, one row per task, and dependency arrows. */
+.mc-page .mc-svg .mc-gantt-zebra {
+  fill: color-mix(in srgb, var(--mc-fg) 2.5%, transparent);
+}
+
+.mc-page .mc-svg :is(.mc-gantt-grid, .mc-gantt-rule) {
+  stroke: var(--mc-line-soft);
+}
+
+.mc-page .mc-svg :is(.mc-gantt-period, .mc-gantt-axis) {
+  stroke: var(--mc-line);
+}
+
+.mc-page .mc-svg .mc-gantt-tick {
+  fill: var(--mc-ink-2);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mc-page .mc-svg .mc-gantt-period-text {
+  fill: var(--mc-ink);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.mc-page .mc-svg .mc-gantt-section {
+  fill: var(--mc-ink);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.mc-page .mc-svg .mc-gantt-span {
+  fill: none;
+  stroke: var(--mc-ink-3);
+  stroke-width: 1.5;
+}
+
+.mc-page .mc-svg .mc-gantt-label {
+  fill: var(--mc-ink);
+  font-size: 12.5px;
+  font-weight: 450;
+}
+
+.mc-page .mc-svg .mc-gantt-label.is-now {
+  font-weight: 650;
+}
+
+.mc-page .mc-svg .mc-gantt-bar {
+  fill: color-mix(in srgb, var(--mc-tone) 78%, var(--mc-surface));
+  stroke: var(--mc-tone);
+  stroke-width: 1;
+}
+
+.mc-page .mc-svg .mc-gantt-task.is-done .mc-gantt-bar {
+  fill: color-mix(in srgb, var(--mc-tone) 28%, var(--mc-surface));
+  stroke: color-mix(in srgb, var(--mc-tone) 55%, transparent);
+}
+
+.mc-page .mc-svg .mc-gantt-task.is-now .mc-gantt-bar {
+  fill: var(--mc-tone);
+  stroke: var(--mc-ink);
+  stroke-width: 1.5;
+}
+
+.mc-page .mc-svg .mc-gantt-task.is-key .mc-gantt-bar {
+  stroke: var(--mc-ink);
+  stroke-width: 1.75;
+}
+
+.mc-page .mc-svg .mc-gantt-task:is(.is-muted, .is-guessed) .mc-gantt-bar {
+  fill: color-mix(in srgb, var(--mc-tone) 12%, var(--mc-surface));
+  stroke-dasharray: 3 3;
+}
+
+.mc-page .mc-svg .mc-gantt-date {
+  fill: var(--mc-ink-2);
+  font-size: 11.5px;
+}
+
+.mc-page .mc-svg .mc-gantt-today path {
+  stroke: var(--mc-s6);
+  stroke-width: 1.5;
+}
+
+.mc-page .mc-svg .mc-gantt-today rect {
+  fill: var(--mc-s6);
+}
+
+.mc-page .mc-svg .mc-gantt-today-text {
+  fill: var(--mc-surface);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+/* Swimlanes: full-length lane bands, named on the left or along the top. */
+.mc-page .mc-svg .mc-lane-band {
+  fill: var(--mc-surface);
+}
+
+.mc-page .mc-svg .mc-lane-band.is-alt {
+  fill: color-mix(in srgb, var(--mc-fg) 2.5%, var(--mc-surface));
+}
+
+.mc-page .mc-svg .mc-lane-head {
+  fill: color-mix(in srgb, var(--mc-fg) 5%, var(--mc-surface));
+}
+
+.mc-page .mc-svg .mc-lane-line {
+  stroke: var(--mc-line);
+}
+
+.mc-page .mc-svg .mc-lane-frame {
+  fill: none;
+  stroke: var(--mc-line);
+}
+
+.mc-page .mc-svg .mc-lane-name {
+  fill: var(--mc-ink);
+  font-size: 12.5px;
   font-weight: 650;
 }
 

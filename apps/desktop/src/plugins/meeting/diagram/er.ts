@@ -5,6 +5,7 @@ import type { Point } from "./svg.ts";
 import {
   Bounds,
   DETAIL_PX,
+  endLabelSvg,
   HEAD_PX,
   labelSize,
   labelSvg,
@@ -12,7 +13,7 @@ import {
   svgDocument,
   svgText,
 } from "./svg.ts";
-import { cleanLabel, num, textWidth, wrapText } from "./text.ts";
+import { cleanLabel, clipText, num, textWidth, wrapText } from "./text.ts";
 
 const MAX_ENTITIES = 30;
 const MAX_FIELDS = 30;
@@ -127,8 +128,8 @@ function measureTable(entity: Entity): Table {
   const badgeW = badges * (BADGE_W + BADGE_GAP);
   const rows = entity.fields.map((field) => ({
     field,
-    name: clip(field.name, MAX_TEXT),
-    type: clip(field.type, 90),
+    name: clipText(field.name, DETAIL_PX, MAX_TEXT),
+    type: clipText(field.type, DETAIL_PX, 90),
   }));
   const rowW = Math.max(
     0,
@@ -144,17 +145,6 @@ function measureTable(entity: Entity): Table {
   const headH = HEAD_H + (name.length - 1) * 16;
   const height = headH + rows.length * ROW_H + (rows.length > 0 ? 6 : 0);
   return { entity, name, width, height, badges, rows };
-}
-
-/** Shortens text to fit `maxPx` with an ellipsis. */
-function clip(text: string, maxPx: number): string {
-  if (textWidth(text, DETAIL_PX) <= maxPx) return text;
-  let out = "";
-  for (const char of text) {
-    if (textWidth(`${out}${char}…`, DETAIL_PX) > maxPx) break;
-    out += char;
-  }
-  return `${out}…`;
 }
 
 function drawModel(model: Model, header: Header): string {
@@ -202,8 +192,10 @@ function drawModel(model: Model, header: Header): string {
     if (points.length < 2) return;
     for (const point of points) bounds.add(point.x, point.y);
     const parts = [`<path class="mc-edge" d="${smoothPath(points)}"/>`];
-    parts.push(cardLabel(relation.fromCard, points[0]!, points[1]!, -1, bounds));
-    parts.push(cardLabel(relation.toCard, points.at(-1)!, points.at(-2)!, 1, bounds));
+    parts.push(endLabelSvg(relation.fromCard, points[0]!, points[1]!, -1, bounds, "mc-er-card"));
+    parts.push(
+      endLabelSvg(relation.toCard, points.at(-1)!, points.at(-2)!, 1, bounds, "mc-er-card"),
+    );
     const label = labels[index]!;
     if (label[0] && laid.x !== undefined && laid.y !== undefined) {
       const size = labelSize(label);
@@ -240,8 +232,12 @@ function selfLoopSvg(
   const d = `M${num(left.x)} ${num(left.y)}C${num(left.x - 12)} ${num(peak)} ${num(right.x + 12)} ${num(peak)} ${num(right.x)} ${num(right.y)}`;
   bounds.add(left.x - 14, peak, right.x - left.x + 28, LOOP_OUT);
   const parts = [`<path class="mc-edge" d="${d}"/>`];
-  parts.push(cardLabel(relation.fromCard, left, { x: left.x - 4, y: top - 10 }, 1, bounds));
-  parts.push(cardLabel(relation.toCard, right, { x: right.x + 4, y: top - 10 }, -1, bounds));
+  parts.push(
+    endLabelSvg(relation.fromCard, left, { x: left.x - 4, y: top - 10 }, 1, bounds, "mc-er-card"),
+  );
+  parts.push(
+    endLabelSvg(relation.toCard, right, { x: right.x + 4, y: top - 10 }, -1, bounds, "mc-er-card"),
+  );
   if (label[0]) {
     const size = labelSize(label);
     const cy = peak - 4 - size.height / 2;
@@ -249,26 +245,6 @@ function selfLoopSvg(
     parts.push(labelSvg(label, centerX, cy));
   }
   return `<g class="mc-link mc-er-link">${parts.join("")}</g>`;
-}
-
-/**
- * A cardinality mark just off the edge, near the end at `tip`. `side` flips the
- * offset so marks at both ends of an edge sit on the same side of it.
- */
-function cardLabel(card: string, tip: Point, toward: Point, side: 1 | -1, bounds: Bounds): string {
-  const dx = toward.x - tip.x;
-  const dy = toward.y - tip.y;
-  const length = Math.hypot(dx, dy) || 1;
-  const ux = dx / length;
-  const uy = dy / length;
-  const cx = tip.x + ux * 14 - uy * 9 * side;
-  const cy = tip.y + uy * 14 + ux * 9 * side;
-  const size = labelSize([card]);
-  bounds.add(cx - size.width / 2, cy - size.height / 2, size.width, size.height);
-  return labelSvg([card], cx, cy).replace(
-    'class="mc-edge-label"',
-    'class="mc-edge-label mc-er-card"',
-  );
 }
 
 function tableSvg(table: Table, x: number, y: number): string {

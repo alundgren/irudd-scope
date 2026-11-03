@@ -1,8 +1,10 @@
 import { escapeHtml } from "../html.ts";
 import { renderBars } from "./bars.ts";
 import { renderBoard } from "./board.ts";
+import { renderClass } from "./class.ts";
 import { renderEr } from "./er.ts";
 import { renderFlow } from "./flow.ts";
+import { renderGantt } from "./gantt.ts";
 import { DIAGRAM_KINDS } from "../contract.ts";
 import type { DiagramKind, Header } from "./header.ts";
 import { splitSource } from "./header.ts";
@@ -15,6 +17,7 @@ import {
 } from "./lists.ts";
 import { renderSequence } from "./sequence.ts";
 import { renderState } from "./state.ts";
+import { renderSwimlane } from "./swimlane.ts";
 import { renderTree } from "./tree.ts";
 import { renderWireframe } from "./wireframe.ts";
 
@@ -34,6 +37,9 @@ const RENDERERS: Record<DiagramKind, KindRenderer> = {
   er: renderEr,
   board: (_header, body) => renderBoard(body),
   bars: renderBars,
+  class: renderClass,
+  gantt: renderGantt,
+  swimlane: renderSwimlane,
 };
 
 /**

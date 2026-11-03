@@ -16,6 +16,9 @@ export const DIAGRAM_KINDS = [
   "er",
   "board",
   "bars",
+  "class",
+  "gantt",
+  "swimlane",
 ] as const;
 export const MAX_BLOCKS = 60;
 export const MAX_SOURCE = 6_000;

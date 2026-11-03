@@ -85,3 +85,14 @@ export function cleanLabel(text: string): string {
 export function num(value: number): string {
   return String(Math.round(value * 10) / 10);
 }
+
+/** Shortens text to fit `maxPx` at `fontPx`, ending it with an ellipsis. */
+export function clipText(text: string, fontPx: number, maxPx: number): string {
+  if (textWidth(text, fontPx) <= maxPx) return text;
+  let out = "";
+  for (const char of text) {
+    if (textWidth(`${out}${char}…`, fontPx) > maxPx) break;
+    out += char;
+  }
+  return `${out}…`;
+}
