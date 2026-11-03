@@ -5,6 +5,7 @@ import type { Tab } from "../workspace/contract.ts";
 import type { TabLabel, TabLabelContext } from "./api.ts";
 import { filePlugin } from "./file/renderer.tsx";
 import { sketchpadPlugin } from "./sketchpad/renderer.tsx";
+import { meetingPlugin } from "./meeting/renderer.tsx";
 import { planPlugin } from "./plan/renderer.tsx";
 
 import { pullRequestsPlugin } from "./pull-requests/renderer.tsx";
@@ -17,6 +18,7 @@ export const tabPlugins = [
   promptsPlugin,
   memoryPlugin,
   sketchpadPlugin,
+  meetingPlugin,
   planPlugin,
   pullRequestsPlugin,
   retroPlugin,
