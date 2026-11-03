@@ -61,15 +61,18 @@ function safeHref(href: string): string | null {
 
 function renderMath(tex: string, displayMode: boolean): string {
   try {
-    return katex.renderToString(tex, {
-      displayMode,
-      output: "mathml",
-      trust: false,
-      throwOnError: false,
-      maxSize: 20,
-      maxExpand: 500,
-      strict: "ignore",
-    });
+    // The annotation repeats the TeX source; DOMPurify drops the element but keeps its text.
+    return katex
+      .renderToString(tex, {
+        displayMode,
+        output: "mathml",
+        trust: false,
+        throwOnError: false,
+        maxSize: 20,
+        maxExpand: 500,
+        strict: "ignore",
+      })
+      .replace(/<annotation[^>]*>[^<]*<\/annotation>/g, "");
   } catch {
     return `<code>${escapeHtml(tex)}</code>`;
   }

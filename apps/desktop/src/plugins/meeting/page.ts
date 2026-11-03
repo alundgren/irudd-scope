@@ -1,5 +1,12 @@
 import type { Block, BlockKind, BlockWidth, EditOp, Page } from "./contract.ts";
-import { BLOCK_KINDS, BLOCK_WIDTHS, MAX_BLOCKS, MAX_OPS, MAX_SOURCE } from "./contract.ts";
+import {
+  BLOCK_KINDS,
+  BLOCK_WIDTHS,
+  DIAGRAM_KINDS,
+  MAX_BLOCKS,
+  MAX_OPS,
+  MAX_SOURCE,
+} from "./contract.ts";
 
 export type AppliedOps = {
   page: Page;
@@ -74,8 +81,8 @@ function applyOne(draft: Draft, op: EditOp): OpResult {
 
 function addBlock(draft: Draft, op: EditOp): OpResult {
   if (draft.blocks.length >= MAX_BLOCKS) return `The page already has ${MAX_BLOCKS} blocks.`;
-  const kind = checkKind(op.kind);
-  if (kind === null) return "add needs a kind.";
+  const kind = op.kind === null ? guessKind(op.source) : checkKind(op.kind);
+  if (kind === null) return `Unknown kind "${String(op.kind)}".`;
   const width = op.width === null ? "full" : checkWidth(op.width);
   if (width === null) return `Unknown width "${String(op.width)}".`;
   if (op.source === null) return "add needs a source.";
@@ -151,6 +158,12 @@ function setTitle(draft: Draft, op: EditOp): OpResult {
   return { changed: null };
 }
 
+// Fast models sometimes leave out the kind of a new block; its first line usually tells.
+function guessKind(source: string | null): BlockKind {
+  const first = /^\s*([a-z]+)/i.exec(source ?? "")?.[1]?.toLowerCase();
+  return DIAGRAM_KINDS.some((kind) => kind === first) ? "diagram" : "text";
+}
+
 function checkKind(kind: unknown): BlockKind | null {
   return BLOCK_KINDS.find((known) => known === kind) ?? null;
 }
@@ -191,7 +204,8 @@ function slugify(text: string): string {
 
 function uniqueId(blocks: readonly Block[], wanted: string): string {
   const base = ID_PATTERN.test(wanted) && wanted.length <= MAX_ID ? wanted : slugify(wanted);
-  const taken = new Set(blocks.map((block) => block.id));
+  // "start" is reserved because `after: "start"` means the top of the page.
+  const taken = new Set(["start", ...blocks.map((block) => block.id)]);
   if (!taken.has(base)) return base;
   for (let n = 2; ; n += 1) {
     const suffix = `-${n}`;

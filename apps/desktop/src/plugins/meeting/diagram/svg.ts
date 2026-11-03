@@ -160,6 +160,7 @@ export class Bounds {
   maxX = -Infinity;
   maxY = -Infinity;
   add(x: number, y: number, width = 0, height = 0): void {
+    if (![x, y, width, height].every(Number.isFinite)) return;
     this.minX = Math.min(this.minX, x);
     this.minY = Math.min(this.minY, y);
     this.maxX = Math.max(this.maxX, x + width);

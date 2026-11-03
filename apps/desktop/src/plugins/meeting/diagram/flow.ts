@@ -68,6 +68,8 @@ function parseEdgeLine(flow: Flow, line: string): void {
     for (const from of previous) {
       for (const to of next) {
         if (flow.edges.length >= MAX_EDGES) return;
+        // A node pointing at itself draws as a zero-length arrow, so it is left out.
+        if (from === to) continue;
         flow.edges.push({
           from,
           to,
@@ -124,9 +126,10 @@ function layoutFlow(flow: Flow, header: Header): string {
   const placed = new Set<string>();
   flow.groups.forEach((group, index) => {
     const id = `group:${index}`;
+    const members = group.members.filter((member) => !placed.has(member));
+    if (members.length === 0) return;
     graph.setNode(id, {});
-    for (const member of group.members) {
-      if (placed.has(member)) continue;
+    for (const member of members) {
       placed.add(member);
       graph.setParent(member, id);
     }
@@ -151,7 +154,7 @@ function drawFlow(
   const parts: string[] = [];
   flow.groups.forEach((group, index) => {
     const box = graph.node(`group:${index}`);
-    if (!box || !Number.isFinite(box.x)) return;
+    if (!box || ![box.x, box.y, box.width, box.height].every(Number.isFinite)) return;
     const x = box.x - box.width / 2;
     // Dagre leaves a band above the members, which holds the label.
     const y = box.y - box.height / 2;

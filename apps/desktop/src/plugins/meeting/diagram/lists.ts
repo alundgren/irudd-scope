@@ -33,7 +33,7 @@ export function renderSteps(lines: readonly string[]): string | null {
 export function renderTimeline(lines: readonly string[]): string | null {
   const items = lines.slice(0, MAX_ITEMS).flatMap((line) => {
     const { text, tags } = takeTags(line.trim().replace(/^[-*•]\s+/, ""));
-    const colon = text.indexOf(":");
+    const colon = text.search(/:(\s|$)/);
     const when = colon < 0 ? "" : cleanLabel(text.slice(0, colon));
     const { head, detail } = splitDetail(colon < 0 ? text : text.slice(colon + 1));
     if (!head && !when) return [];
