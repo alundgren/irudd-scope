@@ -362,10 +362,14 @@ function hasRequestWord(rest: readonly string[]): boolean {
 
 /** Whether a sentence after a finished request sentence still belongs to the request. */
 function continues(sentence: string): boolean {
-  const lead = tokenize(sentence)
-    .map((token) => token.word)
-    .slice(0, 3);
-  return lead.some((word) => CONTINUATION_WORDS.has(word)) || hasRequestWord(lead);
+  // Only the opening word counts: "We also need a state view" is usually someone else
+  // talking, while "Also add the cache" carries the request on.
+  const lead = leadTrimmed(sentence);
+  return (
+    (lead.length > 0 && CONTINUATION_WORDS.has(lead[0]!)) ||
+    hasRequestWord(lead.slice(0, 1)) ||
+    REQUEST_PAIRS.has(`${lead[0] ?? ""} ${lead[1] ?? ""}`)
+  );
 }
 
 function leadTrimmed(text: string): string[] {
@@ -375,14 +379,10 @@ function leadTrimmed(text: string): string[] {
   return list.slice(start);
 }
 
+/** "Never mind", or a request that opens with it ("actually never mind, don't add …"). */
 function isCancel(text: string): boolean {
   const list = leadTrimmed(text);
-  return CANCEL_PHRASES.some(
-    (phrase) =>
-      phrase.every((word, index) => list[index] === word) &&
-      list.length - phrase.length <= 2 &&
-      list.slice(phrase.length).every((word) => CANCEL_TAIL.has(word)),
-  );
+  return CANCEL_PHRASES.some((phrase) => phrase.every((word, index) => list[index] === word));
 }
 
 /** "…, actually never mind" at the end takes back the whole request. */
