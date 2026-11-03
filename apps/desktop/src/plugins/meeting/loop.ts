@@ -7,6 +7,8 @@ const MAX_QUEUED_CLIPS = 3;
 const RECENT_LINES = 30;
 const MAX_LINE = 4_000;
 const MAX_FAILURES = 3;
+/** How long "heard" stays up when no request follows. */
+const HEARD_TIMEOUT_MS = 8_000;
 const KEPT_LINES = 500;
 const KEPT_ACTIVITY = 200;
 const RETRY_MS = 8_000;
@@ -80,9 +82,6 @@ const short = (text: string, length = 140) =>
  * edits. Clips are transcribed one at a time. Only wake requests and typed requests
  * reach the edit model, one call at a time, in the order they were made.
  */
-/** How long "heard" stays up when no request follows. */
-const HEARD_TIMEOUT_MS = 8_000;
-
 export class MeetingLoop {
   private state: LoopSnapshot = {
     listening: "off",
@@ -132,14 +131,7 @@ export class MeetingLoop {
     });
   }
   private status(kind: CanvasStatus["kind"], text: string) {
-    const at = Date.now();
-    this.set({ status: { kind, text, at } });
-    // A short request the detector drops sends nothing back, so "heard" would stay up.
-    if (kind === "heard")
-      setTimeout(() => {
-        if (!this.disposed && this.state.status?.at === at && this.state.status.kind === "heard")
-          this.set({ status: { kind: "ignored", text, at: Date.now() } });
-      }, HEARD_TIMEOUT_MS);
+    this.set({ status: { kind, text, at: Date.now() } });
   }
 
   async start() {
@@ -283,6 +275,13 @@ export class MeetingLoop {
     if (pending) {
       this.markWake(pending.chunks);
       this.status("heard", pending.text || "Canvas…");
+      // A short request the detector drops sends nothing back, so "heard" would stay up.
+      const at = this.state.status?.at;
+      setTimeout(() => {
+        const status = this.state.status;
+        if (!this.disposed && status && status.at === at && status.kind === "heard")
+          this.status("ignored", status.text);
+      }, HEARD_TIMEOUT_MS);
     }
     this.handle(requests);
   }

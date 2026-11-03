@@ -39,7 +39,6 @@ export const FALLBACK_MS = 6_000;
 export const MIN_WORDS = 3;
 /** A finished sentence of this many words may end the request. */
 export const SENTENCE_WORDS = 4;
-/** A request spans at most this many clips. */
 /** Hesitant speech splits into many short clips, so a request is capped by time and a safety count. */
 export const MAX_CHUNKS = 8;
 export const MAX_REQUEST_MS = 15_000;
