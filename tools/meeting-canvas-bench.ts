@@ -22,6 +22,7 @@ import {
   resolveCodex,
 } from "../apps/desktop/src/plugins/meeting/backends.ts";
 import { standaloneHtml } from "../apps/desktop/src/plugins/meeting/export.ts";
+import { replayHtml, type ReplayStep } from "./meeting-canvas-replay.ts";
 import { applyOps, emptyPage } from "../apps/desktop/src/plugins/meeting/page.ts";
 import { buildUserMessage, SYSTEM_PROMPT } from "../apps/desktop/src/plugins/meeting/prompt.ts";
 import { renderPage } from "../apps/desktop/src/plugins/meeting/render.ts";
@@ -47,7 +48,7 @@ type Call = {
 
 function options() {
   const args = process.argv.slice(2);
-  const known = new Set(["--out", "--backend", "--models"]);
+  const known = new Set(["--out", "--backend", "--models", "--scripts"]);
   const values = new Map<string, string>();
   for (let i = 0; i < args.length; i += 2) {
     if (!known.has(args[i])) throw new Error(`Unknown argument ${args[i]}`);
@@ -68,7 +69,8 @@ function options() {
     ?.split(",")
     .map((model) => model.trim())
     .filter(Boolean) ?? [...OPENROUTER_EDIT_MODELS];
-  return { directory, backend, models };
+  const scriptDirectory = resolve(values.get("--scripts") ?? scripts);
+  return { directory, backend, models, scriptDirectory };
 }
 
 /** Splits a script into the batches the app would send: at 12 fresh words, or at a blank line. */
@@ -103,6 +105,7 @@ async function run(target: Target, script: string, key: string, codexPath: strin
   let page: Page = emptyPage();
   const heard: string[] = [];
   const calls: Call[] = [];
+  const steps: ReplayStep[] = [];
   for (const [index, fresh] of batches(script).entries()) {
     const user = buildUserMessage({
       page,
@@ -129,17 +132,25 @@ async function run(target: Target, script: string, key: string, codexPath: strin
         applied: ops.length - result.rejected.length,
         rejected: result.rejected,
       });
+      steps.push({ fresh, pageHtml: renderPage(page), changed: result.changed, ...counts(call) });
     } catch (error) {
       call.error = error instanceof Error ? error.message : String(error);
+      steps.push({ fresh, pageHtml: renderPage(page), changed: [], error: call.error });
     }
     calls.push(call);
     heard.push(...fresh);
   }
-  return { page, calls };
+  return { page, calls, steps };
 }
 
+const counts = (call: Call) => ({
+  ms: call.ms,
+  applied: call.applied,
+  rejected: call.rejected?.length,
+});
+
 async function main() {
-  const { directory, backend, models } = options();
+  const { directory, backend, models, scriptDirectory } = options();
   const key = process.env.OPENROUTER_API_KEY ?? "";
   const targets: Target[] = [];
   if (backend !== "codex") {
@@ -153,14 +164,14 @@ async function main() {
     await readFile(require.resolve("katex/dist/katex.min.css"), "utf8"),
     await readFile(join(meeting, "page.css"), "utf8"),
   ].join("\n");
-  const files = (await readdir(scripts)).filter((file) => file.endsWith(".txt")).sort();
+  const files = (await readdir(scriptDirectory)).filter((file) => file.endsWith(".txt")).sort();
   const rows: string[][] = [];
   await Promise.all(
     targets.map(async (target) => {
       for (const file of files) {
         const scenario = basename(file, ".txt");
-        const script = await readFile(join(scripts, file), "utf8");
-        const { page, calls } = await run(target, script, key, codexPath);
+        const script = await readFile(join(scriptDirectory, file), "utf8");
+        const { page, calls, steps } = await run(target, script, key, codexPath);
         const folder = join(directory, scenario);
         await mkdir(folder, { recursive: true });
         const name = slug(`${target.backend}-${target.model}`);
@@ -168,6 +179,15 @@ async function main() {
         await writeFile(
           join(folder, `${name}.html`),
           standaloneHtml({ page, bodyHtml: renderPage(page), css }),
+        );
+        await writeFile(
+          join(folder, `${name}.replay.html`),
+          replayHtml({
+            title: scenario,
+            target: target.backend === "codex" ? `codex ${target.model}` : target.model,
+            css,
+            steps,
+          }),
         );
         await writeFile(
           join(folder, `${name}.json`),
