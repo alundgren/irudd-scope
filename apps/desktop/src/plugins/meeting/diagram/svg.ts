@@ -63,8 +63,17 @@ export function plateClass(tags: Tags, extra = ""): string {
   return names.join(" ");
 }
 
-/** A node plate centred on (cx, cy): outline plus head and detail lines. */
-export function plateSvg(plate: Plate, cx: number, cy: number, extraClass = ""): string {
+/**
+ * A node plate centred on (cx, cy): outline plus head and detail lines. `radius`
+ * overrides the corner radius of box outlines.
+ */
+export function plateSvg(
+  plate: Plate,
+  cx: number,
+  cy: number,
+  extraClass = "",
+  radius?: number,
+): string {
   const { width: w, height: h } = plate;
   const x = cx - w / 2;
   const y = cy - h / 2;
@@ -78,8 +87,8 @@ export function plateSvg(plate: Plate, cx: number, cy: number, extraClass = ""):
       `V${num(y + h - rim)}A${num(w / 2)} ${rim} 0 0 1 ${num(x)} ${num(y + h - rim)}Z"/>` +
       `<path class="mc-plate-line" d="M${num(x)} ${num(y + rim)}A${num(w / 2)} ${rim} 0 0 0 ${num(x + w)} ${num(y + rim)}"/>`;
   } else {
-    const radius = plate.outline === "pill" ? h / 2 : 6;
-    frame = `<rect class="mc-plate" x="${num(x)}" y="${num(y)}" width="${num(w)}" height="${num(h)}" rx="${num(Math.min(radius, h / 2))}"/>`;
+    const corner = plate.outline === "pill" ? h / 2 : (radius ?? 6);
+    frame = `<rect class="mc-plate" x="${num(x)}" y="${num(y)}" width="${num(w)}" height="${num(h)}" rx="${num(Math.min(corner, h / 2))}"/>`;
   }
   return `<g class="${plateClass(plate.node.tags, extraClass)}">${frame}${plateText(plate, cx, cy)}</g>`;
 }

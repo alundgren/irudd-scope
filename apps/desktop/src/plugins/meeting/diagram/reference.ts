@@ -66,4 +66,57 @@ tree: Org
 Platform
   Infra | 4 people
   Data
-    Pipelines`;
+    Pipelines
+
+wireframe desktop|mobile — a low-fi screen, one element per line. Indent lines under card, list, tabs, row, sidebar, modal, header, nav or footer to put them inside. Mobile draws a phone frame.
+  nav: Brand | Link | Link      header: Title | subtitle      title: Text      text: Text
+  field: Label | placeholder    search: placeholder           select: Label | value
+  button: Label [primary]       toggle: Label [on|off]        checkbox: Label [x]      radio: Label [x]
+  chips: a | b | c              image: caption                card: Title | detail
+  list: Title, then item: text | meta lines     table: col | col, then | a | b | rows
+  tabs: a | b | c (first is active)   row: (children side by side)   sidebar: (later lines sit beside it)
+  modal: Title      footer: text      An empty text: or title: draws grey placeholder bars.
+Example:
+wireframe mobile: Sign in
+header: Welcome back
+field: Email | you@example.com
+field: Password
+checkbox: Remember me [x]
+button: Sign in [primary]
+
+state right|down — states and transitions. Default right.
+  A -> B: event [guard]   [*] -> A start   A -> [*] end   A -> A: self loop
+  A | detail   declares a state      note A: text
+Example:
+state: Order
+[*] -> Draft
+Draft -> Paid: pay [card ok]
+Paid -> Shipped: ship
+Shipped -> [*]
+note Paid: refunds within 14 days
+
+er — entities and relations.
+  Entity: field pk, field fk, field type   a word after a field name is its type
+  A 1--* B: label   ends: 1, *, 0..1, 0..*, 1..*
+Example:
+er: Shop
+User: id pk, email text
+Order: id pk, user_id fk, total money
+User 1--* Order: places
+
+board — columns of cards: kanban, retro, risk register. ## Column [s1…s7], then - card | owner [done|key|s1…s7]
+Example:
+board: Sprint
+## To do
+- Draft RFC | Maria
+## Doing [s1]
+- Payment flow | Sam [key]
+## Done
+- CI setup [done]
+
+bars unit — horizontal bars in written order. The unit after "bars" is optional (%, ms, $, users). Label: number | note [s1…s7]
+Example:
+bars %: Conversion
+Visit: 100
+Sign up: 24 | after the redesign
+Paid: 6`;

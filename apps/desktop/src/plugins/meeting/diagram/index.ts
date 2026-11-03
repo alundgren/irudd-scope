@@ -1,4 +1,7 @@
 import { escapeHtml } from "../html.ts";
+import { renderBars } from "./bars.ts";
+import { renderBoard } from "./board.ts";
+import { renderEr } from "./er.ts";
 import { renderFlow } from "./flow.ts";
 import { DIAGRAM_KINDS } from "../contract.ts";
 import type { DiagramKind, Header } from "./header.ts";
@@ -11,7 +14,9 @@ import {
   renderTimeline,
 } from "./lists.ts";
 import { renderSequence } from "./sequence.ts";
+import { renderState } from "./state.ts";
 import { renderTree } from "./tree.ts";
+import { renderWireframe } from "./wireframe.ts";
 
 type KindRenderer = (header: Header, body: readonly string[]) => string | null;
 
@@ -24,12 +29,11 @@ const RENDERERS: Record<DiagramKind, KindRenderer> = {
   checklist: (_header, body) => renderChecklist(body),
   compare: (_header, body) => renderCompare(body),
   metrics: (_header, body) => renderMetrics(body),
-  // Replaced by the new kind renderers; null shows the error card until then.
-  wireframe: () => null,
-  state: () => null,
-  er: () => null,
-  board: () => null,
-  bars: () => null,
+  wireframe: renderWireframe,
+  state: renderState,
+  er: renderEr,
+  board: (_header, body) => renderBoard(body),
+  bars: renderBars,
 };
 
 /**
