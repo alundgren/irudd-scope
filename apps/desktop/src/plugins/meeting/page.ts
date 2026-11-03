@@ -160,8 +160,9 @@ function setTitle(draft: Draft, op: EditOp): OpResult {
 
 // Fast models sometimes leave out the kind of a new block; its first line usually tells.
 function guessKind(source: string | null): BlockKind {
-  const first = /^\s*([a-z]+)/i.exec(source ?? "")?.[1]?.toLowerCase();
-  return DIAGRAM_KINDS.some((kind) => kind === first) ? "diagram" : "text";
+  const first = /^\s*([a-z]+)(\s+\w+)?\s*(:.*)?$/im.exec(source?.split("\n", 1)[0] ?? "");
+  const word = first?.[1]?.toLowerCase();
+  return DIAGRAM_KINDS.some((kind) => kind === word) ? "diagram" : "text";
 }
 
 function checkKind(kind: unknown): BlockKind | null {

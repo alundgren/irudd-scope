@@ -218,7 +218,9 @@ export class MeetingLoop {
   private pace() {
     if (this.disposed || this.state.editing) return;
     const now = Date.now();
-    if (this.requests.length) return void this.edit();
+    // A request that already failed once waits out the pause like spoken lines do.
+    if (this.requests.length && (this.requests[0] !== this.retried || now >= this.retryAfter))
+      return void this.edit();
     if (now < this.retryAfter) return;
     const fresh = this.state.lines.filter((line) => !line.sent);
     if (!fresh.length) return;
@@ -271,6 +273,8 @@ export class MeetingLoop {
       if (request !== null && this.retried !== request) {
         this.retried = request;
         this.requests.unshift(request);
+        // The listening ticker may be off, so schedule the retry here.
+        setTimeout(() => this.pace(), PAUSE_MS + 50);
       }
       this.retryAfter = Date.now() + PAUSE_MS;
       this.log({
