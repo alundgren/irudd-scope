@@ -163,18 +163,19 @@ function drawModel(model: Model, header: Header): string {
   graph.setDefaultEdgeLabel(() => ({}));
   const tables = new Map<string, Table>();
   const labels = model.relations.map((relation) => wrapText(relation.label, DETAIL_PX, 110));
-  // A relation from an entity to itself is drawn as a loop on its right side, so the
-  // layout reserves room for the loop and its labels there.
+  // A relation from an entity to itself is drawn as a loop above it. The layout box
+  // grows by the same amount above and below, so edges to other entities still meet
+  // the table's sides.
   const loopRoom = new Map<string, number>();
   model.relations.forEach((relation, index) => {
     if (relation.from !== relation.to) return;
-    const room = LOOP_OUT + 12 + labelSize(labels[index]!).width;
+    const room = LOOP_OUT + 8 + labelSize(labels[index]!).height;
     loopRoom.set(relation.from, Math.max(loopRoom.get(relation.from) ?? 0, room));
   });
   for (const [key, entity] of model.entities) {
     const table = measureTable(entity);
     tables.set(key, table);
-    graph.setNode(key, { width: table.width + (loopRoom.get(key) ?? 0), height: table.height });
+    graph.setNode(key, { width: table.width, height: table.height + 2 * (loopRoom.get(key) ?? 0) });
   }
   model.relations.forEach((relation, index) => {
     if (relation.from === relation.to) return;
@@ -185,21 +186,14 @@ function drawModel(model: Model, header: Header): string {
 
   const bounds = new Bounds();
   const links: string[] = [];
-  const tableX = (key: string, node: { x: number }) =>
-    node.x - (tables.get(key)!.width + (loopRoom.get(key) ?? 0)) / 2;
+  const tableX = (key: string, node: { x: number }) => node.x - tables.get(key)!.width / 2;
   model.relations.forEach((relation, index) => {
     if (relation.from === relation.to) {
       const node = graph.node(relation.from);
       const table = tables.get(relation.from);
       if (node && table)
         links.push(
-          selfLoopSvg(
-            relation,
-            labels[index]!,
-            tableX(relation.from, node) + table.width,
-            node.y,
-            bounds,
-          ),
+          selfLoopSvg(relation, labels[index]!, node.x, node.y - table.height / 2, bounds),
         );
       return;
     }
@@ -232,26 +226,27 @@ function drawModel(model: Model, header: Header): string {
 
 const LOOP_OUT = 34;
 
-/** A self-relation: a loop out of the entity's right side, cardinalities at both ends. */
+/** A self-relation: a loop out of the entity's top edge, cardinalities at both ends. */
 function selfLoopSvg(
   relation: { fromCard: string; toCard: string },
   label: string[],
-  right: number,
-  y: number,
+  centerX: number,
+  top: number,
   bounds: Bounds,
 ): string {
-  const top = { x: right, y: y - 12 };
-  const bottom = { x: right, y: y + 12 };
-  const d = `M${num(top.x)} ${num(top.y)}C${num(right + LOOP_OUT)} ${num(top.y - 14)} ${num(right + LOOP_OUT)} ${num(bottom.y + 14)} ${num(bottom.x)} ${num(bottom.y)}`;
-  bounds.add(right, top.y - 16, LOOP_OUT, bottom.y - top.y + 32);
+  const left = { x: centerX - 16, y: top };
+  const right = { x: centerX + 16, y: top };
+  const peak = top - LOOP_OUT;
+  const d = `M${num(left.x)} ${num(left.y)}C${num(left.x - 12)} ${num(peak)} ${num(right.x + 12)} ${num(peak)} ${num(right.x)} ${num(right.y)}`;
+  bounds.add(left.x - 14, peak, right.x - left.x + 28, LOOP_OUT);
   const parts = [`<path class="mc-edge" d="${d}"/>`];
-  parts.push(cardLabel(relation.fromCard, top, { x: right + 10, y: top.y - 4 }, -1, bounds));
-  parts.push(cardLabel(relation.toCard, bottom, { x: right + 10, y: bottom.y + 4 }, 1, bounds));
+  parts.push(cardLabel(relation.fromCard, left, { x: left.x - 4, y: top - 10 }, 1, bounds));
+  parts.push(cardLabel(relation.toCard, right, { x: right.x + 4, y: top - 10 }, -1, bounds));
   if (label[0]) {
     const size = labelSize(label);
-    const cx = right + LOOP_OUT + 6 + size.width / 2;
-    bounds.add(cx - size.width / 2, y - size.height / 2, size.width, size.height);
-    parts.push(labelSvg(label, cx, y));
+    const cy = peak - 4 - size.height / 2;
+    bounds.add(centerX - size.width / 2, cy - size.height / 2, size.width, size.height);
+    parts.push(labelSvg(label, centerX, cy));
   }
   return `<g class="mc-link mc-er-link">${parts.join("")}</g>`;
 }
