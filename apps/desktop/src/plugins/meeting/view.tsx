@@ -74,6 +74,8 @@ export function MeetingView({
   const [settings, setSettings] = useState(settingsRef.current);
   const [undoDepth, setUndoDepth] = useState(0);
   const [editing, setEditing] = useState<Editing>();
+  const editingRef = useRef<string | undefined>(undefined);
+  editingRef.current = editing?.original.id;
   const [present, setPresent] = useState(false);
   const [fresh, setFresh] = useState<{ ids: string[]; at: number }>({ ids: [], at: 0 });
   const [title, setTitle] = useState(pageRef.current.title);
@@ -108,7 +110,7 @@ export function MeetingView({
     const skipped: Rejection[] = [];
     const allowed = ops.filter((op) => {
       const key = touched(op);
-      if (key && (editedAt.current.get(key) ?? 0) > mark) {
+      if (key && (key === editingRef.current || (editedAt.current.get(key) ?? 0) > mark)) {
         skipped.push({ op, reason: "You changed this while the model was working." });
         return false;
       }
@@ -422,6 +424,11 @@ export function MeetingView({
       </div>
       {present && (
         <div className="mc-present-bar">
+          {!listening && loopState.error && (
+            <span role="alert" className="mc-error">
+              {loopState.error}
+            </span>
+          )}
           {indicator}
           <Button variant="outline" size="sm" onClick={() => setPresent(false)}>
             <X /> Exit present

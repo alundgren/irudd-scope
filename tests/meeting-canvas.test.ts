@@ -38,8 +38,9 @@ type Provider = {
   schemaName?: string;
   userMessages: string[];
   replies: Op[][];
+  hold?: boolean;
 };
-type TestGlobal = typeof globalThis & { meetingProvider: Provider };
+type TestGlobal = typeof globalThis & { meetingProvider: Provider; meetingRelease?: () => void };
 
 // Model output that would run script in the renderer if the page trusted it.
 const unsafeOps = [
@@ -118,6 +119,12 @@ await import(${JSON.stringify(pathToFileURL(resolve("apps/desktop/dist/main.mjs"
             state.schemaName = body.response_format.json_schema.name;
             state.userMessages.push(body.messages[1].content);
             const ops = state.replies.shift() ?? [];
+            if (state.hold) {
+              state.hold = false;
+              await new Promise<void>((release) => {
+                (globalThis as TestGlobal).meetingRelease = release;
+              });
+            }
             return Response.json({ choices: [{ message: { content: JSON.stringify({ ops }) } }] });
           };
         },
@@ -196,6 +203,27 @@ await import(${JSON.stringify(pathToFileURL(resolve("apps/desktop/dist/main.mjs"
       );
       await expect.poll(() => blocks.count()).toBe(4);
 
+      // A reply that arrives after the person edited a block leaves their text alone.
+      await application.evaluate(
+        (_electron, ops) => {
+          const state = (globalThis as TestGlobal).meetingProvider;
+          state.replies.push(ops);
+          state.hold = true;
+        },
+        [op({ op: "patch", id: "pkce", find: "Use PKCE", text: "Model rewrote PKCE" })],
+      );
+      const editsBefore = (await provider()).edits;
+      await page.getByLabel("Ask the canvas").fill("Reword the PKCE decision");
+      await page.getByRole("button", { name: "Ask", exact: true }).click();
+      await expect.poll(async () => (await provider()).edits).toBe(editsBefore + 1);
+      await page.locator('.mc-page [data-block="pkce"]').click();
+      await page.getByLabel("Block source").fill("Use PKCE everywhere.");
+      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await application.evaluate(() => (globalThis as TestGlobal).meetingRelease?.());
+      await page.getByText("You changed this while the model was working.").first().waitFor();
+      await page.locator(".mc-page").getByText("Use PKCE everywhere.").waitFor();
+      expect(await page.locator(".mc-page").getByText("Model rewrote PKCE").count()).toBe(0);
+
       await page.getByRole("button", { name: "Keep as HTML" }).click();
       await page.getByText("Kept “Login review” as HTML.", { exact: false }).waitFor();
       const client = await g.connect();
@@ -208,8 +236,9 @@ await import(${JSON.stringify(pathToFileURL(resolve("apps/desktop/dist/main.mjs"
       expect(json).toBeDefined();
       expect(json!.toLowerCase()).not.toContain("</script");
       expect(JSON.parse(json!).blocks.map((block: { id: string }) => block.id)).toContain("flow");
-      expect(html).not.toMatch(/href="javascript:/i);
-      expect(html).not.toMatch(/\sonerror=/i);
+      // Escaped text may still spell these words; no real tag may carry them.
+      expect(html).not.toMatch(/<a\b[^>]*href="javascript:/i);
+      expect(html).not.toMatch(/<[a-z][^>]*\son[a-z]+=/i);
 
       await page.getByRole("tab", { name: "Meeting canvas" }).click();
       await page.getByRole("button", { name: "Clear page" }).click();
@@ -223,7 +252,7 @@ await import(${JSON.stringify(pathToFileURL(resolve("apps/desktop/dist/main.mjs"
       const restored = await application.firstWindow();
       restored.setDefaultTimeout(10_000);
       await restored.getByRole("tab", { name: "Meeting canvas" }).click();
-      await restored.locator(".mc-page").getByText("Use PKCE in the browser.").waitFor();
+      await restored.locator(".mc-page").getByText("Use PKCE everywhere.").waitFor();
       expect(await restored.locator(".mc-page [data-block]").count()).toBe(4);
       expect(await restored.getByLabel("Page title").inputValue()).toBe("Login review");
       expect(await restored.content()).not.toContain(KEY);

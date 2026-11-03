@@ -66,6 +66,8 @@ export class MeetingLoop {
   private clips: string[] = [];
   private transcribing = false;
   private requests: string[] = [];
+  /** A typed request whose edit failed once; it is retried once, then dropped. */
+  private retried: string | null = null;
   private lastCall = 0;
   private retryAfter = 0;
   private transcribeFailures = 0;
@@ -243,6 +245,7 @@ export class MeetingLoop {
       if (this.disposed) return;
       this.editFailures = 0;
       this.retryAfter = 0;
+      this.retried = null;
       const outcome = this.host.apply(result.ops, mark);
       const sent = new Set(unsent.map((line) => line.id));
       this.set({
@@ -265,6 +268,10 @@ export class MeetingLoop {
     } catch (cause) {
       if (this.disposed) return;
       const error = operationError(cause, "The page edit failed.");
+      if (request !== null && this.retried !== request) {
+        this.retried = request;
+        this.requests.unshift(request);
+      }
       this.retryAfter = Date.now() + PAUSE_MS;
       this.log({
         kind: "edit",

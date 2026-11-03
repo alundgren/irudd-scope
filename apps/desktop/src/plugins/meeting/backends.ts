@@ -2,7 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { Schema } from "effect";
 import {
   CODEX_EFFORT,
@@ -52,12 +52,25 @@ async function readCapped(response: Response, limit: number): Promise<string> {
   }
 }
 
-function httpMessage(status: number) {
+function httpMessage(status: number, detail: string) {
   if (status === 401 || status === 403)
     return `OpenRouter rejected the API key (HTTP ${status}). Check it in Settings.`;
   if (status === 402) return "OpenRouter needs more credits (HTTP 402).";
   if (status === 429) return "OpenRouter is rate limiting requests (HTTP 429).";
-  return `OpenRouter returned HTTP ${status}.`;
+  return `OpenRouter returned HTTP ${status}${detail ? `: ${detail}` : "."}`;
+}
+
+/** OpenRouter's own error message, which names the routing or model problem. */
+async function errorDetail(response: Response): Promise<string> {
+  try {
+    const body = JSON.parse(await readCapped(response, 16_384)) as {
+      error?: { message?: unknown };
+    };
+    const message = body.error?.message;
+    return typeof message === "string" ? message.replace(/\s+/g, " ").trim().slice(0, 200) : "";
+  } catch {
+    return "";
+  }
 }
 
 async function openRouterPost(input: {
@@ -79,8 +92,7 @@ async function openRouterPost(input: {
       body: JSON.stringify(input.body),
     });
     if (!response.ok) {
-      await response.body?.cancel().catch(() => {});
-      throw new MeetingBackendError(httpMessage(response.status));
+      throw new MeetingBackendError(httpMessage(response.status, await errorDetail(response)));
     }
     return await readCapped(response, input.limit);
   } catch (error) {
@@ -140,7 +152,6 @@ export async function openRouterEdit(input: {
     body: {
       model: input.model,
       temperature: 0.2,
-      provider: { require_parameters: true },
       response_format: {
         type: "json_schema",
         json_schema: { name: "meeting_edit", strict: true, schema: EDIT_REPLY_JSON_SCHEMA },
@@ -303,7 +314,7 @@ export async function codexEdit(input: {
 }
 
 async function executable(path: string) {
-  if (!path || !isAbsolute(path)) return false;
+  if (!path || !isAbsolute(path) || !/^codex(\.exe)?$/i.test(basename(path))) return false;
   try {
     await access(path, process.platform === "win32" ? constants.F_OK : constants.X_OK);
     return true;
