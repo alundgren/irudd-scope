@@ -75,11 +75,6 @@
   box-sizing: border-box;
 }
 
-.mc-page.is-present {
-  --mc-scale: 1.5;
-  --mc-gap: 36px;
-}
-
 .mc-page-inner {
   max-width: 1440px;
   margin: 0 auto;
@@ -339,10 +334,6 @@
   margin: 0 auto;
   overflow: visible;
   font-family: var(--mc-font);
-}
-
-.mc-page.is-present .mc-svg {
-  width: calc(var(--mc-svg-w) * 1.5);
 }
 
 /* Node plates. Sizes are SVG units that match the layout estimates in diagram/svg.ts. */
