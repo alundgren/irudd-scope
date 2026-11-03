@@ -138,6 +138,8 @@ await import(${JSON.stringify(pathToFileURL(resolve("apps/desktop/dist/main.mjs"
       await page.getByRole("button", { name: "Meeting canvas", exact: true }).click();
       const listen = page.getByRole("switch", { name: "Listen", exact: true });
       await listen.waitFor();
+      // The test fakes OpenRouter; the default edit backend is the person's Codex login.
+      await page.getByLabel("Edit backend").selectOption("openrouter");
 
       await listen.click();
       await page.getByRole("alert").filter({ hasText: "Add an OpenRouter API key" }).waitFor();

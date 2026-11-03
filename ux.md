@@ -422,8 +422,9 @@ diagram. Like other built-in tabs it is always permanent. Its visual style is ad
 from OpenGhost by ANDRETRIPOL (MIT), https://github.com/ANDRETRIPOL/OpenGhost.
 
 The header holds the page title, the Listen switch, the edit backend, Undo, Keep as
-HTML, Present and a settings button. Listen needs an OpenRouter key in Settings and,
-on macOS, microphone access. While the microphone is on, a pulsing red Listening label
+HTML, Present and a settings button. The edit backend defaults to Codex (Terra), which
+uses the person's own Codex login; OpenRouter is the other choice. Listen needs an
+OpenRouter key in Settings for transcription and, on macOS, microphone access. While the microphone is on, a pulsing red Listening label
 shows, in Present view too. Listening stops when the person turns it off, switches to
 another tab, closes the tab or quits. Lines already heard stay and go with the next
 edit call.

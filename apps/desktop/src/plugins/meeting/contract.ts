@@ -77,7 +77,7 @@ export const meetingTabContract = {
 };
 export const meetingTabState = () => ({ version: 1, data: {} });
 export const defaultMeetingSettings = (): MeetingSettings => ({
-  backend: "openrouter",
+  backend: "codex",
   openrouterModel: OPENROUTER_EDIT_MODELS[0],
   language: "",
   codexPath: "",
