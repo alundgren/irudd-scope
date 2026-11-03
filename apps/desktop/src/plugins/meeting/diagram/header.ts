@@ -18,6 +18,9 @@ export function splitSource(source: string): { header: Header; body: string[] } 
   const body = lines
     .slice(first + 1)
     .map((line) => line.replace(/\t/g, "  ").trimEnd())
+    .map((line) => line.replace(/→/g, "->"))
+    // Mermaid habits fast models fall into: stray headers and brace-only lines.
+    .filter((line) => !/^\s*(stateDiagram(-v2)?|erDiagram|[{}])\s*$/.test(line))
     .filter((line) => line.trim() !== "" && !/^\s*(\/\/|%%)/.test(line));
   return { header, body };
 }

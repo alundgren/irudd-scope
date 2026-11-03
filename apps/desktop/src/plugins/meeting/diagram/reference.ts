@@ -84,7 +84,7 @@ field: Password
 checkbox: Remember me [x]
 button: Sign in [primary]
 
-state right|down — states and transitions. Default right.
+state right|down — states and transitions. Leave the direction out to let it pick what fits.
   A -> B: event [guard]   [*] -> A start   A -> [*] end   A -> A: self loop
   A | detail   declares a state      note A: text
 Example:

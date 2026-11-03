@@ -3,8 +3,20 @@ import type { Header } from "./header.ts";
 import { cleanLabel, num, splitDetail, takeTags } from "./text.ts";
 
 const MAX_BARS = 40;
-const NUMBER = /^[-+−]?(?:\d{1,3}(?:,\d{3})+|\d+)?(?:\.\d+)?/u;
-const PREFIX_UNITS = new Set(["$", "€", "£", "¥", "kr"]);
+const NUMBER = /^[-+−]?\d(?:[\d\u00a0\u202f ,.]*\d)?/u;
+const PREFIX_UNITS = new Set(["$", "€", "£", "¥"]);
+
+/**
+ * Reads `1,234`, `12 000`, `2,4` and `1.5`: spaces group thousands, and a comma is a
+ * decimal point unless exactly three digits follow it.
+ */
+function readNumber(text: string): number {
+  let value = text.replace(/[\u00a0\u202f ]/gu, "").replace("−", "-");
+  if (value.includes(",") && value.includes(".")) value = value.replace(/,/g, "");
+  else if (/,\d{3}$/u.test(value) && !/,\d*,\d{1,2}$/u.test(value)) value = value.replace(/,/g, "");
+  else value = value.replace(",", ".");
+  return Number(value);
+}
 
 type Bar = { label: string; value: number; shown: string; note: string; series: number | null };
 
@@ -23,7 +35,7 @@ export function renderBars(header: Header, lines: readonly string[]): string | n
     const raw = head.replace(/^[$€£¥]\s*/u, "");
     const match = NUMBER.exec(raw)?.[0] ?? "";
     const rest = raw.slice(match.length).trim();
-    const value = Number(match.replace(/,/g, "").replace("−", "-")) * scale(rest);
+    const value = readNumber(match) * scale(rest);
     if (!label || !/\d/.test(match) || !Number.isFinite(value)) return [];
     // A value written with its own unit, such as `42%`, `$90` or `1.2k`, is shown as written.
     const shown = rest || raw !== head ? cleanLabel(head) : withUnit(match, unit);

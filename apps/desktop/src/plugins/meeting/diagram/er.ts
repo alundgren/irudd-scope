@@ -162,13 +162,22 @@ function drawModel(model: Model, header: Header): string {
   graph.setGraph({ rankdir: "LR", nodesep: 30, ranksep: 90, edgesep: 20 });
   graph.setDefaultEdgeLabel(() => ({}));
   const tables = new Map<string, Table>();
+  const labels = model.relations.map((relation) => wrapText(relation.label, DETAIL_PX, 110));
+  // A relation from an entity to itself is drawn as a loop on its right side, so the
+  // layout reserves room for the loop and its labels there.
+  const loopRoom = new Map<string, number>();
+  model.relations.forEach((relation, index) => {
+    if (relation.from !== relation.to) return;
+    const room = LOOP_OUT + 12 + labelSize(labels[index]!).width;
+    loopRoom.set(relation.from, Math.max(loopRoom.get(relation.from) ?? 0, room));
+  });
   for (const [key, entity] of model.entities) {
     const table = measureTable(entity);
     tables.set(key, table);
-    graph.setNode(key, { width: table.width, height: table.height });
+    graph.setNode(key, { width: table.width + (loopRoom.get(key) ?? 0), height: table.height });
   }
-  const labels = model.relations.map((relation) => wrapText(relation.label, DETAIL_PX, 110));
   model.relations.forEach((relation, index) => {
+    if (relation.from === relation.to) return;
     const size = labelSize(labels[index]!);
     graph.setEdge(relation.from, relation.to, { ...size, labelpos: "c" }, `r${index}`);
   });
@@ -176,7 +185,24 @@ function drawModel(model: Model, header: Header): string {
 
   const bounds = new Bounds();
   const links: string[] = [];
+  const tableX = (key: string, node: { x: number }) =>
+    node.x - (tables.get(key)!.width + (loopRoom.get(key) ?? 0)) / 2;
   model.relations.forEach((relation, index) => {
+    if (relation.from === relation.to) {
+      const node = graph.node(relation.from);
+      const table = tables.get(relation.from);
+      if (node && table)
+        links.push(
+          selfLoopSvg(
+            relation,
+            labels[index]!,
+            tableX(relation.from, node) + table.width,
+            node.y,
+            bounds,
+          ),
+        );
+      return;
+    }
     const laid = graph.edge({ v: relation.from, w: relation.to, name: `r${index}` });
     const points: Point[] = laid?.points ?? [];
     if (points.length < 2) return;
@@ -196,12 +222,38 @@ function drawModel(model: Model, header: Header): string {
   for (const [key, table] of tables) {
     const node = graph.node(key);
     if (!node) continue;
-    const x = node.x - table.width / 2;
+    const x = tableX(key, node);
     const y = node.y - table.height / 2;
     bounds.add(x, y, table.width, table.height);
     plates.push(tableSvg(table, x, y));
   }
   return svgDocument(links.join("") + plates.join(""), bounds, header.title || "Data model");
+}
+
+const LOOP_OUT = 34;
+
+/** A self-relation: a loop out of the entity's right side, cardinalities at both ends. */
+function selfLoopSvg(
+  relation: { fromCard: string; toCard: string },
+  label: string[],
+  right: number,
+  y: number,
+  bounds: Bounds,
+): string {
+  const top = { x: right, y: y - 12 };
+  const bottom = { x: right, y: y + 12 };
+  const d = `M${num(top.x)} ${num(top.y)}C${num(right + LOOP_OUT)} ${num(top.y - 14)} ${num(right + LOOP_OUT)} ${num(bottom.y + 14)} ${num(bottom.x)} ${num(bottom.y)}`;
+  bounds.add(right, top.y - 16, LOOP_OUT, bottom.y - top.y + 32);
+  const parts = [`<path class="mc-edge" d="${d}"/>`];
+  parts.push(cardLabel(relation.fromCard, top, { x: right + 10, y: top.y - 4 }, -1, bounds));
+  parts.push(cardLabel(relation.toCard, bottom, { x: right + 10, y: bottom.y + 4 }, 1, bounds));
+  if (label[0]) {
+    const size = labelSize(label);
+    const cx = right + LOOP_OUT + 6 + size.width / 2;
+    bounds.add(cx - size.width / 2, y - size.height / 2, size.width, size.height);
+    parts.push(labelSvg(label, cx, y));
+  }
+  return `<g class="mc-link mc-er-link">${parts.join("")}</g>`;
 }
 
 /**

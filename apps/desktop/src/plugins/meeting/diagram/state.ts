@@ -114,8 +114,13 @@ type Layout = {
   down: boolean;
 };
 
+const FIT_WIDTH = 700;
+
 function drawMachine(machine: Machine, header: Header): string {
-  const layout = layoutMachine(machine, /^(down|td|tb|vertical)$/i.test(header.arg));
+  let layout = layoutMachine(machine, /^(down|td|tb|vertical)$/i.test(header.arg));
+  // Long machines laid out left to right shrink to unreadable text in a section.
+  if (!header.arg.trim() && (layout.graph.graph().width ?? 0) > FIT_WIDTH)
+    layout = layoutMachine(machine, true);
   const bounds = new Bounds();
   const parts = [
     ...machine.notes.map((note, index) => noteLinkSvg(layout, note.state, index)),

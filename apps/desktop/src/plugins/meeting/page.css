@@ -843,10 +843,8 @@
 /* Boards: columns of cards for kanban, retros and risk registers. */
 .mc-page .mc-board {
   display: grid;
-  grid-auto-columns: minmax(13em, 1fr);
-  grid-auto-flow: column;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10em), 1fr));
   gap: calc(12px * var(--mc-scale));
-  overflow-x: auto;
   padding-bottom: 2px;
 }
 
