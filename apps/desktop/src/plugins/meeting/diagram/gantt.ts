@@ -7,7 +7,7 @@ import { cleanLabel, clipText, num, textWidth } from "./text.ts";
 
 const MAX_TASKS = 60;
 const DAY_MS = 86_400_000;
-const WIDTH = 700;
+const WIDTH = 664;
 const LABEL_PX = 12.5;
 const AXIS_PX = 11.5;
 const TOP_H = 18;
@@ -74,6 +74,8 @@ type Task = {
   startText: string;
   endText: string;
   after: string[];
+  /** A Mermaid task id (`des1`), so `after des1` resolves. */
+  id: string;
   start: Day;
   end: Day;
   guessed: boolean;
@@ -241,6 +243,44 @@ function splitSpec(spec: string): [string, string] {
   return [spec, ""];
 }
 
+const STATUS_WORDS: Record<string, string> = {
+  done: "done",
+  active: "now",
+  crit: "key",
+  milestone: "milestone",
+};
+const NOT_AN_ID = /^(?:after|efter|today|idag|q[1-4]|[wv]\d{1,2})$/i;
+
+/**
+ * Mermaid writes `done, des1, 2026-01-06, 2026-01-20`: status words and a task id come
+ * before the dates. Status words become tags and the id is kept for `after des1`.
+ */
+function takeMermaidPrefix(spec: string, names: Set<string>): { rest: string; id: string } {
+  const items = spec.split(/\s*,\s*/);
+  let id = "";
+  while (items.length > 1) {
+    const first = items[0]!.trim();
+    const status = STATUS_WORDS[first.toLowerCase()];
+    if (status) {
+      names.add(status);
+      items.shift();
+      continue;
+    }
+    if (
+      !id &&
+      /^[a-z_][\w-]*$/i.test(first) &&
+      !(first.toLowerCase() in MONTHS) &&
+      !NOT_AN_ID.test(first)
+    ) {
+      id = first.toLowerCase();
+      items.shift();
+      continue;
+    }
+    break;
+  }
+  return { rest: items.join(", "), id };
+}
+
 function parseChart(lines: readonly string[]): Chart {
   const tasks: Task[] = [];
   const sections: string[] = [];
@@ -267,7 +307,8 @@ function parseChart(lines: readonly string[]): Chart {
     const tags = head.tags;
     for (const name of spec.tags.names) tags.names.add(name);
     if (spec.tags.series !== null) tags.series = spec.tags.series;
-    const [startText, endText] = splitSpec(cleanLabel(spec.text));
+    const { rest, id } = takeMermaidPrefix(cleanLabel(spec.text), tags.names);
+    const [startText, endText] = splitSpec(rest);
     const after = /^(?:after|efter)\s+(.+)$/i.exec(startText.trim());
     tasks.push({
       label,
@@ -282,13 +323,17 @@ function parseChart(lines: readonly string[]): Chart {
             .map((name) => cleanLabel(name).toLowerCase())
             .filter(Boolean)
         : [],
+      id,
       start: 0,
       end: 0,
       guessed: false,
       deps: [],
     });
   }
-  const swedish = lines.some((line) => SWEDISH_WORDS.test(line));
+  // Decide from the dates only: a task named "API v2" must not switch the chart to Swedish.
+  const swedish =
+    tasks.some((task) => SWEDISH_WORDS.test(`${task.startText} ${task.endText}`)) ||
+    SWEDISH_WORDS.test(todayText);
   const year = baseYear(lines, todayText);
   const real = resolveTasks(tasks, year);
   const today = todayText ? (parseDate(todayText, year)?.start ?? null) : null;
@@ -313,10 +358,14 @@ function resolveTasks(tasks: Task[], year: number): boolean {
   const byName = new Map<string, number>();
   tasks.forEach((task, index) => {
     if (!byName.has(task.label.toLowerCase())) byName.set(task.label.toLowerCase(), index);
+    if (task.id && !byName.has(task.id)) byName.set(task.id, index);
   });
+  // Every date that parses anchors the chart, ends included, so a chart whose starts are
+  // all "TBD" still lands on its real dates instead of day 0.
   const known = tasks.flatMap((task) => {
-    const range = task.startText ? parseDate(task.startText, year) : null;
-    return range ? [range.start] : [];
+    const start = task.startText ? parseDate(task.startText, year) : null;
+    const end = task.endText ? parseDate(task.endText, year) : null;
+    return [...(start ? [start.start] : []), ...(end ? [end.start] : [])];
   });
   const lengths = tasks.flatMap((task) => {
     const start = task.startText ? parseDate(task.startText, year) : null;
@@ -371,7 +420,10 @@ function resolveTasks(tasks: Task[], year: number): boolean {
         else failed = true;
       }
     }
-    if (start === null) {
+    if (start === null && end !== null && task.after.length === 0) {
+      // Only the end is known: count back from it.
+      start = end - (length ?? fallbackLength);
+    } else if (start === null) {
       const previous = index > 0 ? tasks[index - 1] : undefined;
       if (index > 0) resolve(index - 1);
       start = previous && state[index - 1] === "done" ? previous.end : origin;
