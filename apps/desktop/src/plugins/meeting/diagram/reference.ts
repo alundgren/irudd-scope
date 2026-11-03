@@ -4,13 +4,13 @@
  */
 export const DIAGRAM_REFERENCE = `The first line is the kind, an optional argument, and an optional ": Title". Node names are their own labels; edges create nodes on demand. Tags go in [brackets] at the end of a node's part, after any | detail, never after an edge label. "Name | detail" adds a quieter second line.
 
-flow right|down — boxes and arrows.
+flow right|down — boxes and arrows. Leave the direction out to let it pick what fits the section; give one only when people ask.
   A -> B: label        arrow with label. Chains: A -> B -> C. Fan-out: A -> B, C
   A --> B              dashed arrow. A <-> B two-way.
   Name | detail [key]  node line with detail. Tags: key, start, end, db, decision, muted, s1…s7
   group Cloud: API, DB  a labelled box around nodes
 Example:
-flow right: Login
+flow: Login
 User [start] -> Web app -> Auth API: token
 Auth API -> Users | Postgres [db]
 group Backend: Auth API, Users
@@ -119,4 +119,11 @@ Example:
 bars %: Conversion
 Visit: 100
 Sign up: 24 | after the redesign
-Paid: 6`;
+Paid: 6
+
+bars funnel — a funnel: centred stages that narrow, each with its share of the first stage. Use it for drop-off between steps.
+Example:
+bars funnel: Checkout
+Visited cart: 1200
+Entered address: 640
+Paid: 410`;

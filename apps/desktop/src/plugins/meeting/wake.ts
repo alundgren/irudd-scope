@@ -385,14 +385,21 @@ function isCancel(text: string): boolean {
   );
 }
 
+/** "…, actually never mind" at the end takes back the whole request. */
+function endsWithCancel(text: string): boolean {
+  const list = tokenize(text).map((token) => token.word);
+  while (list.length && CANCEL_TAIL.has(list.at(-1)!)) list.pop();
+  return CANCEL_PHRASES.some(
+    (phrase) =>
+      list.length > phrase.length &&
+      phrase.every((word, index) => list[list.length - phrase.length + index] === word),
+  );
+}
+
 function localAction(text: string): "undo" | "cancel" | null {
   const list = leadTrimmed(text);
-  if (
-    list.length > 0 &&
-    list.length <= 5 &&
-    UNDO_WORDS.has(list[0]!) &&
-    list.slice(1).every((word) => UNDO_TAIL.has(word))
-  )
-    return "undo";
-  return isCancel(text) ? "cancel" : null;
+  // "Undo that last reporting-line edit" still means the last change; the model cannot
+  // undo better than the change log can.
+  if (list.length > 0 && list.length <= 8 && UNDO_WORDS.has(list[0]!)) return "undo";
+  return isCancel(text) || endsWithCancel(text) ? "cancel" : null;
 }

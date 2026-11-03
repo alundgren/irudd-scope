@@ -1646,3 +1646,46 @@
   font-size: 0.8em;
   white-space: pre-wrap;
 }
+
+/* Funnels: centred stages narrowing with their values. */
+.mc-page .mc-funnel {
+  display: grid;
+  gap: calc(6px * var(--mc-scale));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mc-page .mc-funnel-step {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 0.8em;
+  align-items: center;
+}
+
+.mc-page .mc-funnel-bar {
+  justify-self: center;
+  display: flex;
+  justify-content: center;
+  width: var(--mc-bar-width);
+  min-width: 3.5em;
+  padding: 0.45em 0.4em;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--mc-tone) 88%, transparent);
+  color: white;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.mc-page .mc-funnel-label {
+  display: grid;
+  min-width: 0;
+  color: var(--mc-ink);
+  overflow-wrap: anywhere;
+}
+
+.mc-page .mc-funnel-share {
+  color: var(--mc-ink-2);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}

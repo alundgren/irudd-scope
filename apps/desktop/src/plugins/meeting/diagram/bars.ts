@@ -25,7 +25,8 @@ type Bar = { label: string; value: number; shown: string; note: string; series: 
  * written order. Bars start at zero, so negative values extend left of the axis.
  */
 export function renderBars(header: Header, lines: readonly string[]): string | null {
-  const unit = cleanLabel(header.arg);
+  const funnel = /^funnel$/i.test(header.arg.trim());
+  const unit = funnel ? "" : cleanLabel(header.arg);
   const bars = lines.slice(0, MAX_BARS).flatMap((line): Bar[] => {
     const { text, tags } = takeTags(line.trim().replace(/^[-*•]\s+/u, ""));
     const colon = text.lastIndexOf(":", text.includes("|") ? text.indexOf("|") : text.length);
@@ -57,7 +58,32 @@ export function renderBars(header: Header, lines: readonly string[]): string | n
       `<span class="mc-bar-value">${escapeHtml(bar.shown)}</span></li>`
     );
   });
+  if (funnel) return renderFunnel(bars);
   return `<ul class="mc-bars">${rows.join("")}</ul>`;
+}
+
+/**
+ * `bars funnel`: centred stages narrowing with their values, each with its share of the
+ * first stage, so drop-off between steps is visible at a glance.
+ */
+function renderFunnel(bars: readonly Bar[]): string {
+  const top = Math.max(...bars.map((bar) => Math.abs(bar.value))) || 1;
+  const first = Math.abs(bars[0]!.value) || 1;
+  const rows = bars.map((bar, index) => {
+    const width = Math.max(6, (Math.abs(bar.value) / top) * 100);
+    const share =
+      index === 0
+        ? ""
+        : `<span class="mc-funnel-share">${num((Math.abs(bar.value) / first) * 100)}%</span>`;
+    const tone = bar.series === null ? "" : ` mc-s${bar.series}`;
+    const note = bar.note ? `<span class="mc-bar-note">${escapeHtml(bar.note)}</span>` : "";
+    return (
+      `<li class="mc-funnel-step${tone}">` +
+      `<span class="mc-funnel-bar" style="--mc-bar-width:${num(width)}%"><span class="mc-funnel-value">${escapeHtml(bar.shown)}</span></span>` +
+      `<span class="mc-funnel-label">${escapeHtml(bar.label)}${share}${note}</span></li>`
+    );
+  });
+  return `<ol class="mc-funnel">${rows.join("")}</ol>`;
 }
 
 /** The multiplier for a `k`, `M` or `B` suffix, so `1.2k` and `900` compare correctly. */

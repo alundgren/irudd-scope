@@ -107,8 +107,9 @@ function mergeNode(node: PlateNode, detail: string, tags: Tags): void {
   if (tags.series !== null) node.tags.series = tags.series;
 }
 
-function layoutFlow(flow: Flow, header: Header): string {
-  const down = /^(down|td|tb|vertical)$/i.test(header.arg);
+const FIT_WIDTH = 720;
+
+function layoutGraph(flow: Flow, down: boolean) {
   const graph = new dagre.graphlib.Graph({ compound: flow.groups.length > 0, multigraph: true });
   graph.setGraph({
     rankdir: down ? "TB" : "LR",
@@ -140,6 +141,16 @@ function layoutFlow(flow: Flow, header: Header): string {
     graph.setEdge(edge.from, edge.to, { ...size, labelpos: "c" }, `e${index}`);
   });
   dagre.layout(graph);
+  return { graph, plates, edgeLabels };
+}
+
+function layoutFlow(flow: Flow, header: Header): string {
+  const asked = /^(down|td|tb|vertical)$/i.test(header.arg);
+  let laid = layoutGraph(flow, asked);
+  // A long chain laid out left to right shrinks to unreadable text in a section.
+  if (!header.arg.trim() && (laid.graph.graph().width ?? 0) > FIT_WIDTH)
+    laid = layoutGraph(flow, true);
+  const { graph, plates, edgeLabels } = laid;
   return drawFlow(flow, graph, plates, edgeLabels, header);
 }
 

@@ -168,3 +168,9 @@
   outline: 2px dashed var(--mc-s2);
   outline-offset: 4px;
 }
+
+/* Diagrams are drawn at label size for a laptop; on a shared screen they read better a
+   third larger when the section has room. Wider ones still shrink to fit. */
+.mc-page .mc-section .mc-svg {
+  width: min(100%, calc(var(--mc-svg-w) * 1.35));
+}
