@@ -11,6 +11,11 @@ export const DIAGRAM_KINDS = [
   "compare",
   "metrics",
   "tree",
+  "wireframe",
+  "state",
+  "er",
+  "board",
+  "bars",
 ] as const;
 export const MAX_BLOCKS = 60;
 export const MAX_SOURCE = 6_000;
@@ -62,9 +67,34 @@ export const MeetingSettings = Schema.Struct({
 });
 export type MeetingSettings = typeof MeetingSettings.Type;
 
+export const SECTION_SIZES = ["s", "m", "l"] as const;
+export const MAX_SECTIONS = 40;
+export const MAX_SECTION_BLOCKS = 8;
+export const SectionSize = Schema.Literals(SECTION_SIZES);
+export type SectionSize = typeof SectionSize.Type;
+export const Section = Schema.Struct({
+  id: BlockId,
+  name: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80)),
+  size: SectionSize,
+  /** Set once a person drags the section; unpinned sections flow in creation order. */
+  pinned: Schema.Boolean,
+  x: Schema.Finite,
+  y: Schema.Finite,
+  blocks: Schema.Array(Block).check(Schema.isMaxLength(MAX_SECTION_BLOCKS)),
+});
+export type Section = typeof Section.Type;
+export const Canvas = Schema.Struct({
+  version: Schema.Literal(2),
+  title: Schema.String.check(Schema.isMaxLength(160)),
+  sections: Schema.Array(Section).check(Schema.isMaxLength(MAX_SECTIONS)),
+});
+export type Canvas = typeof Canvas.Type;
+
 export const MeetingTabState = Schema.Struct({
   version: Schema.Literal(1),
   data: Schema.Struct({
+    canvas: Schema.optionalKey(Canvas),
+    /** Saved by the first test build; loaded once as a single section. */
     page: Schema.optionalKey(Page),
     settings: Schema.optionalKey(MeetingSettings),
   }),
@@ -132,6 +162,81 @@ export const EDIT_REPLY_JSON_SCHEMA = {
   },
 } as const;
 
+export const CANVAS_OPS = [
+  "create_section",
+  "rename_section",
+  "remove_section",
+  "resize_section",
+  "add",
+  "replace",
+  "patch",
+  "remove",
+] as const;
+/**
+ * One canvas change. Every field is present for strict structured output; unused fields
+ * are null. `section` names the target by id or name; null means the section created
+ * earlier in the same reply, otherwise the focused section.
+ */
+export const CanvasOp = Schema.Struct({
+  op: Schema.Literals(CANVAS_OPS),
+  section: Schema.NullOr(Schema.String),
+  id: Schema.NullOr(Schema.String),
+  kind: Schema.NullOr(BlockKind),
+  width: Schema.NullOr(BlockWidth),
+  after: Schema.NullOr(Schema.String),
+  source: Schema.NullOr(Schema.String),
+  find: Schema.NullOr(Schema.String),
+  text: Schema.NullOr(Schema.String),
+  name: Schema.NullOr(Schema.String),
+  size: Schema.NullOr(SectionSize),
+});
+export type CanvasOp = typeof CanvasOp.Type;
+export const CanvasReply = Schema.Struct({
+  ops: Schema.Array(CanvasOp).check(Schema.isMaxLength(MAX_OPS)),
+});
+export type CanvasReply = typeof CanvasReply.Type;
+export const CANVAS_REPLY_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ops"],
+  properties: {
+    ops: {
+      type: "array",
+      maxItems: MAX_OPS,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "op",
+          "section",
+          "id",
+          "kind",
+          "width",
+          "after",
+          "source",
+          "find",
+          "text",
+          "name",
+          "size",
+        ],
+        properties: {
+          op: { type: "string", enum: [...CANVAS_OPS] },
+          section: nullable({ type: "string" }),
+          id: nullable({ type: "string" }),
+          kind: nullable({ type: "string", enum: [...BLOCK_KINDS] }),
+          width: nullable({ type: "string", enum: [...BLOCK_WIDTHS] }),
+          after: nullable({ type: "string" }),
+          source: nullable({ type: "string" }),
+          find: nullable({ type: "string" }),
+          text: nullable({ type: "string" }),
+          name: nullable({ type: "string" }),
+          size: nullable({ type: "string", enum: [...SECTION_SIZES] }),
+        },
+      },
+    },
+  },
+} as const;
+
 export const TranscribeRequest = Schema.Struct({
   audio: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4_000_000)),
   language: Schema.String.check(Schema.isMaxLength(8)),
@@ -146,18 +251,18 @@ export type TranscribeResult = typeof TranscribeResult.Type;
 
 const Line = Schema.String.check(Schema.isMaxLength(4_000));
 export const EditRequest = Schema.Struct({
-  page: Page,
-  /** Earlier transcript lines, for context only. */
-  context: Schema.Array(Line).check(Schema.isMaxLength(60)),
-  /** Transcript lines the model has not seen yet. */
-  fresh: Schema.Array(Line).check(Schema.isMaxLength(60)),
-  /** A typed request from the presenter, which the model must carry out. */
-  request: Schema.NullOr(Line),
+  canvas: Canvas,
+  /** What was asked after the wake word, or typed into Ask the canvas. */
+  request: Line,
+  /** Transcript just before the request, so "draw what Sam described" can resolve. */
+  recent: Schema.Array(Line).check(Schema.isMaxLength(30)),
+  /** Id of the section changed last, for requests like "make that one vertical". */
+  focus: Schema.NullOr(Schema.String),
   settings: MeetingSettings,
 });
 export type EditRequest = typeof EditRequest.Type;
 export const EditResult = Schema.Struct({
-  ops: Schema.Array(EditOp),
+  ops: Schema.Array(CanvasOp),
   ms: Schema.Number,
   backend: Schema.Literals(["openrouter", "codex"]),
   model: Schema.String,

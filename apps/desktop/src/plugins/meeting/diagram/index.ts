@@ -24,6 +24,12 @@ const RENDERERS: Record<DiagramKind, KindRenderer> = {
   checklist: (_header, body) => renderChecklist(body),
   compare: (_header, body) => renderCompare(body),
   metrics: (_header, body) => renderMetrics(body),
+  // Replaced by the new kind renderers; null shows the error card until then.
+  wireframe: () => null,
+  state: () => null,
+  er: () => null,
+  board: () => null,
+  bars: () => null,
 };
 
 /**
