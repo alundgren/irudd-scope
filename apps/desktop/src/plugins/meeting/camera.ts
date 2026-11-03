@@ -90,13 +90,10 @@ export class CanvasCamera {
   fitAll(animate = true) {
     const frames = this.frames().map(frameRect);
     const title = this.world?.querySelector<HTMLElement>(".mc-title");
+    // The title block spans the whole 3200 px flow; only its position matters, or fitting
+    // would zoom out to the empty flow width.
     if (title)
-      frames.push({
-        x: title.offsetLeft,
-        y: title.offsetTop,
-        w: title.offsetWidth,
-        h: title.offsetHeight,
-      });
+      frames.push({ x: title.offsetLeft, y: title.offsetTop, w: 1, h: title.offsetHeight });
     if (!frames.length) return;
     const x = Math.min(...frames.map((rect) => rect.x));
     const y = Math.min(...frames.map((rect) => rect.y));
