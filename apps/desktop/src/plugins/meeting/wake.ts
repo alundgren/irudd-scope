@@ -40,7 +40,9 @@ export const MIN_WORDS = 3;
 /** A finished sentence of this many words may end the request. */
 export const SENTENCE_WORDS = 4;
 /** A request spans at most this many clips. */
-export const MAX_CHUNKS = 3;
+/** Hesitant speech splits into many short clips, so a request is capped by time and a safety count. */
+export const MAX_CHUNKS = 8;
+export const MAX_REQUEST_MS = 15_000;
 
 // Speech-to-text spellings of "Canvas"; "can vas" is matched as two words below.
 const WAKE_WORDS = new Set(["canvas", "canvass", "kanvas", "canvas's"]);
@@ -172,7 +174,7 @@ const CANCEL_PHRASES = [
 const CANCEL_TAIL = new Set(["that", "it", "please", "now", "det", "då", "snälla"]);
 
 type Token = { raw: string; word: string; end: number };
-type Open = { parts: string[]; chunks: number[]; sentenceDone: boolean };
+type Open = { parts: string[]; chunks: number[]; sentenceDone: boolean; since: number };
 
 /**
  * Finds "Canvas, …" requests in a stream of transcript chunks. Pure: the caller supplies
@@ -196,7 +198,7 @@ export class WakeDetector {
       const wake = findWake(sentence.text);
       if (wake !== null) {
         if (this.open) out.push(...this.close("wake"));
-        this.open = { parts: [], chunks: [index], sentenceDone: false };
+        this.open = { parts: [], chunks: [index], sentenceDone: false, since: timing.endedAt };
         this.extend(wake, sentence.ended, out);
         continue;
       }
@@ -217,7 +219,11 @@ export class WakeDetector {
       if (!open.chunks.includes(index)) open.chunks.push(index);
       this.extend(sentence.text, sentence.ended, out);
     }
-    if (this.open && this.open.chunks.length >= MAX_CHUNKS && this.open.chunks.at(-1) === index)
+    if (
+      this.open &&
+      this.open.chunks.at(-1) === index &&
+      (this.open.chunks.length >= MAX_CHUNKS || timing.endedAt - this.open.since >= MAX_REQUEST_MS)
+    )
       out.push(...this.close("chunks"));
     return out;
   }

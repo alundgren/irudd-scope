@@ -148,6 +148,7 @@ function setTitle(draft: Draft, op: EditOp): OpResult {
 const HEADER_ARGS: Partial<Record<(typeof DIAGRAM_KINDS)[number], (arg: string) => boolean>> = {
   flow: (arg) => /^(right|down|lr|td|tb|vertical)$/i.test(arg),
   wireframe: (arg) => /^(desktop|mobile)$/i.test(arg),
+  state: (arg) => /^(right|down|lr|td|tb|vertical)$/i.test(arg),
   bars: () => true,
 };
 

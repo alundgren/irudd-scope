@@ -135,9 +135,12 @@ export function sectionSource(section: Section): string {
 
 /** Lowercase name words without filler such as "the" or "section". */
 export function nameWords(text: string): string[] {
-  return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(
-    (word) => !NAME_STOP_WORDS.has(word),
-  );
+  // Spoken names drift between singular and plural ("checkout state" for "Checkout states").
+  return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+    .filter((word) => !NAME_STOP_WORDS.has(word))
+    .map((word) =>
+      word.length > 3 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word,
+    );
 }
 
 /** Jaccard overlap of two word lists. */
