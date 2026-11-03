@@ -1,4 +1,5 @@
 import type { Block, BlockKind, BlockWidth, EditOp, Page } from "./contract.ts";
+import { splitSource } from "./diagram/header.ts";
 import {
   BLOCK_KINDS,
   BLOCK_WIDTHS,
@@ -159,10 +160,15 @@ function setTitle(draft: Draft, op: EditOp): OpResult {
 }
 
 // Fast models sometimes leave out the kind of a new block; its first line usually tells.
+const FLOW_DIRECTION = /^(right|down|lr|td|tb|vertical)$/i;
+
 function guessKind(source: string | null): BlockKind {
-  const first = /^\s*([a-z]+)(\s+\w+)?\s*(:.*)?$/im.exec(source?.split("\n", 1)[0] ?? "");
-  const word = first?.[1]?.toLowerCase();
-  return DIAGRAM_KINDS.some((kind) => kind === word) ? "diagram" : "text";
+  const header = splitSource(source ?? "")?.header;
+  if (!header || !DIAGRAM_KINDS.some((kind) => kind === header.kind)) return "text";
+  // "Compare options" is prose; only flow takes an argument, and only a direction.
+  return header.arg === "" || (header.kind === "flow" && FLOW_DIRECTION.test(header.arg))
+    ? "diagram"
+    : "text";
 }
 
 function checkKind(kind: unknown): BlockKind | null {

@@ -33,7 +33,7 @@ Markdown supports headings, lists, **bold**, tables, links, and math as $x^2$ or
 - title: text = the new page title. Set it once the topic of the meeting is clear.
 
 # Diagram language
-The first line is the kind, an optional argument, and an optional ": Title". Node names are their own labels; edges create nodes on demand. Tags go in [brackets] right after the node name they apply to, never after an edge label. "Name | detail" adds a quieter second line.
+The first line is the kind, an optional argument, and an optional ": Title". Node names are their own labels; edges create nodes on demand. Tags go in [brackets] at the end of a node's part, after any | detail, never after an edge label. "Name | detail" adds a quieter second line.
 
 flow right|down — boxes and arrows.
   A -> B: label        arrow with label. Chains: A -> B -> C. Fan-out: A -> B, C

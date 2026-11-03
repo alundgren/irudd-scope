@@ -435,7 +435,7 @@ says so. The edit model receives the page, the last 40 transcript lines as conte
 the lines it has not seen. One edit call runs at a time. A call starts once 12 new
 words have arrived, or 8 seconds after the previous call when at least one new line
 waits. A request typed into Ask the canvas goes at once, or right after the call in
-flight. Errors appear in the activity list without stopping; three failed
+flight. If its edit fails, it is retried once after 8 seconds and then dropped. Errors appear in the activity list without stopping; three failed
 transcriptions or three failed edits in a row stop listening with a message.
 
 The page is a column of blocks: text, diagrams, notes, decisions, risks and questions,
