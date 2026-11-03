@@ -1,12 +1,4 @@
-import {
-  type PointerEvent,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import DOMPurify from "dompurify";
 import { Download, Eraser, Maximize, Minus, Plus, Presentation, Undo2, X } from "lucide-react";
 import { decode } from "@irudd-scope/protocol";
@@ -27,6 +19,7 @@ import {
   MeetingTabState,
   type Section,
 } from "./contract.ts";
+import { CanvasCamera } from "./camera.ts";
 import { applyCanvasOps, emptyCanvas, pageToCanvas } from "./canvas.ts";
 import { standaloneHtml } from "./export.ts";
 import { type CanvasStatus, MeetingLoop, type ModelChange } from "./loop.ts";
@@ -46,16 +39,6 @@ const PURIFY = { USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl
 const MAX_UNDO = 50;
 const FRESH_MS = 2_000;
 const STATUS_MS = 5_000;
-const MIN_ZOOM = 0.1;
-const MAX_ZOOM = 4;
-/** Following a change never zooms in further than this. */
-const FOLLOW_ZOOM = 1.4;
-/** The camera holds still this long after the person panned, zoomed or dragged. */
-const INTERACTION_MS = 3_000;
-const FIT_MARGIN = 48;
-/** Room for the name label above a section frame. */
-const LABEL_SPACE = 30;
-const DRAG_THRESHOLD = 4;
 
 /** Model and agent text becomes HTML here; this window has the `window.scope` bridge. */
 const safeHtml = (canvas: Canvas) => DOMPurify.sanitize(renderCanvas(canvas), PURIFY);
@@ -92,8 +75,6 @@ const content = (section: Section) =>
   JSON.stringify({ name: section.name, size: section.size, blocks: section.blocks });
 
 type Editing = { sectionId: string; original: Block; draft: Block };
-type Camera = { x: number; y: number; k: number };
-type Rect = { x: number; y: number; w: number; h: number };
 /** One applied model reply, with copies of the sections it touched as they were before. */
 type ModelEntry = {
   id: number;
@@ -101,31 +82,6 @@ type ModelEntry = {
   before: { section: Section; index: number }[];
   created: string[];
 };
-type Pointer =
-  | { mode: "press"; id: number; startX: number; startY: number; target: EventTarget | null }
-  | { mode: "pan"; id: number; lastX: number; lastY: number }
-  | {
-      mode: "drag";
-      id: number;
-      startX: number;
-      startY: number;
-      section: string;
-      element: HTMLElement;
-      origin: { x: number; y: number };
-      moved: boolean;
-    };
-
-const overlaps = (a: Rect, b: Rect) =>
-  a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-
-function frameRect(element: HTMLElement): Rect {
-  return {
-    x: element.offsetLeft,
-    y: element.offsetTop - LABEL_SPACE,
-    w: element.offsetWidth,
-    h: element.offsetHeight + LABEL_SPACE,
-  };
-}
 
 function statusText(status: CanvasStatus) {
   switch (status.kind) {
@@ -169,12 +125,7 @@ export function MeetingView({
   const focusRef = useRef<string | null>(canvasRef.current.sections.at(-1)?.id ?? null);
   const viewport = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
-  const zoomLabel = useRef<HTMLSpanElement>(null);
-  const camera = useRef<Camera>({ x: 0, y: 0, k: 1 });
-  const pointer = useRef<Pointer | null>(null);
-  const lastInteraction = useRef(0);
   const followRef = useRef<string | null>(null);
-  const placed = useRef(false);
   const [canvas, setCanvas] = useState(canvasRef.current);
   const [settings, setSettings] = useState(settingsRef.current);
   const [undoDepth, setUndoDepth] = useState(0);
@@ -364,11 +315,6 @@ export function MeetingView({
   const finishRef = useRef(finishEditing);
   finishRef.current = finishEditing;
 
-  useEffect(() => {
-    if (active) return place();
-    loop.stop();
-    setPresent(false);
-  }, [active, loop]);
   useEffect(
     () =>
       context.onBeforeClose(async () => {
@@ -396,115 +342,41 @@ export function MeetingView({
   }, [canvas, editing]);
   const html = useMemo(() => safeHtml(shown), [shown]);
 
-  // Camera. Screen position = canvas position × k + (x, y).
-  function interacting() {
-    return (
-      pointer.current !== null ||
-      editingRef.current !== undefined ||
-      Date.now() - lastInteraction.current < INTERACTION_MS
-    );
-  }
-  function setCamera(next: Camera, animate = false) {
-    const k = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next.k));
-    camera.current = { x: next.x, y: next.y, k };
-    const element = world.current;
-    const area = viewport.current;
-    if (!element || !area) return;
-    element.classList.toggle("is-animating", animate);
-    element.style.transform = `translate(${next.x}px, ${next.y}px) scale(${k})`;
-    area.style.setProperty("--mc-zoom", String(k));
-    area.style.setProperty("--mc-pan-x", `${next.x}px`);
-    area.style.setProperty("--mc-pan-y", `${next.y}px`);
-    if (zoomLabel.current) zoomLabel.current.textContent = `${Math.round(k * 100)}%`;
-  }
-  function zoomAt(factor: number, screenX: number, screenY: number, animate = false) {
-    const { x, y, k } = camera.current;
-    const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, k * factor));
-    const worldX = (screenX - x) / k;
-    const worldY = (screenY - y) / k;
-    setCamera({ x: screenX - worldX * next, y: screenY - worldY * next, k: next }, animate);
-  }
-  function zoomCenter(factor: number) {
-    const area = viewport.current;
-    if (!area) return;
-    zoomAt(factor, area.clientWidth / 2, area.clientHeight / 2, true);
-  }
-  function fit(rect: Rect, maxK: number, animate: boolean) {
-    const area = viewport.current;
-    if (!area || rect.w <= 0 || rect.h <= 0) return;
-    const k = Math.max(
-      MIN_ZOOM,
-      Math.min(
-        maxK,
-        (area.clientWidth - FIT_MARGIN * 2) / rect.w,
-        (area.clientHeight - FIT_MARGIN * 2) / rect.h,
-      ),
-    );
-    setCamera(
-      {
-        x: area.clientWidth / 2 - (rect.x + rect.w / 2) * k,
-        y: area.clientHeight / 2 - (rect.y + rect.h / 2) * k,
-        k,
-      },
-      animate,
-    );
-  }
-  function sectionElement(id: string) {
-    return world.current?.querySelector<HTMLElement>(`[data-section="${CSS.escape(id)}"]`);
-  }
-  function allRect(): Rect | null {
-    const frames = [...(world.current?.querySelectorAll<HTMLElement>("[data-section]") ?? [])];
-    const title = world.current?.querySelector<HTMLElement>(".mc-title");
-    const rects = frames.map(frameRect);
-    if (title)
-      rects.push({
-        x: title.offsetLeft,
-        y: title.offsetTop,
-        w: title.offsetWidth,
-        h: title.offsetHeight,
-      });
-    if (!rects.length) return null;
-    const x = Math.min(...rects.map((r) => r.x));
-    const y = Math.min(...rects.map((r) => r.y));
-    return {
-      x,
-      y,
-      w: Math.max(...rects.map((r) => r.x + r.w)) - x,
-      h: Math.max(...rects.map((r) => r.y + r.h)) - y,
-    };
-  }
-  function fitAll(animate = true) {
-    const rect = allRect();
-    if (rect) fit(rect, 1, animate);
-  }
-  /** Shows the whole canvas once the viewport has a size; hidden tabs have none yet. */
-  function place() {
-    if (placed.current || !viewport.current?.clientWidth) return;
-    placed.current = true;
-    if (canvasRef.current.sections.length) fitAll(false);
-    else setCamera({ x: 0, y: 0, k: 1 });
-  }
-  function showSection(id: string) {
-    const element = sectionElement(id);
-    if (element) fit(frameRect(element), FOLLOW_ZOOM, true);
-  }
-  function follow(id: string) {
-    const element = sectionElement(id);
-    const area = viewport.current;
-    if (!element || !area) return;
-    if (interacting()) return setFlashed({ id, at: Date.now() });
-    const rect = frameRect(element);
-    if (presentRef.current) return fit(rect, FOLLOW_ZOOM, true);
-    // Outside Present the camera only pans, or zooms out when the section does not fit.
-    const { x, y, k } = camera.current;
-    const visible =
-      rect.x * k + x >= 0 &&
-      rect.y * k + y >= 0 &&
-      (rect.x + rect.w) * k + x <= area.clientWidth &&
-      (rect.y + rect.h) * k + y <= area.clientHeight;
-    if (!visible) fit(rect, k, true);
-  }
+  // The camera outlives renders, so it reaches the latest handlers through refs.
+  const openRef = useRef(openBlock);
+  openRef.current = openBlock;
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  const [camera] = useState(
+    () =>
+      new CanvasCamera({
+        present: () => presentRef.current,
+        editing: () => editingRef.current !== undefined,
+        press: (target) => openRef.current(target),
+        drop: (id, x, y) =>
+          commitRef.current(
+            replaceSection(id, (section) => ({ ...section, pinned: true, x, y })),
+            true,
+          ),
+        skipped: (id) => setFlashed({ id, at: Date.now() }),
+      }),
+  );
 
+  // Runs before the render effect below so the camera has its elements when it first places.
+  // Wheel needs a non-passive listener to keep the page from scrolling or zooming.
+  useLayoutEffect(() => {
+    const area = viewport.current;
+    camera.viewport = area;
+    camera.world = world.current;
+    if (!area) return;
+    area.addEventListener("wheel", camera.wheel, { passive: false });
+    return () => area.removeEventListener("wheel", camera.wheel);
+  }, [camera]);
+  useEffect(() => {
+    if (active) return camera.place();
+    loop.stop();
+    setPresent(false);
+  }, [active, camera, loop]);
   useLayoutEffect(() => {
     const element = world.current;
     if (!element) return;
@@ -521,12 +393,12 @@ export function MeetingView({
         element
           .querySelector(`[data-block="${CSS.escape(key)}"], [data-section="${CSS.escape(key)}"]`)
           ?.classList.add("is-fresh");
-    markOverlaps();
-    place();
+    camera.markOverlaps();
+    camera.place();
     const target = followRef.current;
     followRef.current = null;
-    if (target) follow(target);
-  }, [html, present, editing?.original.id, fresh]);
+    if (target) camera.follow(target);
+  }, [camera, html, present, editing?.original.id, fresh]);
   useEffect(() => {
     if (!fresh.keys.length) return;
     const timer = setTimeout(() => {
@@ -537,13 +409,13 @@ export function MeetingView({
   }, [fresh]);
   useEffect(() => {
     if (!present) return;
-    fitAll();
+    camera.fitAll();
     const exit = (event: KeyboardEvent) => {
       if (event.key === "Escape") setPresent(false);
     };
     window.addEventListener("keydown", exit);
     return () => window.removeEventListener("keydown", exit);
-  }, [present]);
+  }, [camera, present]);
   const [, setStatusClock] = useState(0);
   useEffect(() => {
     const status = loopState.status;
@@ -551,130 +423,6 @@ export function MeetingView({
     const timer = setTimeout(() => setStatusClock((n) => n + 1), STATUS_MS);
     return () => clearTimeout(timer);
   }, [loopState.status]);
-
-  /** Marks pinned sections that cover another section. */
-  function markOverlaps(dragged?: HTMLElement, rect?: Rect) {
-    const frames = [...(world.current?.querySelectorAll<HTMLElement>("[data-section]") ?? [])];
-    const rects = frames.map((frame) => (frame === dragged && rect ? rect : frameRect(frame)));
-    frames.forEach((frame, index) => {
-      const pinned = frame.classList.contains("is-pinned") || frame === dragged;
-      const hit =
-        pinned && rects.some((other, at) => at !== index && overlaps(rects[index]!, other));
-      frame.classList.toggle("is-overlapping", hit);
-    });
-  }
-
-  // Wheel needs a non-passive listener to keep the page from scrolling or zooming.
-  useEffect(() => {
-    const area = viewport.current;
-    if (!area) return;
-    const wheel = (event: WheelEvent) => {
-      event.preventDefault();
-      lastInteraction.current = Date.now();
-      const bounds = area.getBoundingClientRect();
-      if (event.ctrlKey || event.metaKey) {
-        const step = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
-        zoomAt(Math.exp(-step * 0.01), event.clientX - bounds.left, event.clientY - bounds.top);
-      } else {
-        const { x, y, k } = camera.current;
-        setCamera({ x: x - event.deltaX, y: y - event.deltaY, k });
-      }
-    };
-    area.addEventListener("wheel", wheel, { passive: false });
-    return () => area.removeEventListener("wheel", wheel);
-  }, []);
-
-  function pointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (event.button !== 0 || pointer.current) return;
-    const target = event.target instanceof Element ? event.target : null;
-    const handle = target?.closest<HTMLElement>("[data-section-handle]");
-    const frame = handle?.closest<HTMLElement>("[data-section]");
-    event.currentTarget.setPointerCapture(event.pointerId);
-    lastInteraction.current = Date.now();
-    if (frame && !present) {
-      pointer.current = {
-        mode: "drag",
-        id: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        section: frame.dataset.section!,
-        element: frame,
-        origin: { x: frame.offsetLeft, y: frame.offsetTop },
-        moved: false,
-      };
-      return;
-    }
-    pointer.current = {
-      mode: "press",
-      id: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      target: event.target,
-    };
-  }
-  function pointerMove(event: PointerEvent<HTMLDivElement>) {
-    const current = pointer.current;
-    if (!current || current.id !== event.pointerId) return;
-    lastInteraction.current = Date.now();
-    if (current.mode === "press") {
-      if (
-        Math.hypot(event.clientX - current.startX, event.clientY - current.startY) < DRAG_THRESHOLD
-      )
-        return;
-      pointer.current = {
-        mode: "pan",
-        id: current.id,
-        lastX: current.startX,
-        lastY: current.startY,
-      };
-      viewport.current?.classList.add("is-panning");
-      return pointerMove(event);
-    }
-    if (current.mode === "pan") {
-      const { x, y, k } = camera.current;
-      setCamera({ x: x + event.clientX - current.lastX, y: y + event.clientY - current.lastY, k });
-      current.lastX = event.clientX;
-      current.lastY = event.clientY;
-      return;
-    }
-    const k = camera.current.k;
-    const dx = (event.clientX - current.startX) / k;
-    const dy = (event.clientY - current.startY) / k;
-    if (!current.moved && Math.hypot(dx * k, dy * k) < DRAG_THRESHOLD) return;
-    current.moved = true;
-    current.element.style.translate = `${dx}px ${dy}px`;
-    current.element.classList.add("is-dragging");
-    const rect = frameRect(current.element);
-    markOverlaps(current.element, { ...rect, x: current.origin.x + dx, y: rect.y + dy });
-  }
-  function pointerUp(event: PointerEvent<HTMLDivElement>) {
-    const current = pointer.current;
-    if (!current || current.id !== event.pointerId) return;
-    pointer.current = null;
-    lastInteraction.current = Date.now();
-    viewport.current?.classList.remove("is-panning");
-    if (current.mode === "press") return openBlock(current.target);
-    if (current.mode !== "drag" || !current.moved) return;
-    const k = camera.current.k;
-    const x = Math.max(0, Math.round(current.origin.x + (event.clientX - current.startX) / k));
-    const y = Math.max(0, Math.round(current.origin.y + (event.clientY - current.startY) / k));
-    current.element.style.translate = "";
-    current.element.classList.remove("is-dragging");
-    commit(
-      replaceSection(current.section, (section) => ({ ...section, pinned: true, x, y })),
-      true,
-    );
-  }
-  function pointerCancel() {
-    const current = pointer.current;
-    pointer.current = null;
-    viewport.current?.classList.remove("is-panning");
-    if (current?.mode === "drag") {
-      current.element.style.translate = "";
-      current.element.classList.remove("is-dragging");
-      markOverlaps();
-    }
-  }
 
   const codex = useCodexLookup(settings.codexPath, settings.backend === "codex");
 
@@ -841,10 +589,10 @@ export function MeetingView({
             className="mc-page mc-viewport"
             role="region"
             aria-label="Canvas"
-            onPointerDown={pointerDown}
-            onPointerMove={pointerMove}
-            onPointerUp={pointerUp}
-            onPointerCancel={pointerCancel}
+            onPointerDown={(event) => camera.pointerDown(event)}
+            onPointerMove={(event) => camera.pointerMove(event)}
+            onPointerUp={(event) => camera.pointerUp(event)}
+            onPointerCancel={() => camera.pointerCancel()}
             onClick={(event) => {
               // Links would navigate the whole Scope window; the kept HTML opens them instead.
               if (event.target instanceof Element && event.target.closest("a"))
@@ -868,7 +616,7 @@ export function MeetingView({
           )}
           {!present && (
             <div className="mc-zoom" role="toolbar" aria-label="Zoom">
-              <Button variant="ghost" size="sm" onClick={() => fitAll()}>
+              <Button variant="ghost" size="sm" onClick={() => camera.fitAll()}>
                 <Maximize /> Fit all
               </Button>
               <Button
@@ -876,7 +624,7 @@ export function MeetingView({
                 size="icon"
                 aria-label="Zoom out"
                 title="Zoom out"
-                onClick={() => zoomCenter(1 / 1.25)}
+                onClick={() => camera.zoomBy(1 / 1.25)}
               >
                 <Minus />
               </Button>
@@ -885,16 +633,16 @@ export function MeetingView({
                 size="sm"
                 title="Zoom to 100%"
                 aria-label="Zoom to 100%"
-                onClick={() => zoomCenter(1 / camera.current.k)}
+                onClick={() => camera.zoomReset()}
               >
-                <span ref={zoomLabel}>100%</span>
+                <span ref={(label) => camera.showZoomIn(label)} />
               </Button>
               <Button
                 variant="ghost"
                 size="icon"
                 aria-label="Zoom in"
                 title="Zoom in"
-                onClick={() => zoomCenter(1.25)}
+                onClick={() => camera.zoomBy(1.25)}
               >
                 <Plus />
               </Button>
@@ -932,7 +680,7 @@ export function MeetingView({
             flashed={flashed}
             blockCount={blockCount}
             onAsk={(request) => loop.ask(request)}
-            onSelectSection={showSection}
+            onSelectSection={(id) => camera.showSection(id)}
           />
         )}
       </div>

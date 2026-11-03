@@ -337,8 +337,7 @@ function findWake(sentence: string): string | null {
     const rest = tokens.slice(last + 1).map((token) => token.word);
     const after = sentence.slice(wakeToken.end);
     // The token keeps its own punctuation ("Canvas,"); a spaced dash comes after it.
-    const punctuated =
-      /[,.:;!?—–-]["'”’)]*$/.test(wakeToken.raw) || /^\s*[,.:;!?—–-]/.test(after);
+    const punctuated = /[,.:;!?—–-]["'”’)]*$/.test(wakeToken.raw) || /^\s*[,.:;!?—–-]/.test(after);
     const polite =
       POLITE_WORDS.has(rest[0] ?? "") || POLITE_PAIRS.has(`${rest[0] ?? ""} ${rest[1] ?? ""}`);
     if (addressed || punctuated || polite || hasRequestWord(rest)) {
