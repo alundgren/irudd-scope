@@ -188,3 +188,61 @@ export function svgDocument(body: string, bounds: Bounds, label: string, pad = 8
   const h = bounds.maxY - bounds.minY + pad * 2;
   return `<svg class="mc-svg" xmlns="http://www.w3.org/2000/svg" viewBox="${num(x)} ${num(y)} ${num(w)} ${num(h)}" style="--mc-svg-w:${num(w)}px" role="img" aria-label="${escapeHtml(label)}">${body}</svg>`;
 }
+
+/**
+ * A small label just off an edge, near the end at `tip`, such as a cardinality or a
+ * multiplicity. `side` flips the offset so marks at both ends of an edge sit on the
+ * same side of it.
+ */
+export function endLabelSvg(
+  text: string,
+  tip: Point,
+  toward: Point,
+  side: 1 | -1,
+  bounds: Bounds,
+  extraClass: string,
+): string {
+  const dx = toward.x - tip.x;
+  const dy = toward.y - tip.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const ux = dx / length;
+  const uy = dy / length;
+  const cx = tip.x + ux * 14 - uy * 9 * side;
+  const cy = tip.y + uy * 14 + ux * 9 * side;
+  const size = labelSize([text]);
+  bounds.add(cx - size.width / 2, cy - size.height / 2, size.width, size.height);
+  return labelSvg([text], cx, cy).replace(
+    'class="mc-edge-label"',
+    `class="mc-edge-label ${extraClass}"`,
+  );
+}
+
+/** A path of straight segments through `points`, with small rounded corners. */
+export function orthoPath(points: readonly Point[], radius = 4): string {
+  if (points.length === 0) return "";
+  let d = `M${num(points[0]!.x)} ${num(points[0]!.y)}`;
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const before = points[i - 1]!;
+    const bend = points[i]!;
+    const after = points[i + 1]!;
+    const inLength = Math.hypot(bend.x - before.x, bend.y - before.y);
+    const outLength = Math.hypot(after.x - bend.x, after.y - bend.y);
+    const r = Math.min(radius, inLength / 2, outLength / 2);
+    if (r <= 0.5) {
+      d += `L${num(bend.x)} ${num(bend.y)}`;
+      continue;
+    }
+    const enter = {
+      x: bend.x - ((bend.x - before.x) / inLength) * r,
+      y: bend.y - ((bend.y - before.y) / inLength) * r,
+    };
+    const leave = {
+      x: bend.x + ((after.x - bend.x) / outLength) * r,
+      y: bend.y + ((after.y - bend.y) / outLength) * r,
+    };
+    d += `L${num(enter.x)} ${num(enter.y)}Q${num(bend.x)} ${num(bend.y)} ${num(leave.x)} ${num(leave.y)}`;
+  }
+  const last = points.at(-1)!;
+  if (points.length > 1) d += `L${num(last.x)} ${num(last.y)}`;
+  return d;
+}

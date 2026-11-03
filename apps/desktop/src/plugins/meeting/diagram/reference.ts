@@ -126,4 +126,51 @@ Example:
 bars funnel: Checkout
 Visited cart: 1200
 Entered address: 640
-Paid: 410`;
+Paid: 410
+
+class right|down — UML classes with name, attribute and method compartments. Leave the direction out to let it pick what fits.
+  Name: +id: int, -email: string, +send(): void   a member with ( is a method; + public, - private, # protected
+  Name <<interface>>   or Name [interface], Name [abstract], Name [enum]
+  A <|-- B extends   A <|.. B implements   A *-- B composition   A o-- B aggregation   A --> B association   A ..> B dependency
+  A "1" --> "*" B: label   multiplicities in quotes, label after the colon
+Example:
+class: Shop
+Customer: +id: int, -email: string, +notify(msg: string): void
+Order: +total: money, +pay(): bool
+Payable [interface]: +pay(): bool
+Customer "1" --> "*" Order: places
+Payable <|.. Order
+Order *-- LineItem
+
+gantt — task bars on a date axis. ## Phase groups tasks. Task: start .. end [done|now|key|s1…s7]
+  Dates: 2026-02-03, w6 or v6 (ISO week), Feb or mars (a month), Feb 15, Q2. End may be +3d or +2w after the start.
+  Task: after Other, 2w   starts when Other ends      Name: 2026-03-01 [milestone]   a diamond
+  today: 2026-02-20   draws a today line
+Example:
+gantt: Launch plan
+today: 2026-02-18
+## Build
+Design: 2026-02-02 .. 2026-02-13 [done]
+API: after Design, 2w [now]
+App: after API, +10d
+## Release
+Beta: w11 .. w12
+Launch: 2026-03-30 [milestone]
+
+swimlane right|down — who does which step, one lane per role. Leave the direction out to let it pick what fits. Steps run in written order across all lanes, each with an arrow to the next.
+  ## Lane or lane Name   starts a lane      - Step   or   Step | detail [decision|start|end]
+  A -> B: label   your own arrows; a step with its own arrows gets no automatic one. [end] steps get none.
+Example:
+swimlane: Laptop request
+## Requester
+- Submit request [start]
+## Manager
+- Approve? [decision]
+## IT
+- Order laptop
+- Hand over [end]
+## Requester
+- Revise request
+Approve? -> Order laptop: yes
+Approve? -> Revise request: no
+Revise request -> Approve?`;
