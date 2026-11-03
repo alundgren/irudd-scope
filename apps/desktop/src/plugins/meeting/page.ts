@@ -20,10 +20,6 @@ const MAX_ID = 40;
 const MAX_TITLE = 160;
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
-export function emptyPage(): Page {
-  return { version: 1, title: "Meeting", blocks: [] };
-}
-
 /** Applies ops in order. A bad op is reported in `rejected` and never throws. */
 export function applyOps(page: Page, ops: readonly EditOp[]): AppliedOps {
   const draft: Draft = { title: page.title, blocks: [...page.blocks] };
@@ -44,17 +40,6 @@ export function applyOps(page: Page, ops: readonly EditOp[]): AppliedOps {
     changed: latest,
     rejected,
   };
-}
-
-/** The compact page text the edit model reads. */
-export function pageSource(page: Page): string {
-  const title = `title: ${page.title}`;
-  if (page.blocks.length === 0) return `${title}\n(empty page)`;
-  const blocks = page.blocks.map(
-    (block) =>
-      `[block id=${block.id} kind=${block.kind} width=${block.width}]\n${block.source}\n[/block]`,
-  );
-  return [title, ...blocks].join("\n\n");
 }
 
 type Draft = { title: string; blocks: Block[] };
@@ -160,15 +145,23 @@ function setTitle(draft: Draft, op: EditOp): OpResult {
 }
 
 // Fast models sometimes leave out the kind of a new block; its first line usually tells.
-const FLOW_DIRECTION = /^(right|down|lr|td|tb|vertical)$/i;
+const HEADER_ARGS: Partial<Record<(typeof DIAGRAM_KINDS)[number], (arg: string) => boolean>> = {
+  flow: (arg) => /^(right|down|lr|td|tb|vertical)$/i.test(arg),
+  wireframe: (arg) => /^(desktop|mobile)$/i.test(arg),
+  bars: () => true,
+};
 
-function guessKind(source: string | null): BlockKind {
+/**
+ * "diagram" when the first line is a diagram header whose argument suits its kind, so
+ * "Compare options" stays prose. Flow takes a direction, wireframe takes desktop or
+ * mobile, bars takes any unit, and the other kinds take no argument.
+ */
+export function guessKind(source: string | null): BlockKind {
   const header = splitSource(source ?? "")?.header;
-  if (!header || !DIAGRAM_KINDS.some((kind) => kind === header.kind)) return "text";
-  // "Compare options" is prose; only flow takes an argument, and only a direction.
-  return header.arg === "" || (header.kind === "flow" && FLOW_DIRECTION.test(header.arg))
-    ? "diagram"
-    : "text";
+  const kind = DIAGRAM_KINDS.find((known) => known === header?.kind);
+  if (!header || !kind) return "text";
+  const arg = header.arg.trim();
+  return arg === "" || HEADER_ARGS[kind]?.(arg) ? "diagram" : "text";
 }
 
 function checkKind(kind: unknown): BlockKind | null {

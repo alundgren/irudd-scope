@@ -22,8 +22,8 @@ import {
   transcribe,
 } from "./backends.ts";
 import { meetingDebugLog } from "./debug-log.ts";
-import { applyOps } from "./page.ts";
-import { buildUserMessage, SYSTEM_PROMPT } from "./prompt.ts";
+import { applyCanvasOps } from "./canvas.ts";
+import { buildCanvasMessage, SYSTEM_PROMPT } from "./prompt.ts";
 
 const NO_KEY = "Add an OpenRouter API key in Settings, then try again.";
 
@@ -103,15 +103,21 @@ export function registerMeetingIpc({ handle, store, client, window }: MainPlugin
     const request = input(EditRequest, value);
     const { backend } = request.settings;
     const model = backend === "codex" ? CODEX_MODEL : request.settings.openrouterModel;
-    const user = buildUserMessage(request);
+    const user = buildCanvasMessage(request);
     const entry = {
       type: "edit",
       backend,
       model,
       requestChars: SYSTEM_PROMPT.length + user.length,
-      fresh: request.fresh,
       request: request.request,
+      recentLines: request.recent.length,
+      focus: request.focus,
+      sections: request.canvas.sections.length,
+      closedBy: request.closedBy,
     };
+    // The detector sent this request on its 6 s timer while the room still sounded busy.
+    if (request.closedBy === "fallback")
+      log.write({ type: "wake-fallback", request: request.request });
     try {
       const reply =
         backend === "codex"
@@ -129,12 +135,12 @@ export function registerMeetingIpc({ handle, store, client, window }: MainPlugin
               signal: controller.signal,
             });
       const { ops } = parseEditReply(reply.content);
-      // The renderer applies ops to its latest page; this records what the request page rejects.
-      const rejected = applyOps(request.page, ops).rejected;
+      // The renderer applies ops to its latest canvas; this records what the request canvas rejects.
+      const rejected = applyCanvasOps(request.canvas, ops, request.focus).rejected;
       log.write({ ...entry, ms: reply.ms, ops, rejected });
       return { ops, ms: reply.ms, backend, model };
     } catch (error) {
-      const text = message(error, "The page edit failed.");
+      const text = message(error, "The canvas edit failed.");
       log.write({ ...entry, error: text });
       throw new Error(text);
     }
@@ -143,7 +149,7 @@ export function registerMeetingIpc({ handle, store, client, window }: MainPlugin
   handle("scope:meeting-export", async (value) => {
     const request = input(ExportRequest, value);
     const name = keepName();
-    // Publishing reserves a new tab, so the kept page opens like any published artifact.
+    // Publishing reserves a new tab, so the kept canvas opens like any published artifact.
     return client.publish(
       randomUUID(),
       {

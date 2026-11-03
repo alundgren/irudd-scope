@@ -1,4 +1,4 @@
-import type { Page } from "./contract.ts";
+import type { Canvas } from "./contract.ts";
 import { escapeHtml } from "./html.ts";
 
 /**
@@ -13,17 +13,20 @@ function scriptJson(value: unknown): string {
     .replace(/\u2029/g, "\\u2029");
 }
 
-/** A standalone HTML document for the page, from already sanitized body HTML. */
+/**
+ * A standalone HTML document for the canvas, from already sanitized `renderCanvas` HTML.
+ * Sections keep the 1:1 flow layout of the tab, without its pan and zoom.
+ */
 export function standaloneHtml({
-  page,
+  canvas,
   bodyHtml,
   css,
 }: {
-  page: Page;
+  canvas: Canvas;
   bodyHtml: string;
   css: string;
 }): string {
-  const title = escapeHtml(page.title.trim() || "Meeting");
+  const title = escapeHtml(canvas.title.trim() || "Meeting");
   const style = css.replace(/<\/style/gi, "<\\/style");
   return `<!doctype html>
 <html>
@@ -39,9 +42,9 @@ ${style}
 </style>
 </head>
 <body>
-<main class="mc-page">${bodyHtml}</main>
-<!-- Meeting canvas page. The JSON in #meeting-page is the editable source; the HTML above was rendered from it. -->
-<script type="application/json" id="meeting-page">${scriptJson(page)}</script>
+<main class="mc-page mc-canvas">${bodyHtml}</main>
+<!-- Meeting canvas. The JSON in #meeting-canvas is the editable source; the HTML above was rendered from it. -->
+<script type="application/json" id="meeting-canvas">${scriptJson(canvas)}</script>
 </body>
 </html>
 `;

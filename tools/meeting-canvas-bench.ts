@@ -1,5 +1,6 @@
-// Replays scripted meeting transcripts through the Meeting canvas edit backends and writes the
-// resulting pages and call timings outside the repository. Prototype tool for the test build.
+// Replays scripted meeting transcripts through the wake detector and the Meeting canvas edit
+// backends, and writes the resulting canvases and call timings outside the repository.
+// Prototype tool for the test build.
 //
 //   vp exec node tools/meeting-canvas-bench.ts --out <dir> [--backend openrouter|codex|all]
 //     [--models a,b]
@@ -10,10 +11,10 @@ import { createRequire } from "node:module";
 import { basename, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  type Canvas,
+  type CanvasOp,
   CODEX_MODEL,
-  type EditOp,
   OPENROUTER_EDIT_MODELS,
-  type Page,
 } from "../apps/desktop/src/plugins/meeting/contract.ts";
 import {
   codexEdit,
@@ -23,26 +24,37 @@ import {
 } from "../apps/desktop/src/plugins/meeting/backends.ts";
 import { standaloneHtml } from "../apps/desktop/src/plugins/meeting/export.ts";
 import { replayHtml, type ReplayStep } from "./meeting-canvas-replay.ts";
-import { applyOps, emptyPage } from "../apps/desktop/src/plugins/meeting/page.ts";
-import { buildUserMessage, SYSTEM_PROMPT } from "../apps/desktop/src/plugins/meeting/prompt.ts";
-import { renderPage } from "../apps/desktop/src/plugins/meeting/render.ts";
+import { applyCanvasOps, emptyCanvas } from "../apps/desktop/src/plugins/meeting/canvas.ts";
+import { buildCanvasMessage, SYSTEM_PROMPT } from "../apps/desktop/src/plugins/meeting/prompt.ts";
+import { renderCanvas } from "../apps/desktop/src/plugins/meeting/render.ts";
+import {
+  stripSpeakerLabel,
+  type WakeRequest,
+  WakeDetector,
+} from "../apps/desktop/src/plugins/meeting/wake.ts";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const scripts = join(root, "tools", "meeting-canvas-bench");
 const meeting = join(root, "apps", "desktop", "src", "plugins", "meeting");
-// The same pacing as the app's listening loop.
-const MIN_FRESH_WORDS = 12;
-const CONTEXT_LINES = 40;
+// Simulated capture timing: speech at 2.5 words per second, clips that end on 0.65 s of
+// silence, and a 2 s pause for each blank line in a script.
+const WORDS_PER_SECOND = 2.5;
+const SILENCE_MS = 650;
+const BLANK_LINE_MS = 2_000;
+const RECENT_LINES = 30;
 
 type Target = { backend: "openrouter" | "codex"; model: string };
 type Call = {
-  batch: number;
-  fresh: string[];
-  requestChars: number;
+  request: string;
+  action: WakeRequest["action"];
+  closedBy: WakeRequest["closedBy"];
+  lines: string[];
+  requestChars?: number;
   ms?: number;
-  ops?: readonly EditOp[];
+  ops?: readonly CanvasOp[];
   applied?: number;
-  rejected?: { op: EditOp; reason: string }[];
+  rejected?: { op: CanvasOp; reason: string }[];
+  changed?: string[];
   error?: string;
 };
 
@@ -73,25 +85,26 @@ function options() {
   return { directory, backend, models, scriptDirectory };
 }
 
-/** Splits a script into the batches the app would send: at 12 fresh words, or at a blank line. */
-function batches(script: string) {
-  const result: string[][] = [];
-  let fresh: string[] = [];
-  const flush = () => {
-    if (fresh.length) result.push(fresh);
-    fresh = [];
-  };
+/** Script lines as clips with simulated capture times, speaker labels removed. */
+function clips(script: string) {
+  const result: { text: string; startedAt: number; endedAt: number; gapMs: number }[] = [];
+  let clock = 0;
+  let pause = 0;
   for (const raw of script.split(/\r?\n/)) {
     const line = raw.trim();
     if (line.startsWith("#")) continue;
     if (!line) {
-      flush();
+      pause += BLANK_LINE_MS;
       continue;
     }
-    fresh.push(line);
-    if (fresh.join(" ").split(/\s+/).length >= MIN_FRESH_WORDS) flush();
+    const text = stripSpeakerLabel(line);
+    const gapMs = result.length ? SILENCE_MS + pause : Number.POSITIVE_INFINITY;
+    const startedAt = clock + (result.length ? gapMs : 0);
+    const endedAt = startedAt + Math.max(1, text.split(/\s+/).length / WORDS_PER_SECOND) * 1000;
+    result.push({ text, startedAt, endedAt, gapMs });
+    clock = endedAt;
+    pause = 0;
   }
-  flush();
   return result;
 }
 
@@ -102,45 +115,80 @@ const slug = (text: string) =>
     .replace(/^-|-$/g, "");
 
 async function run(target: Target, script: string, key: string, codexPath: string) {
-  let page: Page = emptyPage();
+  let canvas: Canvas = emptyCanvas();
+  let focus: string | null = null;
+  const undo: Canvas[] = [];
   const heard: string[] = [];
   const calls: Call[] = [];
   const steps: ReplayStep[] = [];
-  for (const [index, fresh] of batches(script).entries()) {
-    const user = buildUserMessage({
-      page,
-      context: heard.slice(-CONTEXT_LINES),
-      fresh,
-      request: null,
-    });
-    const call: Call = {
-      batch: index + 1,
-      fresh,
-      requestChars: SYSTEM_PROMPT.length + user.length,
-    };
-    try {
-      const reply =
-        target.backend === "codex"
-          ? await codexEdit({ codexPath, system: SYSTEM_PROMPT, user })
-          : await openRouterEdit({ key, model: target.model, system: SYSTEM_PROMPT, user });
-      const { ops } = parseEditReply(reply.content);
-      const result = applyOps(page, ops);
-      page = result.page;
-      Object.assign(call, {
-        ms: reply.ms,
-        ops,
-        applied: ops.length - result.rejected.length,
-        rejected: result.rejected,
+  const detector = new WakeDetector();
+  let fresh: string[] = [];
+  const handle = async (requests: WakeRequest[]) => {
+    for (const request of requests) {
+      const lines = request.chunks.map((chunk) => heard[chunk]!);
+      const call: Call = {
+        request: request.text,
+        action: request.action,
+        closedBy: request.closedBy,
+        lines,
+      };
+      calls.push(call);
+      if (request.action === "undo") {
+        canvas = undo.pop() ?? canvas;
+        steps.push({ fresh, pageHtml: renderCanvas(canvas), changed: [] });
+        fresh = [];
+        continue;
+      }
+      if (request.action !== "model") continue;
+      const first = request.chunks[0] ?? heard.length;
+      const user = buildCanvasMessage({
+        canvas,
+        request: request.text,
+        recent: heard.slice(Math.max(0, first - RECENT_LINES), first),
+        focus,
       });
-      steps.push({ fresh, pageHtml: renderPage(page), changed: result.changed, ...counts(call) });
-    } catch (error) {
-      call.error = error instanceof Error ? error.message : String(error);
-      steps.push({ fresh, pageHtml: renderPage(page), changed: [], error: call.error });
+      call.requestChars = SYSTEM_PROMPT.length + user.length;
+      try {
+        const reply =
+          target.backend === "codex"
+            ? await codexEdit({ codexPath, system: SYSTEM_PROMPT, user })
+            : await openRouterEdit({ key, model: target.model, system: SYSTEM_PROMPT, user });
+        const { ops } = parseEditReply(reply.content);
+        const result = applyCanvasOps(canvas, ops, focus);
+        if (ops.length > result.rejected.length) undo.push(canvas);
+        canvas = result.canvas;
+        focus = result.changed.at(-1) ?? focus;
+        Object.assign(call, {
+          ms: reply.ms,
+          ops,
+          applied: ops.length - result.rejected.length,
+          rejected: result.rejected,
+          changed: result.changed,
+        });
+        steps.push({
+          fresh,
+          pageHtml: renderCanvas(canvas),
+          changed: result.changed,
+          ...counts(call),
+        });
+      } catch (error) {
+        call.error = error instanceof Error ? error.message : String(error);
+        steps.push({ fresh, pageHtml: renderCanvas(canvas), changed: [], error: call.error });
+      }
+      fresh = [];
     }
-    calls.push(call);
-    heard.push(...fresh);
+  };
+  for (const clip of clips(script)) {
+    // Nobody speaks between simulated clips, so the room is quiet until the next one starts.
+    await handle(detector.tick(clip.startedAt, false));
+    heard.push(clip.text);
+    fresh.push(clip.text);
+    await handle(
+      detector.push(clip.text, { endedBy: "silence", gapMs: clip.gapMs, endedAt: clip.endedAt }),
+    );
   }
-  return { page, calls, steps };
+  await handle(detector.flush());
+  return { canvas, calls, steps };
 }
 
 const counts = (call: Call) => ({
@@ -163,6 +211,7 @@ async function main() {
   const css = [
     await readFile(require.resolve("katex/dist/katex.min.css"), "utf8"),
     await readFile(join(meeting, "page.css"), "utf8"),
+    await readFile(join(meeting, "canvas.css"), "utf8"),
   ].join("\n");
   const files = (await readdir(scriptDirectory)).filter((file) => file.endsWith(".txt")).sort();
   const rows: string[][] = [];
@@ -171,14 +220,14 @@ async function main() {
       for (const file of files) {
         const scenario = basename(file, ".txt");
         const script = await readFile(join(scriptDirectory, file), "utf8");
-        const { page, calls, steps } = await run(target, script, key, codexPath);
+        const { canvas, calls, steps } = await run(target, script, key, codexPath);
         const folder = join(directory, scenario);
         await mkdir(folder, { recursive: true });
         const name = slug(`${target.backend}-${target.model}`);
         // Node has no DOM for DOMPurify; render.ts already escapes model text.
         await writeFile(
           join(folder, `${name}.html`),
-          standaloneHtml({ page, bodyHtml: renderPage(page), css }),
+          standaloneHtml({ canvas, bodyHtml: renderCanvas(canvas), css }),
         );
         await writeFile(
           join(folder, `${name}.replay.html`),
@@ -191,7 +240,7 @@ async function main() {
         );
         await writeFile(
           join(folder, `${name}.json`),
-          `${JSON.stringify({ target, scenario, calls, page }, null, 2)}\n`,
+          `${JSON.stringify({ target, scenario, calls, canvas }, null, 2)}\n`,
         );
         const times = calls.flatMap((call) => (call.ms === undefined ? [] : [call.ms]));
         const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
@@ -204,7 +253,7 @@ async function main() {
           times.length ? String(Math.max(...times)) : "-",
           String(sum(calls.map((call) => call.applied ?? 0))),
           String(sum(calls.map((call) => call.rejected?.length ?? 0))),
-          String(page.blocks.length),
+          String(canvas.sections.length),
         ]);
         console.error(`done ${scenario} ${target.model}`);
       }
@@ -220,14 +269,14 @@ async function main() {
     "max ms",
     "applied",
     "rejected",
-    "blocks",
+    "sections",
   ];
   const widths = header.map((title, column) =>
     Math.max(title.length, ...rows.map((row) => row[column].length)),
   );
   const line = (row: string[]) => row.map((cell, column) => cell.padEnd(widths[column])).join("  ");
   console.log([line(header), ...rows.map(line)].join("\n"));
-  console.log(`\nPages and call logs: ${directory}`);
+  console.log(`\nCanvases and call logs: ${directory}`);
 }
 
 main().catch((error: unknown) => {

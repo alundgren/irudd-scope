@@ -10,7 +10,7 @@ const WORDS_PER_SECOND = 2.5;
 export type ReplayStep = {
   /** Transcript lines sent in this call. */
   fresh: readonly string[];
-  /** Page HTML after this call, from renderPage, so model text is already escaped. */
+  /** Canvas HTML after this call, from renderCanvas, so model text is already escaped. */
   pageHtml: string;
   changed: readonly string[];
   ms?: number;
@@ -100,13 +100,13 @@ body { margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", 
   <div class="rp-bar">
     <strong>${title}</strong>
     <button id="play" type="button">Play</button>
-    <button id="prev" type="button" title="Previous page update">◀</button>
-    <button id="next" type="button" title="Next page update">▶</button>
+    <button id="prev" type="button" title="Previous canvas update">◀</button>
+    <button id="next" type="button" title="Next canvas update">▶</button>
     <select id="speed" aria-label="Speed"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option><option value="8">8×</option></select>
     <input id="scrub" type="range" min="0" step="0.1" aria-label="Time">
     <span id="status" class="rp-status"></span>
   </div>
-  <div class="rp-page"><main id="page" class="mc-page"></main></div>
+  <div class="rp-page"><main id="page" class="mc-page mc-canvas"></main></div>
   <div id="transcript" class="rp-transcript" aria-label="Transcript"></div>
 </div>
 <script type="application/json" id="replay-data">${scriptJson(data)}</script>
@@ -135,10 +135,12 @@ function render() {
   let step = -1;
   data.updates.forEach((at, index) => { if (at <= time) step = index; });
   if (step !== shown) {
-    page.innerHTML = step < 0 ? '<div class="mc-page-inner"><p>Waiting for the first page update…</p></div>' : data.steps[step].html;
+    page.innerHTML = step < 0 ? '<div class="mc-canvas-inner"><p>Waiting for the first canvas update…</p></div>' : data.steps[step].html;
+    const inner = page.firstElementChild;
+    if (inner) inner.style.zoom = String(Math.min(1, page.clientWidth / Math.max(1, inner.scrollWidth)));
     if (step >= 0 && step === shown + 1) {
       for (const id of data.steps[step].changed) {
-        const block = page.querySelector('[data-block="' + CSS.escape(id) + '"]');
+        const block = page.querySelector('[data-section="' + CSS.escape(id) + '"]');
         if (block) { block.classList.add("is-fresh"); block.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
       }
     }

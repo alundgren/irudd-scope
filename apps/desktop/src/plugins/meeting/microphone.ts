@@ -42,10 +42,25 @@ function wav(samples: number[]) {
   return btoa(binary);
 }
 
+/** One clip of room audio with its speech timing, in `Date.now()` milliseconds. */
+export type RoomClip = {
+  audio: string;
+  /** When the first voiced frame of the clip arrived. */
+  startedAt: number;
+  /** When the last voiced frame arrived, before the trailing silence. */
+  endedAt: number;
+  endedBy: "silence" | "cap";
+};
+
+/**
+ * Cuts room audio into clips that end after 0.65 s of silence or at 6 s. `speaking` is
+ * true from the first voiced frame of a clip until that clip is emitted.
+ */
 export async function captureRoom(
   signal: AbortSignal,
-  chunk: (audio: string) => void,
+  chunk: (clip: RoomClip) => void,
   failed: (message: string) => void,
+  speaking: (on: boolean) => void,
 ) {
   let stream: MediaStream | undefined;
   let context: AudioContext | undefined;
@@ -61,6 +76,7 @@ export async function captureRoom(
     if (context && context.state !== "closed") void context.close().catch(() => {});
     if (url) URL.revokeObjectURL(url);
     samples = [];
+    speaking(false);
     signal.removeEventListener("abort", stop);
   };
   signal.addEventListener("abort", stop, { once: true });
@@ -85,22 +101,36 @@ export async function captureRoom(
       failed("Microphone capture failed. Toggle listening to retry.");
     let silence = 0;
     let speech = false;
+    let voiceStart = 0;
+    let voiceEnd = 0;
     capture.port.onmessage = (event: MessageEvent<Float32Array>) => {
       if (signal.aborted) return;
       const frame = event.data;
+      const now = Date.now();
       const rms = Math.sqrt(frame.reduce((sum, value) => sum + value * value, 0) / frame.length);
       if (rms >= 0.008) {
+        if (!speech) {
+          voiceStart = now - Math.round((frame.length / RATE) * 1000);
+          speaking(true);
+        }
         speech = true;
+        voiceEnd = now;
         silence = 0;
       } else silence += frame.length;
       samples.push(...frame);
-      if (
-        samples.length >= RATE * 6 ||
-        (speech && silence >= RATE * 0.65 && samples.length >= RATE)
-      ) {
+      const capped = samples.length >= RATE * 6;
+      if (capped || (speech && silence >= RATE * 0.65 && samples.length >= RATE)) {
         const clip = samples;
         samples = [];
-        if (speech) chunk(wav(clip));
+        if (speech) {
+          chunk({
+            audio: wav(clip),
+            startedAt: voiceStart,
+            endedAt: voiceEnd,
+            endedBy: capped ? "cap" : "silence",
+          });
+          speaking(false);
+        }
         speech = false;
         silence = 0;
       }
