@@ -585,23 +585,25 @@ Use the same names in code, documentation, diagrams, issues, and reviews.
 Folders name the work they own. Names in saved records, commands, and wire
 formats are compatibility contracts.
 
-| Name             | Meaning                                                                                          | Owner                                                                                                     |
-| ---------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Artifact         | Latest published metadata and content for one stable ID.                                         | `packages/protocol/src/index.ts` defines the contract; `apps/desktop/src/library/` stores and serves it.  |
-| Revision         | Increasing integer for an artifact; writers supply the revision they read.                       | Artifact protocol and desktop artifact store.                                                             |
-| Tab name         | Optional second unique key, preserved across revisions and sessions.                             | Artifact protocol; desktop artifact store enforces uniqueness.                                            |
-| Blob             | Immutable bytes identified by SHA-256, stored in SQLite.                                         | `apps/desktop/src/library/store.ts`.                                                                      |
-| Source           | Optional publication provenance, such as host, repository, or agent. Unknown values stay absent. | Protocol contract; `packages/cli` collects available values.                                              |
-| Artifact library | Published artifact metadata and the desktop's connection status.                                 | `apps/desktop/src/library/library.ts`; `library/use-library.ts` tracks unread updates.                    |
-| Workspace        | Active, queued, and trashed tab records, retention timestamps, groups, and selection.            | `apps/desktop/src/workspace/contract.ts` defines the contract; `workspace/use-workspace.ts` manages tabs. |
-| Settings         | Appearance, provider configuration, and credential presence.                                     | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.               |
-| Sketchpad        | The built-in Excalidraw canvas the person uses; agents have no access to it.                     | `apps/desktop/src/plugins/sketchpad/view.tsx` owns editing.                                               |
-| Sketchpad draft  | Local Excalidraw serialization and view position, stored only while the canvas is not empty.     | `apps/desktop/src/plugins/sketchpad/contract.ts`; `library/store.ts` stores drafts.                       |
-| Publishing token | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                   | Desktop discovery file; CLI and optional hub use it.                                                      |
-| Folder tab       | A live tree of one folder on one machine, keyed by machine ID and canonical path.                | `packages/folder` reads files; `plugins/folder` shows them; `folder_tabs` in `scope.db` keeps the key.    |
-| Harness scan     | One machine's coding agent harnesses at one time, without secrets.                               | `packages/harnesses` scans; `packages/protocol/src/harnesses.ts` defines it; `harness_scans` keeps it.    |
-| Harnesses tab    | The built-in overview of skills and instruction files per machine, with a full-tab file reader.  | `apps/desktop/src/plugins/harnesses/` shows it; `apps/desktop/src/harnesses.ts` supplies its state.       |
-| Agent sessions   | This computer's T3 Code threads, messages, tokens, cost and tool calls, read on demand.          | `packages/sessions` reads them in a separate process; `apps/desktop/src/plugins/sessions/` shows them.    |
+| Name             | Meaning                                                                                               | Owner                                                                                                     |
+| ---------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Artifact         | Latest published metadata and content for one stable ID.                                              | `packages/protocol/src/index.ts` defines the contract; `apps/desktop/src/library/` stores and serves it.  |
+| Revision         | Increasing integer for an artifact; writers supply the revision they read.                            | Artifact protocol and desktop artifact store.                                                             |
+| Tab name         | Optional second unique key, preserved across revisions and sessions.                                  | Artifact protocol; desktop artifact store enforces uniqueness.                                            |
+| Blob             | Immutable bytes identified by SHA-256, stored in SQLite.                                              | `apps/desktop/src/library/store.ts`.                                                                      |
+| Source           | Optional publication provenance, such as host, repository, or agent. Unknown values stay absent.      | Protocol contract; `packages/cli` collects available values.                                              |
+| Artifact library | Published artifact metadata and the desktop's connection status.                                      | `apps/desktop/src/library/library.ts`; `library/use-library.ts` tracks unread updates.                    |
+| Workspace        | Active, queued, and trashed tab records, retention timestamps, groups, and selection.                 | `apps/desktop/src/workspace/contract.ts` defines the contract; `workspace/use-workspace.ts` manages tabs. |
+| Settings         | Appearance, provider configuration, and credential presence.                                          | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.               |
+| Sketchpad        | The built-in Excalidraw canvas the person uses; agents have no access to it.                          | `apps/desktop/src/plugins/sketchpad/view.tsx` owns editing.                                               |
+| Sketchpad draft  | Local Excalidraw serialization and view position, stored only while the canvas is not empty.          | `apps/desktop/src/plugins/sketchpad/contract.ts`; `library/store.ts` stores drafts.                       |
+| Meeting canvas   | Test build only. The built-in tab that turns room speech into a page of blocks through an edit model. | `apps/desktop/src/plugins/meeting/view.tsx` owns the tab; `loop.ts` paces transcription and edit calls.   |
+| Meeting page     | Title and ordered text, diagram and callout blocks, saved with the tab's settings in its tab state.   | `apps/desktop/src/plugins/meeting/contract.ts`; `page.ts` applies model edits.                            |
+| Publishing token | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                        | Desktop discovery file; CLI and optional hub use it.                                                      |
+| Folder tab       | A live tree of one folder on one machine, keyed by machine ID and canonical path.                     | `packages/folder` reads files; `plugins/folder` shows them; `folder_tabs` in `scope.db` keeps the key.    |
+| Harness scan     | One machine's coding agent harnesses at one time, without secrets.                                    | `packages/harnesses` scans; `packages/protocol/src/harnesses.ts` defines it; `harness_scans` keeps it.    |
+| Harnesses tab    | The built-in overview of skills and instruction files per machine, with a full-tab file reader.       | `apps/desktop/src/plugins/harnesses/` shows it; `apps/desktop/src/harnesses.ts` supplies its state.       |
+| Agent sessions   | This computer's T3 Code threads, messages, tokens, cost and tool calls, read on demand.               | `packages/sessions` reads them in a separate process; `apps/desktop/src/plugins/sessions/` shows them.    |
 
 `packages/protocol` owns shared schemas, wire formats, limits, the discovery
 contract, and the HTTP client. It imports no app, filesystem, Electron, or
@@ -695,15 +697,18 @@ are not exposed. `source.sessionId` remains publication provenance.
 
 `workspace/` owns navigation, selection, closing, saved records, and event
 routing. `workspace/tab-host.tsx` supplies `TabContext`. File views load on first
-selection and remain mounted across tab switches. The Sketchpad loads the same
-way and stays mounted while hidden. The error boundary in `tab-host.tsx` contains a
+selection and remain mounted across tab switches. The Sketchpad and Meeting canvas
+load the same way and stay mounted while hidden. The error boundary in `tab-host.tsx` contains a
 failed view. Unknown plugin types and unsupported saved state remain stored and
 display an unavailable view.
 
 Each directory under `plugins/` owns one built-in implementation. `file/`
 keeps the existing image, Markdown, HTML, text, and download fallback views
 together. `sketchpad/` owns the built-in Excalidraw editor, its Reset and
-undo window, and its draft contract. `harnesses/` owns the Harnesses overview, its reader and its
+undo window, and its draft contract. `meeting/` owns the Meeting canvas test build:
+its view and listening loop in the renderer, and its transcription, page edit, Keep
+and debug log handlers in main. Its OpenRouter and Codex calls live in `backends.ts`,
+which has no Electron imports so the bench tool can use it. `harnesses/` owns the Harnesses overview, its reader and its
 IPC operations; it keeps no tab data of its own. A plugin can render
 content without referencing a library item. Publication support is an optional
 registration. These are trusted modules in one renderer.
@@ -906,8 +911,10 @@ operation regardless of the feature switch. Saving and removing the key do not
 require voice generation to be enabled.
 
 The HTTP API accepts finished artifacts and narrow speech-generation requests.
-It does not expose arbitrary provider requests or the Sketchpad. Scope does not
-run or coordinate coding sessions.
+It does not expose arbitrary provider requests, the Sketchpad or the Meeting canvas.
+Scope does not run or coordinate coding sessions. The Meeting canvas test build is the
+one exception: it can run `codex exec` read-only in an empty temporary folder as a page
+edit backend.
 
 ### Coding session notifications
 

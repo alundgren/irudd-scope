@@ -4,6 +4,7 @@ import { registerMemoryIpc } from "./memory/main.ts";
 import { registerRetroIpc } from "./retro/main.ts";
 import { registerPlanIpc } from "./plan/main.ts";
 import { registerSketchpadIpc } from "./sketchpad/main.ts";
+import { registerMeetingIpc } from "./meeting/main.ts";
 import { registerPullRequestsIpc } from "./pull-requests/main.ts";
 import type { MainPluginContext } from "./main-api.ts";
 import { registerFolderIpc } from "./folder/main.ts";
@@ -16,6 +17,7 @@ export function registerMainPlugins(context: MainPluginContext) {
   registerPlanIpc(context);
   const retros = registerRetroIpc(context);
   registerSketchpadIpc(context);
+  registerMeetingIpc(context);
   registerHarnessesIpc(context);
   const sessions = registerSessionsIpc(context);
   const pullRequests = registerPullRequestsIpc(context);

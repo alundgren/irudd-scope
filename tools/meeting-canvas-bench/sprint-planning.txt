@@ -1,0 +1,32 @@
+# Sprint planning with action items and owners. Blank lines are pauses.
+Morning all. Did anyone watch the match last night?
+Don't start, I'm still upset about it.
+Ha, okay. Let's get going, we have thirty minutes.
+
+This is sprint fourteen. The goal is to ship the new invoice export and fix the slow search.
+Capacity is a bit lower, Jonas is out Thursday and Friday.
+So let's go through the board. First, invoice export to CSV and PDF.
+Maria, you did the spike. How big is it?
+CSV is small, maybe two days. PDF is bigger because of the layout, I'd say four days.
+Okay, Maria owns invoice export. Let's split it into CSV and PDF tickets.
+
+Next, the slow search. The p95 on the search endpoint is around two point four seconds.
+I looked at it, it's a missing index on the customer name plus the query does a full text scan.
+Ahmed, can you take the index and the query rewrite?
+Sure. I'll also add a dashboard so we can see the p95 after the change.
+Great, Ahmed owns search performance. Target is under five hundred milliseconds at p95.
+
+Then the onboarding email bug. Some users get the welcome email twice.
+That's a retry issue in the queue worker. Jonas, can you look before you leave on Thursday?
+Yes, I can do it Monday to Wednesday.
+Okay, Jonas owns the duplicate email fix, due Wednesday.
+
+Anything we're not doing this sprint? The dark mode request keeps coming up.
+Not this sprint. Let's put it on the backlog and mention it in the review.
+Can you put the action items in a checklist with owners?
+Also note the risk that the PDF library might not support right to left text. We have one customer in Israel.
+Good point, Maria will check that first thing.
+
+Okay, so let me repeat. Maria invoice export, Ahmed search, Jonas duplicate emails, and I'll update the roadmap.
+Done already with the roadmap actually, I did it yesterday.
+Even better. Thanks everyone, see you at standup.

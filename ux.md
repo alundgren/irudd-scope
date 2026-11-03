@@ -413,6 +413,62 @@ English text, keyboard navigation, visible focus, labeled icon controls, and
 readable contrast apply throughout the workspace. Check long titles and more
 tabs than fit on a laptop or external monitor.
 
+## Meeting canvas
+
+The Meeting canvas is a test build for one team and is not ready to merge. It is a
+built-in tab that listens to a meeting and keeps a page of blocks up to date. Search
+offers Meeting canvas, matching words such as meeting, whiteboard, transcript and
+diagram. Like other built-in tabs it is always permanent. Its visual style is adapted
+from OpenGhost by ANDRETRIPOL (MIT), https://github.com/ANDRETRIPOL/OpenGhost.
+
+The header holds the page title, the Listen switch, the edit backend, Undo, Keep as
+HTML, Present and a settings button. Listen needs an OpenRouter key in Settings and,
+on macOS, microphone access. While the microphone is on, a pulsing red Listening label
+shows, in Present view too. Listening stops when the person turns it off, switches to
+another tab, closes the tab or quits. Lines already heard stay and go with the next
+edit call.
+
+Speech is cut into short clips and transcribed one clip at a time. When transcription
+falls behind by more than three clips, the oldest clip is dropped and the activity list
+says so. The edit model receives the page, the last 40 transcript lines as context and
+the lines it has not seen. One edit call runs at a time. A call starts once 12 new
+words have arrived, or 8 seconds after the previous call when at least one new line
+waits. A request typed into Ask the canvas goes at once, or right after the call in
+flight. Errors appear in the activity list without stopping; three failed
+transcriptions or three failed edits in a row stop listening with a message.
+
+The page is a column of blocks: text, diagrams, notes, decisions, risks and questions,
+each full, half or third width. Model changes apply to the latest page, scroll to the
+last changed block and flash it for about two seconds. When the person edited a block
+after a call started, that call's changes to the block are skipped and listed as
+rejected. Clicking a block, or pressing Enter on it, opens an editor docked at the bottom
+of the page with its source, kind and width, Delete and Done. The page previews each
+keystroke. Escape cancels; Command-Enter or Ctrl+Enter finishes. Links on the page do
+not open from the tab; they work in the kept HTML.
+
+Undo steps back through page changes from the person and the model, up to 50, for
+the current session. Keep as HTML publishes the page as a new standalone HTML artifact
+with a unique name, which opens as its own tab that agents can edit. After a Keep, Clear
+page empties the canvas; Undo brings it back.
+
+Present hides the header and side panel and enlarges the page. A small bar keeps the
+Listening label and Exit present; Escape also exits. Present leaves the window size
+alone and turns off block editing.
+
+The side panel shows the live transcript, newest at the bottom, with lines the model
+has not seen marked. Ask the canvas sits below it, then the activity list: one row
+per transcription or edit call with backend, model, time, ops applied and rejected
+with reasons, and errors. The settings popover offers the OpenRouter edit model and
+the spoken language, empty for automatic detection. The transcription model and the
+Codex model, effort and service tier are fixed text. Scope looks for the codex program
+when Codex is the backend; a path field appears only when that lookup fails.
+
+Prototype limits: the tab state holds the page and settings, so restart keeps the page
+but not the transcript, activity or undo history. Audio and text go to OpenRouter, and
+Codex edits run through the person's own Codex login. A debug log at
+`meeting-canvas-debug.jsonl` in the desktop data folder records transcripts, edit
+calls, ops and timings, never audio or keys. It rotates once at 5 MB.
+
 ## Harnesses
 
 Harnesses is a permanent built-in tab that shows the coding agent tools on this
