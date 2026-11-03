@@ -385,7 +385,7 @@ function leadTrimmed(text: string): string[] {
   return list.slice(start);
 }
 
-const NEGATIONS = new Set(["don't", "dont", "do", "not", "no", "skip", "inte", "hoppa"]);
+const NEGATIONS = new Set(["don't", "dont", "don", "not", "no", "skip", "inte", "hoppa"]);
 
 /**
  * "Never mind" alone, or followed by filler, a negation ("never mind, don't add the
@@ -401,7 +401,8 @@ function isCancel(text: string): boolean {
     return (
       tail.every((word) => CANCEL_TAIL.has(word)) ||
       NEGATIONS.has(first) ||
-      /^\p{L}{3,}ing$/u.test(first)
+      // "Cancel pending orders" is a request; only "never mind adding …" takes one back.
+      (phrase.length > 1 && /^\p{L}{3,}ing$/u.test(first))
     );
   });
 }
