@@ -169,6 +169,7 @@ Each PR has the following GitHub facts at its top level:
 | `checks`                                 | `{ status, headOid, observedAt }`. Status is `unknown`, `pending`, `passing`, or `failing`; `headOid` can be `null`. |
 | `review`                                 | Optional `{ decision, hasApproval, headOid, observedAt }`. See approval semantics below.                             |
 | `stack`                                  | Optional native stack record, or null for a known standalone PR. See stack semantics below.                          |
+| `queue`                                  | Optional merge queue record for the target branch. See merge queue semantics below.                                  |
 
 `review.decision` is GitHub's overall `approved`, `changes-requested`, or
 `review-required` decision, or null when GitHub returns no decision.
@@ -193,11 +194,29 @@ applies filters or snoozes. A hidden draft still blocks stack readiness.
 Incomplete membership or review reads fail the refresh and keep the saved
 facts; check sync state and observation timestamps before relying on them.
 
-The lightweight initial load omits review and stack fields until enrichment completes.
+`queue` has `enabled`, `url`, `size`, `nextEntryEstimatedSecondsToMerge`,
+`settings`, `entry`, and `observedAt`. `enabled` is false when the target
+branch has no merge queue; `url`, `size`, and the estimate are then null.
+`size` counts every PR in the queue. `nextEntryEstimatedSecondsToMerge` is how
+long GitHub expects a newly added PR to wait. `settings` is null unless the
+desktop's GitHub account has admin access; otherwise it has `mergeMethod`,
+`mergingStrategy` (`all-green` or `head-green`), `maximumEntriesToBuild`,
+`maximumEntriesToMerge`, `minimumEntriesToMerge`,
+`minimumEntriesToMergeWaitMinutes`, and `checkResponseTimeoutMinutes`.
+
+`queue.entry` is null when the PR is not queued. A queued PR has `position`
+(1 merges next), `state` (`queued`, `awaiting-checks`, `mergeable`,
+`unmergeable`, or `locked`), `enqueuedAt`, nullable `enqueuer` login, nullable
+`estimatedSecondsToMerge`, `jump` (moved to the front), `solo` (tested without
+other queued PRs), and the queued `headOid` and `baseOid`. A PR removed from
+the queue without merging shows `entry: null`; the removal reason is not
+available. Queue state changes quickly, so show `queue.observedAt` beside it.
+
+The lightweight initial load omits review, stack, and queue fields until enrichment completes.
 A focused PR refresh re-observes every open member of its native stack. Other
 rows can retain older observations; use `stack.observedAt` for that stack record.
 
-Older saved records can omit `review` and `stack`. Treat missing fields as
+Older saved records can omit `review`, `stack`, and `queue`. Treat missing fields as
 unknown; `stack === null` is the known standalone case. For example:
 
 ```js

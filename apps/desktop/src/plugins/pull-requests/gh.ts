@@ -42,6 +42,37 @@ const CheckRollup = Schema.NullOr(
     commit: Schema.Struct({ oid: Schema.String }),
   }),
 );
+const MergeQueue = Schema.NullOr(
+  Schema.Struct({
+    url: Schema.String,
+    nextEntryEstimatedTimeToMerge: Schema.NullOr(Schema.Int),
+    entries: Schema.Struct({ totalCount: Schema.Int }),
+    configuration: Schema.NullOr(
+      Schema.Struct({
+        mergeMethod: Schema.NullOr(Schema.Literals(["MERGE", "SQUASH", "REBASE"])),
+        mergingStrategy: Schema.NullOr(Schema.Literals(["ALLGREEN", "HEADGREEN"])),
+        maximumEntriesToBuild: Schema.NullOr(Schema.Int),
+        maximumEntriesToMerge: Schema.NullOr(Schema.Int),
+        minimumEntriesToMerge: Schema.NullOr(Schema.Int),
+        minimumEntriesToMergeWaitTime: Schema.NullOr(Schema.Int),
+        checkResponseTimeout: Schema.NullOr(Schema.Int),
+      }),
+    ),
+  }),
+);
+const MergeQueueEntry = Schema.NullOr(
+  Schema.Struct({
+    position: Schema.Int,
+    state: Schema.Literals(["QUEUED", "AWAITING_CHECKS", "MERGEABLE", "UNMERGEABLE", "LOCKED"]),
+    enqueuedAt: Schema.String,
+    enqueuer: Author,
+    estimatedTimeToMerge: Schema.NullOr(Schema.Int),
+    jump: Schema.Boolean,
+    solo: Schema.Boolean,
+    headCommit: Schema.NullOr(Schema.Struct({ oid: Schema.String })),
+    baseCommit: Schema.NullOr(Schema.Struct({ oid: Schema.String })),
+  }),
+);
 const ReviewDecision = Schema.NullOr(
   Schema.Literals(["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"]),
 );
@@ -89,6 +120,9 @@ const GitHubPullRequest = Schema.Struct({
   changedFiles: Schema.Int,
   url: Schema.String,
   mergeable: Schema.optional(Schema.String),
+  isMergeQueueEnabled: Schema.optional(Schema.Boolean),
+  mergeQueue: Schema.optional(MergeQueue),
+  mergeQueueEntry: Schema.optional(MergeQueueEntry),
   updatedAt: Schema.String,
   createdAt: Schema.String,
   commits: Schema.optional(
@@ -163,13 +197,18 @@ const ThreadsPage = Schema.Struct({
   }),
 });
 
+const MERGE_QUEUE_FIELDS = `isMergeQueueEnabled
+        mergeQueue { url nextEntryEstimatedTimeToMerge entries(first: 0) { totalCount }
+          configuration { mergeMethod mergingStrategy maximumEntriesToBuild maximumEntriesToMerge minimumEntriesToMerge minimumEntriesToMergeWaitTime checkResponseTimeout } }
+        mergeQueueEntry { position state enqueuedAt enqueuer { login } estimatedTimeToMerge jump solo headCommit { oid } baseCommit { oid } }`;
 const PULL_REQUEST_FIELDS = `${REVIEW_STACK_FIELDS}
  id state repository { id } number title author { login } headRefOid headRefName baseRefOid isDraft
         additions deletions changedFiles url mergeable updatedAt createdAt
         reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }
         labels(first: 100) { nodes { name } pageInfo { hasNextPage endCursor } }
         reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } ... on Team { slug organization { login } } } } pageInfo { hasNextPage endCursor } }
-        commits(last: 1) { nodes { commit { oid statusCheckRollup { state commit { oid } } } } }`;
+        commits(last: 1) { nodes { commit { oid statusCheckRollup { state commit { oid } } } } }
+        ${MERGE_QUEUE_FIELDS}`;
 const INVENTORY_QUERY = `query ScopeOpenPullRequests($owner: String!, $name: String!, $cursor: String) {
   viewer { login }
   rateLimit { cost limit remaining resetAt }
@@ -188,7 +227,7 @@ const INITIAL_QUERY = `query ScopeInitialOpenPullRequests($owner: String!, $name
   repository(owner: $owner, name: $name) {
     id owner { login } name nameWithOwner
     pullRequests(states: OPEN, first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
-      nodes { ${PULL_REQUEST_FIELDS.replace(REVIEW_STACK_FIELDS, "").replace("reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }", "").replace("labels(first: 100)", "labels(first: 25)").replace("reviewRequests(first: 100)", "reviewRequests(first: 25)").replace("commits(last: 1) { nodes { commit { oid statusCheckRollup { state commit { oid } } } } }", "").replace("url mergeable updatedAt", "url updatedAt")} }
+      nodes { ${PULL_REQUEST_FIELDS.replace(REVIEW_STACK_FIELDS, "").replace("reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }", "").replace("labels(first: 100)", "labels(first: 25)").replace("reviewRequests(first: 100)", "reviewRequests(first: 25)").replace("commits(last: 1) { nodes { commit { oid statusCheckRollup { state commit { oid } } } } }", "").replace("url mergeable updatedAt", "url updatedAt").replace(MERGE_QUEUE_FIELDS, "")} }
       pageInfo { hasNextPage endCursor }
     }
   }
@@ -254,6 +293,62 @@ const Reviews = Schema.Array(
     commit_id: Schema.NullOr(Schema.String),
   }),
 );
+
+const nonnegative = (value: number | null) => (value === null || value < 0 ? null : value);
+const MERGE_METHODS = { MERGE: "merge", SQUASH: "squash", REBASE: "rebase" } as const;
+const MERGING_STRATEGIES = { ALLGREEN: "all-green", HEADGREEN: "head-green" } as const;
+const QUEUE_STATES = {
+  QUEUED: "queued",
+  AWAITING_CHECKS: "awaiting-checks",
+  MERGEABLE: "mergeable",
+  UNMERGEABLE: "unmergeable",
+  LOCKED: "locked",
+} as const;
+
+function mergeQueueSettings(
+  settings: NonNullable<NonNullable<typeof MergeQueue.Type>["configuration"]>,
+) {
+  return {
+    mergeMethod: settings.mergeMethod ? MERGE_METHODS[settings.mergeMethod] : null,
+    mergingStrategy: settings.mergingStrategy ? MERGING_STRATEGIES[settings.mergingStrategy] : null,
+    maximumEntriesToBuild: nonnegative(settings.maximumEntriesToBuild),
+    maximumEntriesToMerge: nonnegative(settings.maximumEntriesToMerge),
+    minimumEntriesToMerge: nonnegative(settings.minimumEntriesToMerge),
+    minimumEntriesToMergeWaitMinutes: nonnegative(settings.minimumEntriesToMergeWaitTime),
+    checkResponseTimeoutMinutes: nonnegative(settings.checkResponseTimeout),
+  };
+}
+
+function mergeQueueEntry(entry: NonNullable<typeof MergeQueueEntry.Type>) {
+  return {
+    position: entry.position,
+    state: QUEUE_STATES[entry.state],
+    enqueuedAt: entry.enqueuedAt,
+    enqueuer: entry.enqueuer?.login ?? null,
+    estimatedSecondsToMerge: nonnegative(entry.estimatedTimeToMerge),
+    jump: entry.jump,
+    solo: entry.solo,
+    headOid: entry.headCommit?.oid ?? null,
+    baseOid: entry.baseCommit?.oid ?? null,
+  };
+}
+
+function mergeQueue(node: typeof GitHubPullRequest.Type, observedAt: string) {
+  const queue = node.mergeQueue ?? null,
+    entry = node.mergeQueueEntry ?? null;
+  return {
+    enabled: node.isMergeQueueEnabled === true,
+    url: queue?.url ?? null,
+    size: queue ? nonnegative(queue.entries.totalCount) : null,
+    nextEntryEstimatedSecondsToMerge: queue
+      ? nonnegative(queue.nextEntryEstimatedTimeToMerge)
+      : null,
+    // GitHub returns no configuration to readers without admin access to the repository.
+    settings: queue?.configuration ? mergeQueueSettings(queue.configuration) : null,
+    entry: entry ? mergeQueueEntry(entry) : null,
+    observedAt,
+  };
+}
 
 function reviewerIdentity(reviewer: typeof Reviewer.Type): string[] {
   if (!reviewer) return [];
@@ -646,6 +741,7 @@ export class GitHubPullRequests {
       headRefName: node.headRefName,
       baseOid: node.baseRefOid,
       ...(review ? { review } : {}),
+      ...(node.isMergeQueueEnabled === undefined ? {} : { queue: mergeQueue(node, observedAt) }),
       draft: node.isDraft,
       additions: node.additions,
       deletions: node.deletions,
@@ -1024,6 +1120,9 @@ export class GitHubPullRequests {
                   reviewThreads: undefined,
                   commits: undefined,
                   mergeable: undefined,
+                  isMergeQueueEnabled: undefined,
+                  mergeQueue: undefined,
+                  mergeQueueEntry: undefined,
                   stack: undefined,
                   stackEntry: undefined,
                   reviewDecision: undefined,
