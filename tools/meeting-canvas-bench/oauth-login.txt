@@ -1,0 +1,32 @@
+# Architecture discussion: adding OAuth login to the web app. Blank lines are pauses.
+Okay, can everyone hear me? I think Priya is still getting coffee.
+Yeah, we can hear you. Let's start, she'll join in a minute.
+
+So today is about the login. Right now we have email and password only, and support keeps asking for Google sign-in.
+The plan is to use OAuth with the authorization code flow and PKCE, since the front end is a single page app.
+Right, so the browser never sees a client secret. The secret stays on our API.
+Who is the identity provider for the first version? Just Google, or Microsoft too?
+Google first. Microsoft can come in the next sprint, the flow is the same.
+
+Let me walk through it. The user clicks sign in with Google in the browser.
+The browser goes to our API at slash auth slash start, and the API creates the state and the PKCE verifier.
+Then the API redirects the browser to Google's authorize endpoint with the code challenge.
+The user logs in at Google, and Google redirects back to our callback with a code and the state.
+The API checks the state, then exchanges the code plus the verifier for tokens at Google's token endpoint.
+Then we look up or create the user in Postgres and set our own session cookie. We don't keep Google's access token.
+Can you draw that as a sequence diagram? Browser, API, Google, and the database.
+
+Good. One question, where do we keep the state and verifier between the redirect and the callback?
+In Redis with a five minute expiry. We already run Redis for rate limiting.
+Okay. And the session cookie is http only, secure, same site lax.
+Do we need lax rather than strict? Strict breaks the redirect back from Google.
+Right, lax it is. Let's write that down as a decision.
+
+Sorry, my dog is barking, give me a second.
+No worries.
+
+Risk wise, account linking worries me. If someone already has a password account with the same email.
+We only link if Google says the email is verified. Otherwise we ask them to sign in with the password first.
+Open question, do we let people remove their password once Google is linked? Let's park that one.
+Last thing, the callback URL has to be registered for staging and production separately.
+Okay, I think that's it. Thanks everyone.

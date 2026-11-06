@@ -1,0 +1,32 @@
+# Project timeline review with metrics. Blank lines are pauses.
+Hello hello. Is my screen sharing? No? Okay, never mind, I'll just talk.
+That's fine, go ahead.
+
+This is the monthly review for the mobile app relaunch.
+Quick timeline recap. We kicked off in January, design was done end of February.
+The beta went out April fifteenth to about two thousand users.
+We are now in the public launch phase, the target date is June tenth.
+After launch we have a hardening phase through July, and then the tablet layout in August.
+
+Numbers from the beta. Crash free sessions are ninety nine point two percent, up from ninety seven last month.
+Daily active users in the beta are about eleven hundred, so roughly fifty five percent of invited users.
+App start time is one point eight seconds on a mid range Android phone, the goal was two seconds.
+The store rating in the beta is four point four.
+Support tickets went down from ninety a week to forty a week.
+
+Can you show the key numbers as metrics, with the change next to each one?
+And maybe a timeline from kickoff to the tablet layout.
+
+Hmm, sorry, someone is at the door. Back in a moment.
+Okay, I'm back.
+
+Where are we on the launch checklist? The store listing is done, screenshots are done.
+Push notifications are still in review with Apple, that's the one blocker.
+If Apple takes longer than a week the launch date moves.
+That's a risk, let's write it down. Owner is Lena, she's talking to Apple.
+Marketing wants the launch email to go out the same morning.
+Okay, let's agree we only send the email once the app is live in both stores.
+That's a decision. Good.
+
+Last thing, the budget. We're at sixty two percent of the budget with about sixty percent of the time gone.
+So we're on track. Any questions? No? Then let's end early for once.

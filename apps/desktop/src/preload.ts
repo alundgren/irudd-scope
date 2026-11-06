@@ -249,6 +249,11 @@ const bridge: ScopeBridge = {
   saveSketchpadDraft: (id, draft) =>
     ipcRenderer.invoke("scope:save-sketchpad-draft", { id, draft }),
   deleteSketchpadDraft: (id) => ipcRenderer.invoke("scope:delete-sketchpad-draft", id),
+  startMeetingListening: () => ipcRenderer.invoke("scope:meeting-listen-start"),
+  transcribeMeetingAudio: (request) => ipcRenderer.invoke("scope:meeting-transcribe", request),
+  editMeetingPage: (request) => ipcRenderer.invoke("scope:meeting-edit", request),
+  keepMeetingPage: (request) => ipcRenderer.invoke("scope:meeting-export", request),
+  meetingCodexStatus: (override) => ipcRenderer.invoke("scope:meeting-codex-status", override),
   onBeforeClose: (listener) => {
     const flush = () => {
       void listener().then(
