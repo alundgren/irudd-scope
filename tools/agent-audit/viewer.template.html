@@ -1,0 +1,880 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Agent sessions</title>
+    <style>
+      :root {
+        --bg: #f4f2ee;
+        --card: #ffffff;
+        --ink: #16181d;
+        --ink2: #4a505c;
+        --ink3: #7a8090;
+        --line: #e2ded6;
+        --accent: #1f5fbf;
+        --fail: #c0392b;
+        --failbg: #fdecea;
+        --t-uncached: #e0a030;
+        --t-read: #9db4d8;
+        --t-w5: #7cc4a4;
+        --t-w1: #2f8f6a;
+        --t-out: #c2410c;
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-size: 14px;
+      }
+      nav {
+        display: flex;
+        gap: 4px;
+        border-bottom: 1px solid var(--line);
+        padding: 8px 32px 0;
+        align-items: flex-end;
+      }
+      nav .scope {
+        margin-left: auto;
+        position: relative;
+        padding-bottom: 6px;
+      }
+      nav .scope > button {
+        border: 1px solid var(--line);
+        background: var(--card);
+        border-radius: 6px;
+        font: inherit;
+        font-size: 13px;
+        color: var(--ink2);
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      .pop {
+        position: absolute;
+        right: 0;
+        top: 100%;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+        display: grid;
+        gap: 10px;
+        min-width: 220px;
+        z-index: 5;
+      }
+      .pop label {
+        display: grid;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--ink3);
+      }
+      .pop select {
+        font: inherit;
+        font-size: 14px;
+        padding: 4px 6px;
+      }
+      nav button {
+        border: 0;
+        background: none;
+        font: inherit;
+        font-size: 15px;
+        padding: 10px 14px;
+        color: var(--ink2);
+        cursor: pointer;
+        border-bottom: 3px solid transparent;
+      }
+      nav button.on {
+        color: var(--ink);
+        font-weight: 650;
+        border-bottom-color: var(--accent);
+      }
+      main {
+        padding: 24px 32px 64px;
+        max-width: 1400px;
+      }
+      .stats {
+        display: flex;
+        gap: 40px;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+      }
+      .stat .n {
+        font-size: 32px;
+        font-weight: 700;
+        line-height: 1.1;
+      }
+      .stat .n.fail {
+        color: var(--fail);
+      }
+      .stat .l {
+        color: var(--ink2);
+        font-size: 13px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th {
+        text-align: left;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--ink3);
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        white-space: nowrap;
+        cursor: pointer;
+        user-select: none;
+      }
+      th.num,
+      td.num {
+        text-align: right;
+      }
+      th.sorted {
+        color: var(--ink);
+      }
+      td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      tr.row {
+        cursor: pointer;
+      }
+      tr.row:hover td {
+        background: #f8f7f4;
+      }
+      .title {
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .sub {
+        color: var(--ink3);
+        font-size: 12px;
+        margin-top: 2px;
+      }
+      .child .title {
+        font-weight: 500;
+        font-size: 14px;
+      }
+      .name {
+        display: flex;
+        gap: 6px;
+        align-items: flex-start;
+      }
+      tr.row:hover td {
+        background: #f3f6fc;
+      }
+      tr.row:hover .title {
+        color: var(--accent);
+      }
+      td.tw {
+        width: 44px;
+        padding: 0;
+        text-align: center;
+        vertical-align: middle;
+        font-size: 16px;
+        color: var(--ink2);
+        border-right: 1px solid var(--line);
+      }
+      td.tw.can {
+        cursor: pointer;
+      }
+      tr.row:hover td.tw {
+        background: inherit;
+      }
+      tr.row td.tw.can:hover {
+        background: #e3e9f6;
+        color: var(--accent);
+      }
+      .crumbs {
+        font-size: 14px;
+        color: var(--ink3);
+        margin-bottom: 14px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+      .crumbs a {
+        color: var(--accent);
+        cursor: pointer;
+        text-decoration: none;
+      }
+      .crumbs a:hover {
+        text-decoration: underline;
+      }
+      .crumbs .here {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 40px;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+      }
+      .top .right {
+        min-width: 460px;
+      }
+      .top .stats {
+        margin-bottom: 12px;
+        gap: 32px;
+      }
+      .top .stat .n {
+        font-size: 26px;
+      }
+      .chip {
+        display: inline-block;
+        font-size: 12px;
+        padding: 1px 7px;
+        border-radius: 10px;
+        background: #eceae4;
+        color: var(--ink2);
+        margin: 0 4px 2px 0;
+        white-space: nowrap;
+      }
+      .failed {
+        color: var(--fail);
+        font-weight: 600;
+      }
+      .muted {
+        color: var(--ink3);
+      }
+      .mono {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 12.5px;
+      }
+      .tokbar {
+        display: flex;
+        height: 10px;
+        border-radius: 3px;
+        overflow: hidden;
+        background: #eceae4;
+        min-width: 120px;
+      }
+      .tokbar span {
+        display: block;
+        height: 100%;
+      }
+      .legend {
+        display: flex;
+        gap: 16px;
+        font-size: 12px;
+        color: var(--ink2);
+        margin: 8px 0 0;
+        flex-wrap: wrap;
+      }
+      .legend i {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        margin-right: 5px;
+        vertical-align: -1px;
+      }
+      .back {
+        border: 0;
+        background: none;
+        color: var(--accent);
+        font: inherit;
+        cursor: pointer;
+        padding: 0;
+        margin-bottom: 12px;
+      }
+      .detail h2 {
+        font-size: 24px;
+        margin: 0 0 4px;
+      }
+      .run {
+        margin-top: 28px;
+      }
+      .run h3 {
+        font-size: 16px;
+        margin: 0 0 8px;
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+        flex-wrap: wrap;
+      }
+      .run h3 .meta {
+        font-weight: 400;
+        color: var(--ink2);
+        font-size: 13px;
+      }
+      .bar {
+        height: 8px;
+        background: var(--accent);
+        border-radius: 2px;
+        opacity: 0.55;
+      }
+      .bar.size {
+        background: #6b7280;
+      }
+      .bar.fail {
+        background: var(--fail);
+        opacity: 0.8;
+      }
+      tr.open td {
+        background: #f8f7f4;
+      }
+      pre.out {
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 360px;
+        overflow: auto;
+        background: #1d2128;
+        color: #e6e6e6;
+        padding: 12px;
+        border-radius: 6px;
+        margin: 6px 0;
+        font-size: 12px;
+      }
+      .gap {
+        color: var(--ink3);
+        font-style: italic;
+        font-size: 12px;
+      }
+      .filters {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+      }
+      .filters input[type="search"] {
+        font: inherit;
+        padding: 6px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        width: 280px;
+        background: white;
+      }
+      .filters label {
+        color: var(--ink2);
+      }
+      .note {
+        color: var(--ink2);
+        font-size: 13px;
+        margin: 10px 0 0;
+      }
+    </style>
+  </head>
+  <body>
+    <nav id="nav"></nav>
+    <main id="main"></main>
+    <script>
+      const DATA = __DATA__;
+      const KINDS = [
+        ["uncached", "Input (not cached)", "--t-uncached"],
+        ["cacheRead", "Cache read", "--t-read"],
+        ["cacheWrite5m", "Cache write 5 min", "--t-w5"],
+        ["cacheWrite1h", "Cache write 1 h", "--t-w1"],
+        ["output", "Output", "--t-out"],
+      ];
+      const $ = (h) => {
+        const d = document.createElement("template");
+        d.innerHTML = h.trim();
+        return d.content.firstElementChild;
+      };
+      const esc = (s) =>
+        String(s ?? "").replace(
+          /[&<>"]/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+        );
+      const n0 = (n) => (n == null ? "–" : Math.round(n).toLocaleString("en-US"));
+      const big = (n) =>
+        n == null
+          ? "–"
+          : n >= 1e6
+            ? (n / 1e6).toFixed(1) + "M"
+            : n >= 1e3
+              ? (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + "k"
+              : String(Math.round(n));
+      const usd = (n) =>
+        n == null ? "–" : "$" + (n >= 100 ? Math.round(n).toLocaleString("en-US") : n.toFixed(2));
+      const dur = (ms) => {
+        if (ms == null) return "–";
+        const s = ms / 1000;
+        if (s < 1) return ms + " ms";
+        if (s < 60) return s.toFixed(1) + " s";
+        if (s < 3600) return Math.floor(s / 60) + "m " + Math.round(s % 60) + "s";
+        return Math.floor(s / 3600) + "h " + Math.round((s % 3600) / 60) + "m";
+      };
+      const when = (iso) =>
+        iso
+          ? new Date(iso).toLocaleString("en-GB", {
+              weekday: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "–";
+      const shortModel = (m) => (m || "?").replace(/^claude-/, "").replace(/^gpt-/, "gpt ");
+
+      // ---- normalise ------------------------------------------------------------
+      const threads = new Map(DATA.threads.map((t) => [t.id, t]));
+      const logsByThread = new Map();
+      for (const l of DATA.logs)
+        if (l.threadId) {
+          (logsByThread.get(l.threadId) || logsByThread.set(l.threadId, []).get(l.threadId)).push(
+            l,
+          );
+        }
+      const emptyTok = () => ({
+        uncached: 0,
+        cacheRead: 0,
+        cacheWrite5m: 0,
+        cacheWrite1h: 0,
+        output: 0,
+        reasoning: 0,
+      });
+      const addTok = (a, b) => {
+        for (const k in a) a[k] += (b && b[k]) || 0;
+      };
+
+      for (const t of threads.values()) {
+        t.calls = [...t.items];
+        t.models = new Set();
+        t.tok = emptyTok();
+        t.cost = 0;
+        t.costKnown = true;
+        t.byModel = new Map();
+        for (const r of t.runs) {
+          if (r.model) t.models.add(r.model);
+          t.calls.push(...r.items);
+          for (const u of r.turns) {
+            t.calls.push(...u.items.map((i) => ({ ...i, run: r.ordinal })));
+            if (u.tokens) {
+              addTok(t.tok, u.tokens);
+              const m =
+                t.byModel.get(r.model) ||
+                t.byModel.set(r.model, { tok: emptyTok(), cost: 0 }).get(r.model);
+              addTok(m.tok, u.tokens);
+              m.cost += u.cost || 0;
+            }
+            if (u.cost != null) t.cost += u.cost;
+            else if (u.tokens) t.costKnown = false;
+          }
+        }
+        // Claude-native subagents have no T3 tokens; their own log has them.
+        for (const l of logsByThread.get(t.id) || []) {
+          if (l.kind === "subagent" && l.harness === "claude") {
+            for (const [m, v] of Object.entries(l.models)) {
+              t.models.add(m);
+              addTok(t.tok, v.tokens);
+              t.cost += v.cost || 0;
+              const e = t.byModel.get(m) || t.byModel.set(m, { tok: emptyTok(), cost: 0 }).get(m);
+              addTok(e.tok, v.tokens);
+              e.cost += v.cost || 0;
+            }
+          }
+          if (l.toolCalls.length)
+            t.calls.push(...l.toolCalls.map((c) => ({ ...c, fromLog: true })));
+        }
+        t.failed = t.calls.filter((c) => c.status === "failed").length;
+        const times = [t.createdAt, ...t.runs.flatMap((r) => [r.requestedAt, r.completedAt])]
+          .filter(Boolean)
+          .sort();
+        t.start = t.runs.length ? t.runs.map((r) => r.requestedAt).sort()[0] : t.createdAt;
+        t.children = [];
+      }
+      for (const t of threads.values())
+        if (t.parentId && threads.has(t.parentId)) threads.get(t.parentId).children.push(t);
+      const roots = [...threads.values()].filter(
+        (t) =>
+          !(t.parentId && threads.has(t.parentId)) &&
+          (t.runs.length || t.calls.length || t.children.length),
+      );
+      const total = (t) => {
+        const a = {
+          cost: t.cost,
+          calls: t.calls.length,
+          failed: t.failed,
+          tok: { ...t.tok },
+          models: new Set(t.models),
+        };
+        for (const c of t.children) {
+          const s = total(c);
+          a.cost += s.cost;
+          a.calls += s.calls;
+          a.failed += s.failed;
+          addTok(a.tok, s.tok);
+          s.models.forEach((m) => a.models.add(m));
+        }
+        return a;
+      };
+      for (const t of roots) t.all = total(t);
+      const allCalls = [...threads.values()].flatMap((t) =>
+        t.calls.map((c) => ({ ...c, thread: t })),
+      );
+
+      function tokbar(tok, width) {
+        const sum = KINDS.reduce((s, [k]) => s + (tok[k] || 0), 0) || 1;
+        return `<div class="tokbar" style="${width ? "width:" + width : ""}">${KINDS.map(([k, , v]) => `<span style="width:${(100 * (tok[k] || 0)) / sum}%;background:var(${v})" title="${k}: ${n0(tok[k])}"></span>`).join("")}</div>`;
+      }
+      const legend = () =>
+        `<div class="legend">${KINDS.map(([, l, v]) => `<span><i style="background:var(${v})"></i>${l}</span>`).join("")}</div>`;
+
+      // ---- views ----------------------------------------------------------------
+      const VIEWS = { threads: "Threads", calls: "Tool calls" };
+      // A one-thread export has no time span: 0 means everything in the file.
+      const DAY_CHOICES = DATA.windowDays ? [1, 3, 7].filter((d) => d <= DATA.windowDays) : [0];
+      let view = "threads",
+        sort = { threads: ["start", -1], calls: ["durMs", -1] },
+        openThread = null;
+      let days = DATA.windowDays ? Math.min(3, DATA.windowDays) : 0,
+        scopeOpen = false;
+      const spanLabel = (d) =>
+        d === 0 ? "one-thread export" : d === 1 ? "last day" : "last " + d + " days";
+      const expanded = new Set();
+      const cutoff = () => (days === 0 ? "" : new Date(Date.now() - days * 864e5).toISOString());
+      // A thread counts as recent when it or any child had activity inside the chosen days.
+      const lastActive = (t) =>
+        [
+          t.start,
+          ...t.runs.flatMap((r) => [r.requestedAt, r.completedAt]),
+          ...t.calls.map((c) => c.start),
+          ...t.children.map(lastActive),
+        ]
+          .filter(Boolean)
+          .sort()
+          .pop() || "";
+
+      function render() {
+        const nav = document.getElementById("nav");
+        nav.innerHTML = "";
+        nav.style.display = openThread ? "none" : "";
+        for (const [k, l] of Object.entries(VIEWS)) {
+          const b = $(`<button class="${k === view ? "on" : ""}">${l}</button>`);
+          b.onclick = () => {
+            view = k;
+            render();
+          };
+          nav.append(b);
+        }
+        const sc = $(
+          `<div class="scope"><button>${esc(DATA.machine)} · ${spanLabel(days)} ▾</button></div>`,
+        );
+        sc.firstElementChild.onclick = () => {
+          scopeOpen = !scopeOpen;
+          render();
+        };
+        if (scopeOpen) {
+          const pop =
+            $(`<div class="pop"><label>Machine<select><option>${esc(DATA.machine)} (this computer)</option></select></label>
+      <label>Time span<select>${DAY_CHOICES.map((d) => `<option value="${d}" ${d === days ? "selected" : ""}>${spanLabel(d)}</option>`).join("")}</select></label></div>`);
+          pop.querySelectorAll("select")[1].onchange = (e) => {
+            days = +e.target.value;
+            scopeOpen = false;
+            render();
+          };
+          sc.append(pop);
+        }
+        nav.append(sc);
+        const main = document.getElementById("main");
+        main.innerHTML = "";
+        if (openThread) return renderThread(main, openThread);
+        ({ threads: renderThreads, calls: renderCalls })[view](main);
+      }
+
+      function stats(items) {
+        return $(
+          `<div class="stats">${items.map(([n, l, cls]) => `<div class="stat"><div class="n ${cls || ""}">${n}</div><div class="l">${l}</div></div>`).join("")}</div>`,
+        );
+      }
+
+      function sortRows(rows, key, dir) {
+        return rows.sort((a, b) => {
+          const x = key(a),
+            y = key(b);
+          return (x > y ? 1 : x < y ? -1 : 0) * dir;
+        });
+      }
+      function header(cols, which) {
+        const [cur, dir] = sort[which];
+        const tr = $("<tr></tr>");
+        for (const c of cols) {
+          const th = $(
+            `<th class="${c.num ? "num" : ""} ${c.k === cur ? "sorted" : ""}">${c.l}${c.k === cur ? (dir < 0 ? " ↓" : " ↑") : ""}</th>`,
+          );
+          if (c.k)
+            th.onclick = () => {
+              sort[which] = [c.k, c.k === cur ? -dir : -1];
+              render();
+            };
+          tr.append(th);
+        }
+        return tr;
+      }
+
+      function renderThreads(main) {
+        const cols = [
+          { l: "" },
+          { l: "Thread", k: "title" },
+          { l: "Models" },
+          { l: "Started", k: "start" },
+          { l: "Tokens" },
+          { l: "Cost", k: "cost", num: 1 },
+          { l: "Tool calls", k: "calls", num: 1 },
+          { l: "Failed", k: "failed", num: 1 },
+        ];
+        const keys = {
+          title: (t) => t.title.toLowerCase(),
+          start: (t) => t.start || "",
+          cost: (t) => t.all.cost,
+          calls: (t) => t.all.calls,
+          failed: (t) => t.all.failed,
+        };
+        const tbl = $('<div class="card"><table><thead></thead><tbody></tbody></table></div>');
+        tbl.querySelector("thead").append(header(cols, "threads"));
+        const body = tbl.querySelector("tbody");
+        const [k, d] = sort.threads;
+        const since = cutoff();
+        for (const t of sortRows(
+          roots.filter((t) => lastActive(t) >= since),
+          keys[k],
+          d,
+        ))
+          appendTree(body, t, 0);
+        main.append(tbl);
+        main.append($(`<div>${legend()}</div>`));
+      }
+      // Child threads stay folded until their parent is expanded.
+      function appendTree(body, t, depth) {
+        body.append(threadRow(t, total(t), depth));
+        if (expanded.has(t.id))
+          for (const c of [...t.children].sort((a, b) =>
+            (a.start || "") > (b.start || "") ? 1 : -1,
+          ))
+            appendTree(body, c, depth + 1);
+      }
+      function threadRow(t, a, depth) {
+        const child = depth > 0;
+        const open = expanded.has(t.id);
+        const twist = t.children.length
+          ? `<td class="tw can" title="${open ? "Collapse" : "Expand"} ${t.children.length} child threads">${open ? "▾" : "▸"}</td>`
+          : '<td class="tw"></td>';
+        const tr = $(`<tr class="row ${child ? "child" : ""}">${twist}
+    <td><div style="padding-left:${depth * 24}px"><div class="title">${esc(t.title)}</div><div class="sub">${child ? (t.origin === "provider_native" ? "harness subagent" : "delegated thread") : esc(t.project)}${t.children.length ? ` · ${t.children.length} child threads` : ""}</div></div></td>
+    <td>${[...a.models].map((m) => `<span class="chip">${esc(shortModel(m))}</span>`).join("") || '<span class="muted">–</span>'}</td>
+    <td class="muted">${when(t.start)}</td>
+    <td>${tokbar(a.tok)}</td>
+    <td class="num">${usd(a.cost)}</td>
+    <td class="num">${n0(a.calls)}</td>
+    <td class="num ${a.failed ? "failed" : "muted"}">${a.failed}</td></tr>`);
+        // The left strip expands; the rest of the row opens.
+        tr.onclick = (e) => {
+          if (e.target.closest("td.tw")) {
+            if (t.children.length) {
+              open ? expanded.delete(t.id) : expanded.add(t.id);
+              render();
+            }
+            return;
+          }
+          openThread = t;
+          render();
+          window.scrollTo(0, 0);
+        };
+        return tr;
+      }
+
+      function callRows(calls, showThread) {
+        const maxD = Math.max(1, ...calls.map((c) => c.durMs || 0)),
+          maxS = Math.max(1, ...calls.map((c) => c.outChars || 0));
+        const frag = document.createDocumentFragment();
+        for (const c of calls) {
+          const tr = $(`<tr class="row">
+      <td><div class="mono">${esc(c.name)}</div>${showThread ? `<div class="sub">${esc(c.thread.title)}</div>` : ""}</td>
+      <td class="mono" style="max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.input.replace(/^\/bin\/bash -lc /, "").replace(/^["']/, ""))}</td>
+      <td class="${c.status === "failed" ? "failed" : "muted"}">${c.status}${c.exit != null && c.exit !== 0 ? " · exit " + c.exit : ""}</td>
+      <td class="num" style="width:150px"><div>${dur(c.durMs)}</div><div class="bar ${c.status === "failed" ? "fail" : ""}" style="width:${(100 * (c.durMs || 0)) / maxD}%"></div></td>
+      <td class="num" style="width:150px"><div>${big(c.outChars)} chars</div><div class="bar size" style="width:${(100 * (c.outChars || 0)) / maxS}%"></div></td></tr>`);
+          tr.onclick = () => {
+            if (tr.nextSibling && tr.nextSibling.classList.contains("expand")) {
+              tr.nextSibling.remove();
+              tr.classList.remove("open");
+              return;
+            }
+            tr.classList.add("open");
+            const ex =
+              $(`<tr class="expand"><td colspan="5"><div class="sub">Input</div><pre class="out">${esc(c.input)}</pre>
+        <div class="sub">Output · ${n0(c.outChars)} characters${c.outTail ? " · first and last 2 KB" : ""}${c.fromLog ? " · from harness log" : ""}</div>
+        <pre class="out">${esc(c.outHead) || "(empty)"}</pre>${c.outTail ? `<div class="gap">… ${n0(c.outChars - 4096)} characters not kept …</div><pre class="out">${esc(c.outTail)}</pre>` : ""}</td></tr>`);
+            tr.after(ex);
+          };
+          frag.append(tr);
+        }
+        return frag;
+      }
+      const callHead = (showThread) =>
+        `<tr><th>Tool${showThread ? " · thread" : ""}</th><th>Input</th><th>Result</th><th class="num">Duration</th><th class="num">Output size</th></tr>`;
+
+      function renderThread(main, t) {
+        const path = [];
+        for (let p = t; p; p = p.parentId && threads.get(p.parentId)) path.unshift(p);
+        const crumbs = $(
+          `<div class="crumbs"><a>Threads</a>${path.map((p, i) => (i < path.length - 1 ? ` › <a>${esc(p.title)}</a>` : ` › <span class="here">${esc(p.title)}</span>`)).join("")}</div>`,
+        );
+        crumbs.querySelectorAll("a").forEach(
+          (a, i) =>
+            (a.onclick = () => {
+              openThread = i === 0 ? null : path[i - 1];
+              render();
+              window.scrollTo(0, 0);
+            }),
+        );
+        main.append(crumbs);
+        const parent = t.parentId && threads.get(t.parentId);
+        const a = total(t);
+        const top = $(
+          `<div class="top"><div class="detail"><h2>${esc(t.title)}</h2><div class="sub" style="font-size:13px">${esc(t.project)} · ${when(t.start)}${parent ? ` · child of “${esc(parent.title)}”` : ""}${t.branch ? " · " + esc(t.branch) : ""}</div></div><div class="right"></div></div>`,
+        );
+        top.querySelector(".right").append(
+          stats([
+            [usd(a.cost), t.children.length ? "cost with child threads" : "cost"],
+            [n0(t.runs.length), "messages from you"],
+            [n0(t.calls.length), "tool calls here"],
+            [t.failed, "failed", t.failed ? "fail" : ""],
+          ]),
+        );
+        top.querySelector(".right").append($(`<div>${tokbar(a.tok, "100%")}${legend()}</div>`));
+        main.append(top);
+        if (t.byModel.size) {
+          const tb = $(
+            `<div class="card" style="margin-top:20px;max-width:900px"><table><thead><tr><th>Model</th><th class="num">Input</th><th class="num">Cache read</th><th class="num">Cache write</th><th class="num">Output</th><th class="num">Cost</th></tr></thead><tbody></tbody></table></div>`,
+          );
+          for (const [m, v] of t.byModel)
+            tb.querySelector("tbody").append(
+              $(
+                `<tr><td><span class="chip">${esc(shortModel(m))}</span></td><td class="num">${big(v.tok.uncached)}</td><td class="num">${big(v.tok.cacheRead)}</td><td class="num">${big(v.tok.cacheWrite5m + v.tok.cacheWrite1h)}</td><td class="num">${big(v.tok.output)}</td><td class="num">${usd(v.cost)}</td></tr>`,
+              ),
+            );
+          main.append(tb);
+        }
+        if (t.children.length) {
+          main.append($('<h3 style="margin:28px 0 8px">Child threads</h3>'));
+          const tbl = $('<div class="card"><table><tbody></tbody></table></div>');
+          for (const c of t.children) appendTree(tbl.querySelector("tbody"), c, 0);
+          main.append(tbl);
+        }
+        for (const r of t.runs.sort((x, y) => x.ordinal - y.ordinal)) {
+          const calls = [...r.items, ...r.turns.flatMap((u) => u.items)];
+          const tok = emptyTok();
+          let cost = 0;
+          let ctx = null;
+          for (const u of r.turns) {
+            addTok(tok, u.tokens);
+            cost += u.cost || 0;
+            if (u.contextUsed) ctx = u;
+          }
+          const sec =
+            $(`<div class="run"><h3>Message ${r.ordinal} <span class="chip">${esc(shortModel(r.model))}${r.effort ? " · " + esc(r.effort) : ""}${r.fast ? " · fast" : ""}</span>
+      <span class="meta">${when(r.requestedAt)} · ${dur(r.completedAt && r.requestedAt ? new Date(r.completedAt) - new Date(r.requestedAt) : null)} · ${usd(cost)} · output ${big(tok.output)} tokens${ctx ? ` · context ${big(ctx.contextUsed)} of ${big(ctx.contextMax)}` : ""}${r.status !== "completed" ? " · " + esc(r.status) : ""}</span></h3></div>`);
+          if (calls.length) {
+            const tbl = $(
+              `<div class="card"><table><thead>${callHead(false)}</thead><tbody></tbody></table></div>`,
+            );
+            tbl.querySelector("tbody").append(callRows(calls, false));
+            sec.append(tbl);
+          } else sec.append($('<div class="muted">No tool calls.</div>'));
+          main.append(sec);
+        }
+        const loose = [...t.items, ...t.calls.filter((c) => c.fromLog)];
+        if (loose.length) {
+          const sec = $(
+            `<div class="run"><h3>Tool calls <span class="meta">${t.origin === "provider_native" ? "run by the harness subagent" : "not tied to one of your messages"}</span></h3></div>`,
+          );
+          const tbl = $(
+            `<div class="card"><table><thead>${callHead(false)}</thead><tbody></tbody></table></div>`,
+          );
+          tbl.querySelector("tbody").append(callRows(loose, false));
+          sec.append(tbl);
+          main.append(sec);
+        }
+        const ev = Object.entries(t.events || {});
+        if (ev.length)
+          main.append(
+            $(
+              `<p class="note">Also in this thread: ${ev.map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`).join(", ")}.</p>`,
+            ),
+          );
+      }
+
+      let callFilter = { q: "", failed: false };
+      function renderCalls(main) {
+        const f = $(
+          `<div class="filters"><input type="search" placeholder="Filter by tool, command or output" value="${esc(callFilter.q)}"><label><input type="checkbox" ${callFilter.failed ? "checked" : ""}> Failed only</label><span class="muted" id="count"></span></div>`,
+        );
+        main.append(f);
+        const tbl = $(`<div class="card"><table><thead></thead><tbody></tbody></table></div>`);
+        main.append(tbl);
+        const cols = [
+          { l: "Tool · thread", k: "name" },
+          { l: "Input" },
+          { l: "Result", k: "status" },
+          { l: "Duration", k: "durMs", num: 1 },
+          { l: "Output size", k: "outChars", num: 1 },
+        ];
+        tbl.querySelector("thead").append(header(cols, "calls"));
+        const draw = () => {
+          const q = callFilter.q.toLowerCase();
+          const since = cutoff();
+          let rows = allCalls.filter(
+            (c) =>
+              (c.start || "") >= since &&
+              (!callFilter.failed || c.status === "failed") &&
+              (!q ||
+                (c.name + " " + c.input + " " + c.outHead + " " + c.outTail)
+                  .toLowerCase()
+                  .includes(q)),
+          );
+          const [k, d] = sort.calls;
+          rows = sortRows(rows, (c) => c[k] ?? -1, d);
+          f.querySelector("#count").textContent =
+            `${n0(rows.length)} shown${rows.length > 300 ? ", first 300 listed" : ""}`;
+          const body = tbl.querySelector("tbody");
+          body.innerHTML = "";
+          body.append(callRows(rows.slice(0, 300), true));
+        };
+        f.querySelector("input[type=search]").oninput = (e) => {
+          callFilter.q = e.target.value;
+          draw();
+        };
+        f.querySelector("input[type=checkbox]").onchange = (e) => {
+          callFilter.failed = e.target.checked;
+          draw();
+        };
+        draw();
+      }
+
+      // #calls, #thread=<title text>, #open or #scope open a view directly.
+      const h = decodeURIComponent(location.hash.slice(1));
+      if (DATA.focusThread && threads.has(DATA.focusThread))
+        openThread = threads.get(DATA.focusThread);
+      if (VIEWS[h]) view = h;
+      if (h.startsWith("thread="))
+        openThread = [...threads.values()].find((t) => t.title.includes(h.slice(7))) || null;
+      if (h === "open") roots.forEach((t) => expanded.add(t.id));
+      if (h === "scope") scopeOpen = true;
+      if (h.startsWith("failed")) {
+        view = "calls";
+        callFilter.failed = true;
+      }
+      render();
+    </script>
+  </body>
+</html>
