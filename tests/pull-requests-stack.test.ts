@@ -235,3 +235,85 @@ test.each(["duplicate reviewer", "moved head", "changed count", "repeated cursor
     await expect(f.read()).rejects.toThrow(/GitHub/);
   },
 );
+
+test(
+  "reports merge queue position, state, and queue details",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const queue = {
+      url: "https://github.com/example/project/queue/main",
+      nextEntryEstimatedTimeToMerge: 900,
+      entries: { totalCount: 3 },
+      configuration: null,
+    };
+    const queued = {
+      ...sourcePr(1),
+      isMergeQueueEnabled: true,
+      mergeQueue: queue,
+      mergeQueueEntry: {
+        position: 2,
+        state: "AWAITING_CHECKS",
+        enqueuedAt: at,
+        enqueuer: { login: "author" },
+        estimatedTimeToMerge: 600,
+        jump: false,
+        solo: true,
+        headCommit: { oid: head },
+        baseCommit: { oid: base },
+      },
+    };
+    const waiting = {
+      ...sourcePr(2),
+      isMergeQueueEnabled: true,
+      mergeQueue: {
+        ...queue,
+        configuration: {
+          mergeMethod: "SQUASH",
+          mergingStrategy: "ALLGREEN",
+          maximumEntriesToBuild: 5,
+          maximumEntriesToMerge: 5,
+          minimumEntriesToMerge: 1,
+          minimumEntriesToMergeWaitTime: 5,
+          checkResponseTimeout: 60,
+        },
+      },
+      mergeQueueEntry: null,
+    };
+    const unqueued = {
+      ...sourcePr(3),
+      isMergeQueueEnabled: false,
+      mergeQueue: null,
+      mergeQueueEntry: null,
+    };
+    const f = await fakeGh([queued, waiting, unqueued] as ReturnType<typeof sourcePr>[]);
+    const [first, second, third] = (await f.read()).prs;
+    expect(first.queue).toMatchObject({
+      enabled: true,
+      url: queue.url,
+      size: 3,
+      nextEntryEstimatedSecondsToMerge: 900,
+      settings: null,
+      entry: {
+        position: 2,
+        state: "awaiting-checks",
+        enqueuedAt: at,
+        enqueuer: "author",
+        estimatedSecondsToMerge: 600,
+        jump: false,
+        solo: true,
+        headOid: head,
+        baseOid: base,
+      },
+    });
+    expect(second.queue).toMatchObject({
+      enabled: true,
+      entry: null,
+      settings: {
+        mergeMethod: "squash",
+        mergingStrategy: "all-green",
+        checkResponseTimeoutMinutes: 60,
+      },
+    });
+    expect(third.queue).toMatchObject({ enabled: false, url: null, size: null, entry: null });
+  },
+);

@@ -477,13 +477,30 @@ member is known to lack one. Closed and merged members do not affect either
 flag. Membership uses GitHub's native stack records, without branch inference.
 Complete membership and review pagination are required before saving a refresh.
 
-The lightweight initial load omits review and stack fields until enrichment completes.
+`queue` reports GitHub's merge queue for the PR's target branch:
+`{ enabled, url, size, nextEntryEstimatedSecondsToMerge, settings, entry, observedAt }`.
+`enabled` is false when the branch has no merge queue; `url`, `size`, and the
+estimate are then null. `size` counts every PR in the queue.
+`nextEntryEstimatedSecondsToMerge` is GitHub's estimate for a newly added PR.
+`settings` is null when GitHub withholds the queue configuration, which it does
+for accounts without admin access. Otherwise it has `mergeMethod` (`merge`,
+`squash`, or `rebase`), `mergingStrategy` (`all-green` or `head-green`),
+`maximumEntriesToBuild`, `maximumEntriesToMerge`, `minimumEntriesToMerge`,
+`minimumEntriesToMergeWaitMinutes`, and `checkResponseTimeoutMinutes`.
+`entry` is null when the PR is not in the queue. Otherwise it has `position`
+(1 merges next), `state` (`queued`, `awaiting-checks`, `mergeable`,
+`unmergeable`, or `locked`), `enqueuedAt`, `enqueuer`, `estimatedSecondsToMerge`,
+`jump` (the PR was moved to the front), `solo` (the PR is tested without
+other queued PRs), and the queued `headOid` and `baseOid`. A PR that leaves the
+queue without merging returns `entry: null`; GitHub's removal reason is not read.
+
+The lightweight initial load omits review, stack, and queue fields until enrichment completes.
 A focused PR refresh re-observes every open member of its native stack. Other
 rows can retain older observations; use `stack.observedAt` for that stack record.
 
-These two fields are optional so existing stored PR facts remain readable
+These three fields are optional so existing stored PR facts remain readable
 without a database migration. Missing fields mean not yet observed, rather
-than no approval or no stack. Existing authored HTML continues to receive the
+than no approval, no stack, or no queue. Existing authored HTML continues to receive the
 same flat array with added fields. Update desktop, CLI, and hub together:
 older strict protocol decoders reject newly enriched replies and saved rows.
 

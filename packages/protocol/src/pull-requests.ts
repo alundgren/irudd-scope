@@ -62,6 +62,42 @@ export const PullRequestStack = Schema.Struct({
   observedAt: Timestamp,
 });
 export type PullRequestStack = typeof PullRequestStack.Type;
+const Count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+export const PullRequestMergeQueueEntry = Schema.Struct({
+  position: Schema.Int.check(Schema.isGreaterThan(0)),
+  state: Schema.Literals(["queued", "awaiting-checks", "mergeable", "unmergeable", "locked"]),
+  enqueuedAt: Timestamp,
+  enqueuer: Schema.NullOr(ShortText),
+  estimatedSecondsToMerge: Schema.NullOr(Count),
+  jump: Schema.Boolean,
+  solo: Schema.Boolean,
+  headOid: Schema.NullOr(PullRequestCommit),
+  baseOid: Schema.NullOr(PullRequestCommit),
+});
+export const PullRequestMergeQueueSettings = Schema.Struct({
+  mergeMethod: Schema.NullOr(Schema.Literals(["merge", "squash", "rebase"])),
+  mergingStrategy: Schema.NullOr(Schema.Literals(["all-green", "head-green"])),
+  maximumEntriesToBuild: Schema.NullOr(Count),
+  maximumEntriesToMerge: Schema.NullOr(Count),
+  minimumEntriesToMerge: Schema.NullOr(Count),
+  minimumEntriesToMergeWaitMinutes: Schema.NullOr(Count),
+  checkResponseTimeoutMinutes: Schema.NullOr(Count),
+});
+export const PullRequestMergeQueue = Schema.Struct({
+  enabled: Schema.Boolean,
+  url: Schema.NullOr(
+    Schema.String.check(
+      Schema.isPattern(/^https:\/\/github\.com\/[^/]+\/[^/]+\/queue\/\S+$/),
+      Schema.isMaxLength(2048),
+    ),
+  ),
+  size: Schema.NullOr(Count),
+  nextEntryEstimatedSecondsToMerge: Schema.NullOr(Count),
+  settings: Schema.NullOr(PullRequestMergeQueueSettings),
+  entry: Schema.NullOr(PullRequestMergeQueueEntry),
+  observedAt: Timestamp,
+});
+export type PullRequestMergeQueue = typeof PullRequestMergeQueue.Type;
 export const PullRequestFacts = Schema.Struct({
   nodeId: PullRequestNodeId,
   number: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER })),
@@ -73,6 +109,7 @@ export const PullRequestFacts = Schema.Struct({
   baseOid: PullRequestCommit,
   review: Schema.optionalKey(PullRequestReviewStatus),
   stack: Schema.optionalKey(Schema.NullOr(PullRequestStack)),
+  queue: Schema.optionalKey(PullRequestMergeQueue),
   draft: Schema.Boolean,
   additions: Revision,
   deletions: Revision,
