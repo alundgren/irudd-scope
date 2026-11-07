@@ -62,7 +62,7 @@ export function TabHost({
     [events, saves],
   );
   const plugin = findPlugin(tab.type);
-  if (["file", "retro", "sketchpad", "folder"].includes(tab.type) && !active && !visited)
+  if (["file", "retro", "sketchpad", "meeting", "folder"].includes(tab.type) && !active && !visited)
     return null;
   if (!plugin)
     return (

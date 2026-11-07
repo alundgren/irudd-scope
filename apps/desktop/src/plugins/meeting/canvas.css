@@ -1,0 +1,176 @@
+/*
+ * Infinite canvas and section frames, shared by the tab and the HTML export. page.css
+ * styles the blocks inside a section. Sizes match SECTION_WIDTH and FLOW_GAP in canvas.ts.
+ */
+
+.mc-page.mc-canvas {
+  min-height: 0;
+  padding: 0;
+}
+
+.mc-canvas-inner {
+  position: relative;
+  width: max-content;
+  padding: 40px 56px 96px;
+}
+
+.mc-canvas-inner > .mc-title {
+  margin: 0 0 44px;
+}
+
+.mc-page .mc-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 64px 48px;
+}
+
+.mc-page .mc-pinned {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.mc-page .mc-section {
+  position: relative;
+  flex: none;
+  padding: 20px;
+  border: 1px solid var(--mc-line);
+  border-radius: 14px;
+  background: var(--mc-plate);
+}
+
+.mc-page .mc-section.is-pinned {
+  position: absolute;
+  z-index: 1;
+}
+
+.mc-page .mc-size-s {
+  width: 480px;
+}
+
+.mc-page .mc-size-m {
+  width: 760px;
+}
+
+.mc-page .mc-size-l {
+  width: 1080px;
+}
+
+/* The name sits above the frame's top left corner, as frame labels do in design tools. */
+.mc-page .mc-section-name {
+  position: absolute;
+  bottom: 100%;
+  left: 2px;
+  max-width: 100%;
+  margin: 0 0 6px;
+  overflow: hidden;
+  color: var(--mc-ink-2);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-page .mc-section-body {
+  container: mc-page / inline-size;
+}
+
+/* Blocks stack in one column; half and third widths apply only in large sections. */
+.mc-page .mc-section:not(.mc-size-l) .mc-block {
+  grid-column: span 6;
+}
+
+.mc-page .mc-section-empty {
+  margin: 0;
+  color: var(--mc-ink-3);
+}
+
+.mc-page .mc-section.is-fresh {
+  animation: mc-section-fresh 2s ease-out;
+}
+
+@keyframes mc-section-fresh {
+  0% {
+    border-color: color-mix(in srgb, var(--mc-accent) 70%, transparent);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--mc-accent) 22%, transparent);
+  }
+
+  100% {
+    border-color: var(--mc-line);
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-page .mc-section.is-fresh {
+    animation-duration: 0.01s;
+    border-color: color-mix(in srgb, var(--mc-accent) 70%, transparent);
+  }
+}
+
+/* Tab only: the viewport the camera moves over. */
+.mc-page.mc-viewport {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  outline: none;
+  touch-action: none;
+  cursor: grab;
+  background-color: var(--mc-surface);
+  background-image: radial-gradient(
+    circle,
+    var(--mc-dot) calc(1.4px * var(--mc-zoom, 1)),
+    transparent 0
+  );
+  background-position: var(--mc-pan-x, 0) var(--mc-pan-y, 0);
+  background-size: calc(28px * var(--mc-zoom, 1)) calc(28px * var(--mc-zoom, 1));
+}
+
+.mc-page.mc-viewport.is-panning {
+  cursor: grabbing;
+}
+
+.mc-page .mc-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.mc-page .mc-world.is-animating {
+  transition: transform 450ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-page .mc-world.is-animating {
+    transition: none;
+  }
+}
+
+.mc-page .mc-section-name[data-section-handle] {
+  cursor: grab;
+  user-select: none;
+}
+
+.mc-page .mc-section.is-dragging {
+  z-index: 3;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.18);
+  cursor: grabbing;
+}
+
+.mc-page .mc-section.is-overlapping {
+  outline: 2px dashed var(--mc-s2);
+  outline-offset: 4px;
+}
+
+/* Diagrams are drawn at label size for a laptop; on a shared screen they read better a
+   third larger when the section has room. Wider ones still shrink to fit. */
+.mc-page .mc-section .mc-svg {
+  width: min(100%, calc(var(--mc-svg-w) * 1.35));
+}
