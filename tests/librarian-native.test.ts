@@ -3,7 +3,11 @@ import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:f
 import { createHash, randomUUID } from "node:crypto";
 import { delimiter, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { desktopFixture } from "./desktop-fixture.ts";
+
+const run = promisify(execFile);
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -295,8 +299,52 @@ test.runIf(!!process.env.SCOPE_TEST_OKF_BINARY)(
     await page
       .getByText("No decisions waiting. Continue with your existing agent.", { exact: true })
       .waitFor();
+    const approvedSteps = memory(
+      "deploy",
+      "Deploy steps",
+      "procedural",
+      "Run the deploy with a canary first.",
+      "silver",
+    );
+    state = await curating.propose("deploy.md", approvedSteps, "human");
+    expect(state.pendingCount).toBe(1);
+    // The agent carries out the person's chat approval in irudd-okf, outside Scope.
+    const okf = (...args: string[]) =>
+      run(executable, [...args, "--bundle", `personal=${root}`], {
+        env: { ...process.env, XDG_CONFIG_HOME: join(directory, "config") },
+      });
+    const pending = JSON.parse(
+      (await okf("change", "list", "personal", "--status", "pending")).stdout,
+    ).changes[0];
+    const decision = join(directory, "decision.json");
+    await writeFile(
+      decision,
+      JSON.stringify({
+        bundle: "personal",
+        id: pending.id,
+        expectedRevisionHash: pending.revisionHash,
+        decision: "accept",
+        actor: { type: "agent", id: "curating-session" },
+        reason: "Carry out the approval given in chat.",
+        sources: pending.sources,
+        approval: {
+          reference: "chat",
+          scope: "Use a canary deploy.",
+          changes: [{ path: "deploy.md", revisionHash: pending.revisionHash }],
+        },
+      }),
+    );
+    await okf(
+      "change",
+      "review",
+      "personal",
+      pending.id,
+      "--file",
+      decision,
+      "--authorize-personal",
+    );
     expect((await curating.finish()).state.run!.status).toBe("completed");
     expect(await readFile(join(root, "first.md"), "utf8").catch(() => null)).toBeNull();
-    expect(await readFile(join(root, "deploy.md"), "utf8")).toBe(promoted);
+    expect(await readFile(join(root, "deploy.md"), "utf8")).toBe(approvedSteps);
   },
 );
