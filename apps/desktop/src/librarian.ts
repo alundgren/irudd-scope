@@ -566,6 +566,15 @@ export class LibrarianService {
         } else if (command.action === "finish") {
           if (!command.userRequest.trim())
             throw new ScopeError(400, "Include the user's explicit instruction to finish.");
+          // An agent may record a decision directly in irudd-okf, such as carrying out the person's conversational approval.
+          for (const proposal of run.proposals)
+            if (proposal.change.status === "pending")
+              proposal.change = mutable(
+                cli(
+                  MemoryChange,
+                  await this.okf(["change", "read", "personal", proposal.change.id]),
+                ),
+              );
           if (run.proposals.some((p) => p.change.status === "pending"))
             throw new ScopeError(409, "Resolve the remaining proposals before finishing.");
           run.status = "completed";
