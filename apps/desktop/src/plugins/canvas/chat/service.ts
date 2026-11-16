@@ -163,8 +163,9 @@ export class CardChats {
     if (chat.running) throw new Error("Wait for the current turn to finish, or stop it.");
     const harness = this.found.find((item) => item.id === harnessId);
     if (!harness) throw new Error("That chat program is not available.");
-    if (chat.harness && chat.harness !== harnessId && chat.session) {
-      void chat.session.then((session) => session.close()).catch(() => {});
+    if (chat.harness && chat.harness !== harnessId) {
+      // A saved ID belongs to the other program, even when no session is running after a restart.
+      void chat.session?.then((session) => session.close()).catch(() => {});
       chat.session = undefined;
       chat.sessionId = undefined;
     }
@@ -256,12 +257,13 @@ export class CardChats {
         const last = chat.items.at(-1);
         if (last?.kind === "message" && last.role === "agent")
           chat.items[chat.items.length - 1] = { ...last, text: last.text + event.text };
-        else
+        else if (event.text.trim())
+          // A reply after a tool line starts a new message; the break before it is not needed.
           this.push(chat, {
             kind: "message",
             id: this.nextId("agent"),
             role: "agent",
-            text: event.text,
+            text: event.text.replace(/^\s+/, ""),
           });
         break;
       }

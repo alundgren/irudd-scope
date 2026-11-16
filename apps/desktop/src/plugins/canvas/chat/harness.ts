@@ -13,6 +13,9 @@ export type HarnessEvent =
   | { type: "notice"; text: string }
   | { type: "exit"; error?: string };
 
+/** Why chat stays off when a program would bill an API key instead of the person's plan. */
+export const BILLED_TO_KEY = "This would be billed to your API key, so chat is off.";
+
 /** A tool's reply to the agent. */
 export type ToolAnswer = { text: string; ok: boolean };
 

@@ -1,0 +1,310 @@
+{
+  "note": "Shapes from a real codex 0.169.0 app-server session, with private values replaced by placeholders. fileChange messages follow the app-server's generated types; that session made no file change.",
+  "threadStart": {
+    "id": "REQUEST_ID",
+    "result": {
+      "thread": {
+        "id": "THREAD_ID",
+        "environments": [
+          {
+            "environmentId": "local",
+            "cwd": "CWD",
+            "runtimeWorkspaceRoots": ["CWD"]
+          }
+        ],
+        "extra": null,
+        "sessionId": "THREAD_ID",
+        "forkedFromId": null,
+        "attachedToThreadId": null,
+        "parentThreadId": null,
+        "preview": "",
+        "ephemeral": false,
+        "section": null,
+        "sectionEnteredAt": null,
+        "projectId": null,
+        "historyMode": "paginated",
+        "modelProvider": "openai",
+        "model": "MODEL",
+        "reasoningEffort": null,
+        "createdAt": 0,
+        "updatedAt": 0,
+        "recencyAt": 0,
+        "status": {
+          "type": "idle"
+        },
+        "path": null,
+        "cwd": "CWD",
+        "cliVersion": "0.169.0",
+        "originator": "scope",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "daybreakEnabled": null,
+        "turns": []
+      },
+      "model": "MODEL",
+      "modelProvider": "openai",
+      "serviceTier": null,
+      "disabledPluginIds": [],
+      "cwd": "CWD",
+      "runtimeWorkspaceRoots": ["CWD"],
+      "instructionSources": [],
+      "approvalPolicy": "on-request",
+      "approvalsReviewer": "user",
+      "activePermissionProfile": {
+        "id": ":read-only",
+        "extends": null
+      },
+      "reasoningEffort": null,
+      "multiAgentMode": "explicitRequestOnly"
+    }
+  },
+  "turnStart": {
+    "id": "REQUEST_ID",
+    "result": {
+      "turn": {
+        "id": "TURN_ID",
+        "rootTurnId": "TURN_ID",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": null,
+        "completedAt": null,
+        "durationMs": null
+      }
+    }
+  },
+  "turnStarted": {
+    "method": "turn/started",
+    "params": {
+      "threadId": "THREAD_ID",
+      "turn": {
+        "id": "TURN_ID",
+        "rootTurnId": "TURN_ID",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": 0,
+        "completedAt": null,
+        "durationMs": null
+      }
+    }
+  },
+  "messageStarted": {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "type": "agentMessage",
+        "moderation": null,
+        "id": "ITEM_ID",
+        "text": "",
+        "phase": "PHASE",
+        "memoryCitation": null,
+        "delivery": null,
+        "questions": null,
+        "startedAtMs": 0,
+        "completedAtMs": null
+      },
+      "threadId": "THREAD_ID",
+      "turnId": "TURN_ID",
+      "startedAtMs": 0
+    }
+  },
+  "messageDelta": {
+    "method": "item/agentMessage/delta",
+    "params": {
+      "threadId": "THREAD_ID",
+      "turnId": "TURN_ID",
+      "itemId": "ITEM_ID",
+      "delta": "TEXT"
+    }
+  },
+  "messageCompleted": {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "agentMessage",
+        "moderation": null,
+        "id": "ITEM_ID",
+        "text": "TEXT",
+        "phase": "PHASE",
+        "memoryCitation": null,
+        "delivery": null,
+        "questions": null,
+        "startedAtMs": 0,
+        "completedAtMs": 0
+      },
+      "threadId": "THREAD_ID",
+      "turnId": "TURN_ID",
+      "contentTokenCount": 0,
+      "completedAtMs": 0
+    }
+  },
+  "toolStarted": {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "type": "dynamicToolCall",
+        "id": "ITEM_ID",
+        "namespace": null,
+        "tool": "TOOL",
+        "arguments": "ARGUMENTS",
+        "status": "inProgress",
+        "contentItems": null,
+        "success": null,
+        "durationMs": null,
+        "startedAtMs": 0,
+        "completedAtMs": null
+      },
+      "threadId": "THREAD_ID",
+      "turnId": "TURN_ID",
+      "startedAtMs": 0
+    }
+  },
+  "toolCall": {
+    "method": "item/tool/call",
+    "id": "REQUEST_ID",
+    "params": {
+      "threadId": "THREAD_ID",
+      "turnId": "TURN_ID",
+      "callId": "ITEM_ID",
+      "namespace": null,
+      "tool": "TOOL",
+      "arguments": "ARGUMENTS"
+    }
+  },
+  "toolCompleted": {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "dynamicToolCall",
+        "id": "ITEM_ID",
+        "namespace": null,
+        "tool": "TOOL",
+        "arguments": "ARGUMENTS",
+        "status": "STATUS",
+        "contentItems": [
+          {
+            "type": "inputText",
+            "text": "TEXT"
+          }
+        ],
+        "success": "SUCCESS",
+        "durationMs": 0,
+        "startedAtMs": 0,
+        "completedAtMs": 0
+      },
+      "threadId": "THREAD_ID",
+      "turnId": "TURN_ID",
+      "contentTokenCount": null,
+      "completedAtMs": 0
+    }
+  },
+  "commandStarted": {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "type": "commandExecution",
+        "id": "ITEM_ID",
+        "pluginId": null,
+        "scriptPath": null,
+        "command": "COMMAND",
+        "cwd": "CWD",
+        "processId": null,
+        "source": "agent",
+        "status": "inProgress",
+        "commandActions": [
+          {
+            "type": "unknown",
+            "command": "COMMAND"
+          }
+        ],
+        "aggregatedOutput": null,
+        "exitCode": null,
+        "durationMs": null,
+        "startedAtMs": 0,
+        "completedAtMs": null
+      },
+      "threadId": "THREAD_ID",
+      "turnId": "TURN_ID",
+      "startedAtMs": 0
+    }
+  },
+  "commandApproval": {
+    "method": "item/commandExecution/requestApproval",
+    "id": "REQUEST_ID",
+    "params": {
+      "kind": "command",
+      "threadId": "THREAD_ID",
+      "turnId": "TURN_ID",
+      "itemId": "ITEM_ID",
+      "startedAtMs": 0,
+      "environmentId": "local",
+      "reason": "REASON",
+      "command": "COMMAND",
+      "cwd": "CWD",
+      "commandActions": [
+        {
+          "type": "unknown",
+          "command": "COMMAND"
+        }
+      ],
+      "proposedExecpolicyAmendment": null,
+      "availableDecisions": ["accept", "decline", "cancel"]
+    }
+  },
+  "commandCompleted": {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "commandExecution",
+        "id": "ITEM_ID",
+        "pluginId": null,
+        "scriptPath": null,
+        "command": "COMMAND",
+        "cwd": "CWD",
+        "processId": null,
+        "source": "agent",
+        "status": "STATUS",
+        "commandActions": [
+          {
+            "type": "unknown",
+            "command": "COMMAND"
+          }
+        ],
+        "aggregatedOutput": "OUTPUT",
+        "exitCode": null,
+        "durationMs": null,
+        "startedAtMs": 0,
+        "completedAtMs": 0
+      },
+      "threadId": "THREAD_ID",
+      "turnId": "TURN_ID",
+      "contentTokenCount": 0,
+      "completedAtMs": 0
+    }
+  },
+  "turnCompleted": {
+    "method": "turn/completed",
+    "params": {
+      "threadId": "THREAD_ID",
+      "turn": {
+        "id": "TURN_ID",
+        "rootTurnId": "TURN_ID",
+        "items": [],
+        "itemsView": "summary",
+        "status": "STATUS",
+        "error": "ERROR",
+        "startedAt": 0,
+        "completedAt": 0,
+        "durationMs": 0
+      }
+    }
+  }
+}

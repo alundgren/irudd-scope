@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   createSdkMcpServer,
@@ -9,15 +9,15 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import type {
-  ChatHarness,
-  HarnessEvent,
-  HarnessStart,
-  HarnessTools,
-  ToolAnswer,
+import {
+  BILLED_TO_KEY,
+  type ChatHarness,
+  type HarnessEvent,
+  type HarnessStart,
+  type HarnessTools,
+  type ToolAnswer,
 } from "./harness.ts";
-
-export const BILLED_TO_KEY = "This would be billed to your API key, so chat is off.";
+import { startProgram, stopGroup } from "./process.ts";
 
 /** Chat runs only on a Claude plan login, never on an API key or another provider. */
 export function planName(account: AccountInfo): string | null {
@@ -113,17 +113,6 @@ function approvalDetail(input: Record<string, unknown>): string {
   return (toolDetail(input) ?? JSON.stringify(input, null, 2)).slice(0, 4000);
 }
 
-/** Stops a program Scope started and everything it started, the way gh calls are stopped. */
-function stopGroup(child: ChildProcess) {
-  if (child.exitCode !== null || child.signalCode) return;
-  try {
-    if (child.pid && process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
-    else child.kill("SIGKILL");
-  } catch {
-    // The program can exit between the check and the kill.
-  }
-}
-
 /**
  * Card chat through the person's own `claude` program and the Claude Agent SDK. The SDK's
  * defaults stay, so the session loads the person's settings, tools and MCP servers; Scope only
@@ -186,12 +175,9 @@ export function claudeHarness({
             }),
           // Its own process group, so closing the chat or quitting Scope stops what it started.
           spawnClaudeCodeProcess: (options) => {
-            const child = spawn(options.command, options.args, {
-              cwd: options.cwd,
+            const child = startProgram(options.command, options.args, {
+              cwd: options.cwd ?? folder,
               env: options.env,
-              detached: process.platform !== "win32",
-              windowsHide: true,
-              stdio: ["pipe", "pipe", "ignore"],
             });
             children.add(child);
             child.once("exit", () => children.delete(child));

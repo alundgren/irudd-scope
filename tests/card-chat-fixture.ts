@@ -10,8 +10,11 @@ export const BILLED_TO_KEY = "This would be billed to your API key, so chat is o
 export type LogEntry =
   | { event: "start"; args: string[]; cwd: string }
   | { event: "control"; subtype: string }
-  | { event: "message"; text: string; session: string }
+  | { event: "message"; text: string; session?: string; thread?: string }
   | { event: "approval"; tool: string; behavior: string }
+  | { event: "decision"; kind: "command" | "file"; decision: string }
+  | { event: "request"; method: string }
+  | { event: "thread"; method: string; thread: string; cwd: string; tools: string[] }
   | { event: "tools"; names: string[] }
   | { event: "tool-result"; tool: string; text: string; isError: boolean }
   | { event: "exit" };
@@ -23,17 +26,17 @@ export type ScriptStep =
   | { say: string };
 
 /**
- * A fake claude program under a made-up name, so Scope finds it the way it finds the real one
- * and no test can start the person's own claude.
+ * A fake agent program under a made-up name, so Scope finds it the way it finds the real one
+ * and no test can start the person's own claude or codex.
  */
-export async function fakeClaude(login: "plan" | "api-key") {
-  const directory = await mkdtemp(join(tmpdir(), "scope-fake-claude-"));
+async function fakeProgram(kind: "claude" | "codex", login: string) {
+  const directory = await mkdtemp(join(tmpdir(), `scope-fake-${kind}-`));
   const bin = join(directory, "bin");
   const temp = join(directory, "tmp");
   await mkdir(bin);
   await mkdir(temp);
-  const name = `fnaude-${randomUUID().slice(0, 8)}`;
-  const program = resolve("tests/fixtures/fake-claude/fake-claude.mjs");
+  const name = `${kind === "claude" ? "fnaude" : "fnodex"}-${randomUUID().slice(0, 8)}`;
+  const program = resolve(`tests/fixtures/fake-${kind}/fake-${kind}.mjs`);
   await writeFile(join(bin, name), `#!/bin/sh\nexec "${process.execPath}" "${program}" "$@"\n`);
   await chmod(join(bin, name), 0o755);
   const log = join(directory, "log.jsonl");
@@ -41,16 +44,17 @@ export async function fakeClaude(login: "plan" | "api-key") {
   await writeFile(account, login);
   const turnsFile = join(directory, "script.json");
   await writeFile(turnsFile, "{}");
+  const prefix = kind === "claude" ? "FAKE_CLAUDE" : "FAKE_CODEX";
   return {
     directory,
     account,
     folders: join(await realpath(temp), "scope-card-chats"),
     env: {
-      SCOPE_CLAUDE_COMMAND: name,
+      [kind === "claude" ? "SCOPE_CLAUDE_COMMAND" : "SCOPE_CODEX_COMMAND"]: name,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
-      FAKE_CLAUDE_LOG: log,
-      FAKE_CLAUDE_ACCOUNT_FILE: account,
-      FAKE_CLAUDE_SCRIPT: turnsFile,
+      [`${prefix}_LOG`]: log,
+      [`${prefix}_ACCOUNT_FILE`]: account,
+      [`${prefix}_SCRIPT`]: turnsFile,
       // Card chat folders go in the OS temp folder; this keeps each test's to itself.
       TMPDIR: temp,
     },
@@ -65,6 +69,9 @@ export async function fakeClaude(login: "plan" | "api-key") {
     },
   };
 }
+
+export const fakeClaude = (login: "plan" | "api-key") => fakeProgram("claude", login);
+export const fakeCodex = (login: "chatgpt" | "api-key") => fakeProgram("codex", login);
 
 export const chatPage = (application: ElectronApplication) =>
   application.windows().find((page) => page.url() === "scope://app/chat.html");
