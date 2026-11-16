@@ -52,13 +52,10 @@ test(
       expect(await drawer().locator(".tab-overflow-heading").count()).toBe(0);
       expect(await page.getByRole("button", { name: "Trashcan", exact: true }).count()).toBe(1);
       expect(await page.locator(".tab-retention-sections").count()).toBe(0);
+      expect(await picker().getAttribute("aria-label")).toBe("Tabs and Trashcan, 12 active tabs");
       await page.getByRole("button", { name: "Permanent", exact: true }).click();
-      expect(
-        await drawer()
-          .locator("[data-tab-result]")
-          .filter({ hasNotText: /^Prompts$/ })
-          .count(),
-      ).toBe(1);
+      // Prompts opens from search's Workspace controls, so the drawer leaves it out.
+      expect(await drawer().locator("[data-tab-result]").count()).toBe(1);
       await page.getByLabel("Search tabs", { exact: true }).fill("release-review-0");
       expect(
         await drawer()

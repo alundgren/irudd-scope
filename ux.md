@@ -42,8 +42,10 @@ live with the desktop.
 
 Tabs show the artifact title and indicate unread updates. Selection has both a
 tinted background and a solid marker. The strip shows as many tabs as fit at a
-readable width. The left drawer button counts all active tabs, including those
-outside the strip, and excludes tabs in Trashcan. The drawer starts with
+readable width. The left drawer button counts active tabs, including those
+outside the strip. It excludes tabs in Trashcan and the built-in Librarian,
+Prompts, Sketchpad, Harnesses, and Agent sessions tabs, which search's
+Workspace controls open instead. The drawer starts with
 title/name/kind search and All, Permanent, and Temporary filters. It lists active
 tabs in saved strip order, without a heading, repeated status icons, or per-row
 trash actions. A subdued Trashcan link sits below the list without a count,
@@ -94,7 +96,8 @@ temporary and permanent tabs.
 
 Built-in tabs are always permanent. A noninteractive lock icon identifies them
 in the strip and drawer. They have no permanence toggle. Close, Delete, and
-dropping onto Trashcan hide them for reopening from the drawer; these actions
+dropping onto Trashcan hide them for reopening from search, or from the drawer
+for tabs it lists; these actions
 never delete their data. Artifact details show a saved name beside the ID when
 the artifact has one.
 
@@ -389,8 +392,7 @@ the row says to drop it again. Edits to the same file are copied.
 The Sketchpad is one built-in Excalidraw canvas for the person's own ideas.
 Search offers Sketchpad, matching words such as draw, whiteboard, and Excalidraw.
 It opens the existing Sketchpad or creates it once. Like other built-in tabs it
-is always permanent, and closing hides it for reopening from the drawer or
-search. Agents have no command, API route, name, or skill guidance for it. To get
+is always permanent, and closing hides it for reopening from search. Agents have no command, API route, name, or skill guidance for it. To get
 help with a drawing, the person saves it to a file from the Excalidraw menu,
 hands that file to an agent, and opens the result again.
 
@@ -418,7 +420,7 @@ tabs than fit on a laptop or external monitor.
 Harnesses is a permanent built-in tab that shows the coding agent tools on this
 computer. Search offers Harnesses, matching words such as Codex, Claude Code,
 Cursor, Grok, skills and MCP. It opens the existing tab or creates it once, like
-the Sketchpad, and closing hides it for reopening from the drawer or search.
+the Sketchpad, and closing hides it for reopening from search.
 It is not created at startup: most people check their harnesses now and then,
 and a startup tab would take strip space from artifacts.
 
@@ -780,8 +782,7 @@ view, selected content, evidence, decision state and UI revision as the renderer
 
 ## Prompts
 
-Prompts is a permanent built-in tab available at startup, in the drawer, and in
-search. First launch opens its empty editor. Adding the tab to an existing
+Prompts is a permanent built-in tab available at startup and in search. First launch opens its empty editor. Adding the tab to an existing
 workspace preserves the selected artifact. Closing, Delete, and dropping it on
 Trashcan hide it without deleting current text or library items. Its UUID,
 hidden state, and adjusted editor divider survive restart. Agent changes never
