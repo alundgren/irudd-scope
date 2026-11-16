@@ -85,10 +85,12 @@ export function useCanvas(tabId: string, onNotice: (text: string) => void) {
           };
         }
         if (result.ok) {
-          // A write replayed over someone else's change: this view has not seen that change, so
-          // later queued writes keep the older base and main checks them against it too. The
-          // reload once the queue drains catches up.
-          if (!result.replayedOver.length) confirmed.current[scope] = result.version;
+          // Each write adds one version. A larger jump means someone else wrote in between, which
+          // this view has not seen, so later queued writes keep the older base and main checks
+          // them against it too. That holds for undo, which never reports a replay. The reload
+          // once the queue drains catches up.
+          const base = confirmed.current[scope] ?? 0;
+          if (result.version === base + 1) confirmed.current[scope] = result.version;
           failed.current = false;
         } else if (result.code !== "empty") {
           failed.current = result.code !== "conflict";
