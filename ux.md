@@ -401,7 +401,27 @@ types; the new card appears in the middle of the view, selected. Drag a card
 to move it and its bottom-right corner to resize it. Double-click a title or
 press F2 to rename a card; Enter keeps the name and Escape cancels. Delete or
 Backspace deletes the selected card. Escape during a drag puts the card back.
-Scrolling pans the board and pinching or Ctrl+scroll zooms at the pointer.
+Shift+click adds a card to the selection or takes it out; toolbar actions
+then apply to every selected card.
+
+Getting around works like a design tool. Two-finger scrolling pans; a mouse
+wheel scrolls up and down and Shift+wheel sideways. Pinching or Ctrl+scroll
+(Command on a Mac) zooms around the pointer. Space+drag and middle-button drag
+pan. Ctrl or Command with plus or minus zooms around the middle of the view.
+There are no Shift+number shortcuts. Zoom stays between 5% and 400%. A small
+bar at the bottom of the board holds Zoom out, the zoom level, Zoom in, Fit
+and Arrange. Fit shows every card at up to 100%. The camera is saved with the
+tab and comes back after a restart; it never enters undo history.
+
+A dragged card snaps when one of its edges or its center comes within 6
+screen pixels of another card's edge or center, at any zoom. Resizing from the
+corner snaps the right and bottom edges the same way. A guide line shows the
+match while dragging and goes away on release. Holding Ctrl or Command while
+dragging turns snapping off. Arrange lays out the selected cards, or all of
+them when fewer than two are selected, in rows in reading order of where they
+are now. Sizes stay the same, gaps are 40 units, rows wrap so the result is
+about as wide as it is tall, and the whole arrange is one undo step.
+
 Each finished gesture is one undo step. Ctrl+Z and Ctrl+Shift+Z (Command on a
 Mac) undo and redo the person's own board steps only. When undo leaves a card
 alone because it changed since, a notice says which card it kept.

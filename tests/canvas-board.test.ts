@@ -4,46 +4,16 @@ import { rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { desktopFixture } from "./desktop-fixture.ts";
-
-type Board = Record<
-  string,
-  { title: string; x: number; y: number; w: number; h: number; z: string }
->;
-
-async function newCanvas(page: Page, name: string) {
-  await page.keyboard.press("ControlOrMeta+k");
-  await page.getByLabel("Search artifacts", { exact: true }).fill("canvas");
-  await page.getByRole("button", { name: "New canvas", exact: true }).click();
-  await page.getByRole("tab", { name: "Untitled canvas", selected: true }).waitFor();
-  const name_ = page.getByLabel("Canvas name", { exact: true });
-  await name_.fill(name);
-  await name_.press("Enter");
-  await page.getByRole("tab", { name, selected: true }).waitFor();
-  return (await page.getByRole("tab", { name }).getAttribute("id"))!.slice(4);
-}
-
-const board = (page: Page, tabId: string) =>
-  page.evaluate(
-    async (id) => (await window.scope.canvasRead(id))!.board.cards,
-    tabId,
-  ) as Promise<Board>;
+import { board, drag, newCanvas, pane } from "./canvas-fixture.ts";
 
 async function addCard(page: Page, title: string) {
-  await page.getByRole("button", { name: "Add card", exact: true }).click();
+  await pane(page).getByRole("button", { name: "Add card", exact: true }).click();
   await page.getByRole("menuitem", { name: "Boxes and arrows", exact: true }).click();
   const card = page.getByRole("group", { name: "Boxes and arrows", exact: true });
   await card.locator(".canvas-card-title").dblclick();
   await page.getByLabel("Card title", { exact: true }).fill(title);
   await page.keyboard.press("Enter");
   await page.getByRole("group", { name: title, exact: true }).waitFor();
-}
-
-async function drag(page: Page, from: { x: number; y: number }, dx: number, dy: number) {
-  await page.mouse.move(from.x, from.y);
-  await page.mouse.down();
-  await page.mouse.move(from.x + dx / 2, from.y + dy / 2, { steps: 4 });
-  await page.mouse.move(from.x + dx, from.y + dy, { steps: 4 });
-  await page.mouse.up();
 }
 
 /** Resizes and moves a card through the board at zoom 1 until it has the given frame. */

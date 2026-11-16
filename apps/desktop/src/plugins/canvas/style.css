@@ -164,3 +164,30 @@
   border-color: var(--scope-accent);
   outline: none;
 }
+.canvas-bar {
+  position: absolute;
+  bottom: var(--scope-space-3);
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  gap: var(--scope-space-1);
+  align-items: center;
+  padding: var(--scope-space-1);
+  background: var(--scope-panel);
+  border: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-tab);
+  box-shadow: var(--scope-shadow);
+  transform: translateX(-50%);
+}
+.canvas-zoom {
+  min-width: 3.5em;
+  font-size: var(--scope-text-detail);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--scope-muted);
+}
+.canvas-guide {
+  position: absolute;
+  pointer-events: none;
+  border: 0 solid var(--scope-accent);
+}
