@@ -155,7 +155,10 @@ export function dragTo(g: Gesture, p: Point, content: BoxesContent, zoom: number
       );
       return {
         gesture: g,
-        draft: { [g.id]: { ...g.origin, ...snapped.rect } },
+        // Only the frame comes from the gesture, so a text change made meanwhile is kept.
+        draft: {
+          [g.id]: { ...((content[g.id] as Area | undefined) ?? g.origin), ...snapped.rect },
+        },
         guides: snapped.guides,
       };
     }

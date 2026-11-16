@@ -73,9 +73,18 @@ export function CanvasView({
 
   const close = useCallback(() => update(({ open: _open, ...rest }) => rest, true), [update]);
   useEffect(() => context.onEscape(() => (openCard ? (close(), true) : false)), [openCard, close]);
+  // The open editor's unwritten work, such as text being typed, written before the tab closes.
+  const editorFlush = useRef<() => void>(undefined);
+  const onFlush = useCallback((run: () => void) => {
+    editorFlush.current = run;
+    return () => {
+      if (editorFlush.current === run) editorFlush.current = undefined;
+    };
+  }, []);
   useEffect(
     () =>
       context.onBeforeClose(async () => {
+        editorFlush.current?.();
         flush();
         await canvas.flush();
       }),
@@ -142,6 +151,7 @@ export function CanvasView({
           write={canvas.write}
           step={(direction) => step({ card: open }, direction)}
           newId={newId}
+          onFlush={onFlush}
         />
       ) : (
         <Board

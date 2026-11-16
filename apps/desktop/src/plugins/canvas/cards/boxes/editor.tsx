@@ -33,6 +33,7 @@ export function BoxesEditor({
   write,
   step,
   newId,
+  onFlush,
 }: CardEditorProps) {
   const content = raw as BoxesContent;
   const surface = useRef<HTMLDivElement>(null);
@@ -59,8 +60,13 @@ export function BoxesEditor({
   useEffect(() => {
     if (selected && !view[selected]) setSelected(undefined);
   }, [view, selected]);
-  // Leaving the editor while typing keeps what was typed.
+  // Leaving the editor, or Scope quitting, while typing keeps what was typed.
   useEffect(() => () => commit(typingRef.current?.label ?? "Edit text"), []);
+  useEffect(() => onFlush(finishTyping), [onFlush]);
+  // View and Present don't edit, so switching to them finishes the text being typed.
+  useEffect(() => {
+    if (!editable) finishTyping();
+  }, [editable]);
 
   const zOrder = () => orderAbove(latest.current.view);
   function toContent(event: { clientX: number; clientY: number }): Point {
@@ -403,8 +409,8 @@ export function BoxesEditor({
             view={view}
             content={latest.current.content}
             selected={selected}
-            typing={typing?.id}
-            labeling={labeling}
+            typing={editable ? typing?.id : undefined}
+            labeling={editable ? labeling : undefined}
             gesture={gesture}
             guides={guides}
             zoom={camera.zoom}

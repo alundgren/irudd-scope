@@ -29,7 +29,9 @@ export function draftOps(content: BoxesContent, draft: Draft): CanvasOp[] {
       continue;
     }
     if (!before) {
-      ops.push({ op: "put", id, value: record });
+      // An erased text or a plain kind is left out; JSON has no undefined.
+      const value = Object.fromEntries(Object.entries(record).filter(([, v]) => v !== undefined));
+      ops.push({ op: "put", id, value: value as never });
       continue;
     }
     const fields: Record<string, unknown> = {};

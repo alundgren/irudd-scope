@@ -169,6 +169,18 @@ test(
       await editor.getByRole("button", { name: "Undo", exact: true }).click();
       await expect.poll(async () => (await content())[db]?.text).toBe("Orders DB");
       expect((await content())[toDb]).toBeDefined();
+
+      // A new connected box whose text was erased, kept as a plain box, still saves.
+      const boxCount = records(await content(), "box").length;
+      await node("Cache").click();
+      await drag(page, await center(page, node("Cache").locator(".boxes-strip").nth(2)), 300, 0);
+      await page.keyboard.type("x");
+      await page.keyboard.press("Backspace");
+      await editor.getByRole("button", { name: "Change kind" }).click();
+      await editor.getByRole("menuitemradio", { name: "Box", exact: true }).click();
+      await expect.poll(async () => records(await content(), "box").length).toBe(boxCount + 1);
+      const plain = records(await content(), "box").find(([, record]) => !("text" in record));
+      expect(plain?.[1]).not.toHaveProperty("kind");
       expect(await page.getByRole("alert").allTextContents()).toEqual([]);
     } finally {
       await application.close();
@@ -337,6 +349,17 @@ test(
       await page.keyboard.press("ControlOrMeta+z");
       await expect.poll(async () => cardContent(page, tabId, payment)).toEqual({});
       expect(await page.getByRole("alert").allTextContents()).toEqual([]);
+
+      // Text still being typed when Scope quits is kept.
+      await page.keyboard.press("Escape");
+      await openCard(page, "Order flow");
+      await pane(page).getByRole("button", { name: "API", exact: true }).dblclick();
+      await pane(page).getByLabel("Box text", { exact: true }).fill("API gateway");
+      await application.close();
+      application = await f.launch();
+      page = await application.firstWindow();
+      await pane(page).getByRole("heading", { name: "Order flow", exact: true }).waitFor();
+      expect((await cardContent(page, tabId, order))[refs.$api].text).toBe("API gateway");
     } finally {
       await application.close();
       await rm(f.directory, { recursive: true, force: true });
@@ -399,8 +422,16 @@ test(
       }
       await mode.selectOption("edit");
 
+      // Switching to View while typing finishes the text, and the text field goes away.
+      await editor.getByRole("button", { name: "Web app", exact: true }).dblclick();
+      await editor.getByLabel("Box text", { exact: true }).fill("Web site");
+      await mode.selectOption("view");
+      await expect.poll(() => editor.getByLabel("Box text").count()).toBe(0);
+      await expect.poll(async () => (await content())[refs.$web].text).toBe("Web site");
+      await mode.selectOption("edit");
+
       // Escape: typing ends, then View goes back to Edit, then the editor closes, then fullscreen.
-      const web = editor.getByRole("button", { name: "Web app", exact: true });
+      const web = editor.getByRole("button", { name: "Web site", exact: true });
       await web.dblclick();
       await editor.getByLabel("Box text", { exact: true }).fill("Web");
       await page.keyboard.press("Escape");

@@ -15,6 +15,11 @@ export type CardEditorProps = {
   step: (direction: "undo" | "redo") => void;
   /** An ID main has reserved for this canvas, so a new record shows before main confirms it. */
   newId: () => string;
+  /**
+   * Registers what the editor holds but has not written yet, such as unfinished typing. The tab
+   * runs it before it closes or Scope quits, then waits for the writes. Returns the cleanup.
+   */
+  onFlush: (flush: () => void) => () => void;
 };
 
 /** The renderer side of a card type: its full-tab editor and its picture on the board. */

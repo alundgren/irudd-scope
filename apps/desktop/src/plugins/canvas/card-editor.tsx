@@ -52,6 +52,7 @@ export function CardEditor({
   write,
   step,
   newId,
+  onFlush,
 }: {
   cardId: string;
   card: BoardCard;
@@ -65,6 +66,7 @@ export function CardEditor({
   write: CanvasWrite;
   step: (direction: "undo" | "redo") => void;
   newId: () => string;
+  onFlush: (flush: () => void) => () => void;
 }) {
   // An older Scope keeps a newer card's content byte for byte and never edits it.
   const known = row.typeVersion <= (findCardType(row.type)?.version ?? 0);
@@ -95,6 +97,7 @@ export function CardEditor({
           write={save}
           step={step}
           newId={newId}
+          onFlush={onFlush}
         />
       ) : (
         <p className="content-notice" role="status">
