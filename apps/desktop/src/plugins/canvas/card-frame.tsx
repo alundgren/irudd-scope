@@ -1,6 +1,6 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { findCardType } from "./cards/registry.ts";
-import type { BoardCard } from "./contract.ts";
+import { CARD_SIZE, type BoardCard } from "./contract.ts";
 
 export type Frame = Pick<BoardCard, "x" | "y" | "w" | "h">;
 type Gesture = {
@@ -10,8 +10,6 @@ type Gesture = {
   frame: Frame;
   dragging: boolean;
 };
-
-const MIN_SIZE = 80;
 
 /** One card on the board: its frame, title and read-only picture. */
 export function CardFrame({
@@ -73,7 +71,11 @@ export function CardFrame({
     const raw =
       current.kind === "move"
         ? { ...start, x: start.x + dx, y: start.y + dy }
-        : { ...start, w: Math.max(MIN_SIZE, start.w + dx), h: Math.max(MIN_SIZE, start.h + dy) };
+        : {
+            ...start,
+            w: Math.max(CARD_SIZE.min, start.w + dx),
+            h: Math.max(CARD_SIZE.min, start.h + dy),
+          };
     setMoving(adjust(id, raw, current.kind, event.ctrlKey || event.metaKey));
   }
   function end() {

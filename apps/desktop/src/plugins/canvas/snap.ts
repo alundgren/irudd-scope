@@ -1,4 +1,5 @@
 import type { Bounds } from "./camera.ts";
+import { CARD_SIZE } from "./contract.ts";
 
 /** Snapping reaches this far on screen, whatever the zoom. */
 export const SNAP_PIXELS = 6;
@@ -60,6 +61,9 @@ export function snapFrame(
     const match = closest(moving, others, axis, reach);
     if (!match) continue;
     const delta = Math.round(match.delta);
+    // A snap never makes a card smaller or larger than a card may be.
+    const sized = frame[size] + delta;
+    if (kind === "resize" && (sized < CARD_SIZE.min || sized > CARD_SIZE.max)) continue;
     if (kind === "move") next[axis] += delta;
     else next[size] += delta;
     guides.push(guide(axis, match, next));
