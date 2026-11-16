@@ -148,28 +148,6 @@ export function guardedInverse(
   return { ops: result, kept };
 }
 
-/**
- * Joins the inverses of several steps, oldest first, into one that puts each record back the
- * way it was before the first step. The earliest step to touch a field knows its old value.
- */
-export function combineInverses(steps: readonly (readonly CanvasOp[])[]): CanvasOp[] {
-  const first = new Map<string, CanvasOp>();
-  for (const inverse of steps)
-    for (const op of inverse) {
-      const seen = first.get(op.id);
-      if (!seen) first.set(op.id, op);
-      else if (seen.op === "set" && op.op === "set")
-        first.set(op.id, { ...seen, fields: { ...op.fields, ...seen.fields } });
-      else if (seen.op === "set" && op.op === "put")
-        first.set(op.id, {
-          op: "put",
-          id: op.id,
-          value: setFields(op.value, seen.fields) as never,
-        });
-    }
-  return [...first.values()];
-}
-
 export type HistoryRow = {
   seq: number;
   kind: "do" | "undo" | "redo";

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,6 +27,8 @@ export type SavedChat = {
   session: string | null;
   running: boolean;
   items: ChatItem[];
+  /** The running turn, so Undo turn still works after Scope quits during it. */
+  turn: { id: string; changes: string[] } | null;
 };
 
 type Chat = {
@@ -45,13 +47,24 @@ type Chat = {
   lastRead?: number;
   /** The harness has not finished a turn since starting with `resume`. */
   resuming: boolean;
+  /** Counts sessions, so events from a session this chat replaced are ignored. */
+  generation: number;
+  /** Pending approval items and the session and request they answer. */
+  approvals: Map<string, { generation: number; id: string }>;
+  saveTimer?: ReturnType<typeof setTimeout>;
 };
 
-/** The folder a card's chat runs in. Scope never shows it or reads what is inside. */
-export function chatFolder(cardId: string): string {
-  return join(tmpdir(), "scope-card-chats", cardId);
+/**
+ * The folder a card's chat runs in. Scope never shows it or reads what is inside. The name
+ * includes the profile, so two Scope profiles with a copy of the same board never share one.
+ */
+export function chatFolder(cardId: string, profile: string): string {
+  const tag = createHash("sha256").update(profile).digest("hex").slice(0, 8);
+  return join(tmpdir(), "scope-card-chats", `${cardId}-${tag}`);
 }
 const CARD_ID = /^[a-z0-9]{8}$/;
+/** How long streamed text and tool lines wait before the chat is saved. */
+const SAVE_DELAY = 500;
 
 const keyOf = (target: ChatTarget) => `${target.tabId}/${target.cardId}`;
 
@@ -64,6 +77,8 @@ export class CardChats {
     private readonly harnesses: ChatHarness[],
     private readonly changed: (target: ChatTarget) => void,
     private readonly saved: SavedChats,
+    /** Scope's own data folder, which keeps each profile's chat folders apart. */
+    private readonly profile: string,
     private readonly tools?: CardToolService,
   ) {}
 
@@ -92,20 +107,41 @@ export class CardChats {
       for (const item of chat.items)
         if (item.kind === "approval" && item.state === "pending")
           Object.assign(item, { state: "denied" });
-      this.push(chat, { kind: "turn", id: this.nextId("turn"), state: "interrupted", changes: [] });
+      this.push(chat, {
+        kind: "turn",
+        id: row.turn?.id ?? this.nextId("turn"),
+        state: "interrupted",
+        changes: row.turn?.changes ?? [],
+      });
       this.save(chat);
     }
   }
 
   private save(chat: Chat) {
+    clearTimeout(chat.saveTimer);
+    chat.saveTimer = undefined;
     void this.saved
       .save(chat.target, {
         harness: chat.harness,
         session: chat.sessionId ?? null,
         running: chat.running,
         items: chat.items,
+        turn: chat.turn ? { id: chat.turn, changes: chat.changes } : null,
       })
       .catch(() => console.error("Scope could not save a card chat."));
+  }
+
+  /** Saves soon, so a stream of small events is one write. */
+  private saveSoon(chat: Chat) {
+    chat.saveTimer ??= setTimeout(() => this.save(chat), SAVE_DELAY);
+  }
+
+  /** Ends the chat's session; anything it still sends is ignored. */
+  private retire(chat: Chat) {
+    void chat.session?.then((session) => session.close()).catch(() => {});
+    chat.session = undefined;
+    chat.generation += 1;
+    chat.approvals.clear();
   }
 
   state(target: ChatTarget | null): ChatState {
@@ -132,15 +168,24 @@ export class CardChats {
         items: [],
         changes: [],
         resuming: false,
+        generation: 0,
+        approvals: new Map(),
       };
       this.chats.set(key, chat);
     }
     return chat;
   }
 
+  /** Adds an item, dropping the oldest ones past the limit but never one still waiting for an answer. */
   private push(chat: Chat, item: ChatItem) {
     chat.items.push(item);
-    if (chat.items.length > MAX_ITEMS) chat.items.splice(0, chat.items.length - MAX_ITEMS);
+    while (chat.items.length > MAX_ITEMS) {
+      const oldest = chat.items.findIndex(
+        (entry) => !(entry.kind === "approval" && entry.state === "pending"),
+      );
+      if (oldest < 0) break;
+      chat.items.splice(oldest, 1);
+    }
   }
 
   private update<K extends ChatItem["kind"]>(
@@ -165,8 +210,7 @@ export class CardChats {
     if (!harness) throw new Error("That chat program is not available.");
     if (chat.harness && chat.harness !== harnessId) {
       // A saved ID belongs to the other program, even when no session is running after a restart.
-      void chat.session?.then((session) => session.close()).catch(() => {});
-      chat.session = undefined;
+      this.retire(chat);
       chat.sessionId = undefined;
     }
     chat.harness = harnessId;
@@ -182,7 +226,8 @@ export class CardChats {
       if (chat.blocked) return;
       await session.send(text);
     } catch (error) {
-      chat.session = undefined;
+      this.retire(chat);
+      if (chat.resuming) this.forgetConversation(chat);
       this.finish(chat, {
         type: "turn-end",
         state: "failed",
@@ -191,8 +236,21 @@ export class CardChats {
     }
   }
 
+  /** The harness no longer has that conversation, so the next message starts a new one. */
+  private forgetConversation(chat: Chat) {
+    chat.sessionId = undefined;
+    chat.resuming = false;
+    this.push(chat, {
+      kind: "notice",
+      id: this.nextId("notice"),
+      text: "The earlier conversation couldn't be continued. Your next message starts a new one.",
+    });
+  }
+
   private async start(chat: Chat, harness: ChatHarness): Promise<HarnessSession> {
-    const folder = chatFolder(chat.target.cardId);
+    chat.generation += 1;
+    const generation = chat.generation;
+    const folder = chatFolder(chat.target.cardId, this.profile);
     // The folder may have been removed since the last turn; the harness keeps its own history.
     await this.saved.folderMade(chat.target.cardId);
     await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -203,7 +261,9 @@ export class CardChats {
       ...(tools ? { tools } : {}),
       folder,
       ...(chat.sessionId ? { resume: chat.sessionId } : {}),
-      onEvent: (event) => this.receive(chat, event),
+      onEvent: (event) => {
+        if (chat.generation === generation) this.receive(chat, event, generation);
+      },
     });
   }
 
@@ -234,7 +294,7 @@ export class CardChats {
     };
   }
 
-  private receive(chat: Chat, event: HarnessEvent) {
+  private receive(chat: Chat, event: HarnessEvent, generation: number) {
     // Quitting closes every session; a turn cut off then stays running in the database, so it
     // shows as interrupted after the restart.
     if (this.closed) return;
@@ -245,8 +305,7 @@ export class CardChats {
       case "blocked":
         chat.blocked = event.reason;
         chat.running = false;
-        void chat.session?.then((session) => session.close()).catch(() => {});
-        chat.session = undefined;
+        this.retire(chat);
         this.save(chat);
         break;
       case "session":
@@ -282,15 +341,19 @@ export class CardChats {
           state: event.ok ? "done" : "failed",
         }));
         break;
-      case "approval":
+      case "approval": {
+        // A new session can reuse a request ID, so the item's ID includes the session.
+        const id = `approval-${generation}-${event.id}`;
+        chat.approvals.set(id, { generation, id: event.id });
         this.push(chat, {
           kind: "approval",
-          id: `approval-${event.id}`,
+          id,
           title: event.title,
           detail: event.detail,
           state: "pending",
         });
         break;
+      }
       case "notice":
         this.push(chat, { kind: "notice", id: this.nextId("notice"), text: event.text });
         break;
@@ -299,15 +362,8 @@ export class CardChats {
         return;
       case "exit":
         chat.session = undefined;
-        if (chat.resuming && event.error) {
-          // The harness no longer has that conversation, so the next message starts a new one.
-          chat.sessionId = undefined;
-          this.push(chat, {
-            kind: "notice",
-            id: this.nextId("notice"),
-            text: "The earlier conversation couldn't be continued. Your next message starts a new one.",
-          });
-        }
+        chat.approvals.clear();
+        if (chat.resuming && event.error) this.forgetConversation(chat);
         if (chat.running)
           this.finish(chat, {
             type: "turn-end",
@@ -317,6 +373,7 @@ export class CardChats {
         return;
     }
     this.changed(chat.target);
+    this.saveSoon(chat);
   }
 
   private finish(chat: Chat, event: Extract<HarnessEvent, { type: "turn-end" }>) {
@@ -342,16 +399,35 @@ export class CardChats {
 
   async approve(target: ChatTarget, id: string, allow: boolean): Promise<void> {
     const chat = this.chats.get(keyOf(target));
-    const item = chat?.items.find((entry) => entry.id === `approval-${id}`);
-    if (!chat?.session || item?.kind !== "approval" || item.state !== "pending")
+    const item = chat?.items.find((entry) => entry.id === id);
+    const request = chat?.approvals.get(id);
+    if (
+      !chat?.session ||
+      item?.kind !== "approval" ||
+      item.state !== "pending" ||
+      request?.generation !== chat.generation
+    )
       throw new Error("That request is no longer waiting for an answer.");
+    chat.approvals.delete(id);
     this.update(chat, item.id, "approval", (entry) => ({
       ...entry,
       state: allow ? "allowed" : "denied",
     }));
     this.changed(target);
     this.save(chat);
-    (await chat.session).approve(id, allow);
+    (await chat.session).approve(request.id, allow);
+  }
+
+  /**
+   * The card's editor closed. Its chat program stops with it, the way quitting stops it; the
+   * next message continues the conversation.
+   */
+  leave(target: ChatTarget) {
+    const chat = this.chats.get(keyOf(target));
+    if (!chat?.session) return;
+    const running = chat.running;
+    this.retire(chat);
+    if (running) this.finish(chat, { type: "turn-end", state: "stopped" });
   }
 
   async stop(target: ChatTarget): Promise<void> {
@@ -384,7 +460,7 @@ export class CardChats {
       );
       for (const cardId of await this.saved.goneFolders()) {
         if (!CARD_ID.test(cardId) || running.has(cardId)) continue;
-        await rm(chatFolder(cardId), { recursive: true, force: true });
+        await rm(chatFolder(cardId, this.profile), { recursive: true, force: true });
         await this.saved.forgetFolder(cardId);
       }
     } catch {
@@ -396,7 +472,8 @@ export class CardChats {
   removed(tabIds: readonly string[]) {
     for (const [key, chat] of this.chats)
       if (tabIds.includes(chat.target.tabId)) {
-        void chat.session?.then((session) => session.close()).catch(() => {});
+        clearTimeout(chat.saveTimer);
+        this.retire(chat);
         this.chats.delete(key);
       }
     void this.sweep();
@@ -405,8 +482,10 @@ export class CardChats {
   private closed = false;
   close() {
     this.closed = true;
-    for (const chat of this.chats.values())
+    for (const chat of this.chats.values()) {
+      if (chat.saveTimer) this.save(chat);
       void chat.session?.then((session) => session.close()).catch(() => {});
+    }
     this.chats.clear();
   }
 }

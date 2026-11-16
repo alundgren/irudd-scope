@@ -20,11 +20,11 @@ import {
   type CanvasWriteResult,
   type CanvasWritten,
   type CardContent,
+  type KeptField,
 } from "../plugins/canvas/contract.ts";
 import {
   ChangeError,
   applyOps,
-  combineInverses,
   guardedInverse,
   historyStacks,
   overlap,
@@ -252,7 +252,13 @@ function trimHistory(sql: Sql, tabId: string, scope: string) {
       return index >= MAX_HISTORY_ENTRIES || total > MAX_HISTORY_BYTES;
     });
     if (cut < 0) return;
-    yield* sql`DELETE FROM canvas_history WHERE tab_id = ${tabId} AND scope = ${scope} AND seq <= ${rows[cut].seq}`;
+    const trimmed = yield* sql<{
+      turn_id: string | null;
+    }>`DELETE FROM canvas_history WHERE tab_id = ${tabId} AND scope = ${scope} AND seq <= ${rows[cut].seq} RETURNING turn_id`;
+    // A chat turn is undone whole or not at all, so its newer changes go with its trimmed ones.
+    const turns = [...new Set(trimmed.flatMap((row) => (row.turn_id ? [row.turn_id] : [])))];
+    if (turns.length)
+      yield* sql`DELETE FROM canvas_history WHERE tab_id = ${tabId} AND scope = ${scope} AND ${sql.in("turn_id", turns)}`;
     if (scope !== "") return;
     const gone = yield* sql<{
       card_id: string;
@@ -471,11 +477,22 @@ export class CanvasStore {
           inverse: string;
         }>`SELECT ops, inverse FROM canvas_history WHERE tab_id = ${tabId} AND scope = ${cardId} AND actor = 'agent' AND kind = 'do' AND turn_id = ${turnId} ORDER BY seq`;
         if (!rows.length) return refused("empty", "That turn has nothing left to undo.");
-        const guarded = guardedInverse(
-          current.content,
-          rows.flatMap((row) => JSON.parse(row.ops) as CanvasOp[]),
-          combineInverses(rows.map((row) => JSON.parse(row.inverse) as CanvasOp[])),
-        );
+        // Each change is undone on its own, newest first, so a person's edit between two of the
+        // turn's changes is what the earlier one finds and keeps.
+        let content = current.content;
+        const ops: CanvasOp[] = [];
+        const kept = new Map<string, KeptField>();
+        for (const row of rows.toReversed()) {
+          const step = guardedInverse(
+            content,
+            JSON.parse(row.ops) as CanvasOp[],
+            JSON.parse(row.inverse) as CanvasOp[],
+          );
+          content = applyOps(content, step.ops).content;
+          ops.push(...step.ops);
+          for (const field of step.kept) kept.set(`${field.id}/${field.field ?? ""}`, field);
+        }
+        const guarded = { ops, kept: [...kept.values()] };
         if (!guarded.ops.length)
           return refused("empty", "Everything that turn changed was changed again since.");
         return {

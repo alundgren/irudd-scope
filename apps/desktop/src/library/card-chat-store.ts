@@ -16,6 +16,8 @@ export type SavedChat = {
   /** A turn was running when this was saved; after a restart it shows as interrupted. */
   running: boolean;
   items: ChatItem[];
+  /** The running turn's ID and changes, so Undo turn still works after a restart. */
+  turn: { id: string; changes: string[] } | null;
 };
 
 /**
@@ -27,7 +29,7 @@ export function createChatTable(sql: SqliteClient.SqliteClient) {
     Effect.gen(function* () {
       const [{ user_version }] = yield* sql<{ user_version: number }>`PRAGMA user_version`;
       if (user_version >= CHAT_SCHEMA_VERSION) return;
-      yield* sql`CREATE TABLE IF NOT EXISTS canvas_chat (tab_id TEXT NOT NULL, card_id TEXT NOT NULL, harness TEXT CHECK(harness IN ('claude', 'codex')), harness_session TEXT, running INTEGER NOT NULL CHECK(running IN (0, 1)), items TEXT NOT NULL CHECK(json_valid(items) AND json_type(items) = 'array'), updated_at INTEGER NOT NULL, PRIMARY KEY(tab_id, card_id), FOREIGN KEY(tab_id, card_id) REFERENCES canvas_cards(tab_id, card_id) ON DELETE CASCADE) STRICT`;
+      yield* sql`CREATE TABLE IF NOT EXISTS canvas_chat (tab_id TEXT NOT NULL, card_id TEXT NOT NULL, harness TEXT CHECK(harness IN ('claude', 'codex')), harness_session TEXT, running INTEGER NOT NULL CHECK(running IN (0, 1)), items TEXT NOT NULL CHECK(json_valid(items) AND json_type(items) = 'array'), turn TEXT CHECK(turn IS NULL OR json_valid(turn)), updated_at INTEGER NOT NULL, PRIMARY KEY(tab_id, card_id), FOREIGN KEY(tab_id, card_id) REFERENCES canvas_cards(tab_id, card_id) ON DELETE CASCADE) STRICT`;
       // The working folders this Scope made, so cleanup never touches another Scope's folders.
       yield* sql`CREATE TABLE IF NOT EXISTS canvas_chat_folders (card_id TEXT PRIMARY KEY, created_at INTEGER NOT NULL) STRICT`;
       yield* sql`PRAGMA user_version = ${sql.literal(String(CHAT_SCHEMA_VERSION))}`;
@@ -50,7 +52,8 @@ export class CardChatStore {
         harness_session: string | null;
         running: number;
         items: string;
-      }>`SELECT harness, harness_session, running, items FROM canvas_chat WHERE tab_id = ${tabId} AND card_id = ${cardId}`,
+        turn: string | null;
+      }>`SELECT harness, harness_session, running, items, turn FROM canvas_chat WHERE tab_id = ${tabId} AND card_id = ${cardId}`,
     );
     if (!row) return null;
     return {
@@ -58,6 +61,7 @@ export class CardChatStore {
       session: row.harness_session,
       running: row.running === 1,
       items: JSON.parse(row.items) as ChatItem[],
+      turn: row.turn ? (JSON.parse(row.turn) as SavedChat["turn"]) : null,
     };
   }
 
@@ -65,7 +69,7 @@ export class CardChatStore {
   async save(tabId: string, cardId: string, chat: SavedChat): Promise<void> {
     const { sql, run } = this.database;
     await run(
-      sql`INSERT INTO canvas_chat(tab_id, card_id, harness, harness_session, running, items, updated_at) SELECT ${tabId}, ${cardId}, ${chat.harness}, ${chat.session}, ${chat.running ? 1 : 0}, ${JSON.stringify(chat.items)}, ${Date.now()} WHERE EXISTS (SELECT 1 FROM canvas_cards WHERE tab_id = ${tabId} AND card_id = ${cardId}) ON CONFLICT(tab_id, card_id) DO UPDATE SET harness = excluded.harness, harness_session = excluded.harness_session, running = excluded.running, items = excluded.items, updated_at = excluded.updated_at`,
+      sql`INSERT INTO canvas_chat(tab_id, card_id, harness, harness_session, running, items, turn, updated_at) SELECT ${tabId}, ${cardId}, ${chat.harness}, ${chat.session}, ${chat.running ? 1 : 0}, ${JSON.stringify(chat.items)}, ${chat.turn ? JSON.stringify(chat.turn) : null}, ${Date.now()} WHERE EXISTS (SELECT 1 FROM canvas_cards WHERE tab_id = ${tabId} AND card_id = ${cardId}) ON CONFLICT(tab_id, card_id) DO UPDATE SET harness = excluded.harness, harness_session = excluded.harness_session, running = excluded.running, items = excluded.items, turn = excluded.turn, updated_at = excluded.updated_at`,
     );
   }
 

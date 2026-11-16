@@ -1,5 +1,6 @@
 import { expect, test } from "vite-plus/test";
-import { rm } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 import {
   cardContent,
@@ -288,6 +289,65 @@ test.skipIf(process.platform === "win32")(
       expect(Object.keys(after).sort()).toEqual([api, seeded.$pay].sort());
       expect(after[api]).toMatchObject({ x: moved });
       expect(after[seeded.$pay]).toMatchObject({ text: "Payments service" });
+
+      // A turn that moves API, waits while the person moves it, then moves it again; it also
+      // adds Temp and removes it again. Undo turn keeps the person's move and still undoes the rest.
+      const go = join(claude.directory, "go");
+      await claude.script({
+        again: [
+          { call: "read_diagram" },
+          {
+            call: "edit_diagram",
+            arguments: {
+              changes: [
+                { action: "update", id: "@id:API", x: 40 },
+                { action: "update", id: "@id:Payments service", text: "Billing" },
+                { action: "add", text: "Temp", x: 0, y: 300 },
+              ],
+            },
+          },
+          { say: "Moved API." },
+          { waitFor: go },
+          { call: "read_diagram" },
+          {
+            call: "edit_diagram",
+            arguments: {
+              changes: [
+                { action: "update", id: "@id:API", x: 800 },
+                { action: "remove", id: "@id:Temp" },
+              ],
+            },
+          },
+          { say: "Done again." },
+        ],
+      });
+      await say(chat, "move it again");
+      await agentSaid(chat, "Moved API.");
+      await expect.poll(async () => (await content())[api].x).toBe(40);
+      const shorter = await editorPoint(page, 300, 0);
+      await drag(
+        page,
+        await center(page, editor.getByRole("button", { name: "API", exact: true })),
+        shorter.x - origin.x,
+        0,
+      );
+      await expect.poll(async () => (await content())[api].x).not.toBe(40);
+      const movedAgain = (await content())[api].x as number;
+      expect(movedAgain).not.toBe(moved);
+      await writeFile(go, "");
+      await agentSaid(chat, "Done again.");
+      await expect.poll(() => turns(chat, "Turn finished")).toBe(3);
+      expect((await content())[api]).toMatchObject({ x: 800 });
+      const last = chat.getByRole("listitem", { name: "Turn finished" }).last();
+      await last.getByRole("button", { name: "Undo turn", exact: true }).click();
+      await last.getByText("Undone", { exact: true }).waitFor();
+      const restored = await content();
+      expect(Object.keys(restored).sort()).toEqual([api, seeded.$pay].sort());
+      expect(restored[api]).toMatchObject({ x: movedAgain });
+      expect(restored[seeded.$pay]).toMatchObject({ text: "Payments service" });
+      await expect
+        .poll(() => chat.getByText("Kept API where you moved it.", { exact: true }).count())
+        .toBe(2);
     } finally {
       await application.close();
       await rm(f.directory, { recursive: true, force: true });

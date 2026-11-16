@@ -499,9 +499,11 @@ key, the reason shows above the message box and the box stays off until the
 card is opened again. The header names the program, Claude Code or Codex, and,
 once known, the plan, such as "Max plan" or "Pro plan". When both are installed,
 a Chat program menu picks one. It is off while a turn runs, and the next message
-after a switch starts a new conversation. A turn cut off by quitting Scope ends with
-"Interrupted when Scope quit" and does not continue by itself; the next message
-continues the same conversation.
+after a switch starts a new conversation. Closing the card's editor stops a
+running turn, which ends with "Stopped"; switching to another tab does not. A
+turn cut off by quitting Scope ends with "Interrupted when Scope quit", keeps
+what it showed and its Undo turn, and does not continue by itself; the next
+message continues the same conversation.
 
 ## Sketchpad
 

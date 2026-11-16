@@ -6,12 +6,13 @@
 // FAKE_CLAUDE_SCRIPT  JSON file of turns that call Scope's card tools, read at each message:
 //                     { "words in the message": [step, ...] }. A step is
 //                     { "call": "read_diagram" }, { "call": "edit_diagram", "arguments": {...} }
-//                     or { "say": "text" }. In arguments, "@id:Web app" is the id of the box
+//                     { "say": "text" } or { "waitFor": "file" }, which waits until that
+//                     file exists. In arguments, "@id:Web app" is the id of the box
 //                     with that text in the last read_diagram result, and "@version" its version.
 //
 // Otherwise what the person writes picks the turn: "command" asks to run Bash, "file" asks to
 // write a file, "long" waits until Stop, "forever" never ends, and anything else gets a reply.
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 
@@ -175,6 +176,8 @@ async function turn(text) {
   if (steps) {
     for (const step of steps)
       if (step.say) reply(step.say);
+      else if (step.waitFor)
+        while (!existsSync(step.waitFor)) await new Promise((resolve) => setTimeout(resolve, 50));
       else await cardTool(step.call, filled(step.arguments ?? {}));
     return finish("done");
   }

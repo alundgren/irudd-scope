@@ -1,4 +1,4 @@
-import { ipcMain, WebContentsView, type IpcMainInvokeEvent } from "electron";
+import { app, ipcMain, WebContentsView, type IpcMainInvokeEvent } from "electron";
 import { fileURLToPath } from "node:url";
 import { decode } from "@irudd-scope/protocol";
 import type { MainPluginContext } from "../../main-api.ts";
@@ -44,6 +44,7 @@ export function registerCardChat(
       goneFolders: () => saved.goneFolders(),
       forgetFolder: (cardId) => saved.forgetFolder(cardId),
     },
+    app.getPath("userData"),
     tools,
   );
   void chats.sweep();
@@ -96,8 +97,12 @@ export function registerCardChat(
     view.setVisible(true);
   }
 
+  // Loading a chat takes a moment; a layout sent meanwhile wins over the one that waited.
+  let layouts = 0;
   handle("scope:chat-layout", async (input) => {
     const layout = decode(ChatLayout, input);
+    const latest = ++layouts;
+    if (layout.closed) chats.leave(layout.target);
     if (!store.settings().cardChatEnabled || window.isDestroyed()) {
       target = null;
       place(null);
@@ -106,6 +111,7 @@ export function registerCardChat(
     if (layout.bounds) {
       const moved = !sameTarget(layout.target, target) || layout.theme !== theme;
       if (!sameTarget(layout.target, target)) await chats.load(layout.target);
+      if (latest !== layouts) return;
       theme = layout.theme;
       target = layout.target;
       place(layout.bounds);

@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
-import { newCanvas, openCard, pane, seedCards } from "./canvas-fixture.ts";
+import { cardContent, newCanvas, openCard, pane, seedCards } from "./canvas-fixture.ts";
 import {
   BILLED_TO_KEY,
   agentSaid,
@@ -56,7 +56,7 @@ test.skipIf(process.platform === "win32")(
       await chat.getByText("Max plan", { exact: true }).waitFor();
       expect(await chat.getByRole("alert").count()).toBe(0);
       const starts = (await claude.log()).filter((entry) => entry.event === "start");
-      expect(starts.at(-1)?.cwd).toBe(join(claude.folders, cardId));
+      expect(starts.at(-1)?.cwd).toBe(await claude.folder(cardId));
       // Scope leaves the person's own tools, settings and MCP servers alone.
       for (const start of starts)
         for (const flag of ["--tools", "--setting-sources", "--strict-mcp-config"])
@@ -146,7 +146,6 @@ test.skipIf(process.platform === "win32")(
       const [cardId] = await seedCards(page, tabId, [
         { title: "Order flow", x: 0, y: 0, w: 640, h: 400 },
       ]);
-      const folder = join(claude.folders, cardId);
       await openCard(page, "Order flow");
       await setCardChat(page, true);
       let chat = await openChat(application);
@@ -154,11 +153,21 @@ test.skipIf(process.platform === "win32")(
       await agentSaid(chat, "Fake reply to: hello");
       const session = (await claude.log()).find((entry) => entry.event === "message")!;
       expect(session).toMatchObject({ event: "message", text: "hello" });
-      expect(existsSync(folder)).toBe(true);
+      const folder = await claude.folder(cardId);
 
       // Quitting during a turn leaves it interrupted; it does not continue by itself.
+      await claude.script({
+        forever: [
+          { call: "edit_diagram", arguments: { changes: [{ action: "add", text: "Draft" }] } },
+          { say: "Counting slowly…" },
+          { waitFor: join(claude.directory, "never") },
+        ],
+      });
       await say(chat, "keep going forever");
       await agentSaid(chat, "Counting slowly…");
+      await expect
+        .poll(async () => Object.keys(await cardContent(page, tabId, cardId)))
+        .toHaveLength(1);
       await application.close();
       await rm(folder, { recursive: true, force: true });
       application = await f.launch();
@@ -167,6 +176,12 @@ test.skipIf(process.platform === "win32")(
       chat = await openChat(application);
       await agentSaid(chat, "Fake reply to: hello");
       await expect.poll(() => turns(chat, "Interrupted when Scope quit")).toBe(1);
+      // What the turn showed and changed before the quit is still there, and can be undone.
+      await agentSaid(chat, "Counting slowly…");
+      const interrupted = chat.getByRole("listitem", { name: "Interrupted when Scope quit" });
+      await interrupted.getByRole("button", { name: "Undo turn", exact: true }).click();
+      await interrupted.getByText("Undone", { exact: true }).waitFor();
+      expect(await cardContent(page, tabId, cardId)).toEqual({});
 
       // The next message continues the same conversation, in a folder made again.
       await say(chat, "and again");

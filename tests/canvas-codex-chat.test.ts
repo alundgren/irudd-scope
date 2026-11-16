@@ -1,6 +1,5 @@
 import { expect, test } from "vite-plus/test";
 import { rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 import { newCanvas, openCard, pane, seedCards } from "./canvas-fixture.ts";
 import {
@@ -75,7 +74,7 @@ test.skipIf(process.platform === "win32")(
       const [started] = await threads();
       expect(started).toMatchObject({
         method: "thread/start",
-        cwd: join(codex.folders, cardId),
+        cwd: await codex.folder(cardId),
         tools: ["read_diagram", "edit_diagram"],
       });
 
@@ -102,6 +101,14 @@ test.skipIf(process.platform === "win32")(
       await chat.getByRole("button", { name: "Stop", exact: true }).click();
       await expect.poll(() => turns(chat, "Stopped")).toBe(1);
       expect(await methods()).toContain("turn/interrupt");
+
+      // Closing the card's editor stops a running turn too.
+      await say(chat, "count for a long time again");
+      const counting = chat.locator(".chat-message-agent").filter({ hasText: "Counting slowly…" });
+      await expect.poll(() => counting.count()).toBe(2);
+      await page.keyboard.press("Escape");
+      await openCard(page, "Order flow");
+      await expect.poll(() => turns(chat, "Stopped")).toBe(2);
 
       // After a restart, the next message continues the same codex thread.
       await application.close();

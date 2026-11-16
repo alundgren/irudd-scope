@@ -28,6 +28,8 @@ export const ChatLayout = Schema.Struct({
   bounds: Schema.NullOr(ChatBounds),
   /** The workspace page's colors, which follow Scope's Appearance setting. */
   theme: ChatTheme,
+  /** The card's editor closed, which stops its chat program. */
+  closed: Schema.optionalKey(Schema.Boolean),
 });
 export type ChatLayout = typeof ChatLayout.Type;
 

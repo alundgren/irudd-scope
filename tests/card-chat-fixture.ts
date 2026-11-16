@@ -1,6 +1,6 @@
 import { expect } from "vite-plus/test";
 import { randomUUID } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import type { ElectronApplication, Page } from "@playwright/test";
@@ -23,7 +23,8 @@ export type LogEntry =
 export type ScriptStep =
   | { call: "read_diagram" }
   | { call: "edit_diagram"; arguments: Record<string, unknown> }
-  | { say: string };
+  | { say: string }
+  | { waitFor: string };
 
 /**
  * A fake agent program under a made-up name, so Scope finds it the way it finds the real one
@@ -45,10 +46,16 @@ async function fakeProgram(kind: "claude" | "codex", login: string) {
   const turnsFile = join(directory, "script.json");
   await writeFile(turnsFile, "{}");
   const prefix = kind === "claude" ? "FAKE_CLAUDE" : "FAKE_CODEX";
+  const folders = join(await realpath(temp), "scope-card-chats");
   return {
     directory,
     account,
-    folders: join(await realpath(temp), "scope-card-chats"),
+    /** The one folder Scope made for a card's chat; its name ends in a tag for the profile. */
+    async folder(cardId: string) {
+      const names = (await readdir(folders)).filter((name) => name.startsWith(`${cardId}-`));
+      expect(names).toHaveLength(1);
+      return join(folders, names[0]);
+    },
     env: {
       [kind === "claude" ? "SCOPE_CLAUDE_COMMAND" : "SCOPE_CODEX_COMMAND"]: name,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
