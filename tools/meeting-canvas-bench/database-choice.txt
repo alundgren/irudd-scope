@@ -1,0 +1,31 @@
+# Choosing between two databases for the event store. Blank lines are pauses.
+Hi, sorry I'm late, the train was stuck outside the station.
+No problem, we just started.
+
+So we need to pick a database for the new event store. The two candidates are Postgres and DynamoDB.
+Let me give the requirements first. About two thousand writes per second at peak, mostly appends.
+Reads are by aggregate ID, in order, and we need a global ordering for the projections.
+We also want point in time recovery and we want to keep costs predictable.
+
+Okay, Postgres first. Pros, the team knows it really well, and we already run it in production.
+It gives us transactions, so appending an event and checking the version is easy.
+Global ordering is just a sequence column.
+Cons, we have to manage scaling ourselves. Two thousand writes a second is fine, but ten times that needs partitioning.
+And failover takes maybe thirty seconds with our current setup.
+
+Now DynamoDB. Pros, it scales without us doing anything, and the operations work is close to zero.
+Point in time recovery is a checkbox.
+Cons, there is no global ordering. We would need streams plus another component to build it.
+Transactions exist but they're limited to a hundred items and they cost double.
+And the cost depends on traffic, which is harder to predict.
+
+Can you put that side by side as a comparison? Pros and cons for each.
+What about vendor lock in? DynamoDB ties us to AWS harder.
+True, add that as a con.
+Has anyone measured latency? I saw single digit milliseconds for both in the test.
+
+I think the decision is Postgres, because global ordering and transactions matter more than automatic scaling at our volume.
+Agreed. Let's revisit if we pass five thousand writes per second.
+Risk, if the projections team grows the load faster than we expect, we'll need partitioning sooner.
+Okay. Decision is Postgres, revisit at five thousand writes per second. I'll write the ADR.
+Great, thanks all. Lunch?

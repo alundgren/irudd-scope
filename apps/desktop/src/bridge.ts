@@ -12,6 +12,13 @@ import type { SettingsUpdate, SettingsView } from "./settings.ts";
 import type { RetainedTab, TrashEntry } from "./workspace/retention.ts";
 import type { Tab, Workspace } from "./workspace/contract.ts";
 import type { SketchpadDraft } from "./plugins/sketchpad/contract.ts";
+import type {
+  EditRequest,
+  EditResult,
+  ExportRequest,
+  TranscribeRequest,
+  TranscribeResult,
+} from "./plugins/meeting/contract.ts";
 import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 import type { MemoryStatus } from "@irudd-scope/protocol/memory";
@@ -235,6 +242,14 @@ export type ScopeBridge = {
   sketchpadDraft: (id: string) => Promise<SketchpadDraft | null>;
   saveSketchpadDraft: (id: string, draft: SketchpadDraft) => Promise<void>;
   deleteSketchpadDraft: (id: string) => Promise<void>;
+  /** Checks the OpenRouter key and, on macOS, asks for microphone access. */
+  startMeetingListening: () => Promise<void>;
+  transcribeMeetingAudio: (request: TranscribeRequest) => Promise<TranscribeResult>;
+  editMeetingPage: (request: EditRequest) => Promise<EditResult>;
+  /** Publishes the kept page as a new HTML artifact, which opens in its own tab. */
+  keepMeetingPage: (request: ExportRequest) => Promise<Artifact>;
+  /** The codex program the Codex backend would run, or why none was found. */
+  meetingCodexStatus: (override: string) => Promise<{ path?: string; error?: string }>;
   onBeforeClose: (listener: () => Promise<void>) => () => void;
   artifactLibrary: () => Promise<ArtifactLibrarySnapshot>;
   content: (id: string, revision: number) => Promise<ArtifactContent>;

@@ -4,6 +4,7 @@ import { decode } from "@irudd-scope/protocol";
 import type { Tab } from "../workspace/contract.ts";
 import { fileContract } from "./file/contract.ts";
 import { sketchpadTabContract } from "./sketchpad/contract.ts";
+import { meetingTabContract } from "./meeting/contract.ts";
 import { planTabContract } from "./plan/contract.ts";
 
 import { pullRequestsTabContract } from "./pull-requests/contract.ts";
@@ -17,6 +18,7 @@ const contracts = [
   memoryTabContract,
   fileContract,
   sketchpadTabContract,
+  meetingTabContract,
   planTabContract,
   pullRequestsTabContract,
   retroTabContract,

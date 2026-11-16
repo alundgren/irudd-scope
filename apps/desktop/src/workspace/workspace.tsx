@@ -1,6 +1,7 @@
 import { promptsTabState } from "../plugins/prompts/contract.ts";
 import { memoryTabState } from "../plugins/memory/contract.ts";
 import { sketchpadTabState } from "../plugins/sketchpad/contract.ts";
+import { meetingTabState } from "../plugins/meeting/contract.ts";
 import { harnessesTabState } from "../plugins/harnesses/contract.ts";
 import { sessionsTabState } from "../plugins/sessions/contract.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -17,6 +18,7 @@ import {
   Activity,
   Bot,
   Trash2,
+  Presentation,
 } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { NativeSelect, NativeSelectOption } from "../renderer/components/ui/native-select.tsx";
@@ -593,6 +595,13 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             keywords: "draw drawing sketch whiteboard scratchpad canvas excalidraw ideas",
             icon: PencilLine,
             onSelect: () => void openBuiltinTab("sketchpad", "Sketchpad", sketchpadTabState()),
+          },
+          {
+            id: "meeting",
+            title: "Meeting canvas",
+            keywords: "meeting whiteboard live transcript diagram listen notes present",
+            icon: Presentation,
+            onSelect: () => void openBuiltinTab("meeting", "Meeting canvas", meetingTabState()),
           },
           {
             id: "harnesses",
