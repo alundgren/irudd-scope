@@ -24,6 +24,7 @@ import {
 import {
   ChangeError,
   applyOps,
+  combineInverses,
   guardedInverse,
   historyStacks,
   overlap,
@@ -47,6 +48,7 @@ type Planned =
       refs: Record<string, string>;
       replayedOver: number[];
       kept: CanvasWritten["kept"];
+      warnings?: string[];
     };
 
 /** Runs code that throws ChangeError as a typed failure, so the transaction rolls back. */
@@ -390,13 +392,28 @@ export class CanvasStore {
     );
   }
 
-  change(change: CanvasChange, actor: CanvasActor, turnId: string | null = null) {
-    const hash = stableHash({
-      target: change.target,
-      base: change.base,
-      label: change.label,
-      ops: change.ops,
-    });
+  /**
+   * Commits one change. An agent's change passes the `request` it was made from, so a retry
+   * with the same request ID is matched against what the agent sent, not the ops worked out
+   * from the content at the time. Its `warnings` are saved with the result, so a retry gets
+   * them too.
+   */
+  change(
+    change: CanvasChange,
+    actor: CanvasActor,
+    agent: { turnId: string; request: unknown; warnings: string[] } | null = null,
+  ) {
+    const turnId = agent?.turnId ?? null;
+    const request = agent?.request;
+    const hash =
+      request === undefined
+        ? stableHash({
+            target: change.target,
+            base: change.base,
+            label: change.label,
+            ops: change.ops,
+          })
+        : stableHash({ target: change.target, request });
     return this.write(change.tabId, change.target, change.requestId, hash, (sql, current) =>
       Effect.gen(function* () {
         const checked = yield* staleCheck(sql, change.tabId, change.target, change.base, current, [
@@ -423,6 +440,60 @@ export class CanvasStore {
           refs,
           replayedOver: checked.replayedOver,
           kept: [],
+          ...(agent?.warnings.length ? { warnings: agent.warnings } : {}),
+        };
+      }),
+    );
+  }
+
+  /** The saved result of an agent request already answered, if there is one. */
+  answered(
+    tabId: string,
+    target: CanvasTarget,
+    requestId: string,
+    request: unknown,
+  ): Promise<CanvasWriteResult | undefined> {
+    const { sql, run } = this.database;
+    return run(receipt(sql, tabId, requestId, stableHash({ target, request })));
+  }
+
+  /**
+   * Undoes every change one agent turn made to a card, as one step of the person's, keeping
+   * fields anyone changed after the turn.
+   */
+  undoTurn(tabId: string, cardId: string, turnId: string, requestId: string) {
+    const target = { card: cardId };
+    const hash = stableHash({ target, undoTurn: turnId });
+    return this.write(tabId, target, requestId, hash, (sql, current) =>
+      Effect.gen(function* () {
+        const rows = yield* sql<{
+          ops: string;
+          inverse: string;
+        }>`SELECT ops, inverse FROM canvas_history WHERE tab_id = ${tabId} AND scope = ${cardId} AND actor = 'agent' AND kind = 'do' AND turn_id = ${turnId} ORDER BY seq`;
+        if (!rows.length) return refused("empty", "That turn has nothing left to undo.");
+        const guarded = guardedInverse(
+          current.content,
+          rows.flatMap((row) => JSON.parse(row.ops) as CanvasOp[]),
+          combineInverses(rows.map((row) => JSON.parse(row.inverse) as CanvasOp[])),
+        );
+        if (!guarded.ops.length)
+          return refused("empty", "Everything that turn changed was changed again since.");
+        return {
+          commit: {
+            tabId,
+            target,
+            requestId,
+            hash,
+            actor: "person",
+            kind: "do",
+            undoes: null,
+            turnId: null,
+            label: "Undo turn",
+            ops: guarded.ops,
+          } satisfies Commit,
+          refs: {},
+          replayedOver: [],
+          kept: guarded.kept,
         };
       }),
     );
@@ -501,6 +572,7 @@ export class CanvasStore {
           replayedOver: planned.replayedOver,
           kept: planned.kept,
           label: commit.label,
+          ...(planned.warnings ? { warnings: planned.warnings } : {}),
         };
         yield* record(sql, commit, applied.inverse, result, now);
         yield* trimHistory(sql, tabId, targetScope(target));

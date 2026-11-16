@@ -27,6 +27,9 @@ and stacking order; a card's editor changes only that card's content.
   preload offers. Never add chat operations to `preload.ts` or `bridge.ts`;
   the workspace page only reports where the panel goes. Main checks every
   chat call comes from the chat view.
+- Agents change cards only through the card tools in `chat/card-tools.ts`,
+  which commit through the store like any other change. A card type offers
+  tools from `cards/<type>/tools.ts`, registered in `cards/registry.ts`.
 
 Test through real Electron with synthetic canvases, through the board UI and
 `window.scope` canvas operations.

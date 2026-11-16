@@ -1,5 +1,5 @@
 import { memo, useLayoutEffect, useRef, type PointerEvent } from "react";
-import { BOX_KINDS, MAX_TEXT, type Area, type BoxRecord, type SectionRecord } from "./contract.ts";
+import { MAX_TEXT, nameOf, type Area, type BoxRecord, type SectionRecord } from "./contract.ts";
 import { titleOffset, titleWidth } from "./geometry.ts";
 import { Outline } from "./outline.tsx";
 
@@ -42,12 +42,6 @@ const DIAMOND_EDGES: Strip[] = [
 ].map(([from, to]) => ({ side: "diamond", from, to }) as Strip);
 const BOX_HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const SECTION_HANDLES = ["nw", "ne", "se", "sw"];
-
-export const nameOf = (area: Area) =>
-  area.text?.trim().split("\n")[0].slice(0, 40) ||
-  (area.type === "section"
-    ? "Section"
-    : (BOX_KINDS.find((kind) => kind.id === (area.kind ?? "box"))?.label ?? "Box"));
 
 function stripStyle(box: BoxRecord, strip: Strip) {
   if (strip.side === "diamond") {
@@ -157,6 +151,7 @@ export const BoxNode = memo(function BoxNode({
   id,
   area,
   selected,
+  highlighted,
   typing,
   target,
   tools,
@@ -165,6 +160,8 @@ export const BoxNode = memo(function BoxNode({
   id: string;
   area: Area;
   selected: boolean;
+  /** An agent changed it a moment ago. */
+  highlighted: boolean;
   typing: boolean;
   /** Lit up as the place a connector being drawn will end. */
   target: boolean;
@@ -178,6 +175,7 @@ export const BoxNode = memo(function BoxNode({
     section ? "boxes-node-section" : `boxes-node-${area.kind ?? "box"}`,
     selected && "boxes-selected",
     target && "boxes-target",
+    highlighted && "boxes-agent",
   ];
   return (
     <div

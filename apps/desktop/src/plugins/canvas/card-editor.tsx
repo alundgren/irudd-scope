@@ -46,6 +46,7 @@ export function CardEditor({
   cardId,
   card,
   row,
+  highlighted,
   history,
   editable,
   active,
@@ -61,6 +62,7 @@ export function CardEditor({
   cardId: string;
   card: BoardCard;
   row: CanvasCardRow;
+  highlighted: readonly string[] | undefined;
   history: CanvasHistoryState | undefined;
   editable: boolean;
   active: boolean;
@@ -96,6 +98,7 @@ export function CardEditor({
             key={cardId}
             cardId={target.card}
             content={row.content}
+            highlighted={highlighted}
             editable={editable}
             active={active}
             camera={camera}

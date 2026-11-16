@@ -14,6 +14,7 @@ export function DiagramLayer({
   labeling,
   gesture,
   guides,
+  highlighted,
   zoom,
   editable,
   node,
@@ -28,6 +29,7 @@ export function DiagramLayer({
   labeling: string | undefined;
   gesture: Gesture | undefined;
   guides: readonly Guide[];
+  highlighted: readonly string[] | undefined;
   zoom: number;
   editable: boolean;
   node: NodeEvents;
@@ -42,6 +44,7 @@ export function DiagramLayer({
       <ConnectorLayer
         content={view}
         selected={selected}
+        highlighted={highlighted}
         gesture={gesture}
         zoom={zoom}
         editable={editable}
@@ -53,6 +56,7 @@ export function DiagramLayer({
           id={id}
           area={area}
           selected={id === selected}
+          highlighted={highlighted?.includes(id) ?? false}
           typing={typing === id}
           target={id === candidate && id !== source}
           tools={editable && id === selected && !typing && gesture?.kind !== "draw"}

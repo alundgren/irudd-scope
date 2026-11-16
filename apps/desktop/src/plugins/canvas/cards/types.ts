@@ -1,4 +1,4 @@
-import type { CardContent } from "../contract.ts";
+import type { CanvasOp, CardContent } from "../contract.ts";
 
 /** What main and the views know about a card type, without React or Electron. */
 export type CardTypeContract = {
@@ -13,4 +13,17 @@ export type CardTypeContract = {
   /** The content of a new card. */
   empty: () => CardContent;
   limits: { records: number; textChars: number };
+};
+
+/** How agents read and change a card type through the card chat's tools. */
+export type CardTools = {
+  /** The content as an agent reads it. */
+  describe: (content: CardContent) => unknown;
+  /** Turns an agent's changes into ops, or says why it can't. */
+  plan: (
+    content: CardContent,
+    changes: unknown,
+  ) => { ops: CanvasOp[]; warnings: string[]; summary: string[] } | { error: string };
+  readGuide: string;
+  editGuide: string;
 };

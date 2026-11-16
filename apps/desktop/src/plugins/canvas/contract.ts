@@ -119,6 +119,8 @@ export type CanvasWritten = {
   replayedOver: number[];
   kept: KeptField[];
   label: string;
+  /** What an agent's change did differently from what it asked, such as moving a new box. */
+  warnings?: string[];
 };
 export type CanvasRefused = {
   ok: false;

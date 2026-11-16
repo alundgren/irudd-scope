@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { Button } from "../../../../renderer/components/ui/button.tsx";
 import { useCameraControls } from "../../camera.ts";
 import type { CardEditorProps } from "../views.ts";
-import { nameOf, stripAnchor, type NodeEvents } from "./box-node.tsx";
+import { stripAnchor, type NodeEvents } from "./box-node.tsx";
+import { nameOf } from "./contract.ts";
 import {
   BOX_KINDS,
   type Area,
@@ -26,6 +27,7 @@ type Typing = { id: string; label: string };
 /** The boxes and arrows editor: every finished gesture is one change to the card. */
 export function BoxesEditor({
   content: raw,
+  highlighted,
   editable,
   active,
   camera,
@@ -413,6 +415,7 @@ export function BoxesEditor({
             labeling={editable ? labeling : undefined}
             gesture={gesture}
             guides={guides}
+            highlighted={highlighted}
             zoom={camera.zoom}
             editable={editable}
             node={nodeEvents}

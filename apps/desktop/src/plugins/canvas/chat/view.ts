@@ -11,6 +11,7 @@ import {
   type ChatTarget,
   type ChatTheme,
 } from "./contract.ts";
+import type { CardToolService } from "./card-tools.ts";
 import type { ChatHarness } from "./harness.ts";
 import { CardChats } from "./service.ts";
 
@@ -25,6 +26,7 @@ const CHANNELS = ["state", "send", "approve", "stop", "undo-turn"] as const;
 export function registerCardChat(
   { window, handle, store, artifacts }: MainPluginContext,
   harnesses: ChatHarness[],
+  tools?: CardToolService,
 ) {
   let view: WebContentsView | undefined;
   let target: ChatTarget | null = null;
@@ -42,6 +44,7 @@ export function registerCardChat(
       goneFolders: () => saved.goneFolders(),
       forgetFolder: (cardId) => saved.forgetFolder(cardId),
     },
+    tools,
   );
   void chats.sweep();
 

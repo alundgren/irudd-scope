@@ -392,3 +392,25 @@
   stroke: var(--scope-canvas);
   stroke-width: 6px;
 }
+
+/* What an agent changed a moment ago, lit up so the person sees it arrive. */
+.boxes-agent .boxes-outline,
+.boxes-line.boxes-line-agent {
+  stroke: var(--scope-accent);
+  stroke-width: 3px;
+  animation: boxes-agent-glow 1.2s ease-in-out 3;
+}
+.boxes-node-section.boxes-agent {
+  border-color: var(--scope-accent);
+}
+@keyframes boxes-agent-glow {
+  50% {
+    stroke-opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .boxes-agent .boxes-outline,
+  .boxes-line.boxes-line-agent {
+    animation: none;
+  }
+}

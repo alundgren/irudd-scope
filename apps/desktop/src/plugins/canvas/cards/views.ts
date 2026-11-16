@@ -7,6 +7,8 @@ import { BoxesPicture } from "./boxes/picture.tsx";
 export type CardEditorProps = {
   cardId: string;
   content: CardContent;
+  /** Records an agent changed a moment ago, shown lit up for a few seconds. */
+  highlighted?: readonly string[];
   editable: boolean;
   active: boolean;
   camera: CanvasCamera;
