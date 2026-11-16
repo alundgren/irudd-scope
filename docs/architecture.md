@@ -820,7 +820,8 @@ update from matching an artifact recreated under the same ID.
 
 Closing a permanent tab marks its saved document hidden, reorders it to the
 end of the workspace, and selects another visible tab when available. Hidden
-tabs remain mounted and appear in the drawer; reopening clears their hidden
+tabs remain mounted and appear in the drawer, except built-in tabs that
+search's Workspace controls open; reopening clears their hidden
 state with the same UUID and order. Built-in plugin categories are authoritative
 in the shared desktop plugin registry. They always stay permanent and reject
 Trashcan operations. An artifact tab becomes built-in only when its artifact

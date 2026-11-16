@@ -13,8 +13,17 @@ import { TabPermanence } from "./tab-permanence.tsx";
 import { EmptyTrash } from "./empty-trash.tsx";
 import type { TabDrag } from "./use-tab-drag.ts";
 
+// Search's Workspace controls open these tabs, so the drawer leaves them out.
+const WORKSPACE_CONTROL_TAB_TYPES = new Set([
+  "memory",
+  "prompts",
+  "sketchpad",
+  "harnesses",
+  "sessions",
+]);
+
 export function TabOverflow({
-  tabs,
+  tabs: allTabs,
   retainedTabs,
   hiddenIds,
   artifacts,
@@ -46,6 +55,7 @@ export function TabOverflow({
   onOpenChange: (open: boolean) => void;
   restoreFocus: boolean;
 }) {
+  const tabs = allTabs.filter((tab) => !WORKSPACE_CONTROL_TAB_TYPES.has(tab.type));
   const [query, setQuery] = useState("");
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
