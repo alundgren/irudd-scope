@@ -23,29 +23,40 @@ function setFields(record: Rec, fields: Rec): Rec {
   return next;
 }
 
-/** Applies ops to a copy of the content and returns the ops that undo them, newest first. */
+/**
+ * Applies ops to a copy of the content and returns the ops that undo them. The inverse compares
+ * each record before and after the whole change, so a `set` followed by a `del` of the same
+ * record undoes to the record as it was before the change.
+ */
 export function applyOps(content: CardContent, ops: readonly CanvasOp[]) {
   const next: CardContent = { ...content };
-  const inverse: CanvasOp[] = [];
+  // For each touched record: the fields it set, or null once a put or del replaced it whole.
+  const touched = new Map<string, Set<string> | null>();
   for (const op of ops) {
     const old = next[op.id];
-    if (op.op === "put") {
-      inverse.unshift(
-        old ? { op: "put", id: op.id, value: old as never } : { op: "del", id: op.id },
-      );
-      next[op.id] = op.value;
-    } else if (op.op === "set") {
-      if (!old) throw new ChangeError(`Record ${op.id} does not exist.`);
-      const previous = Object.fromEntries(
-        Object.keys(op.fields).map((field) => [field, field in old ? old[field] : null]),
-      );
-      inverse.unshift({ op: "set", id: op.id, fields: previous as never });
-      next[op.id] = setFields(old, op.fields);
-    } else {
-      if (!old) throw new ChangeError(`Record ${op.id} does not exist.`);
-      inverse.unshift({ op: "put", id: op.id, value: old as never });
-      delete next[op.id];
-    }
+    if (op.op !== "put" && !old) throw new ChangeError(`Record ${op.id} does not exist.`);
+    if (op.op === "put") next[op.id] = op.value;
+    else if (op.op === "del") delete next[op.id];
+    else next[op.id] = setFields(old, op.fields);
+    const fields = touched.has(op.id) ? touched.get(op.id)! : new Set<string>();
+    if (op.op === "set" && fields) for (const field of Object.keys(op.fields)) fields.add(field);
+    touched.set(op.id, op.op === "set" ? fields : null);
+  }
+  const inverse: CanvasOp[] = [];
+  for (const [id, fields] of touched) {
+    const before = content[id];
+    const after = next[id];
+    if (!before) {
+      if (after) inverse.push({ op: "del", id });
+    } else if (!after || !fields) inverse.push({ op: "put", id, value: before as never });
+    else
+      inverse.push({
+        op: "set",
+        id,
+        fields: Object.fromEntries(
+          [...fields].map((field) => [field, field in before ? before[field] : null]),
+        ) as never,
+      });
   }
   return { content: next, inverse };
 }

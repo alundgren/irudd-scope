@@ -100,7 +100,7 @@ test(
       page = await application.firstWindow();
       const upgraded = new DatabaseSync(join(f.settingsDirectory, "artifacts", "scope.db"));
       try {
-        expect(upgraded.prepare("PRAGMA user_version").get()).toEqual({ user_version: 18 });
+        expect(upgraded.prepare("PRAGMA user_version").get()).toEqual({ user_version: 19 });
       } finally {
         upgraded.close();
       }

@@ -357,8 +357,10 @@ copy instead of the uploaded bytes when it drops progress for removed or changed
 
 Artifact schema 19 adds the canvas tables: `canvas_boards` (each canvas's board
 of card frames), `canvas_cards` (each card's content), `canvas_history` (undo
-steps and request receipts) and `canvas_ids` (the card and record IDs Scope has
-handed out, so none is reused). It changes no existing rows. Every canvas row
+steps), `canvas_requests` (each change's receipt for 30 days, so a retried
+request gets its first answer even after its undo step is trimmed) and
+`canvas_ids` (the card and record IDs Scope has handed out and which board or
+card each one names, so none is reused). It changes no existing rows. Every canvas row
 goes away with its tab, so a canvas in Trashcan keeps everything and emptying
 Trashcan removes it. Older builds reject schema 19. Restore a complete
 pre-upgrade backup to downgrade.

@@ -85,7 +85,10 @@ export function useCanvas(tabId: string, onNotice: (text: string) => void) {
           };
         }
         if (result.ok) {
-          confirmed.current[scope] = result.version;
+          // A write replayed over someone else's change: this view has not seen that change, so
+          // later queued writes keep the older base and main checks them against it too. The
+          // reload once the queue drains catches up.
+          if (!result.replayedOver.length) confirmed.current[scope] = result.version;
           failed.current = false;
         } else if (result.code !== "empty") {
           failed.current = result.code !== "conflict";

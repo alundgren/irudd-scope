@@ -253,3 +253,97 @@ test(
     }
   },
 );
+
+test(
+  "canvas changes keep IDs to one record, undo a set and delete exactly, and answer late retries",
+  { tags: ["bad-requests-change-nothing"], timeout: 120_000 },
+  async () => {
+    const f = await desktopFixture({ hideInitialPrompts: true });
+    const application = await f.launch();
+    try {
+      const page = await application.firstWindow();
+      await page.getByRole("heading", { name: "Things your agents leave for you" }).waitFor();
+      const tabId = await newCanvas(page, "Rules");
+      const outcome = await page.evaluate(async (tabId) => {
+        const id = () => crypto.randomUUID().replaceAll("-", "");
+        const version = async () => (await window.scope.canvasRead(tabId))!.board.version;
+        const change = async (ops: unknown[], requestId = id()) =>
+          window.scope.canvasChange({
+            tabId,
+            requestId,
+            target: { board: true },
+            base: await version(),
+            label: "Test",
+            ops: ops as never,
+          });
+        const card = (title: string, x = 1) => ({
+          type: "boxes",
+          title,
+          x,
+          y: 0,
+          w: 200,
+          h: 200,
+          z: "a",
+        });
+        const made = await change([{ op: "put", id: "$a", value: card("A") }]);
+        if (!made.ok) throw new Error(made.message);
+        const cardId = made.refs.$a;
+        // A board card's ID cannot also name a record inside a card.
+        const reused = await window.scope.canvasChange({
+          tabId,
+          requestId: id(),
+          target: { card: cardId },
+          base: 0,
+          label: "Reuse",
+          ops: [{ op: "put", id: cardId, value: { type: "box" } }],
+        });
+        // One change that moves a card and then deletes it undoes to where it was before.
+        const gone = await change([
+          { op: "set", id: cardId, fields: { x: 2 } },
+          { op: "del", id: cardId },
+        ]);
+        const undo = await window.scope.canvasStep({
+          tabId,
+          requestId: id(),
+          target: { board: true },
+          direction: "undo",
+        });
+        const restored = (await window.scope.canvasRead(tabId))!.board.cards[cardId];
+        // A retry long after its undo step was trimmed returns the first answer.
+        const first = id();
+        const renamed = await change([{ op: "set", id: cardId, fields: { title: "B" } }], first);
+        for (let index = 0; index < 501; index++)
+          await change([{ op: "set", id: cardId, fields: { x: index } }]);
+        const before = (await window.scope.canvasRead(tabId))!.board;
+        const retried = await window.scope.canvasChange({
+          tabId,
+          requestId: first,
+          target: { board: true },
+          base: renamed.ok ? renamed.version - 1 : 0,
+          label: "Test",
+          ops: [{ op: "set", id: cardId, fields: { title: "B" } }],
+        });
+        const after = (await window.scope.canvasRead(tabId))!.board;
+        return { reused, gone, undo, restored, renamed, retried, before, after };
+      }, tabId);
+      expect(outcome.reused).toMatchObject({ ok: false, code: "invalid" });
+      expect(outcome.gone.ok).toBe(true);
+      expect(outcome.undo).toMatchObject({ ok: true, kept: [] });
+      expect(outcome.restored).toMatchObject({ title: "A", x: 1 });
+      expect(outcome.retried).toEqual(outcome.renamed);
+      expect(outcome.after).toEqual(outcome.before);
+      const db = new DatabaseSync(join(f.settingsDirectory, "artifacts/scope.db"));
+      try {
+        const rows = db
+          .prepare("SELECT count(*) AS n FROM canvas_history WHERE tab_id = ?")
+          .get(tabId);
+        expect(Number(rows?.n)).toBeLessThanOrEqual(500);
+      } finally {
+        db.close();
+      }
+    } finally {
+      await application.close();
+      await rm(f.directory, { recursive: true, force: true });
+    }
+  },
+);

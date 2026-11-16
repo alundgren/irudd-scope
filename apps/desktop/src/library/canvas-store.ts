@@ -95,7 +95,8 @@ export function createCanvasTables(sql: Sql) {
       yield* sql`CREATE TABLE IF NOT EXISTS canvas_boards (tab_id TEXT PRIMARY KEY REFERENCES live_tabs(id) ON DELETE CASCADE, version INTEGER NOT NULL CHECK(version >= 0), document TEXT NOT NULL CHECK(json_valid(document))) STRICT`;
       yield* sql`CREATE TABLE IF NOT EXISTS canvas_cards (tab_id TEXT NOT NULL REFERENCES canvas_boards(tab_id) ON DELETE CASCADE, card_id TEXT NOT NULL, type TEXT NOT NULL, type_version INTEGER NOT NULL, version INTEGER NOT NULL CHECK(version >= 0), content TEXT NOT NULL CHECK(json_valid(content)), deleted_at INTEGER, PRIMARY KEY(tab_id, card_id)) STRICT`;
       yield* sql`CREATE TABLE IF NOT EXISTS canvas_history (tab_id TEXT NOT NULL REFERENCES canvas_boards(tab_id) ON DELETE CASCADE, scope TEXT NOT NULL, seq INTEGER NOT NULL, request_id TEXT NOT NULL, request_hash TEXT NOT NULL, actor TEXT NOT NULL CHECK(actor IN ('person', 'agent')), kind TEXT NOT NULL CHECK(kind IN ('do', 'undo', 'redo')), undoes INTEGER, turn_id TEXT, label TEXT NOT NULL, ops TEXT NOT NULL CHECK(json_valid(ops)), inverse TEXT NOT NULL CHECK(json_valid(inverse)), result TEXT NOT NULL CHECK(json_valid(result)), bytes INTEGER NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(tab_id, scope, seq), UNIQUE(tab_id, request_id)) STRICT`;
-      yield* sql`CREATE TABLE IF NOT EXISTS canvas_ids (id TEXT PRIMARY KEY, tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE) STRICT`;
+      yield* sql`CREATE TABLE IF NOT EXISTS canvas_ids (id TEXT PRIMARY KEY, tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE, scope TEXT) STRICT`;
+      yield* sql`CREATE TABLE IF NOT EXISTS canvas_requests (tab_id TEXT NOT NULL REFERENCES canvas_boards(tab_id) ON DELETE CASCADE, request_id TEXT NOT NULL, request_hash TEXT NOT NULL, result TEXT NOT NULL CHECK(json_valid(result)), created_at INTEGER NOT NULL, PRIMARY KEY(tab_id, request_id)) STRICT`;
       yield* sql`CREATE INDEX IF NOT EXISTS canvas_ids_tab ON canvas_ids(tab_id)`;
       const [{ user_version }] = yield* sql<{ user_version: number }>`PRAGMA user_version`;
       if (user_version < CANVAS_SCHEMA_VERSION)
@@ -105,6 +106,9 @@ export function createCanvasTables(sql: Sql) {
 }
 
 /** Makes IDs that no other row in scope.db has used, and records them for the tab. */
+/** How long a change's receipt answers retries of its request ID. */
+const RECEIPT_DAYS = 30;
+
 function newIds(sql: Sql, tabId: string, count: number) {
   return Effect.gen(function* () {
     const ids: string[] = [];
@@ -180,8 +184,18 @@ function validate(target: CanvasTarget, before: CardContent, after: CardContent,
   else validateCard(after, type ?? "");
 }
 
-/** New IDs must come from main: a `$` name in this change, or an ID main reserved for the tab. */
-function checkNewIds(sql: Sql, tabId: string, before: CardContent, ops: readonly CanvasOp[]) {
+/**
+ * New IDs must come from main: a `$` name in this change, or an ID main reserved for the tab.
+ * The first record that uses an ID claims it for its scope, so one ID never names two records;
+ * a later put in the same scope, such as an undone delete, brings back that same record.
+ */
+function claimNewIds(
+  sql: Sql,
+  tabId: string,
+  scope: string,
+  before: CardContent,
+  ops: readonly CanvasOp[],
+) {
   return Effect.gen(function* () {
     const fresh = [
       ...new Set(ops.filter((op) => op.op === "put" && !before[op.id]).map((op) => op.id)),
@@ -189,11 +203,16 @@ function checkNewIds(sql: Sql, tabId: string, before: CardContent, ops: readonly
     if (!fresh.length) return;
     const known = yield* sql<{
       id: string;
-    }>`SELECT id FROM canvas_ids WHERE tab_id = ${tabId} AND ${sql.in("id", fresh)}`;
+      scope: string | null;
+    }>`SELECT id, scope FROM canvas_ids WHERE tab_id = ${tabId} AND ${sql.in("id", fresh)}`;
     if (known.length !== fresh.length)
       return yield* Effect.fail(
         new ChangeError("Create new records with a $ name; Scope picks their IDs."),
       );
+    const taken = known.find((row) => row.scope !== null && row.scope !== scope);
+    if (taken)
+      return yield* Effect.fail(new ChangeError(`${taken.id} already names another record.`));
+    yield* sql`UPDATE canvas_ids SET scope = ${scope} WHERE tab_id = ${tabId} AND scope IS NULL AND ${sql.in("id", fresh)}`;
   });
 }
 
@@ -249,7 +268,7 @@ function receipt(sql: Sql, tabId: string, requestId: string, hash: string) {
     sql<{
       request_hash: string;
       result: string;
-    }>`SELECT request_hash, result FROM canvas_history WHERE tab_id = ${tabId} AND request_id = ${requestId}`,
+    }>`SELECT request_hash, result FROM canvas_requests WHERE tab_id = ${tabId} AND request_id = ${requestId}`,
     ([row]): CanvasWriteResult | undefined =>
       row &&
       (row.request_hash === hash
@@ -262,8 +281,13 @@ function record(sql: Sql, commit: Commit, inverse: CanvasOp[], result: CanvasWri
   const ops = JSON.stringify(commit.ops);
   const inverseText = JSON.stringify(inverse);
   const bytes = Buffer.byteLength(ops) + Buffer.byteLength(inverseText);
-  return sql`INSERT INTO canvas_history(tab_id, scope, seq, request_id, request_hash, actor, kind, undoes, turn_id, label, ops, inverse, result, bytes, created_at)
+  return Effect.gen(function* () {
+    // Receipts outlive trimmed history, so a late retry gets its answer instead of running again.
+    yield* sql`INSERT INTO canvas_requests(tab_id, request_id, request_hash, result, created_at) VALUES (${commit.tabId}, ${commit.requestId}, ${commit.hash}, ${JSON.stringify(result)}, ${now})`;
+    yield* sql`DELETE FROM canvas_requests WHERE tab_id = ${commit.tabId} AND created_at < ${now - RECEIPT_DAYS * 86_400_000}`;
+    yield* sql`INSERT INTO canvas_history(tab_id, scope, seq, request_id, request_hash, actor, kind, undoes, turn_id, label, ops, inverse, result, bytes, created_at)
     VALUES (${commit.tabId}, ${targetScope(commit.target)}, ${result.version}, ${commit.requestId}, ${commit.hash}, ${commit.actor}, ${commit.kind}, ${commit.undoes}, ${commit.turnId}, ${commit.label}, ${ops}, ${inverseText}, ${JSON.stringify(result)}, ${bytes}, ${now})`;
+  });
 }
 
 /** Finds the fields a stale write would overwrite. Writes that touch other fields replay. */
@@ -462,7 +486,7 @@ export class CanvasStore {
         const planned = yield* plan(sql, current);
         if ("ok" in planned) return planned;
         const { commit } = planned;
-        yield* checkNewIds(sql, tabId, current.content, commit.ops);
+        yield* claimNewIds(sql, tabId, targetScope(target), current.content, commit.ops);
         const applied = yield* attempt(() => {
           const result = applyOps(current.content, commit.ops);
           validate(target, current.content, result.content, current.type);

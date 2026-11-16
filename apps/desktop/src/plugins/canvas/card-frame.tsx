@@ -30,7 +30,8 @@ export function CardFrame({
   selected: boolean;
   editable: boolean;
   onSelect: (id: string) => void;
-  onFrame: (id: string, frame: Frame, label: string) => void;
+  /** Sends only what the gesture changed: x and y for a move, w and h for a resize. */
+  onFrame: (id: string, fields: Partial<Frame>, label: string) => void;
   onRename: (id: string, title: string) => void;
 }) {
   const [moving, setMoving] = useState<Frame>();
@@ -47,7 +48,8 @@ export function CardFrame({
       kind,
       startX: event.clientX,
       startY: event.clientY,
-      frame: card,
+      // Copy only the frame, so a drag never sends back an old title or stacking key.
+      frame: { x: card.x, y: card.y, w: card.w, h: card.h },
       dragging: false,
     };
   }
@@ -76,7 +78,11 @@ export function CardFrame({
     const changed =
       moving.x !== card.x || moving.y !== card.y || moving.w !== card.w || moving.h !== card.h;
     if (changed)
-      onFrame(id, moving, `${current.kind === "move" ? "Move" : "Resize"} ${card.title}`);
+      onFrame(
+        id,
+        current.kind === "move" ? { x: moving.x, y: moving.y } : { w: moving.w, h: moving.h },
+        `${current.kind === "move" ? "Move" : "Resize"} ${card.title}`,
+      );
     setMoving(undefined);
   }
   function cancel() {

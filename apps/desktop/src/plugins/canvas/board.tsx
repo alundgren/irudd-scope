@@ -168,7 +168,7 @@ export function Board({
               selected={id === selected}
               editable={editable}
               onSelect={setSelected}
-              onFrame={(id, frame: Frame, label) =>
+              onFrame={(id, frame: Partial<Frame>, label) =>
                 void write(BOARD, label, [{ op: "set", id, fields: frame }])
               }
               onRename={(id, title) =>
