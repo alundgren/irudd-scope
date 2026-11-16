@@ -147,7 +147,8 @@ Present or exits fullscreen. View shows only the drawing and allows zoom and pan
 Present adds a larger pointer with a short trail for an audience. View and
 Present prevent edits. Switching modes preserves the canvas, zoom, and draft. Escape
 closes an active dialog or editor interaction, then returns View or Present to
-Edit and Edit to the workspace. Ctrl+Shift+F toggles fullscreen and Ctrl+K opens
+Edit and Edit to the workspace. Canvases offer the same three modes; Escape in
+an open card editor returns to the board before it leaves fullscreen. Ctrl+Shift+F toggles fullscreen and Ctrl+K opens
 the panel on Windows; macOS uses Command-Shift-F and Command-K. Ctrl+, on Windows
 or Command-, on macOS opens Settings. These work in any mode. Leaving native fullscreen also restores the
 workspace controls. Ordinary HTML, plans, and PR inboxes offer View, Present,
@@ -424,7 +425,56 @@ about as wide as it is tall, and the whole arrange is one undo step.
 
 Each finished gesture is one undo step. Ctrl+Z and Ctrl+Shift+Z (Command on a
 Mac) undo and redo the person's own board steps only. When undo leaves a card
-alone because it changed since, a notice says which card it kept.
+alone because it changed since, a notice says which card it kept. Undoing a
+card delete brings the card back with its content and its own history, also
+after a restart.
+
+Each card shows a read-only picture of its content, scaled to fit the frame
+and centered. Resizing the frame never changes the content. A card smaller
+than about 80 screen pixels shows only its title, and cards far outside the
+view are not drawn.
+
+### Card editor
+
+Double-click a card's picture, press Enter on a selected card, or use Open
+card to open its editor. The editor fills the tab; its bar holds Board (back),
+the card's title, and Undo and Redo for that card. Undo in a card changes only
+that card. The open card and each card's camera are saved with the tab, so a
+restart reopens the same editor at the same place. The editor uses the board's
+camera gestures.
+
+A boxes card is a diagram of boxes, sections and connectors. Its toolbar holds
+Section, Delete selected and a hint line that says what the next gesture does.
+
+- Drag on empty space to draw a box. Section turns the next drag into a
+  section, a dashed area with a title on its top border.
+- Drag a box to move it; boxes snap to a 20-unit grid and line up with other
+  boxes' edges and centers within 6 screen pixels, with a guide line. The
+  handles on a selected box resize it.
+- Double-click a box, or press Enter, to type in it. Escape or Ctrl+Enter
+  (Command+Enter) finishes; for a section title, Enter finishes too. While
+  typing, Change kind under the box lists Box, Database, Queue, Circle and
+  Diamond, with a search field.
+- A selected box shows strips along its edges. Drag from a strip to another
+  box to connect them, or click a strip and then click the other box. Dragging
+  into empty space shows a dashed new box and creates it, connected, in typing
+  mode. Creating it and its first text are one undo step.
+- Click a connector to select it and drag its round ends to reattach them.
+  Double-click it or press Enter to type a label; Enter finishes. While its
+  label is open, Arrow at start and Arrow at end turn each arrowhead on or off.
+- Click a section's border or title to select it. Drag its side or bottom
+  border to move it with every box fully inside it, its corners to resize it,
+  and its title along the top border; the title stops at the start, middle and
+  end.
+- Arrow keys move the selection by one grid step. Delete or Backspace removes
+  the selection and its connectors, and a bar offers Undo for six seconds.
+- Escape during any drag puts things back.
+
+Escape goes back one step at a time: it ends typing or a drag, then returns
+fullscreen View or Present to Edit, then returns from the editor to the board,
+then leaves fullscreen. The board and the editor both offer the fullscreen
+Edit, View and Present modes; View and Present allow zooming and panning but
+no edits.
 
 ## Sketchpad
 

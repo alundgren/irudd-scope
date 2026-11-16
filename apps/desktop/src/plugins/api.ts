@@ -22,6 +22,11 @@ export type TabContext = {
   rename: (title: string) => void;
   /** Closes this tab the way the strip's close button does. */
   close: () => void;
+  /**
+   * Offers Escape to the view after fullscreen View or Present has gone back to Edit and before
+   * fullscreen ends. The handler returns true when it used the key, such as closing a card editor.
+   */
+  onEscape: (handler: () => boolean) => () => void;
 };
 /** How the strip, tooltip, and drawer describe a tab that is not a publication. */
 export type TabLabel = {

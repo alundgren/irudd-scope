@@ -1,0 +1,394 @@
+.boxes-editor,
+.boxes-picture {
+  --boxes-stroke: color-mix(in srgb, var(--scope-muted) 80%, var(--scope-text));
+  --boxes-fill: var(--scope-canvas);
+  --boxes-target: #1f9d68;
+}
+:root[data-theme="dark"] .boxes-editor,
+:root[data-theme="dark"] .boxes-picture {
+  --boxes-target: #3cc48b;
+}
+
+.boxes-editor {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.boxes-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--scope-space-1);
+  align-items: center;
+  padding: var(--scope-space-1) var(--scope-space-3);
+  background: var(--scope-panel);
+  border-bottom: 1px solid var(--scope-line);
+}
+.boxes-toolbar .boxes-hint {
+  padding: 0 var(--scope-space-2);
+  color: var(--scope-muted);
+  font-size: var(--scope-text-detail);
+}
+.boxes-surface {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: clip;
+  background-color: var(--scope-strip);
+  background-image: radial-gradient(var(--scope-line) 1px, transparent 1px);
+  background-size: 20px 20px;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+}
+.boxes-surface-edit {
+  cursor: crosshair;
+}
+.boxes-surface:focus-visible {
+  box-shadow: inset 0 0 0 var(--scope-focus-width) var(--scope-accent);
+}
+
+.boxes-outline {
+  fill: var(--boxes-fill);
+  stroke: var(--boxes-stroke);
+  stroke-width: 2px;
+}
+.boxes-node {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  cursor: move;
+  touch-action: none;
+  outline: none;
+}
+.boxes-node-outline {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.boxes-selected .boxes-outline {
+  stroke: var(--scope-accent);
+  stroke-width: 2.5px;
+}
+.boxes-target .boxes-outline {
+  stroke: var(--boxes-target);
+  stroke-width: 3px;
+}
+.boxes-label,
+.boxes-text {
+  font: 14px var(--scope-font-ui);
+  line-height: 1.35;
+  color: var(--scope-text);
+  text-align: center;
+}
+.boxes-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.boxes-node .boxes-text {
+  position: relative;
+  width: 100%;
+  max-height: 100%;
+  padding: 12px;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  resize: none;
+  user-select: text;
+}
+
+.boxes-node-section {
+  border: 2px dashed var(--boxes-stroke);
+  border-radius: 8px;
+  pointer-events: none;
+}
+.boxes-node-section.boxes-selected {
+  border-color: var(--scope-accent);
+}
+.boxes-section-edge {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+  border-radius: 5px;
+}
+.boxes-section-edge[data-movable] {
+  cursor: move;
+}
+.boxes-section-edge[data-movable]:hover {
+  background: color-mix(in srgb, var(--scope-accent) 15%, transparent);
+}
+.boxes-section-top,
+.boxes-section-bottom {
+  left: 20px;
+  width: calc(100% - 40px);
+  height: 36px;
+}
+.boxes-section-top {
+  top: -18px;
+}
+.boxes-section-bottom {
+  bottom: -18px;
+}
+.boxes-section-left,
+.boxes-section-right {
+  top: 20px;
+  height: calc(100% - 40px);
+  width: 36px;
+}
+.boxes-section-left {
+  left: -18px;
+}
+.boxes-section-right {
+  right: -18px;
+}
+.boxes-section-title,
+.boxes-node-section .boxes-text {
+  position: absolute;
+  top: -15px;
+  z-index: 5;
+  height: 30px;
+  padding: 4px 8px;
+  font: 16px var(--scope-font-ui);
+  color: var(--scope-muted);
+  text-align: left;
+  white-space: nowrap;
+  background: var(--scope-strip);
+  border: 2px dashed var(--boxes-stroke);
+  border-radius: 7px;
+  pointer-events: auto;
+}
+.boxes-section-title {
+  cursor: ew-resize;
+  user-select: none;
+}
+.boxes-node-section.boxes-selected .boxes-section-title,
+.boxes-node-section.boxes-selected .boxes-text {
+  border-color: var(--scope-accent);
+}
+
+.boxes-strip {
+  position: absolute;
+  z-index: 4;
+  border-radius: 5px;
+  cursor: crosshair;
+  touch-action: none;
+}
+.boxes-strip:hover {
+  background: color-mix(in srgb, var(--scope-accent) 35%, transparent);
+}
+.boxes-handle {
+  position: absolute;
+  z-index: 5;
+  width: 14px;
+  height: 14px;
+  background: var(--scope-canvas);
+  border: 2px solid var(--scope-accent);
+  border-radius: 3px;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  touch-action: none;
+}
+.boxes-ghost {
+  position: absolute;
+  z-index: 2;
+  background: color-mix(in srgb, var(--scope-accent) 6%, transparent);
+  border: 2px dashed var(--scope-accent);
+  border-radius: 18px;
+  pointer-events: none;
+}
+.boxes-guide {
+  position: absolute;
+  z-index: 2;
+  border: 0 solid var(--scope-danger);
+  pointer-events: none;
+}
+.boxes-guide-x {
+  top: -100000px;
+  height: 200000px;
+}
+.boxes-guide-y {
+  left: -100000px;
+  width: 200000px;
+}
+
+.boxes-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+.boxes-line {
+  fill: none;
+  stroke: var(--boxes-stroke);
+  stroke-width: 2px;
+}
+.boxes-line-selected {
+  stroke: var(--scope-accent);
+  stroke-width: 3px;
+}
+.boxes-line-preview {
+  stroke: var(--scope-accent);
+  stroke-dasharray: 6 4;
+}
+.boxes-line-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 18px;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.boxes-line-start {
+  fill: var(--scope-accent);
+  stroke: var(--scope-canvas);
+  stroke-width: 2px;
+}
+.boxes-line-end {
+  fill: var(--scope-canvas);
+  stroke: var(--scope-accent);
+  stroke-width: 2px;
+  pointer-events: all;
+  cursor: grab;
+}
+.boxes-line-label,
+.boxes-line-field {
+  position: absolute;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+  padding: 3px 6px;
+  font: 14px var(--scope-font-ui);
+  color: var(--scope-text);
+  text-align: center;
+  white-space: pre;
+  background: var(--scope-strip);
+  border-radius: 4px;
+}
+.boxes-line-label {
+  cursor: pointer;
+}
+.boxes-line-field {
+  width: 160px;
+  border: 1px solid var(--scope-accent);
+  outline: none;
+}
+
+.boxes-kinds,
+.boxes-arrows {
+  position: absolute;
+  z-index: 9;
+}
+.boxes-arrows {
+  display: flex;
+  gap: var(--scope-space-1);
+  padding: var(--scope-space-1);
+  background: var(--scope-panel);
+  border: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-control);
+  box-shadow: var(--scope-shadow);
+}
+.boxes-kind-list {
+  position: absolute;
+  top: calc(100% + var(--scope-space-1));
+  left: 0;
+  display: grid;
+  gap: 2px;
+  width: 240px;
+  padding: var(--scope-space-2);
+  background: var(--scope-panel);
+  border: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-control);
+  box-shadow: var(--scope-shadow);
+}
+.boxes-kind-search {
+  margin-bottom: var(--scope-space-1);
+  padding: var(--scope-space-1) var(--scope-space-2);
+  font: inherit;
+  color: var(--scope-text);
+  background: var(--scope-control);
+  border: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-control);
+}
+.boxes-kind {
+  display: flex;
+  gap: var(--scope-space-2);
+  align-items: center;
+  padding: var(--scope-space-1) var(--scope-space-2);
+  color: var(--scope-text);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: var(--scope-radius-control);
+}
+.boxes-kind:hover,
+.boxes-kind:focus-visible,
+.boxes-kind[aria-checked="true"] {
+  background: var(--scope-selected);
+}
+.boxes-kind .boxes-outline {
+  stroke-width: 1.5px;
+}
+.boxes-undo-bar {
+  position: absolute;
+  bottom: var(--scope-space-4);
+  left: 50%;
+  z-index: 12;
+  display: flex;
+  gap: var(--scope-space-3);
+  align-items: center;
+  padding: var(--scope-space-1) var(--scope-space-1) var(--scope-space-1) var(--scope-space-3);
+  color: var(--scope-text);
+  background: var(--scope-panel);
+  border: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-control);
+  box-shadow: var(--scope-shadow);
+  transform: translateX(-50%);
+}
+
+.boxes-picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.boxes-picture .boxes-label {
+  position: static;
+  width: 100%;
+  height: 100%;
+}
+.boxes-section {
+  fill: none;
+  stroke: var(--boxes-stroke);
+  stroke-width: 2px;
+  stroke-dasharray: 6 4;
+}
+.boxes-section-plate {
+  fill: var(--scope-canvas);
+  stroke: var(--boxes-stroke);
+  stroke-width: 2px;
+  stroke-dasharray: 6 4;
+}
+.boxes-section-text,
+.boxes-line-text {
+  font: 16px var(--scope-font-ui);
+  fill: var(--scope-muted);
+  dominant-baseline: central;
+}
+.boxes-line-text {
+  font-size: 14px;
+  fill: var(--scope-text);
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--scope-canvas);
+  stroke-width: 6px;
+}

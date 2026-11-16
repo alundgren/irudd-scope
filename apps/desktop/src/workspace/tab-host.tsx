@@ -29,6 +29,7 @@ export function TabHost({
   updateState,
   updateTitle,
   updateOverlayPosition,
+  escapes,
   active,
   onClose,
   ...display
@@ -42,6 +43,8 @@ export function TabHost({
     name: OverlayName,
     position: OverlayPosition | undefined,
   ) => void;
+  /** Escape handlers by tab ID; the workspace calls the selected tab's. */
+  escapes: Map<string, () => boolean>;
   active: boolean;
   onClose: (id: string) => void;
   artifact?: Artifact;
@@ -102,6 +105,12 @@ export function TabHost({
             updateState: (state) => updateState(tab.id, state),
             rename: (title) => updateTitle(tab.id, title),
             close: () => onClose(tab.id),
+            onEscape: (handler) => {
+              escapes.set(tab.id, handler);
+              return () => {
+                if (escapes.get(tab.id) === handler) escapes.delete(tab.id);
+              };
+            },
             updateOverlayPosition: (name, position) =>
               updateOverlayPosition(tab.id, name, position),
             onBeforeClose: (save) => {

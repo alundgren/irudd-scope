@@ -5,14 +5,18 @@ import type { TabContext } from "../api.ts";
 import type { Tab } from "../../workspace/contract.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { Board, defaultCamera } from "./board.tsx";
+import { CardEditor, useIdPool } from "./card-editor.tsx";
 import {
   CanvasTabState,
   canvasTabState,
   type CanvasCamera,
+  type CanvasTarget,
   type CanvasWriteResult,
 } from "./contract.ts";
 import { useCanvas } from "./use-canvas.ts";
 import "./style.css";
+
+const EDITOR_CAMERA: CanvasCamera = { x: -80, y: -80, zoom: 1 };
 
 function savedState(tab: Tab): CanvasTabState {
   try {
@@ -20,6 +24,33 @@ function savedState(tab: Tab): CanvasTabState {
   } catch {
     return canvasTabState();
   }
+}
+
+/** Tab state the view saves itself: the cameras and which card is open. */
+function useViewState(tab: Tab, context: TabContext) {
+  const state = useRef(savedState(tab));
+  const [data, setData] = useState(state.current.data);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const save = useCallback(() => {
+    clearTimeout(timer.current);
+    timer.current = undefined;
+    context.updateState(state.current);
+  }, [context]);
+  // Cameras are tab state, not content, so moving around never enters history.
+  const update = useCallback(
+    (change: (data: CanvasTabState["data"]) => CanvasTabState["data"], now = false) => {
+      state.current = { ...state.current, data: change(state.current.data) };
+      setData(state.current.data);
+      if (now) return save();
+      clearTimeout(timer.current);
+      timer.current = setTimeout(save, 250);
+    },
+    [save],
+  );
+  const flush = useCallback(() => {
+    if (timer.current) save();
+  }, [save]);
+  return { data, update, flush };
 }
 
 export function CanvasView({
@@ -35,46 +66,32 @@ export function CanvasView({
 }) {
   const [notice, setNotice] = useState("");
   const canvas = useCanvas(context.tabId, setNotice);
-  const state = useRef(savedState(tab));
-  const [camera, setCamera] = useState<CanvasCamera>(state.current.data.camera ?? defaultCamera);
-  const saveCamera = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const { data, update, flush } = useViewState(tab, context);
+  const newId = useIdPool(context.tabId);
+  const open = data.open;
+  const openCard = open && canvas.snapshot?.cards[open] && canvas.snapshot.board.cards[open];
 
-  // The camera is tab state, not content, so moving around never enters history.
-  const moveCamera = useCallback(
-    (next: CanvasCamera) => {
-      setCamera(next);
-      clearTimeout(saveCamera.current);
-      saveCamera.current = setTimeout(() => {
-        state.current = { ...state.current, data: { ...state.current.data, camera: next } };
-        context.updateState(state.current);
-      }, 250);
-    },
-    [context],
-  );
-
+  const close = useCallback(() => update(({ open: _open, ...rest }) => rest, true), [update]);
+  useEffect(() => context.onEscape(() => (openCard ? (close(), true) : false)), [openCard, close]);
   useEffect(
     () =>
       context.onBeforeClose(async () => {
-        if (saveCamera.current) {
-          clearTimeout(saveCamera.current);
-          context.updateState({
-            ...state.current,
-            data: { ...state.current.data, camera },
-          });
-        }
+        flush();
         await canvas.flush();
       }),
-    [canvas.flush, camera],
+    [canvas.flush, flush],
   );
 
   const step = useCallback(
-    (direction: "undo" | "redo") =>
-      void canvas.step({ board: true }, direction).then((result: CanvasWriteResult) => {
+    (target: CanvasTarget, direction: "undo" | "redo") =>
+      void canvas.step(target, direction).then((result: CanvasWriteResult) => {
         if (!result.ok || !result.kept.length) return;
-        const titles = result.kept.map(
-          (kept) => canvas.snapshot?.board.cards[kept.id]?.title ?? "a card",
+        const names = result.kept.map((kept) =>
+          "board" in target
+            ? (canvas.snapshot?.board.cards[kept.id]?.title ?? "a card")
+            : "a record",
         );
-        setNotice(`Kept ${[...new Set(titles)].join(", ")} as it is now.`);
+        setNotice(`Kept ${[...new Set(names)].join(", ")} as it is now.`);
       }),
     [canvas.step, canvas.snapshot],
   );
@@ -109,17 +126,37 @@ export function CanvasView({
           </Button>
         </div>
       )}
-      <Board
-        name={tab.title}
-        onRename={context.rename}
-        snapshot={canvas.snapshot}
-        camera={camera}
-        editable={!viewing}
-        active={active}
-        onCamera={moveCamera}
-        write={canvas.write}
-        step={step}
-      />
+      {openCard && open ? (
+        <CardEditor
+          cardId={open}
+          card={openCard}
+          row={canvas.snapshot.cards[open]}
+          history={canvas.snapshot.history[open]}
+          editable={!viewing}
+          active={active}
+          camera={data.cameras?.[open] ?? EDITOR_CAMERA}
+          onCamera={(camera) =>
+            update((data) => ({ ...data, cameras: { ...data.cameras, [open]: camera } }))
+          }
+          onBack={close}
+          write={canvas.write}
+          step={(direction) => step({ card: open }, direction)}
+          newId={newId}
+        />
+      ) : (
+        <Board
+          name={tab.title}
+          onRename={context.rename}
+          snapshot={canvas.snapshot}
+          camera={data.camera ?? defaultCamera}
+          editable={!viewing}
+          active={active}
+          onCamera={(camera) => update((data) => ({ ...data, camera }))}
+          onOpen={(id) => update((data) => ({ ...data, open: id }), true)}
+          write={canvas.write}
+          step={(direction) => step({ board: true }, direction)}
+        />
+      )}
     </div>
   );
 }

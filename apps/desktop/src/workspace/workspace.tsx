@@ -140,13 +140,15 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
     setPendingTabFocus(undefined);
   }, [pendingTabFocus, workspace.selected, focus, search, settings, details, overflow]);
   const modeSelect = useRef<HTMLSelectElement>(null);
+  const escapes = useRef(new Map<string, () => boolean>());
   const artifacts = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const active = workspace.tabs.find((tab) => tab.id === workspace.selected);
   const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
   const html = ["html", "plan", "pull-requests"].includes(activeArtifact?.kind ?? "");
-  const hasModes = active?.type === "sketchpad" || html;
+  const editsInFullscreen = active?.type === "sketchpad" || active?.type === "canvas";
+  const hasModes = editsInFullscreen || html;
   const returnFocus = focus && hasModes ? modeSelect : controlsButton;
-  const viewing = focus && active?.type === "sketchpad" && fullscreenMode !== "edit";
+  const viewing = focus && editsInFullscreen && fullscreenMode !== "edit";
   const presentation = focus && hasModes && fullscreenMode === "present";
   const trashedArtifacts = new Set(
     retention.tabs
@@ -393,6 +395,8 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
       } else if (event.key === "Escape" && viewing) {
         event.preventDefault();
         setFullscreenMode("edit");
+      } else if (event.key === "Escape" && active && escapes.current.get(active.id)?.()) {
+        event.preventDefault();
       } else if (event.key === "Escape" && focus) {
         event.preventDefault();
         toggleFocus();
@@ -455,7 +459,13 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
               size="sm"
               className="fullscreen-mode-select"
               ref={modeSelect}
-              aria-label={html ? "Fullscreen HTML mode" : "Fullscreen Sketchpad mode"}
+              aria-label={
+                html
+                  ? "Fullscreen HTML mode"
+                  : active.type === "canvas"
+                    ? "Fullscreen canvas mode"
+                    : "Fullscreen Sketchpad mode"
+              }
               value={html && fullscreenMode === "edit" ? "view" : fullscreenMode}
               onChange={(event) => {
                 if (event.target.value === "tabs") toggleFocus();
@@ -533,6 +543,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                   router={events}
                   updateState={updateState}
                   updateTitle={(id, title) => updateTab(id, { title })}
+                  escapes={escapes.current}
                   updateOverlayPosition={updateOverlayPosition}
                   onClose={(id) => void close(id)}
                   theme={theme}
