@@ -18,6 +18,8 @@ export type TabContext = {
   updateState: (state: TabState) => void;
   updateOverlayPosition: (name: OverlayName, position: OverlayPosition | undefined) => void;
   onBeforeClose: (save: (purpose: WorkspaceFlushPurpose) => Promise<void>) => () => void;
+  /** Renames the tab, for views whose title the person edits, such as a canvas name. */
+  rename: (title: string) => void;
   /** Closes this tab the way the strip's close button does. */
   close: () => void;
 };

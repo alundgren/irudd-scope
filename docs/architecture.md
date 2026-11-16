@@ -597,6 +597,9 @@ formats are compatibility contracts.
 | Settings         | Appearance, provider configuration, and credential presence.                                     | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.               |
 | Sketchpad        | The built-in Excalidraw canvas the person uses; agents have no access to it.                     | `apps/desktop/src/plugins/sketchpad/view.tsx` owns editing.                                               |
 | Sketchpad draft  | Local Excalidraw serialization and view position, stored only while the canvas is not empty.     | `apps/desktop/src/plugins/sketchpad/contract.ts`; `library/store.ts` stores drafts.                       |
+| Canvas           | A tab holding a board of cards; the person adds, arranges and opens them.                        | `apps/desktop/src/plugins/canvas/` shows it; `library/canvas-store.ts` stores it in `scope.db`.           |
+| Card             | One diagram on a canvas, with a type such as boxes, a frame on the board and its own content.    | `plugins/canvas/cards/` defines card types; `plugins/canvas/contract.ts` defines frames and changes.      |
+| Canvas change    | One gesture's `put`, `set` and `del` ops against the board or one card, from the version read.   | `plugins/canvas/changes.ts` applies and undoes them; main is the only writer.                             |
 | Publishing token | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                   | Desktop discovery file; CLI and optional hub use it.                                                      |
 | Folder tab       | A live tree of one folder on one machine, keyed by machine ID and canonical path.                | `packages/folder` reads files; `plugins/folder` shows them; `folder_tabs` in `scope.db` keeps the key.    |
 | Harness scan     | One machine's coding agent harnesses at one time, without secrets.                               | `packages/harnesses` scans; `packages/protocol/src/harnesses.ts` defines it; `harness_scans` keeps it.    |
@@ -703,7 +706,9 @@ display an unavailable view.
 Each directory under `plugins/` owns one built-in implementation. `file/`
 keeps the existing image, Markdown, HTML, text, and download fallback views
 together. `sketchpad/` owns the built-in Excalidraw editor, its Reset and
-undo window, and its draft contract. `harnesses/` owns the Harnesses overview, its reader and its
+undo window, and its draft contract. `canvas/` owns canvas tabs: the board,
+card types, the change and undo rules, and their IPC operations; main writes
+every change. `harnesses/` owns the Harnesses overview, its reader and its
 IPC operations; it keeps no tab data of its own. A plugin can render
 content without referencing a library item. Publication support is an optional
 registration. These are trusted modules in one renderer.

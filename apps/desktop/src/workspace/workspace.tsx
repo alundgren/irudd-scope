@@ -1,6 +1,7 @@
 import { promptsTabState } from "../plugins/prompts/contract.ts";
 import { memoryTabState } from "../plugins/memory/contract.ts";
 import { sketchpadTabState } from "../plugins/sketchpad/contract.ts";
+import { CANVAS_TAB_TYPE, canvasTabState } from "../plugins/canvas/contract.ts";
 import { harnessesTabState } from "../plugins/harnesses/contract.ts";
 import { sessionsTabState } from "../plugins/sessions/contract.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -17,6 +18,7 @@ import {
   Activity,
   Bot,
   Trash2,
+  LayoutDashboard,
 } from "lucide-react";
 import { Button } from "../renderer/components/ui/button.tsx";
 import { NativeSelect, NativeSelectOption } from "../renderer/components/ui/native-select.tsx";
@@ -530,6 +532,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
                   artifact={artifact}
                   router={events}
                   updateState={updateState}
+                  updateTitle={(id, title) => updateTab(id, { title })}
                   updateOverlayPosition={updateOverlayPosition}
                   onClose={(id) => void close(id)}
                   theme={theme}
@@ -586,6 +589,20 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
             keywords: "prompt text image library fragments",
             icon: PencilLine,
             onSelect: () => void openBuiltinTab("prompts", "Prompts", promptsTabState()),
+          },
+          {
+            id: "new-canvas",
+            title: "New canvas",
+            keywords: "canvas whiteboard board cards diagram boxes arrows",
+            icon: LayoutDashboard,
+            onSelect: () =>
+              void activate({
+                id: crypto.randomUUID(),
+                groupId: workspace.groups[0].id,
+                type: CANVAS_TAB_TYPE,
+                title: "Untitled canvas",
+                state: canvasTabState(),
+              }).then((opened) => opened && setSettings(false)),
           },
           {
             id: "sketchpad",

@@ -12,6 +12,13 @@ import type { SettingsUpdate, SettingsView } from "./settings.ts";
 import type { RetainedTab, TrashEntry } from "./workspace/retention.ts";
 import type { Tab, Workspace } from "./workspace/contract.ts";
 import type { SketchpadDraft } from "./plugins/sketchpad/contract.ts";
+import type {
+  CanvasChange,
+  CanvasChanged,
+  CanvasSnapshot,
+  CanvasStep,
+  CanvasWriteResult,
+} from "./plugins/canvas/contract.ts";
 import type { AgentToolStatus, SigningCertificate, UpdateStatus } from "./installation-contract.ts";
 import type { RemoteStatus } from "./remote-contract.ts";
 import type { MemoryStatus } from "@irudd-scope/protocol/memory";
@@ -235,6 +242,13 @@ export type ScopeBridge = {
   sketchpadDraft: (id: string) => Promise<SketchpadDraft | null>;
   saveSketchpadDraft: (id: string, draft: SketchpadDraft) => Promise<void>;
   deleteSketchpadDraft: (id: string) => Promise<void>;
+  canvasRead: (tabId: string) => Promise<CanvasSnapshot | null>;
+  canvasChange: (change: CanvasChange) => Promise<CanvasWriteResult>;
+  /** Undoes or redoes the person's own latest step on the board or in one card. */
+  canvasStep: (step: CanvasStep) => Promise<CanvasWriteResult>;
+  /** Reserves new record IDs, so an editor can show a new record before main confirms it. */
+  canvasIds: (input: { tabId: string; count: number }) => Promise<string[]>;
+  onCanvasChanged: (listener: (event: CanvasChanged) => void) => () => void;
   onBeforeClose: (listener: () => Promise<void>) => () => void;
   artifactLibrary: () => Promise<ArtifactLibrarySnapshot>;
   content: (id: string, revision: number) => Promise<ArtifactContent>;

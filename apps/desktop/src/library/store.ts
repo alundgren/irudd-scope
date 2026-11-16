@@ -1,5 +1,6 @@
 import { readPlan, settlePlan } from "@irudd-scope/protocol/plan";
 import { upgradePlanDocuments } from "./plan-upgrade.ts";
+import { CANVAS_SCHEMA_VERSION, CanvasStore } from "./canvas-store.ts";
 import { PromptDraft } from "../plugins/prompts/contract.ts";
 import { PromptStore } from "./prompt-store.ts";
 import { RetroStore, initializeRetroTab } from "./retro-store.ts";
@@ -21,7 +22,7 @@ import {
   decode,
   validateArtifactContent,
 } from "@irudd-scope/protocol";
-import { isBuiltinTab } from "../plugins/registry.ts";
+import { createsPermanentTab, isBuiltinTab } from "../plugins/registry.ts";
 import { Tab, Uuid, tabArtifactId } from "../workspace/contract.ts";
 import {
   TEMPORARY_RETENTION_MS,
@@ -75,6 +76,7 @@ export class ArtifactStore {
   prompts!: PromptStore;
   retros!: RetroStore;
   pullRequests!: PullRequestStore;
+  canvases!: CanvasStore;
   onChanged: (event: LiveEvent) => void = () => {};
   private readonly listeners = new Set<(event?: LiveEvent) => void>();
   subscribe(listener: (event?: LiveEvent) => void): () => void {
@@ -137,6 +139,13 @@ export class ArtifactStore {
       await store.pullRequests.recoverInterruptedSync();
       await store.removeGuestSharing();
       await store.run(upgradePlanDocuments(sql));
+      // Runs after the plan upgrade, which skips databases already at a later schema version.
+      store.canvases = new CanvasStore({
+        sql,
+        run: (effect) => store.run(effect),
+        mutate: (effect, events) => store.mutate(effect, events),
+      });
+      await store.canvases.initialize();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -219,7 +228,8 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > 18) throw new Error("The artifact database requires a newer Scope version.");
+    if (version > CANVAS_SCHEMA_VERSION)
+      throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
     const legacyDirectory = join(directory, "blobs");
@@ -763,7 +773,7 @@ export class ArtifactStore {
           const opened = previous && staleFolderTab(previous, tab) ? previous : { ...tab, id };
           const rows =
             yield* sql`UPDATE live_tabs SET opened = 1, document = ${JSON.stringify(opened)},
-          permanent = CASE WHEN ${Number(isBuiltinTab(opened))} THEN 1 ELSE permanent END,
+          permanent = CASE WHEN ${Number(isBuiltinTab(opened))} OR (opened = 0 AND ${Number(createsPermanentTab(opened))}) THEN 1 ELSE permanent END,
           last_visible_at = CASE WHEN opened = 0 THEN ${Date.now()} ELSE last_visible_at END,
           position = CASE WHEN opened = 0 THEN (SELECT coalesce(max(position), -1) + 1 FROM live_tabs WHERE opened = 1) ELSE position END
           WHERE id = ${id} AND trashed_at IS NULL AND artifact_id IS ${artifactId ?? null} RETURNING id`;

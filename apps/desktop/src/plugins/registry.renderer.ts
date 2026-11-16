@@ -12,6 +12,7 @@ import { retroPlugin } from "./retro/renderer.tsx";
 import { folderPlugin } from "./folder/renderer.tsx";
 import { harnessesPlugin } from "./harnesses/renderer.tsx";
 import { sessionsPlugin } from "./sessions/renderer.tsx";
+import { canvasPlugin } from "./canvas/renderer.tsx";
 
 export const tabPlugins = [
   promptsPlugin,
@@ -23,6 +24,7 @@ export const tabPlugins = [
   folderPlugin,
   harnessesPlugin,
   sessionsPlugin,
+  canvasPlugin,
   filePlugin,
 ];
 export const findPlugin = (type: string) => tabPlugins.find((plugin) => plugin.type === type);

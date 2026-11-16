@@ -249,6 +249,11 @@ const bridge: ScopeBridge = {
   saveSketchpadDraft: (id, draft) =>
     ipcRenderer.invoke("scope:save-sketchpad-draft", { id, draft }),
   deleteSketchpadDraft: (id) => ipcRenderer.invoke("scope:delete-sketchpad-draft", id),
+  canvasRead: (tabId) => ipcRenderer.invoke("scope:canvas-read", tabId),
+  canvasChange: (change) => ipcRenderer.invoke("scope:canvas-change", change),
+  canvasStep: (step) => ipcRenderer.invoke("scope:canvas-step", step),
+  canvasIds: (input) => ipcRenderer.invoke("scope:canvas-ids", input),
+  onCanvasChanged: (listener) => subscribe("scope:canvas-changed", listener),
   onBeforeClose: (listener) => {
     const flush = () => {
       void listener().then(
