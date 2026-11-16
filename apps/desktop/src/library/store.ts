@@ -1,6 +1,7 @@
 import { readPlan, settlePlan } from "@irudd-scope/protocol/plan";
 import { upgradePlanDocuments } from "./plan-upgrade.ts";
-import { CANVAS_SCHEMA_VERSION, CanvasStore } from "./canvas-store.ts";
+import { CanvasStore } from "./canvas-store.ts";
+import { CHAT_SCHEMA_VERSION, CardChatStore } from "./card-chat-store.ts";
 import { PromptDraft } from "../plugins/prompts/contract.ts";
 import { PromptStore } from "./prompt-store.ts";
 import { RetroStore, initializeRetroTab } from "./retro-store.ts";
@@ -77,6 +78,7 @@ export class ArtifactStore {
   retros!: RetroStore;
   pullRequests!: PullRequestStore;
   canvases!: CanvasStore;
+  chats!: CardChatStore;
   onChanged: (event: LiveEvent) => void = () => {};
   private readonly listeners = new Set<(event?: LiveEvent) => void>();
   subscribe(listener: (event?: LiveEvent) => void): () => void {
@@ -146,6 +148,8 @@ export class ArtifactStore {
         mutate: (effect, events) => store.mutate(effect, events),
       });
       await store.canvases.initialize();
+      store.chats = new CardChatStore({ sql, run: (effect) => store.run(effect) });
+      await store.chats.initialize();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -228,7 +232,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > CANVAS_SCHEMA_VERSION)
+    if (version > CHAT_SCHEMA_VERSION)
       throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 

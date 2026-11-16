@@ -355,6 +355,14 @@ evidence record stores a fingerprint of its check's expectation, conditions, met
 and kind; a changed check makes that evidence stale. Publication may store a settled
 copy instead of the uploaded bytes when it drops progress for removed or changed items.
 
+Artifact schema 20 adds `canvas_chat`, one row per card chat with the program,
+its session ID, whether a turn was running and the items the panel shows, and
+`canvas_chat_folders`, the card IDs whose working folder this Scope made under
+`<OS temp>/scope-card-chats/`. A chat row goes away with its card's row. Scope
+removes a folder only once its card can no longer come back, and never touches
+folders it did not record. It changes no existing rows. Older builds reject
+schema 20.
+
 Artifact schema 19 adds the canvas tables: `canvas_boards` (each canvas's board
 of card frames), `canvas_cards` (each card's content), `canvas_history` (undo
 steps), `canvas_requests` (each change's receipt for 30 days, so a retried

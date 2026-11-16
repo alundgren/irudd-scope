@@ -4,6 +4,7 @@ import { scanHarnesses, scanSharedSkills } from "./scan.ts";
 import { measureFolder } from "./size.ts";
 
 export { readHarnessFile, type HarnessFileOptions } from "./file.ts";
+export { findProgram } from "./program.ts";
 
 export type HarnessScanOptions = {
   /** The account's home folder: `HOME` on macOS and Linux, `%USERPROFILE%` on Windows. */

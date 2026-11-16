@@ -23,15 +23,27 @@ const CHANNELS = ["state", "send", "approve", "stop", "undo-turn"] as const;
  * accepted only from this view, whose page and preload Scope alone loads.
  */
 export function registerCardChat(
-  { window, handle, store }: MainPluginContext,
+  { window, handle, store, artifacts }: MainPluginContext,
   harnesses: ChatHarness[],
 ) {
   let view: WebContentsView | undefined;
   let target: ChatTarget | null = null;
   let theme: ChatTheme = "light";
-  const chats = new CardChats(harnesses, (changed) => {
-    if (sameTarget(changed, target)) publish();
-  });
+  const saved = artifacts.chats;
+  const chats = new CardChats(
+    harnesses,
+    (changed) => {
+      if (sameTarget(changed, target)) publish();
+    },
+    {
+      read: ({ tabId, cardId }) => saved.read(tabId, cardId),
+      save: ({ tabId, cardId }, chat) => saved.save(tabId, cardId, chat),
+      folderMade: (cardId) => saved.folderMade(cardId),
+      goneFolders: () => saved.goneFolders(),
+      forgetFolder: (cardId) => saved.forgetFolder(cardId),
+    },
+  );
+  void chats.sweep();
 
   function publish() {
     if (view && !view.webContents.isDestroyed()) {
@@ -81,7 +93,7 @@ export function registerCardChat(
     view.setVisible(true);
   }
 
-  handle("scope:chat-layout", (input) => {
+  handle("scope:chat-layout", async (input) => {
     const layout = decode(ChatLayout, input);
     if (!store.settings().cardChatEnabled || window.isDestroyed()) {
       target = null;
@@ -90,11 +102,16 @@ export function registerCardChat(
     }
     if (layout.bounds) {
       const moved = !sameTarget(layout.target, target) || layout.theme !== theme;
+      if (!sameTarget(layout.target, target)) await chats.load(layout.target);
       theme = layout.theme;
       target = layout.target;
       place(layout.bounds);
       if (moved) publish();
-    } else if (sameTarget(layout.target, target)) place(null);
+    } else if (sameTarget(layout.target, target)) {
+      // Showing the card again loads it again, which lets a blocked chat check the login anew.
+      target = null;
+      place(null);
+    }
   });
   // A reload or crash of the workspace page drops its editors, so nothing holds room for the panel.
   const hide = () => place(null);
@@ -150,6 +167,7 @@ export function registerCardChat(
 
   return {
     chats,
+    removed: (tabIds: readonly string[]) => chats.removed(tabIds),
     dispose() {
       for (const name of CHANNELS) ipcMain.removeHandler(`scope-chat:${name}`);
       window.webContents.removeListener("did-start-navigation", hide);
