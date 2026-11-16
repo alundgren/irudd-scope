@@ -111,6 +111,20 @@ export function SettingsViewPanel({
           </label>
           <p className="secondary">System follows your device's appearance.</p>
         </SettingsSection>
+        <SettingsSection id="chat" query={query}>
+          <Switch
+            label="Card chat"
+            checked={settings?.cardChatEnabled ?? false}
+            disabled={busy || !settings}
+            describedBy="card-chat-description"
+            onCheckedChange={(enabled) => void save({ cardChatEnabled: enabled })}
+          />
+          <p className="secondary" id="card-chat-description">
+            Shows a chat beside each card's editor. It runs your own installed Claude Code or Codex
+            with your login, settings and tools, and can change the open card. Chat uses your plan,
+            never an API key.
+          </p>
+        </SettingsSection>
         <SettingsSection id="voice" query={query}>
           <Switch
             label="Voice generation"

@@ -50,6 +50,7 @@ const SavedSettings = Schema.Struct({
   provider: Schema.Literal(SAVED_PROVIDER),
   model: Schema.Literal(SAVED_MODEL),
 });
+const CardChatPreference = Schema.Struct({ enabled: Schema.Boolean });
 const LegacySettings = Schema.Struct({
   ...SavedSettings.fields,
   version: Schema.Literals([1, 2]),
@@ -89,6 +90,8 @@ export class DesktopStore {
   private runtime?: ReturnType<typeof databaseRuntime>;
   private sql?: SqliteClient.SqliteClient;
   private hasApiKey: boolean | null = null;
+  // Kept in its own row because older builds reject unknown fields in the settings document.
+  private cardChatEnabled = false;
   private credentialError?: string;
   private legacyApiKey?: string;
   private pending = Promise.resolve();
@@ -155,6 +158,12 @@ export class DesktopStore {
       const [row] = await this.run(
         sql<{ document: string }>`SELECT document FROM preferences WHERE name = 'settings'`,
       );
+      const [chat] = await this.run(
+        sql<{ document: string }>`SELECT document FROM preferences WHERE name = 'card-chat'`,
+      );
+      this.cardChatEnabled = chat
+        ? decode(CardChatPreference, JSON.parse(chat.document)).enabled
+        : false;
       const legacy = await readFile(join(this.directory, "settings.json"), "utf8").catch(
         (error: unknown) => {
           if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
@@ -550,6 +559,7 @@ export class DesktopStore {
     return {
       appearance: this.saved.appearance ?? "system",
       voiceGenerationEnabled: this.saved.voiceGenerationEnabled ?? false,
+      cardChatEnabled: this.cardChatEnabled,
       hasApiKey: this.hasApiKey,
       keyStorage: this.credentials.kind,
       ...(this.credentialError ? { credentialError: this.credentialError } : {}),
@@ -594,6 +604,13 @@ export class DesktopStore {
       await this.run(
         this.sql!`UPDATE preferences SET document = ${JSON.stringify(next)} WHERE name = 'settings'`,
       );
+      if (input.cardChatEnabled !== undefined) {
+        const document = JSON.stringify({ enabled: input.cardChatEnabled });
+        await this.run(
+          this.sql!`INSERT INTO preferences(name, document) VALUES ('card-chat', ${document}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+        );
+        this.cardChatEnabled = input.cardChatEnabled;
+      }
       this.saved = next;
       return this.settings();
     });

@@ -6,6 +6,7 @@ export type Appearance = typeof Appearance.Type;
 export const SettingsUpdate = Schema.Struct({
   appearance: Schema.optionalKey(Appearance),
   voiceGenerationEnabled: Schema.optionalKey(Schema.Boolean),
+  cardChatEnabled: Schema.optionalKey(Schema.Boolean),
   apiKey: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096))),
   removeApiKey: Schema.optionalKey(Schema.Boolean),
 });
@@ -20,6 +21,7 @@ export function decodeSettingsUpdate(value: unknown): SettingsUpdate {
 export type SettingsView = {
   appearance: Appearance;
   voiceGenerationEnabled: boolean;
+  cardChatEnabled: boolean;
   hasApiKey: boolean | null;
   keyStorage: "keychain" | "windows" | "session";
   credentialError?: string;

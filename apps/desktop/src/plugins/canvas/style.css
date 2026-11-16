@@ -197,6 +197,22 @@
   min-height: 0;
   flex-direction: column;
 }
+.canvas-card-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.canvas-card-main > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+/* Main shows the chat view over this space; it stays empty in the workspace page. */
+.canvas-chat-slot {
+  flex: none;
+  width: 360px;
+  background: var(--scope-panel);
+  border-left: 1px solid var(--scope-line);
+}
 .canvas-card-header {
   display: flex;
   gap: var(--scope-space-2);

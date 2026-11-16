@@ -29,6 +29,12 @@ export default defineConfig({
     emptyOutDir: true,
     target: "chrome152",
     chunkSizeWarningLimit: 5000,
+    rolldownOptions: {
+      input: {
+        index: resolve(directory, "src/renderer/index.html"),
+        chat: resolve(directory, "src/renderer/chat.html"),
+      },
+    },
   },
   pack: [
     {
@@ -63,6 +69,16 @@ export default defineConfig({
     },
     {
       entry: { preload: "src/preload.ts" },
+      outDir: "dist",
+      clean: false,
+      format: "cjs",
+      target: "node24",
+      platform: "node",
+      deps: { neverBundle: ["electron"] },
+      outExtensions: () => ({ js: ".cjs" }),
+    },
+    {
+      entry: { "chat-preload": "src/plugins/canvas/chat/preload.ts" },
       outDir: "dist",
       clean: false,
       format: "cjs",

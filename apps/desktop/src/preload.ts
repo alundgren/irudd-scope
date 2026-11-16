@@ -253,6 +253,7 @@ const bridge: ScopeBridge = {
   canvasChange: (change) => ipcRenderer.invoke("scope:canvas-change", change),
   canvasStep: (step) => ipcRenderer.invoke("scope:canvas-step", step),
   canvasIds: (input) => ipcRenderer.invoke("scope:canvas-ids", input),
+  chatLayout: (layout) => ipcRenderer.invoke("scope:chat-layout", layout),
   onCanvasChanged: (listener) => subscribe("scope:canvas-changed", listener),
   onBeforeClose: (listener) => {
     const flush = () => {

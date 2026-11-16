@@ -9,6 +9,7 @@ import type { RetroCommand, RetroReply, RetroConfiguration } from "@irudd-scope/
 import type { RetroEvent } from "@irudd-scope/protocol";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { SettingsUpdate, SettingsView } from "./settings.ts";
+import type { ChatLayout } from "./plugins/canvas/chat/contract.ts";
 import type { RetainedTab, TrashEntry } from "./workspace/retention.ts";
 import type { Tab, Workspace } from "./workspace/contract.ts";
 import type { SketchpadDraft } from "./plugins/sketchpad/contract.ts";
@@ -248,6 +249,8 @@ export type ScopeBridge = {
   canvasStep: (step: CanvasStep) => Promise<CanvasWriteResult>;
   /** Reserves new record IDs, so an editor can show a new record before main confirms it. */
   canvasIds: (input: { tabId: string; count: number }) => Promise<string[]>;
+  /** Tells main where the open card editor keeps room for the chat panel, or that it has none. */
+  chatLayout: (layout: ChatLayout) => Promise<void>;
   onCanvasChanged: (listener: (event: CanvasChanged) => void) => () => void;
   onBeforeClose: (listener: () => Promise<void>) => () => void;
   artifactLibrary: () => Promise<ArtifactLibrarySnapshot>;

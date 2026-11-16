@@ -476,6 +476,23 @@ then leaves fullscreen. The board and the editor both offer the fullscreen
 Edit, View and Present modes; View and Present allow zooming and panning but
 no edits.
 
+### Card chat
+
+Card chat is off until the Card chat switch in Settings turns it on. Then each
+card's editor keeps a 360-pixel column on its right for a chat about that
+card. The chat shows only while the editor is in Edit and steps aside while a
+dialog is open, because it runs in a separate page that sits above the
+workspace page. It takes the workspace's colors.
+
+The column lists the conversation: the person's messages on the right, the
+agent's replies as plain text, one line per tool the agent runs, a card for
+each approval request with Allow and Deny, and a card at the end of each turn.
+A turn that changed the card lists the changes with Undo turn. Notices, such as
+a change kept where the person moved something, appear as small centered
+lines. Enter sends and Shift+Enter starts a new line; Stop replaces Send while
+a turn runs. When chat can't start, such as when it would be billed to an API
+key, the reason shows above the message box and the box stays off.
+
 ## Sketchpad
 
 The Sketchpad is one built-in Excalidraw canvas for the person's own ideas.

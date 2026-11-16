@@ -69,6 +69,7 @@ try {
   for (const entry of [
     "main.mjs",
     "preload.cjs",
+    "chat-preload.cjs",
     "folder-writer.mjs",
     "sessions-reader.mjs",
     "renderer",
