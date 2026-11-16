@@ -30,7 +30,7 @@ const login = process.env.FAKE_CLAUDE_ACCOUNT_FILE
 const account =
   login === "api-key"
     ? { apiKeySource: "ANTHROPIC_API_KEY", apiProvider: "firstParty" }
-    : { email: "person@example.com", subscriptionType: "max", apiProvider: "firstParty" };
+    : { email: "person@example.com", subscriptionType: "Claude Max", apiProvider: "firstParty" };
 
 const fill = (template, values) =>
   JSON.parse(JSON.stringify(template), (_key, value) =>

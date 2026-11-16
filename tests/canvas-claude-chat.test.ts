@@ -128,7 +128,7 @@ test.skipIf(process.platform === "win32")(
       await say(chat, "hello");
       await agentSaid(chat, "Fake reply to: hello");
       await expect.poll(() => turns(chat, "Turn finished")).toBe(1);
-      await chat.getByText("Claude · max plan", { exact: true }).waitFor();
+      await chat.getByText("Max plan", { exact: true }).waitFor();
       expect(await chat.getByRole("alert").count()).toBe(0);
       const starts = (await claude.log()).filter((entry) => entry.event === "start");
       expect(starts.at(-1)?.cwd).toBe(join(claude.folders, cardId));

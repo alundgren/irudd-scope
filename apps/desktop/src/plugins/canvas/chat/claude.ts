@@ -171,7 +171,8 @@ export function claudeHarness({
         close();
         return { send: async () => {}, approve: () => {}, stop: () => {}, close: () => {} };
       }
-      emit({ type: "account", label: `Claude · ${plan} plan` });
+      // The header already names Claude; the plan reads like "Claude Max".
+      emit({ type: "account", label: `${plan.replace(/^Claude\s+/i, "")} plan` });
 
       const receive = (message: SDKMessage) => {
         if (message.type === "system" && message.subtype === "init")
