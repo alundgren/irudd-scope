@@ -922,6 +922,18 @@ closing the chat or quitting Scope stops what it started. A later message
 resumes the saved session ID. Tests set `SCOPE_CLAUDE_COMMAND` to a fake program
 so they never start the person's claude.
 
+Card chat can also run the person's own `codex app-server`, found the same way,
+speaking its JSON lines over stdin and stdout. Scope needs Codex 0.169.0 or
+newer, read from the `initialize` answer, because older app servers lack the
+dynamic tools it uses. It asks `account/read` first and runs only on a ChatGPT
+login; an API key turns chat off. Each card gets one thread in its own folder,
+started with `read_diagram` and `edit_diagram` as dynamic tools and resumed with
+`thread/resume` after a restart. If resuming fails, the next message starts a
+new thread and the panel says so. Command, file and permission approvals come
+to the panel; other server requests are refused. Tests set
+`SCOPE_CODEX_COMMAND` to a fake program. When both programs are found, the
+panel's menu picks one; switching starts a new conversation with the other.
+
 The card server offers `read_diagram` and `edit_diagram` for the open card and
 nothing else, so Scope answers their permission checks itself. The card type's
 `cards/<type>/tools.ts` describes the content and turns the agent's changes,

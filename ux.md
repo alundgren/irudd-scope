@@ -496,8 +496,10 @@ moved it." when the person moved something after the agent did, appear as small
 centered lines. Enter sends and Shift+Enter starts a new line; Stop replaces Send while
 a turn runs. When chat can't start, such as when it would be billed to an API
 key, the reason shows above the message box and the box stays off until the
-card is opened again. The header names the program and, once known, the plan,
-such as "Max plan". A turn cut off by quitting Scope ends with
+card is opened again. The header names the program, Claude Code or Codex, and,
+once known, the plan, such as "Max plan" or "Pro plan". When both are installed,
+a Chat program menu picks one. It is off while a turn runs, and the next message
+after a switch starts a new conversation. A turn cut off by quitting Scope ends with
 "Interrupted when Scope quit" and does not continue by itself; the next message
 continues the same conversation.
 

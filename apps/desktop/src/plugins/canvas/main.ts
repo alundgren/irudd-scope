@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { findProgram } from "@irudd-scope/harnesses";
 import { harnessPath } from "../../harnesses.ts";
 import { claudeHarness } from "./chat/claude.ts";
+import { codexHarness } from "./chat/codex.ts";
 import { cardToolService } from "./chat/card-tools.ts";
 import { registerCardChat } from "./chat/view.ts";
 import {
@@ -41,9 +42,13 @@ export function registerCanvasIpc(context: MainPluginContext) {
   const chat = registerCardChat(
     context,
     [
+      // Tests point these at fake programs, so they never start the person's own agents.
       claudeHarness({
-        // Tests point this at a fake program, so they never start the person's own claude.
         program: () => findProgram(process.env.SCOPE_CLAUDE_COMMAND || "claude", homedir(), path),
+        path,
+      }),
+      codexHarness({
+        program: () => findProgram(process.env.SCOPE_CODEX_COMMAND || "codex", homedir(), path),
         path,
       }),
     ],
