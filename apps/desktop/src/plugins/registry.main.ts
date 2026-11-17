@@ -17,7 +17,7 @@ export function registerMainPlugins(context: MainPluginContext) {
   registerPlanIpc(context);
   const retros = registerRetroIpc(context);
   registerSketchpadIpc(context);
-  registerCanvasIpc(context);
+  const canvases = registerCanvasIpc(context);
   registerHarnessesIpc(context);
   const sessions = registerSessionsIpc(context);
   const pullRequests = registerPullRequestsIpc(context);
@@ -34,6 +34,7 @@ export function registerMainPlugins(context: MainPluginContext) {
     hiddenTabs: (ids: string[]) => folders.tabsClosed(ids),
     dispose: () => {
       folders.dispose();
+      canvases.dispose();
       retros.dispose();
       sessions.dispose();
       pullRequests.dispose();

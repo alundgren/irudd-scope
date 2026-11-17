@@ -30,6 +30,12 @@ const settingsSections = [
     terms: "speech tts text audio gemini aoede leda kore conversational podcast openrouter",
   },
   {
+    id: "chat",
+    title: "Card chat",
+    description: "Chat with your own Claude Code or Codex inside a canvas card",
+    terms: "canvas card chat assistant agent claude codex harness plan subscription",
+  },
+  {
     id: "credentials",
     title: "OpenRouter",
     description: "Save, replace, or remove the shared API key",

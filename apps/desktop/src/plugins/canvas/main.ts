@@ -1,6 +1,7 @@
 import { decode } from "@irudd-scope/protocol";
 import { Uuid } from "../../workspace/contract.ts";
 import type { MainPluginContext } from "../main-api.ts";
+import { registerCardChat } from "./chat/view.ts";
 import {
   CanvasChange,
   CanvasIdRequest,
@@ -11,7 +12,9 @@ import {
   type CanvasWriteResult,
 } from "./contract.ts";
 
-export function registerCanvasIpc({ handle, artifacts, window }: MainPluginContext) {
+export function registerCanvasIpc(context: MainPluginContext) {
+  const { handle, artifacts, window } = context;
+  const chat = registerCardChat(context, []);
   const canvases = artifacts.canvases;
   // The open view applies the person's own edits first; this tells it about every committed one.
   const announce = (
@@ -42,4 +45,5 @@ export function registerCanvasIpc({ handle, artifacts, window }: MainPluginConte
     const { tabId, count } = decode(CanvasIdRequest, input);
     return canvases.reserveIds(tabId, count);
   });
+  return { dispose: () => chat.dispose() };
 }

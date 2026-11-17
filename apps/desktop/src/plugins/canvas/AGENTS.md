@@ -22,6 +22,11 @@ and stacking order; a card's editor changes only that card's content.
   pool so they show at once.
 - The tab type is `canvas`. Never use `diagram`: startup deletes old diagram
   tabs. Canvases start permanent.
+- Card chat lives in `chat/`. Its panel is a separate web view with its own
+  page and preload, because published pages can reach anything the workspace
+  preload offers. Never add chat operations to `preload.ts` or `bridge.ts`;
+  the workspace page only reports where the panel goes. Main checks every
+  chat call comes from the chat view.
 
 Test through real Electron with synthetic canvases, through the board UI and
 `window.scope` canvas operations.

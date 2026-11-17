@@ -600,6 +600,7 @@ formats are compatibility contracts.
 | Canvas           | A tab holding a board of cards; the person adds, arranges and opens them.                         | `apps/desktop/src/plugins/canvas/` shows it; `library/canvas-store.ts` stores it in `scope.db`.           |
 | Card             | One diagram on a canvas, with a type such as boxes, a frame on the board and its own content.     | `plugins/canvas/cards/` defines card types; `plugins/canvas/contract.ts` defines frames and changes.      |
 | Card editor      | The full-tab editor for one card's content; the board shows the card's read-only picture instead. | `plugins/canvas/cards/views.ts` lists each type's editor and picture; `card-editor.tsx` hosts them.       |
+| Card chat        | The optional chat beside a card's editor, in its own web view; off until Settings turns it on.    | `plugins/canvas/chat/` owns its page, preload and main handlers; harness programs plug into `harness.ts`. |
 | Canvas change    | One gesture's `put`, `set` and `del` ops against the board or one card, from the version read.    | `plugins/canvas/changes.ts` applies and undoes them; main is the only writer.                             |
 | Publishing token | Bearer credential for the artifact HTTP API. Distinct from a provider API key.                    | Desktop discovery file; CLI and optional hub use it.                                                      |
 | Folder tab       | A live tree of one folder on one machine, keyed by machine ID and canonical path.                 | `packages/folder` reads files; `plugins/folder` shows them; `folder_tabs` in `scope.db` keeps the key.    |
@@ -615,7 +616,9 @@ provider code. [Its README](../packages/protocol/README.md) documents the API.
 calls, and the human workspace. Its main process owns database connections,
 native APIs, and credentials. `main.ts` starts these resources and closes them
 after pending saves finish. `ipc.ts` validates callers and handles the named
-operations declared in `bridge.ts` and exposed by `preload.ts`.
+operations declared in `bridge.ts` and exposed by `preload.ts`. The card chat
+panel is the one exception: it runs in a separate web view with its own
+preload, and main accepts its operations only from that view.
 `renderer-content.ts` serves the application's renderer files.
 
 `updates.ts` owns the installed app's startup Git check, local build process,
@@ -893,6 +896,13 @@ origin and can access its parent. Chromium's normal web rules, including CORS,
 still apply. HTML files previewed from a Folder tab use the same unrestricted
 iframe rendering. Desktop main's `external-links.ts` redirects HTTP(S) document
 navigation and popups to the default browser, preserving the artifact in Scope.
+
+Because a published page can call whatever the workspace preload offers, card
+chat never goes through it. The chat panel is a separate `WebContentsView`
+loading `scope://app/chat.html` with `chat-preload.cjs`. Main answers its send,
+approve, stop and undo operations only when the sender is that view's main
+frame on that page, and the view refuses navigation, popups and webviews. The
+workspace page only tells main where the panel goes and which card it is for.
 It leaves embedded frame loading, embedded form results, downloads, and in-page
 anchors in the document. PR inbox handlers run first to retain their validated
 link operations and error reporting. Markdown omits raw HTML and replaces links

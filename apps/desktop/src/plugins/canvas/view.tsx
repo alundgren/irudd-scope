@@ -137,6 +137,7 @@ export function CanvasView({
       )}
       {openCard && open ? (
         <CardEditor
+          tabId={context.tabId}
           cardId={open}
           card={openCard}
           row={canvas.snapshot.cards[open]}
