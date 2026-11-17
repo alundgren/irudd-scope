@@ -1,93 +1,18 @@
 import { expect, test } from "vite-plus/test";
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
-import type { ElectronApplication, Page } from "@playwright/test";
+import { rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 import { newCanvas, openCard, pane, seedCards } from "./canvas-fixture.ts";
-
-const BILLED_TO_KEY = "This would be billed to your API key, so chat is off.";
-
-type LogEntry =
-  | { event: "start"; args: string[]; cwd: string }
-  | { event: "control"; subtype: string }
-  | { event: "message"; text: string; session: string }
-  | { event: "approval"; tool: string; behavior: string }
-  | { event: "exit" };
-
-/**
- * A fake claude program under a made-up name, so Scope finds it the way it finds the real one
- * and no test can start the person's own claude.
- */
-async function fakeClaude(login: "plan" | "api-key") {
-  const directory = await mkdtemp(join(tmpdir(), "scope-fake-claude-"));
-  const bin = join(directory, "bin");
-  const temp = join(directory, "tmp");
-  await mkdir(bin);
-  await mkdir(temp);
-  const name = `fnaude-${randomUUID().slice(0, 8)}`;
-  const script = resolve("tests/fixtures/fake-claude/fake-claude.mjs");
-  await writeFile(join(bin, name), `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
-  await chmod(join(bin, name), 0o755);
-  const log = join(directory, "log.jsonl");
-  const account = join(directory, "account");
-  await writeFile(account, login);
-  return {
-    directory,
-    account,
-    folders: join(await realpath(temp), "scope-card-chats"),
-    env: {
-      SCOPE_CLAUDE_COMMAND: name,
-      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
-      FAKE_CLAUDE_LOG: log,
-      FAKE_CLAUDE_ACCOUNT_FILE: account,
-      // Card chat folders go in the OS temp folder; this keeps each test's to itself.
-      TMPDIR: temp,
-    },
-    async log(): Promise<LogEntry[]> {
-      const text = await readFile(log, "utf8").catch(() => "");
-      return text
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as LogEntry);
-    },
-  };
-}
-
-const chatPage = (application: ElectronApplication) =>
-  application.windows().find((page) => page.url() === "scope://app/chat.html");
-
-async function openChat(application: ElectronApplication) {
-  await expect.poll(() => chatPage(application) !== undefined).toBe(true);
-  const chat = chatPage(application)!;
-  await chat.getByRole("heading", { name: "Chat", exact: true }).waitFor();
-  return chat;
-}
-
-async function setCardChat(page: Page, enabled: boolean) {
-  await page.keyboard.press("ControlOrMeta+,");
-  await page.getByLabel("Search settings").fill("card chat");
-  const toggle = page.getByRole("switch", { name: "Card chat", exact: true });
-  await toggle.focus();
-  if ((await toggle.getAttribute("aria-checked")) !== String(enabled))
-    await page.keyboard.press("Space");
-  await expect.poll(() => toggle.getAttribute("aria-checked")).toBe(String(enabled));
-  await page.keyboard.press("Escape");
-  await page.getByLabel("Search settings").waitFor({ state: "detached" });
-}
-
-async function say(chat: Page, text: string) {
-  const field = chat.getByLabel("Message", { exact: true });
-  await expect.poll(() => field.isEnabled()).toBe(true);
-  await field.fill(text);
-  await field.press("Enter");
-}
-
-const turns = (chat: Page, label: string) => chat.getByRole("listitem", { name: label }).count();
-const agentSaid = (chat: Page, text: string) =>
-  chat.locator(".chat-message-agent").filter({ hasText: text }).waitFor();
+import {
+  BILLED_TO_KEY,
+  agentSaid,
+  fakeClaude,
+  openChat,
+  say,
+  setCardChat,
+  turns,
+} from "./card-chat-fixture.ts";
 
 test.skipIf(process.platform === "win32")(
   "card chat runs the person's claude only on a plan login, in the card's own folder, and only the chat panel can answer it",

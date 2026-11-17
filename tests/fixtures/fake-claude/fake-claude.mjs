@@ -3,9 +3,14 @@
 //
 // FAKE_CLAUDE_LOG     file that gets one JSON line per thing the fake received
 // FAKE_CLAUDE_ACCOUNT_FILE file holding "plan" (the default) or "api-key", read at start
+// FAKE_CLAUDE_SCRIPT  JSON file of turns that call Scope's card tools, read at each message:
+//                     { "words in the message": [step, ...] }. A step is
+//                     { "call": "read_diagram" }, { "call": "edit_diagram", "arguments": {...} }
+//                     or { "say": "text" }. In arguments, "@id:Web app" is the id of the box
+//                     with that text in the last read_diagram result, and "@version" its version.
 //
-// What the person writes picks the turn: "command" asks to run Bash, "file" asks to write a
-// file, "long" waits until Stop, "forever" never ends, and anything else gets a short reply.
+// Otherwise what the person writes picks the turn: "command" asks to run Bash, "file" asks to
+// write a file, "long" waits until Stop, "forever" never ends, and anything else gets a reply.
 import { appendFileSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
@@ -85,8 +90,94 @@ function finish(text, stopped = false) {
   );
 }
 
+// The card tools come from the SDK's in-process MCP server, reached through control requests.
+let mcpId = 0;
+let mcpReady;
+const mcp = async (method, params) => {
+  const answer = await ask({
+    subtype: "mcp_message",
+    server_name: "scope",
+    message: { jsonrpc: "2.0", id: ++mcpId, method, params },
+  });
+  return answer?.mcp_response;
+};
+function connectScope() {
+  mcpReady ??= (async () => {
+    await mcp("initialize", {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "claude-code", version: "2.1.325" },
+    });
+    send({
+      type: "control_request",
+      request_id: randomUUID(),
+      request: {
+        subtype: "mcp_message",
+        server_name: "scope",
+        message: { jsonrpc: "2.0", method: "notifications/initialized" },
+      },
+    });
+    const listed = await mcp("tools/list", {});
+    log({ event: "tools", names: (listed?.result?.tools ?? []).map((tool) => tool.name) });
+  })();
+  return mcpReady;
+}
+
+let lastRead;
+const filled = (value) => {
+  if (typeof value === "string" && value === "@version") return lastRead?.version;
+  if (typeof value === "string" && value.startsWith("@id:")) {
+    const text = value.slice(4);
+    return lastRead?.boxes.find((box) => box.text === text)?.id ?? `missing-${text}`;
+  }
+  if (Array.isArray(value)) return value.map(filled);
+  if (value && typeof value === "object")
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, filled(item)]));
+  return value;
+};
+
+async function cardTool(name, input) {
+  await connectScope();
+  const tool = `toolu_${randomUUID().slice(0, 12)}`;
+  const full = `mcp__scope__${name}`;
+  send(fill(recording.toolUse, { ...base, TOOL_ID: tool, TOOL_NAME: full, TOOL_INPUT: input }));
+  const permission = await ask({
+    subtype: "can_use_tool",
+    tool_name: full,
+    input,
+    tool_use_id: tool,
+  });
+  log({ event: "approval", tool: full, behavior: permission?.behavior ?? "none" });
+  let text = "The person denied this.";
+  let isError = true;
+  if (permission?.behavior === "allow") {
+    const answer = await mcp("tools/call", { name, arguments: input });
+    text = answer?.result?.content?.[0]?.text ?? JSON.stringify(answer?.error ?? answer);
+    isError = answer?.result?.isError === true || !answer?.result;
+  }
+  log({ event: "tool-result", tool: name, text, isError });
+  if (name === "read_diagram" && !isError) lastRead = JSON.parse(text);
+  send(
+    fill(recording.toolResult, { ...base, TOOL_ID: tool, TOOL_OUTPUT: text, IS_ERROR: isError }),
+  );
+}
+
+function scripted(text) {
+  if (!process.env.FAKE_CLAUDE_SCRIPT) return undefined;
+  const script = JSON.parse(readFileSync(process.env.FAKE_CLAUDE_SCRIPT, "utf8"));
+  const key = Object.keys(script).find((words) => text.includes(words));
+  return key && script[key];
+}
+
 async function turn(text) {
   send(fill(recording.init, base));
+  const steps = scripted(text);
+  if (steps) {
+    for (const step of steps)
+      if (step.say) reply(step.say);
+      else await cardTool(step.call, filled(step.arguments ?? {}));
+    return finish("done");
+  }
   if (text.includes("command")) {
     const ran = await useTool(
       "Bash",

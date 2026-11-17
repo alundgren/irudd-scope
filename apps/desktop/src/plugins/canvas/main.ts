@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { findProgram } from "@irudd-scope/harnesses";
 import { harnessPath } from "../../harnesses.ts";
 import { claudeHarness } from "./chat/claude.ts";
+import { cardToolService } from "./chat/card-tools.ts";
 import { registerCardChat } from "./chat/view.ts";
 import {
   CanvasChange,
@@ -18,21 +19,6 @@ import {
 
 export function registerCanvasIpc(context: MainPluginContext) {
   const { handle, artifacts, window } = context;
-  const path = harnessPath();
-  const chat = registerCardChat(context, [
-    claudeHarness({
-      // Tests point this at a fake program, so they never start the person's own claude.
-      program: () => findProgram(process.env.SCOPE_CLAUDE_COMMAND || "claude", homedir(), path),
-      path,
-    }),
-  ]);
-  // Trimming board history can remove a deleted card for good, and with it its chat folder.
-  let swept = 0;
-  const sweepLater = () => {
-    if (Date.now() - swept < 60_000) return;
-    swept = Date.now();
-    void chat.chats.sweep();
-  };
   const canvases = artifacts.canvases;
   // The open view applies the person's own edits first; this tells it about every committed one.
   const announce = (
@@ -50,6 +36,25 @@ export function registerCanvasIpc(context: MainPluginContext) {
       actor,
     } satisfies CanvasChanged);
     return result;
+  };
+  const path = harnessPath();
+  const chat = registerCardChat(
+    context,
+    [
+      claudeHarness({
+        // Tests point this at a fake program, so they never start the person's own claude.
+        program: () => findProgram(process.env.SCOPE_CLAUDE_COMMAND || "claude", homedir(), path),
+        path,
+      }),
+    ],
+    cardToolService(canvases, announce),
+  );
+  // Trimming board history can remove a deleted card for good, and with it its chat folder.
+  let swept = 0;
+  const sweepLater = () => {
+    if (Date.now() - swept < 60_000) return;
+    swept = Date.now();
+    void chat.chats.sweep();
   };
   handle("scope:canvas-read", (input) => canvases.snapshot(decode(Uuid, input)));
   handle("scope:canvas-change", async (input) => {

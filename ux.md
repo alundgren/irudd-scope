@@ -487,9 +487,13 @@ workspace page. It takes the workspace's colors.
 The column lists the conversation: the person's messages on the right, the
 agent's replies as plain text, one line per tool the agent runs, a card for
 each approval request with Allow and Deny, and a card at the end of each turn.
-A turn that changed the card lists the changes with Undo turn. Notices, such as
-a change kept where the person moved something, appear as small centered
-lines. Enter sends and Shift+Enter starts a new line; Stop replaces Send while
+A turn that changed the card lists the changes with Undo turn. The card tools
+show as "Read card" and "Change card" and never ask for approval, since they
+only touch the open card. What the agent adds or changes lights up in the
+editor for a few seconds. Undo turn takes back the whole turn at once; Ctrl+Z
+still undoes only the person's own steps. Notices, such as "Kept API where you
+moved it." when the person moved something after the agent did, appear as small
+centered lines. Enter sends and Shift+Enter starts a new line; Stop replaces Send while
 a turn runs. When chat can't start, such as when it would be billed to an API
 key, the reason shows above the message box and the box stays off until the
 card is opened again. The header names the program and, once known, the plan,

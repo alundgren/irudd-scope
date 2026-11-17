@@ -896,6 +896,11 @@ origin and can access its parent. Chromium's normal web rules, including CORS,
 still apply. HTML files previewed from a Folder tab use the same unrestricted
 iframe rendering. Desktop main's `external-links.ts` redirects HTTP(S) document
 navigation and popups to the default browser, preserving the artifact in Scope.
+It leaves embedded frame loading, embedded form results, downloads, and in-page
+anchors in the document. PR inbox handlers run first to retain their validated
+link operations and error reporting. Markdown omits raw HTML and replaces links
+and images with text.
+Artifact downloads use a save dialog in main.
 
 Because a published page can call whatever the workspace preload offers, card
 chat never goes through it. The chat panel is a separate `WebContentsView`
@@ -916,11 +921,16 @@ rather than billing the key. Each card's session runs in its own
 closing the chat or quitting Scope stops what it started. A later message
 resumes the saved session ID. Tests set `SCOPE_CLAUDE_COMMAND` to a fake program
 so they never start the person's claude.
-It leaves embedded frame loading, embedded form results, downloads, and in-page
-anchors in the document. PR inbox handlers run first to retain their validated
-link operations and error reporting. Markdown omits raw HTML and replaces links
-and images with text.
-Artifact downloads use a save dialog in main.
+
+The card server offers `read_diagram` and `edit_diagram` for the open card and
+nothing else, so Scope answers their permission checks itself. The card type's
+`cards/<type>/tools.ts` describes the content and turns the agent's changes,
+such as adding a box next to another one, into ops. Each `edit_diagram` call is
+one committed change by the agent, checked against the version the agent last
+read the way a person's change is, and tagged with the chat turn's ID. A call
+with an optional `requestId` is matched against the agent's own request, so a
+retry gets the first answer, warnings included. Undo turn undoes every change
+of that turn as one step of the person's and keeps fields anyone changed since.
 
 OpenRouter provides voice generation. The settings form submits a new key to main and clears the input after saving.
 Main stores the key through its credential store in a profile-specific macOS

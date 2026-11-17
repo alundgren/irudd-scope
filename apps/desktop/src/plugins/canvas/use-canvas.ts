@@ -29,6 +29,16 @@ function withOps(snapshot: CanvasSnapshot, target: CanvasTarget, ops: CanvasOp[]
   return { ...snapshot, cards: { ...snapshot.cards, [target.card]: { ...card, content } } };
 }
 
+/** How long the records an agent just changed stay lit up. */
+const HIGHLIGHT_MS = 4000;
+
+/** Records that are new or different in `after`. */
+function changedRecords(before: CardContent | undefined, after: CardContent) {
+  return Object.keys(after).filter(
+    (id) => JSON.stringify(before?.[id]) !== JSON.stringify(after[id]),
+  );
+}
+
 const versionOf = (snapshot: CanvasSnapshot, scope: string) =>
   scope === "" ? snapshot.board.version : (snapshot.cards[scope]?.version ?? 0);
 
@@ -39,6 +49,13 @@ const versionOf = (snapshot: CanvasSnapshot, scope: string) =>
 export function useCanvas(tabId: string, onNotice: (text: string) => void) {
   const [snapshot, setSnapshot] = useState<CanvasSnapshot>();
   const [loadError, setLoadError] = useState(false);
+  /** Per card, the records an agent changed a moment ago. */
+  const [highlights, setHighlights] = useState<Record<string, string[]>>({});
+  // What the view shows now, including the person's unconfirmed edits, so only the agent's
+  // changes light up.
+  const shown = useRef<CanvasSnapshot | undefined>(undefined);
+  shown.current = snapshot;
+  const agentCards = useRef(new Set<string>());
   const confirmed = useRef<Confirmed>({});
   const queues = useRef(new Map<string, Promise<unknown>>());
   const pending = useRef(0);
@@ -54,6 +71,24 @@ export function useCanvas(tabId: string, onNotice: (text: string) => void) {
         "": next.board.version,
         ...Object.fromEntries(Object.entries(next.cards).map(([id, card]) => [id, card.version])),
       };
+      const before = shown.current;
+      for (const cardId of agentCards.current) {
+        const changed = next.cards[cardId]
+          ? changedRecords(before?.cards[cardId]?.content, next.cards[cardId].content)
+          : [];
+        if (!changed.length) continue;
+        setHighlights((current) => ({ ...current, [cardId]: changed }));
+        setTimeout(
+          () =>
+            setHighlights((current) =>
+              current[cardId] === changed
+                ? Object.fromEntries(Object.entries(current).filter(([id]) => id !== cardId))
+                : current,
+            ),
+          HIGHLIGHT_MS,
+        );
+      }
+      agentCards.current.clear();
       setSnapshot(next);
       setLoadError(false);
     } catch {
@@ -64,7 +99,10 @@ export function useCanvas(tabId: string, onNotice: (text: string) => void) {
   useEffect(() => {
     void load();
     return window.scope.onCanvasChanged((event) => {
-      if (event.tabId !== tabId || pending.current) return;
+      if (event.tabId !== tabId) return;
+      if (event.actor === "agent" && "card" in event.target)
+        agentCards.current.add(event.target.card);
+      if (pending.current) return;
       if (event.version > (confirmed.current[targetScope(event.target)] ?? 0)) void load();
     });
   }, [load]);
@@ -144,6 +182,7 @@ export function useCanvas(tabId: string, onNotice: (text: string) => void) {
 
   return {
     snapshot,
+    highlights,
     loadError,
     reload: load,
     write,

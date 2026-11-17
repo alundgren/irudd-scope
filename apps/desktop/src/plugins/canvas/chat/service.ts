@@ -9,7 +9,8 @@ import {
   type ChatState,
   type ChatTarget,
 } from "./contract.ts";
-import type { ChatHarness, HarnessEvent, HarnessSession } from "./harness.ts";
+import type { CardToolService } from "./card-tools.ts";
+import type { ChatHarness, HarnessEvent, HarnessSession, HarnessTools } from "./harness.ts";
 
 /** Where card chats are kept between restarts. */
 export type SavedChats = {
@@ -37,7 +38,11 @@ type Chat = {
   blocked?: string;
   running: boolean;
   items: ChatItem[];
-  changes: Map<string, string[]>;
+  /** The running turn, which groups the card changes the agent makes in it. */
+  turn?: string;
+  changes: string[];
+  /** The card version the agent last read, which its edits are checked against. */
+  lastRead?: number;
   /** The harness has not finished a turn since starting with `resume`. */
   resuming: boolean;
 };
@@ -55,13 +60,11 @@ export class CardChats {
   private readonly chats = new Map<string, Chat>();
   /** Programs found the last time a card's chat was shown. */
   private found: ChatHarness[] = [];
-  /** Undoes one agent turn on its card. card-tools provides it. */
-  undo?: (target: ChatTarget, turnId: string) => Promise<void>;
-
   constructor(
     private readonly harnesses: ChatHarness[],
     private readonly changed: (target: ChatTarget) => void,
     private readonly saved: SavedChats,
+    private readonly tools?: CardToolService,
   ) {}
 
   /** Brings a card's chat back from the database before the panel shows it. */
@@ -127,7 +130,7 @@ export class CardChats {
         harness: null,
         running: false,
         items: [],
-        changes: new Map(),
+        changes: [],
         resuming: false,
       };
       this.chats.set(key, chat);
@@ -168,6 +171,8 @@ export class CardChats {
     chat.harness = harnessId;
     this.push(chat, { kind: "message", id: this.nextId("person"), role: "person", text });
     chat.running = true;
+    chat.turn = this.nextId("turn");
+    chat.changes = [];
     this.changed(target);
     this.save(chat);
     try {
@@ -191,12 +196,41 @@ export class CardChats {
     await this.saved.folderMade(chat.target.cardId);
     await mkdir(folder, { recursive: true, mode: 0o700 });
     chat.resuming = Boolean(chat.sessionId);
+    const tools = await this.cardTools(chat);
     return harness.start({
       target: chat.target,
+      ...(tools ? { tools } : {}),
       folder,
       ...(chat.sessionId ? { resume: chat.sessionId } : {}),
       onEvent: (event) => this.receive(chat, event),
     });
+  }
+
+  /** The open card's tools for this chat's agent. */
+  private async cardTools(chat: Chat): Promise<HarnessTools | undefined> {
+    const service = this.tools;
+    const guides = await service?.guides(chat.target);
+    if (!service || !guides) return undefined;
+    return {
+      readGuide: guides.read,
+      editGuide: guides.edit,
+      read: async () => {
+        const { answer, version } = await service.read(chat.target);
+        if (version !== undefined) chat.lastRead = version;
+        return answer;
+      },
+      edit: async (input) => {
+        const turn = chat.turn;
+        if (!chat.running || !turn || this.closed)
+          return { ok: false, text: "Card changes are only accepted during a turn." };
+        const { answer, changes } = await service.edit(chat.target, turn, input, chat.lastRead);
+        if (changes.length && chat.turn === turn) {
+          chat.changes.push(...changes);
+          this.changed(chat.target);
+        }
+        return answer;
+      },
+    };
   }
 
   private receive(chat: Chat, event: HarnessEvent) {
@@ -255,12 +289,6 @@ export class CardChats {
           state: "pending",
         });
         break;
-      case "card-change": {
-        const list = chat.changes.get(event.turnId) ?? [];
-        list.push(event.summary);
-        chat.changes.set(event.turnId, list);
-        break;
-      }
       case "notice":
         this.push(chat, { kind: "notice", id: this.nextId("notice"), text: event.text });
         break;
@@ -290,9 +318,10 @@ export class CardChats {
   }
 
   private finish(chat: Chat, event: Extract<HarnessEvent, { type: "turn-end" }>) {
-    const id = event.turnId ?? this.nextId("turn");
-    const changes = chat.changes.get(id) ?? [];
-    chat.changes.delete(id);
+    const id = chat.turn ?? this.nextId("turn");
+    const changes = chat.changes;
+    chat.turn = undefined;
+    chat.changes = [];
     for (const item of chat.items)
       if (item.kind === "approval" && item.state === "pending")
         Object.assign(item, { state: "denied" });
@@ -332,10 +361,12 @@ export class CardChats {
   async undoTurn(target: ChatTarget, turnId: string): Promise<void> {
     const chat = this.chats.get(keyOf(target));
     const item = chat?.items.find((entry) => entry.id === turnId);
-    if (!chat || item?.kind !== "turn" || !item.changes.length || item.undone || !this.undo)
+    if (!chat || item?.kind !== "turn" || !item.changes.length || item.undone || !this.tools)
       throw new Error("That turn has nothing to undo.");
-    await this.undo(target, turnId);
+    const notices = await this.tools.undoTurn(target, turnId);
     this.update(chat, turnId, "turn", (entry) => ({ ...entry, undone: true }));
+    for (const text of notices)
+      this.push(chat, { kind: "notice", id: this.nextId("notice"), text });
     this.changed(target);
     this.save(chat);
   }

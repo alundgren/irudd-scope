@@ -141,6 +141,7 @@ export function CanvasView({
           cardId={open}
           card={openCard}
           row={canvas.snapshot.cards[open]}
+          highlighted={canvas.highlights[open]}
           history={canvas.snapshot.history[open]}
           editable={!viewing}
           active={active}

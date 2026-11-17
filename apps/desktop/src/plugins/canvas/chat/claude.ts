@@ -3,11 +3,19 @@ import { randomUUID } from "node:crypto";
 import {
   createSdkMcpServer,
   query,
+  tool,
   type AccountInfo,
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { ChatHarness, HarnessEvent, HarnessStart } from "./harness.ts";
+import { z } from "zod";
+import type {
+  ChatHarness,
+  HarnessEvent,
+  HarnessStart,
+  HarnessTools,
+  ToolAnswer,
+} from "./harness.ts";
 
 export const BILLED_TO_KEY = "This would be billed to your API key, so chat is off.";
 
@@ -47,6 +55,45 @@ class Inbox implements AsyncIterable<SDKUserMessage> {
       else await new Promise<void>((resolve) => (this.wake = resolve));
     }
   }
+}
+
+/** Scope's card tools, as Claude names them. They act only on the open card, so they never ask. */
+const CARD_TOOL = /^mcp__scope__(read_diagram|edit_diagram)$/;
+
+const CARD_TOOL_NAMES: Record<string, string> = {
+  mcp__scope__read_diagram: "Read card",
+  mcp__scope__edit_diagram: "Change card",
+};
+
+const reply = (answer: ToolAnswer) => ({
+  content: [{ type: "text" as const, text: answer.text }],
+  ...(answer.ok ? {} : { isError: true }),
+});
+
+// Claude defers MCP tools until it searches for them; the card tools are the point of the chat.
+const LOADED = { alwaysLoad: true };
+
+function cardServer(tools: HarnessTools | undefined) {
+  return createSdkMcpServer({
+    name: "scope",
+    version: "1.0.0",
+    tools: tools
+      ? [
+          tool("read_diagram", tools.readGuide, {}, async () => reply(await tools.read()), LOADED),
+          tool(
+            "edit_diagram",
+            tools.editGuide,
+            {
+              changes: z.array(z.record(z.string(), z.unknown())).min(1).max(50),
+              version: z.number().int().min(0).optional(),
+              requestId: z.string().max(56).optional(),
+            },
+            async (input) => reply(await tools.edit(input)),
+            LOADED,
+          ),
+        ]
+      : [],
+  });
 }
 
 /** A short line for the panel naming what a tool call does, such as the command it runs. */
@@ -95,7 +142,7 @@ export function claudeHarness({
     id: "claude",
     label: "Claude",
     available: async () => (await program()) !== null,
-    async start({ folder, resume, onEvent }: HarnessStart) {
+    async start({ folder, resume, tools, onEvent }: HarnessStart) {
       const binary = await program();
       if (!binary) throw new Error("Scope can't find the claude program.");
       const inbox = new Inbox();
@@ -112,9 +159,13 @@ export function claudeHarness({
           cwd: folder,
           ...(resume ? { resume } : {}),
           env: { ...process.env, PATH: path },
-          mcpServers: { scope: createSdkMcpServer({ name: "scope", version: "1.0.0", tools: [] }) },
+          mcpServers: { scope: cardServer(tools) },
           canUseTool: (name, input, { signal }) =>
             new Promise((resolve) => {
+              if (CARD_TOOL.test(name)) {
+                resolve({ behavior: "allow", updatedInput: input });
+                return;
+              }
               const id = randomUUID();
               const answer = (allow: boolean) => {
                 approvals.delete(id);
@@ -188,7 +239,7 @@ export function claudeHarness({
               emit({
                 type: "tool-start",
                 id: block.id,
-                name: block.name,
+                name: CARD_TOOL_NAMES[block.name] ?? block.name,
                 ...(detail ? { detail } : {}),
               });
               lastText = false;

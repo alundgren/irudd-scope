@@ -20,6 +20,13 @@ export const BOX_KINDS = [
 ] as const;
 export type BoxKind = (typeof BOX_KINDS)[number]["id"];
 
+/** What a box or section is called in labels and messages: its first line, or its kind. */
+export const nameOf = (area: { type: string; kind?: string; text?: string }) =>
+  area.text?.trim().split("\n")[0].slice(0, 40) ||
+  (area.type === "section"
+    ? "Section"
+    : (BOX_KINDS.find((kind) => kind.id === (area.kind ?? "box"))?.label ?? "Box"));
+
 /** A box. `kind` is left out for a plain box. */
 const BoxRecord = Schema.Struct({
   type: Schema.Literal("box"),

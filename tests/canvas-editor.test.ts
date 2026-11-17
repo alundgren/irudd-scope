@@ -1,7 +1,6 @@
 import { expect, test } from "vite-plus/test";
 import { rm } from "node:fs/promises";
 import { desktopFixture } from "./desktop-fixture.ts";
-import type { Page } from "@playwright/test";
 import {
   board,
   cardContent,
@@ -14,6 +13,7 @@ import {
   pane,
   records,
   seedCards,
+  seedContent,
 } from "./canvas-fixture.ts";
 
 test(
@@ -190,31 +190,6 @@ test(
 );
 
 /** Writes records into a card through the canvas bridge, the way the editor does. */
-async function seedContent(
-  page: Page,
-  tabId: string,
-  cardId: string,
-  label: string,
-  ops: readonly { op: "put" | "set"; id: string; value?: object; fields?: object }[],
-) {
-  return page.evaluate(
-    async ({ tabId, cardId, label, ops }) => {
-      const read = await window.scope.canvasRead(tabId);
-      const result = await window.scope.canvasChange({
-        tabId,
-        requestId: crypto.randomUUID().replaceAll("-", ""),
-        target: { card: cardId },
-        base: read!.cards[cardId].version,
-        label,
-        ops: ops as never,
-      });
-      if (!result.ok) throw new Error(result.message);
-      return result.refs;
-    },
-    { tabId, cardId, label, ops },
-  );
-}
-
 const row = (x: number, text: string, z: string) => ({
   type: "box",
   x,

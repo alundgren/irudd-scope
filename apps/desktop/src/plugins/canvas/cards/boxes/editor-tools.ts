@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { keyBetween } from "../../order.ts";
-import { nameOf } from "./box-node.tsx";
+import { nameOf } from "./contract.ts";
 import type { BoxesContent, ConnectorRecord } from "./contract.ts";
 import { connectors } from "./geometry.ts";
 

@@ -17,6 +17,7 @@ const Line = memo(function Line({
   from,
   to,
   selected,
+  highlighted,
   tip,
   on,
 }: {
@@ -25,6 +26,7 @@ const Line = memo(function Line({
   from: BoxRecord;
   to: BoxRecord;
   selected: boolean;
+  highlighted: boolean;
   tip: string;
   on: LineEvents;
 }) {
@@ -37,7 +39,7 @@ const Line = memo(function Line({
   return (
     <g data-connector-id={id}>
       <path
-        className={`boxes-line${selected ? " boxes-line-selected" : ""}`}
+        className={`boxes-line${selected ? " boxes-line-selected" : ""}${highlighted ? " boxes-line-agent" : ""}`}
         d={path.d}
         markerStart={connector.arrowStart ? `url(#${tip})` : undefined}
         markerEnd={connector.arrowEnd === false ? undefined : `url(#${tip})`}
@@ -113,6 +115,7 @@ const center = (r: { x: number; y: number; w: number; h: number }) => ({
 export function ConnectorLayer({
   content,
   selected,
+  highlighted,
   gesture,
   zoom,
   editable,
@@ -120,6 +123,7 @@ export function ConnectorLayer({
 }: {
   content: BoxesContent;
   selected: string | undefined;
+  highlighted: readonly string[] | undefined;
   gesture: Gesture | undefined;
   zoom: number;
   editable: boolean;
@@ -145,6 +149,7 @@ export function ConnectorLayer({
             from={from}
             to={to}
             selected={id === selected}
+            highlighted={highlighted?.includes(id) ?? false}
             tip={tip}
             on={on}
           />

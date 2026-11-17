@@ -171,3 +171,29 @@ export async function editorPoint(page: Page, x: number, y: number) {
 
 export const records = (content: Content, type: string) =>
   Object.entries(content).filter(([, record]) => record.type === type);
+
+/** Writes ops to a card the way the editor does, and returns the new IDs for `$` names. */
+export async function seedContent(
+  page: Page,
+  tabId: string,
+  cardId: string,
+  label: string,
+  ops: readonly { op: "put" | "set"; id: string; value?: object; fields?: object }[],
+) {
+  return page.evaluate(
+    async ({ tabId, cardId, label, ops }) => {
+      const read = await window.scope.canvasRead(tabId);
+      const result = await window.scope.canvasChange({
+        tabId,
+        requestId: crypto.randomUUID().replaceAll("-", ""),
+        target: { card: cardId },
+        base: read!.cards[cardId].version,
+        label,
+        ops: ops as never,
+      });
+      if (!result.ok) throw new Error(result.message);
+      return result.refs;
+    },
+    { tabId, cardId, label, ops },
+  );
+}
