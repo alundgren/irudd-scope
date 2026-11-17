@@ -77,8 +77,7 @@ export class DesktopStore {
     write: (document) =>
       this.enqueue(async () => {
         await this.run(
-          this
-            .sql!`INSERT INTO preferences(name, document) VALUES ('folder-operations-v1', ${JSON.stringify(document)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+          this.sql!`INSERT INTO preferences(name, document) VALUES ('folder-operations-v1', ${JSON.stringify(document)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
         );
       }),
   });
@@ -121,8 +120,7 @@ export class DesktopStore {
                 );
               } else {
                 await this.run(
-                  this
-                    .sql!`INSERT INTO preferences(name, document) VALUES ('windows-credentials', ${JSON.stringify(document)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+                  this.sql!`INSERT INTO preferences(name, document) VALUES ('windows-credentials', ${JSON.stringify(document)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
                 );
               }
             },
@@ -437,8 +435,7 @@ export class DesktopStore {
   preserveMemoryPreferences(): Promise<void> {
     return this.enqueue(async () => {
       await this.run(
-        this
-          .sql!`INSERT OR IGNORE INTO preferences(name,document) SELECT 'librarian-memory-recovery',document FROM preferences WHERE name = 'memory'`,
+        this.sql!`INSERT OR IGNORE INTO preferences(name,document) SELECT 'librarian-memory-recovery',document FROM preferences WHERE name = 'memory'`,
       );
     });
   }
@@ -446,8 +443,7 @@ export class DesktopStore {
   async librarianReceipt(requestId: string, payload: string): Promise<LibrarianReply | undefined> {
     await this.pending;
     await this.run(
-      this
-        .sql!`CREATE TABLE IF NOT EXISTS librarian_receipts(request_id TEXT PRIMARY KEY,payload TEXT NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))) STRICT`,
+      this.sql!`CREATE TABLE IF NOT EXISTS librarian_receipts(request_id TEXT PRIMARY KEY,payload TEXT NOT NULL,document TEXT NOT NULL CHECK(json_valid(document))) STRICT`,
     );
     const [row] = await this.run(
       this.sql!<{
@@ -514,8 +510,7 @@ export class DesktopStore {
       });
       if (JSON.stringify(next) !== JSON.stringify(prior))
         await this.run(
-          this
-            .sql!`INSERT INTO preferences(name, document) VALUES ('memory', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+          this.sql!`INSERT INTO preferences(name, document) VALUES ('memory', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
         );
       return next;
     });
@@ -597,8 +592,7 @@ export class DesktopStore {
         this.hasApiKey = Boolean(secrets.apiKey);
       }
       await this.run(
-        this
-          .sql!`UPDATE preferences SET document = ${JSON.stringify(next)} WHERE name = 'settings'`,
+        this.sql!`UPDATE preferences SET document = ${JSON.stringify(next)} WHERE name = 'settings'`,
       );
       this.saved = next;
       return this.settings();
@@ -628,8 +622,7 @@ export class DesktopStore {
     audio?: Buffer,
   ): Promise<void> {
     return this.enqueue(async () => {
-      await this.run(this
-        .sql!`INSERT INTO voice_requests(request_id, payload_hash, expires_at, receipt, audio)
+      await this.run(this.sql!`INSERT INTO voice_requests(request_id, payload_hash, expires_at, receipt, audio)
         VALUES (${requestId}, ${payloadHash}, ${expiresAt}, ${receipt}, ${audio ?? null})
         ON CONFLICT(request_id) DO UPDATE SET receipt = excluded.receipt,
         audio = COALESCE(excluded.audio, voice_requests.audio)`);
@@ -665,8 +658,7 @@ export class DesktopStore {
     };
     return this.enqueue(async () => {
       await this.run(
-        this
-          .sql!`INSERT INTO preferences(name, document) VALUES ('workspace_layout', ${JSON.stringify(layout)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+        this.sql!`INSERT INTO preferences(name, document) VALUES ('workspace_layout', ${JSON.stringify(layout)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
       );
     });
   }
@@ -701,8 +693,7 @@ export class DesktopStore {
       }
       const next = [...remotes.filter((item) => item.id !== remote.id), remote];
       await this.run(
-        this
-          .sql!`INSERT INTO preferences(name, document) VALUES ('remotes', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+        this.sql!`INSERT INTO preferences(name, document) VALUES ('remotes', ${JSON.stringify(next)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
       );
     });
   }
@@ -718,8 +709,7 @@ export class DesktopStore {
       delete remoteTokens[id];
       await this.credentials.write({ ...secrets, remoteTokens });
       await this.run(
-        this
-          .sql!`UPDATE preferences SET document = ${JSON.stringify(remotes.filter((item) => item.id !== id))} WHERE name = 'remotes'`,
+        this.sql!`UPDATE preferences SET document = ${JSON.stringify(remotes.filter((item) => item.id !== id))} WHERE name = 'remotes'`,
       );
     });
   }
@@ -769,8 +759,7 @@ export class DesktopStore {
   saveLayout(layout: Pick<Workspace, "groups" | "selected">): Promise<void> {
     return this.enqueue(async () => {
       await this.run(
-        this
-          .sql!`INSERT INTO preferences(name, document) VALUES ('workspace_layout', ${JSON.stringify(layout)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+        this.sql!`INSERT INTO preferences(name, document) VALUES ('workspace_layout', ${JSON.stringify(layout)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
       );
     });
   }

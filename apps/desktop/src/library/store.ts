@@ -486,8 +486,7 @@ export class ArtifactStore {
   async markTabsVisible(ids: readonly string[], now = Date.now()): Promise<void> {
     if (!ids.length) return;
     await this.run(
-      this
-        .sql`UPDATE live_tabs SET last_visible_at = max(last_visible_at, ${now}) WHERE ${this.sql.in("id", ids)} AND trashed_at IS NULL`,
+      this.sql`UPDATE live_tabs SET last_visible_at = max(last_visible_at, ${now}) WHERE ${this.sql.in("id", ids)} AND trashed_at IS NULL`,
     );
   }
 
@@ -596,8 +595,7 @@ export class ArtifactStore {
 
   async expiredTrash(now = Date.now()): Promise<readonly TrashEntry[]> {
     return this.run(
-      this
-        .sql<TrashEntry>`SELECT id, trashed_at AS trashedAt FROM live_tabs WHERE trashed_at <= ${now - TRASH_RETENTION_MS}`,
+      this.sql<TrashEntry>`SELECT id, trashed_at AS trashedAt FROM live_tabs WHERE trashed_at <= ${now - TRASH_RETENTION_MS}`,
     );
   }
 
@@ -932,8 +930,7 @@ export class ArtifactStore {
   async upload(tabId: string, chunks: AsyncIterable<Uint8Array>): Promise<string> {
     decode(Uuid, tabId);
     const rows = await this.run(
-      this
-        .sql`UPDATE live_tabs SET created_at = ${Date.now()} WHERE id = ${tabId} AND trashed_at IS NULL RETURNING id`,
+      this.sql`UPDATE live_tabs SET created_at = ${Date.now()} WHERE id = ${tabId} AND trashed_at IS NULL RETURNING id`,
     );
     if (!rows.length) throw new ScopeError(404, "Create the tab before uploading content.");
     const parts: Buffer[] = [];
