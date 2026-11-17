@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { boardActions } from "./board-actions.ts";
 import { BoardBar } from "./board-bar.tsx";
 import { BoardToolbar } from "./board-toolbar.tsx";
@@ -15,18 +15,22 @@ export const defaultCamera: CanvasCamera = { x: -80, y: -80, zoom: 1 };
 
 function boardKey(
   event: KeyboardEvent,
-  selected: ReadonlySet<string>,
+  selected: readonly string[],
   step: (direction: "undo" | "redo") => void,
   remove: () => void,
+  open: (id: string) => void,
 ) {
   const command = event.metaKey || event.ctrlKey;
   const key = event.key.toLowerCase();
   if (command && (key === "z" || key === "y")) {
     event.preventDefault();
     step(key === "y" || event.shiftKey ? "redo" : "undo");
-  } else if ((event.key === "Delete" || event.key === "Backspace") && selected.size) {
+  } else if ((event.key === "Delete" || event.key === "Backspace") && selected.length) {
     event.preventDefault();
     remove();
+  } else if (event.key === "Enter" && selected.length === 1) {
+    event.preventDefault();
+    open(selected[0]);
   }
 }
 
@@ -64,6 +68,7 @@ export function Board({
   editable,
   active,
   onCamera,
+  onOpen,
   write,
   step,
 }: {
@@ -74,6 +79,7 @@ export function Board({
   editable: boolean;
   active: boolean;
   onCamera: (camera: CanvasCamera) => void;
+  onOpen: (id: string) => void;
   write: CanvasWrite;
   step: (direction: "undo" | "redo") => void;
 }) {
@@ -91,6 +97,26 @@ export function Board({
   );
   useCameraControls(surface, camera, onCamera, active);
 
+  const [size, setSize] = useState({ w: 1200, h: 800 });
+  useEffect(() => {
+    const element = surface.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) =>
+      setSize({ w: entry.contentRect.width, h: entry.contentRect.height }),
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  // Pictures are drawn only for cards in or near the view.
+  const near = (card: Bounds) => {
+    const margin = 400 / camera.zoom;
+    return (
+      card.x + card.w > camera.x - margin &&
+      card.y + card.h > camera.y - margin &&
+      card.x < camera.x + size.w / camera.zoom + margin &&
+      card.y < camera.y + size.h / camera.zoom + margin
+    );
+  };
   const view = (): Bounds => {
     const box = surface.current?.getBoundingClientRect();
     return { x: 0, y: 0, w: box?.width ?? 1200, h: box?.height ?? 800 };
@@ -132,9 +158,10 @@ export function Board({
           name={name}
           onRename={onRename}
           history={snapshot.history[""]}
-          selected={selected.length > 0}
+          selected={selected.length}
           onAdd={actions.addCard}
           onStep={step}
+          onOpen={() => onOpen(selected[0])}
           onRestack={actions.restack}
           onDelete={actions.remove}
         />
@@ -149,7 +176,7 @@ export function Board({
         }}
         onKeyDown={(event) => {
           if (active && editable && !(event.target instanceof HTMLInputElement))
-            boardKey(event, selection, step, actions.remove);
+            boardKey(event, selected, step, actions.remove, onOpen);
         }}
       >
         <div
@@ -163,7 +190,10 @@ export function Board({
               key={id}
               id={id}
               card={card}
+              content={snapshot.cards[id]?.content}
               zoom={camera.zoom}
+              visible={near(card)}
+              onOpen={onOpen}
               selected={selection.has(id)}
               editable={editable}
               onSelect={select}

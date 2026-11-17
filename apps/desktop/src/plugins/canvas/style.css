@@ -191,3 +191,30 @@
   pointer-events: none;
   border: 0 solid var(--scope-accent);
 }
+.canvas-card-editor {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.canvas-card-header {
+  display: flex;
+  gap: var(--scope-space-2);
+  align-items: center;
+  padding: var(--scope-space-1) var(--scope-space-3);
+  background: var(--scope-panel);
+  border-bottom: 1px solid var(--scope-line);
+}
+.canvas-card-heading {
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--scope-text-ui);
+  font-weight: var(--scope-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-card-body .boxes-picture {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}

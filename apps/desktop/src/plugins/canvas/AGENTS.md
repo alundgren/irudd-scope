@@ -16,7 +16,10 @@ and stacking order; a card's editor changes only that card's content.
   open card are tab state, not history.
 - A card type lives in `cards/<type>/`. Its `contract.ts` holds the record
   rules and limits without React or Electron, so main and views share it.
-  Never rename a stored card type.
+  Never rename a stored card type. Its editor and picture are registered in
+  `cards/views.ts`. An editor holds a gesture's records as a draft and sends
+  one change when the gesture ends; new records use IDs from main's reserved
+  pool so they show at once.
 - The tab type is `canvas`. Never use `diagram`: startup deletes old diagram
   tabs. Canvases start permanent.
 

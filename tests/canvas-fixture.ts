@@ -123,3 +123,51 @@ export async function center(page: Page, selector: ReturnType<Page["locator"]>) 
   const box = (await selector.boundingBox())!;
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
+
+export type Content = Record<string, Record<string, unknown> & { type: string }>;
+
+export const cardContent = (page: Page, tabId: string, cardId: string) =>
+  page.evaluate(
+    async ({ tabId, cardId }) => (await window.scope.canvasRead(tabId))!.cards[cardId]?.content,
+    { tabId, cardId },
+  ) as Promise<Content>;
+
+export function cardHistory(settingsDirectory: string, tabId: string, scope: string): number {
+  const db = new DatabaseSync(join(settingsDirectory, "artifacts/scope.db"));
+  try {
+    db.exec("PRAGMA busy_timeout = 5000");
+    return Number(
+      db
+        .prepare("SELECT count(*) AS n FROM canvas_history WHERE tab_id = ? AND scope = ?")
+        .get(tabId, scope)?.n,
+    );
+  } finally {
+    db.close();
+  }
+}
+
+/** Opens a card's editor from the board by double-clicking its picture. */
+export async function openCard(page: Page, title: string) {
+  await pane(page)
+    .getByRole("group", { name: title, exact: true })
+    .locator(".canvas-card-body")
+    .dblclick();
+  await pane(page).getByRole("heading", { name: title, exact: true }).waitFor();
+}
+
+/** Screen point of a content point in the open editor, at the editor's camera. */
+export async function editorPoint(page: Page, x: number, y: number) {
+  const surface = pane(page).getByLabel("Diagram canvas", { exact: true });
+  const box = (await surface.boundingBox())!;
+  const camera = await page.evaluate(() => {
+    const layer = document.querySelector<HTMLElement>(
+      '[role="tabpanel"]:not([hidden]) .boxes-surface .canvas-layer',
+    )!;
+    const match = /scale\(([^)]+)\) translate\(([^p]+)px, ([^p]+)px\)/.exec(layer.style.transform)!;
+    return { zoom: Number(match[1]), x: -Number(match[2]), y: -Number(match[3]) };
+  });
+  return { x: box.x + (x - camera.x) * camera.zoom, y: box.y + (y - camera.y) * camera.zoom };
+}
+
+export const records = (content: Content, type: string) =>
+  Object.entries(content).filter(([, record]) => record.type === type);

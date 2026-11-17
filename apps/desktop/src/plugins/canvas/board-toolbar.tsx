@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { ArrowDownToLine, ArrowUpToLine, Plus, Redo2, Trash2, Undo2 } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowUpToLine,
+  Plus,
+  Redo2,
+  SquarePen,
+  Trash2,
+  Undo2,
+} from "lucide-react";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { cardTypes } from "./cards/registry.ts";
 import type { CanvasHistoryState } from "./contract.ts";
@@ -61,29 +69,16 @@ function AddCard({ onAdd }: { onAdd: (type: string, label: string) => void }) {
   );
 }
 
-export function BoardToolbar({
-  name,
-  onRename,
+/** Undo and Redo for one history: the board's or one card's. */
+export function HistoryButtons({
   history,
-  selected,
-  onAdd,
   onStep,
-  onRestack,
-  onDelete,
 }: {
-  name: string;
-  onRename: (name: string) => void;
   history: CanvasHistoryState | undefined;
-  selected: boolean;
-  onAdd: (type: string, label: string) => void;
   onStep: (direction: "undo" | "redo") => void;
-  onRestack: (front: boolean) => void;
-  onDelete: () => void;
 }) {
   return (
-    <div className="canvas-toolbar" role="toolbar" aria-label="Board">
-      <CanvasName name={name} onRename={onRename} />
-      <AddCard onAdd={onAdd} />
+    <>
       <Button
         size="icon-sm"
         variant="ghost"
@@ -104,7 +99,43 @@ export function BoardToolbar({
       >
         <Redo2 />
       </Button>
-      {selected && (
+    </>
+  );
+}
+
+export function BoardToolbar({
+  name,
+  onRename,
+  history,
+  selected,
+  onAdd,
+  onStep,
+  onOpen,
+  onRestack,
+  onDelete,
+}: {
+  name: string;
+  onRename: (name: string) => void;
+  history: CanvasHistoryState | undefined;
+  /** How many cards are selected. */
+  selected: number;
+  onAdd: (type: string, label: string) => void;
+  onStep: (direction: "undo" | "redo") => void;
+  onOpen: () => void;
+  onRestack: (front: boolean) => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="canvas-toolbar" role="toolbar" aria-label="Board">
+      <CanvasName name={name} onRename={onRename} />
+      <AddCard onAdd={onAdd} />
+      <HistoryButtons history={history} onStep={onStep} />
+      {selected === 1 && (
+        <Button size="sm" variant="ghost" title="Open · Enter" onClick={onOpen}>
+          <SquarePen /> Open card
+        </Button>
+      )}
+      {selected > 0 && (
         <>
           <Button size="sm" variant="ghost" onClick={() => onRestack(true)}>
             <ArrowUpToLine /> Bring to front

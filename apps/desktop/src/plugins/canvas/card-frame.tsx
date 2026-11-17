@@ -1,6 +1,7 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { findCardType } from "./cards/registry.ts";
-import { CARD_SIZE, type BoardCard } from "./contract.ts";
+import { findCardView } from "./cards/views.ts";
+import { CARD_SIZE, type BoardCard, type CardContent } from "./contract.ts";
 
 export type Frame = Pick<BoardCard, "x" | "y" | "w" | "h">;
 type Gesture = {
@@ -11,11 +12,24 @@ type Gesture = {
   dragging: boolean;
 };
 
+/** Below this many screen pixels a card shows only its title. */
+const PICTURE_PIXELS = 80;
+
+function Picture({ card, content }: { card: BoardCard; content: CardContent | undefined }) {
+  const view = findCardView(card.type);
+  if (!view || !findCardType(card.type))
+    return <span className="canvas-card-empty">Needs a newer Scope</span>;
+  if (!content) return null;
+  return <view.Picture content={content} />;
+}
+
 /** One card on the board: its frame, title and read-only picture. */
 export function CardFrame({
   id,
   card,
+  content,
   zoom,
+  visible,
   selected,
   editable,
   onSelect,
@@ -23,10 +37,14 @@ export function CardFrame({
   onGestureEnd,
   onFrame,
   onRename,
+  onOpen,
 }: {
   id: string;
   card: BoardCard;
+  content: CardContent | undefined;
   zoom: number;
+  /** False when the card is far outside the view, so its picture is not drawn. */
+  visible: boolean;
   selected: boolean;
   editable: boolean;
   onSelect: (id: string, additive: boolean) => void;
@@ -36,6 +54,7 @@ export function CardFrame({
   /** Sends only what the gesture changed: x and y for a move, w and h for a resize. */
   onFrame: (id: string, fields: Partial<Frame>, label: string) => void;
   onRename: (id: string, title: string) => void;
+  onOpen: (id: string) => void;
 }) {
   const [moving, setMoving] = useState<Frame>();
   const [renaming, setRenaming] = useState(false);
@@ -148,10 +167,10 @@ export function CardFrame({
           <span>{card.title}</span>
         )}
       </div>
-      <div className="canvas-card-body">
-        <span className="canvas-card-empty">
-          {findCardType(card.type)?.label ?? "Needs a newer Scope"}
-        </span>
+      <div className="canvas-card-body" onDoubleClick={() => onOpen(id)}>
+        {visible && Math.min(frame.w, frame.h) * zoom >= PICTURE_PIXELS && (
+          <Picture card={card} content={content} />
+        )}
       </div>
       {selected && editable && (
         <div
