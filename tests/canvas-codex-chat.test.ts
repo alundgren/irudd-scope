@@ -1,6 +1,5 @@
 import { expect, test } from "vite-plus/test";
 import { rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { desktopFixture } from "./desktop-fixture.ts";
 import { newCanvas, openCard, pane, seedCards } from "./canvas-fixture.ts";
 import {
@@ -75,7 +74,7 @@ test.skipIf(process.platform === "win32")(
       const [started] = await threads();
       expect(started).toMatchObject({
         method: "thread/start",
-        cwd: join(codex.folders, cardId),
+        cwd: await codex.folder(cardId),
         tools: ["read_diagram", "edit_diagram"],
       });
 
@@ -102,6 +101,25 @@ test.skipIf(process.platform === "win32")(
       await chat.getByRole("button", { name: "Stop", exact: true }).click();
       await expect.poll(() => turns(chat, "Stopped")).toBe(1);
       expect(await methods()).toContain("turn/interrupt");
+
+      // Stop pressed before codex answers turn/start still stops the turn.
+      await say(chat, "a slow long one");
+      await chat.getByRole("button", { name: "Stop", exact: true }).click();
+      await expect.poll(() => turns(chat, "Stopped"), { timeout: 10_000 }).toBe(2);
+
+      // A helper agent finishing on its own thread does not end the chat's turn.
+      await say(chat, "ask a helper");
+      await agentSaid(chat, "The helper finished.");
+      await expect.poll(() => turns(chat, "Turn finished")).toBe(4);
+
+      // Closing the card's editor stops a running turn too.
+      await say(chat, "count for a long time again");
+      const counting = chat.locator(".chat-message-agent").filter({ hasText: "Counting slowly…" });
+      await expect.poll(() => counting.count()).toBe(3);
+      await page.keyboard.press("Escape");
+      await openCard(page, "Order flow");
+      await expect.poll(() => turns(chat, "Stopped")).toBe(3);
+      expect(await turns(chat, "Turn finished")).toBe(4);
 
       // After a restart, the next message continues the same codex thread.
       await application.close();

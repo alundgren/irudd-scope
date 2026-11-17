@@ -73,6 +73,21 @@ export function CanvasView({
 
   const close = useCallback(() => update(({ open: _open, ...rest }) => rest, true), [update]);
   useEffect(() => context.onEscape(() => (openCard ? (close(), true) : false)), [openCard, close]);
+  // Closing a card's editor stops its chat program; switching to another tab does not.
+  const shown = useRef(open);
+  useEffect(() => {
+    const before = shown.current;
+    shown.current = open;
+    if (before && before !== open)
+      void window.scope
+        .chatLayout({
+          target: { tabId: context.tabId, cardId: before },
+          bounds: null,
+          theme: "light",
+          closed: true,
+        })
+        .catch(() => {});
+  }, [open, context.tabId]);
   // The open editor's unwritten work, such as text being typed, written before the tab closes.
   const editorFlush = useRef<() => void>(undefined);
   const onFlush = useCallback((run: () => void) => {

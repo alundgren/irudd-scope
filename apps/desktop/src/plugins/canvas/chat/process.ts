@@ -10,13 +10,25 @@ export function startProgram(
   args: readonly string[],
   options: { cwd: string; env: NodeJS.ProcessEnv },
 ): ChildProcessByStdio<Writable, Readable, null> {
-  return spawn(command, args, {
+  const child = spawn(command, args, {
     cwd: options.cwd,
     env: options.env,
     detached: process.platform !== "win32",
     windowsHide: true,
     stdio: ["pipe", "pipe", "ignore"],
   });
+  // Commands the program started in the background would outlive it, so they stop with it.
+  child.once("exit", () => killGroup(child));
+  return child;
+}
+
+function killGroup(child: ChildProcess) {
+  if (!child.pid || process.platform === "win32") return;
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    // Nothing is left in the group.
+  }
 }
 
 /** Stops a program Scope started and everything it started, the way gh calls are stopped. */

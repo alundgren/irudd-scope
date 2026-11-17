@@ -917,8 +917,10 @@ servers, and adds only its card server and the approval answers from the panel.
 Before the first message Scope asks the program which account it uses and stops
 unless it is a Claude plan login: an API key or another provider turns chat off
 rather than billing the key. Each card's session runs in its own
-`<OS temp>/scope-card-chats/<card id>` folder, in its own process group so
-closing the chat or quitting Scope stops what it started. A later message
+`<OS temp>/scope-card-chats/<card id>-<profile tag>` folder, where the tag is
+a short hash of Scope's data folder so two profiles never share one. It runs in
+its own process group, so closing the card's editor, quitting Scope or the
+program exiting stops everything it started. A later message
 resumes the saved session ID. Tests set `SCOPE_CLAUDE_COMMAND` to a fake program
 so they never start the person's claude.
 
@@ -942,7 +944,10 @@ one committed change by the agent, checked against the version the agent last
 read the way a person's change is, and tagged with the chat turn's ID. A call
 with an optional `requestId` is matched against the agent's own request, so a
 retry gets the first answer, warnings included. Undo turn undoes every change
-of that turn as one step of the person's and keeps fields anyone changed since.
+of that turn as one step of the person's. It undoes them newest first, each
+keeping fields anyone changed after it, so a person's edit made during the turn
+stays. When history is trimmed, a turn's changes go together, so Undo turn
+never undoes only part of a turn.
 
 OpenRouter provides voice generation. The settings form submits a new key to main and clears the input after saving.
 Main stores the key through its credential store in a profile-specific macOS

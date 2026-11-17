@@ -7,7 +7,9 @@
 //                         the fake claude's: { "words": [{ "call": ..., "arguments": ... }] }
 //
 // Otherwise what the person writes picks the turn: "command" asks to run a command, "file" asks
-// to change a file, "long" waits until Stop, and anything else gets a short reply.
+// to change a file, "long" waits until Stop, "helper" first finishes a helper agent's turn on
+// another thread, and anything else gets a short reply. With "slow", the answer to turn/start
+// comes 1.5 seconds late.
 import { appendFileSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
@@ -167,7 +169,11 @@ async function turn(text) {
       else await cardTool(step.call, filled(step.arguments ?? {}));
   } else if (text.includes("command")) await command();
   else if (text.includes("file")) await fileChange();
-  else if (text.includes("long")) {
+  else if (text.includes("helper")) {
+    const helper = { ...ids(), THREAD_ID: randomUUID(), TURN_ID: randomUUID() };
+    send(fill(recording.turnCompleted, { ...helper, STATUS: "completed", ERROR: null }));
+    say("The helper finished.");
+  } else if (text.includes("long")) {
     say("Counting slowly…");
     await new Promise((resolve) => (interrupted = resolve));
     status = "interrupted";
@@ -222,7 +228,9 @@ lines.on("line", (line) => {
       turnId = randomUUID();
       const text = params.input?.[0]?.text ?? "";
       log({ event: "message", text, thread: threadId });
-      send(fill(recording.turnStart, { ...ids(), REQUEST_ID: message.id }));
+      const reply = fill(recording.turnStart, { ...ids(), REQUEST_ID: message.id });
+      if (text.includes("slow")) setTimeout(() => send(reply), 1500);
+      else send(reply);
       turns = turns.then(() => turn(text));
       return;
     }

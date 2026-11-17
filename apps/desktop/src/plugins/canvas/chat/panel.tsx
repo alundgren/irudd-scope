@@ -60,7 +60,7 @@ export function ChatPanel() {
           <CircleAlert aria-hidden /> {alert}
         </p>
       )}
-      <ChatComposer state={state} chosen={chosen} run={run} />
+      <ChatComposer key={targetKey} state={state} chosen={chosen} run={run} />
     </div>
   );
 }
@@ -203,8 +203,7 @@ function ChatEntry({ item, run }: { item: ChatItem; run: Run }) {
 }
 
 function ApprovalCard({ item, run }: { item: Extract<ChatItem, { kind: "approval" }>; run: Run }) {
-  const answer = (allow: boolean) =>
-    run(window.scopeChat.approve({ id: item.id.replace(/^approval-/, ""), allow }));
+  const answer = (allow: boolean) => run(window.scopeChat.approve({ id: item.id, allow }));
   return (
     <li className="chat-card" aria-label={item.title}>
       <strong>{item.title}</strong>

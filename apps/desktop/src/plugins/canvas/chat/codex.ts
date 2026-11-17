@@ -126,6 +126,8 @@ export function codexHarness({
       let next = 0;
       let threadId = "";
       let turnId = "";
+      /** The last turn that finished, whose late turn/start answer must not bring it back. */
+      let finished = "";
       let stopping = false;
       let closed = false;
       let lastMessage = "";
@@ -238,6 +240,8 @@ export function codexHarness({
 
       const notice = (message: Message) => {
         const params = message.params ?? {};
+        // Agents Codex starts for this turn have threads of their own; only this chat's counts.
+        if (threadId && typeof params.threadId === "string" && params.threadId !== threadId) return;
         const item = params.item as Item | undefined;
         switch (message.method) {
           case "item/agentMessage/delta":
@@ -269,7 +273,13 @@ export function codexHarness({
             return;
           }
           case "turn/completed": {
-            const turn = (params.turn ?? {}) as { status?: string; error?: { message?: string } };
+            const turn = (params.turn ?? {}) as {
+              id?: string;
+              status?: string;
+              error?: { message?: string };
+            };
+            if (turnId && turn.id && turn.id !== turnId) return;
+            finished = turn.id ?? "";
             const wasStopping = stopping;
             stopping = false;
             turnId = "";
@@ -306,17 +316,20 @@ export function codexHarness({
           waiting.delete(message.id);
         }
       });
-      child.once("exit", (code) => {
+      let ended = false;
+      const end = (error?: string) => {
+        if (ended) return;
+        ended = true;
         const early = !closed;
-        closed = true;
-        for (const answer of approvals.values()) answer(false);
+        close();
         for (const { resolve } of waiting.values())
-          resolve({ error: { message: "Codex stopped." } });
+          resolve({ error: { message: error ?? "Codex stopped." } });
         waiting.clear();
-        if (early)
-          emit({ type: "exit", ...(code ? { error: `Codex stopped with code ${code}.` } : {}) });
-      });
-      child.once("error", () => close());
+        if (early) emit({ type: "exit", ...(error ? { error } : {}) });
+      };
+      child.once("exit", (code) => end(code ? `Codex stopped with code ${code}.` : undefined));
+      // A program that fails to start can send no exit at all.
+      child.once("error", () => end("Codex could not start."));
 
       try {
         const hello = await request("initialize", {
@@ -368,7 +381,12 @@ export function codexHarness({
             threadId,
             input: [{ type: "text", text: message, text_elements: [] }],
           });
-          turnId = String((result.turn as { id?: string } | undefined)?.id ?? "");
+          const id = String((result.turn as { id?: string } | undefined)?.id ?? "");
+          if (id === finished) return;
+          turnId = id;
+          // Stop was pressed before Codex said which turn it started.
+          if (stopping && turnId)
+            void request("turn/interrupt", { threadId, turnId }).catch(() => {});
         },
         approve: (id, allow) => approvals.get(id)?.(allow),
         stop: () => {
