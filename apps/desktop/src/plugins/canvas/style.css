@@ -143,6 +143,19 @@
   color: var(--scope-muted);
   pointer-events: none;
 }
+/* Present hides the pointer, so these stay less specific than its rule below. */
+[data-camera="pan"],
+[data-camera="pan"] * {
+  cursor: grab !important;
+}
+[data-camera="panning"],
+[data-camera="panning"] * {
+  cursor: grabbing !important;
+}
+[data-camera="zoom"],
+[data-camera="zoom"] * {
+  cursor: zoom-in !important;
+}
 .presentation-mode .canvas-view * {
   cursor: none !important;
 }
@@ -195,16 +208,16 @@
   display: flex;
   flex: 1;
   min-height: 0;
-  flex-direction: column;
 }
-.canvas-card-main {
+.canvas-card-area {
+  position: relative;
   display: flex;
   flex: 1;
-  min-height: 0;
-}
-.canvas-card-main > :first-child {
-  flex: 1;
   min-width: 0;
+  flex-direction: column;
+}
+.canvas-card-area > .content-notice {
+  margin: auto;
 }
 /* Main shows the chat view over this space; it stays empty in the workspace page. */
 .canvas-chat-slot {
@@ -213,16 +226,41 @@
   background: var(--scope-panel);
   border-left: 1px solid var(--scope-line);
 }
-.canvas-card-header {
+.canvas-card-toolbar {
+  position: absolute;
+  top: var(--scope-space-3);
+  left: var(--scope-space-3);
+  z-index: 20;
   display: flex;
-  gap: var(--scope-space-2);
+  max-width: calc(100% - 2 * var(--scope-space-3));
   align-items: center;
-  padding: var(--scope-space-1) var(--scope-space-3);
+  gap: var(--scope-space-1);
+  padding: var(--scope-space-1);
+  touch-action: none;
   background: var(--scope-panel);
-  border-bottom: 1px solid var(--scope-line);
+  border: 1px solid var(--scope-line);
+  border-radius: var(--scope-radius-tab);
+  box-shadow: var(--scope-shadow);
+}
+.canvas-card-grip {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--scope-muted);
+}
+.canvas-card-tools {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--scope-space-1);
+}
+.canvas-card-type-tools {
+  display: contents;
 }
 .canvas-card-heading {
-  margin: 0;
+  min-width: 0;
+  max-width: 16rem;
+  margin: 0 var(--scope-space-1);
   overflow: hidden;
   font-size: var(--scope-text-ui);
   font-weight: var(--scope-weight-medium);

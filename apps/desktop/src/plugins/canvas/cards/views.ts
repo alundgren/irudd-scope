@@ -22,6 +22,8 @@ export type CardEditorProps = {
    * runs it before it closes or Scope quits, then waits for the writes. Returns the cleanup.
    */
   onFlush: (flush: () => void) => () => void;
+  /** Where the editor puts its own tools, inside the card's floating toolbar. Null until shown. */
+  tools: HTMLElement | null;
 };
 
 /** The renderer side of a card type: its full-tab editor and its picture on the board. */

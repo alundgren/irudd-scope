@@ -16,19 +16,10 @@
   min-height: 0;
   flex-direction: column;
 }
-.boxes-toolbar {
+.boxes-tools {
   display: flex;
-  flex-wrap: wrap;
   gap: var(--scope-space-1);
   align-items: center;
-  padding: var(--scope-space-1) var(--scope-space-3);
-  background: var(--scope-panel);
-  border-bottom: 1px solid var(--scope-line);
-}
-.boxes-toolbar .boxes-hint {
-  padding: 0 var(--scope-space-2);
-  color: var(--scope-muted);
-  font-size: var(--scope-text-detail);
 }
 .boxes-surface {
   position: relative;

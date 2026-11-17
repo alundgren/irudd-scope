@@ -253,6 +253,9 @@ const bridge: ScopeBridge = {
   canvasChange: (change) => ipcRenderer.invoke("scope:canvas-change", change),
   canvasStep: (step) => ipcRenderer.invoke("scope:canvas-step", step),
   canvasIds: (input) => ipcRenderer.invoke("scope:canvas-ids", input),
+  canvasToolbarPosition: () => ipcRenderer.invoke("scope:canvas-toolbar-position"),
+  saveCanvasToolbarPosition: (position) =>
+    ipcRenderer.invoke("scope:save-canvas-toolbar-position", position),
   chatLayout: (layout) => ipcRenderer.invoke("scope:chat-layout", layout),
   onCanvasChanged: (listener) => subscribe("scope:canvas-changed", listener),
   onBeforeClose: (listener) => {

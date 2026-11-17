@@ -1,6 +1,7 @@
-import { useCallback, useContext, useEffect, useRef } from "react";
-import { ArrowLeft } from "lucide-react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { ArrowLeft, GripVertical } from "lucide-react";
 import { Button } from "../../renderer/components/ui/button.tsx";
+import { FloatingOverlay } from "../../renderer/components/ui/floating-overlay.tsx";
 import { SettingsContext } from "../../renderer/settings-context.tsx";
 import { HistoryButtons } from "./board-toolbar.tsx";
 import { ChatSlot } from "./chat/slot.tsx";
@@ -13,6 +14,7 @@ import type {
   CanvasHistoryState,
   CanvasOp,
 } from "./contract.ts";
+import { useToolbarPosition } from "./toolbar-position.ts";
 import type { CanvasWrite } from "./use-canvas.ts";
 
 /** Hands out IDs main reserved for the canvas, and asks for more before they run out. */
@@ -40,7 +42,10 @@ export function useIdPool(tabId: string) {
   }, [refill]);
 }
 
-/** A card's editor filling the tab, with its title, a way back to the board, and its own undo. */
+/**
+ * A card's editor filling the tab. A small toolbar floating over it holds the way back to the
+ * board, the title, the card's own undo, and the card type's tools.
+ */
 export function CardEditor({
   tabId,
   cardId,
@@ -83,16 +88,11 @@ export function CardEditor({
     (label: string, ops: CanvasOp[]) => void write({ card: cardId }, label, ops),
     [write, cardId],
   );
+  const toolbar = useToolbarPosition();
+  const [tools, setTools] = useState<HTMLDivElement | null>(null);
   return (
     <div className="canvas-card-editor">
-      <div className="canvas-card-header" role="toolbar" aria-label="Card">
-        <Button size="sm" variant="ghost" title="Back to board · Escape" onClick={onBack}>
-          <ArrowLeft /> Board
-        </Button>
-        <h2 className="canvas-card-heading">{card.title}</h2>
-        {editable && <HistoryButtons history={history} onStep={step} />}
-      </div>
-      <div className="canvas-card-main">
+      <div className="canvas-card-area">
         {view ? (
           <view.Editor
             key={cardId}
@@ -107,14 +107,36 @@ export function CardEditor({
             step={step}
             newId={newId}
             onFlush={onFlush}
+            tools={tools}
           />
         ) : (
           <p className="content-notice" role="status">
             This card needs a newer Scope. Its content is kept as it is.
           </p>
         )}
-        {chat && <ChatSlot tabId={tabId} cardId={cardId} />}
+        {/* Shown once the saved place is known, so it never jumps after opening. */}
+        {toolbar.loaded && (
+          <FloatingOverlay
+            className="canvas-card-toolbar"
+            label="card toolbar"
+            position={toolbar.position}
+            onPosition={toolbar.save}
+          >
+            <GripVertical className="canvas-card-grip" aria-hidden="true" />
+            <div className="canvas-card-tools" role="toolbar" aria-label="Card">
+              <Button size="sm" variant="ghost" title="Back to board · Escape" onClick={onBack}>
+                <ArrowLeft /> Board
+              </Button>
+              <h2 className="canvas-card-heading" title={card.title}>
+                {card.title}
+              </h2>
+              {editable && <HistoryButtons history={history} onStep={step} />}
+              <div ref={setTools} className="canvas-card-type-tools" />
+            </div>
+          </FloatingOverlay>
+        )}
       </div>
+      {chat && <ChatSlot tabId={tabId} cardId={cardId} />}
     </div>
   );
 }

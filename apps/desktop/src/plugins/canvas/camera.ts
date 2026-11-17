@@ -78,7 +78,8 @@ const isTyping = (target: EventTarget | null) =>
 /**
  * Figma-style camera gestures for a surface: scroll pans, pinch and Ctrl/Cmd+scroll zoom at the
  * pointer, Space+drag and middle-button drag pan, and Ctrl/Cmd with plus or minus zooms around
- * the view's center. The board and the card editor share them.
+ * the view's center. The board and the card editor share them. While Space or Ctrl/Cmd is held
+ * the surface's `data-camera` says so, and the stylesheet shows a grab or zoom cursor.
  */
 export function useCameraControls(
   surface: RefObject<HTMLElement | null>,
@@ -88,19 +89,34 @@ export function useCameraControls(
 ) {
   const latest = useRef({ camera, onCamera });
   latest.current = { camera, onCamera };
-  const space = useRef(false);
 
   useEffect(() => {
     const element = surface.current;
     if (!element || !active) return;
+    let space = false;
+    let zoom = false;
+    // A drag with Ctrl held turns card snapping off, so it keeps its own cursor.
+    let pressed = false;
+    let pan: { x: number; y: number; camera: CanvasCamera } | undefined;
+    const show = () => {
+      const mode = pan ? "panning" : space ? "pan" : zoom && !pressed ? "zoom" : undefined;
+      if (mode === element.dataset.camera) return;
+      if (mode) element.dataset.camera = mode;
+      else delete element.dataset.camera;
+    };
+    const modifiers = (event: KeyboardEvent | PointerEvent) => {
+      zoom = event.ctrlKey || event.metaKey;
+    };
     const wheel = (event: WheelEvent) => {
       event.preventDefault();
       const { camera, onCamera } = latest.current;
       onCamera(wheelCamera(camera, event, element.getBoundingClientRect()));
     };
     const keyDown = (event: KeyboardEvent) => {
+      modifiers(event);
+      if (event.key === " " && !isTyping(event.target)) space = true;
+      show();
       if (isTyping(event.target)) return;
-      if (event.key === " ") space.current = true;
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
       const direction = ["+", "="].includes(event.key) ? 1 : event.key === "-" ? -1 : 0;
       if (!direction) return;
@@ -110,17 +126,30 @@ export function useCameraControls(
       onCamera(zoomStep(camera, { x: 0, y: 0, w: box.width, h: box.height }, direction));
     };
     const keyUp = (event: KeyboardEvent) => {
-      if (event.key === " ") space.current = false;
+      modifiers(event);
+      if (event.key === " ") space = false;
+      show();
     };
-    let pan: { x: number; y: number; camera: CanvasCamera } | undefined;
+    const reset = () => {
+      space = false;
+      zoom = false;
+      pressed = false;
+      pan = undefined;
+      show();
+    };
     const pointerDown = (event: PointerEvent) => {
-      if (event.button !== 1 && !(event.button === 0 && space.current)) return;
+      pressed = true;
+      if (event.button !== 1 && !(event.button === 0 && space)) return show();
       event.preventDefault();
       event.stopPropagation();
       element.setPointerCapture(event.pointerId);
       pan = { x: event.clientX, y: event.clientY, camera: latest.current.camera };
+      show();
     };
     const pointerMove = (event: PointerEvent) => {
+      modifiers(event);
+      pressed = event.buttons !== 0;
+      show();
       if (!pan) return;
       const { zoom } = pan.camera;
       latest.current.onCamera({
@@ -131,6 +160,8 @@ export function useCameraControls(
     };
     const pointerUp = () => {
       pan = undefined;
+      pressed = false;
+      show();
     };
     element.addEventListener("wheel", wheel, { passive: false });
     // Capture so Space+drag pans even when it starts on a card.
@@ -140,6 +171,7 @@ export function useCameraControls(
     element.addEventListener("pointercancel", pointerUp);
     window.addEventListener("keydown", keyDown);
     window.addEventListener("keyup", keyUp);
+    window.addEventListener("blur", reset);
     return () => {
       element.removeEventListener("wheel", wheel);
       element.removeEventListener("pointerdown", pointerDown, { capture: true });
@@ -148,7 +180,8 @@ export function useCameraControls(
       element.removeEventListener("pointercancel", pointerUp);
       window.removeEventListener("keydown", keyDown);
       window.removeEventListener("keyup", keyUp);
-      space.current = false;
+      window.removeEventListener("blur", reset);
+      reset();
     };
   }, [surface, active]);
 }

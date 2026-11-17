@@ -1,5 +1,6 @@
+import { Schema } from "effect";
 import { decode } from "@irudd-scope/protocol";
-import { Uuid } from "../../workspace/contract.ts";
+import { OverlayPosition, Uuid } from "../../workspace/contract.ts";
 import type { MainPluginContext } from "../main-api.ts";
 import { homedir } from "node:os";
 import { findProgram } from "@irudd-scope/harnesses";
@@ -19,7 +20,7 @@ import {
 } from "./contract.ts";
 
 export function registerCanvasIpc(context: MainPluginContext) {
-  const { handle, artifacts, window } = context;
+  const { handle, artifacts, window, store } = context;
   const canvases = artifacts.canvases;
   // The open view applies the person's own edits first; this tells it about every committed one.
   const announce = (
@@ -74,5 +75,9 @@ export function registerCanvasIpc(context: MainPluginContext) {
     const { tabId, count } = decode(CanvasIdRequest, input);
     return canvases.reserveIds(tabId, count);
   });
+  handle("scope:canvas-toolbar-position", () => store.canvasToolbarPosition());
+  handle("scope:save-canvas-toolbar-position", (input) =>
+    store.saveCanvasToolbarPosition(decode(Schema.NullOr(OverlayPosition), input)),
+  );
   return { dispose: () => chat.dispose(), removed: chat.removed };
 }
