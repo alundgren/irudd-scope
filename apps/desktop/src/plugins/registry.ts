@@ -11,6 +11,7 @@ import { retroTabContract } from "./retro/contract.ts";
 import { folderTabContract } from "./folder/contract.ts";
 import { harnessesTabContract } from "./harnesses/contract.ts";
 import { sessionsTabContract } from "./sessions/contract.ts";
+import { canvasTabContract } from "./canvas/contract.ts";
 
 const contracts = [
   promptsTabContract,
@@ -23,11 +24,18 @@ const contracts = [
   folderTabContract,
   harnessesTabContract,
   sessionsTabContract,
+  canvasTabContract,
 ];
 export function validateTabState(tab: Tab, preserveFuture = false): void {
   const contract = contracts.find((entry) => entry.type === tab.type);
   if (contract && !(preserveFuture && tab.state.version > contract.version))
     decode(contract.state, tab.state);
+}
+
+/** Tabs that start permanent, so the Trashcan rule for unseen temporary tabs never moves them. */
+export function createsPermanentTab(tab: Pick<Tab, "type">): boolean {
+  const contract = contracts.find((entry) => entry.type === tab.type);
+  return !!contract && "permanentOnCreate" in contract && contract.permanentOnCreate;
 }
 
 export function isBuiltinTab(tab: Pick<Tab, "type">): boolean {

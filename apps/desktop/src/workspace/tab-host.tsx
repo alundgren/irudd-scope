@@ -27,6 +27,7 @@ export function TabHost({
   tab,
   router,
   updateState,
+  updateTitle,
   updateOverlayPosition,
   active,
   onClose,
@@ -35,6 +36,7 @@ export function TabHost({
   tab: Tab;
   router: TabEventRouter;
   updateState: (id: string, state: TabState) => void;
+  updateTitle: (id: string, title: string) => void;
   updateOverlayPosition: (
     id: string,
     name: OverlayName,
@@ -62,7 +64,7 @@ export function TabHost({
     [events, saves],
   );
   const plugin = findPlugin(tab.type);
-  if (["file", "retro", "sketchpad", "folder"].includes(tab.type) && !active && !visited)
+  if (["file", "retro", "sketchpad", "folder", "canvas"].includes(tab.type) && !active && !visited)
     return null;
   if (!plugin)
     return (
@@ -98,6 +100,7 @@ export function TabHost({
             groupId: tab.groupId,
             events,
             updateState: (state) => updateState(tab.id, state),
+            rename: (title) => updateTitle(tab.id, title),
             close: () => onClose(tab.id),
             updateOverlayPosition: (name, position) =>
               updateOverlayPosition(tab.id, name, position),

@@ -6,7 +6,7 @@ to select separate directories for development.
 
 | Data                | Location                                                       | Contents                                                                                                                                                                                           |
 | ------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, the Sketchpad drawing, retro reports and independent session tracking.                      |
+| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, the Sketchpad drawing, canvases, retro reports and independent session tracking.            |
 | Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, workspace groups and selection, remote, retro and memory configuration, retained speech receipts/audio, and the latest harness scan per machine.                    |
 | Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                                                                                                                          |
 | Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                                                                                                      |
@@ -354,6 +354,16 @@ document holds the current proposal, the IDs of done items and evidence. Each
 evidence record stores a fingerprint of its check's expectation, conditions, method
 and kind; a changed check makes that evidence stale. Publication may store a settled
 copy instead of the uploaded bytes when it drops progress for removed or changed items.
+
+Artifact schema 19 adds the canvas tables: `canvas_boards` (each canvas's board
+of card frames), `canvas_cards` (each card's content), `canvas_history` (undo
+steps), `canvas_requests` (each change's receipt for 30 days, so a retried
+request gets its first answer even after its undo step is trimmed) and
+`canvas_ids` (the card and record IDs Scope has handed out and which board or
+card each one names, so none is reused). It changes no existing rows. Every canvas row
+goes away with its tab, so a canvas in Trashcan keeps everything and emptying
+Trashcan removes it. Older builds reject schema 19. Restore a complete
+pre-upgrade backup to downgrade.
 
 Artifact schema 18 converts every stored format version 1 plan to version 2 and
 advances its revision. It removes full copies of earlier proposals (bases),

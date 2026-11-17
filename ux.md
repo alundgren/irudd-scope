@@ -387,6 +387,25 @@ until dismissed. If a dropped file's path leads to a different file by the time 
 it, for example because it was replaced while Scope asked, it is not copied and
 the row says to drop it again. Edits to the same file are copied.
 
+## Canvases
+
+A canvas is a whiteboard of cards. Search offers New canvas, matching words such
+as whiteboard, board, cards and diagram. Each New canvas opens a separate tab
+named Untitled canvas; the name field at the start of the board toolbar renames
+it. Canvases start permanent, so closing one hides it in the drawer, and Delete
+on its tab moves it to Trashcan like any other tab.
+
+The board toolbar holds the name, Add card, Undo and Redo, and for a selected
+card Bring to front, Send to back and Delete card. Add card lists the card
+types; the new card appears in the middle of the view, selected. Drag a card
+to move it and its bottom-right corner to resize it. Double-click a title or
+press F2 to rename a card; Enter keeps the name and Escape cancels. Delete or
+Backspace deletes the selected card. Escape during a drag puts the card back.
+Scrolling pans the board and pinching or Ctrl+scroll zooms at the pointer.
+Each finished gesture is one undo step. Ctrl+Z and Ctrl+Shift+Z (Command on a
+Mac) undo and redo the person's own board steps only. When undo leaves a card
+alone because it changed since, a notice says which card it kept.
+
 ## Sketchpad
 
 The Sketchpad is one built-in Excalidraw canvas for the person's own ideas.
