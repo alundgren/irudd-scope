@@ -52,7 +52,8 @@ export function cardToolService(canvases: CanvasStore, announce: Announce, image
         ? {
             width: image.width,
             height: image.height,
-            scale: round(image.scale),
+            // Rounding would turn the tiny scale of a huge card into 0.
+            scale: image.scale,
             left: round(image.left),
             top: round(image.top),
           }

@@ -15,7 +15,16 @@ import {
   seedCards,
   seedContent,
 } from "./canvas-fixture.ts";
-import { agentSaid, fakeClaude, openChat, say, setCardChat, turns } from "./card-chat-fixture.ts";
+import {
+  agentSaid,
+  fakeClaude,
+  inkedCells,
+  inkedOver,
+  openChat,
+  say,
+  setCardChat,
+  turns,
+} from "./card-chat-fixture.ts";
 
 const box = (x: number, y: number, text: string, z: string) => ({
   type: "box",
@@ -119,7 +128,20 @@ test.skipIf(process.platform === "win32")(
       });
       // The read also brings a PNG picture of the card, drawn as the editor draws it.
       expect(read.content).toEqual(["text", "image"]);
-      expect(read.image).toEqual({ mimeType: "image/png", png: true, width: 208, height: 268 });
+      expect(read.image).toMatchObject({
+        mimeType: "image/png",
+        png: true,
+        width: 208,
+        height: 268,
+      });
+      // Both boxes are drawn, and the margin is empty.
+      const shown = JSON.parse(read.text) as {
+        picture: Parameters<typeof inkedOver>[1];
+        boxes: { x: number; y: number; w: number; h: number }[];
+      };
+      for (const box of shown.boxes)
+        expect(inkedOver(read.image!.ink, shown.picture, box)).toBe(true);
+      expect(read.image!.ink[0]).toBe("0".repeat(32));
       const answer = JSON.parse(first.text) as {
         refs: Record<string, string>;
         warnings: string[];
@@ -352,12 +374,16 @@ test.skipIf(process.platform === "win32")(
       const { picture } = seen;
       expect(seen.boxes.map((item) => item.text).sort()).toEqual(["API", "Billing", "Temp"]);
       expect(far.at(-1)!.content).toEqual(["text", "image"]);
-      expect(far.at(-1)!.image).toEqual({
+      expect(far.at(-1)!.image).toMatchObject({
         mimeType: "image/png",
         png: true,
         width: picture.width,
         height: picture.height,
       });
+      // Every box shows, at both ends of the picture, with empty room between them.
+      const ink = far.at(-1)!.image!.ink;
+      for (const item of seen.boxes) expect(inkedOver(ink, picture, item)).toBe(true);
+      expect(inkedCells(ink)).toBeLessThan(ink.length * ink.length * 0.2);
       expect(Math.max(picture.width, picture.height)).toBe(1600);
       expect(picture.scale).toBeLessThan(0.3);
       for (const item of seen.boxes) {
