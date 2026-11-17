@@ -4,15 +4,15 @@ Electron main owns Scope's persistent data. The first table gives macOS defaults
 Use the [development environment variables](development.md#isolated-development)
 to select separate directories for development.
 
-| Data                | Location                                                       | Contents                                                                                                                                                                                              |
-| ------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, the Sketchpad drawing, canvases, retro reports and independent session tracking.               |
-| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, the card chat switch, workspace groups and selection, remote, retro and memory configuration, retained speech receipts/audio, and the latest harness scan per machine. |
-| Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                                                                                                                             |
-| Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                                                                                                         |
-| CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                                                                                                                        |
-| Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, listener configuration, credential hashes, pairing expiry, remote update status, memory configuration, buffered publication bytes/metadata, and recently observed artifact metadata.    |
-| Memory clone        | `~/.local/share/irudd-scope/memory/NAME` on macOS and Linux    | The user's git working copy of their personal irudd-okf repository. GitHub holds the shared copy.                                                                                                     |
+| Data                | Location                                                       | Contents                                                                                                                                                                                                                                  |
+| ------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Artifact library    | `~/Library/Application Support/irudd-scope/artifacts/scope.db` | Active, queued, and trashed tabs, retention timestamps, published metadata, content references, bytes, the Sketchpad drawing, canvases, retro reports and independent session tracking.                                                   |
+| Desktop preferences | `~/Library/Application Support/irudd-scope/desktop.db`         | Appearance, provider settings, the card chat switch, where the card editor toolbar sits, workspace groups and selection, remote, retro and memory configuration, retained speech receipts/audio, and the latest harness scan per machine. |
+| Provider API key    | macOS Keychain                                                 | One credential entry per desktop profile.                                                                                                                                                                                                 |
+| Remote credentials  | macOS Keychain                                                 | Connection tokens keyed by hub ID, in the desktop profile's credential entry.                                                                                                                                                             |
+| CLI discovery       | `~/.config/irudd-scope/desktop.json`                           | Versioned loopback endpoint and publishing token, mode `0600`.                                                                                                                                                                            |
+| Hub settings        | `~/.local/share/irudd-scope/hub/hub.db` on the remote          | Hub identity, listener configuration, credential hashes, pairing expiry, remote update status, memory configuration, buffered publication bytes/metadata, and recently observed artifact metadata.                                        |
+| Memory clone        | `~/.local/share/irudd-scope/memory/NAME` on macOS and Linux    | The user's git working copy of their personal irudd-okf repository. GitHub holds the shared copy.                                                                                                                                         |
 
 Windows 11 x64 uses an independent profile with these defaults:
 
@@ -354,6 +354,12 @@ document holds the current proposal, the IDs of done items and evidence. Each
 evidence record stores a fingerprint of its check's expectation, conditions, method
 and kind; a changed check makes that evidence stale. Publication may store a settled
 copy instead of the uploaded bytes when it drops progress for removed or changed items.
+
+The `canvas-card-toolbar` preference row in `desktop.db` holds where the card
+editor's floating toolbar sits, as `{ "x": …, "y": … }` pixels from the top
+left of the editor. No row means the default place. It is one row for every
+card and canvas. Older builds never read it, and an unreadable row falls back
+to the default.
 
 Artifact schema 20 adds `canvas_chat`, one row per card chat with the program,
 its Claude session or Codex thread ID, whether a turn was running, that turn's

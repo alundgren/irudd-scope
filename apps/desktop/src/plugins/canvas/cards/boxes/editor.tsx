@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "../../../../renderer/components/ui/button.tsx";
 import { useCameraControls } from "../../camera.ts";
 import type { CardEditorProps } from "../views.ts";
@@ -36,6 +37,7 @@ export function BoxesEditor({
   step,
   newId,
   onFlush,
+  tools,
 }: CardEditorProps) {
   const content = raw as BoxesContent;
   const surface = useRef<HTMLDivElement>(null);
@@ -340,44 +342,47 @@ export function BoxesEditor({
   });
   const typed = typing ? (view[typing.id] as Area | undefined) : undefined;
   const chosen = selected ? view[selected] : undefined;
+  const tip = hint({
+    editable,
+    drawingSection,
+    gesture,
+    typing: !!typing,
+    labeling: !!labeling,
+    selected,
+    content: view,
+  });
   return (
     <div className="boxes-editor">
-      {editable && (
-        <div className="boxes-toolbar" role="toolbar" aria-label="Diagram">
-          <Button
-            size="sm"
-            variant={drawingSection ? "default" : "ghost"}
-            aria-pressed={drawingSection}
-            title="Draw a section"
-            onClick={() => {
-              finishTyping();
-              setSelected(undefined);
-              setDrawingSection(!drawingSection);
-            }}
-          >
-            Section
-          </Button>
-          <Button size="sm" variant="ghost" disabled={!chosen} onClick={remove}>
-            Delete selected
-          </Button>
-          <span className="boxes-hint" aria-live="polite">
-            {hint({
-              editable,
-              drawingSection,
-              gesture,
-              typing: !!typing,
-              labeling: !!labeling,
-              selected,
-              content: view,
-            })}
-          </span>
-        </div>
-      )}
+      {editable &&
+        tools &&
+        createPortal(
+          <div className="boxes-tools" role="group" aria-label="Diagram">
+            <Button
+              size="sm"
+              variant={drawingSection ? "default" : "ghost"}
+              aria-pressed={drawingSection}
+              title="Draw a section"
+              onClick={() => {
+                finishTyping();
+                setSelected(undefined);
+                setDrawingSection(!drawingSection);
+              }}
+            >
+              Section
+            </Button>
+            <Button size="sm" variant="ghost" disabled={!chosen} onClick={remove}>
+              Delete selected
+            </Button>
+          </div>,
+          tools,
+        )}
       <div
         ref={surface}
         className={`boxes-surface${editable ? " boxes-surface-edit" : ""}`}
         tabIndex={0}
         aria-label="Diagram canvas"
+        title={tip}
+        aria-description={tip}
         onPointerDownCapture={(event) => {
           const g = gestureRef.current;
           if (g?.kind === "connect" && g.waiting) surfaceDown(event);

@@ -22,6 +22,7 @@ import {
   type SettingsView,
 } from "./settings.ts";
 import {
+  OverlayPosition,
   Uuid,
   TabGroup,
   importWorkspace,
@@ -416,6 +417,31 @@ export class DesktopStore {
       this.sql!<{ document: string }>`SELECT document FROM preferences WHERE name = 'memory'`,
     );
     return row ? decode(MemoryPreferences, JSON.parse(row.document)) : emptyMemoryPreferences();
+  }
+
+  /** Where the card editor's floating toolbar sits, shared by every canvas card. */
+  async canvasToolbarPosition(): Promise<OverlayPosition | null> {
+    await this.pending;
+    const [row] = await this.run(
+      this.sql!<{
+        document: string;
+      }>`SELECT document FROM preferences WHERE name = 'canvas-card-toolbar'`,
+    );
+    try {
+      return row ? decode(OverlayPosition, JSON.parse(row.document)) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  saveCanvasToolbarPosition(position: OverlayPosition | null): Promise<void> {
+    return this.enqueue(async () => {
+      await this.run(
+        position
+          ? this.sql!`INSERT INTO preferences(name, document) VALUES ('canvas-card-toolbar', ${JSON.stringify(position)}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`
+          : this.sql!`DELETE FROM preferences WHERE name = 'canvas-card-toolbar'`,
+      );
+    });
   }
 
   async librarian(): Promise<LibrarianView> {

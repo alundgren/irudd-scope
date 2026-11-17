@@ -43,6 +43,31 @@ test(
       await expect
         .poll(async () => (await editorPoint(page, 0, 0)).y)
         .toBeGreaterThan(surfaceBox.y + 150);
+      // No bars above the diagram: it fills the editor, with one small toolbar floating on it.
+      const editorBox = (await editor.boundingBox())!;
+      expect(surfaceBox.y).toBeCloseTo(editorBox.y, 0);
+      expect(surfaceBox.height).toBeCloseTo(editorBox.height, 0);
+      const toolbar = (await editor.getByLabel("Move card toolbar").boundingBox())!;
+      expect(toolbar.x - surfaceBox.x).toBeCloseTo(12, 0);
+      expect(toolbar.y - surfaceBox.y).toBeCloseTo(12, 0);
+      expect(toolbar.height).toBeLessThan(60);
+      const tools = editor.getByRole("toolbar", { name: "Card" });
+      for (const name of ["Board", "Undo", "Redo", "Section", "Delete selected"])
+        await tools.getByRole("button", { name, exact: true }).waitFor();
+      expect(await tools.getByRole("heading", { name: "Order flow" }).count()).toBe(1);
+      const surface = editor.getByLabel("Diagram canvas", { exact: true });
+      expect(await surface.getAttribute("title")).toBe("Drag on the canvas to draw a box");
+      // Space shows the pan cursor and Ctrl the zoom cursor, until they are let go.
+      const cursor = () => surface.evaluate((element) => getComputedStyle(element).cursor);
+      await surface.focus();
+      await page.keyboard.down(" ");
+      await expect.poll(cursor).toBe("grab");
+      await page.keyboard.up(" ");
+      await expect.poll(cursor).toBe("crosshair");
+      await page.keyboard.down("Control");
+      await expect.poll(cursor).toBe("zoom-in");
+      await page.keyboard.up("Control");
+      await expect.poll(cursor).toBe("crosshair");
 
       // Drag on empty space draws a box.
       const from = await editorPoint(page, 0, 0);
@@ -325,9 +350,19 @@ test(
       await expect.poll(async () => cardContent(page, tabId, payment)).toEqual({});
       expect(await page.getByRole("alert").allTextContents()).toEqual([]);
 
-      // Text still being typed when Scope quits is kept.
+      // Text still being typed when Scope quits is kept, and the toolbar stays where it was left.
       await page.keyboard.press("Escape");
       await openCard(page, "Order flow");
+      const area = (await pane(page).getByLabel("Diagram canvas", { exact: true }).boundingBox())!;
+      const grip = await center(page, pane(page).locator(".canvas-card-grip"));
+      await drag(page, grip, area.x + area.width - 20 - grip.x, area.y + area.height - 20 - grip.y);
+      const toolbar = pane(page).getByLabel("Move card toolbar");
+      const placed = (await toolbar.boundingBox())!;
+      expect(Math.abs(placed.x + placed.width - area.x - area.width)).toBeLessThan(2);
+      expect(Math.abs(placed.y + placed.height - area.y - area.height)).toBeLessThan(2);
+      const saved = () => page.evaluate(() => window.scope.canvasToolbarPosition());
+      await expect.poll(async () => (await saved())?.x ?? 0).toBeCloseTo(placed.x - area.x, 0);
+      expect((await saved())?.y).toBeCloseTo(placed.y - area.y, 0);
       await pane(page).getByRole("button", { name: "API", exact: true }).dblclick();
       await pane(page).getByLabel("Box text", { exact: true }).fill("API gateway");
       await application.close();
@@ -335,6 +370,9 @@ test(
       page = await application.firstWindow();
       await pane(page).getByRole("heading", { name: "Order flow", exact: true }).waitFor();
       expect((await cardContent(page, tabId, order))[refs.$api].text).toBe("API gateway");
+      const back = (await pane(page).getByLabel("Move card toolbar").boundingBox())!;
+      expect(back.x).toBeCloseTo(placed.x, 0);
+      expect(back.y).toBeCloseTo(placed.y, 0);
     } finally {
       await application.close();
       await rm(f.directory, { recursive: true, force: true });
@@ -381,7 +419,7 @@ test(
       const editor = pane(page);
       for (const value of ["view", "present"]) {
         await mode.selectOption(value);
-        await expect.poll(() => editor.getByRole("toolbar", { name: "Diagram" }).count()).toBe(0);
+        await expect.poll(() => editor.getByRole("group", { name: "Diagram" }).count()).toBe(0);
         await drag(page, await editorPoint(page, 200, 200), 160, 80);
         await drag(
           page,

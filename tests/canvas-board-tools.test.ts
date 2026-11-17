@@ -15,6 +15,9 @@ import {
   type Camera,
 } from "./canvas-fixture.ts";
 
+const cursor = (locator: ReturnType<typeof pane>) =>
+  locator.evaluate((element) => getComputedStyle(element).cursor);
+
 const boardPoint = (camera: Camera, screen: { x: number; y: number }) => ({
   x: camera.x + screen.x / camera.zoom,
   y: camera.y + screen.y / camera.zoom,
@@ -61,8 +64,10 @@ test(
       let before = await settledCamera(page, tabId);
       await page.mouse.move(box.x + pointer.x, box.y + pointer.y);
       await page.keyboard.down("Control");
+      await expect.poll(() => cursor(surface)).toBe("zoom-in");
       await page.mouse.wheel(0, -120);
       await page.keyboard.up("Control");
+      await expect.poll(() => cursor(surface)).toBe("auto");
       let after = await changedCamera(page, tabId, before);
       expect(after.zoom).toBeGreaterThan(before.zoom);
       expect(boardPoint(after, pointer).x).toBeCloseTo(boardPoint(before, pointer).x, 3);
@@ -86,8 +91,12 @@ test(
       before = after;
       await surface.focus();
       await page.keyboard.down(" ");
-      await drag(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 }, -120, -80);
+      await expect.poll(() => cursor(surface)).toBe("grab");
+      await drag(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 }, -120, -80, () =>
+        expect.poll(() => cursor(surface)).toBe("grabbing"),
+      );
       await page.keyboard.up(" ");
+      await expect.poll(() => cursor(surface)).toBe("auto");
       after = await changedCamera(page, tabId, before);
       expect(after.x).toBeCloseTo(before.x + 120 / before.zoom, 1);
       expect(after.y).toBeCloseTo(before.y + 80 / before.zoom, 1);

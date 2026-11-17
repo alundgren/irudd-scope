@@ -67,6 +67,21 @@ test(
       expect(await page.evaluate(() => "scopeChat" in window)).toBe(false);
       expect(await chat.evaluate(() => "scope" in window)).toBe(false);
 
+      // In the narrowest window the toolbar wraps, so every button stays clear of the chat.
+      await application.evaluate(({ BrowserWindow }) => {
+        BrowserWindow.getAllWindows()[0].setSize(640, 800);
+      });
+      const buttons = pane(page).getByRole("toolbar", { name: "Card" }).getByRole("button");
+      await expect
+        .poll(async () => {
+          const edge = (await slot.boundingBox())!.x;
+          const rights = await buttons.evaluateAll((all) =>
+            all.map((button) => button.getBoundingClientRect().right),
+          );
+          return rights.length > 0 && rights.every((right) => right <= edge);
+        })
+        .toBe(true);
+
       // Back on the board there is no editor, so the chat steps away.
       await page.keyboard.press("Escape");
       await slot.waitFor({ state: "detached" });

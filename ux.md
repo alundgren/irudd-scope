@@ -409,6 +409,9 @@ Getting around works like a design tool. Two-finger scrolling pans; a mouse
 wheel scrolls up and down and Shift+wheel sideways. Pinching or Ctrl+scroll
 (Command on a Mac) zooms around the pointer. Space+drag and middle-button drag
 pan. Ctrl or Command with plus or minus zooms around the middle of the view.
+While Space is held the pointer is an open hand, and a closed hand while
+panning; while Ctrl or Command is held it is a magnifier. It goes back when the
+key is let go or the window loses focus.
 There are no Shift+number shortcuts. Zoom stays between 5% and 400%. A small
 bar at the bottom of the board holds Zoom out, the zoom level, Zoom in, Fit
 and Arrange. Fit shows every card at up to 100%. The camera is saved with the
@@ -437,14 +440,18 @@ view are not drawn.
 ### Card editor
 
 Double-click a card's picture, press Enter on a selected card, or use Open
-card to open its editor. The editor fills the tab; its bar holds Board (back),
-the card's title, and Undo and Redo for that card. Undo in a card changes only
-that card. The open card and each card's camera are saved with the tab, so a
+card to open its editor. The editor's canvas fills the tab. One small toolbar
+floats over its top left corner and holds Board (back), the card's title, Undo
+and Redo for that card, and the card type's own tools. Drag its grip or frame
+to move it; with the frame focused, arrow keys move it and Home puts it back.
+It stays inside the editor when the window shrinks, and the same place is used
+for every card and after a restart. Undo in a card changes only that card. The open card and each card's camera are saved with the tab, so a
 restart reopens the same editor at the same place. The editor uses the board's
 camera gestures.
 
-A boxes card is a diagram of boxes, sections and connectors. Its toolbar holds
-Section, Delete selected and a hint line that says what the next gesture does.
+A boxes card is a diagram of boxes, sections and connectors. Its tools are
+Section and Delete selected. The diagram's tooltip, also read by screen
+readers, says what the next gesture does.
 
 - Drag on empty space to draw a box. Section turns the next drag into a
   section, a dashed area with a title on its top border.

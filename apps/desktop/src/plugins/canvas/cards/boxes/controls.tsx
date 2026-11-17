@@ -157,7 +157,7 @@ export type HintState = {
   content: BoxesContent;
 };
 
-/** The one line that says what the next gesture does. */
+/** What the next gesture does, shown as the diagram canvas's tooltip. */
 export function hint(state: HintState) {
   const { gesture, content, selected } = state;
   const record = selected ? content[selected] : undefined;
