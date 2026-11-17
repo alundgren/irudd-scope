@@ -7,6 +7,7 @@ import { findProgram } from "@irudd-scope/harnesses";
 import { harnessPath } from "../../harnesses.ts";
 import { claudeHarness } from "./chat/claude.ts";
 import { codexHarness } from "./chat/codex.ts";
+import { cardImages } from "./chat/card-image.ts";
 import { cardToolService } from "./chat/card-tools.ts";
 import { registerCardChat } from "./chat/view.ts";
 import {
@@ -40,6 +41,7 @@ export function registerCanvasIpc(context: MainPluginContext) {
     return result;
   };
   const path = harnessPath();
+  const images = cardImages();
   const chat = registerCardChat(
     context,
     [
@@ -53,7 +55,7 @@ export function registerCanvasIpc(context: MainPluginContext) {
         path,
       }),
     ],
-    cardToolService(canvases, announce),
+    cardToolService(canvases, announce, images),
   );
   // Trimming board history can remove a deleted card for good, and with it its chat folder.
   let swept = 0;
@@ -79,5 +81,11 @@ export function registerCanvasIpc(context: MainPluginContext) {
   handle("scope:save-canvas-toolbar-position", (input) =>
     store.saveCanvasToolbarPosition(decode(Schema.NullOr(OverlayPosition), input)),
   );
-  return { dispose: () => chat.dispose(), removed: chat.removed };
+  return {
+    dispose: () => {
+      chat.dispose();
+      images.close();
+    },
+    removed: chat.removed,
+  };
 }

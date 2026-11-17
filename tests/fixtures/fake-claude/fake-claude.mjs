@@ -15,6 +15,7 @@
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
+import { pngSize } from "../png-size.mjs";
 
 const args = process.argv.slice(2);
 if (args.includes("--version")) {
@@ -151,12 +152,22 @@ async function cardTool(name, input) {
   log({ event: "approval", tool: full, behavior: permission?.behavior ?? "none" });
   let text = "The person denied this.";
   let isError = true;
+  let content = [];
   if (permission?.behavior === "allow") {
     const answer = await mcp("tools/call", { name, arguments: input });
-    text = answer?.result?.content?.[0]?.text ?? JSON.stringify(answer?.error ?? answer);
+    content = answer?.result?.content ?? [];
+    text = content[0]?.text ?? JSON.stringify(answer?.error ?? answer);
     isError = answer?.result?.isError === true || !answer?.result;
   }
-  log({ event: "tool-result", tool: name, text, isError });
+  const image = content.find((item) => item.type === "image");
+  log({
+    event: "tool-result",
+    tool: name,
+    text,
+    isError,
+    content: content.map((item) => item.type),
+    ...(image ? { image: { mimeType: image.mimeType, ...pngSize(image.data) } } : {}),
+  });
   if (name === "read_diagram" && !isError) lastRead = JSON.parse(text);
   send(
     fill(recording.toolResult, { ...base, TOOL_ID: tool, TOOL_OUTPUT: text, IS_ERROR: isError }),

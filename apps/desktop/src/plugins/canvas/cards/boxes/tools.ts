@@ -330,8 +330,11 @@ export const boxesTools: CardTools = {
       throw error;
     }
   },
-  readGuide:
+  readGuide: [
     "Read the open card: a boxes-and-arrows diagram. Returns its version, its boxes (id, kind, text, x, y, w, h), sections (dashed areas with a title) and connectors (arrows from one box to another). Coordinates are in diagram units on a 20-unit grid; y grows downward.",
+    "It also returns a PNG picture of the whole diagram, drawn the way the person's editor draws it. Look at it for text that overflows or is cut off, labels that sit on borders or other text, and lines drawn over each other. `picture` says how the picture maps to the diagram: pixel (px, py) shows the point (left + px / scale, top + py / scale).",
+    "After edit_diagram, read again and look at the new picture to check the result.",
+  ].join("\n"),
   editGuide: [
     "Change the open card. Each call is saved at once and shows in the person's editor; the person can undo your whole turn.",
     "`changes` is a list applied in order:",

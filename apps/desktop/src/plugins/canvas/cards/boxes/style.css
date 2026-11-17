@@ -405,3 +405,10 @@
     animation: none;
   }
 }
+
+.boxes-image {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 0;
+  height: 0;
+}

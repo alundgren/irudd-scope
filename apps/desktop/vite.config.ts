@@ -33,6 +33,7 @@ export default defineConfig({
       input: {
         index: resolve(directory, "src/renderer/index.html"),
         chat: resolve(directory, "src/renderer/chat.html"),
+        "card-image": resolve(directory, "src/renderer/card-image.html"),
       },
     },
   },

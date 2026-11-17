@@ -16,7 +16,16 @@ export type LogEntry =
   | { event: "request"; method: string }
   | { event: "thread"; method: string; thread: string; cwd: string; tools: string[] }
   | { event: "tools"; names: string[] }
-  | { event: "tool-result"; tool: string; text: string; isError: boolean }
+  | {
+      event: "tool-result";
+      tool: string;
+      text: string;
+      isError: boolean;
+      /** The answer's content types, in order. */
+      content: string[];
+      /** What the answer's picture is, read from its PNG header. */
+      image?: { mimeType: string; png: boolean; width: number; height: number; ink: string[] };
+    }
   | { event: "exit" };
 
 /** A turn the fake plays: card tool calls and replies, as fake-claude.mjs describes. */
@@ -113,3 +122,24 @@ export const turns = (chat: Page, label: string) =>
   chat.getByRole("listitem", { name: label }).count();
 export const agentSaid = (chat: Page, text: string) =>
   chat.locator(".chat-message-agent").filter({ hasText: text }).waitFor();
+
+type Picture = { width: number; height: number; scale: number; left: number; top: number };
+
+/** Whether a picture from read_diagram has ink over the card area `item` covers. */
+export function inkedOver(
+  ink: string[],
+  picture: Picture,
+  item: { x: number; y: number; w: number; h: number },
+) {
+  const cells = ink.length;
+  const column = (x: number) =>
+    Math.min(cells - 1, Math.floor((((x - picture.left) * picture.scale) / picture.width) * cells));
+  const row = (y: number) =>
+    Math.min(cells - 1, Math.floor((((y - picture.top) * picture.scale) / picture.height) * cells));
+  for (let y = row(item.y); y <= row(item.y + item.h); y++)
+    if (ink[y].slice(column(item.x), column(item.x + item.w) + 1).includes("1")) return true;
+  return false;
+}
+
+/** How many cells of a picture's ink grid have ink. */
+export const inkedCells = (ink: string[]) => ink.join("").split("1").length - 1;

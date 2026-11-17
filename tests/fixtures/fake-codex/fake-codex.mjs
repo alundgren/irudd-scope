@@ -13,6 +13,7 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
+import { pngSize } from "../png-size.mjs";
 
 const args = process.argv.slice(2);
 if (args.includes("--version")) {
@@ -82,9 +83,19 @@ async function cardTool(tool, input) {
   const values = { ...ids(), ITEM_ID: `exec-${randomUUID()}`, TOOL: tool, ARGUMENTS: input };
   send(fill(recording.toolStarted, values));
   const answer = await ask(recording.toolCall, values);
-  const text = answer?.result?.contentItems?.[0]?.text ?? JSON.stringify(answer?.error ?? answer);
+  const items = answer?.result?.contentItems ?? [];
+  const text = items[0]?.text ?? JSON.stringify(answer?.error ?? answer);
   const success = answer?.result?.success === true;
-  log({ event: "tool-result", tool, text, isError: !success });
+  const image = items.find((item) => item.type === "inputImage")?.imageUrl;
+  const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/s.exec(image ?? "") ?? [];
+  log({
+    event: "tool-result",
+    tool,
+    text,
+    isError: !success,
+    content: items.map((item) => item.type),
+    ...(image ? { image: { mimeType, ...pngSize(data ?? "") } } : {}),
+  });
   if (tool === "read_diagram" && success) lastRead = JSON.parse(text);
   send(
     fill(recording.toolCompleted, {

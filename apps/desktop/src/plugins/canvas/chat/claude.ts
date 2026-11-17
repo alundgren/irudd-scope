@@ -66,7 +66,10 @@ const CARD_TOOL_NAMES: Record<string, string> = {
 };
 
 const reply = (answer: ToolAnswer) => ({
-  content: [{ type: "text" as const, text: answer.text }],
+  content: [
+    { type: "text" as const, text: answer.text },
+    ...(answer.png ? [{ type: "image" as const, data: answer.png, mimeType: "image/png" }] : []),
+  ],
   ...(answer.ok ? {} : { isError: true }),
 });
 
