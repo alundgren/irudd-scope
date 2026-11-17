@@ -19,7 +19,10 @@ export const MAX_CHANGE_OPS = 2000;
 const Coordinate = Schema.Int.check(
   Schema.isBetween({ minimum: -10_000_000, maximum: 10_000_000 }),
 );
-const Length = Schema.Int.check(Schema.isBetween({ minimum: 80, maximum: 100_000 }));
+export const CARD_SIZE = { min: 80, max: 100_000 } as const;
+const Length = Schema.Int.check(
+  Schema.isBetween({ minimum: CARD_SIZE.min, maximum: CARD_SIZE.max }),
+);
 /** Fractional index strings order cards and records without renumbering their neighbours. */
 export const OrderKey = Schema.String.check(Schema.isPattern(/^[0-9A-Za-z]{1,128}$/));
 export const CardTitle = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(160));

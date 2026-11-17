@@ -1,6 +1,6 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { findCardType } from "./cards/registry.ts";
-import type { BoardCard } from "./contract.ts";
+import { CARD_SIZE, type BoardCard } from "./contract.ts";
 
 export type Frame = Pick<BoardCard, "x" | "y" | "w" | "h">;
 type Gesture = {
@@ -11,8 +11,6 @@ type Gesture = {
   dragging: boolean;
 };
 
-const MIN_SIZE = 80;
-
 /** One card on the board: its frame, title and read-only picture. */
 export function CardFrame({
   id,
@@ -21,6 +19,8 @@ export function CardFrame({
   selected,
   editable,
   onSelect,
+  adjust,
+  onGestureEnd,
   onFrame,
   onRename,
 }: {
@@ -29,7 +29,10 @@ export function CardFrame({
   zoom: number;
   selected: boolean;
   editable: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, additive: boolean) => void;
+  /** Snaps a frame while it is dragged; `free` turns snapping off. */
+  adjust: (id: string, frame: Frame, kind: "move" | "resize", free: boolean) => Frame;
+  onGestureEnd: () => void;
   /** Sends only what the gesture changed: x and y for a move, w and h for a resize. */
   onFrame: (id: string, fields: Partial<Frame>, label: string) => void;
   onRename: (id: string, title: string) => void;
@@ -42,7 +45,7 @@ export function CardFrame({
   function start(kind: Gesture["kind"], event: ReactPointerEvent) {
     if (event.button !== 0) return;
     event.stopPropagation();
-    onSelect(id);
+    onSelect(id, event.shiftKey);
     if (!editable) return;
     gesture.current = {
       kind,
@@ -65,15 +68,20 @@ export function CardFrame({
     const dx = Math.round((event.clientX - current.startX) / zoom);
     const dy = Math.round((event.clientY - current.startY) / zoom);
     const start = current.frame;
-    setMoving(
+    const raw =
       current.kind === "move"
         ? { ...start, x: start.x + dx, y: start.y + dy }
-        : { ...start, w: Math.max(MIN_SIZE, start.w + dx), h: Math.max(MIN_SIZE, start.h + dy) },
-    );
+        : {
+            ...start,
+            w: Math.max(CARD_SIZE.min, start.w + dx),
+            h: Math.max(CARD_SIZE.min, start.h + dy),
+          };
+    setMoving(adjust(id, raw, current.kind, event.ctrlKey || event.metaKey));
   }
   function end() {
     const current = gesture.current;
     gesture.current = undefined;
+    onGestureEnd();
     if (!current || !moving) return setMoving(undefined);
     const changed =
       moving.x !== card.x || moving.y !== card.y || moving.w !== card.w || moving.h !== card.h;
@@ -87,6 +95,7 @@ export function CardFrame({
   }
   function cancel() {
     gesture.current = undefined;
+    onGestureEnd();
     setMoving(undefined);
   }
 
@@ -102,7 +111,7 @@ export function CardFrame({
       onPointerMove={move}
       onPointerUp={end}
       onPointerCancel={cancel}
-      onFocus={() => onSelect(id)}
+      onFocus={(event) => event.target === event.currentTarget && onSelect(id, false)}
       onKeyDown={(event) => {
         if (event.key === "Escape" && gesture.current) {
           event.stopPropagation();
