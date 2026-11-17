@@ -110,11 +110,16 @@ test.skipIf(process.platform === "win32")(
       expect(read.isError).toBe(false);
       expect(JSON.parse(read.text)).toMatchObject({
         title: "Order flow",
+        // Two 160 by 220 boxes at full size, with a 24 pixel margin around them.
+        picture: { width: 208, height: 268, scale: 1, left: -24, top: -24 },
         boxes: [
           { id: seeded.$web, text: "Web app" },
           { id: seeded.$db, text: "Orders DB" },
         ],
       });
+      // The read also brings a PNG picture of the card, drawn as the editor draws it.
+      expect(read.content).toEqual(["text", "image"]);
+      expect(read.image).toEqual({ mimeType: "image/png", png: true, width: 208, height: 268 });
       const answer = JSON.parse(first.text) as {
         refs: Record<string, string>;
         warnings: string[];
@@ -302,7 +307,7 @@ test.skipIf(process.platform === "win32")(
               changes: [
                 { action: "update", id: "@id:API", x: 40 },
                 { action: "update", id: "@id:Payments service", text: "Billing" },
-                { action: "add", text: "Temp", x: 0, y: 300 },
+                { action: "add", text: "Temp", x: 6000, y: 3000 },
               ],
             },
           },
@@ -337,6 +342,34 @@ test.skipIf(process.platform === "win32")(
       await writeFile(go, "");
       await agentSaid(chat, "Done again.");
       await expect.poll(() => turns(chat, "Turn finished")).toBe(3);
+
+      // Temp, far from the other boxes, still fits in the picture, scaled down to the limit.
+      const far = (await toolResults(claude)).filter((entry) => entry.tool === "read_diagram");
+      const seen = JSON.parse(far.at(-1)!.text) as {
+        picture: { width: number; height: number; scale: number; left: number; top: number };
+        boxes: { text: string; x: number; y: number; w: number; h: number }[];
+      };
+      const { picture } = seen;
+      expect(seen.boxes.map((item) => item.text).sort()).toEqual(["API", "Billing", "Temp"]);
+      expect(far.at(-1)!.content).toEqual(["text", "image"]);
+      expect(far.at(-1)!.image).toEqual({
+        mimeType: "image/png",
+        png: true,
+        width: picture.width,
+        height: picture.height,
+      });
+      expect(Math.max(picture.width, picture.height)).toBe(1600);
+      expect(picture.scale).toBeLessThan(0.3);
+      for (const item of seen.boxes) {
+        expect(picture.left).toBeLessThanOrEqual(item.x);
+        expect(picture.top).toBeLessThanOrEqual(item.y);
+        expect(picture.left + picture.width / picture.scale).toBeGreaterThanOrEqual(
+          item.x + item.w,
+        );
+        expect(picture.top + picture.height / picture.scale).toBeGreaterThanOrEqual(
+          item.y + item.h,
+        );
+      }
       expect((await content())[api]).toMatchObject({ x: 800 });
       const last = chat.getByRole("listitem", { name: "Turn finished" }).last();
       await last.getByRole("button", { name: "Undo turn", exact: true }).click();

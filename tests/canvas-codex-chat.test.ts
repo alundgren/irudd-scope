@@ -56,6 +56,7 @@ test.skipIf(process.platform === "win32")(
               changes: [{ action: "add", text: "Checkout", x: 40, y: 40 }],
             },
           },
+          { call: "read_diagram" },
           { say: "Added Checkout." },
         ],
       });
@@ -68,7 +69,29 @@ test.skipIf(process.platform === "win32")(
       expect(await chat.locator(".chat-tool-name").allTextContents()).toEqual([
         "Read card",
         "Change card",
+        "Read card",
       ]);
+      // Reading the empty card brings no picture; reading it again brings a PNG of Checkout.
+      const reads = (await codex.log()).flatMap((entry) =>
+        entry.event === "tool-result" && entry.tool === "read_diagram" ? [entry] : [],
+      );
+      expect(reads.map((entry) => entry.content)).toEqual([
+        ["inputText"],
+        ["inputText", "inputImage"],
+      ]);
+      expect(JSON.parse(reads[0].text)).toMatchObject({
+        picture: "None, because the card is empty.",
+      });
+      expect(JSON.parse(reads[1].text)).toMatchObject({
+        picture: { width: 208, height: 128, scale: 1, left: 16, top: 16 },
+        boxes: [{ text: "Checkout", x: 40, y: 40, w: 160, h: 80 }],
+      });
+      expect(reads[1].image).toEqual({
+        mimeType: "image/png",
+        png: true,
+        width: 208,
+        height: 128,
+      });
       const threads = async () =>
         (await codex.log()).flatMap((entry) => (entry.event === "thread" ? [entry] : []));
       const [started] = await threads();

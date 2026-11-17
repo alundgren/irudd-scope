@@ -16,8 +16,8 @@ export type HarnessEvent =
 /** Why chat stays off when a program would bill an API key instead of the person's plan. */
 export const BILLED_TO_KEY = "This would be billed to your API key, so chat is off.";
 
-/** A tool's reply to the agent. */
-export type ToolAnswer = { text: string; ok: boolean };
+/** A tool's reply to the agent, with an optional PNG picture as base64. */
+export type ToolAnswer = { text: string; ok: boolean; png?: string };
 
 /** The open card's tools, bound to one chat. Each edit is saved at once as part of the turn. */
 export type HarnessTools = {

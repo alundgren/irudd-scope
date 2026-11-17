@@ -6,6 +6,7 @@ import {
   type HarnessEvent,
   type HarnessStart,
   type HarnessTools,
+  type ToolAnswer,
 } from "./harness.ts";
 import { startProgram, stopGroup } from "./process.ts";
 
@@ -181,7 +182,7 @@ export function codexHarness({
           case "item/tool/call": {
             const name = String(params.tool);
             const input = (params.arguments ?? {}) as Record<string, unknown>;
-            const answer = !tools
+            const answer: ToolAnswer = !tools
               ? { ok: false, text: "This card has no tools." }
               : name === "read_diagram"
                 ? await tools.read()
@@ -199,7 +200,12 @@ export function codexHarness({
             write({
               id: message.id,
               result: {
-                contentItems: [{ type: "inputText", text: answer.text }],
+                contentItems: [
+                  { type: "inputText", text: answer.text },
+                  ...(answer.png
+                    ? [{ type: "inputImage", imageUrl: `data:image/png;base64,${answer.png}` }]
+                    : []),
+                ],
                 success: answer.ok,
               },
             });

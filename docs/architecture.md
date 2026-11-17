@@ -949,6 +949,25 @@ keeping fields anyone changed after it, so a person's edit made during the turn
 stays. When history is trimmed, a turn's changes go together, so Undo turn
 never undoes only part of a turn.
 
+`read_diagram` also returns a PNG picture of the whole card, so the agent can
+see overlapping text, labels on borders and lines drawn over each other.
+`chat/card-image.ts` keeps one hidden offscreen window that loads
+`scope://app/card-image.html` with no preload. The page draws the content with
+the card type's image layer from `cards/views.ts`; for boxes that is the
+editor's own `DiagramLayer` with nothing selected, so text wrapping, clipping,
+curves, arrowheads and label places match the editor. The board's lighter SVG
+picture is not used, because it lays out labels differently. The page measures
+the drawn parts, scales the content down to fit 1,600 pixels on its longest side
+with a 24-pixel margin, and main captures it through the window's DevTools
+protocol at a fixed page size and pixel density, so a small screen or a
+high-density display gives the same picture. The text answer's `picture` field
+gives the size, the scale and the card point at the top-left pixel. Calls take
+turns in the one window, which closes after five idle minutes or a crash and
+opens again on the next read. When drawing fails or takes over 15 seconds, the
+read still answers with the records and a note that no picture was available.
+Claude gets the picture as MCP image content and Codex as an `inputImage` item.
+Pictures are never stored.
+
 OpenRouter provides voice generation. The settings form submits a new key to main and clears the input after saving.
 Main stores the key through its credential store in a profile-specific macOS
 Keychain entry or a Windows DPAPI-encrypted record in `desktop.db`, and returns

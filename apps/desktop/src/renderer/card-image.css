@@ -1,0 +1,9 @@
+body {
+  overflow: hidden;
+  background: var(--scope-strip);
+}
+.card-image-layer {
+  position: absolute;
+  inset: 0 auto auto 0;
+  transform-origin: 0 0;
+}

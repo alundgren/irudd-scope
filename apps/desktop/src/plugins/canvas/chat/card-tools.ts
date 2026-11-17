@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { CanvasStore } from "../../../library/canvas-store.ts";
 import { findCardTools } from "../cards/registry.ts";
 import type { CanvasActor, CanvasTarget, CanvasWriteResult, KeptField } from "../contract.ts";
+import type { CardImages } from "./card-image.ts";
 import type { ChatTarget } from "./contract.ts";
 import type { ToolAnswer } from "./harness.ts";
 
@@ -24,7 +25,7 @@ type Announce = (
 ) => CanvasWriteResult;
 
 /** The card tools behind every card chat: reads, agent edits, and undoing an agent's turn. */
-export function cardToolService(canvases: CanvasStore, announce: Announce) {
+export function cardToolService(canvases: CanvasStore, announce: Announce, images?: CardImages) {
   async function card({ tabId, cardId }: ChatTarget) {
     const snapshot = await canvases.snapshot(tabId);
     const row = snapshot?.cards[cardId];
@@ -44,12 +45,30 @@ export function cardToolService(canvases: CanvasStore, announce: Announce) {
       const found = await card(target);
       if (!found) return { answer: answer(false, "This card is gone.") };
       const { row, tools, title } = found;
+      const empty = !Object.keys(row.content).length;
+      // The picture helps but is never needed, so a failure only leaves a note.
+      const image = empty ? null : await images?.draw(row.type, row.content).catch(() => null);
+      const picture = image
+        ? {
+            width: image.width,
+            height: image.height,
+            scale: round(image.scale),
+            left: round(image.left),
+            top: round(image.top),
+          }
+        : empty
+          ? "None, because the card is empty."
+          : "No picture was available this time.";
       return {
-        answer: answer(true, {
-          title,
-          version: row.version,
-          ...(tools.describe(row.content) as object),
-        }),
+        answer: {
+          ...answer(true, {
+            title,
+            version: row.version,
+            picture,
+            ...(tools.describe(row.content) as object),
+          }),
+          ...(image ? { png: image.png } : {}),
+        },
         version: row.version,
       };
     },
@@ -120,6 +139,8 @@ export function cardToolService(canvases: CanvasStore, announce: Announce) {
 }
 
 export type CardToolService = ReturnType<typeof cardToolService>;
+
+const round = (value: number) => Math.round(value * 1000) / 1000;
 
 function result(written: CanvasWriteResult): ToolAnswer {
   if (!written.ok) return answer(false, `Refused (${written.code}): ${written.message}`);

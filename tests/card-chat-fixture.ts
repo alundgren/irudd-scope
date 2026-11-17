@@ -16,7 +16,16 @@ export type LogEntry =
   | { event: "request"; method: string }
   | { event: "thread"; method: string; thread: string; cwd: string; tools: string[] }
   | { event: "tools"; names: string[] }
-  | { event: "tool-result"; tool: string; text: string; isError: boolean }
+  | {
+      event: "tool-result";
+      tool: string;
+      text: string;
+      isError: boolean;
+      /** The answer's content types, in order. */
+      content: string[];
+      /** What the answer's picture is, read from its PNG header. */
+      image?: { mimeType: string; png: boolean; width: number; height: number };
+    }
   | { event: "exit" };
 
 /** A turn the fake plays: card tool calls and replies, as fake-claude.mjs describes. */
