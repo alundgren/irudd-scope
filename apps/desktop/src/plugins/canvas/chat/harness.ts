@@ -1,4 +1,4 @@
-import type { ChatHarnessId, ChatTarget } from "./contract.ts";
+import type { ChatHarnessId, ChatModel, ChatTarget } from "./contract.ts";
 
 /** What a running harness tells the panel. Text arrives in pieces and is joined per turn. */
 export type HarnessEvent =
@@ -27,8 +27,13 @@ export type HarnessTools = {
   edit: (input: { changes: unknown; version?: number; requestId?: string }) => Promise<ToolAnswer>;
 };
 
+/** The model, reasoning level and speed for a turn. Missing ones stay the program's default. */
+export type HarnessRun = { model?: string; effort?: string; speed?: string };
+
 export type HarnessStart = {
   target: ChatTarget;
+  /** What the first turn uses; each `send` names what its own turn uses. */
+  run: HarnessRun;
   /** Missing when the card's type has no agent tools. */
   tools?: HarnessTools;
   /** The card's own working folder in the OS temp folder. */
@@ -40,7 +45,7 @@ export type HarnessStart = {
 
 /** One running conversation with the person's own claude or codex program. */
 export type HarnessSession = {
-  send: (text: string) => Promise<void>;
+  send: (text: string, run: HarnessRun) => Promise<void>;
   approve: (id: string, allow: boolean) => void;
   stop: () => void;
   close: () => void;
@@ -52,5 +57,10 @@ export type ChatHarness = {
   label: string;
   /** Whether the program is installed. It only looks; it never runs the program. */
   available: () => Promise<boolean>;
+  /**
+   * Asks the program which models the person's login offers. It sends no message, so it costs
+   * nothing. It fails with a message for the person, such as when the login is an API key.
+   */
+  models: (folder: string) => Promise<ChatModel[]>;
   start: (options: HarnessStart) => Promise<HarnessSession>;
 };

@@ -19,10 +19,20 @@
   flex: 1;
   font-weight: var(--scope-weight-medium);
 }
+.chat-runs,
 .chat-account,
 .chat-muted {
   color: var(--scope-muted);
   font-size: var(--scope-text-detail);
+}
+.chat-runs {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-account {
+  flex: none;
 }
 .chat-items {
   display: flex;

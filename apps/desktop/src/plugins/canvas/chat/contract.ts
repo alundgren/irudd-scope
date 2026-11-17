@@ -9,6 +9,51 @@ export const MAX_ITEMS = 500;
 export const ChatHarnessId = Schema.Literals(["claude", "codex"]);
 export type ChatHarnessId = typeof ChatHarnessId.Type;
 
+const ChoiceName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200));
+
+/**
+ * The program, model, reasoning level and speed every card chat uses, chosen in Settings.
+ * Names are kept beside IDs so the chat header can show them without asking the program.
+ * A missing model, effort or speed leaves that to the program's own default.
+ */
+export const ChatProgramChoice = Schema.Struct({
+  harness: ChatHarnessId,
+  model: Schema.optionalKey(ChoiceName),
+  modelName: Schema.optionalKey(ChoiceName),
+  effort: Schema.optionalKey(ChoiceName),
+  /** `standard`, or a faster option the model offers, such as Claude's `fast`. */
+  speed: Schema.optionalKey(ChoiceName),
+  speedName: Schema.optionalKey(ChoiceName),
+});
+export type ChatProgramChoice = typeof ChatProgramChoice.Type;
+
+/** The speed every model offers: the program's normal service. */
+export const STANDARD_SPEED = "standard";
+
+export type ChatOption = { id: string; label: string };
+/** A reasoning level's name in menus, such as "Extra high" for `xhigh`. */
+export const effortLabel = (effort: string) =>
+  effort === "xhigh" ? "Extra high" : effort.charAt(0).toUpperCase() + effort.slice(1);
+/** A model an installed program offers, with the reasoning levels and speeds it supports. */
+export type ChatModel = {
+  id: string;
+  label: string;
+  efforts: ChatOption[];
+  defaultEffort?: string;
+  /** Always starts with the standard speed. */
+  speeds: ChatOption[];
+  defaultSpeed?: string;
+  isDefault?: boolean;
+};
+/** What Settings shows for one program. `problem` says why it offers no models. */
+export type ChatProgramModels = {
+  id: ChatHarnessId;
+  label: string;
+  installed: boolean;
+  models: ChatModel[];
+  problem?: string;
+};
+
 /** The card a chat belongs to. Each card has at most one chat. */
 export const ChatTarget = Schema.Struct({ tabId: Uuid, cardId: CanvasId });
 export type ChatTarget = typeof ChatTarget.Type;
@@ -35,7 +80,6 @@ export type ChatLayout = typeof ChatLayout.Type;
 
 export const ChatSend = Schema.Struct({
   text: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(MAX_MESSAGE)),
-  harness: ChatHarnessId,
 });
 export const ChatApprove = Schema.Struct({
   id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
@@ -72,14 +116,14 @@ export type ChatItem =
     }
   | { kind: "notice"; id: string; text: string };
 
-export type ChatHarnessChoice = { id: ChatHarnessId; label: string };
-
 /** Everything the panel shows for one card's chat. Main sends it whole after each change. */
 export type ChatState = {
   target: ChatTarget | null;
-  harnesses: ChatHarnessChoice[];
+  /** The program the next message goes to, from Settings; null when none is installed. */
   harness: ChatHarnessId | null;
-  /** Names the account the chat uses, such as "Claude · Max plan", once the harness says. */
+  /** What runs, such as "Codex · GPT-6.1 Terra · high · fast". */
+  runs?: string;
+  /** Names the account the chat uses, such as "Max plan", once the harness says. */
   account?: string;
   running: boolean;
   /** Why chat can't start, such as an API key login. The composer stays off while set. */

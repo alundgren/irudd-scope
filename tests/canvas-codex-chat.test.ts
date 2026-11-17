@@ -5,6 +5,9 @@ import { newCanvas, openCard, pane, seedCards } from "./canvas-fixture.ts";
 import {
   BILLED_TO_KEY,
   agentSaid,
+  bothPrograms,
+  chooseChat,
+  fakeClaude,
   fakeCodex,
   inkedOver,
   openChat,
@@ -14,11 +17,12 @@ import {
 } from "./card-chat-fixture.ts";
 
 test.skipIf(process.platform === "win32")(
-  "card chat runs the person's codex only on a ChatGPT plan login, with Scope's card tools, and continues after a restart",
+  "card chat runs the person's codex only on a ChatGPT plan login, with the model Settings chooses and Scope's card tools, and continues after a restart",
   { tags: ["bad-requests-change-nothing", "survives-restart"], timeout: 240_000 },
   async () => {
+    const claude = await fakeClaude("plan");
     const codex = await fakeCodex("api-key");
-    const f = await desktopFixture({ hideInitialPrompts: true, env: codex.env });
+    const f = await desktopFixture({ hideInitialPrompts: true, env: bothPrograms(claude, codex) });
     let application = await f.launch();
     try {
       let page = await application.firstWindow();
@@ -29,16 +33,27 @@ test.skipIf(process.platform === "win32")(
       ]);
       await openCard(page, "Order flow");
       await setCardChat(page, true);
+      // Settings picks the program; Codex on an API key login offers no models and says why.
+      await chooseChat(
+        page,
+        { program: "Codex" },
+        "Codex isn't signed in with ChatGPT, so card chat can't use it.",
+      );
       let chat = await openChat(application);
       await chat.getByText("Codex", { exact: true }).waitFor();
+      // The panel only names what runs; it has no menus of its own.
+      expect(await chat.getByRole("combobox").count()).toBe(0);
+      const methods = async () =>
+        (await codex.log()).flatMap((entry) => (entry.event === "request" ? [entry.method] : []));
+      const reads = async () =>
+        (await methods()).filter((method) => method === "account/read").length;
+      const listed = await reads();
 
       // An API key login is never used, and the check sends codex no turn.
       await say(chat, "hello");
       await chat.getByRole("alert").filter({ hasText: BILLED_TO_KEY }).waitFor();
       expect(await chat.getByLabel("Message", { exact: true }).isDisabled()).toBe(true);
-      const methods = async () =>
-        (await codex.log()).flatMap((entry) => (entry.event === "request" ? [entry.method] : []));
-      await expect.poll(async () => (await methods()).includes("account/read")).toBe(true);
+      await expect.poll(reads).toBeGreaterThan(listed);
       expect(await methods()).not.toContain("turn/start");
       expect(await methods()).not.toContain("thread/start");
 
@@ -46,6 +61,8 @@ test.skipIf(process.platform === "win32")(
       await writeFile(codex.account, "chatgpt");
       await page.keyboard.press("Escape");
       await openCard(page, "Order flow");
+      await chooseChat(page, { model: "Fake Terra", reasoning: "High", speed: "Fast" });
+      await chat.getByText("Codex · Fake Terra · high · fast", { exact: true }).waitFor();
       await codex.script({
         note: [
           { call: "read_diagram" },
@@ -101,6 +118,14 @@ test.skipIf(process.platform === "win32")(
           h: 80,
         }),
       ).toBe(true);
+      const messages = async () =>
+        (await codex.log()).flatMap((entry) => (entry.event === "message" ? [entry] : []));
+      expect((await messages()).at(-1)).toMatchObject({
+        text: "add a note about checkout",
+        model: "fake-terra",
+        effort: "high",
+        serviceTier: "priority",
+      });
       const threads = async () =>
         (await codex.log()).flatMap((entry) => (entry.event === "thread" ? [entry] : []));
       const [started] = await threads();
@@ -110,6 +135,11 @@ test.skipIf(process.platform === "win32")(
         tools: ["read_diagram", "edit_diagram"],
       });
 
+      // A new choice applies from the next message: Fake Luna has no fast speed, and keeps no
+      // reasoning level it doesn't offer.
+      await chooseChat(page, { model: "Fake Luna" });
+      await chat.getByText("Codex · Fake Luna · medium", { exact: true }).waitFor();
+
       // A denied command is not run; an allowed file change is.
       await say(chat, "run a command");
       const command = chat.getByRole("listitem", { name: "Run a command?" });
@@ -117,6 +147,12 @@ test.skipIf(process.platform === "win32")(
       await agentSaid(chat, "I didn't run it.");
       await expect.poll(() => turns(chat, "Turn finished")).toBe(2);
       await command.getByText("Denied", { exact: true }).waitFor();
+      expect((await messages()).at(-1)).toMatchObject({
+        text: "run a command",
+        model: "fake-luna",
+        effort: "medium",
+        serviceTier: null,
+      });
       await say(chat, "write a file");
       const write = chat.getByRole("listitem", { name: "Change a file?" });
       await write.getByRole("button", { name: "Allow", exact: true }).click();
@@ -165,10 +201,24 @@ test.skipIf(process.platform === "win32")(
       const resumed = (await threads()).at(-1);
       expect(resumed).toMatchObject({ method: "thread/resume", thread: started.thread });
       expect((await threads()).filter((entry) => entry.method === "thread/start")).toHaveLength(1);
+      expect((await messages()).at(-1)).toMatchObject({ text: "and again", model: "fake-luna" });
+
+      // Choosing Claude Code in Settings starts a new conversation with it.
+      await chooseChat(page, { program: "Claude Code" });
+      await chat.getByText("Claude Code · Fake Opus", { exact: true }).waitFor();
+      const sent = (await messages()).length;
+      await say(chat, "hello claude");
+      await agentSaid(chat, "Fake reply to: hello claude");
+      const told = (await claude.log()).flatMap((entry) =>
+        entry.event === "message" ? [entry.text] : [],
+      );
+      expect(told).toEqual(["hello claude"]);
+      expect(await messages()).toHaveLength(sent);
     } finally {
       await application.close();
       await rm(f.directory, { recursive: true, force: true });
       await rm(codex.directory, { recursive: true, force: true });
+      await rm(claude.directory, { recursive: true, force: true });
     }
   },
 );

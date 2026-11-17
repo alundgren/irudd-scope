@@ -33,7 +33,8 @@ const settingsSections = [
     id: "chat",
     title: "Card chat",
     description: "Chat with your own Claude Code or Codex inside a canvas card",
-    terms: "canvas card chat assistant agent claude codex harness plan subscription",
+    terms:
+      "canvas card chat assistant agent claude codex harness plan subscription model reasoning effort speed fast",
   },
   {
     id: "credentials",

@@ -4,13 +4,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MAX_ITEMS,
+  STANDARD_SPEED,
   type ChatHarnessId,
   type ChatItem,
+  type ChatProgramChoice,
+  type ChatProgramModels,
   type ChatState,
   type ChatTarget,
 } from "./contract.ts";
 import type { CardToolService } from "./card-tools.ts";
-import type { ChatHarness, HarnessEvent, HarnessSession, HarnessTools } from "./harness.ts";
+import { listPrograms } from "./programs.ts";
+import type {
+  ChatHarness,
+  HarnessEvent,
+  HarnessRun,
+  HarnessSession,
+  HarnessTools,
+} from "./harness.ts";
 
 /** Where card chats are kept between restarts. */
 export type SavedChats = {
@@ -63,6 +73,7 @@ export function chatFolder(cardId: string, profile: string): string {
   return join(tmpdir(), "scope-card-chats", `${cardId}-${tag}`);
 }
 const CARD_ID = /^[a-z0-9]{8}$/;
+
 /** How long streamed text and tool lines wait before the chat is saved. */
 const SAVE_DELAY = 500;
 
@@ -79,8 +90,48 @@ export class CardChats {
     private readonly saved: SavedChats,
     /** Scope's own data folder, which keeps each profile's chat folders apart. */
     private readonly profile: string,
+    /** The program, model, reasoning and speed chosen in Settings, read at each message. */
+    private readonly choice: () => ChatProgramChoice | null,
     private readonly tools?: CardToolService,
   ) {}
+
+  /** The program the next message goes to: the one chosen in Settings, or the first found. */
+  private harnessNow(): ChatHarness | undefined {
+    const chosen = this.choice()?.harness;
+    return this.found.find((harness) => harness.id === chosen) ?? this.found[0];
+  }
+
+  /** The Settings choice for a program, which applies only while that program is chosen. */
+  private runFor(harness: ChatHarnessId): HarnessRun {
+    const choice = this.choice();
+    if (choice?.harness !== harness) return {};
+    return {
+      ...(choice.model ? { model: choice.model } : {}),
+      ...(choice.effort ? { effort: choice.effort } : {}),
+      ...(choice.speed ? { speed: choice.speed } : {}),
+    };
+  }
+
+  /** What the chat header names, such as "Codex · GPT-6.1 Terra · high · fast". */
+  private runsLabel(harness: ChatHarness): string {
+    const choice = this.choice();
+    if (choice?.harness !== harness.id) return harness.label;
+    const speed =
+      choice.speed && choice.speed !== STANDARD_SPEED ? (choice.speedName ?? choice.speed) : "";
+    return [harness.label, choice.modelName ?? choice.model, choice.effort, speed.toLowerCase()]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  private listing?: Promise<ChatProgramModels[]>;
+  /**
+   * Asks each installed program for its models, for Settings. Requests that arrive while one is
+   * running share its answer, so the programs are started once at a time.
+   */
+  programs(): Promise<ChatProgramModels[]> {
+    this.listing ??= listPrograms(this.harnesses).finally(() => (this.listing = undefined));
+    return this.listing;
+  }
 
   /** Brings a card's chat back from the database before the panel shows it. */
   async load(target: ChatTarget): Promise<void> {
@@ -146,14 +197,16 @@ export class CardChats {
 
   state(target: ChatTarget | null): ChatState {
     const chat = target && this.chats.get(keyOf(target));
+    const harness = this.harnessNow();
     return {
       target,
-      harnesses: this.found.map(({ id, label }) => ({ id, label })),
-      harness: chat?.harness ?? this.found[0]?.id ?? null,
+      harness: harness?.id ?? null,
+      ...(harness ? { runs: this.runsLabel(harness) } : {}),
       running: chat?.running ?? false,
       items: chat?.items ?? [],
-      ...(chat?.account ? { account: chat.account } : {}),
-      ...(chat?.blocked ? { blocked: chat.blocked } : {}),
+      // The plan and any block belong to the program the chat last used.
+      ...(chat?.account && chat.harness === harness?.id ? { account: chat.account } : {}),
+      ...(chat?.blocked && chat.harness === harness?.id ? { blocked: chat.blocked } : {}),
     };
   }
 
@@ -202,17 +255,20 @@ export class CardChats {
     return `${prefix}-${randomUUID().slice(0, 8)}`;
   }
 
-  async send(target: ChatTarget, text: string, harnessId: ChatHarnessId): Promise<void> {
+  async send(target: ChatTarget, text: string): Promise<void> {
     const chat = this.chat(target);
-    if (chat.blocked) throw new Error(chat.blocked);
     if (chat.running) throw new Error("Wait for the current turn to finish, or stop it.");
-    const harness = this.found.find((item) => item.id === harnessId);
-    if (!harness) throw new Error("That chat program is not available.");
+    const harness = this.harnessNow();
+    if (!harness) throw new Error("Scope can't find Claude Code or Codex on this computer.");
+    const harnessId = harness.id;
     if (chat.harness && chat.harness !== harnessId) {
       // A saved ID belongs to the other program, even when no session is running after a restart.
       this.retire(chat);
       chat.sessionId = undefined;
     }
+    // A block is the old program's login; Settings may have chosen another program since.
+    if (chat.blocked && !chat.session && chat.harness !== harnessId) delete chat.blocked;
+    if (chat.blocked) throw new Error(chat.blocked);
     chat.harness = harnessId;
     this.push(chat, { kind: "message", id: this.nextId("person"), role: "person", text });
     chat.running = true;
@@ -224,7 +280,7 @@ export class CardChats {
       chat.session ??= this.start(chat, harness);
       const session = await chat.session;
       if (chat.blocked) return;
-      await session.send(text);
+      await session.send(text, this.runFor(harnessId));
     } catch (error) {
       this.retire(chat);
       if (chat.resuming) this.forgetConversation(chat);
@@ -258,6 +314,7 @@ export class CardChats {
     const tools = await this.cardTools(chat);
     return harness.start({
       target: chat.target,
+      run: this.runFor(harness.id),
       ...(tools ? { tools } : {}),
       folder,
       ...(chat.sessionId ? { resume: chat.sessionId } : {}),

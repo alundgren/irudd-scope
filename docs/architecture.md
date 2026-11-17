@@ -594,7 +594,7 @@ formats are compatibility contracts.
 | Source           | Optional publication provenance, such as host, repository, or agent. Unknown values stay absent.  | Protocol contract; `packages/cli` collects available values.                                              |
 | Artifact library | Published artifact metadata and the desktop's connection status.                                  | `apps/desktop/src/library/library.ts`; `library/use-library.ts` tracks unread updates.                    |
 | Workspace        | Active, queued, and trashed tab records, retention timestamps, groups, and selection.             | `apps/desktop/src/workspace/contract.ts` defines the contract; `workspace/use-workspace.ts` manages tabs. |
-| Settings         | Appearance, provider configuration, and credential presence.                                      | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.               |
+| Settings         | Appearance, provider configuration, credential presence, and the card chat program and model.     | `apps/desktop/src/settings.ts` defines the contract; `desktop-store.ts` stores preferences.               |
 | Sketchpad        | The built-in Excalidraw canvas the person uses; agents have no access to it.                      | `apps/desktop/src/plugins/sketchpad/view.tsx` owns editing.                                               |
 | Sketchpad draft  | Local Excalidraw serialization and view position, stored only while the canvas is not empty.      | `apps/desktop/src/plugins/sketchpad/contract.ts`; `library/store.ts` stores drafts.                       |
 | Canvas           | A tab holding a board of cards; the person adds, arranges and opens them.                         | `apps/desktop/src/plugins/canvas/` shows it; `library/canvas-store.ts` stores it in `scope.db`.           |
@@ -933,8 +933,24 @@ started with `read_diagram` and `edit_diagram` as dynamic tools and resumed with
 `thread/resume` after a restart. If resuming fails, the next message starts a
 new thread and the panel says so. Command, file and permission approvals come
 to the panel; other server requests are refused. Tests set
-`SCOPE_CODEX_COMMAND` to a fake program. When both programs are found, the
-panel's menu picks one; switching starts a new conversation with the other.
+`SCOPE_CODEX_COMMAND` to a fake program.
+
+Settings chooses the program, model, reasoning level and speed for every card
+chat, stored with desktop settings. The panel has no menus; its header only
+names what runs. To fill the menus, Settings calls `cardChatPrograms` on the
+workspace bridge, which main answers only while card chat is on. It starts
+each installed program in `<OS temp>/scope-card-chats/` without sending a
+message: Claude's `initialize` answer lists its models, and Codex answers
+`model/list` after the same version and login checks a chat makes. A program
+that is not signed in with a plan offers no models and says why. Requests that
+arrive during a listing share it. Each message reads the current choice. Codex
+gets the model, `effort` and `serviceTier` on every `turn/start`, and the
+standard speed sends a null tier to clear an earlier one. Claude gets
+`--model`, `--effort` and a `fastMode` setting when its program starts, and
+`setModel` and `applyFlagSettings` before a message when the choice changed.
+Choosing the other program makes the next message start a new conversation
+with it. With no choice saved, chat uses the first installed program and its
+own defaults.
 
 The card server offers `read_diagram` and `edit_diagram` for the open card and
 nothing else, so Scope answers their permission checks itself. The card type's

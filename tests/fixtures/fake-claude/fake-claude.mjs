@@ -10,6 +10,9 @@
 //                     file exists. In arguments, "@id:Web app" is the id of the box
 //                     with that text in the last read_diagram result, and "@version" its version.
 //
+// The initialize answer offers two made-up models. set_model and apply_flag_settings requests are
+// logged with what they ask for; the model, effort and settings flags are in the start args.
+//
 // Otherwise what the person writes picks the turn: "command" asks to run Bash, "file" asks to
 // write a file, "long" waits until Stop, "forever" never ends, and anything else gets a reply.
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
@@ -38,6 +41,23 @@ const account =
   login === "api-key"
     ? { apiKeySource: "ANTHROPIC_API_KEY", apiProvider: "firstParty" }
     : { email: "person@example.com", subscriptionType: "Claude Max", apiProvider: "firstParty" };
+
+const MODELS = [
+  {
+    value: "fake-opus",
+    displayName: "Fake Opus",
+    description: "A made-up model.",
+    supportsEffort: true,
+    supportedEffortLevels: ["low", "high", "max"],
+    supportsFastMode: true,
+  },
+  {
+    value: "fake-haiku",
+    displayName: "Fake Haiku",
+    description: "Another made-up model.",
+    supportsEffort: false,
+  },
+];
 
 const fill = (template, values) =>
   JSON.parse(JSON.stringify(template), (_key, value) =>
@@ -230,15 +250,21 @@ lines.on("line", (line) => {
     return;
   }
   if (message.type === "control_request") {
-    log({ event: "control", subtype: message.request.subtype });
-    if (message.request.subtype === "initialize")
-      send(
-        fill(recording.initialize, {
-          REQUEST_ID: message.request_id,
-          ACCOUNT: account,
-        }),
-      );
-    else {
+    const { subtype, model, settings } = message.request;
+    log({
+      event: "control",
+      subtype,
+      ...(subtype === "set_model" ? { model: model ?? null } : {}),
+      ...(subtype === "apply_flag_settings" ? { settings } : {}),
+    });
+    if (subtype === "initialize") {
+      const reply = fill(recording.initialize, {
+        REQUEST_ID: message.request_id,
+        ACCOUNT: account,
+      });
+      reply.response.response.models = MODELS;
+      send(reply);
+    } else {
       send({
         type: "control_response",
         response: { subtype: "success", request_id: message.request_id, response: {} },

@@ -7,6 +7,7 @@ import { cardContent, newCanvas, openCard, pane, seedCards } from "./canvas-fixt
 import {
   BILLED_TO_KEY,
   agentSaid,
+  chooseChat,
   fakeClaude,
   openChat,
   say,
@@ -15,7 +16,7 @@ import {
 } from "./card-chat-fixture.ts";
 
 test.skipIf(process.platform === "win32")(
-  "card chat runs the person's claude only on a plan login, in the card's own folder, and only the chat panel can answer it",
+  "card chat runs the person's claude only on a plan login, with the model Settings chooses, in the card's own folder, and only the chat panel can answer it",
   { tags: ["bad-requests-change-nothing"], timeout: 240_000 },
   async () => {
     const claude = await fakeClaude("api-key");
@@ -30,8 +31,15 @@ test.skipIf(process.platform === "win32")(
       ]);
       await openCard(page, "Order flow");
       await setCardChat(page, true);
+      // Settings says why Claude Code on an API key login offers no models.
+      await chooseChat(
+        page,
+        {},
+        "Claude Code isn't signed in with a Claude plan, so card chat can't use it.",
+      );
       const chat = await openChat(application);
       await chat.getByText("Ask about this card, or ask for changes to it.").waitFor();
+      expect(await chat.getByRole("combobox").count()).toBe(0);
 
       // An API key login is never used, and the check itself sends the program no message.
       await say(chat, "hello");
@@ -50,13 +58,23 @@ test.skipIf(process.platform === "win32")(
       await writeFile(claude.account, "plan");
       await page.keyboard.press("Escape");
       await openCard(page, "Order flow");
+      await chooseChat(page, { model: "Fake Opus", reasoning: "Max", speed: "Fast" });
+      await chat.getByText("Claude Code · Fake Opus · max · fast", { exact: true }).waitFor();
       await say(chat, "hello");
       await agentSaid(chat, "Fake reply to: hello");
       await expect.poll(() => turns(chat, "Turn finished")).toBe(1);
       await chat.getByText("Max plan", { exact: true }).waitFor();
       expect(await chat.getByRole("alert").count()).toBe(0);
-      const starts = (await claude.log()).filter((entry) => entry.event === "start");
-      expect(starts.at(-1)?.cwd).toBe(await claude.folder(cardId));
+      // Settings starts the program in another folder to list its models.
+      const folder = await claude.folder(cardId);
+      const chatStarts = async () =>
+        (await claude.log()).flatMap((entry) =>
+          entry.event === "start" && entry.cwd === folder ? [entry] : [],
+        );
+      const starts = await chatStarts();
+      const args = starts.at(-1)!.args;
+      expect(args).toEqual(expect.arrayContaining(["--model=fake-opus", "--effort=max"]));
+      expect(JSON.parse(args[args.indexOf("--settings") + 1])).toMatchObject({ fastMode: true });
       // Scope leaves the person's own tools, settings and MCP servers alone.
       for (const start of starts)
         for (const flag of ["--tools", "--setting-sources", "--strict-mcp-config"])
@@ -94,11 +112,11 @@ test.skipIf(process.platform === "win32")(
         })();
         return { scope: "scope" in window, chat: "scopeChat" in window, parentBridge };
       });
-      // The workspace bridge the page can see only places the panel.
+      // The workspace bridge the page can see only places the panel and lists models for Settings.
       expect(reach).toEqual({
         scope: false,
         chat: false,
-        parentBridge: { chat: false, scope: ["chatLayout"] },
+        parentBridge: { chat: false, scope: ["cardChatPrograms", "chatLayout"] },
       });
       await page.getByRole("tab", { name: "Shop" }).click();
       await pane(page).getByRole("heading", { name: "Order flow", exact: true }).waitFor();
@@ -112,6 +130,17 @@ test.skipIf(process.platform === "win32")(
         { event: "approval", tool: "Write", behavior: "allow" },
       ]);
 
+      // A new choice applies from the next message: Fake Haiku has no reasoning levels or fast mode.
+      await chooseChat(page, { model: "Fake Haiku" });
+      await chat.getByText("Claude Code · Fake Haiku", { exact: true }).waitFor();
+      const controls = async () =>
+        (await claude.log()).filter(
+          (entry) =>
+            entry.event === "control" &&
+            ["set_model", "apply_flag_settings"].includes(entry.subtype),
+        );
+      expect(await controls()).toEqual([]);
+
       // Stop ends a long turn.
       await say(chat, "count for a long time");
       await agentSaid(chat, "Counting slowly…");
@@ -122,8 +151,16 @@ test.skipIf(process.platform === "win32")(
           (entry) => entry.event === "control" && entry.subtype === "interrupt",
         ),
       ).toBe(true);
+      expect(await controls()).toEqual([
+        { event: "control", subtype: "set_model", model: "fake-haiku" },
+        {
+          event: "control",
+          subtype: "apply_flag_settings",
+          settings: { effortLevel: null, fastMode: false },
+        },
+      ]);
       // The fake ran one program for the whole conversation after the plan login.
-      expect((await claude.log()).filter((entry) => entry.event === "start").length).toBe(2);
+      expect(await chatStarts()).toHaveLength(2);
     } finally {
       await application.close();
       await rm(f.directory, { recursive: true, force: true });

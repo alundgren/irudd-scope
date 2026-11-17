@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { Effect, ManagedRuntime, Schema } from "effect";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { decode } from "@irudd-scope/protocol";
+import { ChatProgramChoice } from "./plugins/canvas/chat/contract.ts";
 import { memoryCredentials, type CredentialStore, type CredentialFactory } from "./credentials.ts";
 
 import {
@@ -52,6 +53,13 @@ const SavedSettings = Schema.Struct({
   model: Schema.Literal(SAVED_MODEL),
 });
 const CardChatPreference = Schema.Struct({ enabled: Schema.Boolean });
+function readProgramChoice(document: string): ChatProgramChoice | null {
+  try {
+    return decode(ChatProgramChoice, JSON.parse(document));
+  } catch {
+    return null;
+  }
+}
 const LegacySettings = Schema.Struct({
   ...SavedSettings.fields,
   version: Schema.Literals([1, 2]),
@@ -93,6 +101,7 @@ export class DesktopStore {
   private hasApiKey: boolean | null = null;
   // Kept in its own row because older builds reject unknown fields in the settings document.
   private cardChatEnabled = false;
+  private cardChatProgram: ChatProgramChoice | null = null;
   private credentialError?: string;
   private legacyApiKey?: string;
   private pending = Promise.resolve();
@@ -165,6 +174,13 @@ export class DesktopStore {
       this.cardChatEnabled = chat
         ? decode(CardChatPreference, JSON.parse(chat.document)).enabled
         : false;
+      const [program] = await this.run(
+        sql<{
+          document: string;
+        }>`SELECT document FROM preferences WHERE name = 'card-chat-program'`,
+      );
+      // A choice this build can't read, such as one from a newer Scope, falls back to the default.
+      this.cardChatProgram = program ? readProgramChoice(program.document) : null;
       const legacy = await readFile(join(this.directory, "settings.json"), "utf8").catch(
         (error: unknown) => {
           if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
@@ -586,6 +602,7 @@ export class DesktopStore {
       appearance: this.saved.appearance ?? "system",
       voiceGenerationEnabled: this.saved.voiceGenerationEnabled ?? false,
       cardChatEnabled: this.cardChatEnabled,
+      cardChatProgram: this.cardChatProgram,
       hasApiKey: this.hasApiKey,
       keyStorage: this.credentials.kind,
       ...(this.credentialError ? { credentialError: this.credentialError } : {}),
@@ -636,6 +653,13 @@ export class DesktopStore {
           this.sql!`INSERT INTO preferences(name, document) VALUES ('card-chat', ${document}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
         );
         this.cardChatEnabled = input.cardChatEnabled;
+      }
+      if (input.cardChatProgram !== undefined) {
+        const document = JSON.stringify(input.cardChatProgram);
+        await this.run(
+          this.sql!`INSERT INTO preferences(name, document) VALUES ('card-chat-program', ${document}) ON CONFLICT(name) DO UPDATE SET document = excluded.document`,
+        );
+        this.cardChatProgram = input.cardChatProgram;
       }
       this.saved = next;
       return this.settings();

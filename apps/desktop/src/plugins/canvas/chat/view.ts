@@ -45,6 +45,7 @@ export function registerCardChat(
       forgetFolder: (cardId) => saved.forgetFolder(cardId),
     },
     app.getPath("userData"),
+    () => store.settings().cardChatProgram,
     tools,
   );
   void chats.sweep();
@@ -87,6 +88,8 @@ export function registerCardChat(
       return;
     }
     view ??= create();
+    // Settings may have changed what runs while the panel was hidden behind its dialog.
+    const shown = view.getVisible();
     const zoom = window.webContents.getZoomFactor();
     view.setBounds({
       x: Math.round(bounds.x * zoom),
@@ -95,6 +98,7 @@ export function registerCardChat(
       height: Math.round(bounds.height * zoom),
     });
     view.setVisible(true);
+    if (!shown) publish();
   }
 
   // Loading a chat takes a moment; a layout sent meanwhile wins over the one that waited.
@@ -121,6 +125,11 @@ export function registerCardChat(
       target = null;
       place(null);
     }
+  });
+  // Settings lists each installed program's models. Listing starts the program but sends no message.
+  handle("scope:card-chat-programs", () => {
+    if (!store.settings().cardChatEnabled) throw new Error("Card chat is off in Settings.");
+    return chats.programs();
   });
   // A reload or crash of the workspace page drops its editors, so nothing holds room for the panel.
   const hide = () => place(null);
@@ -162,8 +171,7 @@ export function registerCardChat(
     return chats.state(target);
   });
   chatHandle("send", (current, input) => {
-    const { text, harness } = decode(ChatSend, input);
-    return chats.send(current, text, harness);
+    return chats.send(current, decode(ChatSend, input).text);
   });
   chatHandle("approve", (current, input) => {
     const { id, allow } = decode(ChatApprove, input);
