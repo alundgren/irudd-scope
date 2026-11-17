@@ -251,6 +251,7 @@
 .canvas-card-tools {
   display: flex;
   min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--scope-space-1);
 }
