@@ -72,6 +72,8 @@ export async function desktopFixture(
     SCOPE_PORT: "0",
     SCOPE_SESSION_CREDENTIALS: "1",
     SCOPE_MEMORY_DIR: join(directory, "memory"),
+    // A name no computer has, so no test starts the person's own claude by accident.
+    SCOPE_CLAUDE_COMMAND: "fnaude-not-installed",
     // Hidden Linux windows stall CSS animations and prevent dialogs from closing.
     SCOPE_TEST_HIDE_WINDOW: showWindow || process.platform === "linux" ? "0" : "1",
     ...options.env,

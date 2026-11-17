@@ -35,5 +35,7 @@ export type HarnessSession = {
 export type ChatHarness = {
   id: ChatHarnessId;
   label: string;
+  /** Whether the program is installed. It only looks; it never runs the program. */
+  available: () => Promise<boolean>;
   start: (options: HarnessStart) => Promise<HarnessSession>;
 };

@@ -29,6 +29,7 @@ export function registerMainPlugins(context: MainPluginContext) {
     resumePullRequests: () => pullRequests.resume(),
     cancelTabs: (ids: string[]) => {
       pullRequests.cancelTabs(ids);
+      canvases.removed(ids);
       folders.cancelTabs(ids);
     },
     hiddenTabs: (ids: string[]) => folders.tabsClosed(ids),

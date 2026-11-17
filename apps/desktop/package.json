@@ -9,6 +9,8 @@
     "dev": "vp run build && vp exec electron ."
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "catalog:",
+    "@anthropic-ai/sdk": "catalog:",
     "@base-ui/react": "catalog:",
     "@effect/sql-sqlite-node": "catalog:",
     "@excalidraw/excalidraw": "catalog:",
@@ -18,6 +20,7 @@
     "@irudd-scope/protocol": "workspace:*",
     "@irudd-scope/sessions": "workspace:*",
     "@irudd-scope/sqlite": "workspace:*",
+    "@modelcontextprotocol/sdk": "catalog:",
     "@napi-rs/keyring": "catalog:",
     "class-variance-authority": "catalog:",
     "cn": "catalog:",
@@ -29,7 +32,8 @@
     "react-dom": "catalog:",
     "react-markdown": "catalog:",
     "shiki": "catalog:",
-    "tw-animate-css": "catalog:"
+    "tw-animate-css": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@tailwindcss/vite": "catalog:",

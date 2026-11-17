@@ -157,8 +157,8 @@ export class HarnessesService {
   }
 }
 
-/** GUI launches on macOS omit the package-manager and per-user directories. */
-function harnessPath(): string {
+/** PATH for finding and running harness programs; GUI launches on macOS omit some folders. */
+export function harnessPath(): string {
   const key =
     process.platform === "win32"
       ? (Object.keys(process.env).find((name) => name.toUpperCase() === "PATH") ?? "PATH")

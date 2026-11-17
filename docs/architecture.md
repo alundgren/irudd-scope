@@ -903,6 +903,19 @@ loading `scope://app/chat.html` with `chat-preload.cjs`. Main answers its send,
 approve, stop and undo operations only when the sender is that view's main
 frame on that page, and the view refuses navigation, popups and webviews. The
 workspace page only tells main where the panel goes and which card it is for.
+
+Card chat runs the person's own `claude` through the Claude Agent SDK, found the
+way the harness scan finds it (`~/.local/bin`, then the PATH `harnesses.ts`
+builds). The SDK's own bundled programs are left out of the install. Scope keeps
+the SDK's defaults, so the session loads the person's settings, tools and MCP
+servers, and adds only its card server and the approval answers from the panel.
+Before the first message Scope asks the program which account it uses and stops
+unless it is a Claude plan login: an API key or another provider turns chat off
+rather than billing the key. Each card's session runs in its own
+`<OS temp>/scope-card-chats/<card id>` folder, in its own process group so
+closing the chat or quitting Scope stops what it started. A later message
+resumes the saved session ID. Tests set `SCOPE_CLAUDE_COMMAND` to a fake program
+so they never start the person's claude.
 It leaves embedded frame loading, embedded form results, downloads, and in-page
 anchors in the document. PR inbox handlers run first to retain their validated
 link operations and error reporting. Markdown omits raw HTML and replaces links
@@ -924,7 +937,8 @@ require voice generation to be enabled.
 
 The HTTP API accepts finished artifacts and narrow speech-generation requests.
 It does not expose arbitrary provider requests or the Sketchpad. Scope does not
-run or coordinate coding sessions.
+run or coordinate the coding sessions that publish to it. The only agent it
+starts is the person's own program in card chat.
 
 ### Coding session notifications
 
