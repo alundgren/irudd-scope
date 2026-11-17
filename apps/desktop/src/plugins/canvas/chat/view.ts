@@ -5,6 +5,7 @@ import type { MainPluginContext } from "../../main-api.ts";
 import {
   ChatApprove,
   ChatLayout,
+  ChatProgramsRequest,
   ChatSend,
   ChatUndoTurn,
   type ChatBounds,
@@ -13,10 +14,22 @@ import {
 } from "./contract.ts";
 import type { CardToolService } from "./card-tools.ts";
 import type { ChatHarness } from "./harness.ts";
-import { CardChats } from "./service.ts";
+import { CardChats, LIST_TIMING, type ListTiming } from "./service.ts";
 
 const PAGE = "scope://app/chat.html";
 const CHANNELS = ["state", "send", "approve", "stop", "undo-turn"] as const;
+
+/** Tests shorten how long Scope waits for a program's models and how often it asks again. */
+function testTiming(): ListTiming {
+  const timeout = Number(process.env.SCOPE_TEST_MODEL_LIST_TIMEOUT);
+  const cooldown = Number(process.env.SCOPE_TEST_MODEL_LIST_COOLDOWN);
+  if (app.isPackaged) return LIST_TIMING;
+  return {
+    timeout: timeout > 0 ? timeout : LIST_TIMING.timeout,
+    cooldown:
+      cooldown >= 0 && process.env.SCOPE_TEST_MODEL_LIST_COOLDOWN ? cooldown : LIST_TIMING.cooldown,
+  };
+}
 
 /**
  * The chat panel runs in its own web view beside the card editor. Published pages share the
@@ -47,6 +60,7 @@ export function registerCardChat(
     app.getPath("userData"),
     () => store.settings().cardChatProgram,
     tools,
+    testTiming(),
   );
   void chats.sweep();
 
@@ -127,9 +141,10 @@ export function registerCardChat(
     }
   });
   // Settings lists each installed program's models. Listing starts the program but sends no message.
-  handle("scope:card-chat-programs", () => {
+  handle("scope:card-chat-programs", (input) => {
+    const request = decode(ChatProgramsRequest, input);
     if (!store.settings().cardChatEnabled) throw new Error("Card chat is off in Settings.");
-    return chats.programs();
+    return chats.programs(request?.refresh === true);
   });
   // A reload or crash of the workspace page drops its editors, so nothing holds room for the panel.
   const hide = () => place(null);

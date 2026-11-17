@@ -938,12 +938,28 @@ to the panel; other server requests are refused. Tests set
 Settings chooses the program, model, reasoning level and speed for every card
 chat, stored with desktop settings. The panel has no menus; its header only
 names what runs. To fill the menus, Settings calls `cardChatPrograms` on the
-workspace bridge, which main answers only while card chat is on. It starts
-each installed program in `<OS temp>/scope-card-chats/` without sending a
-message: Claude's `initialize` answer lists its models, and Codex answers
-`model/list` after the same version and login checks a chat makes. A program
-that is not signed in with a plan offers no models and says why. Requests that
-arrive during a listing share it. Each message reads the current choice. Codex
+workspace bridge, which main answers only while card chat is on. To list a
+program's models, main starts it in `<OS temp>/scope-card-chats/` without
+sending a message: Claude's `initialize` answer lists its models, and Codex
+answers `model/list` after the same version and login checks a chat makes. A
+program that is not signed in with a plan offers no models and says why. A
+program that doesn't answer within 30 seconds is stopped with its process
+group, and quitting Scope stops any listing still running. Published pages can
+call `cardChatPrograms` too, so main answers from each program's last list and
+starts the program only when it has no list yet, or for a `refresh`, which
+Settings sends when its section opens. A program is listed again at most once
+a minute; a refresh within that minute waits for it, and requests share a
+listing that is running. Settings first shows the last lists and then the
+newer ones. `resolveChoice` in the chat contract checks the saved choice
+against the last list: a model the program no longer offers becomes its
+default model, and a reasoning level or speed the model no longer offers
+becomes the model's default. Settings, the chat header and each message use
+its answer, and before Scope has a list, the saved choice as it is. Unpackaged
+builds read `SCOPE_TEST_MODEL_LIST_TIMEOUT` and
+`SCOPE_TEST_MODEL_LIST_COOLDOWN`, in milliseconds, so tests can shorten both
+limits. Each
+message fixes the program and choice when it is accepted, so a change made
+while the program starts applies from the next message. Codex
 gets the model, `effort` and `serviceTier` on every `turn/start`, and the
 standard speed sends a null tier to clear an earlier one. Claude gets
 `--model`, `--effort` and a `fastMode` setting when its program starts, and

@@ -487,9 +487,12 @@ no edits.
 
 Card chat is off until the Card chat switch in Settings turns it on. While it
 is on, the same Settings section offers Program, Model, Reasoning and Speed
-menus for every card chat. Opening the section asks the installed programs for
-their models and shows "Asking Claude Code and Codex for their models…"
-meanwhile. Program lists only installed programs. Reasoning and Speed list
+menus for every card chat. Opening the section shows the models the installed
+programs last listed, then asks them again and shows their answer; the first
+time it shows "Asking Claude Code and Codex for their models…" meanwhile.
+Scope asks a program again at most once a minute. When the saved model is no
+longer offered, the menus and the chat header show the program's default model
+instead, and so do messages. Program lists only installed programs. Reasoning and Speed list
 what the chosen model offers and are left out when it offers nothing to
 choose; Speed shows Standard and the program's faster option, such as Fast.
 Picking a model keeps the reasoning level and speed when the new model offers

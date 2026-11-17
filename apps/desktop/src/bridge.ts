@@ -9,7 +9,11 @@ import type { RetroCommand, RetroReply, RetroConfiguration } from "@irudd-scope/
 import type { RetroEvent } from "@irudd-scope/protocol";
 import type { Artifact } from "@irudd-scope/protocol";
 import type { SettingsUpdate, SettingsView } from "./settings.ts";
-import type { ChatLayout, ChatProgramModels } from "./plugins/canvas/chat/contract.ts";
+import type {
+  ChatLayout,
+  ChatProgramModels,
+  ChatProgramsRequest,
+} from "./plugins/canvas/chat/contract.ts";
 import type { RetainedTab, TrashEntry } from "./workspace/retention.ts";
 import type { OverlayPosition, Tab, Workspace } from "./workspace/contract.ts";
 import type { SketchpadDraft } from "./plugins/sketchpad/contract.ts";
@@ -226,8 +230,11 @@ export type ScopeBridge = {
   settings: () => Promise<SettingsView>;
   providerSettings: () => Promise<SettingsView>;
   saveSettings: (input: SettingsUpdate) => Promise<SettingsView>;
-  /** Asks each installed chat program which models it offers, for the Card chat settings. */
-  cardChatPrograms: () => Promise<ChatProgramModels[]>;
+  /**
+   * Each installed chat program's models, for the Card chat settings: the last lists Scope has,
+   * or newer ones with `refresh`.
+   */
+  cardChatPrograms: (input?: ChatProgramsRequest) => Promise<ChatProgramModels[]>;
   openTab: (tab: Tab, artifactRevision?: number) => Promise<Tab | null>;
   retainedTabs: () => Promise<RetainedTab[]>;
   onRetentionChanged: (listener: (tabs: RetainedTab[]) => void) => () => void;

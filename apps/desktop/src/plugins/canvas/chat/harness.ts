@@ -60,7 +60,8 @@ export type ChatHarness = {
   /**
    * Asks the program which models the person's login offers. It sends no message, so it costs
    * nothing. It fails with a message for the person, such as when the login is an API key.
+   * Aborting `signal` stops the program and everything it started, and fails the request.
    */
-  models: (folder: string) => Promise<ChatModel[]>;
+  models: (folder: string, signal: AbortSignal) => Promise<ChatModel[]>;
   start: (options: HarnessStart) => Promise<HarnessSession>;
 };

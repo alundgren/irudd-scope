@@ -37,6 +37,24 @@ test.skipIf(process.platform === "win32")(
         {},
         "Claude Code isn't signed in with a Claude plan, so card chat can't use it.",
       );
+      // A published page can call the workspace bridge in a loop. It gets the last lists, and
+      // refreshes that arrive together start the program once.
+      const listings = async () =>
+        (await claude.log()).filter(
+          (entry) => entry.event === "start" && entry.cwd === claude.listFolder,
+        ).length;
+      await page.evaluate(() => window.scope.cardChatPrograms({ refresh: true }));
+      const listed = await listings();
+      await page.evaluate(async () => {
+        for (let call = 0; call < 20; call++) await window.scope.cardChatPrograms();
+      });
+      expect(await listings()).toBe(listed);
+      await page.evaluate(() =>
+        Promise.all(
+          Array.from({ length: 10 }, () => window.scope.cardChatPrograms({ refresh: true })),
+        ),
+      );
+      expect(await listings()).toBe(listed + 1);
       const chat = await openChat(application);
       await chat.getByText("Ask about this card, or ask for changes to it.").waitFor();
       expect(await chat.getByRole("combobox").count()).toBe(0);

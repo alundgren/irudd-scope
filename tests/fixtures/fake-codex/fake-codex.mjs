@@ -5,15 +5,17 @@
 // FAKE_CODEX_ACCOUNT_FILE file holding "chatgpt" (the default) or "api-key", read at start
 // FAKE_CODEX_SCRIPT       JSON file of turns that call Scope's card tools, in the same form as
 //                         the fake claude's: { "words": [{ "call": ..., "arguments": ... }] }
+// FAKE_CODEX_MODELS_FILE  file holding the IDs of the models `model/list` offers, as a JSON list,
+//                         or "never" to leave `model/list` unanswered; read at each request
 //
-// `model/list` offers two made-up models, and each turn/start logs the model, reasoning effort
-// and service tier it asked for.
+// `model/list` offers two made-up models unless the models file says otherwise, and each
+// turn/start logs the model, reasoning effort and service tier it asked for.
 //
 // Otherwise what the person writes picks the turn: "command" asks to run a command, "file" asks
 // to change a file, "long" waits until Stop, "helper" first finishes a helper agent's turn on
 // another thread, and anything else gets a short reply. With "slow", the answer to turn/start
 // comes 1.5 seconds late.
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import { pngSize } from "../png-size.mjs";
@@ -28,7 +30,7 @@ const log = (entry) => {
   if (process.env.FAKE_CODEX_LOG)
     appendFileSync(process.env.FAKE_CODEX_LOG, `${JSON.stringify(entry)}\n`);
 };
-log({ event: "start", args, cwd: process.cwd() });
+log({ event: "start", args, cwd: process.cwd(), pid: process.pid });
 
 const login = process.env.FAKE_CODEX_ACCOUNT_FILE
   ? readFileSync(process.env.FAKE_CODEX_ACCOUNT_FILE, "utf8").trim()
@@ -259,8 +261,13 @@ lines.on("line", (line) => {
         userId: null,
         workspaceRouting: null,
       });
-    case "model/list":
-      return answer(message.id, { data: MODELS, nextCursor: null });
+    case "model/list": {
+      const file = process.env.FAKE_CODEX_MODELS_FILE;
+      const offered = file && existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
+      if (offered === "never") return;
+      const data = offered ? MODELS.filter((model) => offered.includes(model.id)) : MODELS;
+      return answer(message.id, { data, nextCursor: null });
+    }
     case "thread/start":
     case "thread/resume":
       threadId = params.threadId ?? randomUUID();

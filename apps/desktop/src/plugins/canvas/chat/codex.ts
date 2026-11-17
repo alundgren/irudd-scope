@@ -10,7 +10,7 @@ import {
   type HarnessTools,
   type ToolAnswer,
 } from "./harness.ts";
-import { startProgram, stopGroup } from "./process.ts";
+import { startProgram, stopGroup, untilAborted } from "./process.ts";
 
 /** Dynamic tools and their requests are experimental in Codex; older versions lack them. */
 export const MIN_CODEX = [0, 169, 0] as const;
@@ -116,11 +116,20 @@ const turnOptions = (run: HarnessRun) => ({
 });
 
 /** Starts `codex app-server` just to read the models the person's login offers. */
-async function listModels(binary: string, folder: string, path: string): Promise<ChatModel[]> {
+async function listModels(
+  binary: string,
+  folder: string,
+  path: string,
+  signal: AbortSignal,
+): Promise<ChatModel[]> {
+  if (signal.aborted) throw new Error("Codex stopped before it listed its models.");
   const child = startProgram(binary, ["app-server"], {
     cwd: folder,
     env: { ...process.env, PATH: path },
   });
+  const stop = () => stopGroup(child);
+  signal.addEventListener("abort", stop, { once: true });
+  const aborted = untilAborted(signal, "Codex stopped before it listed its models.");
   const waiting = new Map<number, (message: Message) => void>();
   let next = 0;
   const write = (message: Record<string, unknown>) => {
@@ -151,6 +160,7 @@ async function listModels(binary: string, folder: string, path: string): Promise
   const request: Request = (method, params) =>
     Promise.race([
       ended,
+      aborted,
       new Promise<Record<string, unknown>>((resolve, reject) => {
         const id = ++next;
         waiting.set(id, (message) =>
@@ -182,6 +192,7 @@ async function listModels(binary: string, folder: string, path: string): Promise
     }
     return models;
   } finally {
+    signal.removeEventListener("abort", stop);
     stopGroup(child);
   }
 }
@@ -264,10 +275,10 @@ export function codexHarness({
     id: "codex",
     label: "Codex",
     available: async () => (await program()) !== null,
-    async models(folder) {
+    async models(folder, signal) {
       const binary = await program();
       if (!binary) throw new Error("Scope can't find the codex program.");
-      return listModels(binary, folder, path);
+      return listModels(binary, folder, path, signal);
     },
     async start({ folder, resume, tools, onEvent }: HarnessStart) {
       const binary = await program();

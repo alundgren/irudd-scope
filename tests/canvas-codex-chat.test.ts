@@ -11,6 +11,7 @@ import {
   fakeCodex,
   inkedOver,
   openChat,
+  running,
   say,
   setCardChat,
   turns,
@@ -22,7 +23,10 @@ test.skipIf(process.platform === "win32")(
   async () => {
     const claude = await fakeClaude("plan");
     const codex = await fakeCodex("api-key");
-    const f = await desktopFixture({ hideInitialPrompts: true, env: bothPrograms(claude, codex) });
+    const f = await desktopFixture({
+      hideInitialPrompts: true,
+      env: { ...bothPrograms(claude, codex), SCOPE_TEST_MODEL_LIST_TIMEOUT: "5000" },
+    });
     let application = await f.launch();
     try {
       let page = await application.firstWindow();
@@ -57,10 +61,18 @@ test.skipIf(process.platform === "win32")(
       expect(await methods()).not.toContain("turn/start");
       expect(await methods()).not.toContain("thread/start");
 
-      // After signing in with ChatGPT, opening the card again lets chat run.
+      // After signing in with ChatGPT, opening the card again lets chat run. A codex that never
+      // lists its models is stopped once Settings stops waiting for it.
       await writeFile(codex.account, "chatgpt");
+      await codex.offer("never");
       await page.keyboard.press("Escape");
       await openCard(page, "Order flow");
+      await chooseChat(page, {}, "Codex didn't list its models in time.");
+      const listings = (await codex.log()).flatMap((entry) =>
+        entry.event === "start" && entry.cwd === codex.listFolder ? [entry.pid] : [],
+      );
+      await expect.poll(() => running(listings.at(-1)!), { timeout: 5_000 }).toBe(false);
+      await codex.offer(null);
       await chooseChat(page, { model: "Fake Terra", reasoning: "High", speed: "Fast" });
       await chat.getByText("Codex · Fake Terra · high · fast", { exact: true }).waitFor();
       await codex.script({
@@ -189,19 +201,34 @@ test.skipIf(process.platform === "win32")(
       await expect.poll(() => turns(chat, "Stopped")).toBe(3);
       expect(await turns(chat, "Turn finished")).toBe(4);
 
-      // After a restart, the next message continues the same codex thread.
+      // After a restart, the next message continues the same codex thread. Codex no longer
+      // offers the saved model, so Settings, the header and the message use its default model.
+      await codex.offer(["fake-terra"]);
       await application.close();
       application = await f.launch();
       page = await application.firstWindow();
       await pane(page).getByRole("heading", { name: "Order flow", exact: true }).waitFor();
       chat = await openChat(application);
       await agentSaid(chat, "Added Checkout.");
+      await chat.getByText("Codex · Fake Luna · medium", { exact: true }).waitFor();
+      expect(await chooseChat(page, {})).toEqual({
+        program: "Codex",
+        model: "Fake Terra",
+        reasoning: "Low",
+        speed: "Standard",
+      });
+      await chat.getByText("Codex · Fake Terra · low", { exact: true }).waitFor();
       await say(chat, "and again");
       await agentSaid(chat, "Fake reply to: and again");
       const resumed = (await threads()).at(-1);
       expect(resumed).toMatchObject({ method: "thread/resume", thread: started.thread });
       expect((await threads()).filter((entry) => entry.method === "thread/start")).toHaveLength(1);
-      expect((await messages()).at(-1)).toMatchObject({ text: "and again", model: "fake-luna" });
+      expect((await messages()).at(-1)).toMatchObject({
+        text: "and again",
+        model: "fake-terra",
+        effort: "low",
+        serviceTier: null,
+      });
 
       // Choosing Claude Code in Settings starts a new conversation with it.
       await chooseChat(page, { program: "Claude Code" });

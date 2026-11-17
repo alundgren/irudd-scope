@@ -22,7 +22,7 @@ import {
   type HarnessTools,
   type ToolAnswer,
 } from "./harness.ts";
-import { startProgram, stopGroup } from "./process.ts";
+import { startProgram, stopGroup, untilAborted } from "./process.ts";
 
 /** Chat runs only on a Claude plan login, never on an API key or another provider. */
 export function planName(account: AccountInfo): string | null {
@@ -181,9 +181,12 @@ export function claudeHarness({
     id: "claude",
     label: "Claude Code",
     available: async () => (await program()) !== null,
-    async models(folder) {
+    async models(folder, signal) {
       const binary = await program();
       if (!binary) throw new Error("Scope can't find the claude program.");
+      const stopped = "Claude Code stopped before it listed its models.";
+      if (signal.aborted) throw new Error(stopped);
+      const aborted = untilAborted(signal, stopped);
       // Starting the program answers with its models and account before any message is sent.
       const inbox = new Inbox();
       const children = new Set<ChildProcess>();
@@ -197,8 +200,8 @@ export function claudeHarness({
         },
       });
       try {
-        if (!planName(await run.accountInfo())) throw new Error(NOT_PLAN);
-        return (await run.supportedModels()).map(chatModel);
+        if (!planName(await Promise.race([run.accountInfo(), aborted]))) throw new Error(NOT_PLAN);
+        return (await Promise.race([run.supportedModels(), aborted])).map(chatModel);
       } finally {
         inbox.end();
         run.close();

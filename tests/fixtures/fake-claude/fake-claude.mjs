@@ -30,7 +30,7 @@ const log = (entry) => {
   if (process.env.FAKE_CLAUDE_LOG)
     appendFileSync(process.env.FAKE_CLAUDE_LOG, `${JSON.stringify(entry)}\n`);
 };
-log({ event: "start", args, cwd: process.cwd() });
+log({ event: "start", args, cwd: process.cwd(), pid: process.pid });
 
 const resumed = args.find((arg) => arg.startsWith("--resume="))?.slice("--resume=".length);
 const session = resumed ?? randomUUID();

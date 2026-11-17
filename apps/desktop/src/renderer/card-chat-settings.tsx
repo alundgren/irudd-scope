@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
-import type {
-  ChatHarnessId,
-  ChatProgramChoice,
-  ChatProgramModels,
+import {
+  defaultModel,
+  resolveChoice,
+  STANDARD_SPEED,
+  type ChatHarnessId,
+  type ChatProgramChoice,
+  type ChatProgramModels,
 } from "../plugins/canvas/chat/contract.ts";
 import type { SettingsUpdate, SettingsView } from "../settings.ts";
 import { Button } from "./components/ui/button.tsx";
@@ -11,38 +14,19 @@ import { NativeSelect, NativeSelectOption } from "./components/ui/native-select.
 type Pick = { model?: string; effort?: string; speed?: string };
 
 /**
- * The full choice for a program, keeping earlier values the program still offers and using the
- * model's own defaults for the rest. An empty effort means the program's default.
+ * The next saved choice after picking from a menu. A new model keeps the reasoning level and
+ * speed when it offers them. An empty effort means the program's default.
  */
-function choiceFor(
-  program: ChatProgramModels,
-  previous: ChatProgramChoice | null,
-  pick: Pick = {},
-): ChatProgramChoice {
-  const modelId = pick.model ?? previous?.model;
-  const model =
-    program.models.find((entry) => entry.id === modelId) ??
-    program.models.find((entry) => entry.isDefault) ??
-    program.models[0];
-  if (!model) return { harness: program.id };
-  const effortId = pick.effort ?? previous?.effort;
-  const effort =
-    pick.effort === ""
-      ? undefined
-      : (model.efforts.find((entry) => entry.id === effortId) ??
-        model.efforts.find((entry) => entry.id === model.defaultEffort));
-  const speedId = pick.speed ?? previous?.speed;
-  const speed =
-    model.speeds.find((entry) => entry.id === speedId) ??
-    model.speeds.find((entry) => entry.id === model.defaultSpeed) ??
-    model.speeds[0];
-  return {
-    harness: program.id,
-    model: model.id,
-    modelName: model.label,
-    ...(effort ? { effort: effort.id } : {}),
-    ...(speed ? { speed: speed.id, speedName: speed.label } : {}),
-  };
+function picked(program: ChatProgramModels, shown: ChatProgramChoice, pick: Pick) {
+  const { effort, ...rest } = shown;
+  const model = pick.model ?? shown.model ?? defaultModel(program.models)?.id;
+  const nextEffort = pick.effort === "" ? undefined : (pick.effort ?? effort);
+  return resolveChoice(program.id, program.models, {
+    ...rest,
+    ...(model ? { model } : {}),
+    ...(nextEffort ? { effort: nextEffort } : {}),
+    ...(pick.speed ? { speed: pick.speed } : {}),
+  });
 }
 
 /** Why a program offers no models, in the words Settings shows. */
@@ -69,12 +53,17 @@ export function CardChatSettings({
   useEffect(() => {
     if (!open) return;
     let current = true;
+    let fresh = false;
     setPrograms(undefined);
     setError("");
-    window.scope.cardChatPrograms().then(
-      (value) => current && setPrograms(value),
-      () => current && setError("Scope couldn't ask the chat programs for their models."),
-    );
+    const fail = () =>
+      current && setError("Scope couldn't ask the chat programs for their models.");
+    // The last lists show at once; the programs' newer answers replace them when they come.
+    window.scope.cardChatPrograms().then((value) => current && !fresh && setPrograms(value), fail);
+    window.scope.cardChatPrograms({ refresh: true }).then((value) => {
+      fresh = true;
+      if (current) setPrograms(value);
+    }, fail);
     return () => {
       current = false;
     };
@@ -109,10 +98,14 @@ export function CardChatSettings({
         Scope can't find Claude Code or Codex on this computer.
       </p>
     );
-  const shown = choiceFor(program, saved);
-  const model = program.models.find((entry) => entry.id === shown.model);
+  // Chat sends the same choice: main checks it against these lists with resolveChoice too.
+  const shown = resolveChoice(program.id, program.models, saved);
+  const model =
+    program.models.find((entry) => entry.id === shown.model) ?? defaultModel(program.models);
+  const effortShown = shown.effort ?? model?.defaultEffort ?? "";
+  const speedShown = shown.speed ?? model?.defaultSpeed ?? STANDARD_SPEED;
   const save = (next: ChatProgramChoice) => void onSave({ cardChatProgram: next });
-  const pick = (value: Pick) => save(choiceFor(program, saved, value));
+  const pick = (value: Pick) => save(picked(program, shown, value));
   return (
     <>
       <label className="card-chat-choice">
@@ -123,7 +116,11 @@ export function CardChatSettings({
           disabled={busy}
           onChange={(event) => {
             const next = installed.find((entry) => entry.id === event.target.value)!;
-            save(choiceFor(next, saved));
+            const first = defaultModel(next.models);
+            save({
+              harness: next.id,
+              ...(first ? { model: first.id, modelName: first.label } : {}),
+            });
           }}
         >
           {installed.map((entry) => (
@@ -160,7 +157,7 @@ export function CardChatSettings({
           <span>Reasoning</span>
           <NativeSelect
             aria-label="Reasoning"
-            value={shown.effort ?? ""}
+            value={effortShown}
             disabled={busy}
             onChange={(event) => pick({ effort: event.target.value })}
           >
@@ -178,7 +175,7 @@ export function CardChatSettings({
           <span>Speed</span>
           <NativeSelect
             aria-label="Speed"
-            value={shown.speed}
+            value={speedShown}
             disabled={busy}
             onChange={(event) => pick({ speed: event.target.value })}
           >
