@@ -220,6 +220,7 @@ const bridge: ScopeBridge = {
   settings: () => ipcRenderer.invoke("scope:settings"),
   providerSettings: () => ipcRenderer.invoke("scope:provider-settings"),
   saveSettings: (input) => ipcRenderer.invoke("scope:save-settings", input),
+  cardChatPrograms: (input) => ipcRenderer.invoke("scope:card-chat-programs", input),
   openTab: (tab, artifactRevision) =>
     ipcRenderer.invoke("scope:open-tab", { tab, artifactRevision }),
   retainedTabs: () => ipcRenderer.invoke("scope:retained-tabs"),

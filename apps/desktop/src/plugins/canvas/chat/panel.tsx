@@ -1,18 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Check, CircleAlert, LoaderCircle, Square, Wrench, X } from "lucide-react";
 import { Button } from "../../../renderer/components/ui/button.tsx";
-import {
-  NativeSelect,
-  NativeSelectOption,
-} from "../../../renderer/components/ui/native-select.tsx";
 import { Textarea } from "../../../renderer/components/ui/textarea.tsx";
-import {
-  MAX_MESSAGE,
-  type ChatHarnessId,
-  type ChatItem,
-  type ChatState,
-  type ScopeChatBridge,
-} from "./contract.ts";
+import { MAX_MESSAGE, type ChatItem, type ChatState, type ScopeChatBridge } from "./contract.ts";
 
 declare global {
   interface Window {
@@ -32,7 +22,6 @@ type Run = (action: Promise<unknown>) => void;
 /** One card's chat: its messages, tool activity, approvals, and turn results. */
 export function ChatPanel() {
   const [state, setState] = useState<ChatState>();
-  const [harness, setHarness] = useState<ChatHarnessId | null>(null);
   const [error, setError] = useState<string>();
   useEffect(() => {
     const stop = window.scopeChat.onState(setState);
@@ -49,50 +38,31 @@ export function ChatPanel() {
     );
   };
   if (!state) return <div className="chat-panel" aria-busy="true" />;
-  const chosen = harness ?? state.harness;
   const alert = state.blocked ?? error;
   return (
     <div className="chat-panel">
-      <ChatHeader state={state} chosen={chosen} onChoose={setHarness} />
-      <ChatItems key={targetKey} state={state} run={run} />
+      <ChatHeader state={state} />
+      {/* Sibling keys must differ, or a target change can leave an old list mounted. */}
+      <ChatItems key={`items-${targetKey}`} state={state} run={run} />
       {alert && (
         <p className="chat-alert" role="alert">
           <CircleAlert aria-hidden /> {alert}
         </p>
       )}
-      <ChatComposer key={targetKey} state={state} chosen={chosen} run={run} />
+      <ChatComposer key={`composer-${targetKey}`} state={state} run={run} />
     </div>
   );
 }
 
-function ChatHeader({
-  state,
-  chosen,
-  onChoose,
-}: {
-  state: ChatState;
-  chosen: ChatHarnessId | null;
-  onChoose: (harness: ChatHarnessId) => void;
-}) {
+/** Names what runs, chosen in Settings, and the plan once the program says. */
+function ChatHeader({ state }: { state: ChatState }) {
   return (
     <header className="chat-header">
       <h2>Chat</h2>
-      {state.harnesses.length > 1 ? (
-        <NativeSelect
-          size="sm"
-          aria-label="Chat program"
-          value={chosen ?? ""}
-          disabled={state.running}
-          onChange={(event) => onChoose(event.target.value as ChatHarnessId)}
-        >
-          {state.harnesses.map((item) => (
-            <NativeSelectOption key={item.id} value={item.id}>
-              {item.label}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-      ) : (
-        state.harnesses[0] && <span className="chat-account">{state.harnesses[0].label}</span>
+      {state.runs && (
+        <span className="chat-runs" title={state.runs}>
+          {state.runs}
+        </span>
       )}
       {state.account && <span className="chat-account">{state.account}</span>}
     </header>
@@ -118,7 +88,7 @@ function ChatItems({ state, run }: { state: ChatState; run: Run }) {
     >
       {state.items.length === 0 && (
         <li className="chat-empty">
-          {state.harnesses.length
+          {state.harness
             ? "Ask about this card, or ask for changes to it."
             : "Scope can't find Claude Code or Codex on this computer."}
         </li>
@@ -130,23 +100,15 @@ function ChatItems({ state, run }: { state: ChatState; run: Run }) {
   );
 }
 
-function ChatComposer({
-  state,
-  chosen,
-  run,
-}: {
-  state: ChatState;
-  chosen: ChatHarnessId | null;
-  run: Run;
-}) {
+function ChatComposer({ state, run }: { state: ChatState; run: Run }) {
   const [draft, setDraft] = useState("");
-  const ready = Boolean(state.target && chosen && !state.blocked);
+  const ready = Boolean(state.target && state.harness && !state.blocked);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const text = draft.trim();
-    if (!text || !chosen || state.running) return;
+    if (!text || !state.harness || state.running) return;
     setDraft("");
-    run(window.scopeChat.send({ text, harness: chosen }));
+    run(window.scopeChat.send({ text }));
   };
   return (
     <form className="chat-composer" onSubmit={submit}>

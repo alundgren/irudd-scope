@@ -26,8 +26,9 @@ and stacking order; a card's editor changes only that card's content.
 - Card chat lives in `chat/`. Its panel is a separate web view with its own
   page and preload, because published pages can reach anything the workspace
   preload offers. Never add chat operations to `preload.ts` or `bridge.ts`;
-  the workspace page only reports where the panel goes. Main checks every
-  chat call comes from the chat view.
+  the workspace page only reports where the panel goes, and Settings only
+  reads the programs' models and saves the choice. Main checks every chat call
+  comes from the chat view.
 - Agents change cards only through the card tools in `chat/card-tools.ts`,
   which commit through the store like any other change. A card type offers
   tools from `cards/<type>/tools.ts`, registered in `cards/registry.ts`.

@@ -1,16 +1,28 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MAX_ITEMS,
+  resolveChoice,
+  STANDARD_SPEED,
   type ChatHarnessId,
   type ChatItem,
+  type ChatProgramChoice,
+  type ChatProgramModels,
   type ChatState,
   type ChatTarget,
 } from "./contract.ts";
 import type { CardToolService } from "./card-tools.ts";
-import type { ChatHarness, HarnessEvent, HarnessSession, HarnessTools } from "./harness.ts";
+import { listProgram } from "./programs.ts";
+import type {
+  ChatHarness,
+  HarnessEvent,
+  HarnessRun,
+  HarnessSession,
+  HarnessTools,
+} from "./harness.ts";
 
 /** Where card chats are kept between restarts. */
 export type SavedChats = {
@@ -63,10 +75,27 @@ export function chatFolder(cardId: string, profile: string): string {
   return join(tmpdir(), "scope-card-chats", `${cardId}-${tag}`);
 }
 const CARD_ID = /^[a-z0-9]{8}$/;
+
 /** How long streamed text and tool lines wait before the chat is saved. */
 const SAVE_DELAY = 500;
 
 const keyOf = (target: ChatTarget) => `${target.tabId}/${target.cardId}`;
+
+/** How long Settings waits for a program's models, and how often it may ask a program again. */
+export type ListTiming = { timeout: number; cooldown: number };
+export const LIST_TIMING: ListTiming = { timeout: 30_000, cooldown: 60_000 };
+
+/** The last model list a program gave, and the request for a newer one. */
+type Listing = { entry?: ChatProgramModels; started: number; pending?: Promise<ChatProgramModels> };
+
+/** What a message runs with, fixed when the message is accepted. */
+type Run = { harness: ChatHarness; run: HarnessRun };
+
+const runOf = (choice: ChatProgramChoice): HarnessRun => ({
+  ...(choice.model ? { model: choice.model } : {}),
+  ...(choice.effort ? { effort: choice.effort } : {}),
+  ...(choice.speed ? { speed: choice.speed } : {}),
+});
 
 /** Each open card's chat: what the panel shows and the harness session behind it. */
 export class CardChats {
@@ -79,8 +108,71 @@ export class CardChats {
     private readonly saved: SavedChats,
     /** Scope's own data folder, which keeps each profile's chat folders apart. */
     private readonly profile: string,
+    /** The program, model, reasoning and speed chosen in Settings, read at each message. */
+    private readonly choice: () => ChatProgramChoice | null,
     private readonly tools?: CardToolService,
+    private readonly timing: ListTiming = LIST_TIMING,
   ) {}
+
+  /** The program the next message goes to: the one chosen in Settings, or the first found. */
+  private harnessNow(): ChatHarness | undefined {
+    const chosen = this.choice()?.harness;
+    return this.found.find((harness) => harness.id === chosen) ?? this.found[0];
+  }
+
+  /** The Settings choice checked against the program's last model list, as Settings shows it. */
+  private choiceFor(harness: ChatHarness): ChatProgramChoice {
+    const models = this.listings.get(harness.id)?.entry?.models ?? [];
+    return resolveChoice(harness.id, models, this.choice());
+  }
+
+  /** What the chat header names, such as "Codex · GPT-6.1 Terra · high · fast". */
+  private runsLabel(harness: ChatHarness): string {
+    const choice = this.choiceFor(harness);
+    const speed =
+      choice.speed && choice.speed !== STANDARD_SPEED ? (choice.speedName ?? choice.speed) : "";
+    return [harness.label, choice.modelName ?? choice.model, choice.effort, speed.toLowerCase()]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  private readonly listings = new Map<ChatHarnessId, Listing>();
+  private readonly closing = new AbortController();
+  /**
+   * Each installed program's models, for Settings. Published pages can call this too, so Scope
+   * answers from the last lists and starts a program only when it has no list for it yet, or
+   * on `refresh`, at most once per cooldown per program. Requests share a running one.
+   */
+  programs(refresh = false): Promise<ChatProgramModels[]> {
+    return Promise.all(this.harnesses.map((harness) => this.listing(harness, refresh)));
+  }
+
+  private listing(harness: ChatHarness, refresh: boolean): Promise<ChatProgramModels> {
+    let listing = this.listings.get(harness.id);
+    if (!listing) {
+      listing = { started: -Infinity };
+      this.listings.set(harness.id, listing);
+    }
+    if (listing.entry && !refresh) return Promise.resolve(listing.entry);
+    if (listing.pending) return listing.pending;
+    const current = listing;
+    const { timeout, cooldown } = this.timing;
+    const wait = Math.max(0, current.started + cooldown - Date.now());
+    const signal = this.closing.signal;
+    current.pending = (wait ? delay(wait, undefined, { signal }) : Promise.resolve())
+      .then(() => {
+        current.started = Date.now();
+        return listProgram(harness, timeout, signal);
+      })
+      .then((entry) => {
+        current.entry = entry;
+        // The chat header names the model, which the new list may have repaired.
+        for (const chat of this.chats.values()) this.changed(chat.target);
+        return entry;
+      })
+      .finally(() => (current.pending = undefined));
+    return current.pending;
+  }
 
   /** Brings a card's chat back from the database before the panel shows it. */
   async load(target: ChatTarget): Promise<void> {
@@ -146,14 +238,16 @@ export class CardChats {
 
   state(target: ChatTarget | null): ChatState {
     const chat = target && this.chats.get(keyOf(target));
+    const harness = this.harnessNow();
     return {
       target,
-      harnesses: this.found.map(({ id, label }) => ({ id, label })),
-      harness: chat?.harness ?? this.found[0]?.id ?? null,
+      harness: harness?.id ?? null,
+      ...(harness ? { runs: this.runsLabel(harness) } : {}),
       running: chat?.running ?? false,
       items: chat?.items ?? [],
-      ...(chat?.account ? { account: chat.account } : {}),
-      ...(chat?.blocked ? { blocked: chat.blocked } : {}),
+      // The plan and any block belong to the program the chat last used.
+      ...(chat?.account && chat.harness === harness?.id ? { account: chat.account } : {}),
+      ...(chat?.blocked && chat.harness === harness?.id ? { blocked: chat.blocked } : {}),
     };
   }
 
@@ -202,17 +296,22 @@ export class CardChats {
     return `${prefix}-${randomUUID().slice(0, 8)}`;
   }
 
-  async send(target: ChatTarget, text: string, harnessId: ChatHarnessId): Promise<void> {
+  async send(target: ChatTarget, text: string): Promise<void> {
     const chat = this.chat(target);
-    if (chat.blocked) throw new Error(chat.blocked);
     if (chat.running) throw new Error("Wait for the current turn to finish, or stop it.");
-    const harness = this.found.find((item) => item.id === harnessId);
-    if (!harness) throw new Error("That chat program is not available.");
+    const harness = this.harnessNow();
+    if (!harness) throw new Error("Scope can't find Claude Code or Codex on this computer.");
+    // Settings may change while the program starts; this message keeps what it was sent with.
+    const accepted: Run = { harness, run: runOf(this.choiceFor(harness)) };
+    const harnessId = harness.id;
     if (chat.harness && chat.harness !== harnessId) {
       // A saved ID belongs to the other program, even when no session is running after a restart.
       this.retire(chat);
       chat.sessionId = undefined;
     }
+    // A block is the old program's login; Settings may have chosen another program since.
+    if (chat.blocked && !chat.session && chat.harness !== harnessId) delete chat.blocked;
+    if (chat.blocked) throw new Error(chat.blocked);
     chat.harness = harnessId;
     this.push(chat, { kind: "message", id: this.nextId("person"), role: "person", text });
     chat.running = true;
@@ -221,10 +320,10 @@ export class CardChats {
     this.changed(target);
     this.save(chat);
     try {
-      chat.session ??= this.start(chat, harness);
+      chat.session ??= this.start(chat, accepted);
       const session = await chat.session;
       if (chat.blocked) return;
-      await session.send(text);
+      await session.send(text, accepted.run);
     } catch (error) {
       this.retire(chat);
       if (chat.resuming) this.forgetConversation(chat);
@@ -247,7 +346,7 @@ export class CardChats {
     });
   }
 
-  private async start(chat: Chat, harness: ChatHarness): Promise<HarnessSession> {
+  private async start(chat: Chat, { harness, run }: Run): Promise<HarnessSession> {
     chat.generation += 1;
     const generation = chat.generation;
     const folder = chatFolder(chat.target.cardId, this.profile);
@@ -258,6 +357,7 @@ export class CardChats {
     const tools = await this.cardTools(chat);
     return harness.start({
       target: chat.target,
+      run,
       ...(tools ? { tools } : {}),
       folder,
       ...(chat.sessionId ? { resume: chat.sessionId } : {}),
@@ -482,6 +582,7 @@ export class CardChats {
   private closed = false;
   close() {
     this.closed = true;
+    this.closing.abort();
     for (const chat of this.chats.values()) {
       if (chat.saveTimer) this.save(chat);
       void chat.session?.then((session) => session.close()).catch(() => {});

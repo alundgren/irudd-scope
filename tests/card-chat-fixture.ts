@@ -1,6 +1,15 @@
 import { expect } from "vite-plus/test";
 import { randomUUID } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import type { ElectronApplication, Page } from "@playwright/test";
@@ -8,9 +17,22 @@ import type { ElectronApplication, Page } from "@playwright/test";
 export const BILLED_TO_KEY = "This would be billed to your API key, so chat is off.";
 
 export type LogEntry =
-  | { event: "start"; args: string[]; cwd: string }
-  | { event: "control"; subtype: string }
-  | { event: "message"; text: string; session?: string; thread?: string }
+  | { event: "start"; args: string[]; cwd: string; pid: number }
+  | {
+      event: "control";
+      subtype: string;
+      model?: string | null;
+      settings?: Record<string, unknown>;
+    }
+  | {
+      event: "message";
+      text: string;
+      session?: string;
+      thread?: string;
+      model?: string | null;
+      effort?: string | null;
+      serviceTier?: string | null;
+    }
   | { event: "approval"; tool: string; behavior: string }
   | { event: "decision"; kind: "command" | "file"; decision: string }
   | { event: "request"; method: string }
@@ -52,28 +74,37 @@ async function fakeProgram(kind: "claude" | "codex", login: string) {
   const log = join(directory, "log.jsonl");
   const account = join(directory, "account");
   await writeFile(account, login);
+  const models = join(directory, "models.json");
   const turnsFile = join(directory, "script.json");
   await writeFile(turnsFile, "{}");
   const prefix = kind === "claude" ? "FAKE_CLAUDE" : "FAKE_CODEX";
-  const folders = join(await realpath(temp), "scope-card-chats");
+  const programs = join(await realpath(temp), "scope-card-chats");
   return {
     directory,
     account,
     /** The one folder Scope made for a card's chat; its name ends in a tag for the profile. */
     async folder(cardId: string) {
-      const names = (await readdir(folders)).filter((name) => name.startsWith(`${cardId}-`));
+      const names = (await readdir(programs)).filter((name) => name.startsWith(`${cardId}-`));
       expect(names).toHaveLength(1);
-      return join(folders, names[0]);
+      return join(programs, names[0]);
     },
+    /** Where Settings starts the program to list its models. */
+    listFolder: programs,
     env: {
       [kind === "claude" ? "SCOPE_CLAUDE_COMMAND" : "SCOPE_CODEX_COMMAND"]: name,
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
       [`${prefix}_LOG`]: log,
       [`${prefix}_ACCOUNT_FILE`]: account,
       [`${prefix}_SCRIPT`]: turnsFile,
+      [`${prefix}_MODELS_FILE`]: models,
+      // Settings asks the programs again when it opens, at most this often.
+      SCOPE_TEST_MODEL_LIST_COOLDOWN: "500",
       // Card chat folders go in the OS temp folder; this keeps each test's to itself.
       TMPDIR: temp,
     },
+    /** The models the fake codex offers by ID, all of them with null, or "never" to not answer. */
+    offer: (ids: string[] | "never" | null) =>
+      ids ? writeFile(models, JSON.stringify(ids)) : rm(models, { force: true }),
     /** Sets the turns the fake plays, chosen by words in the person's message. */
     script: (turns: Record<string, ScriptStep[]>) => writeFile(turnsFile, JSON.stringify(turns)),
     async log(): Promise<LogEntry[]> {
@@ -109,6 +140,74 @@ export async function setCardChat(page: Page, enabled: boolean) {
   await expect.poll(() => toggle.getAttribute("aria-checked")).toBe(String(enabled));
   await page.keyboard.press("Escape");
   await page.getByLabel("Search settings").waitFor({ state: "detached" });
+}
+
+/** Settings choices for card chat, by the names the menus show. */
+export type ChatChoice = { program?: string; model?: string; reasoning?: string; speed?: string };
+
+/**
+ * Opens Card chat in Settings, waits for the programs' models, and picks each choice in turn.
+ * Answers what the menus showed before any pick.
+ */
+export async function chooseChat(page: Page, choice: ChatChoice, expectText?: string) {
+  await page.keyboard.press("ControlOrMeta+,");
+  await page.getByLabel("Search settings").fill("card chat");
+  await page.getByRole("combobox", { name: "Program", exact: true }).waitFor();
+  if (expectText) await page.getByText(expectText, { exact: true }).waitFor();
+  const shown: ChatChoice = {};
+  for (const [key, name] of [
+    ["program", "Program"],
+    ["model", "Model"],
+    ["reasoning", "Reasoning"],
+    ["speed", "Speed"],
+  ] as const) {
+    const menu = page.getByRole("combobox", { name, exact: true });
+    if (await menu.count())
+      shown[key] = await menu.evaluate(
+        (element: HTMLSelectElement) => element.selectedOptions[0]?.text,
+      );
+  }
+  const menus = [
+    ["Program", choice.program],
+    ["Model", choice.model],
+    ["Reasoning", choice.reasoning],
+    ["Speed", choice.speed],
+  ] as const;
+  for (const [name, label] of menus) {
+    if (!label) continue;
+    const menu = page.getByRole("combobox", { name, exact: true });
+    await menu.selectOption({ label });
+    // The menu shows the saved choice, so this waits for the save.
+    await expect
+      .poll(() => menu.evaluate((element: HTMLSelectElement) => element.selectedOptions[0]?.text))
+      .toBe(label);
+  }
+  await page.keyboard.press("Escape");
+  await page.getByLabel("Search settings").waitFor({ state: "detached" });
+  return shown;
+}
+
+/** Whether a process is still running, such as a fake program Scope started. */
+export function running(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Both fake programs at once, so Settings can switch between them. */
+export function bothPrograms(
+  first: { env: Record<string, string> },
+  second: { env: Record<string, string> },
+) {
+  const own = (env: Record<string, string>) => env.PATH.split(delimiter)[0];
+  return {
+    ...first.env,
+    ...second.env,
+    PATH: [own(first.env), own(second.env), process.env.PATH ?? ""].join(delimiter),
+  };
 }
 
 export async function say(chat: Page, text: string) {

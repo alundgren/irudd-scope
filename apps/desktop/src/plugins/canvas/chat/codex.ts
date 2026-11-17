@@ -1,14 +1,16 @@
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
+import { effortLabel, STANDARD_SPEED, type ChatModel } from "./contract.ts";
 import {
   BILLED_TO_KEY,
   type ChatHarness,
   type HarnessEvent,
+  type HarnessRun,
   type HarnessStart,
   type HarnessTools,
   type ToolAnswer,
 } from "./harness.ts";
-import { startProgram, stopGroup } from "./process.ts";
+import { startProgram, stopGroup, untilAborted } from "./process.ts";
 
 /** Dynamic tools and their requests are experimental in Codex; older versions lack them. */
 export const MIN_CODEX = [0, 169, 0] as const;
@@ -36,6 +38,166 @@ const atLeast = (version: readonly number[], minimum: readonly number[]) => {
     if (version[index] !== minimum[index]) return version[index] > minimum[index];
   return true;
 };
+
+type Request = (
+  method: string,
+  params: Record<string, unknown>,
+) => Promise<Record<string, unknown>>;
+
+/**
+ * Opens the app-server conversation and checks chat may run: Codex is new enough and signed in
+ * with ChatGPT. Reading the account costs nothing. Answers the plan's name, or why chat is off.
+ */
+async function hello(
+  request: Request,
+  notify: (method: string) => void,
+): Promise<{ plan: string } | { blocked: string }> {
+  const answer = await request("initialize", {
+    clientInfo: { name: "scope", title: "Scope", version: "1" },
+    capabilities: { experimentalApi: true, requestAttestation: false },
+  });
+  notify("initialized");
+  const version = codexVersion(answer.userAgent);
+  if (!version || !atLeast(version, MIN_CODEX)) return { blocked: TOO_OLD };
+  const { account } = (await request("account/read", {})) as {
+    account?: { type?: string; planType?: string } | null;
+  };
+  if (account?.type !== "chatgpt") return { blocked: BILLED_TO_KEY };
+  return { plan: `${planLabel(account.planType ?? "ChatGPT")} plan` };
+}
+
+/** A model in Codex's `model/list` answer, with only the fields Scope reads. */
+type CodexModel = {
+  model?: unknown;
+  displayName?: unknown;
+  hidden?: unknown;
+  isDefault?: unknown;
+  supportedReasoningEfforts?: { reasoningEffort?: unknown }[];
+  defaultReasoningEffort?: unknown;
+  serviceTiers?: { id?: unknown; name?: unknown }[];
+  defaultServiceTier?: unknown;
+};
+const named = (value: unknown) => typeof value === "string" && value.length > 0;
+
+function chatModel(model: CodexModel): ChatModel | undefined {
+  if (!named(model.model) || model.hidden === true) return undefined;
+  const id = model.model as string;
+  const efforts = (model.supportedReasoningEfforts ?? [])
+    .map((option) => option.reasoningEffort)
+    .filter(named)
+    .map((effort) => ({ id: effort as string, label: effortLabel(effort as string) }));
+  const tiers = (model.serviceTiers ?? [])
+    .filter((tier) => named(tier.id) && tier.id !== STANDARD_SPEED)
+    .map((tier) => ({
+      id: tier.id as string,
+      label: named(tier.name) ? (tier.name as string) : (tier.id as string),
+    }));
+  return {
+    id,
+    label: named(model.displayName) ? (model.displayName as string) : id,
+    efforts,
+    ...(named(model.defaultReasoningEffort)
+      ? { defaultEffort: model.defaultReasoningEffort as string }
+      : {}),
+    speeds: [{ id: STANDARD_SPEED, label: "Standard" }, ...tiers],
+    ...(named(model.defaultServiceTier)
+      ? { defaultSpeed: model.defaultServiceTier as string }
+      : {}),
+    ...(model.isDefault === true ? { isDefault: true } : {}),
+  };
+}
+
+/** What `turn/start` takes to run a turn with the chosen model, reasoning and speed. */
+const turnOptions = (run: HarnessRun) => ({
+  ...(run.model ? { model: run.model } : {}),
+  ...(run.effort ? { effort: run.effort } : {}),
+  // Codex keeps a turn's tier for later turns, so the standard speed clears it.
+  ...(run.speed ? { serviceTier: run.speed === STANDARD_SPEED ? null : run.speed } : {}),
+});
+
+/** Starts `codex app-server` just to read the models the person's login offers. */
+async function listModels(
+  binary: string,
+  folder: string,
+  path: string,
+  signal: AbortSignal,
+): Promise<ChatModel[]> {
+  if (signal.aborted) throw new Error("Codex stopped before it listed its models.");
+  const child = startProgram(binary, ["app-server"], {
+    cwd: folder,
+    env: { ...process.env, PATH: path },
+  });
+  const stop = () => stopGroup(child);
+  signal.addEventListener("abort", stop, { once: true });
+  const aborted = untilAborted(signal, "Codex stopped before it listed its models.");
+  const waiting = new Map<number, (message: Message) => void>();
+  let next = 0;
+  const write = (message: Record<string, unknown>) => {
+    if (child.stdin.writable) child.stdin.write(`${JSON.stringify(message)}\n`);
+  };
+  const ended = new Promise<never>((_resolve, reject) => {
+    child.once("exit", () => reject(new Error("Codex stopped before it listed its models.")));
+    child.once("error", () => reject(new Error("Codex could not start.")));
+  });
+  ended.catch(() => {});
+  createInterface({ input: child.stdout }).on("line", (line) => {
+    let message: Message;
+    try {
+      message = JSON.parse(line) as Message;
+    } catch {
+      return;
+    }
+    if (message.method && message.id !== undefined)
+      write({
+        id: message.id,
+        error: { code: -32601, message: "Scope can't answer this request." },
+      });
+    else if (!message.method && typeof message.id === "number") {
+      waiting.get(message.id)?.(message);
+      waiting.delete(message.id);
+    }
+  });
+  const request: Request = (method, params) =>
+    Promise.race([
+      ended,
+      aborted,
+      new Promise<Record<string, unknown>>((resolve, reject) => {
+        const id = ++next;
+        waiting.set(id, (message) =>
+          message.error
+            ? reject(new Error(message.error.message ?? `${method} failed.`))
+            : resolve(message.result ?? {}),
+        );
+        write({ method, id, params });
+      }),
+    ]);
+  try {
+    const login = await hello(request, (method) => write({ method }));
+    if ("blocked" in login)
+      throw new Error(login.blocked === BILLED_TO_KEY ? NOT_CHATGPT : login.blocked);
+    const models: ChatModel[] = [];
+    let cursor: string | null = null;
+    // A few pages at most; Codex lists a handful of models.
+    for (let page = 0; page < 10; page++) {
+      const answer = (await request("model/list", cursor ? { cursor } : {})) as {
+        data?: CodexModel[];
+        nextCursor?: unknown;
+      };
+      for (const model of answer.data ?? []) {
+        const chat = chatModel(model);
+        if (chat && !models.some((known) => known.id === chat.id)) models.push(chat);
+      }
+      cursor = named(answer.nextCursor) ? (answer.nextCursor as string) : null;
+      if (!cursor) break;
+    }
+    return models;
+  } finally {
+    signal.removeEventListener("abort", stop);
+    stopGroup(child);
+  }
+}
+
+const NOT_CHATGPT = "Codex isn't signed in with ChatGPT, so card chat can't use it.";
 
 const PLAN_NAMES: Record<string, string> = { prolite: "Pro Lite", promax: "Pro Max" };
 const planLabel = (plan: string) =>
@@ -113,6 +275,11 @@ export function codexHarness({
     id: "codex",
     label: "Codex",
     available: async () => (await program()) !== null,
+    async models(folder, signal) {
+      const binary = await program();
+      if (!binary) throw new Error("Scope can't find the codex program.");
+      return listModels(binary, folder, path, signal);
+    },
     async start({ folder, resume, tools, onEvent }: HarnessStart) {
       const binary = await program();
       if (!binary) throw new Error("Scope can't find the codex program.");
@@ -338,27 +505,13 @@ export function codexHarness({
       child.once("error", () => end("Codex could not start."));
 
       try {
-        const hello = await request("initialize", {
-          clientInfo: { name: "scope", title: "Scope", version: "1" },
-          capabilities: { experimentalApi: true, requestAttestation: false },
-        });
-        write({ method: "initialized" });
-        const version = codexVersion(hello.userAgent);
-        if (!version || !atLeast(version, MIN_CODEX)) {
-          emit({ type: "blocked", reason: TOO_OLD });
+        const login = await hello(request, (method) => write({ method }));
+        if ("blocked" in login) {
+          emit({ type: "blocked", reason: login.blocked });
           close();
           return { send: async () => {}, approve: () => {}, stop: () => {}, close: () => {} };
         }
-        // Reading the account costs nothing. Chat runs only on a ChatGPT plan login.
-        const { account } = (await request("account/read", {})) as {
-          account?: { type?: string; planType?: string } | null;
-        };
-        if (account?.type !== "chatgpt") {
-          emit({ type: "blocked", reason: BILLED_TO_KEY });
-          close();
-          return { send: async () => {}, approve: () => {}, stop: () => {}, close: () => {} };
-        }
-        emit({ type: "account", label: `${planLabel(account.planType ?? "ChatGPT")} plan` });
+        emit({ type: "account", label: login.plan });
         const fresh = () =>
           request("thread/start", {
             cwd: folder,
@@ -382,10 +535,11 @@ export function codexHarness({
       }
 
       return {
-        send: async (message) => {
+        send: async (message, run) => {
           const result = await request("turn/start", {
             threadId,
             input: [{ type: "text", text: message, text_elements: [] }],
+            ...turnOptions(run),
           });
           const id = String((result.turn as { id?: string } | undefined)?.id ?? "");
           if (id === finished) return;

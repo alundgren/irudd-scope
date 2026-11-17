@@ -5,12 +5,17 @@
 // FAKE_CODEX_ACCOUNT_FILE file holding "chatgpt" (the default) or "api-key", read at start
 // FAKE_CODEX_SCRIPT       JSON file of turns that call Scope's card tools, in the same form as
 //                         the fake claude's: { "words": [{ "call": ..., "arguments": ... }] }
+// FAKE_CODEX_MODELS_FILE  file holding the IDs of the models `model/list` offers, as a JSON list,
+//                         or "never" to leave `model/list` unanswered; read at each request
+//
+// `model/list` offers two made-up models unless the models file says otherwise, and each
+// turn/start logs the model, reasoning effort and service tier it asked for.
 //
 // Otherwise what the person writes picks the turn: "command" asks to run a command, "file" asks
 // to change a file, "long" waits until Stop, "helper" first finishes a helper agent's turn on
 // another thread, and anything else gets a short reply. With "slow", the answer to turn/start
 // comes 1.5 seconds late.
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import { pngSize } from "../png-size.mjs";
@@ -25,7 +30,7 @@ const log = (entry) => {
   if (process.env.FAKE_CODEX_LOG)
     appendFileSync(process.env.FAKE_CODEX_LOG, `${JSON.stringify(entry)}\n`);
 };
-log({ event: "start", args, cwd: process.cwd() });
+log({ event: "start", args, cwd: process.cwd(), pid: process.pid });
 
 const login = process.env.FAKE_CODEX_ACCOUNT_FILE
   ? readFileSync(process.env.FAKE_CODEX_ACCOUNT_FILE, "utf8").trim()
@@ -34,6 +39,39 @@ const account =
   login === "api-key"
     ? { type: "apiKey" }
     : { type: "chatgpt", email: "person@example.com", planType: "pro", workspaceName: null };
+
+const MODELS = [
+  {
+    id: "fake-terra",
+    model: "fake-terra",
+    displayName: "Fake Terra",
+    description: "A made-up model.",
+    hidden: false,
+    isDefault: true,
+    supportedReasoningEfforts: [
+      { reasoningEffort: "low", description: "Quick" },
+      { reasoningEffort: "high", description: "Careful" },
+    ],
+    defaultReasoningEffort: "low",
+    serviceTiers: [{ id: "priority", name: "Fast", description: "Faster, more usage" }],
+    defaultServiceTier: null,
+  },
+  {
+    id: "fake-luna",
+    model: "fake-luna",
+    displayName: "Fake Luna",
+    description: "Another made-up model.",
+    hidden: false,
+    isDefault: false,
+    supportedReasoningEfforts: [
+      { reasoningEffort: "low", description: "Quick" },
+      { reasoningEffort: "medium", description: "Balanced" },
+    ],
+    defaultReasoningEffort: "medium",
+    serviceTiers: [],
+    defaultServiceTier: null,
+  },
+];
 
 const fill = (template, values) =>
   JSON.parse(JSON.stringify(template), (_key, value) =>
@@ -223,6 +261,13 @@ lines.on("line", (line) => {
         userId: null,
         workspaceRouting: null,
       });
+    case "model/list": {
+      const file = process.env.FAKE_CODEX_MODELS_FILE;
+      const offered = file && existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
+      if (offered === "never") return;
+      const data = offered ? MODELS.filter((model) => offered.includes(model.id)) : MODELS;
+      return answer(message.id, { data, nextCursor: null });
+    }
     case "thread/start":
     case "thread/resume":
       threadId = params.threadId ?? randomUUID();
@@ -238,7 +283,14 @@ lines.on("line", (line) => {
     case "turn/start": {
       turnId = randomUUID();
       const text = params.input?.[0]?.text ?? "";
-      log({ event: "message", text, thread: threadId });
+      log({
+        event: "message",
+        text,
+        thread: threadId,
+        ...("model" in params ? { model: params.model } : {}),
+        ...("effort" in params ? { effort: params.effort } : {}),
+        ...("serviceTier" in params ? { serviceTier: params.serviceTier } : {}),
+      });
       const reply = fill(recording.turnStart, { ...ids(), REQUEST_ID: message.id });
       if (text.includes("slow")) setTimeout(() => send(reply), 1500);
       else send(reply);

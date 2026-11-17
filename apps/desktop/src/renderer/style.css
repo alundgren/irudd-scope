@@ -789,11 +789,17 @@ h2 {
   display: grid;
   gap: var(--scope-space-3);
 }
-.settings-section-content .appearance-setting {
+.settings-section-content .appearance-setting,
+.settings-section-content .card-chat-choice {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
+}
+.card-chat-status {
+  display: flex;
+  align-items: center;
+  gap: var(--scope-space-3);
 }
 .setting-switch {
   display: flex;

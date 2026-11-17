@@ -485,7 +485,21 @@ no edits.
 
 ### Card chat
 
-Card chat is off until the Card chat switch in Settings turns it on. Then each
+Card chat is off until the Card chat switch in Settings turns it on. While it
+is on, the same Settings section offers Program, Model, Reasoning and Speed
+menus for every card chat. Opening the section shows the models the installed
+programs last listed, then asks them again and shows their answer; the first
+time it shows "Asking Claude Code and Codex for their models…" meanwhile.
+Scope asks a program again at most once a minute. When the saved model is no
+longer offered, the menus and the chat header show the program's default model
+instead, and so do messages. Program lists only installed programs. Reasoning and Speed list
+what the chosen model offers and are left out when it offers nothing to
+choose; Speed shows Standard and the program's faster option, such as Fast.
+Picking a model keeps the reasoning level and speed when the new model offers
+them and uses the model's defaults otherwise. A program that isn't installed or
+isn't signed in with a plan is named with the reason, and a failed request
+offers Retry. Each change saves at once and applies from the next message;
+choosing the other program starts a new conversation with it. Then each
 card's editor keeps a 360-pixel column on its right for a chat about that
 card. The chat shows only while the editor is in Edit and steps aside while a
 dialog is open, because it runs in a separate page that sits above the
@@ -503,10 +517,9 @@ moved it." when the person moved something after the agent did, appear as small
 centered lines. Enter sends and Shift+Enter starts a new line; Stop replaces Send while
 a turn runs. When chat can't start, such as when it would be billed to an API
 key, the reason shows above the message box and the box stays off until the
-card is opened again. The header names the program, Claude Code or Codex, and,
-once known, the plan, such as "Max plan" or "Pro plan". When both are installed,
-a Chat program menu picks one. It is off while a turn runs, and the next message
-after a switch starts a new conversation. Closing the card's editor stops a
+card is opened again. The header has no menus. It names what runs in one muted line, such as
+"Codex · GPT-6.1 Terra · high · fast", cut short with an ellipsis when narrow,
+and, once known, the plan, such as "Max plan" or "Pro plan". Closing the card's editor stops a
 running turn, which ends with "Stopped"; switching to another tab does not. A
 turn cut off by quitting Scope ends with "Interrupted when Scope quit", keeps
 what it showed and its Undo turn, and does not continue by itself; the next

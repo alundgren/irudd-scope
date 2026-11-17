@@ -5,25 +5,72 @@ import {
   query,
   tool,
   type AccountInfo,
+  type EffortLevel,
+  type ModelInfo,
+  type Options,
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { effortLabel, STANDARD_SPEED, type ChatModel } from "./contract.ts";
 import {
   BILLED_TO_KEY,
   type ChatHarness,
   type HarnessEvent,
+  type HarnessRun,
   type HarnessStart,
   type HarnessTools,
   type ToolAnswer,
 } from "./harness.ts";
-import { startProgram, stopGroup } from "./process.ts";
+import { startProgram, stopGroup, untilAborted } from "./process.ts";
 
 /** Chat runs only on a Claude plan login, never on an API key or another provider. */
 export function planName(account: AccountInfo): string | null {
   if (account.apiProvider !== "firstParty" || account.apiKeySource || !account.subscriptionType)
     return null;
   return account.subscriptionType;
+}
+
+const NOT_PLAN = "Claude Code isn't signed in with a Claude plan, so card chat can't use it.";
+/** Claude's fast mode, the one speed above standard it offers. */
+const FAST = "fast";
+const EFFORTS: readonly string[] = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] satisfies EffortLevel[];
+const effortOf = (run: HarnessRun) =>
+  run.effort && EFFORTS.includes(run.effort) ? (run.effort as EffortLevel) : undefined;
+/** Fast mode is a setting, so the standard speed turns it off and no choice leaves it alone. */
+const fastOf = (run: HarnessRun) => (run.speed ? run.speed === FAST : undefined);
+
+function chatModel(model: ModelInfo): ChatModel {
+  const efforts = model.supportsEffort === false ? [] : (model.supportedEffortLevels ?? []);
+  return {
+    id: model.value,
+    label: model.displayName || model.value,
+    efforts: efforts.map((effort) => ({ id: effort, label: effortLabel(effort) })),
+    speeds: [
+      { id: STANDARD_SPEED, label: "Standard" },
+      ...(model.supportsFastMode ? [{ id: FAST, label: "Fast" }] : []),
+    ],
+  };
+}
+
+/** Runs the person's claude in its own process group, so closing it stops what it started. */
+function spawner(folder: string, children: Set<ChildProcess>): Options["spawnClaudeCodeProcess"] {
+  return (options) => {
+    const child = startProgram(options.command, options.args, {
+      cwd: options.cwd ?? folder,
+      env: options.env,
+    });
+    children.add(child);
+    child.once("exit", () => children.delete(child));
+    options.signal?.addEventListener("abort", () => stopGroup(child), { once: true });
+    return child;
+  };
 }
 
 /** Messages the person sends, handed to the SDK one at a time as they arrive. */
@@ -132,9 +179,36 @@ export function claudeHarness({
 }): ChatHarness {
   return {
     id: "claude",
-    label: "Claude",
+    label: "Claude Code",
     available: async () => (await program()) !== null,
-    async start({ folder, resume, tools, onEvent }: HarnessStart) {
+    async models(folder, signal) {
+      const binary = await program();
+      if (!binary) throw new Error("Scope can't find the claude program.");
+      const stopped = "Claude Code stopped before it listed its models.";
+      if (signal.aborted) throw new Error(stopped);
+      const aborted = untilAborted(signal, stopped);
+      // Starting the program answers with its models and account before any message is sent.
+      const inbox = new Inbox();
+      const children = new Set<ChildProcess>();
+      const run = query({
+        prompt: inbox,
+        options: {
+          pathToClaudeCodeExecutable: binary,
+          cwd: folder,
+          env: { ...process.env, PATH: path },
+          spawnClaudeCodeProcess: spawner(folder, children),
+        },
+      });
+      try {
+        if (!planName(await Promise.race([run.accountInfo(), aborted]))) throw new Error(NOT_PLAN);
+        return (await Promise.race([run.supportedModels(), aborted])).map(chatModel);
+      } finally {
+        inbox.end();
+        run.close();
+        for (const child of children) stopGroup(child);
+      }
+    },
+    async start({ folder, resume, tools, run: first, onEvent }: HarnessStart) {
       const binary = await program();
       if (!binary) throw new Error("Scope can't find the claude program.");
       const inbox = new Inbox();
@@ -144,12 +218,18 @@ export function claudeHarness({
       let lastText = false;
       const emit = (event: HarnessEvent) => onEvent(event);
 
+      let applied = first;
+      const effort = effortOf(first);
+      const fastMode = fastOf(first);
       const run = query({
         prompt: inbox,
         options: {
           pathToClaudeCodeExecutable: binary,
           cwd: folder,
           ...(resume ? { resume } : {}),
+          ...(first.model ? { model: first.model } : {}),
+          ...(effort ? { effort } : {}),
+          ...(fastMode !== undefined ? { settings: { fastMode } } : {}),
           env: { ...process.env, PATH: path },
           mcpServers: { scope: cardServer(tools) },
           canUseTool: (name, input, { signal }) =>
@@ -176,17 +256,7 @@ export function claudeHarness({
                 detail: approvalDetail(input),
               });
             }),
-          // Its own process group, so closing the chat or quitting Scope stops what it started.
-          spawnClaudeCodeProcess: (options) => {
-            const child = startProgram(options.command, options.args, {
-              cwd: options.cwd ?? folder,
-              env: options.env,
-            });
-            children.add(child);
-            child.once("exit", () => children.delete(child));
-            options.signal?.addEventListener("abort", () => stopGroup(child), { once: true });
-            return child;
-          },
+          spawnClaudeCodeProcess: spawner(folder, children),
         },
       });
 
@@ -211,7 +281,7 @@ export function claudeHarness({
         close();
         return { send: async () => {}, approve: () => {}, stop: () => {}, close: () => {} };
       }
-      // The header already names Claude; the plan reads like "Claude Max".
+      // The header already names Claude Code; the plan reads like "Claude Max".
       emit({ type: "account", label: `${plan.replace(/^Claude\s+/i, "")} plan` });
 
       const receive = (message: SDKMessage) => {
@@ -268,7 +338,17 @@ export function claudeHarness({
       })();
 
       return {
-        send: async (text) => inbox.push(text),
+        send: async (text, next) => {
+          // A choice changed in Settings applies from this message on.
+          if (next.model !== applied.model) await run.setModel(next.model);
+          if (effortOf(next) !== effortOf(applied) || fastOf(next) !== fastOf(applied))
+            await run.applyFlagSettings({
+              effortLevel: effortOf(next) ?? null,
+              fastMode: fastOf(next) ?? null,
+            });
+          applied = next;
+          inbox.push(text);
+        },
         approve: (id, allow) => approvals.get(id)?.(allow),
         stop: () => {
           stopping = true;

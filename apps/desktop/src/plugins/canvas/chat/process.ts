@@ -41,3 +41,13 @@ export function stopGroup(child: ChildProcess) {
     // The program can exit between the check and the kill.
   }
 }
+
+/** Fails once `signal` aborts, so a request to a program that hangs can be given up. */
+export function untilAborted(signal: AbortSignal, message: string): Promise<never> {
+  const aborted = new Promise<never>((_resolve, reject) => {
+    if (signal.aborted) reject(new Error(message));
+    else signal.addEventListener("abort", () => reject(new Error(message)), { once: true });
+  });
+  aborted.catch(() => {});
+  return aborted;
+}
