@@ -11,7 +11,7 @@ import {
   type WorkspacePullRequestDetail,
   type WorkspacePullRequestFacts,
   type WorkspaceRepository,
-} from "@irudd-scope/protocol/workspace";
+} from "@irudd-scope/protocol/github-workspace";
 import {
   GhCliTransport,
   WorkspaceGitHubError,

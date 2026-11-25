@@ -9,7 +9,7 @@ import {
   type WorkspaceMilestone,
   type WorkspacePullRequestFacts,
   type WorkspaceTransition,
-} from "@irudd-scope/protocol/workspace";
+} from "@irudd-scope/protocol/github-workspace";
 
 const RETENTION_MS = WORKSPACE_CLOSED_RETENTION_DAYS * 86_400_000;
 const MAX_SHORT_TEXT = 512;

@@ -1,6 +1,6 @@
 import { MAX_PROMPT_REQUEST_BYTES } from "@irudd-scope/protocol/prompts";
 import { MAX_PULL_REQUESTS_REQUEST_BYTES } from "@irudd-scope/protocol/pull-requests";
-import { MAX_WORKSPACE_REQUEST_BYTES } from "@irudd-scope/protocol/workspace";
+import { MAX_WORKSPACE_REQUEST_BYTES } from "@irudd-scope/protocol/github-workspace";
 import { MAX_VOICE_REQUEST_BYTES } from "@irudd-scope/protocol/voice";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
@@ -441,7 +441,7 @@ export async function startPairedHub(
             ? MAX_PROMPT_REQUEST_BYTES
             : item.path === "/v1/pull-requests"
               ? MAX_PULL_REQUESTS_REQUEST_BYTES
-              : item.path === "/v1/workspace"
+              : item.path === "/v1/github-workspace"
                 ? MAX_WORKSPACE_REQUEST_BYTES
                 : item.path === "/v1/voice"
                   ? MAX_VOICE_REQUEST_BYTES
@@ -580,7 +580,7 @@ export async function startPairedHub(
         ? MAX_PROMPT_REQUEST_BYTES
         : request.url === "/v1/pull-requests"
           ? MAX_PULL_REQUESTS_REQUEST_BYTES
-          : request.url === "/v1/workspace"
+          : request.url === "/v1/github-workspace"
             ? MAX_WORKSPACE_REQUEST_BYTES
             : MAX_CONTENT_BYTES;
     if (Number(request.headers["content-length"]) > limit) {

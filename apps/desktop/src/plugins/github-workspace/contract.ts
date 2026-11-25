@@ -35,17 +35,17 @@ export const WorkspaceTabState = Schema.Struct({
   data: Schema.Struct({ artifactId: ArtifactId }),
 });
 
-export const workspaceTabContract = {
-  type: "workspace",
+export const githubWorkspaceTabContract = {
+  type: "github-workspace",
   category: "builtin" as const,
   version: 1,
   state: WorkspaceTabState,
 };
 
-export const workspaceArtifactId = (state: TabState) =>
+export const githubWorkspaceArtifactId = (state: TabState) =>
   decode(WorkspaceTabState, state).data.artifactId;
 
-export const workspaceTabState = (artifact: Artifact): TabState => ({
+export const githubWorkspaceTabState = (artifact: Artifact): TabState => ({
   version: 1,
   data: { artifactId: artifact.id },
 });

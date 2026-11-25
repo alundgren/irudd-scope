@@ -11,8 +11,8 @@ import {
   type WorkspacePullRequestFacts,
   type WorkspaceRepository,
   type WorkspaceSnapshot,
-} from "@irudd-scope/protocol/workspace";
-import type { WorkspaceStore } from "../../library/workspace-store.ts";
+} from "@irudd-scope/protocol/github-workspace";
+import type { GitHubWorkspaceStore } from "../../library/github-workspace-store.ts";
 import { WorkspaceGitHubClient, type SlimIssueRecord } from "./gh.ts";
 import { WorkspaceGitHubError } from "./transport.ts";
 
@@ -95,7 +95,7 @@ function isSlimDirty(prev: WorkspaceIssueFacts | undefined, slim: SlimIssueRecor
   return false;
 }
 
-export class WorkspaceSync {
+export class GitHubWorkspaceSync {
   private readonly groups = new Map<string, GroupState>();
   private readonly interests = new Map<string, WorkspaceInterest>();
   private readonly prDetailCache = new Map<string, WorkspacePullRequestDetail>();
@@ -113,7 +113,7 @@ export class WorkspaceSync {
   private readonly unschedule: NonNullable<Scheduling["clearTimeout"]>;
 
   constructor(
-    private readonly store: WorkspaceStore,
+    private readonly store: GitHubWorkspaceStore,
     private readonly github = new WorkspaceGitHubClient(),
     options: Scheduling = {},
   ) {

@@ -7,10 +7,10 @@ import { PromptStore } from "./prompt-store.ts";
 import { RetroStore, initializeRetroTab } from "./retro-store.ts";
 import { PullRequestStore, initializePullRequestsTab } from "./pull-request-store.ts";
 import {
-  WORKSPACE_SCHEMA_VERSION,
-  WorkspaceStore,
-  initializeWorkspaceTab,
-} from "./workspace-store.ts";
+  GITHUB_WORKSPACE_SCHEMA_VERSION,
+  GitHubWorkspaceStore,
+  initializeGitHubWorkspaceTab,
+} from "./github-workspace-store.ts";
 import { DatabaseMaintenance } from "@irudd-scope/sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, chmod, readFile, readdir, rm } from "node:fs/promises";
@@ -82,7 +82,7 @@ export class ArtifactStore {
   prompts!: PromptStore;
   retros!: RetroStore;
   pullRequests!: PullRequestStore;
-  workspaces!: WorkspaceStore;
+  githubWorkspaces!: GitHubWorkspaceStore;
   canvases!: CanvasStore;
   chats!: CardChatStore;
   onChanged: (event: LiveEvent) => void = () => {};
@@ -156,13 +156,13 @@ export class ArtifactStore {
       await store.canvases.initialize();
       store.chats = new CardChatStore({ sql, run: (effect) => store.run(effect) });
       await store.chats.initialize();
-      store.workspaces = new WorkspaceStore({
+      store.githubWorkspaces = new GitHubWorkspaceStore({
         sql,
         run: (effect) => store.run(effect),
         mutate: (effect, events) => store.mutate(effect, events),
       });
-      await store.workspaces.initialize();
-      await store.workspaces.recoverInterruptedSync();
+      await store.githubWorkspaces.initialize();
+      await store.githubWorkspaces.recoverInterruptedSync();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -245,7 +245,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > Math.max(CHAT_SCHEMA_VERSION, WORKSPACE_SCHEMA_VERSION))
+    if (version > Math.max(CHAT_SCHEMA_VERSION, GITHUB_WORKSPACE_SCHEMA_VERSION))
       throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
@@ -1070,10 +1070,12 @@ export class ArtifactStore {
             );
           if (input.kind === "pull-requests" && !(previous?.name ?? input.name))
             return yield* Effect.fail(new ScopeError(400, "Pull request tabs require a name."));
-          if (previous?.kind === "workspace" && input.kind !== "workspace")
-            return yield* Effect.fail(new ScopeError(409, "A workspace tab's kind cannot change."));
-          if (input.kind === "workspace" && !(previous?.name ?? input.name))
-            return yield* Effect.fail(new ScopeError(400, "Workspace tabs require a name."));
+          if (previous?.kind === "github-workspace" && input.kind !== "github-workspace")
+            return yield* Effect.fail(
+              new ScopeError(409, "A GitHub workspace tab's kind cannot change."),
+            );
+          if (input.kind === "github-workspace" && !(previous?.name ?? input.name))
+            return yield* Effect.fail(new ScopeError(400, "GitHub workspace tabs require a name."));
           if (
             previous?.kind === "plan" &&
             (input.kind !== "plan" || input.mediaType !== "application/json")
@@ -1153,12 +1155,12 @@ export class ArtifactStore {
         ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, document = excluded.document, blob_id = excluded.blob_id`;
           yield* initializeRetroTab(sql, tabId, artifact);
           yield* initializePullRequestsTab(sql, tabId, artifact);
-          yield* initializeWorkspaceTab(sql, tabId, artifact);
+          yield* initializeGitHubWorkspaceTab(sql, tabId, artifact);
           if (
             (input.kind === "plan" && !previous) ||
             (artifact.kind === "retro" && previous?.kind !== "retro") ||
             (artifact.kind === "pull-requests" && previous?.kind !== "pull-requests") ||
-            (artifact.kind === "workspace" && previous?.kind !== "workspace")
+            (artifact.kind === "github-workspace" && previous?.kind !== "github-workspace")
           )
             yield* sql`UPDATE live_tabs SET permanent = 1 WHERE id = ${tabId}`;
           return artifact;

@@ -1,5 +1,5 @@
 import { decode } from "@irudd-scope/protocol";
-import { WorkspaceCommand, type WorkspaceSnapshot } from "@irudd-scope/protocol/workspace";
+import { WorkspaceCommand, type WorkspaceSnapshot } from "@irudd-scope/protocol/github-workspace";
 import type { FrameIdentity } from "./frame-sdk.ts";
 
 export type FrameCall = FrameIdentity & { id: string; method: string; args: unknown[] };

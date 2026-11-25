@@ -25,14 +25,14 @@ import {
   type WorkspacePullRequestDetailResult,
   type WorkspaceNodeStateChange,
   type WorkspaceStateChange,
-} from "@irudd-scope/protocol/workspace";
+} from "@irudd-scope/protocol/github-workspace";
 import {
   computeWorkspaceTransitions,
   retainWorkspaceEntities,
   trimTransitions,
-} from "./workspace-diff.ts";
+} from "./github-workspace-diff.ts";
 
-export const WORKSPACE_SCHEMA_VERSION = 21;
+export const GITHUB_WORKSPACE_SCHEMA_VERSION = 21;
 
 type Database = {
   sql: SqliteClient.SqliteClient;
@@ -120,20 +120,20 @@ function sameBoardRef(a: WorkspaceBoardRef | null, b: WorkspaceBoardRef | null):
 }
 
 function pruneReceipts(sql: SqliteClient.SqliteClient, tabId: string) {
-  return sql`DELETE FROM workspace_receipts
+  return sql`DELETE FROM github_workspace_receipts
     WHERE tab_id = ${tabId}
       AND rowid NOT IN (
-        SELECT rowid FROM workspace_receipts WHERE tab_id = ${tabId} ORDER BY rowid DESC LIMIT 200
+        SELECT rowid FROM github_workspace_receipts WHERE tab_id = ${tabId} ORDER BY rowid DESC LIMIT 200
       )`;
 }
 
-export function initializeWorkspaceTab(
+export function initializeGitHubWorkspaceTab(
   sql: SqliteClient.SqliteClient,
   tabId: string,
   artifact: Artifact,
 ) {
-  if (artifact.kind !== "workspace") return Effect.void;
-  return sql`INSERT INTO workspace_state(tab_id, generation, repository, board_ref, viewer, sync, board, last_issue_updated_at, app_state)
+  if (artifact.kind !== "github-workspace") return Effect.void;
+  return sql`INSERT INTO github_workspace_state(tab_id, generation, repository, board_ref, viewer, sync, board, last_issue_updated_at, app_state)
     VALUES (${tabId}, 0, NULL, NULL, NULL, ${JSON.stringify(emptySync)}, NULL, NULL, ${JSON.stringify(emptyAppState)})
     ON CONFLICT(tab_id) DO NOTHING`;
 }
@@ -154,7 +154,7 @@ function applyJsonEdit(
   return next;
 }
 
-export class WorkspaceStore {
+export class GitHubWorkspaceStore {
   private handlers: WorkspaceHandlers | undefined;
   private readonly reads = new Map<AbortController, { tabId: string; requestId: string }>();
 
@@ -176,13 +176,13 @@ export class WorkspaceStore {
     const existingTable = await run(
       sql<{
         name: string;
-      }>`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workspace_state'`,
+      }>`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'github_workspace_state'`,
     );
-    if (user_version >= WORKSPACE_SCHEMA_VERSION && existingTable.length > 0) return;
+    if (user_version >= GITHUB_WORKSPACE_SCHEMA_VERSION && existingTable.length > 0) return;
     await run(
       sql.withTransaction(
         Effect.gen(function* () {
-          yield* sql`CREATE TABLE IF NOT EXISTS workspace_state(
+          yield* sql`CREATE TABLE IF NOT EXISTS github_workspace_state(
             tab_id TEXT PRIMARY KEY REFERENCES live_tabs(id) ON DELETE CASCADE,
             generation INTEGER NOT NULL CHECK(generation >= 0),
             repository TEXT CHECK(repository IS NULL OR json_valid(repository)),
@@ -193,21 +193,13 @@ export class WorkspaceStore {
             last_issue_updated_at TEXT,
             app_state TEXT NOT NULL DEFAULT '{"version":0,"value":{}}' CHECK(json_valid(app_state))
           ) STRICT`;
-          yield* sql`CREATE TABLE IF NOT EXISTS workspace_milestones(
+          yield* sql`CREATE TABLE IF NOT EXISTS github_workspace_milestones(
             tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE,
             node_id TEXT NOT NULL,
             facts TEXT NOT NULL CHECK(json_valid(facts)),
             PRIMARY KEY(tab_id, node_id)
           ) STRICT`;
-          yield* sql`CREATE TABLE IF NOT EXISTS workspace_issues(
-            tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE,
-            node_id TEXT NOT NULL,
-            facts TEXT NOT NULL CHECK(json_valid(facts)),
-            local TEXT NOT NULL CHECK(json_valid(local)),
-            agent TEXT NOT NULL CHECK(json_valid(agent)),
-            PRIMARY KEY(tab_id, node_id)
-          ) STRICT`;
-          yield* sql`CREATE TABLE IF NOT EXISTS workspace_prs(
+          yield* sql`CREATE TABLE IF NOT EXISTS github_workspace_issues(
             tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE,
             node_id TEXT NOT NULL,
             facts TEXT NOT NULL CHECK(json_valid(facts)),
@@ -215,20 +207,28 @@ export class WorkspaceStore {
             agent TEXT NOT NULL CHECK(json_valid(agent)),
             PRIMARY KEY(tab_id, node_id)
           ) STRICT`;
-          yield* sql`CREATE TABLE IF NOT EXISTS workspace_node_state(
+          yield* sql`CREATE TABLE IF NOT EXISTS github_workspace_prs(
+            tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE,
+            node_id TEXT NOT NULL,
+            facts TEXT NOT NULL CHECK(json_valid(facts)),
+            local TEXT NOT NULL CHECK(json_valid(local)),
+            agent TEXT NOT NULL CHECK(json_valid(agent)),
+            PRIMARY KEY(tab_id, node_id)
+          ) STRICT`;
+          yield* sql`CREATE TABLE IF NOT EXISTS github_workspace_node_state(
             tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE,
             node_id TEXT NOT NULL,
             state TEXT NOT NULL CHECK(json_valid(state)),
             PRIMARY KEY(tab_id, node_id)
           ) STRICT`;
-          yield* sql`CREATE TABLE IF NOT EXISTS workspace_transitions(
+          yield* sql`CREATE TABLE IF NOT EXISTS github_workspace_transitions(
             tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE,
             id TEXT NOT NULL,
             at TEXT NOT NULL,
             payload TEXT NOT NULL CHECK(json_valid(payload)),
             PRIMARY KEY(tab_id, id)
           ) STRICT`;
-          yield* sql`CREATE TABLE IF NOT EXISTS workspace_receipts(
+          yield* sql`CREATE TABLE IF NOT EXISTS github_workspace_receipts(
             tab_id TEXT NOT NULL REFERENCES live_tabs(id) ON DELETE CASCADE,
             request_id TEXT NOT NULL,
             payload TEXT NOT NULL,
@@ -237,14 +237,14 @@ export class WorkspaceStore {
           const existing = yield* sql<{
             tab_id: string;
             document: string;
-          }>`SELECT tab_id, document FROM artifacts WHERE json_extract(document, '$.kind') = 'workspace'`;
+          }>`SELECT tab_id, document FROM artifacts WHERE json_extract(document, '$.kind') = 'github-workspace'`;
           for (const row of existing)
-            yield* initializeWorkspaceTab(
+            yield* initializeGitHubWorkspaceTab(
               sql,
               row.tab_id,
               decode(Artifact, JSON.parse(row.document)),
             );
-          yield* sql`PRAGMA user_version = ${sql.literal(String(WORKSPACE_SCHEMA_VERSION))}`;
+          yield* sql`PRAGMA user_version = ${sql.literal(String(GITHUB_WORKSPACE_SCHEMA_VERSION))}`;
         }),
       ),
     );
@@ -259,7 +259,7 @@ export class WorkspaceStore {
       sql.withTransaction(
         Effect.gen(function* () {
           const changed = yield* sql<{ tab_id: string }>`
-            UPDATE workspace_state
+            UPDATE github_workspace_state
             SET sync = json_set(sync, '$.state', 'error', '$.updatedAt', ${updatedAt}, '$.error', 'GitHub refresh was interrupted. Try Sync again.'),
                 generation = generation + 1
             WHERE json_extract(sync, '$.state') = 'syncing'
@@ -283,16 +283,16 @@ export class WorkspaceStore {
                    state.last_issue_updated_at, state.app_state
             FROM artifacts
             JOIN live_tabs ON live_tabs.id = artifacts.tab_id
-            JOIN workspace_state AS state ON state.tab_id = artifacts.tab_id
-            WHERE artifacts.tab_id = ${key} AND json_extract(artifacts.document, '$.kind') = 'workspace'`
+            JOIN github_workspace_state AS state ON state.tab_id = artifacts.tab_id
+            WHERE artifacts.tab_id = ${key} AND json_extract(artifacts.document, '$.kind') = 'github-workspace'`
         : yield* sql<Owner>`
             SELECT artifacts.tab_id, artifacts.document, live_tabs.trashed_at, state.generation,
                    state.repository, state.board_ref, state.viewer, state.sync, state.board,
                    state.last_issue_updated_at, state.app_state
             FROM artifacts
             JOIN live_tabs ON live_tabs.id = artifacts.tab_id
-            JOIN workspace_state AS state ON state.tab_id = artifacts.tab_id
-            WHERE json_extract(artifacts.document, '$.name') = ${key} AND json_extract(artifacts.document, '$.kind') = 'workspace'`;
+            JOIN github_workspace_state AS state ON state.tab_id = artifacts.tab_id
+            WHERE json_extract(artifacts.document, '$.name') = ${key} AND json_extract(artifacts.document, '$.kind') = 'github-workspace'`;
       if (!rows[0]) return yield* Effect.fail(new ScopeError(404, "Workspace tab not found."));
       if (rows[0].trashed_at !== null)
         return yield* Effect.fail(
@@ -307,13 +307,13 @@ export class WorkspaceStore {
     return Effect.gen(function* () {
       const artifact = decode(Artifact, JSON.parse(owner.document));
       const milestoneRows = yield* sql<{ facts: string }>`
-        SELECT facts FROM workspace_milestones WHERE tab_id = ${owner.tab_id}`;
+        SELECT facts FROM github_workspace_milestones WHERE tab_id = ${owner.tab_id}`;
       const issueRows = yield* sql<{ facts: string; local: string; agent: string }>`
-        SELECT facts, local, agent FROM workspace_issues WHERE tab_id = ${owner.tab_id}`;
+        SELECT facts, local, agent FROM github_workspace_issues WHERE tab_id = ${owner.tab_id}`;
       const prRows = yield* sql<{ facts: string; local: string; agent: string }>`
-        SELECT facts, local, agent FROM workspace_prs WHERE tab_id = ${owner.tab_id}`;
+        SELECT facts, local, agent FROM github_workspace_prs WHERE tab_id = ${owner.tab_id}`;
       const transitionRows = yield* sql<{ payload: string }>`
-        SELECT payload FROM workspace_transitions WHERE tab_id = ${owner.tab_id} ORDER BY at DESC`;
+        SELECT payload FROM github_workspace_transitions WHERE tab_id = ${owner.tab_id} ORDER BY at DESC`;
       return decode(WorkspaceSnapshot, {
         artifact,
         tabId: owner.tab_id,
@@ -347,7 +347,7 @@ export class WorkspaceStore {
     if (!snapshot.artifact.name) return [];
     return [
       {
-        type: "workspace",
+        type: "github-workspace",
         name: snapshot.artifact.name,
         id: snapshot.artifact.id,
         generation: snapshot.generation,
@@ -380,11 +380,11 @@ export class WorkspaceStore {
     }>`
       SELECT state.tab_id, state.repository, state.board_ref, state.viewer, state.last_issue_updated_at,
              json_extract(state.board, '$.updatedAt') AS board_updated_at
-      FROM workspace_state AS state
+      FROM github_workspace_state AS state
       JOIN live_tabs ON live_tabs.id = state.tab_id
       JOIN artifacts ON artifacts.tab_id = state.tab_id
       WHERE live_tabs.trashed_at IS NULL
-        AND json_extract(artifacts.document, '$.kind') = 'workspace'
+        AND json_extract(artifacts.document, '$.kind') = 'github-workspace'
         AND state.repository IS NOT NULL`);
     return rows.map((row) => ({
       tabId: row.tab_id,
@@ -431,7 +431,7 @@ export class WorkspaceStore {
       sql.withTransaction(
         Effect.gen(function* () {
           const current = yield* owner(tabId, true);
-          yield* sql`UPDATE workspace_state SET sync = ${JSON.stringify(valid)}, generation = generation + 1 WHERE tab_id = ${current.tab_id}`;
+          yield* sql`UPDATE github_workspace_state SET sync = ${JSON.stringify(valid)}, generation = generation + 1 WHERE tab_id = ${current.tab_id}`;
           return yield* read(yield* owner(tabId, true));
         }),
       ),
@@ -472,16 +472,16 @@ export class WorkspaceStore {
             local: string;
             agent: string;
           }>`
-            SELECT node_id, facts, local, agent FROM workspace_issues WHERE tab_id = ${tabId}`;
+            SELECT node_id, facts, local, agent FROM github_workspace_issues WHERE tab_id = ${tabId}`;
           const prevPrsRows = yield* sql<{
             node_id: string;
             facts: string;
             local: string;
             agent: string;
           }>`
-            SELECT node_id, facts, local, agent FROM workspace_prs WHERE tab_id = ${tabId}`;
+            SELECT node_id, facts, local, agent FROM github_workspace_prs WHERE tab_id = ${tabId}`;
           const prevTransRows = yield* sql<{ payload: string }>`
-            SELECT payload FROM workspace_transitions WHERE tab_id = ${tabId} ORDER BY at DESC`;
+            SELECT payload FROM github_workspace_transitions WHERE tab_id = ${tabId} ORDER BY at DESC`;
 
           const prevIssuesMap = new Map(
             prevIssuesRows.map((r) => [
@@ -530,21 +530,21 @@ export class WorkspaceStore {
           );
           const allTransitions = trimTransitions(prevTransitions, addedTransitions, nowMs);
 
-          yield* sql`DELETE FROM workspace_milestones WHERE tab_id = ${tabId}`;
+          yield* sql`DELETE FROM github_workspace_milestones WHERE tab_id = ${tabId}`;
           for (const milestone of retained.milestones) {
-            yield* sql`INSERT INTO workspace_milestones(tab_id, node_id, facts) VALUES (${tabId}, ${milestone.nodeId}, ${JSON.stringify(milestone)})`;
+            yield* sql`INSERT INTO github_workspace_milestones(tab_id, node_id, facts) VALUES (${tabId}, ${milestone.nodeId}, ${JSON.stringify(milestone)})`;
           }
 
-          yield* sql`DELETE FROM workspace_issues WHERE tab_id = ${tabId}`;
+          yield* sql`DELETE FROM github_workspace_issues WHERE tab_id = ${tabId}`;
           for (const issue of retained.issues) {
             const prev = prevIssuesMap.get(issue.nodeId);
-            yield* sql`INSERT INTO workspace_issues(tab_id, node_id, facts, local, agent) VALUES (${tabId}, ${issue.nodeId}, ${JSON.stringify(issue)}, ${prev?.local ?? JSON.stringify(emptyLocal)}, ${prev?.agent ?? JSON.stringify(emptyAgent)})`;
+            yield* sql`INSERT INTO github_workspace_issues(tab_id, node_id, facts, local, agent) VALUES (${tabId}, ${issue.nodeId}, ${JSON.stringify(issue)}, ${prev?.local ?? JSON.stringify(emptyLocal)}, ${prev?.agent ?? JSON.stringify(emptyAgent)})`;
           }
 
-          yield* sql`DELETE FROM workspace_prs WHERE tab_id = ${tabId}`;
+          yield* sql`DELETE FROM github_workspace_prs WHERE tab_id = ${tabId}`;
           for (const pr of retained.prs) {
             const prev = prevPrsMap.get(pr.nodeId);
-            yield* sql`INSERT INTO workspace_prs(tab_id, node_id, facts, local, agent) VALUES (${tabId}, ${pr.nodeId}, ${JSON.stringify(pr)}, ${prev?.local ?? JSON.stringify(emptyLocal)}, ${prev?.agent ?? JSON.stringify(emptyAgent)})`;
+            yield* sql`INSERT INTO github_workspace_prs(tab_id, node_id, facts, local, agent) VALUES (${tabId}, ${pr.nodeId}, ${JSON.stringify(pr)}, ${prev?.local ?? JSON.stringify(emptyLocal)}, ${prev?.agent ?? JSON.stringify(emptyAgent)})`;
           }
 
           const liveNodeIds = new Set<string>([
@@ -556,16 +556,16 @@ export class WorkspaceStore {
             ) ?? []),
           ]);
           const nodeStateRows = yield* sql<{ node_id: string }>`
-            SELECT node_id FROM workspace_node_state WHERE tab_id = ${tabId}`;
+            SELECT node_id FROM github_workspace_node_state WHERE tab_id = ${tabId}`;
           for (const row of nodeStateRows) {
             if (!liveNodeIds.has(row.node_id)) {
-              yield* sql`DELETE FROM workspace_node_state WHERE tab_id = ${tabId} AND node_id = ${row.node_id}`;
+              yield* sql`DELETE FROM github_workspace_node_state WHERE tab_id = ${tabId} AND node_id = ${row.node_id}`;
             }
           }
 
-          yield* sql`DELETE FROM workspace_transitions WHERE tab_id = ${tabId}`;
+          yield* sql`DELETE FROM github_workspace_transitions WHERE tab_id = ${tabId}`;
           for (const item of allTransitions) {
-            yield* sql`INSERT INTO workspace_transitions(tab_id, id, at, payload) VALUES (${tabId}, ${item.id}, ${item.at}, ${JSON.stringify(item)})`;
+            yield* sql`INSERT INTO github_workspace_transitions(tab_id, id, at, payload) VALUES (${tabId}, ${item.id}, ${item.at}, ${JSON.stringify(item)})`;
           }
 
           const prevSync = decode(WorkspaceSyncStatus, JSON.parse(current.sync));
@@ -578,7 +578,7 @@ export class WorkspaceStore {
             boardError: commit.boardError ?? null,
           };
 
-          yield* sql`UPDATE workspace_state
+          yield* sql`UPDATE github_workspace_state
             SET generation = generation + 1,
                 repository = ${JSON.stringify(commit.repository)},
                 board_ref = ${commit.boardRef ? JSON.stringify(commit.boardRef) : null},
@@ -717,7 +717,7 @@ export class WorkspaceStore {
           if (current.tab_id !== command.tabId)
             return yield* Effect.fail(new ScopeError(409, "Workspace tab identity changed."));
           const existing = yield* sql<{ payload: string }>`
-            SELECT payload FROM workspace_receipts WHERE tab_id = ${current.tab_id} AND request_id = ${command.requestId}`;
+            SELECT payload FROM github_workspace_receipts WHERE tab_id = ${current.tab_id} AND request_id = ${command.requestId}`;
           if (existing[0]) {
             if (existing[0].payload !== hash)
               return yield* Effect.fail(
@@ -738,14 +738,14 @@ export class WorkspaceStore {
           const nextBoardRef = command.board === undefined ? prevBoardRef : command.board;
           const boardChanged = !sameBoardRef(prevBoardRef, nextBoardRef);
           if (repoChanged) {
-            yield* sql`DELETE FROM workspace_milestones WHERE tab_id = ${current.tab_id}`;
-            yield* sql`DELETE FROM workspace_issues WHERE tab_id = ${current.tab_id}`;
-            yield* sql`DELETE FROM workspace_prs WHERE tab_id = ${current.tab_id}`;
-            yield* sql`DELETE FROM workspace_transitions WHERE tab_id = ${current.tab_id}`;
-            yield* sql`DELETE FROM workspace_node_state WHERE tab_id = ${current.tab_id}`;
+            yield* sql`DELETE FROM github_workspace_milestones WHERE tab_id = ${current.tab_id}`;
+            yield* sql`DELETE FROM github_workspace_issues WHERE tab_id = ${current.tab_id}`;
+            yield* sql`DELETE FROM github_workspace_prs WHERE tab_id = ${current.tab_id}`;
+            yield* sql`DELETE FROM github_workspace_transitions WHERE tab_id = ${current.tab_id}`;
+            yield* sql`DELETE FROM github_workspace_node_state WHERE tab_id = ${current.tab_id}`;
           }
           const boardCleared = nextBoardRef === null || repoChanged || boardChanged;
-          yield* sql`UPDATE workspace_state
+          yield* sql`UPDATE github_workspace_state
             SET repository = ${JSON.stringify(command.repository)},
                 board_ref = ${nextBoardRef ? JSON.stringify(nextBoardRef) : null},
                 board = ${boardCleared ? null : current.board},
@@ -754,7 +754,7 @@ export class WorkspaceStore {
                 sync = ${JSON.stringify(emptySync)},
                 generation = generation + 1
             WHERE tab_id = ${current.tab_id}`;
-          yield* sql`INSERT INTO workspace_receipts(tab_id, request_id, payload) VALUES (${current.tab_id}, ${command.requestId}, ${hash})`;
+          yield* sql`INSERT INTO github_workspace_receipts(tab_id, request_id, payload) VALUES (${current.tab_id}, ${command.requestId}, ${hash})`;
           yield* pruneReceipts(sql, current.tab_id);
           return yield* read(yield* owner(current.tab_id, true));
         }),
@@ -784,7 +784,7 @@ export class WorkspaceStore {
           if (current.tab_id !== command.tabId)
             return yield* Effect.fail(new ScopeError(409, "Workspace tab identity changed."));
           const existing = yield* sql<{ payload: string }>`
-            SELECT payload FROM workspace_receipts WHERE tab_id = ${current.tab_id} AND request_id = ${command.requestId}`;
+            SELECT payload FROM github_workspace_receipts WHERE tab_id = ${current.tab_id} AND request_id = ${command.requestId}`;
           if (existing[0]) {
             if (existing[0].payload !== hash)
               return yield* Effect.fail(
@@ -809,8 +809,8 @@ export class WorkspaceStore {
             version: state.version + 1,
             value: nextValue,
           });
-          yield* sql`UPDATE workspace_state SET app_state = ${JSON.stringify(nextState)}, generation = generation + 1 WHERE tab_id = ${current.tab_id}`;
-          yield* sql`INSERT INTO workspace_receipts(tab_id, request_id, payload) VALUES (${current.tab_id}, ${command.requestId}, ${hash})`;
+          yield* sql`UPDATE github_workspace_state SET app_state = ${JSON.stringify(nextState)}, generation = generation + 1 WHERE tab_id = ${current.tab_id}`;
+          yield* sql`INSERT INTO github_workspace_receipts(tab_id, request_id, payload) VALUES (${current.tab_id}, ${command.requestId}, ${hash})`;
           yield* pruneReceipts(sql, current.tab_id);
           const snapshot = yield* read(yield* owner(current.tab_id, true));
           return { snapshot, change: { operation: op, ...nextState } as WorkspaceStateChange };
@@ -832,7 +832,7 @@ export class WorkspaceStore {
         if (current.tab_id !== command.tabId)
           return yield* Effect.fail(new ScopeError(409, "Workspace tab identity changed."));
         const [row] = yield* sql<{ state: string }>`
-          SELECT state FROM workspace_node_state WHERE tab_id = ${current.tab_id} AND node_id = ${command.nodeId}`;
+          SELECT state FROM github_workspace_node_state WHERE tab_id = ${current.tab_id} AND node_id = ${command.nodeId}`;
         return row
           ? decode(WorkspaceNodeAppState, JSON.parse(row.state))
           : { version: 0, value: {} };
@@ -864,9 +864,9 @@ export class WorkspaceStore {
           if (current.tab_id !== command.tabId)
             return yield* Effect.fail(new ScopeError(409, "Workspace tab identity changed."));
           const existing = yield* sql<{ payload: string }>`
-            SELECT payload FROM workspace_receipts WHERE tab_id = ${current.tab_id} AND request_id = ${command.requestId}`;
+            SELECT payload FROM github_workspace_receipts WHERE tab_id = ${current.tab_id} AND request_id = ${command.requestId}`;
           const [row] = yield* sql<{ state: string }>`
-            SELECT state FROM workspace_node_state WHERE tab_id = ${current.tab_id} AND node_id = ${command.nodeId}`;
+            SELECT state FROM github_workspace_node_state WHERE tab_id = ${current.tab_id} AND node_id = ${command.nodeId}`;
           const state = row
             ? decode(WorkspaceNodeAppState, JSON.parse(row.state))
             : { version: 0, value: {} };
@@ -890,11 +890,11 @@ export class WorkspaceStore {
             version: state.version + 1,
             value: nextValue,
           });
-          yield* sql`INSERT INTO workspace_node_state(tab_id, node_id, state)
+          yield* sql`INSERT INTO github_workspace_node_state(tab_id, node_id, state)
             VALUES (${current.tab_id}, ${command.nodeId}, ${JSON.stringify(nextState)})
             ON CONFLICT(tab_id, node_id) DO UPDATE SET state = excluded.state`;
-          yield* sql`UPDATE workspace_state SET generation = generation + 1 WHERE tab_id = ${current.tab_id}`;
-          yield* sql`INSERT INTO workspace_receipts(tab_id, request_id, payload) VALUES (${current.tab_id}, ${command.requestId}, ${hash})`;
+          yield* sql`UPDATE github_workspace_state SET generation = generation + 1 WHERE tab_id = ${current.tab_id}`;
+          yield* sql`INSERT INTO github_workspace_receipts(tab_id, request_id, payload) VALUES (${current.tab_id}, ${command.requestId}, ${hash})`;
           yield* pruneReceipts(sql, current.tab_id);
           const snapshot = yield* read(yield* owner(current.tab_id, true));
           return {
@@ -930,7 +930,7 @@ export class WorkspaceStore {
           if (current.tab_id !== command.tabId)
             return yield* Effect.fail(new ScopeError(409, "Workspace tab identity changed."));
           const existing = yield* sql<{ payload: string }>`
-            SELECT payload FROM workspace_receipts WHERE tab_id = ${current.tab_id} AND request_id = ${command.requestId}`;
+            SELECT payload FROM github_workspace_receipts WHERE tab_id = ${current.tab_id} AND request_id = ${command.requestId}`;
           if (existing[0]) {
             if (existing[0].payload !== hash)
               return yield* Effect.fail(
@@ -939,14 +939,14 @@ export class WorkspaceStore {
             return yield* read(current);
           }
           const [prRow] = yield* sql<{ local: string; agent: string }>`
-            SELECT local, agent FROM workspace_prs WHERE tab_id = ${current.tab_id} AND node_id = ${command.nodeId}`;
+            SELECT local, agent FROM github_workspace_prs WHERE tab_id = ${current.tab_id} AND node_id = ${command.nodeId}`;
           const [issueRow] = prRow
             ? []
             : yield* sql<{ local: string; agent: string }>`
-                SELECT local, agent FROM workspace_issues WHERE tab_id = ${current.tab_id} AND node_id = ${command.nodeId}`;
+                SELECT local, agent FROM github_workspace_issues WHERE tab_id = ${current.tab_id} AND node_id = ${command.nodeId}`;
           const row = prRow ?? issueRow;
           if (!row) return yield* Effect.fail(new ScopeError(404, "Workspace item not found."));
-          const table = prRow ? "workspace_prs" : "workspace_issues";
+          const table = prRow ? "github_workspace_prs" : "github_workspace_issues";
           let local = decode(WorkspaceNodeLocal, JSON.parse(row.local));
           let agent = decode(WorkspaceNodeAgent, JSON.parse(row.agent));
 
@@ -985,13 +985,13 @@ export class WorkspaceStore {
             };
           }
 
-          if (table === "workspace_prs") {
-            yield* sql`UPDATE workspace_prs SET local = ${JSON.stringify(local)}, agent = ${JSON.stringify(agent)} WHERE tab_id = ${current.tab_id} AND node_id = ${command.nodeId}`;
+          if (table === "github_workspace_prs") {
+            yield* sql`UPDATE github_workspace_prs SET local = ${JSON.stringify(local)}, agent = ${JSON.stringify(agent)} WHERE tab_id = ${current.tab_id} AND node_id = ${command.nodeId}`;
           } else {
-            yield* sql`UPDATE workspace_issues SET local = ${JSON.stringify(local)}, agent = ${JSON.stringify(agent)} WHERE tab_id = ${current.tab_id} AND node_id = ${command.nodeId}`;
+            yield* sql`UPDATE github_workspace_issues SET local = ${JSON.stringify(local)}, agent = ${JSON.stringify(agent)} WHERE tab_id = ${current.tab_id} AND node_id = ${command.nodeId}`;
           }
-          yield* sql`UPDATE workspace_state SET generation = generation + 1 WHERE tab_id = ${current.tab_id}`;
-          yield* sql`INSERT INTO workspace_receipts(tab_id, request_id, payload) VALUES (${current.tab_id}, ${command.requestId}, ${hash})`;
+          yield* sql`UPDATE github_workspace_state SET generation = generation + 1 WHERE tab_id = ${current.tab_id}`;
+          yield* sql`INSERT INTO github_workspace_receipts(tab_id, request_id, payload) VALUES (${current.tab_id}, ${command.requestId}, ${hash})`;
           yield* pruneReceipts(sql, current.tab_id);
           return yield* read(yield* owner(current.tab_id, true));
         }),

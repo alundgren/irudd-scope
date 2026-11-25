@@ -271,7 +271,7 @@
     </form>
     <main id="app"><div class="empty">Waiting for workspace snapshot…</div></main>
     <script>
-      const api = window.scope.workspace;
+      const api = window.scope.githubWorkspace;
       const winApi = window.scope.windows;
       let data = null;
       let currentView = "board";
@@ -313,7 +313,7 @@
           <div class="meta">${esc(pr.state)} ${pr.draft ? "(draft)" : ""} · +${pr.additions} -${pr.deletions} · ${pr.changedFiles} files · <a href="${esc(pr.url)}">Open on GitHub</a></div>
           <div id="content">Loading PR detail…</div>
           <script>
-            window.scope.workspace.prDetail(${JSON.stringify(pr.nodeId)}).then((d) => {
+            window.scope.githubWorkspace.prDetail(${JSON.stringify(pr.nodeId)}).then((d) => {
               const files = d.files.map((f) => f.status + " " + f.path + " (+" + f.additions + " -" + f.deletions + ")").join("\\n");
               document.getElementById("content").innerHTML =
                 "<h4>Description</h4><pre>" + (d.body || "(empty)").replaceAll("<","&lt;") + "</pre>" +
@@ -336,7 +336,7 @@
           <div class="meta">${esc(issue.state)} · <a href="${esc(issue.url)}">Open on GitHub</a></div>
           <div id="content">Loading issue detail &amp; timeline…</div>
           <script>
-            window.scope.workspace.issueDetail(${JSON.stringify(issue.nodeId)}).then((d) => {
+            window.scope.githubWorkspace.issueDetail(${JSON.stringify(issue.nodeId)}).then((d) => {
               const tl = d.timeline.map((e) => "<li><b>" + e.at.slice(0,16) + "</b> " + (e.actor || "").replaceAll("&","&amp;").replaceAll("<","&lt;") + " — " + e.summary.replaceAll("&","&amp;").replaceAll("<","&lt;") + "</li>").join("");
               document.getElementById("content").innerHTML =
                 "<h4>Description</h4><pre>" + (d.body || "(empty)").replaceAll("<","&lt;") + "</pre>" +

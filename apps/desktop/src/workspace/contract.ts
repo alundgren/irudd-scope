@@ -124,7 +124,7 @@ export function importedClosedArtifacts(value: unknown): string[] {
 
 export function tabArtifactId(tab: Tab): string | undefined {
   // Legacy diagram tabs keep their artifact reference until startup removes them.
-  if (!["file", "diagram", "plan", "pull-requests", "workspace", "retro"].includes(tab.type))
+  if (!["file", "diagram", "plan", "pull-requests", "github-workspace", "retro"].includes(tab.type))
     return undefined;
   const id = tab.state.data.artifactId;
   return typeof id === "string" ? decode(ArtifactId, id) : undefined;

@@ -2,7 +2,7 @@ import { expect, test } from "vite-plus/test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import type { WorkspaceSnapshot } from "@irudd-scope/protocol/workspace";
+import type { WorkspaceSnapshot } from "@irudd-scope/protocol/github-workspace";
 import { desktopFixture } from "./desktop-fixture.ts";
 
 test(
@@ -358,14 +358,14 @@ if (query.includes("WorkspaceOpenPRs")) {
 
       // 1. Publish workspace HTML tab & configure repo + Project v2 board
       const html = `<!doctype html><html><body><div id="status">loading</div><script>
-        window.scope.workspace.watch((snap) => {
+        window.scope.githubWorkspace.watch((snap) => {
           document.getElementById("status").textContent =
             "issues=" + snap.issues.length + ",prs=" + snap.pullRequests.length + ",board=" + (snap.board ? snap.board.items.length : 0);
         });
       </script></body></html>`;
 
       await page.evaluate(async (doc) => {
-        await window.scope.createWorkspace({
+        await window.scope.createGitHubWorkspace({
           name: "synthetic-board",
           title: "Synthetic Board",
           html: doc,
@@ -376,12 +376,12 @@ if (query.includes("WorkspaceOpenPRs")) {
 
       // 2. Trigger sync and verify unified snapshot + iframe rendering
       const snap1 = await page.evaluate(async () => {
-        const current = await window.scope.workspaceCommand({
+        const current = await window.scope.githubWorkspaceCommand({
           action: "read",
           name: "synthetic-board",
         });
         if (current.type !== "snapshot") throw new Error("expected snapshot");
-        const synced = await window.scope.workspaceCommand({
+        const synced = await window.scope.githubWorkspaceCommand({
           action: "sync",
           name: "synthetic-board",
           tabId: current.snapshot.tabId,
@@ -406,7 +406,7 @@ if (query.includes("WorkspaceOpenPRs")) {
 
       // 3. Save local note + appState + verify stale version conflict fails cleanly
       await page.evaluate(async (tabId) => {
-        await window.scope.workspaceCommand({
+        await window.scope.githubWorkspaceCommand({
           action: "note",
           name: "synthetic-board",
           tabId,
@@ -415,7 +415,7 @@ if (query.includes("WorkspaceOpenPRs")) {
           expectedVersion: 0,
           text: "100% done — close parent!",
         });
-        await window.scope.workspaceCommand({
+        await window.scope.githubWorkspaceCommand({
           action: "state-set",
           name: "synthetic-board",
           tabId,
@@ -427,7 +427,7 @@ if (query.includes("WorkspaceOpenPRs")) {
 
       const conflictError = await page.evaluate(async (tabId) => {
         try {
-          await window.scope.workspaceCommand({
+          await window.scope.githubWorkspaceCommand({
             action: "note",
             name: "synthetic-board",
             tabId,
@@ -460,7 +460,7 @@ if (query.includes("WorkspaceOpenPRs")) {
       );
 
       const snap2: WorkspaceSnapshot = await page.evaluate(async (tabId) => {
-        const res = await window.scope.workspaceCommand({
+        const res = await window.scope.githubWorkspaceCommand({
           action: "sync",
           name: "synthetic-board",
           tabId,
@@ -495,7 +495,7 @@ if (query.includes("WorkspaceOpenPRs")) {
         }),
       );
       const snapNoScope: WorkspaceSnapshot = await page.evaluate(async (tabId) => {
-        const res = await window.scope.workspaceCommand({
+        const res = await window.scope.githubWorkspaceCommand({
           action: "sync",
           name: "synthetic-board",
           tabId,
@@ -511,7 +511,7 @@ if (query.includes("WorkspaceOpenPRs")) {
 
       // 6. Verify on-demand issueDetail + restart persistence
       const issueDet = await page.evaluate(async (tabId) => {
-        const res = await window.scope.workspaceCommand({
+        const res = await window.scope.githubWorkspaceCommand({
           action: "issue-detail",
           name: "synthetic-board",
           tabId,
@@ -529,7 +529,7 @@ if (query.includes("WorkspaceOpenPRs")) {
       const page2 = await app.firstWindow();
       page2.setDefaultTimeout(10_000);
       const afterRestart = await page2.evaluate(async () => {
-        const res = await window.scope.workspaceCommand({
+        const res = await window.scope.githubWorkspaceCommand({
           action: "read",
           name: "synthetic-board",
         });
@@ -558,7 +558,7 @@ if (query.includes("WorkspaceOpenPRs")) {
         }),
       );
       const switchedBoard = await page2.evaluate(async (tabId) => {
-        const configured = await window.scope.workspaceCommand({
+        const configured = await window.scope.githubWorkspaceCommand({
           action: "configure",
           name: "synthetic-board",
           tabId,
@@ -568,7 +568,7 @@ if (query.includes("WorkspaceOpenPRs")) {
         });
         if (configured.type !== "snapshot") throw new Error("expected snapshot");
         if (configured.snapshot.board !== null) throw new Error("expected old board cleared");
-        const synced = await window.scope.workspaceCommand({
+        const synced = await window.scope.githubWorkspaceCommand({
           action: "sync",
           name: "synthetic-board",
           tabId,
@@ -581,7 +581,7 @@ if (query.includes("WorkspaceOpenPRs")) {
       expect(switchedBoard.board?.title).toBe("Second Board");
 
       const orgNoBoard = await page2.evaluate(async (tabId) => {
-        await window.scope.workspaceCommand({
+        await window.scope.githubWorkspaceCommand({
           action: "configure",
           name: "synthetic-board",
           tabId,
@@ -589,7 +589,7 @@ if (query.includes("WorkspaceOpenPRs")) {
           repository: { owner: "acme-org", name: "service" },
           board: null,
         });
-        const synced = await window.scope.workspaceCommand({
+        const synced = await window.scope.githubWorkspaceCommand({
           action: "sync",
           name: "synthetic-board",
           tabId,

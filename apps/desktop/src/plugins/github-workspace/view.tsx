@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { WorkspaceSnapshot } from "@irudd-scope/protocol/workspace";
+import type { WorkspaceSnapshot } from "@irudd-scope/protocol/github-workspace";
 import type { TabProps } from "../api.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
-import { workspaceDocument } from "./frame-sdk.ts";
+import { githubWorkspaceDocument } from "./frame-sdk.ts";
 import { WorkspaceFrameHost } from "./frame-host.ts";
 import { WorkspaceContentWindow } from "./content-window.tsx";
 import type { ContentWindow } from "./window-content.ts";
@@ -10,7 +10,7 @@ import type { ContentWindow } from "./window-content.ts";
 const failureMessage = (error: unknown) =>
   error instanceof Error ? error.message : "Could not load the workspace.";
 
-export function WorkspaceTabView({ artifact, active, theme, context }: TabProps) {
+export function GitHubWorkspaceTabView({ artifact, active, theme, context }: TabProps) {
   const name = artifact?.name;
   const [content, setContent] = useState<{ html: string; revision: number }>();
   const [readError, setReadError] = useState("");
@@ -46,7 +46,7 @@ export function WorkspaceTabView({ artifact, active, theme, context }: TabProps)
     [identity, name],
   );
   const document = useMemo(
-    () => (content ? workspaceDocument(content.html, identity) : undefined),
+    () => (content ? githubWorkspaceDocument(content.html, identity) : undefined),
     [content, identity],
   );
   const flushFrame = useRef<() => Promise<void>>(async () => {});
@@ -75,7 +75,10 @@ export function WorkspaceTabView({ artifact, active, theme, context }: TabProps)
         do {
           read = requested;
           try {
-            const reply = await window.scope.workspaceCommand({ action: "read", name: name! });
+            const reply = await window.scope.githubWorkspaceCommand({
+              action: "read",
+              name: name!,
+            });
             if (!mounted) return;
             if (reply.type !== "snapshot" || reply.snapshot.tabId !== context.tabId)
               throw new Error("This workspace no longer matches the saved tab.");
@@ -93,7 +96,7 @@ export function WorkspaceTabView({ artifact, active, theme, context }: TabProps)
       return reading;
     }
     refresh.current = reload;
-    const stopChanges = window.scope.onWorkspaceChanged((event) => {
+    const stopChanges = window.scope.onGitHubWorkspaceChanged((event) => {
       if (event.name === name && event.id === artifact?.id) {
         if (event.stateChange && event.tabId === context.tabId)
           host.stateChanged(event.stateChange);
@@ -102,7 +105,7 @@ export function WorkspaceTabView({ artifact, active, theme, context }: TabProps)
         void reload();
       }
     });
-    const stopReconnect = window.scope.onWorkspaceReconnected(() => {
+    const stopReconnect = window.scope.onGitHubWorkspaceReconnected(() => {
       void reload().then(() => host.refreshNodeStates());
       void host.refreshInterest().catch(() => {});
     });
@@ -221,8 +224,8 @@ export function WorkspaceTabView({ artifact, active, theme, context }: TabProps)
           <iframe
             key={identity.channel}
             ref={(element) => host.attach("main", element)}
-            name={`scope-workspace-${context.tabId}-${identity.channel}`}
-            title={artifact?.title ?? "Workspace"}
+            name={`scope-github-workspace-${context.tabId}-${identity.channel}`}
+            title={artifact?.title ?? "GitHub Workspace"}
             className="html-preview pull-requests-document"
             style={{ flex: 1, minHeight: 0 }}
             srcDoc={document}

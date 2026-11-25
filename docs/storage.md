@@ -471,16 +471,16 @@ complete pre-upgrade backup to downgrade.
 
 ## GitHub workspace data
 
-Artifact schema 21 adds `workspace_state`, `workspace_milestones`,
-`workspace_issues`, `workspace_prs`, `workspace_node_state`,
-`workspace_transitions`, and `workspace_receipts` in `scope.db`, keyed by the
-permanent `workspace` tab UUID. Synced GitHub facts, board items, local notes,
-snoozes, review baselines, agent assessments, transitions, and versioned app
-and per-node JSON state survive restarts and HTML revisions. Deleting the
-artifact cascades removal of all workspace records for that tab. On-demand PR
-diffs, files, reviews, and issue detail timelines stay in main-process memory
-and are not persisted. Older builds reject schema 21; restore a complete
-pre-upgrade backup to downgrade.
+Artifact schema 21 adds `github_workspace_state`, `github_workspace_milestones`,
+`github_workspace_issues`, `github_workspace_prs`, `github_workspace_node_state`,
+`github_workspace_transitions`, and `github_workspace_receipts` in `scope.db`,
+keyed by the permanent `github-workspace` tab UUID. Synced GitHub facts, board
+items, local notes, snoozes, review baselines, agent assessments, transitions,
+and versioned app and per-node JSON state survive restarts and HTML revisions.
+Deleting the artifact cascades removal of all GitHub workspace records for that
+tab. On-demand PR diffs, files, reviews, and issue detail timelines stay in
+main-process memory and are not persisted. Older builds reject schema 21;
+restore a complete pre-upgrade backup to downgrade.
 
 ## Retained external publication records
 

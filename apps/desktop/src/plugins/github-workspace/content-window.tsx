@@ -3,7 +3,7 @@ import { ArrowDownRight, Maximize2, Minimize2, X } from "lucide-react";
 import type { OverlayPosition } from "../../workspace/contract.ts";
 import { Button } from "../../renderer/components/ui/button.tsx";
 import { FloatingOverlay } from "../../renderer/components/ui/floating-overlay.tsx";
-import { workspaceDocument } from "./frame-sdk.ts";
+import { githubWorkspaceDocument } from "./frame-sdk.ts";
 import type { ContentWindow } from "./window-content.ts";
 import type { WorkspaceFrameHost } from "./frame-host.ts";
 import "./content-window.css";
@@ -23,7 +23,7 @@ export function WorkspaceContentWindow({
   const [closing, setClosing] = useState(false);
   const closeButton = useRef<HTMLButtonElement>(null);
   const document = useMemo(
-    () => workspaceDocument(content.html, content.identity, content.environment),
+    () => githubWorkspaceDocument(content.html, content.identity, content.environment),
     [content.html, content.identity, content.environment],
   );
   useEffect(() => {
@@ -42,7 +42,7 @@ export function WorkspaceContentWindow({
   }
   return (
     <FloatingOverlay
-      className={`scope-workspace-window ${maximized ? "scope-workspace-maximized" : ""}`}
+      className={`scope-github-workspace-window ${maximized ? "scope-github-workspace-maximized" : ""}`}
       label="workspace window"
       position={maximized ? { x: 0, y: 0 } : position}
       onPosition={setPosition}
@@ -59,7 +59,7 @@ export function WorkspaceContentWindow({
     >
       <section role="dialog" aria-label={content.title}>
         <header
-          className="scope-workspace-toolbar"
+          className="scope-github-workspace-toolbar"
           onDoubleClick={(event) => {
             if (!(event.target as Element).closest("button")) setMaximized((value) => !value);
           }}
@@ -86,9 +86,9 @@ export function WorkspaceContentWindow({
         </header>
         <iframe
           ref={(element) => host.attach(content.environment.id, element)}
-          name={`scope-workspace-${content.identity.tabId}-${content.identity.channel}`}
+          name={`scope-github-workspace-${content.identity.tabId}-${content.identity.channel}`}
           title={content.title}
-          className="html-preview scope-workspace-document"
+          className="html-preview scope-github-workspace-document"
           data-floating-overlay-content
           srcDoc={document}
         />
@@ -110,7 +110,7 @@ function ResizeGrip({ onSize }: { onSize: (size: { width: number; height: number
   } | null>(null);
   function startResize(event: PointerEvent<HTMLButtonElement>) {
     if (event.button !== 0 || !event.isPrimary) return;
-    const panel = event.currentTarget.closest(".scope-workspace-window")!;
+    const panel = event.currentTarget.closest(".scope-github-workspace-window")!;
     const rectangle = panel.getBoundingClientRect();
     const bounds = panel.parentElement!.getBoundingClientRect();
     event.preventDefault();
@@ -140,7 +140,7 @@ function ResizeGrip({ onSize }: { onSize: (size: { width: number; height: number
     <Button
       variant="ghost"
       size="icon-xs"
-      className="scope-workspace-resize"
+      className="scope-github-workspace-resize"
       aria-label="Resize window"
       onPointerDown={startResize}
       onPointerMove={resizeTo}

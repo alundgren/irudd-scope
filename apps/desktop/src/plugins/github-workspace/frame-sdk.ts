@@ -6,7 +6,7 @@ export type WindowContext = {
   context: unknown;
 };
 
-function installWorkspaceSDK(identity: FrameIdentity, windowContext: WindowContext) {
+function installGitHubWorkspaceSDK(identity: FrameIdentity, windowContext: WindowContext) {
   type AppState = { version: number; value: Readonly<Record<string, unknown>> };
   type StateUpdate = AppState & { operation: "snapshot" | "set" | "patch" | "delete" };
   type SnapshotPayload = {
@@ -134,7 +134,10 @@ function installWorkspaceSDK(identity: FrameIdentity, windowContext: WindowConte
       ...(method.endsWith("NodeState") ? { nodeEntry: nodeEntry(args[0] as string) } : {}),
     });
     try {
-      parent.postMessage({ ...identity, type: "scope-workspace-call", id, method, args }, "*");
+      parent.postMessage(
+        { ...identity, type: "scope-github-workspace-call", id, method, args },
+        "*",
+      );
     } catch (error) {
       pending.delete(id);
       reject(error instanceof Error ? error : new Error("Could not send the operation."));
@@ -172,7 +175,7 @@ function installWorkspaceSDK(identity: FrameIdentity, windowContext: WindowConte
     } catch (failure) {
       error = failure instanceof Error ? failure.message : "Could not save workspace edits.";
     }
-    parent.postMessage({ ...identity, type: "scope-workspace-flushed", id, error }, "*");
+    parent.postMessage({ ...identity, type: "scope-github-workspace-flushed", id, error }, "*");
   }
 
   addEventListener("message", (event) => {
@@ -183,19 +186,19 @@ function installWorkspaceSDK(identity: FrameIdentity, windowContext: WindowConte
       value?.tabId !== identity.tabId
     )
       return;
-    if (value.type === "scope-workspace-state") stateUpdate(value.value);
-    if (value.type === "scope-workspace-node-state-change") {
+    if (value.type === "scope-github-workspace-state") stateUpdate(value.value);
+    if (value.type === "scope-github-workspace-node-state-change") {
       const entry = nodeStates.get(value.value.nodeId);
       if (entry?.watchers.size && value.value.version > (entry.state?.version ?? -1))
         refreshNodeState(value.value.nodeId, value.value);
     }
-    if (value.type === "scope-workspace-node-state-refresh") {
+    if (value.type === "scope-github-workspace-node-state-refresh") {
       for (const [nodeId, entry] of nodeStates) {
         nodeStates.set(nodeId, { watchers: entry.watchers, revision: 0 });
         if (entry.watchers.size) refreshNodeState(nodeId);
       }
     }
-    if (value.type === "scope-workspace-close") void flush(value.id);
+    if (value.type === "scope-github-workspace-close") void flush(value.id);
     if (value.type === "scope-window-message") {
       const message = freeze(value.value);
       for (const watcher of messages) {
@@ -206,14 +209,14 @@ function installWorkspaceSDK(identity: FrameIdentity, windowContext: WindowConte
         }
       }
     }
-    if (value.type === "scope-workspace-link-result" && value.error) {
+    if (value.type === "scope-github-workspace-link-result" && value.error) {
       dispatchEvent(
-        new CustomEvent("scope-workspace-external-error", {
+        new CustomEvent("scope-github-workspace-external-error", {
           detail: { url: value.url, message: value.error },
         }),
       );
     }
-    if (value.type === "scope-workspace-snapshot" && value.generation >= generation) {
+    if (value.type === "scope-github-workspace-snapshot" && value.generation >= generation) {
       generation = value.generation;
       latest = freeze(value.value) as SnapshotPayload;
       stateUpdate({
@@ -228,7 +231,7 @@ function installWorkspaceSDK(identity: FrameIdentity, windowContext: WindowConte
         }
       }
     }
-    if (value.type === "scope-workspace-reply") {
+    if (value.type === "scope-github-workspace-reply") {
       const call = pending.get(value.id);
       if (!call) return;
       pending.delete(value.id);
@@ -330,7 +333,7 @@ function installWorkspaceSDK(identity: FrameIdentity, windowContext: WindowConte
   });
 
   Object.defineProperty(window, "scope", {
-    value: Object.freeze({ workspace: sdk, windows, window: freeze(windowContext) }),
+    value: Object.freeze({ githubWorkspace: sdk, windows, window: freeze(windowContext) }),
   });
 
   addEventListener("keydown", (event) => {
@@ -362,15 +365,15 @@ function installWorkspaceSDK(identity: FrameIdentity, windowContext: WindowConte
   addEventListener("focus", () =>
     parent.postMessage({ ...identity, type: "scope-window-focus" }, "*"),
   );
-  parent.postMessage({ ...identity, type: "scope-workspace-ready" }, "*");
+  parent.postMessage({ ...identity, type: "scope-github-workspace-ready" }, "*");
 }
 
-export function workspaceDocument(
+export function githubWorkspaceDocument(
   html: string,
   identity: FrameIdentity,
   context: WindowContext = { id: "main", openerId: null, context: null },
 ): string {
-  const script = `<script>(${installWorkspaceSDK.toString()})(${JSON.stringify(identity).replaceAll("<", "\\u003c")},${JSON.stringify(context).replaceAll("<", "\\u003c")});</script>`;
+  const script = `<script>(${installGitHubWorkspaceSDK.toString()})(${JSON.stringify(identity).replaceAll("<", "\\u003c")},${JSON.stringify(context).replaceAll("<", "\\u003c")});</script>`;
   const doctype = /^\s*<!doctype[^>]*>/i;
   return doctype.test(html)
     ? html.replace(doctype, (value) => `${value}${script}`)

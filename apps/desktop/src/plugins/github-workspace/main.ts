@@ -6,16 +6,16 @@ import {
   WorkspaceBoardRef,
   WorkspaceCommand,
   WorkspaceRepository,
-} from "@irudd-scope/protocol/workspace";
+} from "@irudd-scope/protocol/github-workspace";
 import type { MainPluginContext } from "../main-api.ts";
 import { WorkspaceCancelReads, WorkspaceInterestPayload } from "./contract.ts";
-import { registerWorkspaceExternalLinks } from "./external-links.ts";
-import { WorkspaceSync } from "./sync.ts";
+import { registerGitHubWorkspaceExternalLinks } from "./external-links.ts";
+import { GitHubWorkspaceSync } from "./sync.ts";
 
-export function registerWorkspaceIpc(context: MainPluginContext) {
+export function registerGitHubWorkspaceIpc(context: MainPluginContext) {
   const { handle, artifacts, client, window } = context;
-  const links = registerWorkspaceExternalLinks(context);
-  const syncing = new WorkspaceSync(artifacts.workspaces);
+  const links = registerGitHubWorkspaceExternalLinks(context);
+  const syncing = new GitHubWorkspaceSync(artifacts.githubWorkspaces);
 
   const unsubscribe = artifacts.subscribe(() => {
     void syncing.reconcile().catch(() => {});
@@ -29,20 +29,20 @@ export function registerWorkspaceIpc(context: MainPluginContext) {
   window.webContents.on("destroyed", suspend);
   void syncing.start().catch(() => {});
 
-  handle("scope:workspace-interest", (value) =>
+  handle("scope:github-workspace-interest", (value) =>
     syncing.interest(decode(WorkspaceInterestPayload, value)),
   );
-  artifacts.workspaces.setHandlers({
+  artifacts.githubWorkspaces.setHandlers({
     sync: (tabId) => syncing.sync(tabId),
     prDetail: (tabId, nodeId, captured, signal) =>
       syncing.prDetail(tabId, nodeId, captured, signal),
     issueDetail: (tabId, nodeId, signal) => syncing.issueDetail(tabId, nodeId, signal),
   });
-  handle("scope:workspace-cancel-reads", (value) => {
+  handle("scope:github-workspace-cancel-reads", (value) => {
     const { tabId, requestIds } = decode(WorkspaceCancelReads, value);
-    artifacts.workspaces.cancelReads(tabId, requestIds);
+    artifacts.githubWorkspaces.cancelReads(tabId, requestIds);
   });
-  handle("scope:create-workspace", async (value) => {
+  handle("scope:create-github-workspace", async (value) => {
     const input = decode(
       Schema.Struct({
         name: ArtifactName,
@@ -58,7 +58,7 @@ export function registerWorkspaceIpc(context: MainPluginContext) {
       {
         name: input.name,
         title: input.title,
-        kind: "workspace",
+        kind: "github-workspace",
         mediaType: "text/html",
         fileName: `${input.name}.html`,
         expectedRevision: 0,
@@ -66,8 +66,8 @@ export function registerWorkspaceIpc(context: MainPluginContext) {
       Buffer.from(input.html),
     );
     if (input.repository) {
-      const owner = await artifacts.workspaces.snapshot(input.name);
-      await artifacts.workspaces.command({
+      const owner = await artifacts.githubWorkspaces.snapshot(input.name);
+      await artifacts.githubWorkspaces.command({
         action: "configure",
         name: input.name,
         tabId: owner.tabId,
@@ -78,8 +78,8 @@ export function registerWorkspaceIpc(context: MainPluginContext) {
     }
     return artifact;
   });
-  handle("scope:workspace-command", (value) =>
-    artifacts.workspaces.command(decode(WorkspaceCommand, value)),
+  handle("scope:github-workspace-command", (value) =>
+    artifacts.githubWorkspaces.command(decode(WorkspaceCommand, value)),
   );
 
   return {
@@ -93,7 +93,7 @@ export function registerWorkspaceIpc(context: MainPluginContext) {
       powerMonitor.removeListener("suspend", suspend);
       powerMonitor.removeListener("resume", resume);
       window.webContents.removeListener("destroyed", suspend);
-      artifacts.workspaces.setHandlers(undefined);
+      artifacts.githubWorkspaces.setHandlers(undefined);
     },
   };
 }

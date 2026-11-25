@@ -114,11 +114,11 @@ export function registerDesktopIpc({
   const stopPullRequestsReconnects = library.onPullRequestsReconnected(() => {
     if (!window.isDestroyed()) window.webContents.send("scope:pull-requests-reconnected");
   });
-  const stopWorkspaceEvents = library.onWorkspaceChanged((event) => {
-    if (!window.isDestroyed()) window.webContents.send("scope:workspace-changed", event);
+  const stopGitHubWorkspaceEvents = library.onGitHubWorkspaceChanged((event) => {
+    if (!window.isDestroyed()) window.webContents.send("scope:github-workspace-changed", event);
   });
-  const stopWorkspaceReconnects = library.onWorkspaceReconnected(() => {
-    if (!window.isDestroyed()) window.webContents.send("scope:workspace-reconnected");
+  const stopGitHubWorkspaceReconnects = library.onGitHubWorkspaceReconnected(() => {
+    if (!window.isDestroyed()) window.webContents.send("scope:github-workspace-reconnected");
   });
   handle("scope:remotes", () => remotes.snapshot());
   handle("scope:pair-remote", (input) =>
@@ -266,8 +266,8 @@ export function registerDesktopIpc({
       stopRetroReconnects();
       stopPullRequestsEvents();
       stopPullRequestsReconnects();
-      stopWorkspaceEvents();
-      stopWorkspaceReconnects();
+      stopGitHubWorkspaceEvents();
+      stopGitHubWorkspaceReconnects();
       window.removeListener("enter-full-screen", enteredFullscreen);
       window.removeListener("leave-full-screen", leftFullscreen);
       plugins.dispose();

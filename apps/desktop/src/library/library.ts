@@ -5,7 +5,7 @@ import type { ScopeClient } from "@irudd-scope/protocol/client";
 import type { ArtifactContent, ArtifactLibrarySnapshot } from "../bridge.ts";
 
 import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
-import type { WorkspaceEvent } from "@irudd-scope/protocol/workspace";
+import type { GitHubWorkspaceEvent } from "@irudd-scope/protocol";
 
 export class ArtifactLibrary {
   private promptListeners = new Set<(event: PromptEvent) => void>();
@@ -52,20 +52,20 @@ export class ArtifactLibrary {
       this.pullRequestsListeners.delete(listener);
     };
   }
-  private workspaceListeners = new Set<(event: WorkspaceEvent) => void>();
-  private workspaceReconnectListeners = new Set<() => void>();
+  private githubWorkspaceListeners = new Set<(event: GitHubWorkspaceEvent) => void>();
+  private githubWorkspaceReconnectListeners = new Set<() => void>();
 
-  onWorkspaceReconnected(listener: () => void): () => void {
-    this.workspaceReconnectListeners.add(listener);
+  onGitHubWorkspaceReconnected(listener: () => void): () => void {
+    this.githubWorkspaceReconnectListeners.add(listener);
     return () => {
-      this.workspaceReconnectListeners.delete(listener);
+      this.githubWorkspaceReconnectListeners.delete(listener);
     };
   }
 
-  onWorkspaceChanged(listener: (event: WorkspaceEvent) => void): () => void {
-    this.workspaceListeners.add(listener);
+  onGitHubWorkspaceChanged(listener: (event: GitHubWorkspaceEvent) => void): () => void {
+    this.githubWorkspaceListeners.add(listener);
     return () => {
-      this.workspaceListeners.delete(listener);
+      this.githubWorkspaceListeners.delete(listener);
     };
   }
   private current: ArtifactLibrarySnapshot = { artifacts: [], connection: "connecting" };
@@ -159,11 +159,11 @@ export class ArtifactLibrary {
                 console.error("A pull request reconnect listener failed.");
               }
             }
-            for (const listener of this.workspaceReconnectListeners) {
+            for (const listener of this.githubWorkspaceReconnectListeners) {
               try {
                 listener();
               } catch {
-                console.error("A workspace reconnect listener failed.");
+                console.error("A GitHub workspace reconnect listener failed.");
               }
             }
             void this.client
@@ -197,12 +197,12 @@ export class ArtifactLibrary {
                 console.error("A pull request update listener failed.");
               }
             }
-          } else if (event.type === "workspace") {
-            for (const listener of this.workspaceListeners) {
+          } else if (event.type === "github-workspace") {
+            for (const listener of this.githubWorkspaceListeners) {
               try {
                 listener(event);
               } catch {
-                console.error("A workspace update listener failed.");
+                console.error("A GitHub workspace update listener failed.");
               }
             }
           } else if (event.type === "deleted") {

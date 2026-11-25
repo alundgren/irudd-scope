@@ -5,7 +5,7 @@ import { registerRetroIpc } from "./retro/main.ts";
 import { registerPlanIpc } from "./plan/main.ts";
 import { registerSketchpadIpc } from "./sketchpad/main.ts";
 import { registerPullRequestsIpc } from "./pull-requests/main.ts";
-import { registerWorkspaceIpc } from "./workspace/main.ts";
+import { registerGitHubWorkspaceIpc } from "./github-workspace/main.ts";
 import type { MainPluginContext } from "./main-api.ts";
 import { registerFolderIpc } from "./folder/main.ts";
 import { registerHarnessesIpc } from "./harnesses/main.ts";
@@ -22,21 +22,21 @@ export function registerMainPlugins(context: MainPluginContext) {
   registerHarnessesIpc(context);
   const sessions = registerSessionsIpc(context);
   const pullRequests = registerPullRequestsIpc(context);
-  const workspaces = registerWorkspaceIpc(context);
+  const githubWorkspaces = registerGitHubWorkspaceIpc(context);
   const folders = registerFolderIpc(context);
   return {
     folderCommand: folders.command,
     watchFolder: folders.watch,
     cancelPullRequests: () => {
       pullRequests.cancelPending();
-      workspaces.cancelPending();
+      githubWorkspaces.cancelPending();
     },
     resumePullRequests: async () => {
-      await Promise.all([pullRequests.resume(), workspaces.resume()]);
+      await Promise.all([pullRequests.resume(), githubWorkspaces.resume()]);
     },
     cancelTabs: (ids: string[]) => {
       pullRequests.cancelTabs(ids);
-      workspaces.cancelTabs(ids);
+      githubWorkspaces.cancelTabs(ids);
       canvases.removed(ids);
       folders.cancelTabs(ids);
     },
@@ -47,7 +47,7 @@ export function registerMainPlugins(context: MainPluginContext) {
       retros.dispose();
       sessions.dispose();
       pullRequests.dispose();
-      workspaces.dispose();
+      githubWorkspaces.dispose();
     },
   };
 }

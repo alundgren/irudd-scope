@@ -53,7 +53,7 @@ import type {
   WorkspaceFrame,
   WorkspaceInterestPayload,
   WorkspaceLinkResult,
-} from "./plugins/workspace/contract.ts";
+} from "./plugins/github-workspace/contract.ts";
 
 export type ArtifactLibrarySnapshot = {
   artifacts: Artifact[];
@@ -82,13 +82,13 @@ import type {
   PullRequestsRepository,
   PullRequestsEvent,
 } from "@irudd-scope/protocol/pull-requests";
+import type { GitHubWorkspaceEvent } from "@irudd-scope/protocol";
 import type {
   WorkspaceBoardRef,
   WorkspaceCommand,
-  WorkspaceEvent,
   WorkspaceReply,
   WorkspaceRepository,
-} from "@irudd-scope/protocol/workspace";
+} from "@irudd-scope/protocol/github-workspace";
 
 export type ScopeBridge = {
   folderList: (input: {
@@ -187,22 +187,22 @@ export type ScopeBridge = {
   onPullRequestsLinkResult: (listener: (result: PullRequestsLinkResult) => void) => () => void;
   onPullRequestsReconnected: (listener: () => void) => () => void;
   onPullRequestsChanged: (listener: (event: PullRequestsEvent) => void) => () => void;
-  createWorkspace: (input: {
+  createGitHubWorkspace: (input: {
     name: string;
     title: string;
     html: string;
     repository?: WorkspaceRepository;
     board?: WorkspaceBoardRef | null;
   }) => Promise<Artifact>;
-  workspaceCommand: (command: WorkspaceCommand) => Promise<WorkspaceReply>;
-  workspaceInterest: (input: WorkspaceInterestPayload) => Promise<void>;
-  workspaceCancelReads: (input: WorkspaceCancelReads) => Promise<void>;
-  openWorkspaceLink: (input: WorkspaceExternalLink) => Promise<void>;
-  registerWorkspaceFrame: (input: WorkspaceFrame) => Promise<void>;
-  unregisterWorkspaceFrame: (input: WorkspaceFrame) => Promise<void>;
-  onWorkspaceLinkResult: (listener: (result: WorkspaceLinkResult) => void) => () => void;
-  onWorkspaceReconnected: (listener: () => void) => () => void;
-  onWorkspaceChanged: (listener: (event: WorkspaceEvent) => void) => () => void;
+  githubWorkspaceCommand: (command: WorkspaceCommand) => Promise<WorkspaceReply>;
+  githubWorkspaceInterest: (input: WorkspaceInterestPayload) => Promise<void>;
+  githubWorkspaceCancelReads: (input: WorkspaceCancelReads) => Promise<void>;
+  openGitHubWorkspaceLink: (input: WorkspaceExternalLink) => Promise<void>;
+  registerGitHubWorkspaceFrame: (input: WorkspaceFrame) => Promise<void>;
+  unregisterGitHubWorkspaceFrame: (input: WorkspaceFrame) => Promise<void>;
+  onGitHubWorkspaceLinkResult: (listener: (result: WorkspaceLinkResult) => void) => () => void;
+  onGitHubWorkspaceReconnected: (listener: () => void) => () => void;
+  onGitHubWorkspaceChanged: (listener: (event: GitHubWorkspaceEvent) => void) => () => void;
   createPlan: (input: { name: string; title: string; html: string }) => Promise<Artifact>;
   setSketchpadMenu: (state: SketchpadMenuState) => Promise<void>;
   onSketchpadMenuAction: (listener: (action: SketchpadMenuAction) => void) => () => void;

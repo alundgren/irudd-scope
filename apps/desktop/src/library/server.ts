@@ -6,7 +6,7 @@ import type { RetroConfiguration } from "@irudd-scope/protocol/retro";
 import { MemoryConnectRequest, MemoryStatus } from "@irudd-scope/protocol/memory";
 import { LibrarianCommand, LibrarianReply } from "@irudd-scope/protocol/librarian";
 import { handlePullRequestsHttp } from "./pull-requests-http.ts";
-import { handleWorkspaceHttp } from "./workspace-http.ts";
+import { handleGitHubWorkspaceHttp } from "./github-workspace-http.ts";
 import {
   VoiceRequest,
   VoiceRequestId,
@@ -179,7 +179,7 @@ export async function startArtifactServer(options: {
     if (await handlePromptHttp(request, response, url, store.prompts)) return;
     if (await handleHarnessesHttp(request, response, url, options.harnesses)) return;
     if (await handlePullRequestsHttp(request, response, url, store.pullRequests)) return;
-    if (await handleWorkspaceHttp(request, response, url, store.workspaces)) return;
+    if (await handleGitHubWorkspaceHttp(request, response, url, store.githubWorkspaces)) return;
 
     if (route === "POST /v1/voice" && !url.search) {
       if (!options.voice) throw new ScopeError(503, "Voice generation is unavailable.");

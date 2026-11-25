@@ -6,7 +6,7 @@ import {
   WorkspaceNodeId,
   WorkspaceNodeStateObject,
   WorkspaceStateObject,
-} from "./workspace-state.ts";
+} from "./github-workspace-state.ts";
 
 export {
   MAX_WORKSPACE_STATE_BYTES,
@@ -17,7 +17,7 @@ export {
   WorkspaceNodeStateObject,
   WorkspaceStateChange,
   WorkspaceStateObject,
-} from "./workspace-state.ts";
+} from "./github-workspace-state.ts";
 
 export const MAX_WORKSPACE_REQUEST_BYTES = 256 * 1024;
 export const MAX_WORKSPACE_REPLY_BYTES = 32 * 1024 * 1024;
@@ -531,4 +531,3 @@ export const WorkspaceReply = Schema.Union([
   }),
 ]);
 export type WorkspaceReply = typeof WorkspaceReply.Type;
-export { WorkspaceEvent } from "./index.ts";

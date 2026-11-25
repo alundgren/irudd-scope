@@ -7,7 +7,7 @@ import { librarianCommand } from "./librarian.ts";
 import { MemoryGuide } from "@irudd-scope/protocol/memory";
 import { watchRetro } from "./retro-watch.ts";
 import { PullRequestsGuide, pullRequestsCommand } from "./pull-requests.ts";
-import { WorkspaceGuide, workspaceCommand } from "./workspace.ts";
+import { GitHubWorkspaceGuide, githubWorkspaceCommand } from "./github-workspace.ts";
 import { VoiceGuide } from "@irudd-scope/protocol/voice";
 import { voiceCommand, voiceHelp } from "./voice.ts";
 import { Schema } from "effect";
@@ -40,11 +40,11 @@ import { FolderGuide } from "@irudd-scope/protocol/folder";
 import { HarnessesGuide } from "@irudd-scope/protocol/harnesses";
 import { harnessesCommand } from "./harnesses.ts";
 
-const help = `irudd-scope add FILE [--title TITLE] [--id ID] [--named | --name NAME] [--plan | --pull-requests | --workspace | --retro]
+const help = `irudd-scope add FILE [--title TITLE] [--id ID] [--named | --name NAME] [--plan | --pull-requests | --github-workspace | --retro]
 irudd-scope text TEXT [--title TITLE] [--id ID] [--kind text|markdown]
 irudd-scope update ID_OR_NAME FILE [--title TITLE]
 irudd-scope pull-requests guide|read|configure|sync|detail|apply [NAME_OR_FILE] [OWNER/REPO_OR_NODE_ID]
-irudd-scope workspace guide|read|configure|sync|pr-detail|issue-detail|apply [NAME_OR_FILE] [OWNER/REPO_OR_NODE_ID] [BOARD]
+irudd-scope github-workspace guide|read|configure|sync|pr-detail|issue-detail|apply [NAME_OR_FILE] [OWNER/REPO_OR_NODE_ID] [BOARD]
 irudd-scope retro guide|settings|read NAME|apply REQUEST.json|history|watch NAME
 irudd-scope memory guide|status|connect OWNER/REPO
 irudd-scope librarian guide|read|apply REQUEST.json
@@ -186,7 +186,7 @@ function parseOptions() {
       plan: { type: "boolean" },
       retro: { type: "boolean" },
       "pull-requests": { type: "boolean" },
-      workspace: { type: "boolean" },
+      "github-workspace": { type: "boolean" },
       name: { type: "string" },
       "claude-channel": { type: "boolean" },
       "t3-thread": { type: "string" },
@@ -367,27 +367,27 @@ async function preparePublication(
   if (values.plan && command !== "add") throw new Error("Use --plan when adding an HTML file.");
   if (values["pull-requests"] && command !== "add")
     throw new Error("Use --pull-requests when adding an HTML file.");
-  if (values.workspace && command !== "add")
-    throw new Error("Use --workspace when adding an HTML file.");
+  if (values["github-workspace"] && command !== "add")
+    throw new Error("Use --github-workspace when adding an HTML file.");
   if (values.retro && command !== "add") throw new Error("Use --retro when adding an HTML file.");
   if (
-    [values.plan, values["pull-requests"], values.workspace, values.retro].filter(Boolean).length >
-    1
+    [values.plan, values["pull-requests"], values["github-workspace"], values.retro].filter(Boolean)
+      .length > 1
   )
     throw new Error("Choose one tab kind.");
   const isRetro = values.retro || current?.kind === "retro";
   if (isRetro && mediaType !== "text/html") throw new Error("Retrospectives require an HTML file.");
   const isPullRequests = values["pull-requests"] || current?.kind === "pull-requests";
-  const isWorkspace = values.workspace || current?.kind === "workspace";
+  const isGitHubWorkspace = values["github-workspace"] || current?.kind === "github-workspace";
   const isPlan = values.plan || current?.kind === "plan";
   if (isPullRequests && mediaType !== "text/html")
     throw new Error("Pull request tabs require an HTML file.");
   if (isPullRequests && !current?.name && !values.name && !values.named)
     throw new Error("Pull request tabs require --name NAME or --named.");
-  if (isWorkspace && mediaType !== "text/html")
-    throw new Error("Workspace tabs require an HTML file.");
-  if (isWorkspace && !current?.name && !values.name && !values.named)
-    throw new Error("Workspace tabs require --name NAME or --named.");
+  if (isGitHubWorkspace && mediaType !== "text/html")
+    throw new Error("GitHub workspace tabs require an HTML file.");
+  if (isGitHubWorkspace && !current?.name && !values.name && !values.named)
+    throw new Error("GitHub workspace tabs require --name NAME or --named.");
   if (isPlan && mediaType !== "text/html") throw new Error("Plans require an HTML file.");
   const name =
     current?.name ??
@@ -401,8 +401,8 @@ async function preparePublication(
         ? "retro"
         : isPullRequests
           ? "pull-requests"
-          : isWorkspace
-            ? "workspace"
+          : isGitHubWorkspace
+            ? "github-workspace"
             : isPlan
               ? "plan"
               : kind,
@@ -490,15 +490,15 @@ async function main() {
     );
     return;
   }
-  if (command === "workspace") {
+  if (command === "github-workspace") {
     if (argument === "guide") {
-      console.log(JSON.stringify(WorkspaceGuide, null, 2));
+      console.log(JSON.stringify(GitHubWorkspaceGuide, null, 2));
       return;
     }
     const signal = AbortSignal.timeout(parseTimeout(values["timeout-ms"] ?? "120000"));
     console.log(
       JSON.stringify(
-        await workspaceCommand(await connect(values, signal), positionals, signal),
+        await githubWorkspaceCommand(await connect(values, signal), positionals, signal),
         null,
         2,
       ),

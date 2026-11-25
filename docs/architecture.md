@@ -354,19 +354,19 @@ no PR state.
 
 ## GitHub workspaces
 
-A GitHub workspace is a permanent named `workspace` HTML artifact bound to one
+A GitHub workspace is a permanent named `github-workspace` HTML artifact bound to one
 GitHub repository and zero or one single-repository GitHub Project v2 board.
-`packages/protocol/src/workspace.ts` owns its validated commands, snapshots,
-and state contracts. `library/workspace-store.ts` owns the repository and
+`packages/protocol/src/github-workspace.ts` owns its validated commands, snapshots,
+and state contracts. `library/github-workspace-store.ts` owns the repository and
 optional board binding, milestones, issues (with parent/sub-issue and blocking
 dependency relations), pull requests (including recently closed and merged PRs),
 board field definitions and items, local transition diffs, per-node notes,
 snoozes, review baselines, agent assessments, and versioned app and per-node
 JSON state in `scope.db`.
 
-`plugins/workspace/transport.ts` defines a `GitHubTransport` interface with a
+`plugins/github-workspace/transport.ts` defines a `GitHubTransport` interface with a
 `GhCliTransport` implementation running the desktop user's `gh` login without a
-shell. `plugins/workspace/gh.ts` and `plugins/workspace/sync.ts` run one
+shell. `plugins/github-workspace/gh.ts` and `plugins/github-workspace/sync.ts` run one
 adaptive read-only scheduler per `(account, owner/name, board?)` under a
 500-point hourly self-budget and a 10% remaining quota reserve. Each fast cycle
 reads open PRs (and checks disappeared PRs for merged vs. closed state),
@@ -380,9 +380,9 @@ changed nodes via `nodes(ids)`. Reading a Project v2 board requires the
 board items, closed sub-issues of active parents, and items closed or merged
 within 30 days.
 
-`plugins/workspace/view.tsx` and `plugins/workspace/frame-host.ts` host trusted
-authored HTML and floating windows with `window.scope.workspace` and
-`window.scope.windows`. `POST /v1/workspace` serves authenticated CLI and hub
+`plugins/github-workspace/view.tsx` and `plugins/github-workspace/frame-host.ts` host trusted
+authored HTML and floating windows with `window.scope.githubWorkspace` and
+`window.scope.windows`. `POST /v1/github-workspace` serves authenticated CLI and hub
 commands; paired hubs forward the route without storing workspace state.
 
 ## Agent retrospectives

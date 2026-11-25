@@ -3,7 +3,7 @@ import type {
   WorkspaceNodeStateChange,
   WorkspaceSnapshot,
   WorkspaceStateChange,
-} from "@irudd-scope/protocol/workspace";
+} from "@irudd-scope/protocol/github-workspace";
 import type { WorkspaceFlushPurpose } from "../../workspace/contract.ts";
 import { frameCommand, type FrameCall } from "./frame-command.ts";
 import type { FrameIdentity } from "./frame-sdk.ts";
@@ -78,7 +78,7 @@ export class WorkspaceFrameHost {
   start() {
     const receive = (event: MessageEvent) => this.receive(event);
     window.addEventListener("message", receive);
-    const stopLinks = window.scope.onWorkspaceLinkResult((result) => {
+    const stopLinks = window.scope.onGitHubWorkspaceLinkResult((result) => {
       const frame = [...this.frames.values()].find(
         (entry) =>
           entry.identity.channel === result.channel && entry.identity.tabId === result.tabId,
@@ -88,7 +88,7 @@ export class WorkspaceFrameHost {
         result.error ? `Could not open the browser. ${result.error} Retry the link.` : "",
       );
       this.post(frame, {
-        type: "scope-workspace-link-result",
+        type: "scope-github-workspace-link-result",
         url: result.url,
         error: result.error,
       });
@@ -125,18 +125,18 @@ export class WorkspaceFrameHost {
     if (change.version <= (this.appState?.version ?? -1)) return;
     this.appState = { version: change.version, value: change.value };
     for (const frame of this.frames.values())
-      if (frame.ready) this.post(frame, { type: "scope-workspace-state", value: change });
+      if (frame.ready) this.post(frame, { type: "scope-github-workspace-state", value: change });
   }
 
   nodeStateChanged(change: WorkspaceNodeStateChange) {
     for (const frame of this.frames.values())
       if (frame.ready)
-        this.post(frame, { type: "scope-workspace-node-state-change", value: change });
+        this.post(frame, { type: "scope-github-workspace-node-state-change", value: change });
   }
 
   refreshNodeStates() {
     for (const frame of this.frames.values())
-      if (frame.ready) this.post(frame, { type: "scope-workspace-node-state-refresh" });
+      if (frame.ready) this.post(frame, { type: "scope-github-workspace-node-state-refresh" });
   }
 
   setTheme(theme: string) {
@@ -154,7 +154,7 @@ export class WorkspaceFrameHost {
   }
 
   private reportInterest(refresh = false) {
-    return window.scope.workspaceInterest({
+    return window.scope.githubWorkspaceInterest({
       tabId: this.options.identity.tabId,
       active: !this.disposed && this.active,
       ...(refresh ? { refresh: true } : {}),
@@ -173,7 +173,7 @@ export class WorkspaceFrameHost {
     if (frame.signature === signature) return;
     frame.signature = signature;
     this.post(frame, {
-      type: "scope-workspace-snapshot",
+      type: "scope-github-workspace-snapshot",
       generation: snapshot.generation,
       value: {
         milestones: snapshot.milestones,
@@ -248,7 +248,7 @@ export class WorkspaceFrameHost {
   private release(frame: Frame) {
     if (frame.reads.size) {
       void window.scope
-        .workspaceCancelReads({
+        .githubWorkspaceCancelReads({
           tabId: this.options.identity.tabId,
           requestIds: [...frame.reads],
         })
@@ -257,7 +257,7 @@ export class WorkspaceFrameHost {
     }
     if (frame.registration) {
       void window.scope
-        .unregisterWorkspaceFrame({ name: this.options.name, ...frame.identity })
+        .unregisterGitHubWorkspaceFrame({ name: this.options.name, ...frame.identity })
         .catch(() => {});
       frame.registration = undefined;
     }
@@ -273,7 +273,7 @@ export class WorkspaceFrameHost {
         reject(new Error("Workspace edits did not finish saving in time."));
       }, 5_000);
       this.flushes.set(id, { frame, resolve, reject, timer });
-      this.post(frame, { type: "scope-workspace-close", id });
+      this.post(frame, { type: "scope-github-workspace-close", id });
     }).finally(() => {
       frame.flushing = undefined;
     });
@@ -304,15 +304,15 @@ export class WorkspaceFrameHost {
       this.focus(frameId);
       return;
     }
-    if (value.type === "scope-workspace-ready") {
+    if (value.type === "scope-github-workspace-ready") {
       frame.ready = true;
       frame.registration = window.scope
-        .registerWorkspaceFrame({ name: this.options.name, ...frame.identity })
+        .registerGitHubWorkspaceFrame({ name: this.options.name, ...frame.identity })
         .catch(() => {});
       this.sendSnapshot(frame);
       return;
     }
-    if (value.type === "scope-workspace-flushed") {
+    if (value.type === "scope-github-workspace-flushed") {
       const pending = this.flushes.get(value.id);
       if (!pending || pending.frame !== frame) return;
       this.flushes.delete(value.id);
@@ -321,17 +321,17 @@ export class WorkspaceFrameHost {
       else pending.resolve();
       return;
     }
-    if (value.type === "scope-workspace-call") {
+    if (value.type === "scope-github-workspace-call") {
       void this.handleCall(frameId, frame, value as FrameCall);
     }
   }
 
   private async handleCall(frameId: string, frame: Frame, call: FrameCall) {
     const reply = (payload: { value?: unknown; error?: string }) =>
-      this.post(frame, { type: "scope-workspace-reply", id: call.id, ...payload });
+      this.post(frame, { type: "scope-github-workspace-reply", id: call.id, ...payload });
     try {
       if (call.method === "openExternal") {
-        await window.scope.openWorkspaceLink({
+        await window.scope.openGitHubWorkspaceLink({
           name: this.options.name,
           tabId: this.options.identity.tabId,
           url: typeof call.args[0] === "string" ? call.args[0] : "",
@@ -366,7 +366,7 @@ export class WorkspaceFrameHost {
       const isRead = ["pr-detail", "pr-details", "issue-detail"].includes(command.action);
       if (isRead && "requestId" in command) frame.reads.add(command.requestId);
       try {
-        const result = await window.scope.workspaceCommand(command);
+        const result = await window.scope.githubWorkspaceCommand(command);
         if (result.type === "snapshot") {
           this.setSnapshot(result.snapshot);
           if (call.method === "readState" || call.method.endsWith("State")) {

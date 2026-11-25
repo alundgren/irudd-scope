@@ -26,7 +26,7 @@ import {
   WorkspaceReply,
   MAX_WORKSPACE_REQUEST_BYTES,
   MAX_WORKSPACE_REPLY_BYTES,
-} from "./workspace.ts";
+} from "./github-workspace.ts";
 import {
   VoiceRequest,
   VoiceRequestId,
@@ -360,14 +360,14 @@ export class ScopeClient {
     );
   }
 
-  async workspace(input: WorkspaceCommand): Promise<WorkspaceReply> {
+  async githubWorkspace(input: WorkspaceCommand): Promise<WorkspaceReply> {
     const body = JSON.stringify(decode(WorkspaceCommand, input));
     if (new TextEncoder().encode(body).byteLength > MAX_WORKSPACE_REQUEST_BYTES)
-      throw new Error("Workspace command exceeds 256 KiB.");
+      throw new Error("GitHub workspace command exceeds 256 KiB.");
     return decode(
       WorkspaceReply,
       await readRemoteJson(
-        await this.request("/v1/workspace", {
+        await this.request("/v1/github-workspace", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body,

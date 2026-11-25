@@ -26,7 +26,7 @@ The API uses a bearer token on every `/v1` request. It has no browser CORS acces
 | `GET /v1/events`                                     | SSE `ready`, `artifact`, and `deleted` events                                          |
 | `POST /v1/maintenance/shrink`, `{ timeoutMs }`       | `ShrinkReceipt` for both desktop databases                                             |
 | `GET /v1/maintenance/status`                         | Latest available desktop maintenance receipts                                          |
-| `POST /v1/workspace`, `WorkspaceCommand` JSON        | `WorkspaceReply` (`snapshot`, `pr-detail`, `pr-details`, `issue-detail`, `node-state`) |
+| `POST /v1/github-workspace`, `WorkspaceCommand` JSON | `WorkspaceReply` (`snapshot`, `pr-detail`, `pr-details`, `issue-detail`, `node-state`) |
 
 Publication commits the tab first, then uploads content, then publishes metadata.
 `expectedRevision: 0` creates an artifact; updates require the revision last read.

@@ -1,5 +1,5 @@
 import { PullRequestsStateChange, PullRequestStateChange } from "./pull-requests-state.ts";
-import { WorkspaceStateChange, WorkspaceNodeStateChange } from "./workspace-state.ts";
+import { WorkspaceStateChange, WorkspaceNodeStateChange } from "./github-workspace-state.ts";
 import * as Schema from "effect/Schema";
 
 export const MAX_CONTENT_BYTES = 32 * 1024 * 1024;
@@ -138,8 +138,8 @@ export const PullRequestsEvent = Schema.Struct({
   prStateChange: Schema.optionalKey(PullRequestStateChange),
 });
 export type PullRequestsEvent = typeof PullRequestsEvent.Type;
-export const WorkspaceEvent = Schema.Struct({
-  type: Schema.Literal("workspace"),
+export const GitHubWorkspaceEvent = Schema.Struct({
+  type: Schema.Literal("github-workspace"),
   name: ArtifactName,
   id: ArtifactId,
   generation: Revision,
@@ -147,7 +147,7 @@ export const WorkspaceEvent = Schema.Struct({
   stateChange: Schema.optionalKey(WorkspaceStateChange),
   nodeStateChange: Schema.optionalKey(WorkspaceNodeStateChange),
 });
-export type WorkspaceEvent = typeof WorkspaceEvent.Type;
+export type GitHubWorkspaceEvent = typeof GitHubWorkspaceEvent.Type;
 export const RetroEvent = Schema.Struct({
   type: Schema.Literal("retro"),
   name: ArtifactName,
@@ -170,7 +170,7 @@ export const LiveEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("artifact"), artifact: Artifact }),
   Schema.Struct({ type: Schema.Literal("deleted"), id: ArtifactId }),
   PullRequestsEvent,
-  WorkspaceEvent,
+  GitHubWorkspaceEvent,
   RetroEvent,
   PromptEvent,
 ]);
@@ -180,7 +180,7 @@ const LIVE_EVENT_TYPES = new Set([
   "artifact",
   "deleted",
   "pull-requests",
-  "workspace",
+  "github-workspace",
   "retro",
   "prompts",
 ]);
@@ -224,7 +224,7 @@ export function validateArtifactContent(artifact: Pick<Artifact, "kind" | "media
     plan: ["text/html", "application/json"],
     retro: ["text/html"],
     "pull-requests": ["text/html"],
-    workspace: ["text/html"],
+    "github-workspace": ["text/html"],
     image: ["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"],
     file: null,
     excalidraw: ["application/vnd.excalidraw+json"],

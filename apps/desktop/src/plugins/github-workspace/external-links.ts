@@ -1,9 +1,9 @@
 import { app, BrowserWindow, shell, type WebContents, type WebFrameMain } from "electron";
 import { decode } from "@irudd-scope/protocol";
 import type { MainPluginContext } from "../main-api.ts";
-import { WorkspaceExternalLink, WorkspaceFrame, workspaceArtifactId } from "./contract.ts";
+import { WorkspaceExternalLink, WorkspaceFrame, githubWorkspaceArtifactId } from "./contract.ts";
 
-export function registerWorkspaceExternalLinks({
+export function registerGitHubWorkspaceExternalLinks({
   window,
   handle,
   workspace,
@@ -14,37 +14,40 @@ export function registerWorkspaceExternalLinks({
 
   async function owner(input: WorkspaceFrame | WorkspaceExternalLink) {
     const tab = (await workspace()).tabs.find((entry) => entry.id === input.tabId);
-    if (!tab || tab.type !== "workspace") throw new Error("This workspace tab is no longer open.");
-    const artifact = await artifacts.get(workspaceArtifactId(tab.state));
-    if (artifact.kind !== "workspace" || artifact.name !== input.name)
-      throw new Error("This link belongs to another workspace tab.");
+    if (!tab || tab.type !== "github-workspace")
+      throw new Error("This GitHub workspace tab is no longer open.");
+    const artifact = await artifacts.get(githubWorkspaceArtifactId(tab.state));
+    if (artifact.kind !== "github-workspace" || artifact.name !== input.name)
+      throw new Error("This link belongs to another GitHub workspace tab.");
   }
 
   async function open(value: unknown) {
     const input = decode(WorkspaceExternalLink, value);
     const url = new URL(input.url);
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)
-      throw new Error("Workspace links must use HTTP or HTTPS without embedded credentials.");
+      throw new Error(
+        "GitHub workspace links must use HTTP or HTTPS without embedded credentials.",
+      );
     await owner(input);
     await shell.openExternal(url.href);
   }
 
-  handle("scope:open-workspace-link", open);
-  handle("scope:register-workspace-frame", async (value) => {
+  handle("scope:open-github-workspace-link", open);
+  handle("scope:register-github-workspace-frame", async (value) => {
     const input = decode(WorkspaceFrame, value);
     await owner(input);
     const candidates = window.webContents.mainFrame.frames.filter(
       (frame) =>
-        frame.name === `scope-workspace-${input.tabId}-${input.channel}` &&
+        frame.name === `scope-github-workspace-${input.tabId}-${input.channel}` &&
         frame.url.startsWith("about:srcdoc"),
     );
     if (candidates.length !== 1)
-      throw new Error("The workspace document is not ready. Retry the link.");
+      throw new Error("The GitHub workspace document is not ready. Retry the link.");
     for (const [id, frame] of frames)
       if (frame.tabId === input.tabId && frame.channel === input.channel) frames.delete(id);
     frames.set(candidates[0]!.frameTreeNodeId, input);
   });
-  handle("scope:unregister-workspace-frame", (value) => {
+  handle("scope:unregister-github-workspace-frame", (value) => {
     const input = decode(WorkspaceFrame, value);
     for (const [id, frame] of frames)
       if (frame.tabId === input.tabId && frame.channel === input.channel) frames.delete(id);
@@ -101,7 +104,7 @@ export function registerWorkspaceExternalLinks({
           error = failure instanceof Error ? failure.message : "Could not open the browser.";
         }
         if (!window.isDestroyed())
-          window.webContents.send("scope:workspace-link-result", {
+          window.webContents.send("scope:github-workspace-link-result", {
             ...registered,
             url: url.href,
             error,
