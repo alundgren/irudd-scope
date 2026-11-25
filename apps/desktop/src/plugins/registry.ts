@@ -7,6 +7,7 @@ import { sketchpadTabContract } from "./sketchpad/contract.ts";
 import { planTabContract } from "./plan/contract.ts";
 
 import { pullRequestsTabContract } from "./pull-requests/contract.ts";
+import { githubWorkspaceTabContract } from "./github-workspace/contract.ts";
 import { retroTabContract } from "./retro/contract.ts";
 import { folderTabContract } from "./folder/contract.ts";
 import { harnessesTabContract } from "./harnesses/contract.ts";
@@ -20,6 +21,7 @@ const contracts = [
   sketchpadTabContract,
   planTabContract,
   pullRequestsTabContract,
+  githubWorkspaceTabContract,
   retroTabContract,
   folderTabContract,
   harnessesTabContract,

@@ -22,6 +22,12 @@ import {
   MAX_PULL_REQUESTS_REPLY_BYTES,
 } from "./pull-requests.ts";
 import {
+  WorkspaceCommand,
+  WorkspaceReply,
+  MAX_WORKSPACE_REQUEST_BYTES,
+  MAX_WORKSPACE_REPLY_BYTES,
+} from "./github-workspace.ts";
+import {
   VoiceRequest,
   VoiceRequestId,
   VoiceReceipt,
@@ -350,6 +356,23 @@ export class ScopeClient {
           body,
         }),
         MAX_PULL_REQUESTS_REPLY_BYTES,
+      ),
+    );
+  }
+
+  async githubWorkspace(input: WorkspaceCommand): Promise<WorkspaceReply> {
+    const body = JSON.stringify(decode(WorkspaceCommand, input));
+    if (new TextEncoder().encode(body).byteLength > MAX_WORKSPACE_REQUEST_BYTES)
+      throw new Error("GitHub workspace command exceeds 256 KiB.");
+    return decode(
+      WorkspaceReply,
+      await readRemoteJson(
+        await this.request("/v1/github-workspace", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }),
+        MAX_WORKSPACE_REPLY_BYTES,
       ),
     );
   }

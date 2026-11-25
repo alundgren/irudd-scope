@@ -11,6 +11,8 @@ import type { SketchpadMenuAction } from "./menu-contract.ts";
 import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
 import type { PullRequestsDetailUpdate } from "./plugins/pull-requests/interest.ts";
 import type { PullRequestsLinkResult } from "./plugins/pull-requests/contract.ts";
+import type { GitHubWorkspaceEvent } from "@irudd-scope/protocol";
+import type { WorkspaceLinkResult } from "./plugins/github-workspace/contract.ts";
 
 const retroFinishListeners = new Set<Parameters<ScopeBridge["onRetroFinishFlush"]>[0]>();
 ipcRenderer.on(
@@ -131,6 +133,31 @@ const bridge: ScopeBridge = {
     const receive = (_event: unknown, event: PullRequestsEvent) => listener(event);
     ipcRenderer.on("scope:pull-requests-changed", receive);
     return () => ipcRenderer.removeListener("scope:pull-requests-changed", receive);
+  },
+  createGitHubWorkspace: (input) => ipcRenderer.invoke("scope:create-github-workspace", input),
+  githubWorkspaceCommand: (input) => ipcRenderer.invoke("scope:github-workspace-command", input),
+  githubWorkspaceInterest: (input) => ipcRenderer.invoke("scope:github-workspace-interest", input),
+  githubWorkspaceCancelReads: (input) =>
+    ipcRenderer.invoke("scope:github-workspace-cancel-reads", input),
+  openGitHubWorkspaceLink: (input) => ipcRenderer.invoke("scope:open-github-workspace-link", input),
+  registerGitHubWorkspaceFrame: (input) =>
+    ipcRenderer.invoke("scope:register-github-workspace-frame", input),
+  unregisterGitHubWorkspaceFrame: (input) =>
+    ipcRenderer.invoke("scope:unregister-github-workspace-frame", input),
+  onGitHubWorkspaceLinkResult: (listener) => {
+    const receive = (_event: unknown, result: WorkspaceLinkResult) => listener(result);
+    ipcRenderer.on("scope:github-workspace-link-result", receive);
+    return () => ipcRenderer.removeListener("scope:github-workspace-link-result", receive);
+  },
+  onGitHubWorkspaceReconnected: (listener) => {
+    const receive = () => listener();
+    ipcRenderer.on("scope:github-workspace-reconnected", receive);
+    return () => ipcRenderer.removeListener("scope:github-workspace-reconnected", receive);
+  },
+  onGitHubWorkspaceChanged: (listener) => {
+    const receive = (_event: unknown, event: GitHubWorkspaceEvent) => listener(event);
+    ipcRenderer.on("scope:github-workspace-changed", receive);
+    return () => ipcRenderer.removeListener("scope:github-workspace-changed", receive);
   },
   createPlan: (input) => ipcRenderer.invoke("scope:create-plan", input),
   setSketchpadMenu: (state) => ipcRenderer.invoke("scope:set-sketchpad-menu", state),

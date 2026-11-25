@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>GitHub Workspace</title>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --panel: #f7f8fa;
+        --card: #ffffff;
+        --line: #e2e6ec;
+        --text: #161b22;
+        --muted: #5c6672;
+        --accent: #2563eb;
+        --ok: #15803d;
+        --warn: #b45309;
+        --bad: #b91c1c;
+        --purple: #6d28d9;
+        --pill: #eef1f6;
+      }
+      html[data-theme="dark"] {
+        --bg: #0f1318;
+        --panel: #151a21;
+        --card: #1a2029;
+        --line: #28313e;
+        --text: #e6edf3;
+        --muted: #8b949e;
+        --accent: #58a6ff;
+        --ok: #3fb950;
+        --warn: #d29922;
+        --bad: #f85149;
+        --purple: #a371f7;
+        --pill: #232b36;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          13px/1.4 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 10px 14px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--line);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      .tabs {
+        display: flex;
+        gap: 4px;
+      }
+      .tab,
+      .btn {
+        border: 1px solid var(--line);
+        background: var(--card);
+        border-radius: 6px;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+      .tab.active {
+        background: var(--accent);
+        color: #fff;
+        border-color: var(--accent);
+      }
+      .spacer {
+        flex: 1;
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .config-bar {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+        padding: 8px 14px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--line);
+      }
+      .config-bar input,
+      .config-bar select,
+      .filter-input {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 4px 8px;
+      }
+      main {
+        padding: 12px 14px;
+        max-width: 1400px;
+      }
+      .group {
+        margin-bottom: 16px;
+      }
+      .group-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 8px 10px;
+        margin-bottom: 6px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .title-btn {
+        background: none;
+        border: none;
+        padding: 0;
+        font-weight: 600;
+        cursor: pointer;
+        text-align: left;
+      }
+      .title-btn:hover {
+        color: var(--accent);
+        text-decoration: underline;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: var(--pill);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .pill.ok {
+        color: var(--ok);
+      }
+      .pill.warn {
+        color: var(--warn);
+      }
+      .pill.bad {
+        color: var(--bad);
+      }
+      .pill.purple {
+        color: var(--purple);
+      }
+      .pill.click {
+        cursor: pointer;
+        border: 1px solid var(--line);
+      }
+      .pill.click:hover {
+        border-color: var(--accent);
+      }
+      .progress {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .bar {
+        width: 68px;
+        height: 6px;
+        border-radius: 3px;
+        background: var(--pill);
+        overflow: hidden;
+      }
+      .bar > i {
+        display: block;
+        height: 100%;
+        background: var(--purple);
+      }
+      .children {
+        margin-top: 6px;
+        margin-left: 16px;
+        padding-left: 10px;
+        border-left: 2px solid var(--line);
+      }
+      .sub-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        padding: 3px 0;
+      }
+      .sub-row.closed {
+        opacity: 0.65;
+      }
+      .pr-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .pr-table th,
+      .pr-table td {
+        text-align: left;
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--line);
+      }
+      .pr-table th {
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+      }
+      .empty {
+        padding: 24px;
+        text-align: center;
+        color: var(--muted);
+      }
+      .error {
+        color: var(--bad);
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="tabs">
+        <button class="tab active" data-view="board">Hierarchy &amp; Board</button>
+        <button class="tab" data-view="prs">PR Inbox</button>
+        <button class="tab" data-view="activity">Transitions</button>
+      </div>
+      <input id="search" class="filter-input" placeholder="Filter title, #num, label…" />
+      <select id="groupBy" class="filter-input">
+        <option value="milestone">Group: Milestone</option>
+        <option value="status">Group: Board Status</option>
+        <option value="flat">Group: Flat</option>
+      </select>
+      <label class="muted"><input id="showClosed" type="checkbox" /> Show closed</label>
+      <span class="spacer"></span>
+      <span id="repoLabel" class="muted">Not configured</span>
+      <button id="toggleConfig" class="btn">Configure</button>
+      <button id="syncBtn" class="btn">Sync</button>
+    </header>
+    <form id="configBar" class="config-bar" hidden>
+      <input id="repoInput" placeholder="owner/repo" required />
+      <select id="boardType">
+        <option value="">No board</option>
+        <option value="organization">Org project</option>
+        <option value="user">User project</option>
+      </select>
+      <input id="boardOwner" placeholder="board owner (defaults to repo owner)" />
+      <input id="boardNum" type="number" min="1" placeholder="project #" style="width: 92px" />
+      <button class="btn" type="submit">Save &amp; Sync</button>
+      <span id="configError" class="error"></span>
+    </form>
+    <main id="app"><div class="empty">Waiting for workspace snapshot…</div></main>
+    <script>
+      const api = window.scope.githubWorkspace;
+      const winApi = window.scope.windows;
+      let data = null;
+      let currentView = "board";
+      let searchText = "";
+      let groupBy = "milestone";
+      let showClosed = false;
+
+      const esc = (s) =>
+        String(s ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+
+      function relAge(iso) {
+        if (!iso) return "";
+        const s = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 1000));
+        if (s < 60) return `${s}s`;
+        if (s < 3600) return `${Math.floor(s / 60)}m`;
+        if (s < 86400) return `${Math.floor(s / 3600)}h`;
+        return `${Math.floor(s / 86400)}d`;
+      }
+
+      function boardField(item, name) {
+        if (!item) return null;
+        return (
+          item.fieldValues.find((f) => f.fieldName.toLowerCase() === name.toLowerCase()) || null
+        );
+      }
+
+      async function openPrWindow(pr) {
+        const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+          body{margin:0;padding:14px;font:13px/1.45 -apple-system,sans-serif;background:#11161d;color:#e6edf3}
+          pre{background:#161b22;padding:10px;border-radius:6px;overflow:auto;font-size:12px}
+          .meta{color:#8b949e;margin-bottom:10px}
+          a{color:#58a6ff}
+        </style></head><body>
+          <h3>#${pr.number} ${esc(pr.title)}</h3>
+          <div class="meta">${esc(pr.state)} ${pr.draft ? "(draft)" : ""} · +${pr.additions} -${pr.deletions} · ${pr.changedFiles} files · <a href="${esc(pr.url)}">Open on GitHub</a></div>
+          <div id="content">Loading PR detail…</div>
+          <script>
+            window.scope.githubWorkspace.prDetail(${JSON.stringify(pr.nodeId)}).then((d) => {
+              const files = d.files.map((f) => f.status + " " + f.path + " (+" + f.additions + " -" + f.deletions + ")").join("\\n");
+              document.getElementById("content").innerHTML =
+                "<h4>Description</h4><pre>" + (d.body || "(empty)").replaceAll("<","&lt;") + "</pre>" +
+                "<h4>Files (" + d.files.length + ")</h4><pre>" + files.replaceAll("<","&lt;") + "</pre>" +
+                "<h4>Diff</h4><pre>" + (d.diff || "(empty)").replaceAll("<","&lt;") + "</pre>";
+            }).catch((e) => { document.getElementById("content").textContent = e.message; });
+          <\/script></body></html>`;
+        await winApi.open({ title: `PR #${pr.number} ${pr.title}`, html });
+      }
+
+      async function openIssueWindow(issue) {
+        const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+          body{margin:0;padding:14px;font:13px/1.45 -apple-system,sans-serif;background:#11161d;color:#e6edf3}
+          pre{background:#161b22;padding:10px;border-radius:6px;overflow:auto;white-space:pre-wrap}
+          .meta{color:#8b949e;margin-bottom:10px}
+          li{margin-bottom:4px}
+          a{color:#58a6ff}
+        </style></head><body>
+          <h3>#${issue.number} ${esc(issue.title)}</h3>
+          <div class="meta">${esc(issue.state)} · <a href="${esc(issue.url)}">Open on GitHub</a></div>
+          <div id="content">Loading issue detail &amp; timeline…</div>
+          <script>
+            window.scope.githubWorkspace.issueDetail(${JSON.stringify(issue.nodeId)}).then((d) => {
+              const tl = d.timeline.map((e) => "<li><b>" + e.at.slice(0,16) + "</b> " + (e.actor || "").replaceAll("&","&amp;").replaceAll("<","&lt;") + " — " + e.summary.replaceAll("&","&amp;").replaceAll("<","&lt;") + "</li>").join("");
+              document.getElementById("content").innerHTML =
+                "<h4>Description</h4><pre>" + (d.body || "(empty)").replaceAll("<","&lt;") + "</pre>" +
+                "<h4>State &amp; Relation Timeline (" + d.timeline.length + ")</h4><ul>" + (tl || "<li>No timeline events</li>") + "</ul>";
+            }).catch((e) => { document.getElementById("content").textContent = e.message; });
+          <\/script></body></html>`;
+        await winApi.open({ title: `Issue #${issue.number} ${issue.title}`, html });
+      }
+
+      function render() {
+        const app = document.getElementById("app");
+        if (!data) return;
+        document.documentElement.dataset.theme = data.context.theme === "dark" ? "dark" : "light";
+        const repo = data.context.repository;
+        const boardRef = data.context.boardRef;
+        document.getElementById("repoLabel").textContent = repo
+          ? `${repo.owner}/${repo.name}${boardRef ? ` · Board #${boardRef.number}` : ""}`
+          : "Not configured";
+        if (!repo) {
+          document.getElementById("configBar").hidden = false;
+          app.innerHTML = `<div class="empty">Configure a repository (and optional Project v2 board) above to start syncing.</div>`;
+          return;
+        }
+        if (currentView === "prs") return renderPrs(app);
+        if (currentView === "activity") return renderTransitions(app);
+        renderBoard(app);
+      }
+
+      function renderBoard(app) {
+        const needle = searchText.trim().toLowerCase();
+        const issueById = new Map(data.issues.map((i) => [i.nodeId, i]));
+        const prById = new Map(data.pullRequests.map((p) => [p.nodeId, p]));
+        const milestoneById = new Map(data.milestones.map((m) => [m.nodeId, m]));
+        const boardItemByNode = new Map(
+          (data.board?.items ?? [])
+            .filter((it) => it.contentNodeId)
+            .map((it) => [it.contentNodeId, it]),
+        );
+
+        const childrenByParent = new Map();
+        for (const issue of data.issues) {
+          if (issue.parentIssueId && issueById.has(issue.parentIssueId)) {
+            const list = childrenByParent.get(issue.parentIssueId) || [];
+            list.push(issue);
+            childrenByParent.set(issue.parentIssueId, list);
+          }
+        }
+
+        function collectDescendantPrs(issueId, out = new Map()) {
+          const issue = issueById.get(issueId);
+          if (!issue) return out;
+          for (const prId of issue.linkedPrIds) {
+            const pr = prById.get(prId);
+            if (pr) out.set(pr.nodeId, pr);
+          }
+          for (const child of childrenByParent.get(issueId) || [])
+            collectDescendantPrs(child.nodeId, out);
+          return out;
+        }
+
+        const roots = data.issues.filter((issue) => {
+          if (issue.parentIssueId && issueById.has(issue.parentIssueId)) return false;
+          if (!showClosed && issue.state === "closed") return false;
+          if (!needle) return true;
+          const hay = `#${issue.number} ${issue.title} ${issue.labels.join(" ")}`.toLowerCase();
+          if (hay.includes(needle)) return true;
+          return (childrenByParent.get(issue.nodeId) || []).some((c) =>
+            `#${c.number} ${c.title}`.toLowerCase().includes(needle),
+          );
+        });
+
+        const groups = new Map();
+        for (const root of roots) {
+          const bItem = boardItemByNode.get(root.nodeId);
+          const statusVal = boardField(bItem, "Status")?.text || "No Status";
+          const ms = root.milestoneId ? milestoneById.get(root.milestoneId)?.title : "No Milestone";
+          const key =
+            groupBy === "status"
+              ? statusVal
+              : groupBy === "milestone"
+                ? ms
+                : "All Trackers & Issues";
+          const list = groups.get(key) || [];
+          list.push(root);
+          groups.set(key, list);
+        }
+
+        function renderSubTree(issue, parentMilestoneId) {
+          const kids = childrenByParent.get(issue.nodeId) || [];
+          const bItem = boardItemByNode.get(issue.nodeId);
+          const statusVal = boardField(bItem, "Status")?.text;
+          const msMismatch =
+            parentMilestoneId && issue.milestoneId !== parentMilestoneId
+              ? issue.milestoneId
+                ? `Milestone mismatch (${milestoneById.get(issue.milestoneId)?.title ?? "other"})`
+                : "Missing milestone"
+              : null;
+          const prPills = issue.linkedPrIds
+            .map((id) => prById.get(id))
+            .filter(Boolean)
+            .map(
+              (pr) =>
+                `<span class="pill click ${pr.state === "merged" ? "purple" : pr.draft ? "warn" : "ok"}" data-pr="${esc(pr.nodeId)}">PR #${pr.number} ${esc(pr.draft ? "draft" : pr.state)}</span>`,
+            )
+            .join("");
+          const blockerPills = issue.blockedByIds
+            .map((id) => issueById.get(id))
+            .filter((b) => b && b.state === "open")
+            .map((b) => `<span class="pill bad">Blocked by #${b.number}</span>`)
+            .join("");
+          return `<div class="sub-row ${issue.state === "closed" ? "closed" : ""}">
+            <span>${issue.state === "closed" ? (issue.stateReason === "not-planned" ? "⊘" : "✓") : "○"}</span>
+            <button class="title-btn" data-issue="${esc(issue.nodeId)}">#${issue.number} ${esc(issue.title)}</button>
+            ${statusVal ? `<span class="pill">${esc(statusVal)}</span>` : ""}
+            ${prPills}${blockerPills}
+            ${msMismatch ? `<span class="pill warn">${esc(msMismatch)}</span>` : ""}
+          </div>${kids.length ? `<div class="children">${kids.map((k) => renderSubTree(k, parentMilestoneId)).join("")}</div>` : ""}`;
+        }
+
+        let html = "";
+        for (const [label, items] of groups) {
+          html += `<section class="group"><div class="group-head"><span>${esc(label)}</span><span class="pill">${items.length}</span></div>`;
+          for (const issue of items) {
+            const bItem = boardItemByNode.get(issue.nodeId);
+            const statusF = boardField(bItem, "Status");
+            const estF = boardField(bItem, "Estimate");
+            const prioF = boardField(bItem, "Priority");
+            const kids = childrenByParent.get(issue.nodeId) || [];
+            const subs = issue.subIssuesSummary;
+            const readyToClose =
+              issue.state === "open" && subs.total > 0 && subs.completed === subs.total;
+            const descPrs = [...collectDescendantPrs(issue.nodeId).values()];
+            const openDescPrs = descPrs.filter((p) => p.state === "open");
+            html += `<article class="card">
+              <div class="row">
+                <span>${issue.state === "closed" ? "✓" : "●"}</span>
+                <button class="title-btn" data-issue="${esc(issue.nodeId)}">#${issue.number} ${esc(issue.title)}</button>
+                ${statusF?.text ? `<span class="pill">${esc(statusF.text)}${statusF.updatedAt ? ` · ${relAge(statusF.updatedAt)}` : ""}</span>` : ""}
+                ${prioF?.text ? `<span class="pill warn">${esc(prioF.text)}</span>` : ""}
+                ${estF?.number != null ? `<span class="pill">Est ${estF.number}</span>` : ""}
+                ${readyToClose ? `<span class="pill ok">100% sub-issues done — ready to close</span>` : ""}
+                ${issue.labels.map((l) => `<span class="pill">${esc(l)}</span>`).join("")}
+                ${
+                  subs.total > 0
+                    ? `<span class="progress"><span class="bar"><i style="width:${subs.percentCompleted}%"></i></span>${subs.completed}/${subs.total} (${subs.percentCompleted}%)</span>`
+                    : ""
+                }
+                ${openDescPrs.map((p) => `<span class="pill click ${p.draft ? "warn" : "ok"}" data-pr="${esc(p.nodeId)}">PR #${p.number} ${p.draft ? "draft" : p.review?.decision || "open"}</span>`).join("")}
+              </div>
+              ${kids.length ? `<div class="children">${kids.map((k) => renderSubTree(k, issue.milestoneId)).join("")}</div>` : ""}
+            </article>`;
+          }
+          html += `</section>`;
+        }
+        const drafts = (data.board?.items ?? []).filter((it) => it.contentType === "draft");
+        if (drafts.length) {
+          html += `<section class="group"><div class="group-head"><span>Board Drafts</span><span class="pill">${drafts.length}</span></div>`;
+          for (const d of drafts) {
+            const st = boardField(d, "Status")?.text;
+            html += `<article class="card"><div class="row"><span>✎</span><strong>${esc(d.draftTitle || "Draft")}</strong>${st ? `<span class="pill">${esc(st)}</span>` : ""}</div></article>`;
+          }
+          html += `</section>`;
+        }
+        app.innerHTML = html || `<div class="empty">No matching issues.</div>`;
+        bindClicks(app, issueById, prById);
+      }
+
+      function renderPrs(app) {
+        const needle = searchText.trim().toLowerCase();
+        const issueById = new Map(data.issues.map((i) => [i.nodeId, i]));
+        const prById = new Map(data.pullRequests.map((p) => [p.nodeId, p]));
+        const prs = data.pullRequests.filter((p) => {
+          if (!showClosed && p.state !== "open") return false;
+          if (!needle) return true;
+          return `#${p.number} ${p.title} ${p.author ?? ""}`.toLowerCase().includes(needle);
+        });
+        if (!prs.length) {
+          app.innerHTML = `<div class="empty">No matching pull requests.</div>`;
+          return;
+        }
+        app.innerHTML = `<table class="pr-table"><thead><tr>
+          <th>PR</th><th>State</th><th>Checks</th><th>Review</th><th>Linked Issues</th><th>Updated</th>
+        </tr></thead><tbody>${prs
+          .map((p) => {
+            const linked = p.closingIssueIds
+              .map((id) => issueById.get(id))
+              .filter(Boolean)
+              .map(
+                (i) => `<span class="pill click" data-issue="${esc(i.nodeId)}">#${i.number}</span>`,
+              )
+              .join(" ");
+            return `<tr>
+              <td><button class="title-btn" data-pr="${esc(p.nodeId)}">#${p.number} ${esc(p.title)}</button><div class="muted">${esc(p.author || "")} · +${p.additions} -${p.deletions}</div></td>
+              <td><span class="pill ${p.state === "merged" ? "purple" : p.draft ? "warn" : "ok"}">${esc(p.draft ? "draft" : p.state)}</span></td>
+              <td><span class="pill ${p.checks.status === "passing" ? "ok" : p.checks.status === "failing" ? "bad" : ""}">${esc(p.checks.status)}</span></td>
+              <td><span class="pill">${esc(p.review?.decision || "—")}</span></td>
+              <td>${linked || '<span class="muted">—</span>'}</td>
+              <td class="muted">${relAge(p.updatedAt)} ago</td>
+            </tr>`;
+          })
+          .join("")}</tbody></table>`;
+        bindClicks(app, issueById, prById);
+      }
+
+      function renderTransitions(app) {
+        if (!data.transitions.length) {
+          app.innerHTML = `<div class="empty">No transitions recorded yet. Changes detected on future syncs appear here.</div>`;
+          return;
+        }
+        app.innerHTML = data.transitions
+          .map(
+            (t) => `<article class="card"><div class="row">
+              <span class="pill">${esc(t.kind)}</span>
+              <strong>${esc(t.summary)}</strong>
+              <span class="spacer"></span>
+              <span class="muted">${esc(t.at.slice(0, 19).replace("T", " "))}</span>
+            </div></article>`,
+          )
+          .join("");
+      }
+
+      function bindClicks(root, issueById, prById) {
+        root.querySelectorAll("[data-pr]").forEach((el) =>
+          el.addEventListener("click", () => {
+            const pr = prById.get(el.getAttribute("data-pr"));
+            if (pr) void openPrWindow(pr);
+          }),
+        );
+        root.querySelectorAll("[data-issue]").forEach((el) =>
+          el.addEventListener("click", () => {
+            const issue = issueById.get(el.getAttribute("data-issue"));
+            if (issue) void openIssueWindow(issue);
+          }),
+        );
+      }
+
+      document.querySelectorAll(".tab").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          currentView = btn.dataset.view;
+          document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b === btn));
+          render();
+        }),
+      );
+      document.getElementById("search").addEventListener("input", (e) => {
+        searchText = e.target.value;
+        render();
+      });
+      document.getElementById("groupBy").addEventListener("change", (e) => {
+        groupBy = e.target.value;
+        render();
+      });
+      document.getElementById("showClosed").addEventListener("change", (e) => {
+        showClosed = e.target.checked;
+        render();
+      });
+      document.getElementById("toggleConfig").addEventListener("click", () => {
+        const bar = document.getElementById("configBar");
+        bar.hidden = !bar.hidden;
+      });
+      document.getElementById("syncBtn").addEventListener("click", () => {
+        void api.sync().catch((e) => alert(e.message));
+      });
+      document.getElementById("configBar").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const err = document.getElementById("configError");
+        err.textContent = "";
+        try {
+          const [owner, name] = document.getElementById("repoInput").value.trim().split("/");
+          if (!owner || !name) throw new Error("Use owner/repo format.");
+          const bType = document.getElementById("boardType").value;
+          const bNum = Number(document.getElementById("boardNum").value);
+          const bOwner = document.getElementById("boardOwner").value.trim() || owner;
+          const board =
+            bType && bNum > 0 ? { owner: bOwner, ownerType: bType, number: bNum } : null;
+          await api.configure({ repository: { owner, name }, board });
+          document.getElementById("configBar").hidden = true;
+          void api.sync().catch(() => {});
+        } catch (failure) {
+          err.textContent = failure.message;
+        }
+      });
+
+      api.watch((snapshot) => {
+        data = snapshot;
+        const repo = snapshot.context.repository;
+        const bRef = snapshot.context.boardRef;
+        if (repo && !document.getElementById("repoInput").value) {
+          document.getElementById("repoInput").value = `${repo.owner}/${repo.name}`;
+        }
+        if (bRef && !document.getElementById("boardNum").value) {
+          document.getElementById("boardType").value = bRef.ownerType;
+          document.getElementById("boardOwner").value = bRef.owner;
+          document.getElementById("boardNum").value = String(bRef.number);
+        }
+        render();
+      });
+    </script>
+  </body>
+</html>

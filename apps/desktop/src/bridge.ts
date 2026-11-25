@@ -47,6 +47,13 @@ import type {
   PullRequestsFrame,
   PullRequestsLinkResult,
 } from "./plugins/pull-requests/contract.ts";
+import type {
+  WorkspaceCancelReads,
+  WorkspaceExternalLink,
+  WorkspaceFrame,
+  WorkspaceInterestPayload,
+  WorkspaceLinkResult,
+} from "./plugins/github-workspace/contract.ts";
 
 export type ArtifactLibrarySnapshot = {
   artifacts: Artifact[];
@@ -75,6 +82,13 @@ import type {
   PullRequestsRepository,
   PullRequestsEvent,
 } from "@irudd-scope/protocol/pull-requests";
+import type { GitHubWorkspaceEvent } from "@irudd-scope/protocol";
+import type {
+  WorkspaceBoardRef,
+  WorkspaceCommand,
+  WorkspaceReply,
+  WorkspaceRepository,
+} from "@irudd-scope/protocol/github-workspace";
 
 export type ScopeBridge = {
   folderList: (input: {
@@ -173,6 +187,22 @@ export type ScopeBridge = {
   onPullRequestsLinkResult: (listener: (result: PullRequestsLinkResult) => void) => () => void;
   onPullRequestsReconnected: (listener: () => void) => () => void;
   onPullRequestsChanged: (listener: (event: PullRequestsEvent) => void) => () => void;
+  createGitHubWorkspace: (input: {
+    name: string;
+    title: string;
+    html: string;
+    repository?: WorkspaceRepository;
+    board?: WorkspaceBoardRef | null;
+  }) => Promise<Artifact>;
+  githubWorkspaceCommand: (command: WorkspaceCommand) => Promise<WorkspaceReply>;
+  githubWorkspaceInterest: (input: WorkspaceInterestPayload) => Promise<void>;
+  githubWorkspaceCancelReads: (input: WorkspaceCancelReads) => Promise<void>;
+  openGitHubWorkspaceLink: (input: WorkspaceExternalLink) => Promise<void>;
+  registerGitHubWorkspaceFrame: (input: WorkspaceFrame) => Promise<void>;
+  unregisterGitHubWorkspaceFrame: (input: WorkspaceFrame) => Promise<void>;
+  onGitHubWorkspaceLinkResult: (listener: (result: WorkspaceLinkResult) => void) => () => void;
+  onGitHubWorkspaceReconnected: (listener: () => void) => () => void;
+  onGitHubWorkspaceChanged: (listener: (event: GitHubWorkspaceEvent) => void) => () => void;
   createPlan: (input: { name: string; title: string; html: string }) => Promise<Artifact>;
   setSketchpadMenu: (state: SketchpadMenuState) => Promise<void>;
   onSketchpadMenuAction: (listener: (action: SketchpadMenuAction) => void) => () => void;

@@ -5,6 +5,7 @@ import type { ScopeClient } from "@irudd-scope/protocol/client";
 import type { ArtifactContent, ArtifactLibrarySnapshot } from "../bridge.ts";
 
 import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
+import type { GitHubWorkspaceEvent } from "@irudd-scope/protocol";
 
 export class ArtifactLibrary {
   private promptListeners = new Set<(event: PromptEvent) => void>();
@@ -49,6 +50,22 @@ export class ArtifactLibrary {
     this.pullRequestsListeners.add(listener);
     return () => {
       this.pullRequestsListeners.delete(listener);
+    };
+  }
+  private githubWorkspaceListeners = new Set<(event: GitHubWorkspaceEvent) => void>();
+  private githubWorkspaceReconnectListeners = new Set<() => void>();
+
+  onGitHubWorkspaceReconnected(listener: () => void): () => void {
+    this.githubWorkspaceReconnectListeners.add(listener);
+    return () => {
+      this.githubWorkspaceReconnectListeners.delete(listener);
+    };
+  }
+
+  onGitHubWorkspaceChanged(listener: (event: GitHubWorkspaceEvent) => void): () => void {
+    this.githubWorkspaceListeners.add(listener);
+    return () => {
+      this.githubWorkspaceListeners.delete(listener);
     };
   }
   private current: ArtifactLibrarySnapshot = { artifacts: [], connection: "connecting" };
@@ -142,6 +159,13 @@ export class ArtifactLibrary {
                 console.error("A pull request reconnect listener failed.");
               }
             }
+            for (const listener of this.githubWorkspaceReconnectListeners) {
+              try {
+                listener();
+              } catch {
+                console.error("A GitHub workspace reconnect listener failed.");
+              }
+            }
             void this.client
               .list(active.signal)
               .then((artifacts) => {
@@ -171,6 +195,14 @@ export class ArtifactLibrary {
                 listener(event);
               } catch {
                 console.error("A pull request update listener failed.");
+              }
+            }
+          } else if (event.type === "github-workspace") {
+            for (const listener of this.githubWorkspaceListeners) {
+              try {
+                listener(event);
+              } catch {
+                console.error("A GitHub workspace update listener failed.");
               }
             }
           } else if (event.type === "deleted") {

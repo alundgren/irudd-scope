@@ -8,6 +8,7 @@ import { sketchpadPlugin } from "./sketchpad/renderer.tsx";
 import { planPlugin } from "./plan/renderer.tsx";
 
 import { pullRequestsPlugin } from "./pull-requests/renderer.tsx";
+import { githubWorkspacePlugin } from "./github-workspace/renderer.tsx";
 import { retroPlugin } from "./retro/renderer.tsx";
 import { folderPlugin } from "./folder/renderer.tsx";
 import { harnessesPlugin } from "./harnesses/renderer.tsx";
@@ -20,6 +21,7 @@ export const tabPlugins = [
   sketchpadPlugin,
   planPlugin,
   pullRequestsPlugin,
+  githubWorkspacePlugin,
   retroPlugin,
   folderPlugin,
   harnessesPlugin,
