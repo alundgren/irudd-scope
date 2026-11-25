@@ -11,6 +11,8 @@ import type { SketchpadMenuAction } from "./menu-contract.ts";
 import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
 import type { PullRequestsDetailUpdate } from "./plugins/pull-requests/interest.ts";
 import type { PullRequestsLinkResult } from "./plugins/pull-requests/contract.ts";
+import type { WorkspaceEvent } from "@irudd-scope/protocol/workspace";
+import type { WorkspaceLinkResult } from "./plugins/workspace/contract.ts";
 
 const retroFinishListeners = new Set<Parameters<ScopeBridge["onRetroFinishFlush"]>[0]>();
 ipcRenderer.on(
@@ -131,6 +133,29 @@ const bridge: ScopeBridge = {
     const receive = (_event: unknown, event: PullRequestsEvent) => listener(event);
     ipcRenderer.on("scope:pull-requests-changed", receive);
     return () => ipcRenderer.removeListener("scope:pull-requests-changed", receive);
+  },
+  createWorkspace: (input) => ipcRenderer.invoke("scope:create-workspace", input),
+  workspaceCommand: (input) => ipcRenderer.invoke("scope:workspace-command", input),
+  workspaceInterest: (input) => ipcRenderer.invoke("scope:workspace-interest", input),
+  workspaceCancelReads: (input) => ipcRenderer.invoke("scope:workspace-cancel-reads", input),
+  openWorkspaceLink: (input) => ipcRenderer.invoke("scope:open-workspace-link", input),
+  registerWorkspaceFrame: (input) => ipcRenderer.invoke("scope:register-workspace-frame", input),
+  unregisterWorkspaceFrame: (input) =>
+    ipcRenderer.invoke("scope:unregister-workspace-frame", input),
+  onWorkspaceLinkResult: (listener) => {
+    const receive = (_event: unknown, result: WorkspaceLinkResult) => listener(result);
+    ipcRenderer.on("scope:workspace-link-result", receive);
+    return () => ipcRenderer.removeListener("scope:workspace-link-result", receive);
+  },
+  onWorkspaceReconnected: (listener) => {
+    const receive = () => listener();
+    ipcRenderer.on("scope:workspace-reconnected", receive);
+    return () => ipcRenderer.removeListener("scope:workspace-reconnected", receive);
+  },
+  onWorkspaceChanged: (listener) => {
+    const receive = (_event: unknown, event: WorkspaceEvent) => listener(event);
+    ipcRenderer.on("scope:workspace-changed", receive);
+    return () => ipcRenderer.removeListener("scope:workspace-changed", receive);
   },
   createPlan: (input) => ipcRenderer.invoke("scope:create-plan", input),
   setSketchpadMenu: (state) => ipcRenderer.invoke("scope:set-sketchpad-menu", state),

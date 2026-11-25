@@ -5,6 +5,7 @@ import type { ScopeClient } from "@irudd-scope/protocol/client";
 import type { ArtifactContent, ArtifactLibrarySnapshot } from "../bridge.ts";
 
 import type { PullRequestsEvent } from "@irudd-scope/protocol/pull-requests";
+import type { WorkspaceEvent } from "@irudd-scope/protocol/workspace";
 
 export class ArtifactLibrary {
   private promptListeners = new Set<(event: PromptEvent) => void>();
@@ -49,6 +50,22 @@ export class ArtifactLibrary {
     this.pullRequestsListeners.add(listener);
     return () => {
       this.pullRequestsListeners.delete(listener);
+    };
+  }
+  private workspaceListeners = new Set<(event: WorkspaceEvent) => void>();
+  private workspaceReconnectListeners = new Set<() => void>();
+
+  onWorkspaceReconnected(listener: () => void): () => void {
+    this.workspaceReconnectListeners.add(listener);
+    return () => {
+      this.workspaceReconnectListeners.delete(listener);
+    };
+  }
+
+  onWorkspaceChanged(listener: (event: WorkspaceEvent) => void): () => void {
+    this.workspaceListeners.add(listener);
+    return () => {
+      this.workspaceListeners.delete(listener);
     };
   }
   private current: ArtifactLibrarySnapshot = { artifacts: [], connection: "connecting" };
@@ -142,6 +159,13 @@ export class ArtifactLibrary {
                 console.error("A pull request reconnect listener failed.");
               }
             }
+            for (const listener of this.workspaceReconnectListeners) {
+              try {
+                listener();
+              } catch {
+                console.error("A workspace reconnect listener failed.");
+              }
+            }
             void this.client
               .list(active.signal)
               .then((artifacts) => {
@@ -171,6 +195,14 @@ export class ArtifactLibrary {
                 listener(event);
               } catch {
                 console.error("A pull request update listener failed.");
+              }
+            }
+          } else if (event.type === "workspace") {
+            for (const listener of this.workspaceListeners) {
+              try {
+                listener(event);
+              } catch {
+                console.error("A workspace update listener failed.");
               }
             }
           } else if (event.type === "deleted") {

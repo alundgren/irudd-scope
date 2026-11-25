@@ -1,4 +1,5 @@
 import { PullRequestsStateChange, PullRequestStateChange } from "./pull-requests-state.ts";
+import { WorkspaceStateChange, WorkspaceNodeStateChange } from "./workspace-state.ts";
 import * as Schema from "effect/Schema";
 
 export const MAX_CONTENT_BYTES = 32 * 1024 * 1024;
@@ -137,6 +138,16 @@ export const PullRequestsEvent = Schema.Struct({
   prStateChange: Schema.optionalKey(PullRequestStateChange),
 });
 export type PullRequestsEvent = typeof PullRequestsEvent.Type;
+export const WorkspaceEvent = Schema.Struct({
+  type: Schema.Literal("workspace"),
+  name: ArtifactName,
+  id: ArtifactId,
+  generation: Revision,
+  tabId: Schema.optionalKey(PublicationTabId),
+  stateChange: Schema.optionalKey(WorkspaceStateChange),
+  nodeStateChange: Schema.optionalKey(WorkspaceNodeStateChange),
+});
+export type WorkspaceEvent = typeof WorkspaceEvent.Type;
 export const RetroEvent = Schema.Struct({
   type: Schema.Literal("retro"),
   name: ArtifactName,
@@ -159,6 +170,7 @@ export const LiveEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("artifact"), artifact: Artifact }),
   Schema.Struct({ type: Schema.Literal("deleted"), id: ArtifactId }),
   PullRequestsEvent,
+  WorkspaceEvent,
   RetroEvent,
   PromptEvent,
 ]);
@@ -168,6 +180,7 @@ const LIVE_EVENT_TYPES = new Set([
   "artifact",
   "deleted",
   "pull-requests",
+  "workspace",
   "retro",
   "prompts",
 ]);

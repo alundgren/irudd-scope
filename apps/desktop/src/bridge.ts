@@ -47,6 +47,13 @@ import type {
   PullRequestsFrame,
   PullRequestsLinkResult,
 } from "./plugins/pull-requests/contract.ts";
+import type {
+  WorkspaceCancelReads,
+  WorkspaceExternalLink,
+  WorkspaceFrame,
+  WorkspaceInterestPayload,
+  WorkspaceLinkResult,
+} from "./plugins/workspace/contract.ts";
 
 export type ArtifactLibrarySnapshot = {
   artifacts: Artifact[];
@@ -75,6 +82,13 @@ import type {
   PullRequestsRepository,
   PullRequestsEvent,
 } from "@irudd-scope/protocol/pull-requests";
+import type {
+  WorkspaceBoardRef,
+  WorkspaceCommand,
+  WorkspaceEvent,
+  WorkspaceReply,
+  WorkspaceRepository,
+} from "@irudd-scope/protocol/workspace";
 
 export type ScopeBridge = {
   folderList: (input: {
@@ -173,6 +187,22 @@ export type ScopeBridge = {
   onPullRequestsLinkResult: (listener: (result: PullRequestsLinkResult) => void) => () => void;
   onPullRequestsReconnected: (listener: () => void) => () => void;
   onPullRequestsChanged: (listener: (event: PullRequestsEvent) => void) => () => void;
+  createWorkspace: (input: {
+    name: string;
+    title: string;
+    html: string;
+    repository?: WorkspaceRepository;
+    board?: WorkspaceBoardRef | null;
+  }) => Promise<Artifact>;
+  workspaceCommand: (command: WorkspaceCommand) => Promise<WorkspaceReply>;
+  workspaceInterest: (input: WorkspaceInterestPayload) => Promise<void>;
+  workspaceCancelReads: (input: WorkspaceCancelReads) => Promise<void>;
+  openWorkspaceLink: (input: WorkspaceExternalLink) => Promise<void>;
+  registerWorkspaceFrame: (input: WorkspaceFrame) => Promise<void>;
+  unregisterWorkspaceFrame: (input: WorkspaceFrame) => Promise<void>;
+  onWorkspaceLinkResult: (listener: (result: WorkspaceLinkResult) => void) => () => void;
+  onWorkspaceReconnected: (listener: () => void) => () => void;
+  onWorkspaceChanged: (listener: (event: WorkspaceEvent) => void) => () => void;
   createPlan: (input: { name: string; title: string; html: string }) => Promise<Artifact>;
   setSketchpadMenu: (state: SketchpadMenuState) => Promise<void>;
   onSketchpadMenuAction: (listener: (action: SketchpadMenuAction) => void) => () => void;

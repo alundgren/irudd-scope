@@ -6,6 +6,11 @@ import { PromptDraft } from "../plugins/prompts/contract.ts";
 import { PromptStore } from "./prompt-store.ts";
 import { RetroStore, initializeRetroTab } from "./retro-store.ts";
 import { PullRequestStore, initializePullRequestsTab } from "./pull-request-store.ts";
+import {
+  WORKSPACE_SCHEMA_VERSION,
+  WorkspaceStore,
+  initializeWorkspaceTab,
+} from "./workspace-store.ts";
 import { DatabaseMaintenance } from "@irudd-scope/sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, chmod, readFile, readdir, rm } from "node:fs/promises";
@@ -77,6 +82,7 @@ export class ArtifactStore {
   prompts!: PromptStore;
   retros!: RetroStore;
   pullRequests!: PullRequestStore;
+  workspaces!: WorkspaceStore;
   canvases!: CanvasStore;
   chats!: CardChatStore;
   onChanged: (event: LiveEvent) => void = () => {};
@@ -150,6 +156,13 @@ export class ArtifactStore {
       await store.canvases.initialize();
       store.chats = new CardChatStore({ sql, run: (effect) => store.run(effect) });
       await store.chats.initialize();
+      store.workspaces = new WorkspaceStore({
+        sql,
+        run: (effect) => store.run(effect),
+        mutate: (effect, events) => store.mutate(effect, events),
+      });
+      await store.workspaces.initialize();
+      await store.workspaces.recoverInterruptedSync();
       store.maintenance = new DatabaseMaintenance(filename, "scope.db", () => store.reclaim());
       return store;
     } catch (error) {
@@ -232,7 +245,7 @@ export class ArtifactStore {
     const [{ user_version: version }] = await this.run(
       sql<{ user_version: number }>`PRAGMA user_version`,
     );
-    if (version > CHAT_SCHEMA_VERSION)
+    if (version > Math.max(CHAT_SCHEMA_VERSION, WORKSPACE_SCHEMA_VERSION))
       throw new Error("The artifact database requires a newer Scope version.");
     if (version >= 2) return;
 
@@ -1057,6 +1070,10 @@ export class ArtifactStore {
             );
           if (input.kind === "pull-requests" && !(previous?.name ?? input.name))
             return yield* Effect.fail(new ScopeError(400, "Pull request tabs require a name."));
+          if (previous?.kind === "workspace" && input.kind !== "workspace")
+            return yield* Effect.fail(new ScopeError(409, "A workspace tab's kind cannot change."));
+          if (input.kind === "workspace" && !(previous?.name ?? input.name))
+            return yield* Effect.fail(new ScopeError(400, "Workspace tabs require a name."));
           if (
             previous?.kind === "plan" &&
             (input.kind !== "plan" || input.mediaType !== "application/json")
@@ -1136,10 +1153,12 @@ export class ArtifactStore {
         ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, document = excluded.document, blob_id = excluded.blob_id`;
           yield* initializeRetroTab(sql, tabId, artifact);
           yield* initializePullRequestsTab(sql, tabId, artifact);
+          yield* initializeWorkspaceTab(sql, tabId, artifact);
           if (
             (input.kind === "plan" && !previous) ||
             (artifact.kind === "retro" && previous?.kind !== "retro") ||
-            (artifact.kind === "pull-requests" && previous?.kind !== "pull-requests")
+            (artifact.kind === "pull-requests" && previous?.kind !== "pull-requests") ||
+            (artifact.kind === "workspace" && previous?.kind !== "workspace")
           )
             yield* sql`UPDATE live_tabs SET permanent = 1 WHERE id = ${tabId}`;
           return artifact;

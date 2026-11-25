@@ -144,7 +144,7 @@ export function App({ initialSettings }: { initialSettings: SettingsView | undef
   const artifacts = new Map(snapshot.artifacts.map((artifact) => [artifact.id, artifact]));
   const active = workspace.tabs.find((tab) => tab.id === workspace.selected);
   const activeArtifact = active ? artifacts.get(tabArtifactId(active) ?? "") : undefined;
-  const html = ["html", "plan", "pull-requests"].includes(activeArtifact?.kind ?? "");
+  const html = ["html", "plan", "pull-requests", "workspace"].includes(activeArtifact?.kind ?? "");
   const editsInFullscreen = active?.type === "sketchpad" || active?.type === "canvas";
   const hasModes = editsInFullscreen || html;
   const returnFocus = focus && hasModes ? modeSelect : controlsButton;

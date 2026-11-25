@@ -1,5 +1,6 @@
 import { MAX_PROMPT_REQUEST_BYTES } from "@irudd-scope/protocol/prompts";
 import { MAX_PULL_REQUESTS_REQUEST_BYTES } from "@irudd-scope/protocol/pull-requests";
+import { MAX_WORKSPACE_REQUEST_BYTES } from "@irudd-scope/protocol/workspace";
 import { MAX_VOICE_REQUEST_BYTES } from "@irudd-scope/protocol/voice";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
@@ -440,11 +441,13 @@ export async function startPairedHub(
             ? MAX_PROMPT_REQUEST_BYTES
             : item.path === "/v1/pull-requests"
               ? MAX_PULL_REQUESTS_REQUEST_BYTES
-              : item.path === "/v1/voice"
-                ? MAX_VOICE_REQUEST_BYTES
-                : item.path.endsWith("/blobs")
-                  ? MAX_CONTENT_BYTES
-                  : MAX_METADATA_BYTES,
+              : item.path === "/v1/workspace"
+                ? MAX_WORKSPACE_REQUEST_BYTES
+                : item.path === "/v1/voice"
+                  ? MAX_VOICE_REQUEST_BYTES
+                  : item.path.endsWith("/blobs")
+                    ? MAX_CONTENT_BYTES
+                    : MAX_METADATA_BYTES,
         ),
         response,
         { signal: item.controller.signal },
@@ -577,7 +580,9 @@ export async function startPairedHub(
         ? MAX_PROMPT_REQUEST_BYTES
         : request.url === "/v1/pull-requests"
           ? MAX_PULL_REQUESTS_REQUEST_BYTES
-          : MAX_CONTENT_BYTES;
+          : request.url === "/v1/workspace"
+            ? MAX_WORKSPACE_REQUEST_BYTES
+            : MAX_CONTENT_BYTES;
     if (Number(request.headers["content-length"]) > limit) {
       json(response, 413, { error: `Request exceeds the ${limit / (1024 * 1024)} MiB limit.` });
       return;
