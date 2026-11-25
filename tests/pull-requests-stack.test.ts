@@ -317,3 +317,74 @@ test(
     expect(third.queue).toMatchObject({ enabled: false, url: null, size: null, entry: null });
   },
 );
+
+test(
+  "reports recent comments and reviews so the inbox can spot replies since a marker",
+  { tags: ["pr-inbox-keeps-local-work"] },
+  async () => {
+    const user = (login: string) => ({ __typename: "User", login });
+    const time = (minute: number) => `2026-10-01T12:${String(minute).padStart(2, "0")}:00Z`;
+    const answered = {
+      ...sourcePr(1),
+      comments: {
+        totalCount: 3,
+        nodes: [
+          { id: "IC_1", createdAt: time(1), author: user("reviewer") },
+          { id: "IC_2", createdAt: time(3), author: { __typename: "Bot", login: "coverage" } },
+          { id: "IC_3", createdAt: time(4), author: user("viewer") },
+        ],
+      },
+      reviews: {
+        totalCount: 1,
+        nodes: [{ id: "PRR_1", state: "CHANGES_REQUESTED", submittedAt: time(2), author: null }],
+      },
+    };
+    const busy = {
+      ...sourcePr(2),
+      comments: {
+        totalCount: 40,
+        nodes: [
+          { id: "IC_10", createdAt: time(20), author: user("reviewer") },
+          { id: "IC_11", createdAt: time(30), author: user("reviewer") },
+        ],
+      },
+      reviews: {
+        totalCount: 1,
+        nodes: [{ id: "PRR_2", state: "COMMENTED", submittedAt: time(10), author: user("other") }],
+      },
+    };
+    const f = await fakeGh([answered, busy, sourcePr(3)] as ReturnType<typeof sourcePr>[]);
+    const [first, second, third] = (await f.read()).prs;
+    expect(first.discussion).toMatchObject({ comments: 3, reviews: 1, listedAfter: null });
+    expect(first.discussion?.recent).toEqual([
+      { kind: "comment", id: "IC_3", author: "viewer", bot: false, reviewState: null, at: time(4) },
+      {
+        kind: "comment",
+        id: "IC_2",
+        author: "coverage",
+        bot: true,
+        reviewState: null,
+        at: time(3),
+      },
+      {
+        kind: "review",
+        id: "PRR_1",
+        author: null,
+        bot: false,
+        reviewState: "changes-requested",
+        at: time(2),
+      },
+      {
+        kind: "comment",
+        id: "IC_1",
+        author: "reviewer",
+        bot: false,
+        reviewState: null,
+        at: time(1),
+      },
+    ]);
+    expect(second.discussion).toMatchObject({ comments: 40, listedAfter: time(20) });
+    expect(second.discussion?.recent.map((item) => item.id)).toEqual(["IC_11", "IC_10"]);
+    expect(third.discussion).toBeUndefined();
+  },
+);

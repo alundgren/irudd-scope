@@ -494,13 +494,27 @@ for accounts without admin access. Otherwise it has `mergeMethod` (`merge`,
 other queued PRs), and the queued `headOid` and `baseOid`. A PR that leaves the
 queue without merging returns `entry: null`; GitHub's removal reason is not read.
 
-The lightweight initial load omits review, stack, and queue fields until enrichment completes.
+`discussion` reports recent conversation activity:
+`{ comments, reviews, recent, listedAfter, observedAt }`. `comments` counts
+conversation comments and `reviews` counts submitted reviews. Pending reviews
+are excluded, and edits do not count as new activity. `recent` lists up to 20
+items, newest first, each `{ kind, id, author, bot, reviewState, at }`. `kind`
+is `comment` or `review`. `author` is the login, or null for a deleted account.
+`bot` is true for GitHub App and bot accounts. `reviewState` is `approved`,
+`changes-requested`, `commented`, or `dismissed` for reviews and null for
+comments. `at` is the comment's creation time or the review's submission time.
+A reply to an inline code thread is a `commented` review. `listedAfter` is null
+when `recent` lists every comment and review. Otherwise `recent` lists every
+item after that time. GitHub orders reviews by when they were started, so a
+review left pending for a long time before submission can be missing.
+
+The lightweight initial load omits review, stack, queue, and discussion fields until enrichment completes.
 A focused PR refresh re-observes every open member of its native stack. Other
 rows can retain older observations; use `stack.observedAt` for that stack record.
 
-These three fields are optional so existing stored PR facts remain readable
+These four fields are optional so existing stored PR facts remain readable
 without a database migration. Missing fields mean not yet observed, rather
-than no approval, no stack, or no queue. Existing authored HTML continues to receive the
+than no approval, no stack, no queue, or no discussion. Existing authored HTML continues to receive the
 same flat array with added fields. Update desktop, CLI, and hub together:
 older strict protocol decoders reject newly enriched replies and saved rows.
 

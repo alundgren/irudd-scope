@@ -170,6 +170,7 @@ Each PR has the following GitHub facts at its top level:
 | `review`                                 | Optional `{ decision, hasApproval, headOid, observedAt }`. See approval semantics below.                             |
 | `stack`                                  | Optional native stack record, or null for a known standalone PR. See stack semantics below.                          |
 | `queue`                                  | Optional merge queue record for the target branch. See merge queue semantics below.                                  |
+| `discussion`                             | Optional recent comments and reviews. See discussion semantics below.                                                |
 
 `review.decision` is GitHub's overall `approved`, `changes-requested`, or
 `review-required` decision, or null when GitHub returns no decision.
@@ -212,11 +213,46 @@ other queued PRs), and the queued `headOid` and `baseOid`. A PR removed from
 the queue without merging shows `entry: null`; the removal reason is not
 available. Queue state changes quickly, so show `queue.observedAt` beside it.
 
-The lightweight initial load omits review, stack, and queue fields until enrichment completes.
+`discussion` has `comments` (conversation comment count), `reviews` (submitted
+review count), `recent`, `listedAfter`, and `observedAt`. Pending reviews are
+excluded, and edits do not count as new activity. `recent` lists up to 20
+items, newest first, each `{ kind, id, author, bot, reviewState, at }`:
+
+- `kind` is `comment` or `review`. A reply to an inline code thread is a
+  `commented` review.
+- `author` is the login, or null for a deleted account. `bot` is true for
+  GitHub App and bot accounts such as coverage reporters.
+- `reviewState` is `approved`, `changes-requested`, `commented`, or
+  `dismissed` for reviews and null for comments.
+- `at` is the comment's creation time or the review's submission time.
+
+`listedAfter` is null when `recent` lists every comment and review. Otherwise
+`recent` lists every item after that time, and older activity is only counted.
+GitHub orders reviews by when they were started, so a review left pending for a
+long time before submission can be missing.
+
+To notice replies, keep a marker timestamp in PR state and filter `recent`:
+
+```js
+const since = Date.parse(marker);
+const others = (pr.discussion?.recent ?? []).filter(
+  (item) => !item.bot && item.author !== context.viewer && Date.parse(item.at) > since,
+);
+// Someone else commented since the marker:
+const anyNew = others.length > 0;
+// Someone else spoke last, so the PR is waiting on you:
+const latest = pr.discussion?.recent.find((item) => !item.bot);
+const yourTurn =
+  latest !== undefined && latest.author !== context.viewer && Date.parse(latest.at) > since;
+```
+
+The answer is exact when `listedAfter` is null or not later than the marker.
+
+The lightweight initial load omits review, stack, queue, and discussion fields until enrichment completes.
 A focused PR refresh re-observes every open member of its native stack. Other
 rows can retain older observations; use `stack.observedAt` for that stack record.
 
-Older saved records can omit `review`, `stack`, and `queue`. Treat missing fields as
+Older saved records can omit `review`, `stack`, `queue`, and `discussion`. Treat missing fields as
 unknown; `stack === null` is the known standalone case. For example:
 
 ```js
