@@ -3,8 +3,10 @@ import {
   type WorkspaceBoard,
   type WorkspaceBoardRef,
   type WorkspaceCommitPair,
+  type WorkspaceIssue,
   type WorkspaceIssueDetail,
   type WorkspaceIssueFacts,
+  type WorkspacePullRequest,
   type WorkspacePullRequestDetail,
   type WorkspacePullRequestFacts,
   type WorkspaceRepository,
@@ -53,6 +55,25 @@ function groupKey(repository: WorkspaceRepository, boardRef: WorkspaceBoardRef |
   const repo = `${repository.owner}/${repository.name}`.toLowerCase();
   if (!boardRef) return repo;
   return `${repo}#${boardRef.ownerType}:${boardRef.owner.toLowerCase()}/${boardRef.number}`;
+}
+
+function stripIssueFacts(issue: WorkspaceIssue): WorkspaceIssueFacts {
+  const { local: _local, agent: _agent, ...facts } = issue;
+  return facts;
+}
+
+function stripPrFacts(pr: WorkspacePullRequest): WorkspacePullRequestFacts {
+  const { local: _local, agent: _agent, ...facts } = pr;
+  return facts;
+}
+
+function isRepoPullRequest(
+  pr: WorkspacePullRequestFacts,
+  repository: WorkspaceRepository,
+): boolean {
+  return pr.url
+    .toLowerCase()
+    .startsWith(`https://github.com/${repository.owner}/${repository.name}/pull/`.toLowerCase());
 }
 
 function isSlimDirty(prev: WorkspaceIssueFacts | undefined, slim: SlimIssueRecord): boolean {
@@ -196,8 +217,8 @@ export class WorkspaceSync {
           lastSweepAt: 0,
           lastSchemaAt: snapshot.board ? this.now() : 0,
           lastIssueUpdatedAt: tab.lastIssueUpdatedAt,
-          issues: new Map(snapshot.issues.map((i) => [i.nodeId, i])),
-          prs: new Map(snapshot.prs.map((p) => [p.nodeId, p])),
+          issues: new Map(snapshot.issues.map((i) => [i.nodeId, stripIssueFacts(i)])),
+          prs: new Map(snapshot.prs.map((p) => [p.nodeId, stripPrFacts(p)])),
           board: snapshot.board,
           hasBase: tab.hasBase,
         });
@@ -255,20 +276,25 @@ export class WorkspaceSync {
     return [...group.tabs].some((id) => this.interests.get(id)?.active) ? 90_000 : 300_000;
   }
 
-  private factor() {
+  private factor(overrideGroup?: GroupState, overrideCost?: number) {
     let hourly = 0;
-    for (const group of this.groups.values())
-      hourly += (group.cost * 3_600_000) / this.baseInterval(group);
+    for (const group of this.groups.values()) {
+      const cost =
+        overrideGroup === group && overrideCost !== undefined ? overrideCost : group.cost;
+      hourly += (cost * 3_600_000) / this.baseInterval(group);
+    }
     return Math.max(1, hourly / 500);
   }
 
-  private interval(group: GroupState) {
-    return Math.ceil(this.baseInterval(group) * this.factor());
+  private interval(group: GroupState, overrideCost?: number) {
+    return Math.ceil(this.baseInterval(group) * this.factor(group, overrideCost));
   }
 
-  private cadenceReason() {
+  private cadenceReason(overrideGroup?: GroupState, overrideCost?: number) {
     if (this.reserveUntil > this.now()) return "GitHub query reserve";
-    return this.budgetUntil() > this.now() || this.factor() > 1 ? "Account query budget" : null;
+    return this.budgetUntil() > this.now() || this.factor(overrideGroup, overrideCost) > 1
+      ? "Account query budget"
+      : null;
   }
 
   private arm() {
@@ -354,15 +380,21 @@ export class WorkspaceSync {
   private async executeSync(group: GroupState, manual: boolean): Promise<void> {
     const signal = group.controller.signal;
     let totalCost = 0;
+    let settledStatus = false;
     try {
       await this.setGroupStatus(group, "syncing", null);
 
-      // 1. Open Pull Requests + check disappeared PRs for MERGED vs CLOSED
+      // 1. Open Pull Requests + check disappeared same-repo PRs for MERGED vs CLOSED
       const prRes = await this.github.readOpenPullRequests(group.repository, signal);
       totalCost += prRes.cost;
       const openPrMap = new Map(prRes.prs.map((pr) => [pr.nodeId, pr]));
       const disappearedIds = [...group.prs.values()]
-        .filter((prev) => prev.state === "open" && !openPrMap.has(prev.nodeId))
+        .filter(
+          (prev) =>
+            prev.state === "open" &&
+            !openPrMap.has(prev.nodeId) &&
+            isRepoPullRequest(prev, prRes.repository),
+        )
         .map((prev) => prev.nodeId);
       const nextPrs = new Map<string, WorkspacePullRequestFacts>(group.prs);
       for (const pr of prRes.prs) nextPrs.set(pr.nodeId, pr);
@@ -385,6 +417,7 @@ export class WorkspaceSync {
 
       // 3. Open-issue slim relation sweep (initial, manual, or every 3m) to catch silent blockedBy/sub-issue edits
       const slimMap = new Map<string, SlimIssueRecord>(delta.issues.map((i) => [i.nodeId, i]));
+      let nextSweepAt = group.lastSweepAt;
       const needsSweep =
         !group.hasBase || manual || this.now() - group.lastSweepAt >= SWEEP_INTERVAL_MS;
       if (needsSweep) {
@@ -393,20 +426,23 @@ export class WorkspaceSync {
         for (const item of sweep.issues) {
           if (!slimMap.has(item.nodeId)) slimMap.set(item.nodeId, item);
         }
-        group.lastSweepAt = this.now();
+        nextSweepAt = this.now();
       }
 
-      // 4. Optional Board Overlay gated by ProjectV2.updatedAt
+      // 4. Optional Board Overlay gated by ProjectV2.updatedAt and schema refresh timer
       let nextBoard = group.board;
+      let nextSchemaAt = group.lastSchemaAt;
       if (group.boardRef && !boardError) {
+        const schemaExpired = this.now() - group.lastSchemaAt >= SCHEMA_REFRESH_MS;
         const boardChanged =
           !nextBoard ||
           manual ||
+          schemaExpired ||
           delta.boardUpdatedAt === null ||
           delta.boardUpdatedAt !== nextBoard.updatedAt;
         if (boardChanged) {
           const reuseSchema =
-            nextBoard && this.now() - group.lastSchemaAt < SCHEMA_REFRESH_MS
+            nextBoard && !schemaExpired
               ? {
                   nodeId: nextBoard.nodeId,
                   title: nextBoard.title,
@@ -419,9 +455,12 @@ export class WorkspaceSync {
             const boardRes = await this.github.readBoard(group.boardRef, reuseSchema, signal);
             totalCost += boardRes.cost;
             nextBoard = boardRes.board;
-            if (!reuseSchema) group.lastSchemaAt = this.now();
+            if (boardRes.schemaRefreshed) nextSchemaAt = this.now();
           } catch (error) {
-            if (error instanceof WorkspaceGitHubError && error.kind === "scope") {
+            if (
+              error instanceof WorkspaceGitHubError &&
+              (error.kind === "scope" || error.kind === "permission")
+            ) {
               boardError = error.message;
             } else {
               throw error;
@@ -438,13 +477,15 @@ export class WorkspaceSync {
         if (isSlimDirty(group.issues.get(nodeId), slim)) dirtyIds.add(nodeId);
       }
       if (nextBoard) {
+        const prevBoardItems = new Map(
+          group.board?.items.map((item) => [item.itemId, item.updatedAt]) ?? [],
+        );
         for (const item of nextBoard.items) {
-          if (
-            item.contentType === "issue" &&
-            item.contentNodeId &&
-            !group.issues.has(item.contentNodeId)
-          )
-            dirtyIds.add(item.contentNodeId);
+          if (item.contentType !== "issue" || !item.contentNodeId) continue;
+          const isNew = !group.issues.has(item.contentNodeId);
+          const itemUpdated =
+            !slimMap.has(item.contentNodeId) && prevBoardItems.get(item.itemId) !== item.updatedAt;
+          if (isNew || itemUpdated) dirtyIds.add(item.contentNodeId);
         }
       }
 
@@ -458,27 +499,25 @@ export class WorkspaceSync {
         }
       }
 
-      // Advance incremental issue watermark safely (subtract 2s to avoid same-second boundary misses)
+      // Advance incremental issue watermark strictly from this repository's issues
+      // (subtract 2s to avoid same-second boundary misses).
       let maxUpdatedMs = group.lastIssueUpdatedAt ? Date.parse(group.lastIssueUpdatedAt) : 0;
-      for (const issue of nextIssues.values()) {
-        const ms = Date.parse(issue.updatedAt);
+      for (const slim of slimMap.values()) {
+        const ms = Date.parse(slim.updatedAt);
         if (Number.isFinite(ms) && ms > maxUpdatedMs) maxUpdatedMs = ms;
       }
       const nextCursor =
         maxUpdatedMs > 0 ? new Date(Math.max(0, maxUpdatedMs - 2_000)).toISOString() : since;
 
-      group.cost = Math.max(1, totalCost);
-      group.failures = 0;
-      group.hasBase = true;
-      group.repository = prRes.repository;
-      group.board = nextBoard;
-      group.lastIssueUpdatedAt = nextCursor;
-      group.next = this.now() + this.interval(group);
-
+      const nextCost = Math.max(1, totalCost);
+      const nextInterval = this.interval(group, nextCost);
+      const nextAttempt = this.now() + nextInterval;
       const completedAt = new Date(this.now()).toISOString();
       const commitPayload = {
         repository: prRes.repository,
         boardRef: group.boardRef,
+        expectedRepository: group.repository,
+        expectedBoardRef: group.boardRef,
         viewer: prRes.viewer,
         milestones: delta.milestones,
         issues: [...nextIssues.values()],
@@ -493,9 +532,9 @@ export class WorkspaceSync {
           lastSuccessAt: completedAt,
           error: null,
           boardError,
-          intervalMs: this.interval(group),
-          nextAttemptAt: new Date(Math.max(group.next, this.waitUntil())).toISOString(),
-          reason: this.cadenceReason(),
+          intervalMs: nextInterval,
+          nextAttemptAt: new Date(Math.max(nextAttempt, this.waitUntil())).toISOString(),
+          reason: this.cadenceReason(group, nextCost),
         },
       };
 
@@ -504,10 +543,22 @@ export class WorkspaceSync {
         signal.throwIfAborted();
         committed = await this.store.commitSync(tabId, commitPayload, signal);
       }
+
+      // Apply in-memory state updates only after SQLite commits succeed.
+      group.cost = nextCost;
+      group.failures = 0;
+      group.hasBase = true;
+      group.repository = prRes.repository;
+      group.board = nextBoard;
+      group.lastIssueUpdatedAt = nextCursor;
+      group.lastSweepAt = nextSweepAt;
+      group.lastSchemaAt = nextSchemaAt;
+      group.next = nextAttempt;
       if (committed) {
-        group.issues = new Map(committed.issues.map((i) => [i.nodeId, i]));
-        group.prs = new Map(committed.prs.map((p) => [p.nodeId, p]));
+        group.issues = new Map(committed.issues.map((i) => [i.nodeId, stripIssueFacts(i)]));
+        group.prs = new Map(committed.prs.map((p) => [p.nodeId, stripPrFacts(p)]));
       }
+      settledStatus = true;
     } catch (error) {
       if (signal.aborted) throw error;
       group.failures++;
@@ -527,6 +578,25 @@ export class WorkspaceSync {
           ? error.message
           : "Workspace could not be refreshed. Scope will retry automatically.";
       await this.setGroupStatus(group, "error", msg);
+      settledStatus = true;
+    } finally {
+      if (!settledStatus && signal.aborted && !this.paused) {
+        const stamp = new Date(this.now()).toISOString();
+        for (const tabId of [...group.tabs]) {
+          try {
+            const snapshot = await this.store.snapshotByTab(tabId);
+            if (snapshot.sync.state === "syncing") {
+              await this.store.setSyncStatus(tabId, {
+                ...snapshot.sync,
+                state: "idle",
+                updatedAt: stamp,
+              });
+            }
+          } catch {
+            // Tab may have been removed or database closed.
+          }
+        }
+      }
     }
   }
 
@@ -541,12 +611,16 @@ export class WorkspaceSync {
     if (!snapshot.repository) throw new WorkspaceGitHubError("Configure a repository first.");
     const pr = snapshot.prs.find((row) => row.nodeId === nodeId);
     if (!pr) throw new WorkspaceGitHubError("Pull request not found in workspace.");
-    if (captured && pr.headOid && captured.headOid !== pr.headOid)
+    if (
+      captured &&
+      ((pr.headOid && captured.headOid !== pr.headOid) ||
+        (pr.baseOid && captured.baseOid !== pr.baseOid))
+    )
       throw new WorkspaceGitHubError(
         "This pull request updated. Load the latest commits to view details.",
         "comparison",
       );
-    const cacheKey = `${snapshot.repository.owner}/${snapshot.repository.name}/${nodeId}/${pr.headOid ?? "none"}`;
+    const cacheKey = `${snapshot.repository.owner}/${snapshot.repository.name}/${nodeId}/${pr.headOid ?? "none"}/${pr.baseOid ?? "none"}`;
     const cached = this.prDetailCache.get(cacheKey);
     if (cached) return cached;
     const controller = new AbortController();

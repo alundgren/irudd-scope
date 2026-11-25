@@ -75,7 +75,7 @@ const ISSUE_FULL_FIELDS = `
   }
 `;
 
-const REPO_DELTA_QUERY = `query WorkspaceRepoDelta($owner: String!, $name: String!, $since: DateTime, $cursor: String, $includeBoard: Boolean!, $boardOrg: Boolean!, $boardOwner: String!, $boardNumber: Int!) {
+const REPO_DELTA_QUERY = `query WorkspaceRepoDelta($owner: String!, $name: String!, $since: DateTime, $cursor: String, $boardOrg: Boolean!, $boardUser: Boolean!, $boardOwner: String!, $boardNumber: Int!) {
   viewer { login }
   rateLimit { cost limit remaining resetAt }
   repository(owner: $owner, name: $name) {
@@ -89,10 +89,10 @@ const REPO_DELTA_QUERY = `query WorkspaceRepoDelta($owner: String!, $name: Strin
     }
   }
   orgBoard: organization(login: $boardOwner) @include(if: $boardOrg) {
-    projectV2(number: $boardNumber) @include(if: $includeBoard) { id updatedAt }
+    projectV2(number: $boardNumber) { id updatedAt }
   }
-  userBoard: user(login: $boardOwner) @skip(if: $boardOrg) {
-    projectV2(number: $boardNumber) @include(if: $includeBoard) { id updatedAt }
+  userBoard: user(login: $boardOwner) @include(if: $boardUser) {
+    projectV2(number: $boardNumber) { id updatedAt }
   }
 }`;
 
@@ -220,6 +220,25 @@ const PR_VIEW_QUERY = `query WorkspacePRView($owner: String!, $name: String!, $n
 type RawPageInfo = { hasNextPage: boolean; endCursor: string | null };
 type RawAny = Record<string, any>;
 
+const COMMIT_OID = /^[a-f0-9]{40,64}$/;
+
+function truncate(value: string, max: number): string {
+  return value.length <= max ? value : value.slice(0, max);
+}
+
+function truncateTitle(value: unknown, fallback = "(untitled)"): string {
+  const text = typeof value === "string" ? value.trim() : "";
+  return truncate(text || fallback, 1024);
+}
+
+function truncateNullable(value: unknown, max: number): string | null {
+  return typeof value === "string" ? truncate(value, max) : null;
+}
+
+function validOid(value: unknown): string | null {
+  return typeof value === "string" && COMMIT_OID.test(value) ? value : null;
+}
+
 function mapStateReason(value: string | null | undefined): WorkspaceIssueFacts["stateReason"] {
   if (value === "COMPLETED") return "completed";
   if (value === "NOT_PLANNED") return "not-planned";
@@ -235,9 +254,12 @@ function mapPrState(value: string): WorkspacePullRequestFacts["state"] {
 }
 
 function mapPrNode(node: RawAny, observedAt: string): WorkspacePullRequestFacts {
+  const headOid = validOid(node.headRefOid);
+  const baseOid = validOid(node.baseRefOid);
   const rollup = node.commits?.nodes?.at(-1)?.commit?.statusCheckRollup;
+  const rollupOid = validOid(rollup?.commit?.oid);
   const checkStatus =
-    !rollup || rollup.commit?.oid !== node.headRefOid
+    !rollup || !headOid || rollupOid !== headOid
       ? "unknown"
       : rollup.state === "SUCCESS"
         ? "passing"
@@ -255,20 +277,26 @@ function mapPrNode(node: RawAny, observedAt: string): WorkspacePullRequestFacts 
         : node.reviewDecision === "REVIEW_REQUIRED"
           ? "review-required"
           : null;
-  const review = node.headRefOid
+  const review = headOid
     ? {
         decision: decision as "approved" | "changes-requested" | "review-required" | null,
         hasApproval: opinions.some((opinion) => opinion.state === "APPROVED"),
-        headOid: node.headRefOid as string,
+        headOid,
         observedAt,
       }
     : undefined;
   const threads: { isResolved: boolean }[] | undefined = node.reviewThreads?.nodes;
-  const requestedReviewers = ((node.reviewRequests?.nodes ?? []) as RawAny[]).flatMap((req) => {
-    const r = req.requestedReviewer;
-    if (!r) return [];
-    return [r.login ?? `${r.organization?.login}/${r.slug}`];
-  });
+  const requestedReviewers = ((node.reviewRequests?.nodes ?? []) as RawAny[])
+    .flatMap((req) => {
+      const r = req.requestedReviewer;
+      if (!r) return [];
+      if (typeof r.login === "string" && r.login) return [truncate(r.login, 512)];
+      if (typeof r.organization?.login === "string" && typeof r.slug === "string") {
+        return [truncate(`${r.organization.login}/${r.slug}`, 512)];
+      }
+      return [];
+    })
+    .slice(0, 100);
   const queueEntry = node.mergeQueueEntry;
   const queueStateMap: Record<
     string,
@@ -283,20 +311,23 @@ function mapPrNode(node: RawAny, observedAt: string): WorkspacePullRequestFacts 
   return {
     nodeId: node.id,
     number: node.number,
-    title: node.title,
+    title: truncateTitle(node.title),
     state: mapPrState(node.state),
-    author: node.author?.login ?? null,
-    labels: ((node.labels?.nodes ?? []) as RawAny[]).map((l) => l.name),
+    author: truncateNullable(node.author?.login, 512),
+    labels: ((node.labels?.nodes ?? []) as RawAny[])
+      .filter((l) => typeof l?.name === "string")
+      .map((l) => truncate(l.name, 512))
+      .slice(0, 100),
     requestedReviewers,
-    headOid: node.headRefOid ?? null,
-    headRefName: node.headRefName ?? "",
-    baseOid: node.baseRefOid ?? null,
+    headOid,
+    headRefName: truncate(typeof node.headRefName === "string" ? node.headRefName : "", 512),
+    baseOid,
     ...(review ? { review } : {}),
     ...(node.isMergeQueueEnabled !== undefined
       ? {
           queue: {
             enabled: node.isMergeQueueEnabled === true,
-            url: node.mergeQueue?.url ?? null,
+            url: truncateNullable(node.mergeQueue?.url, 2048),
             size: node.mergeQueue?.entries?.totalCount ?? null,
             nextEntryEstimatedSecondsToMerge:
               node.mergeQueue?.nextEntryEstimatedTimeToMerge ?? null,
@@ -305,12 +336,12 @@ function mapPrNode(node: RawAny, observedAt: string): WorkspacePullRequestFacts 
                   position: queueEntry.position,
                   state: queueStateMap[queueEntry.state] ?? "queued",
                   enqueuedAt: queueEntry.enqueuedAt,
-                  enqueuer: queueEntry.enqueuer?.login ?? null,
+                  enqueuer: truncateNullable(queueEntry.enqueuer?.login, 512),
                   estimatedSecondsToMerge: queueEntry.estimatedTimeToMerge ?? null,
                   jump: Boolean(queueEntry.jump),
                   solo: Boolean(queueEntry.solo),
-                  headOid: queueEntry.headCommit?.oid ?? null,
-                  baseOid: queueEntry.baseCommit?.oid ?? null,
+                  headOid: validOid(queueEntry.headCommit?.oid),
+                  baseOid: validOid(queueEntry.baseCommit?.oid),
                 }
               : null,
             observedAt,
@@ -318,11 +349,14 @@ function mapPrNode(node: RawAny, observedAt: string): WorkspacePullRequestFacts 
         }
       : {}),
     draft: Boolean(node.isDraft),
-    additions: node.additions ?? 0,
-    deletions: node.deletions ?? 0,
-    changedFiles: node.changedFiles ?? 0,
+    additions: Math.max(0, node.additions ?? 0),
+    deletions: Math.max(0, node.deletions ?? 0),
+    changedFiles: Math.max(0, node.changedFiles ?? 0),
     milestoneId: node.milestone?.id ?? null,
-    closingIssueIds: ((node.closingIssuesReferences?.nodes ?? []) as RawAny[]).map((i) => i.id),
+    closingIssueIds: ((node.closingIssuesReferences?.nodes ?? []) as RawAny[])
+      .filter((i) => typeof i?.id === "string")
+      .map((i) => i.id)
+      .slice(0, 100),
     merge: {
       status:
         node.mergeable === "MERGEABLE"
@@ -330,13 +364,13 @@ function mapPrNode(node: RawAny, observedAt: string): WorkspacePullRequestFacts 
           : node.mergeable === "CONFLICTING"
             ? "conflicting"
             : "unknown",
-      headOid: node.headRefOid ?? null,
-      baseOid: node.baseRefOid ?? null,
+      headOid,
+      baseOid,
       observedAt,
     },
-    checks: { status: checkStatus, headOid: rollup?.commit?.oid ?? null, observedAt },
+    checks: { status: checkStatus, headOid: rollupOid, observedAt },
     hasUnresolvedConversations: threads ? threads.some((t) => !t.isResolved) : null,
-    url: node.url,
+    url: truncate(String(node.url ?? ""), 2048),
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,
     mergedAt: node.mergedAt ?? null,
@@ -345,17 +379,19 @@ function mapPrNode(node: RawAny, observedAt: string): WorkspacePullRequestFacts 
 }
 
 function mapStubPr(node: RawAny, observedAt: string): WorkspacePullRequestFacts {
+  const headOid = validOid(node.headRefOid);
+  const baseOid = validOid(node.baseRefOid);
   return {
     nodeId: node.id,
     number: node.number,
-    title: node.title,
+    title: truncateTitle(node.title),
     state: mapPrState(node.state),
-    author: node.author?.login ?? null,
+    author: truncateNullable(node.author?.login, 512),
     labels: [],
     requestedReviewers: [],
-    headOid: node.headRefOid ?? null,
-    headRefName: node.headRefName ?? "",
-    baseOid: node.baseRefOid ?? null,
+    headOid,
+    headRefName: truncate(typeof node.headRefName === "string" ? node.headRefName : "", 512),
+    baseOid,
     draft: Boolean(node.isDraft),
     additions: 0,
     deletions: 0,
@@ -364,13 +400,13 @@ function mapStubPr(node: RawAny, observedAt: string): WorkspacePullRequestFacts 
     closingIssueIds: [],
     merge: {
       status: "unknown",
-      headOid: node.headRefOid ?? null,
-      baseOid: node.baseRefOid ?? null,
+      headOid,
+      baseOid,
       observedAt,
     },
     checks: { status: "unknown", headOid: null, observedAt },
     hasUnresolvedConversations: null,
-    url: node.url,
+    url: truncate(String(node.url ?? ""), 2048),
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,
     mergedAt: node.mergedAt ?? null,
@@ -400,23 +436,25 @@ function mapSlimIssue(node: RawAny): SlimIssueRecord {
   return {
     nodeId: node.id,
     number: node.number,
-    title: node.title,
+    title: truncateTitle(node.title),
     state: node.state === "CLOSED" ? "closed" : "open",
     stateReason: mapStateReason(node.stateReason),
-    author: node.author?.login ?? null,
-    issueType: node.issueType ? { id: node.issueType.id, name: node.issueType.name } : null,
+    author: truncateNullable(node.author?.login, 512),
+    issueType: node.issueType
+      ? { id: node.issueType.id, name: truncate(String(node.issueType.name ?? ""), 512) }
+      : null,
     milestoneId: node.milestone?.id ?? null,
     parentIssueId: node.parent?.id ?? null,
     subIssuesSummary: {
-      total: node.subIssuesSummary?.total ?? 0,
-      completed: node.subIssuesSummary?.completed ?? 0,
-      percentCompleted: node.subIssuesSummary?.percentCompleted ?? 0,
+      total: Math.max(0, node.subIssuesSummary?.total ?? 0),
+      completed: Math.max(0, node.subIssuesSummary?.completed ?? 0),
+      percentCompleted: Math.max(0, node.subIssuesSummary?.percentCompleted ?? 0),
     },
     dependenciesSummary: {
-      blockedBy: node.issueDependenciesSummary?.blockedBy ?? 0,
-      blocking: node.issueDependenciesSummary?.blocking ?? 0,
+      blockedBy: Math.max(0, node.issueDependenciesSummary?.blockedBy ?? 0),
+      blocking: Math.max(0, node.issueDependenciesSummary?.blocking ?? 0),
     },
-    url: node.url,
+    url: truncate(String(node.url ?? ""), 2048),
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,
     closedAt: node.closedAt ?? null,
@@ -431,15 +469,29 @@ function mapFullIssue(
   linkedPrStubs: WorkspacePullRequestFacts[];
 } {
   const slim = mapSlimIssue(node);
-  const prNodes: RawAny[] = node.closedByPullRequestsReferences?.nodes ?? [];
+  const prNodes: RawAny[] = ((node.closedByPullRequestsReferences?.nodes ?? []) as RawAny[]).filter(
+    (p) => typeof p?.id === "string",
+  );
   return {
     issue: {
       ...slim,
-      assignees: ((node.assignees?.nodes ?? []) as RawAny[]).map((a) => a.login),
-      labels: ((node.labels?.nodes ?? []) as RawAny[]).map((l) => l.name),
-      blockedByIds: ((node.blockedBy?.nodes ?? []) as RawAny[]).map((b) => b.id),
-      blockingIds: ((node.blocking?.nodes ?? []) as RawAny[]).map((b) => b.id),
-      linkedPrIds: prNodes.map((p) => p.id),
+      assignees: ((node.assignees?.nodes ?? []) as RawAny[])
+        .filter((a) => typeof a?.login === "string")
+        .map((a) => truncate(a.login, 512))
+        .slice(0, 100),
+      labels: ((node.labels?.nodes ?? []) as RawAny[])
+        .filter((l) => typeof l?.name === "string")
+        .map((l) => truncate(l.name, 512))
+        .slice(0, 100),
+      blockedByIds: ((node.blockedBy?.nodes ?? []) as RawAny[])
+        .filter((b) => typeof b?.id === "string")
+        .map((b) => b.id)
+        .slice(0, 200),
+      blockingIds: ((node.blocking?.nodes ?? []) as RawAny[])
+        .filter((b) => typeof b?.id === "string")
+        .map((b) => b.id)
+        .slice(0, 200),
+      linkedPrIds: prNodes.map((p) => p.id).slice(0, 100),
     },
     linkedPrStubs: prNodes.map((p) => mapStubPr(p, observedAt)),
   };
@@ -448,15 +500,16 @@ function mapFullIssue(
 function mapBoardFieldValue(node: RawAny): WorkspaceBoardFieldValue | null {
   const field = node.field;
   if (!field?.id || !field?.name) return null;
+  const fieldName = truncate(String(field.name), 512);
   const type = node.__typename;
   if (type === "ProjectV2ItemFieldSingleSelectValue") {
     return {
       fieldId: field.id,
-      fieldName: field.name,
+      fieldName,
       type: "single-select",
-      text: node.name ?? null,
+      text: truncateNullable(node.name, 20_000),
       number: null,
-      optionId: node.optionId ?? null,
+      optionId: truncateNullable(node.optionId, 512),
       iterationId: null,
       updatedAt: node.updatedAt ?? null,
     };
@@ -464,22 +517,22 @@ function mapBoardFieldValue(node: RawAny): WorkspaceBoardFieldValue | null {
   if (type === "ProjectV2ItemFieldIterationValue") {
     return {
       fieldId: field.id,
-      fieldName: field.name,
+      fieldName,
       type: "iteration",
-      text: node.title ?? null,
+      text: truncateNullable(node.title, 20_000),
       number: null,
       optionId: null,
-      iterationId: node.iterationId ?? null,
+      iterationId: truncateNullable(node.iterationId, 512),
       updatedAt: node.updatedAt ?? null,
     };
   }
   if (type === "ProjectV2ItemFieldNumberValue") {
     return {
       fieldId: field.id,
-      fieldName: field.name,
+      fieldName,
       type: "number",
       text: null,
-      number: typeof node.number === "number" ? node.number : null,
+      number: typeof node.number === "number" && Number.isFinite(node.number) ? node.number : null,
       optionId: null,
       iterationId: null,
       updatedAt: node.updatedAt ?? null,
@@ -488,9 +541,9 @@ function mapBoardFieldValue(node: RawAny): WorkspaceBoardFieldValue | null {
   if (type === "ProjectV2ItemFieldDateValue") {
     return {
       fieldId: field.id,
-      fieldName: field.name,
+      fieldName,
       type: "date",
-      text: node.date ?? null,
+      text: truncateNullable(node.date, 20_000),
       number: null,
       optionId: null,
       iterationId: null,
@@ -500,9 +553,9 @@ function mapBoardFieldValue(node: RawAny): WorkspaceBoardFieldValue | null {
   if (type === "ProjectV2ItemFieldTextValue") {
     return {
       fieldId: field.id,
-      fieldName: field.name,
+      fieldName,
       type: "text",
-      text: node.text ?? null,
+      text: truncateNullable(node.text, 20_000),
       number: null,
       optionId: null,
       iterationId: null,
@@ -516,8 +569,8 @@ function formatTimelineEvent(
   node: RawAny,
 ): { type: string; at: string; actor: string | null; summary: string } | null {
   if (!node?.createdAt || !node?.__typename) return null;
-  const actor = node.actor?.login ?? null;
-  const type = String(node.__typename);
+  const actor = truncateNullable(node.actor?.login, 512);
+  const type = truncate(String(node.__typename), 512);
   let summary = type.replace(/Event$/, "");
   if (type === "ProjectV2ItemStatusChangedEvent")
     summary = `Status: ${node.previousStatus ?? "(empty)"} -> ${node.status ?? "(empty)"}`;
@@ -532,7 +585,7 @@ function formatTimelineEvent(
     summary = `Blocked by #${node.blockingIssue.number}`;
   else if (type === "BlockedByRemovedEvent" && node.blockingIssue)
     summary = `Unblocked from #${node.blockingIssue.number}`;
-  return { type, at: node.createdAt, actor, summary };
+  return { type, at: node.createdAt, actor, summary: truncate(summary, 512) };
 }
 
 export class WorkspaceGitHubClient {
@@ -606,6 +659,7 @@ export class WorkspaceGitHubClient {
         { ids: batch },
         signal,
         0,
+        { allowNotFound: true },
       );
       cost += observation.cost;
       for (const node of (data.nodes ?? []) as RawAny[]) {
@@ -636,7 +690,8 @@ export class WorkspaceGitHubClient {
     const seen = new Set<string>();
     let includeBoard = boardRef !== null;
 
-    do {
+    while (true) {
+      const queryBoard = includeBoard && cursor === null;
       let data: RawAny;
       try {
         const res = await this.transport.graphql<RawAny>(
@@ -646,8 +701,8 @@ export class WorkspaceGitHubClient {
             name: repository.name,
             since,
             cursor,
-            includeBoard,
-            boardOrg: boardRef?.ownerType === "organization",
+            boardOrg: queryBoard && boardRef?.ownerType === "organization",
+            boardUser: queryBoard && boardRef?.ownerType === "user",
             boardOwner: boardRef?.owner ?? repository.owner,
             boardNumber: boardRef?.number ?? 1,
           },
@@ -657,7 +712,11 @@ export class WorkspaceGitHubClient {
         data = res.data;
         cost += res.observation.cost;
       } catch (error) {
-        if (includeBoard && error instanceof WorkspaceGitHubError && error.kind === "scope") {
+        if (
+          queryBoard &&
+          error instanceof WorkspaceGitHubError &&
+          (error.kind === "scope" || error.kind === "permission")
+        ) {
           boardError = error.message;
           includeBoard = false;
           continue;
@@ -674,16 +733,16 @@ export class WorkspaceGitHubClient {
         milestones = ((repo.milestones?.nodes ?? []) as RawAny[]).map((m) => ({
           nodeId: m.id,
           number: m.number,
-          title: m.title,
-          description: m.description ?? "",
+          title: truncateTitle(m.title),
+          description: truncate(typeof m.description === "string" ? m.description : "", 20_000),
           state: m.state === "CLOSED" ? "closed" : "open",
           dueOn: m.dueOn ?? null,
           updatedAt: m.updatedAt,
-          openIssues: m.open?.totalCount ?? 0,
-          closedIssues: m.closed?.totalCount ?? 0,
+          openIssues: Math.max(0, m.open?.totalCount ?? 0),
+          closedIssues: Math.max(0, m.closed?.totalCount ?? 0),
         }));
         const proj = data.orgBoard?.projectV2 ?? data.userBoard?.projectV2;
-        if (includeBoard) boardUpdatedAt = proj?.updatedAt ?? null;
+        if (queryBoard) boardUpdatedAt = proj?.updatedAt ?? null;
       }
       for (const node of repo.issues.nodes as RawAny[]) issues.push(mapSlimIssue(node));
       const pageInfo: RawPageInfo = repo.issues.pageInfo;
@@ -691,8 +750,9 @@ export class WorkspaceGitHubClient {
         pageInfo.hasNextPage && pageInfo.endCursor && !seen.has(pageInfo.endCursor)
           ? pageInfo.endCursor
           : null;
-      if (cursor) seen.add(cursor);
-    } while (cursor);
+      if (!cursor) break;
+      seen.add(cursor);
+    }
 
     return { milestones, issues, boardUpdatedAt, boardError, cost };
   }
@@ -745,6 +805,7 @@ export class WorkspaceGitHubClient {
         { ids: batch },
         signal,
         0,
+        { allowNotFound: true },
       );
       cost += observation.cost;
       for (const node of (data.nodes ?? []) as RawAny[]) {
@@ -757,13 +818,73 @@ export class WorkspaceGitHubClient {
     return { issues, linkedPrStubs: [...stubMap.values()], cost };
   }
 
+  private async fetchBoardSchema(
+    boardRef: WorkspaceBoardRef,
+    vars: { boardOrg: boolean; boardOwner: string; boardNumber: number },
+    signal: AbortSignal,
+  ): Promise<{
+    schema: Pick<WorkspaceBoard, "nodeId" | "title" | "url" | "fields" | "views">;
+    updatedAt: string;
+    cost: number;
+  }> {
+    const res = await this.transport.graphql<RawAny>(BOARD_SCHEMA_QUERY, vars, signal, 0);
+    const proj = res.data.orgBoard?.projectV2 ?? res.data.userBoard?.projectV2;
+    if (!proj)
+      throw new WorkspaceGitHubError(
+        `Project #${boardRef.number} under ${boardRef.owner} was not found or is inaccessible.`,
+        "permission",
+      );
+    const fields: WorkspaceBoardField[] = ((proj.fields?.nodes ?? []) as RawAny[])
+      .filter((f) => f?.id && f?.name)
+      .slice(0, 100)
+      .map((f) => ({
+        id: f.id,
+        name: truncate(String(f.name), 512),
+        dataType: truncate(String(f.dataType ?? "TEXT"), 512),
+        options: ((f.options ?? []) as RawAny[]).slice(0, 200).map((o) => ({
+          id: truncate(String(o.id), 512),
+          name: truncate(String(o.name), 512),
+          color: truncateNullable(o.color, 512),
+          description: truncateNullable(o.description, 512),
+        })),
+        iterations: ((f.configuration?.iterations ?? []) as RawAny[]).slice(0, 200).map((it) => ({
+          id: truncate(String(it.id), 512),
+          title: truncate(String(it.title), 512),
+          startDate: truncate(String(it.startDate), 512),
+          duration: Math.max(0, it.duration ?? 0),
+        })),
+      }));
+    const views: WorkspaceBoardView[] = ((proj.views?.nodes ?? []) as RawAny[])
+      .filter((v) => v?.id)
+      .slice(0, 50)
+      .map((v) => ({
+        id: v.id,
+        number: v.number,
+        name: truncate(String(v.name ?? ""), 512),
+        layout: truncate(String(v.layout ?? ""), 512),
+        filter: truncateNullable(v.filter, 20_000),
+      }));
+    return {
+      schema: {
+        nodeId: proj.id,
+        title: truncate(typeof proj.title === "string" ? proj.title : "", 1024),
+        url: truncate(String(proj.url ?? ""), 2048),
+        fields,
+        views,
+      },
+      updatedAt: proj.updatedAt,
+      cost: res.observation.cost,
+    };
+  }
+
   async readBoard(
     boardRef: WorkspaceBoardRef,
     existingSchema: Pick<WorkspaceBoard, "nodeId" | "title" | "url" | "fields" | "views"> | null,
     signal: AbortSignal,
-  ): Promise<{ board: WorkspaceBoard; cost: number }> {
+  ): Promise<{ board: WorkspaceBoard; cost: number; schemaRefreshed: boolean }> {
     let cost = 0;
     let schema = existingSchema;
+    let schemaRefreshed = false;
     let updatedAt = "";
     const vars = {
       boardOrg: boardRef.ownerType === "organization",
@@ -771,44 +892,11 @@ export class WorkspaceGitHubClient {
       boardNumber: boardRef.number,
     };
     if (!schema) {
-      const res = await this.transport.graphql<RawAny>(BOARD_SCHEMA_QUERY, vars, signal, 0);
-      cost += res.observation.cost;
-      const proj = res.data.orgBoard?.projectV2 ?? res.data.userBoard?.projectV2;
-      if (!proj)
-        throw new WorkspaceGitHubError(
-          `Project #${boardRef.number} under ${boardRef.owner} was not found or is inaccessible.`,
-          "permission",
-        );
-      updatedAt = proj.updatedAt;
-      const fields: WorkspaceBoardField[] = ((proj.fields?.nodes ?? []) as RawAny[])
-        .filter((f) => f?.id && f?.name)
-        .map((f) => ({
-          id: f.id,
-          name: f.name,
-          dataType: f.dataType ?? "TEXT",
-          options: ((f.options ?? []) as RawAny[]).map((o) => ({
-            id: o.id,
-            name: o.name,
-            color: o.color ?? null,
-            description: o.description ?? null,
-          })),
-          iterations: ((f.configuration?.iterations ?? []) as RawAny[]).map((it) => ({
-            id: it.id,
-            title: it.title,
-            startDate: it.startDate,
-            duration: it.duration ?? 0,
-          })),
-        }));
-      const views: WorkspaceBoardView[] = ((proj.views?.nodes ?? []) as RawAny[])
-        .filter((v) => v?.id)
-        .map((v) => ({
-          id: v.id,
-          number: v.number,
-          name: v.name,
-          layout: v.layout,
-          filter: v.filter ?? null,
-        }));
-      schema = { nodeId: proj.id, title: proj.title, url: proj.url, fields, views };
+      const fetched = await this.fetchBoardSchema(boardRef, vars, signal);
+      cost += fetched.cost;
+      updatedAt = fetched.updatedAt;
+      schema = fetched.schema;
+      schemaRefreshed = true;
     }
 
     let cursor: string | null = null;
@@ -829,8 +917,15 @@ export class WorkspaceGitHubClient {
           "Project board became inaccessible during refresh.",
           "permission",
         );
+      if (position === 0 && schema.nodeId !== proj.id) {
+        const fetched = await this.fetchBoardSchema(boardRef, vars, signal);
+        cost += fetched.cost;
+        schema = fetched.schema;
+        schemaRefreshed = true;
+      }
       updatedAt = proj.updatedAt;
       for (const node of (proj.items?.nodes ?? []) as RawAny[]) {
+        if (items.length >= 50_000) break;
         const contentType =
           node.type === "ISSUE"
             ? "issue"
@@ -841,19 +936,21 @@ export class WorkspaceGitHubClient {
                 : "redacted";
         const fieldValues = ((node.fieldValues?.nodes ?? []) as RawAny[])
           .map(mapBoardFieldValue)
-          .filter((v): v is WorkspaceBoardFieldValue => v !== null);
+          .filter((v): v is WorkspaceBoardFieldValue => v !== null)
+          .slice(0, 50);
         items.push({
           itemId: node.id,
           position: position++,
           contentType,
           contentNodeId: node.content?.id ?? null,
-          draftTitle: contentType === "draft" ? (node.content?.title ?? null) : null,
+          draftTitle: contentType === "draft" ? truncateNullable(node.content?.title, 1024) : null,
           isArchived: Boolean(node.isArchived),
           createdAt: node.createdAt,
           updatedAt: node.updatedAt,
           fieldValues,
         });
       }
+      if (items.length >= 50_000) break;
       const pageInfo: RawPageInfo = proj.items.pageInfo;
       cursor =
         pageInfo.hasNextPage && pageInfo.endCursor && !seen.has(pageInfo.endCursor)
@@ -872,7 +969,21 @@ export class WorkspaceGitHubClient {
         items,
       },
       cost,
+      schemaRefreshed,
     };
+  }
+
+  private async readPaginatedRest(basePath: string, signal: AbortSignal): Promise<RawAny[]> {
+    const all: RawAny[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const path =
+        page === 1 ? `${basePath}?per_page=100` : `${basePath}?per_page=100&page=${page}`;
+      const rows = await this.transport.rest<RawAny[]>(path, signal, 1);
+      if (!Array.isArray(rows) || rows.length === 0) break;
+      all.push(...rows);
+      if (rows.length < 100) break;
+    }
+    return all;
   }
 
   async readPullRequestDetail(
@@ -889,46 +1000,51 @@ export class WorkspaceGitHubClient {
     const view = viewRes.data.repository?.pullRequest;
     if (!view || view.id !== pr.nodeId)
       throw new WorkspaceGitHubError("Pull request could not be read.", "permission");
-    if (pr.headOid && view.headRefOid !== pr.headOid)
+    if (
+      (pr.headOid && view.headRefOid !== pr.headOid) ||
+      (pr.baseOid && view.baseRefOid && view.baseRefOid !== pr.baseOid)
+    )
       throw new WorkspaceGitHubError(
         "This pull request changed. Sync before opening its details.",
         "comparison",
       );
-    const filesRaw = await this.transport.rest<RawAny[]>(
-      `repos/${repository.owner}/${repository.name}/pulls/${pr.number}/files?per_page=100`,
+    const filesRaw = await this.readPaginatedRest(
+      `repos/${repository.owner}/${repository.name}/pulls/${pr.number}/files`,
       signal,
-      1,
     );
-    const reviewsRaw = await this.transport.rest<RawAny[]>(
-      `repos/${repository.owner}/${repository.name}/pulls/${pr.number}/reviews?per_page=100`,
+    const reviewsRaw = await this.readPaginatedRest(
+      `repos/${repository.owner}/${repository.name}/pulls/${pr.number}/reviews`,
       signal,
-      1,
     );
-    const diff = await this.transport.prDiff(
-      repository.owner,
-      repository.name,
-      pr.number,
-      signal,
-      1,
-    );
+    let diff: string;
+    try {
+      diff = await this.transport.prDiff(repository.owner, repository.name, pr.number, signal, 1);
+    } catch (error) {
+      if (error instanceof WorkspaceGitHubError && error.diagnostic.status === 406) {
+        diff =
+          "Diff unavailable: GitHub returned HTTP 406 because this pull request diff exceeds GitHub's size limit.";
+      } else {
+        throw error;
+      }
+    }
     return {
       headOid: view.headRefOid,
-      body: view.body ?? "",
-      diff,
-      files: filesRaw.map((f) => ({
-        path: f.filename,
-        sha: f.sha ?? null,
-        additions: f.additions ?? 0,
-        deletions: f.deletions ?? 0,
-        status: f.status ?? "modified",
+      body: truncate(typeof view.body === "string" ? view.body : "", 256 * 1024),
+      diff: truncate(diff, 2 * 1024 * 1024),
+      files: filesRaw.slice(0, 10_000).map((f) => ({
+        path: truncate(String(f.filename ?? ""), 4096),
+        sha: validOid(f.sha),
+        additions: Math.max(0, f.additions ?? 0),
+        deletions: Math.max(0, f.deletions ?? 0),
+        status: truncate(String(f.status ?? "modified"), 512),
       })),
-      reviews: reviewsRaw.map((r) => ({
-        id: String(r.id),
-        author: r.user?.login ?? null,
-        state: r.state ?? "COMMENTED",
-        body: r.body ?? "",
+      reviews: reviewsRaw.slice(0, 10_000).map((r) => ({
+        id: truncate(String(r.id), 512),
+        author: truncateNullable(r.user?.login, 512),
+        state: truncate(String(r.state ?? "COMMENTED"), 512),
+        body: truncate(typeof r.body === "string" ? r.body : "", 20_000),
         submittedAt: r.submitted_at ?? null,
-        headOid: r.commit_id ?? null,
+        headOid: validOid(r.commit_id),
       })),
       fetchedAt: new Date().toISOString(),
     };
@@ -940,14 +1056,15 @@ export class WorkspaceGitHubClient {
     if (!node?.id) throw new WorkspaceGitHubError("Issue could not be read.", "permission");
     return {
       nodeId: node.id,
-      body: node.body ?? "",
-      comments: ((node.comments?.nodes ?? []) as RawAny[]).map((c) => ({
-        id: c.id,
-        author: c.author?.login ?? null,
-        body: c.body ?? "",
+      body: truncate(typeof node.body === "string" ? node.body : "", 256 * 1024),
+      comments: ((node.comments?.nodes ?? []) as RawAny[]).slice(0, 500).map((c) => ({
+        id: truncate(String(c.id), 512),
+        author: truncateNullable(c.author?.login, 512),
+        body: truncate(typeof c.body === "string" ? c.body : "", 20_000),
         createdAt: c.createdAt,
       })),
       timeline: ((node.timelineItems?.nodes ?? []) as RawAny[])
+        .slice(0, 500)
         .map(formatTimelineEvent)
         .filter((e): e is NonNullable<typeof e> => e !== null),
       fetchedAt: new Date().toISOString(),

@@ -34,12 +34,17 @@ export interface GitHubRateObservation {
   resetAt: string;
 }
 
+export interface GitHubGraphqlOptions {
+  allowNotFound?: boolean;
+}
+
 export interface GitHubTransport {
   graphql<T = Record<string, unknown>>(
     query: string,
     variables: Record<string, unknown>,
     signal: AbortSignal,
     priority?: number,
+    options?: GitHubGraphqlOptions,
   ): Promise<{ data: T; observation: GitHubRateObservation }>;
   rest<T = unknown>(path: string, signal: AbortSignal, priority?: number): Promise<T>;
   prDiff(
@@ -56,28 +61,108 @@ export interface GitHubTransport {
   ): void;
 }
 
-export function classifyGitHubFailure(text: string, now = Date.now()): WorkspaceGitHubError {
-  if (/INSUFFICIENT_SCOPES|read:project|project.*scope/i.test(text)) {
+type ParsedHttpResponse = {
+  status?: number;
+  headers: Map<string, string>;
+  body: string;
+};
+
+type GraphqlErrorEntry = {
+  type?: string;
+  message?: string;
+};
+
+function splitHttpResponse(raw: string): ParsedHttpResponse {
+  let rest = raw;
+  let status: number | undefined;
+  let headers = new Map<string, string>();
+  while (rest.startsWith("HTTP/")) {
+    const crlf = rest.indexOf("\r\n\r\n");
+    const lf = rest.indexOf("\n\n");
+    const split =
+      crlf >= 0 && (lf < 0 || crlf < lf)
+        ? { idx: crlf, len: 4 }
+        : lf >= 0
+          ? { idx: lf, len: 2 }
+          : null;
+    if (!split) break;
+    const head = rest.slice(0, split.idx);
+    const lines = head.split(/\r?\n/);
+    const statusMatch = /^HTTP\/[^\s]+\s+(\d{3})\b/i.exec(lines[0] ?? "");
+    status = statusMatch ? Number(statusMatch[1]) : status;
+    headers = new Map<string, string>();
+    for (let i = 1; i < lines.length; i++) {
+      const colon = lines[i]!.indexOf(":");
+      if (colon <= 0) continue;
+      const key = lines[i]!.slice(0, colon).trim().toLowerCase();
+      const val = lines[i]!.slice(colon + 1).trim();
+      headers.set(key, val);
+    }
+    rest = rest.slice(split.idx + split.len);
+  }
+  return { status, headers, body: rest };
+}
+
+function tryParseJson(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function classifyGitHubFailure(
+  raw: string,
+  now = Date.now(),
+  stderr = "",
+): WorkspaceGitHubError {
+  const { status: httpStatus, headers, body } = splitHttpResponse(raw);
+  const parsed = tryParseJson(body);
+  const graphqlErrors: GraphqlErrorEntry[] = Array.isArray(parsed?.errors)
+    ? (parsed.errors as GraphqlErrorEntry[])
+    : [];
+  const jsonMessage = typeof parsed?.message === "string" ? parsed.message : "";
+
+  const stderrStatusText =
+    /(?:HTTP(?:\/[^\s]+)?\s+|status[=: ]+)(401|403|404|406|429|5\d\d)\b/i.exec(stderr)?.[1];
+  const status = httpStatus ?? (stderrStatusText ? Number(stderrStatusText) : undefined);
+
+  const retry = headers.get("retry-after")?.trim();
+  const reset = headers.get("x-ratelimit-reset")?.trim();
+  const exhausted = headers.get("x-ratelimit-remaining")?.trim() === "0";
+
+  // Inspect structured GraphQL errors before falling back to body/stderr text patterns.
+  if (
+    graphqlErrors.some(
+      (err) =>
+        err?.type === "INSUFFICIENT_SCOPES" ||
+        /\bread:project\b|missing required scopes.*project/i.test(err?.message ?? ""),
+    )
+  ) {
     return new WorkspaceGitHubError(
       "Your GitHub CLI token needs the read:project scope. Run: gh auth refresh -s read:project",
       "scope",
       null,
-      { code: "INSUFFICIENT_SCOPES" },
+      { status, code: "INSUFFICIENT_SCOPES" },
     );
   }
-  const statusText = /(?:HTTP(?:\/[^\s]+)?\s+|status[=: ]+)(401|403|404|429|5\d\d)\b/i.exec(
-    text,
-  )?.[1];
-  const status = statusText ? Number(statusText) : undefined;
-  const retry = /retry-after\s*:\s*([^\r\n]+)/i.exec(text)?.[1]?.trim();
-  const reset = /x-ratelimit-reset\s*:\s*(\d+)/i.exec(text)?.[1];
-  const exhausted = /x-ratelimit-remaining\s*:\s*0\b/i.test(text);
-  const cleaned = text.replace(/^\s*(?:x-ratelimit-[^\r\n]*|retry-after:[^\r\n]*)/gim, "");
+
+  const errorText = [
+    jsonMessage,
+    ...graphqlErrors.map((err) => err?.message ?? ""),
+    parsed ? "" : body,
+    stderr,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   const throttle =
     status === 429 ||
     exhausted ||
-    /rate[ _-]limit(?:ed| exceeded|ing|\b)|secondary rate|abuse detection|RATE_LIMITED/i.test(
-      cleaned,
+    graphqlErrors.some((err) => err?.type === "RATE_LIMITED") ||
+    /rate[ _-]limit(?:ed| exceeded|ing)\b|secondary rate|abuse detection|API rate limit/i.test(
+      errorText,
     );
   if (throttle) {
     const retryDate =
@@ -86,7 +171,7 @@ export function classifyGitHubFailure(text: string, now = Date.now()): Workspace
         : retry
           ? Date.parse(retry)
           : NaN;
-    const resetDate = exhausted && reset ? Number(reset) * 1000 : NaN;
+    const resetDate = exhausted && reset && /^\d+$/.test(reset) ? Number(reset) * 1000 : NaN;
     const retryAt = Math.max(
       now + 1_000,
       ...[retryDate, resetDate].filter(Number.isFinite),
@@ -99,35 +184,61 @@ export function classifyGitHubFailure(text: string, now = Date.now()): Workspace
       { status, code: "RATE_LIMITED" },
     );
   }
-  if (/network|timeout|connection|resolve host|dial tcp/i.test(text) || (status && status >= 500))
+
+  if (/INSUFFICIENT_SCOPES|required scopes.*read:project|missing.*read:project/i.test(errorText)) {
+    return new WorkspaceGitHubError(
+      "Your GitHub CLI token needs the read:project scope. Run: gh auth refresh -s read:project",
+      "scope",
+      null,
+      { status, code: "INSUFFICIENT_SCOPES" },
+    );
+  }
+
+  if (
+    (status !== undefined && status >= 500) ||
+    /dial tcp|resolve host|no such host|ECONNREFUSED|ECONNRESET|ETIMEDOUT|connection refused|connection reset|connection timed out|TLS handshake timeout|i\/o timeout|network is unreachable|context deadline exceeded/i.test(
+      errorText,
+    )
+  ) {
     return new WorkspaceGitHubError(
       "GitHub could not be reached. Try Sync again.",
       "network",
       null,
-      {
-        status,
-      },
+      { status },
     );
-  if (status === 401 || /gh auth login|authentication|bad[ _]credentials/i.test(text))
+  }
+
+  if (
+    status === 401 ||
+    /gh auth login|bad[ _]credentials|requires authentication|not logged into/i.test(errorText)
+  ) {
     return new WorkspaceGitHubError(
       "Sign in with gh auth login, then try Sync again.",
       "auth",
       null,
-      {
-        status,
-      },
+      { status },
     );
+  }
+
+  const permError = graphqlErrors.find(
+    (err) => err?.type === "FORBIDDEN" || err?.type === "NOT_FOUND",
+  );
   if (
+    permError ||
     status === 403 ||
     status === 404 ||
-    /not accessible|could not resolve to a repository|FORBIDDEN/i.test(text)
-  )
+    /not accessible|could not resolve to a repository|could not resolve to a project/i.test(
+      errorText,
+    )
+  ) {
     return new WorkspaceGitHubError(
       "Your GitHub CLI account cannot read this repository or project.",
       "permission",
       null,
-      { status },
+      { status, code: permError?.type },
     );
+  }
+
   return new WorkspaceGitHubError(
     "GitHub CLI could not complete the read. Try Sync again.",
     "unavailable",
@@ -137,11 +248,14 @@ export function classifyGitHubFailure(text: string, now = Date.now()): Workspace
 }
 
 function parseHttpBody(raw: string): unknown {
-  const split =
-    raw.indexOf("\r\n\r\n") >= 0 ? raw.indexOf("\r\n\r\n") + 4 : raw.indexOf("\n\n") + 2;
-  const body = split > 1 && raw.startsWith("HTTP/") ? raw.slice(split) : raw;
-  return JSON.parse(body);
+  return JSON.parse(splitHttpResponse(raw).body);
 }
+
+type ExecResult = {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+};
 
 export class GhCliTransport implements GitHubTransport {
   private active = false;
@@ -163,13 +277,13 @@ export class GhCliTransport implements GitHubTransport {
     this.beforeRead = beforeRead;
   }
 
-  private enqueue(
+  private enqueueRaw(
     args: readonly string[],
     signal: AbortSignal,
     priority: number,
     stdin?: string,
     skipBeforeRead = false,
-  ): Promise<string> {
+  ): Promise<ExecResult> {
     if (signal.aborted)
       return Promise.reject(new WorkspaceGitHubError("GitHub refresh was cancelled.", "cancelled"));
     return new Promise((resolve, reject) => {
@@ -202,6 +316,18 @@ export class GhCliTransport implements GitHubTransport {
     });
   }
 
+  private async enqueue(
+    args: readonly string[],
+    signal: AbortSignal,
+    priority: number,
+    stdin?: string,
+    skipBeforeRead = false,
+  ): Promise<string> {
+    const res = await this.enqueueRaw(args, signal, priority, stdin, skipBeforeRead);
+    if (res.code !== 0) throw classifyGitHubFailure(res.stdout, Date.now(), res.stderr);
+    return res.stdout;
+  }
+
   private advance() {
     this.active = false;
     this.pending.sort((a, b) => b.priority - a.priority);
@@ -212,7 +338,11 @@ export class GhCliTransport implements GitHubTransport {
     }
   }
 
-  private execute(args: readonly string[], signal: AbortSignal, stdin?: string): Promise<string> {
+  private execute(
+    args: readonly string[],
+    signal: AbortSignal,
+    stdin?: string,
+  ): Promise<ExecResult> {
     if (signal.aborted)
       throw new WorkspaceGitHubError("GitHub refresh was cancelled.", "cancelled");
     return new Promise((resolve, reject) => {
@@ -233,13 +363,13 @@ export class GhCliTransport implements GitHubTransport {
       let stderr = "";
       let settled = false;
       let stopped: Error | undefined;
-      const finish = (error?: Error, output?: string) => {
+      const finish = (error?: Error, result?: ExecResult) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         signal.removeEventListener("abort", abort);
         if (error) reject(error);
-        else resolve(output ?? "");
+        else resolve(result ?? { code: 0, stdout: "", stderr: "" });
       };
       const stop = (error: Error) => {
         stopped ??= error;
@@ -293,8 +423,7 @@ export class GhCliTransport implements GitHubTransport {
       child.on("close", (code) => {
         if (stopped) return finish(stopped);
         const stdout = Buffer.concat(chunks).toString("utf8");
-        if (code === 0) finish(undefined, stdout);
-        else finish(classifyGitHubFailure(`${stdout}\n${stderr}`));
+        finish(undefined, { code, stdout, stderr });
       });
     });
   }
@@ -304,31 +433,46 @@ export class GhCliTransport implements GitHubTransport {
     variables: Record<string, unknown>,
     signal: AbortSignal,
     priority = 0,
+    options?: GitHubGraphqlOptions,
   ): Promise<{ data: T; observation: GitHubRateObservation }> {
-    const raw = await this.enqueue(
+    const res = await this.enqueueRaw(
       ["api", "graphql", "--include", "--hostname", "github.com", "--input", "-"],
       signal,
       priority,
       JSON.stringify({ query, variables }),
     );
-    const parsed = parseHttpBody(raw) as {
+    const { body } = splitHttpResponse(res.stdout);
+    const parsed = tryParseJson(body) as {
       data?: Record<string, unknown>;
-      errors?: { type?: string; message?: string }[];
-    };
+      errors?: GraphqlErrorEntry[];
+    } | null;
     const data = parsed?.data;
     const rate = data?.rateLimit as
       | { cost: number; limit: number; remaining: number; resetAt: string }
       | undefined;
     const viewer = data?.viewer as { login: string } | undefined;
-    if (rate && viewer?.login) {
-      const observation: GitHubRateObservation = { account: viewer.login, ...rate };
-      this.observe?.(observation);
-      if (parsed.errors?.length) {
-        throw classifyGitHubFailure(JSON.stringify(parsed.errors));
+    const observation: GitHubRateObservation | null =
+      rate && viewer?.login ? { account: viewer.login, ...rate } : null;
+    if (observation) this.observe?.(observation);
+
+    const errors = Array.isArray(parsed?.errors) ? parsed.errors : [];
+    if (data && observation) {
+      if (errors.length === 0 && res.code === 0) {
+        return { data: data as T, observation };
       }
-      return { data: data as T, observation };
+      // Allow partial GraphQL results when callers explicitly tolerate NOT_FOUND tombstones
+      // (gh exits non-zero whenever errors is non-empty, even with usable partial data).
+      if (
+        options?.allowNotFound &&
+        errors.length > 0 &&
+        errors.every((err) => err?.type === "NOT_FOUND")
+      ) {
+        return { data: data as T, observation };
+      }
     }
-    if (parsed.errors?.length) throw classifyGitHubFailure(JSON.stringify(parsed.errors));
+    if (res.code !== 0 || errors.length > 0) {
+      throw classifyGitHubFailure(res.stdout, Date.now(), res.stderr);
+    }
     throw new WorkspaceGitHubError("GitHub returned an unreadable GraphQL response.");
   }
 
@@ -338,7 +482,11 @@ export class GhCliTransport implements GitHubTransport {
       signal,
       priority,
     );
-    return parseHttpBody(raw) as T;
+    try {
+      return parseHttpBody(raw) as T;
+    } catch {
+      throw new WorkspaceGitHubError("GitHub returned an unreadable REST response.");
+    }
   }
 
   prDiff(
@@ -363,7 +511,12 @@ export class GhCliTransport implements GitHubTransport {
       undefined,
       true,
     );
-    const user = parseHttpBody(raw) as { login?: string };
+    let user: { login?: string } | null = null;
+    try {
+      user = parseHttpBody(raw) as { login?: string };
+    } catch {
+      throw new WorkspaceGitHubError("Sign in with gh auth login.", "auth");
+    }
     if (!user?.login) throw new WorkspaceGitHubError("Sign in with gh auth login.", "auth");
     return user.login;
   }

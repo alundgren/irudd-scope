@@ -337,7 +337,7 @@
           <div id="content">Loading issue detail &amp; timeline…</div>
           <script>
             window.scope.workspace.issueDetail(${JSON.stringify(issue.nodeId)}).then((d) => {
-              const tl = d.timeline.map((e) => "<li><b>" + e.at.slice(0,16) + "</b> " + (e.actor || "") + " — " + e.summary.replaceAll("<","&lt;") + "</li>").join("");
+              const tl = d.timeline.map((e) => "<li><b>" + e.at.slice(0,16) + "</b> " + (e.actor || "").replaceAll("&","&amp;").replaceAll("<","&lt;") + " — " + e.summary.replaceAll("&","&amp;").replaceAll("<","&lt;") + "</li>").join("");
               document.getElementById("content").innerHTML =
                 "<h4>Description</h4><pre>" + (d.body || "(empty)").replaceAll("<","&lt;") + "</pre>" +
                 "<h4>State &amp; Relation Timeline (" + d.timeline.length + ")</h4><ul>" + (tl || "<li>No timeline events</li>") + "</ul>";

@@ -12,10 +12,16 @@ import {
 } from "@irudd-scope/protocol/workspace";
 
 const RETENTION_MS = WORKSPACE_CLOSED_RETENTION_DAYS * 86_400_000;
+const MAX_SHORT_TEXT = 512;
+
+function trimShort(value: string | null): string | null {
+  if (value === null) return null;
+  return value.length <= MAX_SHORT_TEXT ? value : `${value.slice(0, MAX_SHORT_TEXT - 1)}…`;
+}
 
 function fieldDisplay(value: WorkspaceBoardFieldValue | undefined): string | null {
   if (!value) return null;
-  if (value.text !== null) return value.text;
+  if (value.text !== null) return trimShort(value.text);
   if (value.number !== null) return String(value.number);
   return null;
 }
@@ -30,7 +36,17 @@ function transition(
   to: string | null,
   summary: string,
 ): WorkspaceTransition {
-  return { id: randomUUID(), at, entityType, nodeId, kind, field, from, to, summary };
+  return {
+    id: randomUUID(),
+    at,
+    entityType,
+    nodeId,
+    kind,
+    field: trimShort(field),
+    from: trimShort(from),
+    to: trimShort(to),
+    summary: trimShort(summary) ?? "",
+  };
 }
 
 function sameIds(a: readonly string[], b: readonly string[]): boolean {
@@ -49,18 +65,20 @@ function diffIssues(
   for (const issue of next) {
     const prev = previous.get(issue.nodeId);
     if (!prev) {
-      out.push(
-        transition(
-          at,
-          "issue",
-          issue.nodeId,
-          "issue.opened",
-          "state",
-          null,
-          issue.state,
-          `Issue #${issue.number} "${issue.title}" observed (${issue.state})`,
-        ),
-      );
+      if (issue.state === "open") {
+        out.push(
+          transition(
+            at,
+            "issue",
+            issue.nodeId,
+            "issue.opened",
+            "state",
+            null,
+            issue.state,
+            `Issue #${issue.number} "${issue.title}" observed (open)`,
+          ),
+        );
+      }
       continue;
     }
     if (prev.state !== issue.state) {

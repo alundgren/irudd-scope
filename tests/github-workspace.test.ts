@@ -20,10 +20,12 @@ test(
       JSON.stringify({
         boardUpdatedAt: "2026-11-25T07:00:00Z",
         statusName: "Todo",
+        noteField: "Short note",
         blockedByCount: 0,
         blockedByIds: [] as string[],
         prState: "OPEN",
         missingScope: false,
+        includeMissingNode: true,
       }),
     );
 
@@ -36,8 +38,25 @@ const state = JSON.parse(readFileSync(${JSON.stringify(stateFile)}, "utf8"));
 const stdin = args.includes("--input") ? readFileSync(0, "utf8") : "";
 const parsed = stdin ? JSON.parse(stdin) : null;
 const query = parsed?.query ?? "";
+const vars = parsed?.variables ?? {};
 const queryName = /query\\s+(\\w+)/.exec(query)?.[1] ?? args.join(" ");
 appendFileSync(${JSON.stringify(callsFile)}, JSON.stringify(queryName) + "\\n");
+
+// Emit realistic gh --include HTTP headers (including X-OAuth-Scopes with read:project)
+// and exit 1 whenever GraphQL errors are present, matching real gh api graphql behavior.
+const includeHeaders = args.includes("--include");
+function respond(payload, exitCode = 0, statusLine = "HTTP/2.0 200 OK") {
+  if (includeHeaders) {
+    process.stdout.write(
+      statusLine +
+        "\\r\\nContent-Type: application/json; charset=utf-8" +
+        "\\r\\nX-OAuth-Scopes: gist, read:org, read:project, repo, workflow" +
+        "\\r\\nX-RateLimit-Remaining: 4990\\r\\n\\r\\n",
+    );
+  }
+  process.stdout.write(JSON.stringify(payload) + "\\n");
+  process.exit(exitCode);
+}
 
 const common = {
   viewer: { login: "viewer" },
@@ -65,7 +84,7 @@ const prNode = {
   author: { login: "alice" },
   milestone: { id: "M_1" },
   labels: { nodes: [{ name: "priority:high" }] },
-  reviewRequests: { nodes: [{ requestedReviewer: { login: "viewer" } }] },
+  reviewRequests: { nodes: [{ requestedReviewer: { login: "viewer" } }, { requestedReviewer: {} }] },
   reviewDecision: "APPROVED",
   latestOpinionatedReviews: { nodes: [{ state: "APPROVED" }] },
   reviewThreads: { nodes: [{ isResolved: true }] },
@@ -111,33 +130,53 @@ const subSlim = {
 };
 
 if (query.includes("WorkspaceOpenPRs")) {
-  console.log(JSON.stringify({
+  const isOrgRepo = vars.owner === "acme-org";
+  respond({
     data: {
       ...common,
       repository: {
-        id: "R_1",
-        owner: { login: "synthetic" },
-        name: "project",
-        nameWithOwner: "synthetic/project",
-        pullRequests: { pageInfo, nodes: state.prState === "OPEN" ? [prNode] : [] },
+        id: isOrgRepo ? "R_ORG" : "R_1",
+        owner: { login: vars.owner },
+        name: vars.name,
+        nameWithOwner: vars.owner + "/" + vars.name,
+        pullRequests: {
+          pageInfo,
+          nodes: !isOrgRepo && state.prState === "OPEN" ? [prNode] : [],
+        },
       },
     },
-  }));
+  });
 } else if (query.includes("WorkspacePRsByIds")) {
-  console.log(JSON.stringify({ data: { ...common, nodes: [prNode] } }));
+  respond({ data: { ...common, nodes: [prNode] } });
 } else if (query.includes("WorkspaceRepoDelta")) {
-  if (state.missingScope && parsed?.variables?.includeBoard) {
-    console.log(JSON.stringify({ errors: [{ type: "INSUFFICIENT_SCOPES", message: "The 'projectV2' field requires ['read:project']" }] }));
-    process.exit(0);
+  // Real GitHub rejects user(login: "<org>") with NOT_FOUND and gh exits 1.
+  if (vars.boardUser && vars.boardOwner === "acme-org") {
+    respond(
+      {
+        data: { ...common, repository: null, userBoard: null },
+        errors: [{ type: "NOT_FOUND", message: "Could not resolve to a User with the login of 'acme-org'." }],
+      },
+      1,
+    );
   }
-  console.log(JSON.stringify({
+  if (state.missingScope && (vars.boardOrg || vars.boardUser)) {
+    respond(
+      {
+        data: { ...common, repository: null, userBoard: null },
+        errors: [{ type: "INSUFFICIENT_SCOPES", message: "The 'projectV2' field requires ['read:project']" }],
+      },
+      1,
+    );
+  }
+  const boardId = vars.boardNumber === 4 ? "PVT_4" : "PVT_1";
+  respond({
     data: {
       ...common,
       repository: {
-        id: "R_1",
-        owner: { login: "synthetic" },
-        name: "project",
-        nameWithOwner: "synthetic/project",
+        id: vars.owner === "acme-org" ? "R_ORG" : "R_1",
+        owner: { login: vars.owner },
+        name: vars.name,
+        nameWithOwner: vars.owner + "/" + vars.name,
         milestones: {
           nodes: [{
             id: "M_1", number: 1, title: "1st prio - Production", description: "", state: "OPEN",
@@ -145,15 +184,15 @@ if (query.includes("WorkspaceOpenPRs")) {
             open: { totalCount: 1 }, closed: { totalCount: 1 },
           }],
         },
-        issues: { pageInfo, nodes: [parentSlim, subSlim] },
+        issues: { pageInfo, nodes: vars.owner === "acme-org" ? [] : [parentSlim, subSlim] },
       },
-      userBoard: { projectV2: { id: "PVT_1", updatedAt: state.boardUpdatedAt } },
+      ...(vars.boardUser ? { userBoard: { projectV2: { id: boardId, updatedAt: state.boardUpdatedAt } } } : {}),
     },
-  }));
+  });
 } else if (query.includes("WorkspaceOpenIssuesSweep")) {
-  console.log(JSON.stringify({
-    data: { ...common, repository: { issues: { pageInfo, nodes: [parentSlim] } } },
-  }));
+  respond({
+    data: { ...common, repository: { issues: { pageInfo, nodes: vars.owner === "acme-org" ? [] : [parentSlim] } } },
+  });
 } else if (query.includes("WorkspaceHydrateIssues")) {
   const map = {
     I_PARENT: {
@@ -173,62 +212,96 @@ if (query.includes("WorkspaceOpenPRs")) {
       closedByPullRequestsReferences: { nodes: [prNode] },
     },
   };
-  const nodes = (parsed?.variables?.ids ?? []).map((id) => map[id]).filter(Boolean);
-  console.log(JSON.stringify({ data: { ...common, nodes } }));
+  const requested = vars.ids ?? [];
+  const errors = [];
+  const nodes = requested.map((id) => {
+    if (map[id]) return map[id];
+    errors.push({ type: "NOT_FOUND", message: "Could not resolve to a node with the global id of '" + id + "'." });
+    return null;
+  });
+  if (errors.length) {
+    respond({ data: { ...common, nodes }, errors }, 1);
+  }
+  respond({ data: { ...common, nodes } });
 } else if (query.includes("WorkspaceBoardSchema")) {
-  console.log(JSON.stringify({
+  const isBoard4 = vars.boardNumber === 4;
+  respond({
     data: {
       ...common,
       userBoard: {
         projectV2: {
-          id: "PVT_1", number: 3, title: "Synthetic Board",
-          url: "https://github.com/users/synthetic/projects/3",
+          id: isBoard4 ? "PVT_4" : "PVT_1",
+          number: isBoard4 ? 4 : 3,
+          title: isBoard4 ? "Second Board" : "Synthetic Board",
+          url: "https://github.com/users/synthetic/projects/" + (isBoard4 ? 4 : 3),
           updatedAt: state.boardUpdatedAt,
           fields: {
-            nodes: [{
-              id: "PVTF_STATUS", name: "Status", dataType: "SINGLE_SELECT",
-              options: [
-                { id: "OPT_TODO", name: "Todo", color: "GREEN", description: "" },
-                { id: "OPT_DONE", name: "Done", color: "BLUE", description: "" },
-              ],
-            }],
+            nodes: [
+              {
+                id: "PVTF_STATUS", name: "Status", dataType: "SINGLE_SELECT",
+                options: [
+                  { id: "OPT_TODO", name: "Todo", color: "GREEN", description: "" },
+                  { id: "OPT_DONE", name: "Done", color: "BLUE", description: "" },
+                ],
+              },
+              { id: "PVTF_NOTES", name: "Notes", dataType: "TEXT" },
+            ],
           },
           views: { nodes: [{ id: "PVTV_1", number: 1, name: "Board", layout: "BOARD_LAYOUT", filter: "-status:Done" }] },
         },
       },
     },
-  }));
+  });
 } else if (query.includes("WorkspaceBoardItems")) {
-  console.log(JSON.stringify({
+  const isBoard4 = vars.boardNumber === 4;
+  const items = isBoard4
+    ? []
+    : [
+        {
+          id: "PVTI_1", type: "ISSUE", isArchived: false,
+          createdAt: "2026-11-01T10:00:00Z", updatedAt: state.boardUpdatedAt,
+          content: { __typename: "Issue", id: "I_PARENT" },
+          fieldValues: {
+            nodes: [
+              {
+                __typename: "ProjectV2ItemFieldSingleSelectValue",
+                name: state.statusName,
+                optionId: state.statusName === "Done" ? "OPT_DONE" : "OPT_TODO",
+                updatedAt: state.boardUpdatedAt,
+                field: { id: "PVTF_STATUS", name: "Status" },
+              },
+              {
+                __typename: "ProjectV2ItemFieldTextValue",
+                text: state.noteField,
+                updatedAt: state.boardUpdatedAt,
+                field: { id: "PVTF_NOTES", name: "Notes" },
+              },
+            ],
+          },
+        },
+        ...(state.includeMissingNode
+          ? [{
+              id: "PVTI_MISSING", type: "ISSUE", isArchived: false,
+              createdAt: "2026-11-01T10:00:00Z", updatedAt: state.boardUpdatedAt,
+              content: { __typename: "Issue", id: "I_DELETED_NODE" },
+              fieldValues: { nodes: [] },
+            }]
+          : []),
+      ];
+  respond({
     data: {
       ...common,
       userBoard: {
         projectV2: {
-          id: "PVT_1",
+          id: isBoard4 ? "PVT_4" : "PVT_1",
           updatedAt: state.boardUpdatedAt,
-          items: {
-            pageInfo,
-            nodes: [{
-              id: "PVTI_1", type: "ISSUE", isArchived: false,
-              createdAt: "2026-11-01T10:00:00Z", updatedAt: state.boardUpdatedAt,
-              content: { __typename: "Issue", id: "I_PARENT" },
-              fieldValues: {
-                nodes: [{
-                  __typename: "ProjectV2ItemFieldSingleSelectValue",
-                  name: state.statusName,
-                  optionId: state.statusName === "Done" ? "OPT_DONE" : "OPT_TODO",
-                  updatedAt: state.boardUpdatedAt,
-                  field: { id: "PVTF_STATUS", name: "Status" },
-                }],
-              },
-            }],
-          },
+          items: { pageInfo, nodes: items },
         },
       },
     },
-  }));
+  });
 } else if (query.includes("WorkspaceIssueDetail")) {
-  console.log(JSON.stringify({
+  respond({
     data: {
       ...common,
       node: {
@@ -238,19 +311,19 @@ if (query.includes("WorkspaceOpenPRs")) {
         timelineItems: { nodes: [{ __typename: "MilestonedEvent", createdAt: "2026-11-20T00:00:00Z", actor: { login: "alice" }, milestoneTitle: "1st prio - Production" }] },
       },
     },
-  }));
+  });
 } else if (query.includes("WorkspacePRView")) {
-  console.log(JSON.stringify({
+  respond({
     data: { ...common, repository: { pullRequest: { id: "PR_1", state: "OPEN", headRefOid: "${head}", baseRefOid: "${base}", body: "PR body" } } },
-  }));
+  });
 } else if (args[0] === "pr" && args[1] === "diff") {
   console.log("diff --git a/a.ts b/a.ts\\n+hello\\n");
 } else if (args.some((a) => a.includes("/files?"))) {
-  console.log(JSON.stringify([{ filename: "a.ts", sha: "${head}", additions: 1, deletions: 0, status: "modified" }]));
+  respond([{ filename: "a.ts", sha: "${head}", additions: 1, deletions: 0, status: "modified" }]);
 } else if (args.some((a) => a.includes("/reviews?"))) {
-  console.log(JSON.stringify([]));
+  respond([]);
 } else if (args.includes("user")) {
-  console.log(JSON.stringify({ login: "viewer" }));
+  respond({ login: "viewer" });
 } else {
   console.error("Unexpected fake gh call:", args.join(" "));
   process.exit(1);
@@ -320,7 +393,8 @@ if (query.includes("WorkspaceOpenPRs")) {
       expect(snap1.milestones).toHaveLength(1);
       expect(snap1.issues).toHaveLength(2);
       expect(snap1.prs).toHaveLength(1);
-      expect(snap1.board?.items).toHaveLength(1);
+      expect(snap1.prs[0]?.requestedReviewers).toEqual(["viewer"]);
+      expect(snap1.board?.items).toHaveLength(2);
       expect(
         snap1.issues.find((i) => i.nodeId === "I_PARENT")?.subIssuesSummary.percentCompleted,
       ).toBe(100);
@@ -328,7 +402,7 @@ if (query.includes("WorkspaceOpenPRs")) {
       const frame = page.frameLocator('iframe[title="Synthetic Board"]');
       await expect
         .poll(() => frame.locator("#status").textContent())
-        .toBe("issues=2,prs=1,board=1");
+        .toBe("issues=2,prs=1,board=2");
 
       // 3. Save local note + appState + verify stale version conflict fails cleanly
       await page.evaluate(async (tabId) => {
@@ -369,16 +443,19 @@ if (query.includes("WorkspaceOpenPRs")) {
       }, snap1.tabId);
       expect(conflictError).toMatch(/Note changed/i);
 
-      // 4. Mutate upstream: silent blockedBy (Issue.updatedAt UNCHANGED!), board Status Todo -> Done, PR #34 MERGED
+      // 4. Mutate upstream: silent blockedBy (Issue.updatedAt UNCHANGED!), board Status Todo -> Done,
+      // long text field (>512 chars), and PR #34 MERGED
       await writeFile(
         stateFile,
         JSON.stringify({
           boardUpdatedAt: "2026-11-25T07:45:00Z",
           statusName: "Done",
+          noteField: "Long board note ".repeat(45),
           blockedByCount: 1,
           blockedByIds: ["I_SUB"],
           prState: "MERGED",
           missingScope: false,
+          includeMissingNode: true,
         }),
       );
 
@@ -403,7 +480,36 @@ if (query.includes("WorkspaceOpenPRs")) {
       expect(kinds).toContain("pr.merged");
       expect(kinds).toContain("board.field-changed");
 
-      // 5. Verify on-demand issueDetail + restart persistence
+      // 5. Missing read:project scope degrades only the board while preserving repo milestones & issues
+      await writeFile(
+        stateFile,
+        JSON.stringify({
+          boardUpdatedAt: "2026-11-25T07:50:00Z",
+          statusName: "Done",
+          noteField: "Long board note ".repeat(45),
+          blockedByCount: 1,
+          blockedByIds: ["I_SUB"],
+          prState: "MERGED",
+          missingScope: true,
+          includeMissingNode: false,
+        }),
+      );
+      const snapNoScope: WorkspaceSnapshot = await page.evaluate(async (tabId) => {
+        const res = await window.scope.workspaceCommand({
+          action: "sync",
+          name: "synthetic-board",
+          tabId,
+          requestId: crypto.randomUUID(),
+        });
+        if (res.type !== "snapshot") throw new Error("expected snapshot");
+        return res.snapshot;
+      }, snap1.tabId);
+      expect(snapNoScope.sync).toMatchObject({ state: "idle", error: null });
+      expect(snapNoScope.sync.boardError).toMatch(/read:project/i);
+      expect(snapNoScope.milestones).toHaveLength(1);
+      expect(snapNoScope.issues).toHaveLength(2);
+
+      // 6. Verify on-demand issueDetail + restart persistence
       const issueDet = await page.evaluate(async (tabId) => {
         const res = await window.scope.workspaceCommand({
           action: "issue-detail",
@@ -435,6 +541,67 @@ if (query.includes("WorkspaceOpenPRs")) {
       );
       expect(afterRestart.appState?.value).toEqual({ groupBy: "milestone" });
       expect(afterRestart.board?.items[0]?.fieldValues[0]?.text).toBe("Done");
+
+      // 7. Reconfigure board #3 -> #4 clears old board and syncs new board schema/items,
+      // and an org-owned repository with no board syncs without querying user(login: org)
+      await writeFile(
+        stateFile,
+        JSON.stringify({
+          boardUpdatedAt: "2026-11-25T08:00:00Z",
+          statusName: "Done",
+          noteField: "Short note",
+          blockedByCount: 1,
+          blockedByIds: ["I_SUB"],
+          prState: "MERGED",
+          missingScope: false,
+          includeMissingNode: false,
+        }),
+      );
+      const switchedBoard = await page2.evaluate(async (tabId) => {
+        const configured = await window.scope.workspaceCommand({
+          action: "configure",
+          name: "synthetic-board",
+          tabId,
+          requestId: crypto.randomUUID(),
+          repository: { owner: "synthetic", name: "project" },
+          board: { owner: "synthetic", ownerType: "user", number: 4 },
+        });
+        if (configured.type !== "snapshot") throw new Error("expected snapshot");
+        if (configured.snapshot.board !== null) throw new Error("expected old board cleared");
+        const synced = await window.scope.workspaceCommand({
+          action: "sync",
+          name: "synthetic-board",
+          tabId,
+          requestId: crypto.randomUUID(),
+        });
+        if (synced.type !== "snapshot") throw new Error("expected snapshot");
+        return synced.snapshot;
+      }, afterRestart.tabId);
+      expect(switchedBoard.board?.number).toBe(4);
+      expect(switchedBoard.board?.title).toBe("Second Board");
+
+      const orgNoBoard = await page2.evaluate(async (tabId) => {
+        await window.scope.workspaceCommand({
+          action: "configure",
+          name: "synthetic-board",
+          tabId,
+          requestId: crypto.randomUUID(),
+          repository: { owner: "acme-org", name: "service" },
+          board: null,
+        });
+        const synced = await window.scope.workspaceCommand({
+          action: "sync",
+          name: "synthetic-board",
+          tabId,
+          requestId: crypto.randomUUID(),
+        });
+        if (synced.type !== "snapshot") throw new Error("expected snapshot");
+        return synced.snapshot;
+      }, afterRestart.tabId);
+      expect(orgNoBoard.sync.state).toBe("idle");
+      expect(orgNoBoard.sync.error).toBeNull();
+      expect(orgNoBoard.board).toBeNull();
+      expect(orgNoBoard.milestones).toHaveLength(1);
 
       const calls = (await readFile(callsFile, "utf8")).trim().split("\n");
       expect(calls.length).toBeGreaterThan(0);

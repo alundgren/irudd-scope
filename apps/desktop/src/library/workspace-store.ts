@@ -88,6 +88,8 @@ export type WorkspaceHandlers = {
 };
 
 export type WorkspaceSyncCommit = {
+  expectedRepository?: WorkspaceRepository;
+  expectedBoardRef?: WorkspaceBoardRef | null;
   repository: WorkspaceRepository;
   boardRef: WorkspaceBoardRef | null;
   viewer: string | null;
@@ -100,6 +102,30 @@ export type WorkspaceSyncCommit = {
   boardError?: string | null;
   syncOverride?: WorkspaceSyncStatus;
 };
+
+function sameRepo(a: WorkspaceRepository | null, b: WorkspaceRepository | null): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.owner.toLowerCase() === b.owner.toLowerCase() && a.name.toLowerCase() === b.name.toLowerCase()
+  );
+}
+
+function sameBoardRef(a: WorkspaceBoardRef | null, b: WorkspaceBoardRef | null): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.ownerType === b.ownerType &&
+    a.owner.toLowerCase() === b.owner.toLowerCase() &&
+    a.number === b.number
+  );
+}
+
+function pruneReceipts(sql: SqliteClient.SqliteClient, tabId: string) {
+  return sql`DELETE FROM workspace_receipts
+    WHERE tab_id = ${tabId}
+      AND rowid NOT IN (
+        SELECT rowid FROM workspace_receipts WHERE tab_id = ${tabId} ORDER BY rowid DESC LIMIT 200
+      )`;
+}
 
 export function initializeWorkspaceTab(
   sql: SqliteClient.SqliteClient,
@@ -147,7 +173,12 @@ export class WorkspaceStore {
   async initialize(): Promise<void> {
     const { sql, run } = this.database;
     const [{ user_version }] = await run(sql<{ user_version: number }>`PRAGMA user_version`);
-    if (user_version >= WORKSPACE_SCHEMA_VERSION) return;
+    const existingTable = await run(
+      sql<{
+        name: string;
+      }>`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workspace_state'`,
+    );
+    if (user_version >= WORKSPACE_SCHEMA_VERSION && existingTable.length > 0) return;
     await run(
       sql.withTransaction(
         Effect.gen(function* () {
@@ -422,6 +453,19 @@ export class WorkspaceStore {
       sql.withTransaction(
         Effect.gen(function* () {
           const current = yield* owner(tabId, true);
+          const storedRepo = current.repository
+            ? decode(WorkspaceRepository, JSON.parse(current.repository))
+            : null;
+          const storedBoardRef = current.board_ref
+            ? decode(WorkspaceBoardRef, JSON.parse(current.board_ref))
+            : null;
+          if (
+            (commit.expectedRepository && !sameRepo(storedRepo, commit.expectedRepository)) ||
+            (commit.expectedBoardRef !== undefined &&
+              !sameBoardRef(storedBoardRef, commit.expectedBoardRef))
+          ) {
+            return { snapshot: yield* read(current), changed: false };
+          }
           const prevIssuesRows = yield* sql<{
             node_id: string;
             facts: string;
@@ -504,9 +548,12 @@ export class WorkspaceStore {
           }
 
           const liveNodeIds = new Set<string>([
+            ...retained.milestones.map((m) => m.nodeId),
             ...retained.issues.map((i) => i.nodeId),
             ...retained.prs.map((p) => p.nodeId),
-            ...(nextBoard?.items.map((item) => item.contentNodeId ?? item.itemId) ?? []),
+            ...(nextBoard?.items.flatMap((item) =>
+              item.contentNodeId ? [item.itemId, item.contentNodeId] : [item.itemId],
+            ) ?? []),
           ]);
           const nodeStateRows = yield* sql<{ node_id: string }>`
             SELECT node_id FROM workspace_node_state WHERE tab_id = ${tabId}`;
@@ -541,11 +588,11 @@ export class WorkspaceStore {
                 last_issue_updated_at = ${commit.lastIssueUpdatedAt}
             WHERE tab_id = ${tabId}`;
 
-          return yield* read(yield* owner(tabId, true));
+          return { snapshot: yield* read(yield* owner(tabId, true)), changed: true };
         }),
       ),
-      (snapshot) => this.event(snapshot),
-    );
+      ({ snapshot, changed }) => (changed ? this.event(snapshot) : []),
+    ).then(({ snapshot }) => snapshot);
   }
 
   async command(input: WorkspaceCommand): Promise<WorkspaceReply> {
@@ -685,12 +732,11 @@ export class WorkspaceStore {
             !prevRepo ||
             prevRepo.owner.toLowerCase() !== command.repository.owner.toLowerCase() ||
             prevRepo.name.toLowerCase() !== command.repository.name.toLowerCase();
-          const nextBoardRef =
-            command.board === undefined
-              ? current.board_ref
-                ? JSON.parse(current.board_ref)
-                : null
-              : command.board;
+          const prevBoardRef = current.board_ref
+            ? decode(WorkspaceBoardRef, JSON.parse(current.board_ref))
+            : null;
+          const nextBoardRef = command.board === undefined ? prevBoardRef : command.board;
+          const boardChanged = !sameBoardRef(prevBoardRef, nextBoardRef);
           if (repoChanged) {
             yield* sql`DELETE FROM workspace_milestones WHERE tab_id = ${current.tab_id}`;
             yield* sql`DELETE FROM workspace_issues WHERE tab_id = ${current.tab_id}`;
@@ -698,7 +744,7 @@ export class WorkspaceStore {
             yield* sql`DELETE FROM workspace_transitions WHERE tab_id = ${current.tab_id}`;
             yield* sql`DELETE FROM workspace_node_state WHERE tab_id = ${current.tab_id}`;
           }
-          const boardCleared = nextBoardRef === null || repoChanged;
+          const boardCleared = nextBoardRef === null || repoChanged || boardChanged;
           yield* sql`UPDATE workspace_state
             SET repository = ${JSON.stringify(command.repository)},
                 board_ref = ${nextBoardRef ? JSON.stringify(nextBoardRef) : null},
@@ -709,6 +755,7 @@ export class WorkspaceStore {
                 generation = generation + 1
             WHERE tab_id = ${current.tab_id}`;
           yield* sql`INSERT INTO workspace_receipts(tab_id, request_id, payload) VALUES (${current.tab_id}, ${command.requestId}, ${hash})`;
+          yield* pruneReceipts(sql, current.tab_id);
           return yield* read(yield* owner(current.tab_id, true));
         }),
       ),
@@ -764,6 +811,7 @@ export class WorkspaceStore {
           });
           yield* sql`UPDATE workspace_state SET app_state = ${JSON.stringify(nextState)}, generation = generation + 1 WHERE tab_id = ${current.tab_id}`;
           yield* sql`INSERT INTO workspace_receipts(tab_id, request_id, payload) VALUES (${current.tab_id}, ${command.requestId}, ${hash})`;
+          yield* pruneReceipts(sql, current.tab_id);
           const snapshot = yield* read(yield* owner(current.tab_id, true));
           return { snapshot, change: { operation: op, ...nextState } as WorkspaceStateChange };
         }),
@@ -847,6 +895,7 @@ export class WorkspaceStore {
             ON CONFLICT(tab_id, node_id) DO UPDATE SET state = excluded.state`;
           yield* sql`UPDATE workspace_state SET generation = generation + 1 WHERE tab_id = ${current.tab_id}`;
           yield* sql`INSERT INTO workspace_receipts(tab_id, request_id, payload) VALUES (${current.tab_id}, ${command.requestId}, ${hash})`;
+          yield* pruneReceipts(sql, current.tab_id);
           const snapshot = yield* read(yield* owner(current.tab_id, true));
           return {
             snapshot,
@@ -943,6 +992,7 @@ export class WorkspaceStore {
           }
           yield* sql`UPDATE workspace_state SET generation = generation + 1 WHERE tab_id = ${current.tab_id}`;
           yield* sql`INSERT INTO workspace_receipts(tab_id, request_id, payload) VALUES (${current.tab_id}, ${command.requestId}, ${hash})`;
+          yield* pruneReceipts(sql, current.tab_id);
           return yield* read(yield* owner(current.tab_id, true));
         }),
       ),

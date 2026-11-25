@@ -241,7 +241,7 @@ export const WorkspaceBoard = Schema.Struct({
   updatedAt: Timestamp,
   fields: Schema.Array(WorkspaceBoardField).check(Schema.isMaxLength(100)),
   views: Schema.Array(WorkspaceBoardView).check(Schema.isMaxLength(50)),
-  items: Schema.Array(WorkspaceBoardItem).check(Schema.isMaxLength(5000)),
+  items: Schema.Array(WorkspaceBoardItem).check(Schema.isMaxLength(50_000)),
 });
 export type WorkspaceBoard = typeof WorkspaceBoard.Type;
 

@@ -224,6 +224,7 @@ export function validateArtifactContent(artifact: Pick<Artifact, "kind" | "media
     plan: ["text/html", "application/json"],
     retro: ["text/html"],
     "pull-requests": ["text/html"],
+    workspace: ["text/html"],
     image: ["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"],
     file: null,
     excalidraw: ["application/vnd.excalidraw+json"],

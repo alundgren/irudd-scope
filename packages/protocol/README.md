@@ -14,18 +14,19 @@ The paired hub forwards live requests and persists opted-in publications before 
 
 The API uses a bearer token on every `/v1` request. It has no browser CORS access. Content responses are downloads; desktop rendering applies its own isolation. HTTP is allowed only on loopback. Remote clients use HTTPS, normally Tailscale Serve.
 
-| Request                                              | Result                                                                        |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `POST /v1/artifacts/:id/tab`, `{ expectedRevision }` | Persisted queued tab receipt `{ tabId }`                                      |
-| `POST /v1/tabs/:tabId/blobs`, raw bytes              | Tab-owned content receipt `{ blob }`                                          |
-| `PUT /v1/artifacts/:id`, `ArtifactWrite` JSON        | Current `Artifact`; requires `tabId`, uploaded `blob`, and `expectedRevision` |
-| `GET /v1/artifacts?after=:id`                        | `{ items, next }`, ID-ordered pages of 100                                    |
-| `GET /v1/artifacts/:id`                              | Current `Artifact`                                                            |
-| `GET /v1/artifacts/:id/content?revision=N`           | Content, or 409 if the revision changed                                       |
-| `DELETE /v1/artifacts/:id`                           | `{ id, deleted }`; already absent returns `deleted: false` with success       |
-| `GET /v1/events`                                     | SSE `ready`, `artifact`, and `deleted` events                                 |
-| `POST /v1/maintenance/shrink`, `{ timeoutMs }`       | `ShrinkReceipt` for both desktop databases                                    |
-| `GET /v1/maintenance/status`                         | Latest available desktop maintenance receipts                                 |
+| Request                                              | Result                                                                                 |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `POST /v1/artifacts/:id/tab`, `{ expectedRevision }` | Persisted queued tab receipt `{ tabId }`                                               |
+| `POST /v1/tabs/:tabId/blobs`, raw bytes              | Tab-owned content receipt `{ blob }`                                                   |
+| `PUT /v1/artifacts/:id`, `ArtifactWrite` JSON        | Current `Artifact`; requires `tabId`, uploaded `blob`, and `expectedRevision`          |
+| `GET /v1/artifacts?after=:id`                        | `{ items, next }`, ID-ordered pages of 100                                             |
+| `GET /v1/artifacts/:id`                              | Current `Artifact`                                                                     |
+| `GET /v1/artifacts/:id/content?revision=N`           | Content, or 409 if the revision changed                                                |
+| `DELETE /v1/artifacts/:id`                           | `{ id, deleted }`; already absent returns `deleted: false` with success                |
+| `GET /v1/events`                                     | SSE `ready`, `artifact`, and `deleted` events                                          |
+| `POST /v1/maintenance/shrink`, `{ timeoutMs }`       | `ShrinkReceipt` for both desktop databases                                             |
+| `GET /v1/maintenance/status`                         | Latest available desktop maintenance receipts                                          |
+| `POST /v1/workspace`, `WorkspaceCommand` JSON        | `WorkspaceReply` (`snapshot`, `pr-detail`, `pr-details`, `issue-detail`, `node-state`) |
 
 Publication commits the tab first, then uploads content, then publishes metadata.
 `expectedRevision: 0` creates an artifact; updates require the revision last read.
