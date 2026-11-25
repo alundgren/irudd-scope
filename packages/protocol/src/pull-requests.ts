@@ -98,6 +98,28 @@ export const PullRequestMergeQueue = Schema.Struct({
   observedAt: Timestamp,
 });
 export type PullRequestMergeQueue = typeof PullRequestMergeQueue.Type;
+export const MAX_PULL_REQUEST_DISCUSSION_ITEMS = 20;
+export const PullRequestDiscussionItem = Schema.Struct({
+  kind: Schema.Literals(["comment", "review"]),
+  id: ShortText,
+  author: Schema.NullOr(ShortText),
+  bot: Schema.Boolean,
+  reviewState: Schema.NullOr(
+    Schema.Literals(["approved", "changes-requested", "commented", "dismissed"]),
+  ),
+  at: Timestamp,
+});
+export type PullRequestDiscussionItem = typeof PullRequestDiscussionItem.Type;
+export const PullRequestDiscussion = Schema.Struct({
+  comments: Count,
+  reviews: Count,
+  recent: Schema.Array(PullRequestDiscussionItem).check(
+    Schema.isMaxLength(MAX_PULL_REQUEST_DISCUSSION_ITEMS),
+  ),
+  listedAfter: Schema.NullOr(Timestamp),
+  observedAt: Timestamp,
+});
+export type PullRequestDiscussion = typeof PullRequestDiscussion.Type;
 export const PullRequestFacts = Schema.Struct({
   nodeId: PullRequestNodeId,
   number: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER })),
@@ -110,6 +132,7 @@ export const PullRequestFacts = Schema.Struct({
   review: Schema.optionalKey(PullRequestReviewStatus),
   stack: Schema.optionalKey(Schema.NullOr(PullRequestStack)),
   queue: Schema.optionalKey(PullRequestMergeQueue),
+  discussion: Schema.optionalKey(PullRequestDiscussion),
   draft: Schema.Boolean,
   additions: Revision,
   deletions: Revision,

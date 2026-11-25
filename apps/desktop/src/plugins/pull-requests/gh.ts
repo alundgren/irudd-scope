@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import {
+  MAX_PULL_REQUEST_DISCUSSION_ITEMS,
   PullRequestFacts,
   PullRequestCommit,
   PullRequestStack,
@@ -73,6 +74,26 @@ const MergeQueueEntry = Schema.NullOr(
     baseCommit: Schema.NullOr(Schema.Struct({ oid: Schema.String })),
   }),
 );
+const DiscussionAuthor = Schema.NullOr(
+  Schema.Struct({ __typename: Schema.String, login: Schema.String }),
+);
+const DiscussionComments = Schema.Struct({
+  totalCount: Schema.Int,
+  nodes: Schema.Array(
+    Schema.Struct({ id: Schema.String, createdAt: Schema.String, author: DiscussionAuthor }),
+  ),
+});
+const DiscussionReviews = Schema.Struct({
+  totalCount: Schema.Int,
+  nodes: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      state: Schema.Literals(["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED"]),
+      submittedAt: Schema.NullOr(Schema.String),
+      author: DiscussionAuthor,
+    }),
+  ),
+});
 const ReviewDecision = Schema.NullOr(
   Schema.Literals(["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"]),
 );
@@ -123,6 +144,8 @@ const GitHubPullRequest = Schema.Struct({
   isMergeQueueEnabled: Schema.optional(Schema.Boolean),
   mergeQueue: Schema.optional(MergeQueue),
   mergeQueueEntry: Schema.optional(MergeQueueEntry),
+  comments: Schema.optional(DiscussionComments),
+  reviews: Schema.optional(DiscussionReviews),
   updatedAt: Schema.String,
   createdAt: Schema.String,
   commits: Schema.optional(
@@ -201,6 +224,9 @@ const MERGE_QUEUE_FIELDS = `isMergeQueueEnabled
         mergeQueue { url nextEntryEstimatedTimeToMerge entries(first: 0) { totalCount }
           configuration { mergeMethod mergingStrategy maximumEntriesToBuild maximumEntriesToMerge minimumEntriesToMerge minimumEntriesToMergeWaitTime checkResponseTimeout } }
         mergeQueueEntry { position state enqueuedAt enqueuer { login } estimatedTimeToMerge jump solo headCommit { oid } baseCommit { oid } }`;
+const DISCUSSION_PAGE = MAX_PULL_REQUEST_DISCUSSION_ITEMS / 2;
+const DISCUSSION_FIELDS = `comments(last: ${DISCUSSION_PAGE}) { totalCount nodes { id createdAt author { __typename login } } }
+        reviews(last: ${DISCUSSION_PAGE}, states: [APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED]) { totalCount nodes { id state submittedAt author { __typename login } } }`;
 const PULL_REQUEST_FIELDS = `${REVIEW_STACK_FIELDS}
  id state repository { id } number title author { login } headRefOid headRefName baseRefOid isDraft
         additions deletions changedFiles url mergeable updatedAt createdAt
@@ -208,7 +234,8 @@ const PULL_REQUEST_FIELDS = `${REVIEW_STACK_FIELDS}
         labels(first: 100) { nodes { name } pageInfo { hasNextPage endCursor } }
         reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } ... on Team { slug organization { login } } } } pageInfo { hasNextPage endCursor } }
         commits(last: 1) { nodes { commit { oid statusCheckRollup { state commit { oid } } } } }
-        ${MERGE_QUEUE_FIELDS}`;
+        ${MERGE_QUEUE_FIELDS}
+        ${DISCUSSION_FIELDS}`;
 const INVENTORY_QUERY = `query ScopeOpenPullRequests($owner: String!, $name: String!, $cursor: String) {
   viewer { login }
   rateLimit { cost limit remaining resetAt }
@@ -227,7 +254,7 @@ const INITIAL_QUERY = `query ScopeInitialOpenPullRequests($owner: String!, $name
   repository(owner: $owner, name: $name) {
     id owner { login } name nameWithOwner
     pullRequests(states: OPEN, first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
-      nodes { ${PULL_REQUEST_FIELDS.replace(REVIEW_STACK_FIELDS, "").replace("reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }", "").replace("labels(first: 100)", "labels(first: 25)").replace("reviewRequests(first: 100)", "reviewRequests(first: 25)").replace("commits(last: 1) { nodes { commit { oid statusCheckRollup { state commit { oid } } } } }", "").replace("url mergeable updatedAt", "url updatedAt").replace(MERGE_QUEUE_FIELDS, "")} }
+      nodes { ${PULL_REQUEST_FIELDS.replace(REVIEW_STACK_FIELDS, "").replace("reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }", "").replace("labels(first: 100)", "labels(first: 25)").replace("reviewRequests(first: 100)", "reviewRequests(first: 25)").replace("commits(last: 1) { nodes { commit { oid statusCheckRollup { state commit { oid } } } } }", "").replace("url mergeable updatedAt", "url updatedAt").replace(MERGE_QUEUE_FIELDS, "").replace(DISCUSSION_FIELDS, "")} }
       pageInfo { hasNextPage endCursor }
     }
   }
@@ -346,6 +373,71 @@ function mergeQueue(node: typeof GitHubPullRequest.Type, observedAt: string) {
     // GitHub returns no configuration to readers without admin access to the repository.
     settings: queue?.configuration ? mergeQueueSettings(queue.configuration) : null,
     entry: entry ? mergeQueueEntry(entry) : null,
+    observedAt,
+  };
+}
+
+const DISCUSSION_REVIEW_STATES = {
+  APPROVED: "approved",
+  CHANGES_REQUESTED: "changes-requested",
+  COMMENTED: "commented",
+  DISMISSED: "dismissed",
+} as const;
+
+function discussionAuthor(author: typeof DiscussionAuthor.Type) {
+  return { author: author?.login ?? null, bot: author?.__typename === "Bot" };
+}
+
+function discussion(
+  comments: typeof DiscussionComments.Type,
+  reviews: typeof DiscussionReviews.Type,
+  observedAt: string,
+) {
+  const submitted = reviews.nodes.flatMap((review) =>
+    review.submittedAt ? [{ ...review, submittedAt: review.submittedAt }] : [],
+  );
+  // Each connection returns only its newest entries, so the merged list is complete back to the
+  // later of the two truncation points. Reviews are ordered by when they were started.
+  const cutoffs = [
+    comments.totalCount > comments.nodes.length
+      ? (comments.nodes[0]?.createdAt ?? observedAt)
+      : null,
+    reviews.totalCount > reviews.nodes.length
+      ? submitted.reduce<string>(
+          (earliest, review) =>
+            Date.parse(review.submittedAt) < Date.parse(earliest) ? review.submittedAt : earliest,
+          observedAt,
+        )
+      : null,
+  ].filter((cutoff) => cutoff !== null);
+  const listedAfter = cutoffs.reduce<string | null>(
+    (latest, cutoff) =>
+      latest === null || Date.parse(cutoff) > Date.parse(latest) ? cutoff : latest,
+    null,
+  );
+  const recent = [
+    ...comments.nodes.map((comment) => ({
+      kind: "comment" as const,
+      id: comment.id,
+      ...discussionAuthor(comment.author),
+      reviewState: null,
+      at: comment.createdAt,
+    })),
+    ...submitted.map((review) => ({
+      kind: "review" as const,
+      id: review.id,
+      ...discussionAuthor(review.author),
+      reviewState: DISCUSSION_REVIEW_STATES[review.state],
+      at: review.submittedAt,
+    })),
+  ]
+    .filter((item) => listedAfter === null || Date.parse(item.at) >= Date.parse(listedAfter))
+    .sort((left, right) => Date.parse(right.at) - Date.parse(left.at));
+  return {
+    comments: comments.totalCount,
+    reviews: reviews.totalCount,
+    recent,
+    listedAfter,
     observedAt,
   };
 }
@@ -742,6 +834,9 @@ export class GitHubPullRequests {
       baseOid: node.baseRefOid,
       ...(review ? { review } : {}),
       ...(node.isMergeQueueEnabled === undefined ? {} : { queue: mergeQueue(node, observedAt) }),
+      ...(node.comments && node.reviews
+        ? { discussion: discussion(node.comments, node.reviews, observedAt) }
+        : {}),
       draft: node.isDraft,
       additions: node.additions,
       deletions: node.deletions,
@@ -1123,6 +1218,8 @@ export class GitHubPullRequests {
                   isMergeQueueEnabled: undefined,
                   mergeQueue: undefined,
                   mergeQueueEntry: undefined,
+                  comments: undefined,
+                  reviews: undefined,
                   stack: undefined,
                   stackEntry: undefined,
                   reviewDecision: undefined,
